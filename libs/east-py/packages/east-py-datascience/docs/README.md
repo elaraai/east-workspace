@@ -132,7 +132,7 @@ packages/east-py-datascience/
     ├── sklearn/                    # One package per library: <lib>/<lib>_impl.py + __init__.py
     ├── xgboost/
     ├── lightgbm/
-    ├── lightning/                  # lightning_impl.py + _models.py (torch classes, imported lazily)
+    ├── nn/                         # neural networks as data: types.py, _plan.py, _torch.py, nn_impl.py
     ├── optimization/               # optimization.py + _optimization_eastc.pyx (Cython, C-level loop)
     └── ...                         # see CLAUDE.md for the full module list
 ```
@@ -140,7 +140,7 @@ packages/east-py-datascience/
 ## Dependencies
 
 The only core runtime dependency is numpy (plus `elaraai-east-py`). Every
-library is an optional extra — `east-py-datascience[xgboost]`, `[lightning]`,
+library is an optional extra — `east-py-datascience[xgboost]`, `[torch]`,
 `[causal]`, ... or `[all]` — declared in `pyproject.toml`; each module guards
 its extra with `extra_guard` and imports the library inside the platform
 function (see `docs/conventions/PYTHON_OPTIONAL_DEPS.md`).

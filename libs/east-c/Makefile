@@ -6,7 +6,7 @@
 include ../../paths.mk
 
 .PHONY: build rebuild clean install-cli \
-        unit test test-east-c test-east-c-std test-east-c-datascience test-all \
+        unit test test-east-c test-east-c-std test-east-c-datascience test-east-c-datascience-profile test-all \
         leak-check leak-check-std leak-check-all bench-cli \
         help lint format ensure-clang-format fetch-ortools fetch-libtorch stage-datascience check-datascience-floor
 
@@ -100,6 +100,19 @@ stage-datascience:
 ## a build on a newer host fails it by the host's own libstdc++ and libgomp.
 check-datascience-floor: stage-datascience
 	@node ../../scripts/check-glibc-floor.mjs build/stage-datascience/lib build/packages/east-c-cli/east-c
+
+## The profiler's bridge line for a data-science call (#1357, R30): the GoogleOr
+## suite under EAST_PROFILE, and `google_or_linear_solve`'s entry must carry
+## the line that says what the call spent outside OR-Tools.
+test-east-c-datascience-profile:
+	@test -x build/packages/east-c-datascience/test_datascience_compliance || { \
+		echo "Error: no east-c-datascience build: run make build EAST_C_DATASCIENCE=ON"; exit 1; }
+	@EAST_PROFILE=1 ./build/packages/east-c-datascience/test_datascience_compliance \
+		"$(EAST_DATASCIENCE_IR_DIR)/GoogleOr_platform_functions.json" > build/profile-googleor.out 2>&1 || { \
+		cat build/profile-googleor.out; exit 1; }
+	@grep -A1 '^  google_or_linear_solve ' build/profile-googleor.out | grep -q 'bridge .* converting arguments .* converting results' || { \
+		echo "Error: no bridge line under google_or_linear_solve in the profile:"; grep -A1 'google_or_linear_solve' build/profile-googleor.out | head; exit 1; }
+	@echo "the profile carries google_or_linear_solve's bridge line:"; grep -A1 '^  google_or_linear_solve ' build/profile-googleor.out | head -2
 
 ## Run the data-science compliance suites (needs a build with EAST_C_DATASCIENCE=ON)
 test-east-c-datascience:

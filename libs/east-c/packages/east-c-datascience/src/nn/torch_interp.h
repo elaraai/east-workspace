@@ -54,11 +54,14 @@ class Interpreter
                const std::set<std::string> &wanted);
     Value call(const Plan &plan, const Node &node, Env &env, const std::string &prefix,
                const std::set<std::string> &wanted);
-    Value loop(const Node &node, Env &env, const std::string &prefix);
+    Value loop(const Plan &plan, const Node &node, Env &env, const std::string &prefix);
     torch::Tensor attention(const Node &node, Env &env);
-    /* A draw shaped `shape` on the device: standard normal or uniform on [0, 1),
-     * from the interpreter's seeded CPU generator. */
-    torch::Tensor random(const std::vector<int64_t> &shape, bool normal);
+    /* The node's draws shaped like `like` (§4, Training and noise): one row per
+     * key (`keys` an integer [rows], or undefined for the row positions),
+     * uniform on [0, 1) or standard normal, computed on the CPU and moved to
+     * `like`'s device as f32. */
+    torch::Tensor draw(const Plan &plan, const Node &node, const torch::Tensor &like,
+                       const torch::Tensor &keys, bool normal);
 
     /* A recomputed call (§5, recompute): the module run again in the backward
      * pass from its inputs and weights, its draws replayed. */
@@ -69,11 +72,21 @@ class Interpreter
     std::string fn_;
     torch::Device device_;
     bool training_;
-    torch::Generator generator_;
+    uint64_t seed_;
+    int64_t step_ = 0;
+    uint64_t path_ = 0; /* the draws' stream at this point of the evaluation (§4) */
     std::set<std::string> recompute_;
     const Tensors *weights_ = nullptr;
     friend struct RecomputeFn;
+
+  public:
+    /* The training step from 1 (0 outside training): what every draw's stream
+     * starts from, with the seed. */
+    void set_step(int64_t step);
 };
+
+/* SplitMix64's finaliser, unsigned 64-bit (§4, Training and noise). */
+uint64_t mix64(uint64_t z);
 
 /* Every weight the plan reaches, moved to `device` as f32 and checked against
  * its parameter's shape (§6); `trainable` makes the trainable ones leaves

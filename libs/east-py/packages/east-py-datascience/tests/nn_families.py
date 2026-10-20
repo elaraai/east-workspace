@@ -465,7 +465,7 @@ def unet_net(c: dict[str, int] = B_CFG) -> dict[str, Any]:
             node("v", op("call", module="unet", prefix="unet", inputs={"x": "x", "t": "t0v", "c": "c"})),
             node("vdt", binary("mul", "v.v", "dt")),
             node("drift", binary("add", "x", "vdt")),
-            node("eps", op("random_normal", like="x")),
+            node("eps", op("random_normal", like="x", keys=none)),
             node("sigma", op("constant", value=variant("float", 0.1 * math.sqrt(1.0 / n_steps)))),
             node("noise", binary("mul", "eps", "sigma")),
             node("xn", binary("add", "drift", "noise")),
@@ -913,6 +913,75 @@ def ref_rotary_conventions(batch: Any, weights: Any, c: dict[str, int] = E_CFG) 
         "halves": ref_rotary(b["x"], b["positions"], c["heads"], 10000.0),
         "inter": ref_rotary_interleaved(b["x"], b["positions"], c["heads"], 10000.0),
     }
+
+
+# ============================================================================
+# Family F: the keyed draws — what the python runner draws, pinned for east-c
+# ============================================================================
+
+F_CFG = {"rows": 6, "width": 4}
+
+
+def draws_net(c: dict[str, int] = F_CFG) -> dict[str, Any]:
+    """Uniform and normal draws over a `like` tensor, keyed and by position; a
+    dropout in training; the same draws inside a called module and a loop."""
+    inner = net(
+        {"z": spec("float", 2), "keys": spec("integer", 1)},
+        {},
+        {},
+        [node("u", op("random_uniform", like="z", keys=some("keys")))],
+        {"u": "u"},
+    )
+    body = net(
+        {"z": spec("float", 2), "step": spec("integer", 0), "acc": spec("float", 2)},
+        {},
+        {},
+        [
+            node("n", op("random_normal", like="z", keys=none)),
+            node("acc2", binary("add", "acc", "n")),
+        ],
+        {"acc": "acc2"},
+    )
+    nodes = [
+        node("u_keyed", op("random_uniform", like="z", keys=some("keys"))),
+        node("u_pos", op("random_uniform", like="z", keys=none)),
+        node("n_keyed", op("random_normal", like="z", keys=some("keys"))),
+        node("dropped", op("dropout", x="z", p=0.5)),
+        node("called", op("call", module="inner", prefix="inner", inputs={"z": "z", "keys": "keys"})),
+        node("looped", op("loop", body=body, carried={"acc": "z"}, inputs={"z": "z"}, step=some("step"), steps=variant("fixed", 3))),
+        node("scalar", op("random_uniform", like="one", keys=none)),
+    ]
+    inputs = {"z": spec("float", 2), "keys": spec("integer", 1), "one": spec("float", 0)}
+    return net(inputs, {}, {"inner": inner}, nodes, {
+        "u_keyed": "u_keyed", "u_pos": "u_pos", "n_keyed": "n_keyed", "dropped": "dropped",
+        "called": "called.u", "looped": "looped.acc", "scalar": "scalar",
+    })
+
+
+def draws_batch(c: dict[str, int] = F_CFG) -> dict[str, Any]:
+    rows, width = c["rows"], c["width"]
+    return {
+        "z": tensor(np.ones((rows, width))),
+        "keys": tensor([10, 3, 10, 7, -2, 1000000007], "integer"),
+        "one": tensor(1.0),
+    }
+
+
+def ref_draws(batch: Any, weights: Any) -> dict[str, Any]:
+    """The python runner's own answer (the draws are specified, not torch's):
+    nn_run in training mode (dropout on) at seed 11."""
+    import torch
+    from east_py_datascience.nn import nn_run
+
+    del weights
+    net_value = east_net(draws_net())
+    names = ["u_keyed", "u_pos", "n_keyed", "dropped", "called", "looped", "scalar"]
+    got = nn_run(net_value, weights_value({}), batch, output_names(names), run_config(training=True, seed=11))
+    out = {}
+    for name in names:
+        v = got[name]
+        out[name] = torch.from_numpy(v.value["data"].to_numpy().copy()).reshape([int(d) for d in v.value["shape"]]).float()
+    return out
 
 
 # ============================================================================

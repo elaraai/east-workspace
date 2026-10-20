@@ -374,5 +374,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "Usage: %s <ir-json-file>\n", argv[0]);
         return 1;
     }
-    return east_run_on_large_stack(run_suite, (void *)argv[1]);
+    /* Under EAST_PROFILE the profiler is armed as a runner arms it, and its
+     * report printed at the end: what a platform function spent outside its
+     * library (east-c-datascience's bridge lines, #1357 R30) is read off it. */
+    east_profile_start(false);
+    int rc = east_run_on_large_stack(run_suite, (void *)argv[1]);
+    east_profile_finish(stderr);
+    return rc;
 }

@@ -1313,6 +1313,9 @@ lightgbm = [
     { name = "cloudpickle" },
     { name = "lightgbm" },
 ]
+lightning = [
+    { name = "torch" },
+]
 mads = [
     { name = "pynomadbbo" },
 ]
@@ -1423,11 +1426,12 @@ requires-dist = [
     { name = "statsmodels", marker = "extra == 'all'", specifier = ">=0.14.0" },
     { name = "statsmodels", marker = "extra == 'causal'", specifier = ">=0.14.0" },
     { name = "torch", marker = "extra == 'all'", specifier = ">=2.4.0" },
+    { name = "torch", marker = "extra == 'lightning'", specifier = ">=2.4.0" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.4.0" },
     { name = "xgboost", marker = "extra == 'all'", specifier = ">=2.1.0" },
     { name = "xgboost", marker = "extra == 'xgboost'", specifier = ">=2.1.0" },
 ]
-provides-extras = ["mads", "optuna", "simanneal", "sklearn", "scipy", "xgboost", "lightgbm", "ngboost", "shap", "torch", "gp", "mapie", "alns", "google-or", "pymc", "causal", "all", "dev"]
+provides-extras = ["mads", "optuna", "simanneal", "sklearn", "scipy", "xgboost", "lightgbm", "ngboost", "shap", "torch", "lightning", "gp", "mapie", "alns", "google-or", "pymc", "causal", "all", "dev"]
 
 [[package]]
 name = "elaraai-east-py-io"

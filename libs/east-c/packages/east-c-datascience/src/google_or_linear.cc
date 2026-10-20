@@ -184,7 +184,9 @@ EvalResult linear_solve(EastValue **args, size_t num_args, EastType *out)
     r.set("assignments", assignments);
     r.set("build_time", east_float(build_time));
     r.set("solve_time", east_float(solve_time));
-    r.set("wall_time", east_float(seconds_since(t0)));
+    double wall_time = seconds_since(t0);
+    r.set("wall_time", east_float(wall_time));
+    note_bridge(FN, build_time, wall_time - build_time - solve_time);
     return eval_ok(r.build());
 }
 
@@ -307,7 +309,9 @@ EvalResult linear_solve_columns(EastValue **args, size_t num_args, EastType *out
     r.set("values", float_vector(values));
     r.set("build_time", east_float(build_time));
     r.set("solve_time", east_float(solve_time));
-    r.set("wall_time", east_float(seconds_since(t0)));
+    double wall_time = seconds_since(t0);
+    r.set("wall_time", east_float(wall_time));
+    note_bridge(FN, build_time, wall_time - build_time - solve_time);
     return eval_ok(r.build());
 }
 

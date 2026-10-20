@@ -46,6 +46,12 @@ shap = [
 torch = [
     "torch>=2.4.0",
 ]
+# The `[lightning]` extra is an alias of `[torch]` for one release: the Torch MLP
+# and Lightning modules it installed are gone (#1357; CHANGELOG.md), and a project
+# that still names the extra keeps installing. Removed in the release after.
+lightning = [
+    "torch>=2.4.0",
+]
 gp = [
     "scikit-learn>=1.4.0,<1.6.0",
     "cloudpickle>=3.0.0",

@@ -211,3 +211,33 @@ def test_progress_writes_a_line_every_n_steps_and_per_epoch(capsys):
     epochs = [line for line in lines if "/2 loss " in line]
     assert [line.split()[4] for line in steps] == ["2/6", "4/6", "6/6"]
     assert len(epochs) == 2 and epochs[0].startswith("nn_train: epoch 1/2 loss ") and " validation " in epochs[0] and epochs[0].endswith(" lr 0.003")
+
+
+def test_the_c_runtime_export_reads_back_as_the_same_weights():
+    """``tests/fixtures/nn_export_east_c.pt`` is ``nn_export_torch`` on east-c of
+    ``nn_init(net, 9)`` for a linear layer (weights w1 [5, 3] xavier-uniform,
+    b1 [5] normal 0.5), under the names 0.weight and 0.bias — written by the
+    program in the family f report of east-workspace#1359 through `east-c run`.
+    Both runners draw nn_init's weights alike, so python's own are the
+    expected tensors, exactly."""
+    from pathlib import Path
+
+    from east.types.types import DictType, StringType
+    from east.types.values import EastBlob
+    from east_py_datascience.nn import nn_import_torch
+
+    blob = EastBlob(Path(__file__).with_name("fixtures").joinpath("nn_export_east_c.pt").read_bytes())
+    net = fam.east_net(fam.net(
+        {"x": fam.spec("float", 2)},
+        {"w1": fam.param([5, 3], "xavier_uniform"), "b1": fam.param([5], "normal", 0.5, decay=0.0)},
+        {},
+        [fam.node("y", fam.op("linear", x="x", weight="w1", bias=some("b1")))],
+        {"y": "y"},
+    ))
+    expected = nn_init(net, 9)
+    names = coerce_to({"w1": "0.weight", "b1": "0.bias"}, DictType(StringType, StringType))
+    got = nn_import_torch(blob, names)
+    assert set(got.keys()) == {"w1", "b1"}
+    for name in ("w1", "b1"):
+        assert [int(d) for d in got[name]["shape"]] == [int(d) for d in expected[name]["shape"]]
+        np.testing.assert_array_equal(got[name]["data"].to_numpy(), expected[name]["data"].to_numpy().astype(np.float32).astype(np.float64))

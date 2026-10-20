@@ -5,7 +5,14 @@
 """Neural networks as East data (#1357): the types, and ``nn_init``,
 ``nn_train``, ``nn_run`` on torch. The specification is ``docs/neural-networks.md``."""
 
-from east_py_datascience.nn.nn_impl import nn_impl, nn_init, nn_run, nn_train
+from east_py_datascience.nn.nn_impl import (
+    nn_export_torch,
+    nn_impl,
+    nn_import_torch,
+    nn_init,
+    nn_run,
+    nn_train,
+)
 from east_py_datascience.nn.types import (
     BooleanTensorType,
     IntegerTensorType,
@@ -46,7 +53,9 @@ __all__ = [
     "NnValueType",
     "NnWeightsType",
     "TensorType",
+    "nn_export_torch",
     "nn_impl",
+    "nn_import_torch",
     "nn_init",
     "nn_run",
     "nn_train",

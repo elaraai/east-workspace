@@ -78,8 +78,8 @@ OPERAND_FIELDS: dict[str, list[str]] = {
     "rotary": ["x", "positions"],
     "dropout": _UNARY,
     "stop_gradient": _UNARY,
-    "random_normal": ["like"],
-    "random_uniform": ["like"],
+    "random_normal": ["like", "?keys"],
+    "random_uniform": ["like", "?keys"],
     "call": ["+inputs"],
     "loop": ["+carried", "+inputs"],
 }
@@ -594,6 +594,8 @@ def _node_dtype(plan: Plan, node: Node, fn: str) -> Any:
         return "float"
     if op in ("random_normal", "random_uniform"):
         d(a["like"])
+        if a["keys"] is not None and d(a["keys"]) != "integer":
+            raise bad("keys must be integer")
         return "float"
     if op in AXIS_OPS:
         dx = d(a["x"])

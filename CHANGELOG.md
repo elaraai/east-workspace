@@ -86,6 +86,30 @@ requests; this file is the record of behaviour. Changes land under
   UBJSON blob on both runners, byte for byte; the XGBoost suite holds both to
   the blob the python runner wrote.
 
+### east-py-datascience (breaking: the Torch MLP and Lightning modules are gone)
+
+- **The `Torch` and `Lightning` namespaces, their platform functions and their
+  `ModelBlobType` cases are removed.** Their fixed architectures are stated as
+  data by `NeuralNet` now (`NetType`, `nn_init`, `nn_train`, `nn_run`), on the
+  python runtime and on east-c alike. Gone: the TypeScript `Torch` and
+  `Lightning` namespaces and types, the python `east_py_datascience.torch`
+  and `east_py_datascience.lightning` modules (`torch_mlp_*`,
+  `lightning_*`), `SHAP`'s kernel explainer over a `torch_mlp` blob, and
+  `ModelBlobType`'s `torch_mlp` and `lightning` cases — so the union's
+  type descriptor hash changes. *Wire:* a blob stored under the earlier
+  union (an e3 dataset holding a `ModelBlobType`) no longer matches the
+  type; the other cases' values are unchanged in bytes but need re-storing
+  under the new type (`docs/conventions/WIRE_MIGRATION.md`: a variant losing
+  cases). *Migration:* state the network as a `NetType` value and train it
+  with `nn_train` (the MLP is a few `linear` and activation nodes; the
+  Lightning autoencoder its encoder and decoder modules), re-train or
+  re-save the models the removed functions produced, and read a `shap`
+  explanation from a predictor on the new model. The pytorch-lightning
+  dependency is gone with its extra: **`[lightning]` stays for one release
+  as an alias of `[torch]`** (it installs torch and nothing else), so a
+  project naming it keeps installing; name `[torch]` before the release
+  after this one removes the alias.
+
 ### east-py-datascience and east-c-datascience (the neural networks: the network operations)
 
 - **Operations to select, expand and grid** (`NetType` nodes, on both
@@ -138,6 +162,44 @@ requests; this file is the record of behaviour. Changes land under
   batches stay on the host and move to the device one at a time; and the C
   runtime now honours `recompute` (a module's call recomputed in the backward
   pass, its draws replayed) as the python runtime does.
+
+### east-py-datascience and east-c-datascience (the neural networks: long-lived models, draws, weights)
+
+- **A model's prepared form follows the weights' identity, not their bytes.**
+  `nn_run` keys its cache by each weight's name, shape and the address and
+  length of its data vector (a Vector is immutable; the cache retains the
+  vectors it keys on), so a program calling it thousands of times with one
+  model pays the preparation once and O(weights) per call after, on both
+  runners — the python runner hashed every byte of the weights on every call.
+  `bench/model.mjs` measures a seven-million-parameter model over 564 calls.
+- **Every random draw is a function of the seed, the node, the row's key and
+  the element** (`random_normal`, `random_uniform` gain `keys: Option<name>`,
+  an integer per row of `like`; `dropout` keys rows by position): SplitMix64
+  over them in 64-bit integer arithmetic, uniforms from the top 53 bits,
+  normals by Box–Muller, stated in `docs/neural-networks.md` §4 — the same on
+  every runner and device, and in a batch of one row or of a thousand. The
+  runners' torch generators no longer draw for a network (`nn_init` keeps
+  torch's, as before), so a seeded network draws other values than it did.
+  *Migration:* a result that depends on the old draws is recomputed; nothing
+  stored by e3 changes.
+- **`nn_import_torch(blob, names)` and `nn_export_torch(weights, names)`**:
+  a torch state dict (`torch.save`'s bytes) as weights under a name map, and
+  back, on both runners — east-c reads python's archives (an `OrderedDict`
+  state dict included) through libtorch, and python's `torch.load` reads
+  east-c's.
+- The CUDA libtorch build (`cu128`) is pinned by SHA-256 beside the CPU one
+  in `scripts/libtorch-pins.json`, so `EAST_LIBTORCH_VARIANT=cu128` fetches it
+  checked; the neural-network suites on a GPU runner in CI wait for one.
+
+### east-c-datascience (the profiler)
+
+- **Every solver and neural-network call reports what it spent outside its
+  library** — the build of the library's structures and the write-back of the
+  result — to east-c's profiler, which prints it as the bridge line under the
+  function's entry (what east-py's bridge prints for its python functions),
+  so what a runner adds around OR-Tools or libtorch is read off a `--profile`
+  run on either runner. The compliance harness arms the profiler under
+  `EAST_PROFILE`.
 
 ### The test harnesses
 

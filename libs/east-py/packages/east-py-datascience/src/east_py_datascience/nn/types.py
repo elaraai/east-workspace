@@ -302,8 +302,8 @@ def nn_op_type(self: Any) -> Any:
             # training and noise
             ("dropout", StructType([("x", _Name), ("p", FloatType)])),
             ("stop_gradient", unary),
-            ("random_normal", StructType([("like", _Name)])),
-            ("random_uniform", StructType([("like", _Name)])),
+            ("random_normal", StructType([("like", _Name), ("keys", OptionType(_Name))])),
+            ("random_uniform", StructType([("like", _Name), ("keys", OptionType(_Name))])),
             # structure
             (
                 "call",

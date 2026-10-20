@@ -292,11 +292,39 @@ index of the maximum. `cummax`/`cummin` are the running maximum/minimum.
 ### Training and noise
 
 - `dropout { x, p }` — in training each element is kept with probability
-  `1 − p` and scaled by `1/(1 − p)`; outside training the identity.
+  `1 − p` (its draw below `≥ p`) and scaled by `1/(1 − p)`; outside training
+  the identity.
 - `stop_gradient { x }` — the identity; no gradient flows through it.
-- `random_normal { like }`, `random_uniform { like }` — a float tensor shaped
-  like `like`, standard normal or uniform on `[0, 1)`, from the runner's
-  generator seeded by the call's `seed` (and the training step).
+- `random_normal { like, keys }`, `random_uniform { like, keys }` — a float
+  tensor shaped like `like`, standard normal or uniform on `[0, 1)`. `keys` is
+  an option of an integer `[N]`, one key per row of `like` along its leading
+  axis (`N = like.shape[0]`; 1 row when `like` has rank 0); `none` keys the
+  rows by position `0 .. N−1`.
+
+  **Every draw is a function of the seed, the node, the row's key and the
+  element's position in its row**, on every runner and device, whatever the
+  batching: a row keyed `k` draws the same values in a batch of one or of a
+  thousand. The draws are computed on the CPU in 64-bit integer arithmetic
+  and moved to the device. With `mix(z)` SplitMix64's finaliser
+  (`z ⊕= z ≫ 30; z ×= 0xBF58476D1CE4E5B9; z ⊕= z ≫ 27; z ×= 0x94D049BB133111EB;
+  z ⊕= z ≫ 31`, unsigned 64-bit, logical shifts) and `γ = 0x9E3779B97F4A7C15`:
+  - the call's stream is `s = mix(mix(seed ⊕ 0x6A09E667F3BCC909) + (step + 1)·γ)`,
+    `step` the training step from 1 (`nn_train`) or 0 (`nn_run`, the
+    validation pass);
+  - each enclosing `call` node of ordinal `c` (its position in its network's
+    `nodes`) refines it, `s ← mix(s + (c + 1)·γ)`, and each enclosing `loop`
+    node of ordinal `l` at iteration `i` (from 0) twice, `s ← mix(mix(s +
+    (l + 1)·γ) + (i + 1)·γ)`; the drawing node of ordinal `n` makes
+    `t = mix(s + (n + 1)·γ)`;
+  - the element at position `p` (from 0, row-major within the row) of the row
+    keyed `k` has `z = mix(t + k·0xBF58476D1CE4E5B9 + (p + 1)·0x94D049BB133111EB)`:
+    its uniform is `(z ≫ 11)·2⁻⁵³`; its normal is Box–Muller's
+    `√(−2 ln u₁)·cos(2π u₂)` with `u₁ = ((z ≫ 11) + 1)·2⁻⁵³` and
+    `u₂ = (mix(z) ≫ 11)·2⁻⁵³`, in double, then rounded to the tensor's `float`.
+
+  So uniforms are bit-identical across runners and hosts; normals pass
+  through `ln` and `cos`, and agree to 1e-6 relative. `dropout` draws its
+  keep mask the same way (`uniform ≥ p`), the rows keyed by position.
 
 ### Structure
 
@@ -414,13 +442,37 @@ NnRunConfigType = StructType({ device: NnDeviceType, seed: IntegerType, training
 
 Evaluates only the nodes the named outputs need and answers them as a batch
 (`NnBatchType`), each output by its name. `training` enables dropout; `seed`
-seeds the random operations. An input's dtype and rank are checked against
+is what every draw's stream starts from (§4, Training and noise, with the
+step 0). An input's dtype and rank are checked against
 the network's declaration, a weight's shape against its parameter's.
 
 Both runners keep a network's prepared form between calls, keyed by the
-network and its weights, so a program calling `nn_run` thousands of times with
-one model prepares it once. `cuda` is an error on a runtime whose torch build
-has no CUDA or whose host has no GPU; `auto` falls back to the CPU.
+network and by the weights' **identity**, not their bytes: each weight's name,
+shape and the address and length of its data vector. A Vector is immutable,
+so the same vector at the same address holds the same elements, and the cache
+retains every vector it keys on so no address is reused while its entry
+lives; a weights value built from other vectors (a trained result, a changed
+weight) is prepared afresh. So a program calling `nn_run` thousands of times
+with one model — a task input read once, or a value kept across calls — pays
+the preparation once and O(weights), not O(elements), per call after. `cuda`
+is an error on a runtime whose torch build has no CUDA or whose host has no
+GPU; `auto` falls back to the CPU.
+
+### `nn_import_torch(blob, names) → weights`, `nn_export_torch(weights, names) → blob`
+
+A torch state dict as weights, and back. `blob` is `torch.save`'s bytes
+holding a state dict of float tensors (any float precision; float32 arrives
+exactly, the weights at rest being f64); `names` maps a **weight name to its
+torch name**. Import gives each tensor to the weights `names` map to its
+torch name (a torch name no entry maps keeps itself as the weight name), and
+refuses a mapped torch name the state dict lacks, a non-tensor entry and a
+non-float tensor. Export writes each weight as a float32 tensor under
+`names`' torch name for it (or its own name; two weights mapped to one torch
+name are refused), as bytes `torch.load` and `nn_import_torch` read on either
+runtime: the python runtime through `torch.save`/`torch.load`, the C runtime
+through libtorch's `pickle_save`/`pickle_load`, which read each other's
+bytes. float32 → f64 → float32 is exact, so an export of an import holds the
+same tensors; an f64 weight that no float32 holds is rounded by the export.
 
 ## 6. Errors
 

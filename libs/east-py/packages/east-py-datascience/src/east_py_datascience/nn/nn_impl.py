@@ -12,7 +12,6 @@ per distinct weights (both kept in small caches), so a program calling
 
 from __future__ import annotations
 
-import hashlib
 import math
 import sys
 from collections import OrderedDict
@@ -21,8 +20,16 @@ from typing import Any
 import numpy as np
 from east import none, some
 from east.runtime.platform import platform_function, platform_functions
-from east.types.types import ArrayType, BooleanType, FloatType, IntegerType, StringType
-from east.types.values import EastArray, EastDict, EastStruct, EastVariant, EastVector
+from east.types.types import (
+    ArrayType,
+    BlobType,
+    BooleanType,
+    DictType,
+    FloatType,
+    IntegerType,
+    StringType,
+)
+from east.types.values import EastArray, EastBlob, EastDict, EastStruct, EastVariant, EastVector
 
 from east_py_datascience.nn._plan import (
     NnError,
@@ -46,10 +53,36 @@ from east_py_datascience.nn.types import (
     _check_nn_support,
 )
 
-_PLANS: OrderedDict[str, Plan] = OrderedDict()
-_WEIGHTS: OrderedDict[tuple[str, str, str], dict[str, Any]] = OrderedDict()
+try:  # the C bridge: a value's frozen brand and its retention, for the caches' keys
+    from east._eastc_bridge import _proxy_frozen, _proxy_release, _proxy_retain
+except ImportError:  # pragma: no cover - a runtime without the bridge holds python values alone
+    _proxy_frozen = None
+    _proxy_release = _proxy_retain = None
+
+# key → (the plan, the C values retained for the key's addresses)
+_PLANS: OrderedDict[tuple[Any, ...], tuple[Plan, list[int]]] = OrderedDict()
+# key → (the prepared tensors, what keeps the key's addresses theirs: vector views, or retained C values)
+_WEIGHTS: OrderedDict[tuple[Any, ...], tuple[dict[str, Any], list[Any], list[int]]] = OrderedDict()
 _PLAN_CACHE_SIZE = 16
 _WEIGHT_CACHE_SIZE = 8
+
+
+def _frozen_address(value: Any) -> int | None:
+    """A frozen (task-input) C-backed collection's address, which nothing can
+    change under it while it is retained (#1357, R24); ``None`` for a python
+    value or a value that can change."""
+    ptr = getattr(value, "_c_ptr", None)
+    if ptr is None or _proxy_frozen is None or not _proxy_frozen(ptr):
+        return None
+    return int(ptr)
+
+
+def _evict(cache: OrderedDict[Any, Any], size: int, retained_at: int) -> None:
+    """Drop the oldest entries past `size`, releasing the C values they retained."""
+    while len(cache) > size:
+        _, entry = cache.popitem(last=False)
+        for ptr in entry[retained_at]:
+            _proxy_release(ptr)
 
 _ELEMENT_TYPES = {"float": FloatType, "float64": FloatType, "integer": IntegerType, "boolean": BooleanType}
 _NUMPY_DTYPES = {"float": np.float32, "float64": np.float64, "integer": np.int64, "boolean": np.bool_}
@@ -60,22 +93,32 @@ _NUMPY_DTYPES = {"float": np.float32, "float64": np.float64, "integer": np.int64
 # ============================================================================
 
 
-def _plan_for(net: Any, fn: str) -> tuple[str, Plan]:
-    """The plan of a network, planned once per distinct value."""
-    data = decode(net)
-    key = repr(data)  # East dicts iterate in key order: one text per value
-    plan = _PLANS.get(key)
-    if plan is None:
-        plan = build_plan(data, fn)
-        _PLANS[key] = plan
-        while len(_PLANS) > _PLAN_CACHE_SIZE:
-            _PLANS.popitem(last=False)
+def _plan_for(net: Any, fn: str) -> tuple[tuple[Any, ...], Plan]:
+    """The plan of a network, planned once per distinct value: a frozen
+    network (a task input) is known by its collections' addresses, retained;
+    any other by its decoded text."""
+    parts = [net[name] for name in ("inputs", "params", "modules", "nodes", "outputs")]
+    addresses = [_frozen_address(part) for part in parts]
+    key: tuple[Any, ...]
+    if all(address is not None for address in addresses):
+        key = ("frozen", *addresses)
+    else:
+        key = ("text", repr(decode(net)))  # East dicts iterate in key order: one text per value
+    entry = _PLANS.get(key)
+    if entry is None:
+        plan = build_plan(decode(net), fn)
+        retained = [address for address in addresses if key[0] == "frozen" and address is not None]
+        for ptr in retained:
+            _proxy_retain(ptr)
+        _PLANS[key] = (plan, retained)
+        _evict(_PLANS, _PLAN_CACHE_SIZE, 1)
     else:
         _PLANS.move_to_end(key)
-    return key, plan
+    return key, _PLANS[key][0]
 
 
 def _decode_weights(weights: Any) -> dict[str, tuple[tuple[int, ...], np.ndarray]]:
+    """Each weight's shape and its data as a read-only view (no copy)."""
     out = {}
     for name, tensor in weights.items():
         shape = tuple(int(d) for d in tensor["shape"])
@@ -83,28 +126,41 @@ def _decode_weights(weights: Any) -> dict[str, tuple[tuple[int, ...], np.ndarray
     return out
 
 
-def _weights_key(decoded: dict[str, tuple[tuple[int, ...], np.ndarray]]) -> str:
-    h = hashlib.blake2b(digest_size=16)
-    for name in sorted(decoded):
-        shape, data = decoded[name]
-        h.update(name.encode("utf-8"))
-        h.update(repr(shape).encode("utf-8"))
-        h.update(np.ascontiguousarray(data).data)
-    return h.hexdigest()
+def _weights_key(decoded: dict[str, tuple[tuple[int, ...], np.ndarray]]) -> tuple[Any, ...]:
+    """A weights value's identity in O(weights), not O(elements) (#1357, R24):
+    each weight's name, shape and the address and length of its data buffer.
+    A Vector is immutable, so the same buffer at the same address holds the
+    same elements; the cache keeps the views it keyed on, so no address is
+    reused while its entry lives."""
+    return tuple((name, shape, data.__array_interface__["data"][0], data.shape[0]) for name, (shape, data) in decoded.items())
 
 
-def _prepared_weights(plan_key: str, plan: Plan, weights: Any, device: Any, fn: str) -> dict[str, Any]:
-    decoded = _decode_weights(weights)
-    key = (plan_key, _weights_key(decoded), str(device))
-    prepared = _WEIGHTS.get(key)
-    if prepared is None:
+def _prepared_weights(plan_key: tuple[Any, ...], plan: Plan, weights: Any, device: Any, fn: str) -> dict[str, Any]:
+    """The weights prepared for the plan, once per distinct value: a frozen
+    weights value (a task input) is known by its address, retained; any other
+    by its vectors' addresses (``_weights_key``), their views kept."""
+    address = _frozen_address(weights)
+    decoded = None
+    if address is not None:
+        key = (plan_key, str(device), "frozen", address)
+    else:
+        decoded = _decode_weights(weights)
+        key = (plan_key, str(device), "vectors", _weights_key(decoded))
+    entry = _WEIGHTS.get(key)
+    if entry is None:
+        if decoded is None:
+            decoded = _decode_weights(weights)
         prepared = prepare_weights(plan, decoded, device, fn)
-        _WEIGHTS[key] = prepared
-        while len(_WEIGHTS) > _WEIGHT_CACHE_SIZE:
-            _WEIGHTS.popitem(last=False)
+        retained: list[int] = []
+        if address is not None:
+            _proxy_retain(address)
+            retained.append(address)
+        entry = (prepared, [data for _, data in decoded.values()], retained)
+        _WEIGHTS[key] = entry
+        _evict(_WEIGHTS, _WEIGHT_CACHE_SIZE, 2)
     else:
         _WEIGHTS.move_to_end(key)
-    return prepared
+    return entry[0]
 
 
 def _device(tag: str, fn: str) -> Any:
@@ -262,8 +318,7 @@ def nn_run(net: EastStruct, weights: EastDict, batch: EastDict, outputs: EastArr
             raise NnError(f"{fn}: unknown output '{name}'")
     prepared = _prepared_weights(plan_key, plan, weights, device, fn)
     inputs = _batch_tensors(batch, device, fn)
-    generator = torch.Generator(device=device).manual_seed(int(cfg["seed"]))
-    interpreter = Interpreter(fn, device, bool(cfg["training"]), generator)
+    interpreter = Interpreter(fn, device, bool(cfg["training"]), int(cfg["seed"]))
     with torch.no_grad():
         values = interpreter.run(plan, prepared, inputs, [plan.outputs[n] for n in names])
     return EastDict(StringType, NnValueType, {n: _from_torch(values[plan.outputs[n]]) for n in names})
@@ -330,12 +385,11 @@ def _validate(
     seed: int, fn: str, autocast: Any,
 ) -> float:
     """Σ value / Σ weight over the validation batches in evaluation mode, the
-    draws from a generator seeded afresh with `seed` (so every pass sees the
-    same noise); each batch moved to the device as its turn comes."""
+    draws keyed by `seed` at step 0 (so every pass sees the same noise); each
+    batch moved to the device as its turn comes."""
     import torch
 
-    generator = torch.Generator(device=device).manual_seed(int(seed))
-    evaluator = Interpreter(fn, device, False, generator)
+    evaluator = Interpreter(fn, device, False, seed)
     value_operand = plan.outputs[validation["value"]]
     weight_operand = None if validation["weight"] is None else plan.outputs[validation["weight"]]
     operands = [value_operand] if weight_operand is None or weight_operand == value_operand else [value_operand, weight_operand]
@@ -440,8 +494,7 @@ def nn_train(
         return torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=bf16)
 
     seed = int(cfg["seed"])
-    generator = torch.Generator(device=device).manual_seed(seed)
-    trainer = Interpreter(fn, device, True, generator, frozenset(cfg["recompute"]))
+    trainer = Interpreter(fn, device, True, seed, frozenset(cfg["recompute"]))
     loss_operand = plan.outputs[loss_out]
 
     history: list[dict[str, Any]] = []
@@ -465,6 +518,7 @@ def nn_train(
                 for group in optimizer.param_groups:
                     group["lr"] = current_lr
             inputs = {name: t.to(device) for name, t in train_batches[index].items()}
+            trainer.step = step + 1  # the draws' stream: the training step from 1 (spec §4)
             with autocast():
                 loss = trainer.run(plan, params, inputs, [loss_operand])[loss_operand]
             if loss.dim() != 0:
@@ -531,6 +585,102 @@ def nn_train(
     )
 
 
+# ============================================================================
+# nn_import_torch, nn_export_torch (spec §5): torch state dicts as weights
+# ============================================================================
+
+
+def _torch_names(names: Any) -> dict[str, str]:
+    """``names`` as weight name → torch name."""
+    return {str(k): str(v) for k, v in names.items()}
+
+
+@platform_function(name="nn_import_torch", inputs=[BlobType, DictType(StringType, StringType)], output=NnWeightsType)
+def nn_import_torch(blob: EastBlob, names: EastDict) -> EastDict:
+    """Read a torch state dict (``torch.save``'s bytes) as weights (spec §5).
+
+    Each float tensor of the state dict becomes a weight: under the weight
+    name ``names`` maps to its torch name, or under its torch name when none
+    does. float32 tensors arrive exactly (the weights at rest are f64).
+
+    Args:
+        blob: ``Blob`` - ``torch.save``'s bytes, a state dict of float tensors.
+        names: ``Dict<String, String>`` - weight name → torch name.
+
+    Returns:
+        ``NnWeightsType`` (``EastDict``): weight name → float tensor.
+    """
+    _check_nn_support()
+    import io
+
+    import torch
+
+    fn = "nn_import_torch"
+    # The C runtime's export (libtorch's pickle_save) tags its containers with
+    # torch.jit._pickle.restore_type_tag, which the weights-only unpickler does
+    # not allow by default: allowed here, and nothing else.
+    from torch.jit._pickle import restore_type_tag
+
+    try:
+        with torch.serialization.safe_globals([restore_type_tag]):
+            state = torch.load(io.BytesIO(bytes(blob)), map_location="cpu", weights_only=True)
+    except Exception as e:  # noqa: BLE001 - torch's own wording is the detail
+        raise NnError(f"{fn}: the blob is not a torch state dict: {e}") from e
+    if not isinstance(state, dict):
+        raise NnError(f"{fn}: the blob holds a {type(state).__name__}, not a state dict")
+    by_torch_name: dict[str, list[str]] = {}
+    for weight, torch_name in _torch_names(names).items():
+        by_torch_name.setdefault(torch_name, []).append(weight)
+    weights: dict[str, Any] = {}
+    for torch_name, tensor in state.items():
+        if not isinstance(tensor, torch.Tensor):
+            raise NnError(f"{fn}: the state dict's '{torch_name}' is not a tensor")
+        if not tensor.dtype.is_floating_point:
+            raise NnError(f"{fn}: the state dict's '{torch_name}' is {str(tensor.dtype).removeprefix('torch.')}, not a float tensor")
+        for weight in by_torch_name.get(str(torch_name), [str(torch_name)]):
+            weights[weight] = _tensor_struct(
+                [int(d) for d in tensor.shape], tensor.detach().cpu().contiguous().double().reshape(-1).numpy()
+            )
+    for torch_name, mapped in by_torch_name.items():
+        if torch_name not in state:
+            raise NnError(f"{fn}: the state dict has no '{torch_name}' (named for '{mapped[0]}')")
+    return EastDict(StringType, TensorType, weights)
+
+
+@platform_function(name="nn_export_torch", inputs=[NnWeightsType, DictType(StringType, StringType)], output=BlobType)
+def nn_export_torch(weights: EastDict, names: EastDict) -> EastBlob:
+    """Write weights as a torch state dict, ``torch.save``'s bytes (spec §5).
+
+    Each weight is a float32 tensor under ``names``' torch name for it, or its
+    own name; python's ``torch.load`` and ``nn_import_torch`` read the bytes.
+
+    Args:
+        weights: ``NnWeightsType`` (``EastDict``) - the weights, by name.
+        names: ``Dict<String, String>`` - weight name → torch name.
+
+    Returns:
+        ``Blob``: ``torch.save``'s bytes.
+    """
+    _check_nn_support()
+    import io
+
+    import torch
+
+    fn = "nn_export_torch"
+    mapping = _torch_names(names)
+    state: dict[str, Any] = {}
+    for weight, tensor in weights.items():
+        torch_name = mapping.get(str(weight), str(weight))
+        if torch_name in state:
+            raise NnError(f"{fn}: two weights are named '{torch_name}' for torch")
+        shape = [int(d) for d in tensor["shape"]]
+        data = np.array(tensor["data"].to_numpy(), dtype=np.float32)
+        state[torch_name] = torch.from_numpy(data).reshape(shape)
+    buffer = io.BytesIO()
+    torch.save(state, buffer)
+    return EastBlob(buffer.getvalue())
+
+
 nn_impl = platform_functions(__name__)
 
-__all__ = ["nn_impl", "nn_init", "nn_run", "nn_train", "shuffle_order"]
+__all__ = ["nn_export_torch", "nn_impl", "nn_import_torch", "nn_init", "nn_run", "nn_train", "shuffle_order"]

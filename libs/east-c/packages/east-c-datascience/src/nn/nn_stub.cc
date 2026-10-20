@@ -114,6 +114,18 @@ EvalResult nn_train_stub(EastValue **args, size_t num_args, EastType **input_typ
     return forward("nn_train", &EastNnEntry::nn_train, args, num_args, input_types, num_input_types,
                    output_type);
 }
+EvalResult nn_import_torch_stub(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
+{
+    return forward("nn_import_torch", &EastNnEntry::nn_import_torch, args, num_args, input_types,
+                   num_input_types, output_type);
+}
+EvalResult nn_export_torch_stub(EastValue **args, size_t num_args, EastType **input_types,
+                                size_t num_input_types, EastType *output_type)
+{
+    return forward("nn_export_torch", &EastNnEntry::nn_export_torch, args, num_args, input_types,
+                   num_input_types, output_type);
+}
 
 } // namespace
 
@@ -122,6 +134,8 @@ void register_nn(PlatformRegistry *reg)
     platform_registry_add(reg, "nn_init", nn_init_stub, false);
     platform_registry_add(reg, "nn_run", nn_run_stub, false);
     platform_registry_add(reg, "nn_train", nn_train_stub, false);
+    platform_registry_add(reg, "nn_import_torch", nn_import_torch_stub, false);
+    platform_registry_add(reg, "nn_export_torch", nn_export_torch_stub, false);
 }
 
 const std::string &nn_state()

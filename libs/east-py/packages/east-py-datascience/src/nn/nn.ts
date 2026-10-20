@@ -23,6 +23,7 @@
 import {
     East,
     ArrayType,
+    BlobType,
     BooleanType,
     DictType,
     FloatType,
@@ -171,7 +172,9 @@ const Name = StringType;
  *   `log_softmax`, `cumsum`, `cummax`, `cummin`, `argmax`;
  * - attention: `attention` (its `segments` and `key_sets` masks evaluated in
  *   memory proportional to the allowed pairs), `rotary` (halves or interleaved);
- * - training and noise: `dropout`, `stop_gradient`, `random_normal`, `random_uniform`;
+ * - training and noise: `dropout`, `stop_gradient`, `random_normal`, `random_uniform`
+ *   (each draw a function of the seed, the node, the row's key and the
+ *   element: the same on every runner and device, whatever the batching);
  * - structure: `call` (a module under a weight prefix), `loop` (a body network
  *   iterated over carried values).
  *
@@ -276,8 +279,8 @@ export function nnOpType(self: RecursiveTypeMarker) {
         // training and noise
         dropout: StructType({ x: Name, p: FloatType }),
         stop_gradient: unary,
-        random_normal: StructType({ like: Name }),
-        random_uniform: StructType({ like: Name }),
+        random_normal: StructType({ like: Name, keys: OptionType(Name) }),
+        random_uniform: StructType({ like: Name, keys: OptionType(Name) }),
         // structure
         call: StructType({ module: StringType, prefix: StringType, inputs: DictType(StringType, Name) }),
         loop: StructType({
@@ -403,6 +406,29 @@ export const nn_run = East.platform(
     "nn_run",
     [NetType, NnWeightsType, NnBatchType, ArrayType(StringType), NnRunConfigType],
     NnBatchType
+);
+
+/**
+ * Read a torch state dict (`torch.save`'s bytes) as weights: each tensor
+ * under the weight name `names` maps its torch name to, or its torch name
+ * when unmapped (`names`: weight name → torch name). Float tensors of any
+ * precision; float32 arrives exactly.
+ */
+export const nn_import_torch = East.platform(
+    "nn_import_torch",
+    [BlobType, DictType(StringType, StringType)],
+    NnWeightsType
+);
+
+/**
+ * Write weights as a torch state dict (`torch.save`'s bytes, float32
+ * tensors, each under `names`' torch name for the weight, or the weight's
+ * own name) that python's `torch.load` and {@link nn_import_torch} read.
+ */
+export const nn_export_torch = East.platform(
+    "nn_export_torch",
+    [NnWeightsType, DictType(StringType, StringType)],
+    BlobType
 );
 
 /** The neural-network types, under one name. */
@@ -538,6 +564,34 @@ export const NeuralNet = {
      * ```
      */
     run: nn_run,
+
+    /**
+     * Read a torch state dict as weights.
+     *
+     * The blob is `torch.save`'s bytes (a state dict of float tensors); each
+     * tensor becomes the weight `names` maps its torch name to, or keeps its
+     * torch name. A torch-trained model runs here once its names are mapped
+     * onto the network's parameters.
+     *
+     * @param blob - `torch.save`'s bytes
+     * @param names - Weight name → torch name (a torch name not mapped keeps itself)
+     * @returns The weights, by name
+     */
+    importTorch: nn_import_torch,
+
+    /**
+     * Write weights as a torch state dict.
+     *
+     * The bytes are `torch.save`'s, float32 tensors under `names`' torch
+     * name for each weight (or the weight's own name), so python's
+     * `torch.load` reads them and {@link nn_import_torch} reads them back
+     * exactly.
+     *
+     * @param weights - The weights, by name
+     * @param names - Weight name → torch name
+     * @returns `torch.save`'s bytes
+     */
+    exportTorch: nn_export_torch,
 
     /** The neural-network types. */
     Types: NeuralNetTypes,

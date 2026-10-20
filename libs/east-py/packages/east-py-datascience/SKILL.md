@@ -99,8 +99,11 @@ Task → What do you need?
     │   types), axis reductions, attention with none/causal/segments/key_sets masks (segments and key_sets in memory
     │   proportional to the allowed pairs), rotary (halves or interleaved), dropout, call, loop)
     │   → .init(net, seed) weights · .train(net, weights, batches, validation, config) · .run(net, weights,
-    │     batch, outputs, config), each on the python runtime or on east-c (libtorch), CPU or CUDA — for a
-    │     transformer over ragged grouped sequences, a conditioned U-Net, any architecture a fixed one cannot state
+    │     batch, outputs, config) · .importTorch(blob, names) / .exportTorch(weights, names) (a torch state dict
+    │     as weights and back), each on the python runtime or on east-c (libtorch), CPU or CUDA — for a
+    │     transformer over ragged grouped sequences, a conditioned U-Net, any architecture a fixed one cannot state;
+    │     a model's prepared form is kept between calls by the weights' identity, so a long-lived model pays
+    │     its preparation once; every random draw is a function of the seed, the node and the row's key
     ├─ GP (Gaussian process regression) → .train() · .predict(), .predictStd()
     ├─ MAPIE (conformal prediction)
     │   ├─ Regression → .trainConformalRegressor(), .trainCQR() · classification → .trainConformalClassifier()

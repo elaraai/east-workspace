@@ -126,7 +126,16 @@ stopping, its EMA and warm-up, one AdamW step with a weight decay per
 parameter group as torch's optimiser takes it, the weights after an epoch in
 the seeded shuffle's order (`test/nn.train.reference.generated.ts`, the python
 runner's answer), the weighted validation, the epoch-stepped schedules and a
-recomputed module's training.
+recomputed module's training; the random draws to the python runner's
+(uniforms bit for bit) and to their batching invariance; and
+`nn_import_torch` to a torch-trained state dict (`test/nn.torch.reference.generated.ts`)
+answering what torch answered, exported and read back exactly.
+
+Under `EAST_PROFILE` the harness arms east-c's profiler and prints its report:
+every solver and neural-network call reports what it spent outside its
+library (the build of the library's structures, the write-back of the result)
+as the bridge line under its entry, and `make test-east-c-datascience-profile`
+holds `google_or_linear_solve`'s to that.
 
 ## Layout
 

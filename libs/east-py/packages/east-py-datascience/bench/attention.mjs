@@ -80,9 +80,9 @@ function program(kind, t, heads, d, lengths) {
         params: new Map(),
         modules: new Map(),
         nodes: [
-            { name: 'q', op: variant('random_uniform', { like: 'z' }) },
-            { name: 'k', op: variant('random_uniform', { like: 'z' }) },
-            { name: 'v', op: variant('random_uniform', { like: 'z' }) },
+            { name: 'q', op: variant('random_uniform', { like: 'z', keys: none }) },
+            { name: 'k', op: variant('random_uniform', { like: 'z', keys: none }) },
+            { name: 'v', op: variant('random_uniform', { like: 'z', keys: none }) },
             { name: 'y', op: y },
             { name: 'flat', op: variant('reshape', { x: 'y', shape: [-1n] }) },
             { name: 's', op: variant('sum', { x: 'flat', axis: 0n }) },

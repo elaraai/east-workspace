@@ -339,7 +339,7 @@ jobs:
           path: tmp/east-py-datascience
 
       - name: east-c-datascience compliance
-        run: make -C libs/east-c test-east-c-datascience
+        run: make -C libs/east-c test-east-c-datascience test-east-c-datascience-profile
 
   # The published shape: the libraries built on the runner's glibc floor — an
   # AlmaLinux 9 container (glibc 2.34, GCC 11's libstdc++), as release.yml's

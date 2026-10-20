@@ -12,12 +12,15 @@
 #include "../value_util.h"
 
 #include <ATen/CPUGeneratorImpl.h>
+#include <caffe2/serialize/in_memory_adapter.h>
+#include <caffe2/serialize/inline_container.h>
 #include <torch/version.h>
 
 #include <algorithm>
 #include <cstring>
 #include <list>
 #include <mutex>
+#include <set>
 
 namespace east_ds
 {
@@ -133,23 +136,39 @@ uint64_t fnv(uint64_t h, const void *data, size_t len)
     return h;
 }
 
-/* The weights as f32 CPU tensors, and a key over their names, shapes and bytes. */
-Tensors weights_of_dict(EastValue *dict, const char *fn, std::string *key)
+/* The weights as f32 CPU tensors. */
+Tensors weights_of_dict(EastValue *dict, const char *fn)
 {
     Tensors out;
-    uint64_t h = 1469598103934665603ULL;
     for (size_t k = 0, n = east_dict_len(dict); k < n; k++) {
         std::string name(as_string(east_dict_key_at(dict, k), fn));
-        EastValue *s = east_dict_val_at(dict, k);
-        std::vector<int64_t> shape = integers(field(s, "shape", fn), fn);
-        std::vector<double> xs = vector_floats(field(s, "data", fn), fn);
-        h = fnv(h, name.data(), name.size());
-        h = fnv(h, shape.data(), shape.size() * sizeof(int64_t));
-        h = fnv(h, xs.data(), xs.size() * sizeof(double));
-        out[name] = tensor_of_struct(s, DType::Float, fn, name);
+        out[name] = tensor_of_struct(east_dict_val_at(dict, k), DType::Float, fn, name);
     }
-    if (key) *key = std::to_string(h);
     return out;
+}
+
+/* A weights value's identity, in O(weights) rather than O(elements) (#1357,
+ * R24): each weight's name, shape and the address and length of its data
+ * vector. A Vector is immutable, so the same vector at the same address holds
+ * the same elements; the cache retains every vector it keys on, so no address
+ * is reused while its entry lives. Two weights values built from the same
+ * vectors (a dict copied, a frozen input read again) share one entry. */
+std::string weights_identity(EastValue *dict, const char *fn, std::vector<EastValue *> *vectors)
+{
+    std::string key;
+    for (size_t k = 0, n = east_dict_len(dict); k < n; k++) {
+        EastValue *s = east_dict_val_at(dict, k);
+        EastValue *shape = field(s, "shape", fn), *data = field(s, "data", fn);
+        key += as_string(east_dict_key_at(dict, k), fn);
+        key += '[';
+        for (size_t i = 0, m = length(shape, fn); i < m; i++) {
+            if (i) key += ',';
+            key += std::to_string(as_integer(at(shape, i), fn));
+        }
+        key += "]@" + std::to_string((uintptr_t)data) + ";";
+        if (vectors) vectors->push_back(data);
+    }
+    return key;
 }
 
 Tensors batch_of_dict(EastValue *dict, const char *fn, torch::Device device)
@@ -259,6 +278,8 @@ struct PlanEntry {
 struct WeightEntry {
     std::string key;
     std::shared_ptr<const Tensors> weights;
+    std::vector<EastValue *>
+        vectors; /* retained: their addresses stay theirs while the entry lives */
 };
 
 std::mutex g_cache_mutex;
@@ -286,20 +307,26 @@ std::shared_ptr<const Tensors> prepared_for(const Plan &plan, const std::string 
                                             EastValue *weights_dict, torch::Device device,
                                             const char *fn)
 {
-    std::string weights_key;
-    Tensors weights = weights_of_dict(weights_dict, fn, &weights_key);
-    std::string key = plan_key + "|" + weights_key + "|" + device.str();
+    std::vector<EastValue *> vectors;
+    std::string key =
+        plan_key + "|" + device.str() + "|" + weights_identity(weights_dict, fn, &vectors);
     std::lock_guard<std::mutex> lock(g_cache_mutex);
     for (auto it = g_weights.begin(); it != g_weights.end(); ++it)
         if (it->key == key) {
             g_weights.splice(g_weights.begin(), g_weights, it);
             return g_weights.front().weights;
         }
+    Tensors weights = weights_of_dict(weights_dict, fn);
     auto prepared =
         std::make_shared<const Tensors>(nn::prepare_weights(plan, weights, device, fn, false));
-    g_weights.push_front({key, prepared});
-    while (g_weights.size() > WEIGHT_CACHE)
+    for (EastValue *v : vectors)
+        east_value_retain(v);
+    g_weights.push_front({key, prepared, std::move(vectors)});
+    while (g_weights.size() > WEIGHT_CACHE) {
+        for (EastValue *v : g_weights.back().vectors)
+            east_value_release(v);
         g_weights.pop_back();
+    }
     return prepared;
 }
 
@@ -324,6 +351,7 @@ EvalResult nn_init(EastValue **args, size_t, EastType **, size_t, EastType *outp
 EvalResult nn_run(EastValue **args, size_t, EastType **, size_t, EastType *output_type)
 {
     const char *fn = "nn_run";
+    Clock::time_point t0 = now();
     EastValue *config = args[4];
     torch::Device device = device_of(field(config, "device", fn), fn);
     int64_t seed = as_integer(field(config, "seed", fn), fn);
@@ -339,16 +367,20 @@ EvalResult nn_run(EastValue **args, size_t, EastType **, size_t, EastType *outpu
     }
     auto prepared = prepared_for(*plan, key, args[1], device, fn);
     Tensors inputs = batch_of_dict(args[2], fn, device);
+    double build_time =
+        seconds_since(t0); /* the plan, the weights, the batch: to the forward pass */
     Tensors values;
     {
         torch::NoGradGuard no_grad;
         nn::Interpreter interpreter(fn, device, training, (uint64_t)seed);
         values = interpreter.run(*plan, *prepared, inputs, operands);
     }
+    Clock::time_point t2 = now();
     EastType *value_type = unwrap(output_type)->data.dict.value;
     EastValue *d = dict(output_type, fn);
     for (size_t k = 0; k < names.size(); k++)
         dict_put(d, string(names[k]), value_of_tensor(values.at(operands[k]), value_type, fn));
+    note_bridge(fn, build_time, seconds_since(t2));
     return eval_ok(d);
 }
 
@@ -400,16 +432,19 @@ nn::TrainConfig train_config(EastValue *config, const char *fn)
 EvalResult nn_train(EastValue **args, size_t, EastType **, size_t, EastType *output_type)
 {
     const char *fn = "nn_train";
+    Clock::time_point t0 = now();
     nn::TrainConfig config = train_config(args[4], fn);
     std::string key;
     std::shared_ptr<const Plan> plan = plan_for(args[0], fn, key);
-    Tensors weights = weights_of_dict(args[1], fn, nullptr);
+    Tensors weights = weights_of_dict(args[1], fn);
     std::vector<Tensors> batches, validation;
     for (size_t k = 0, n = length(args[2], fn); k < n; k++)
         batches.push_back(batch_of_dict(at(args[2], k), fn, torch::kCPU));
     for (size_t k = 0, n = length(args[3], fn); k < n; k++)
         validation.push_back(batch_of_dict(at(args[3], k), fn, torch::kCPU));
+    double build_time = seconds_since(t0); /* the plan, the weights and the batches, decoded */
     nn::TrainResult result = nn::train(*plan, weights, batches, validation, config, fn);
+    Clock::time_point t2 = now();
 
     EastType *weights_type = field_type(output_type, "weights", fn);
     EastType *history_type = field_type(output_type, "history", fn);
@@ -433,7 +468,239 @@ EvalResult nn_train(EastValue **args, size_t, EastType **, size_t, EastType *out
     }
     r.set("history", history);
     r.set("best_epoch", east_integer(result.best_epoch));
+    note_bridge(fn, build_time, seconds_since(t2));
     return eval_ok(r.build());
+}
+
+// ---- torch state dicts (spec §5) ---------------------------------------------
+
+/* The byte length of a pickle opcode's argument at `at`, for the opcodes a
+ * torch.save state dict uses; -1 for any other. */
+long pickle_arg_len(const unsigned char *p, size_t n, size_t at)
+{
+    switch (p[at]) {
+    case 0x80: /* PROTO */
+    case 'q':  /* BINPUT */
+    case 'h':  /* BINGET */
+    case 'K':  /* BININT1 */
+        return 1;
+    case 'M': /* BININT2 */
+        return 2;
+    case 'r': /* LONG_BINPUT */
+    case 'j': /* LONG_BINGET */
+    case 'J': /* BININT */
+        return 4;
+    case 'G': /* BINFLOAT */
+        return 8;
+    case 'c': { /* GLOBAL: two newline-terminated names */
+        size_t i = at + 1;
+        for (int newlines = 0; newlines < 2; i++) {
+            if (i >= n) return -1;
+            if (p[i] == '\n') newlines++;
+        }
+        return (long)(i - at - 1);
+    }
+    case 'X': { /* BINUNICODE */
+        if (at + 5 > n) return -1;
+        uint32_t len = (uint32_t)p[at + 1] | ((uint32_t)p[at + 2] << 8) |
+                       ((uint32_t)p[at + 3] << 16) | ((uint32_t)p[at + 4] << 24);
+        return 4 + (long)len;
+    }
+    case 0x8d: { /* BINUNICODE8 */
+        if (at + 9 > n) return -1;
+        uint64_t len = 0;
+        for (int k = 7; k >= 0; k--)
+            len = (len << 8) | p[at + 1 + k];
+        return 8 + (long)len;
+    }
+    case 0x8a: /* LONG1 */
+        return at + 1 < n ? 1 + (long)p[at + 1] : -1;
+    case ')':
+    case 'R':
+    case 'b':
+    case '(':
+    case 't':
+    case 0x85:
+    case 0x86:
+    case 0x87:
+    case '}':
+    case ']':
+    case 'd':
+    case 'l':
+    case 's':
+    case 'u':
+    case 'a':
+    case 'e':
+    case 'Q':
+    case 'N':
+    case 0x88:
+    case 0x89:
+    case 0x81:
+    case '.':
+        return 0;
+    default:
+        return -1;
+    }
+}
+
+/* A python state dict is an OrderedDict, which libtorch's unpickler drops to
+ * None at the top level (it keeps the class only for a tensor's backward
+ * hooks, and takes BUILD for a global's call). torch.save's pickle of one
+ * starts, after its protocol, with `GLOBAL collections OrderedDict`, a memo
+ * put, `EMPTY_TUPLE`, `REDUCE` and a memo put, then the items, then the
+ * `_metadata` state BUILD sets on it. Rewritten here: the global and its memo
+ * put stay (the tensors' backward hooks fetch the memo), the call becomes
+ * `EMPTY_DICT` with the second memo put, the items follow, and the stream
+ * ends with `TUPLE2` and `STOP` — the leftover global and the dict as one
+ * pair, which the unpickler answers and the caller unwraps — the state BUILD
+ * dropped. The archive is read record by record and written again with the
+ * patched pickle (a pickle has no byte offsets, so its length may change);
+ * any other archive passes through untouched. */
+std::vector<char> normalise_state_dict_archive(const std::vector<char> &bytes)
+{
+    using caffe2::serialize::PyTorchStreamReader;
+    using caffe2::serialize::PyTorchStreamWriter;
+    PyTorchStreamReader reader(
+        std::make_shared<caffe2::serialize::MemoryReadAdapter>(bytes.data(), (off_t)bytes.size()));
+    if (!reader.hasRecord("data.pkl")) return bytes;
+    auto [pkl_ptr, pkl_size] = reader.getRecord("data.pkl");
+    const unsigned char *pkl = static_cast<const unsigned char *>(pkl_ptr.get());
+    static const std::string global = "c"
+                                      "collections\nOrderedDict\n";
+    size_t head = 2; /* PROTO n */
+    if (pkl_size < head + global.size() + 6 || pkl[0] != 0x80) return bytes;
+    if (std::string(reinterpret_cast<const char *>(pkl) + head, global.size()) != global)
+        return bytes;
+    size_t at = head + global.size();
+    auto put_len = [&](size_t i) -> size_t {
+        return i < pkl_size && pkl[i] == 'q' ? 2 : i < pkl_size && pkl[i] == 'r' ? 5 : 0;
+    };
+    size_t put1 = put_len(at);
+    if (!put1 || at + put1 + 2 > pkl_size || pkl[at + put1] != ')' || pkl[at + put1 + 1] != 'R')
+        return bytes;
+    size_t put2_at = at + put1 + 2, put2 = put_len(put2_at);
+    if (!put2) return bytes;
+    /* The items end at the first EMPTY_DICT outside any MARK (the state the
+     * BUILD sets), or at STOP. */
+    size_t pos = put2_at + put2, cut = 0;
+    int depth = 0;
+    while (pos < pkl_size) {
+        unsigned char op = pkl[pos];
+        long arg = pickle_arg_len(pkl, pkl_size, pos);
+        if (arg < 0) return bytes;
+        if (depth == 0 && (op == '}' || op == '.')) {
+            cut = pos;
+            break;
+        }
+        if (op == '(') depth++;
+        if (op == 't' || op == 'u' || op == 'e' || op == 'd' || op == 'l') depth--;
+        pos += 1 + (size_t)arg;
+    }
+    if (!cut) return bytes;
+    std::vector<char> patched;
+    patched.insert(patched.end(), pkl, pkl + at + put1); /* PROTO, the global, its memo put */
+    patched.push_back('}');                              /* EMPTY_DICT */
+    patched.insert(patched.end(), pkl + put2_at, pkl + put2_at + put2);
+    patched.insert(patched.end(), pkl + put2_at + put2, pkl + cut);
+    patched.push_back((char)0x86); /* TUPLE2: the global's id and the dict */
+    patched.push_back('.');
+    std::vector<char> out;
+    PyTorchStreamWriter writer([&out](const void *data, size_t n) {
+        const char *p = static_cast<const char *>(data);
+        out.insert(out.end(), p, p + n);
+        return n;
+    });
+    for (const std::string &name : reader.getAllRecords()) {
+        if (name == "data.pkl") {
+            writer.writeRecord(name, patched.data(), patched.size());
+        } else {
+            auto [ptr, size] = reader.getRecord(name);
+            writer.writeRecord(name, ptr.get(), size);
+        }
+    }
+    writer.writeEndOfFile();
+    return out;
+}
+
+/* `names` as weight name → torch name. */
+std::map<std::string, std::string> torch_names(EastValue *names, const char *fn)
+{
+    std::map<std::string, std::string> out;
+    for (size_t k = 0, n = east_dict_len(names); k < n; k++)
+        out[std::string(as_string(east_dict_key_at(names, k), fn))] =
+            std::string(as_string(east_dict_val_at(names, k), fn));
+    return out;
+}
+
+EvalResult nn_import_torch(EastValue **args, size_t, EastType **, size_t, EastType *output_type)
+{
+    const char *fn = "nn_import_torch";
+    std::string_view bytes = blob_bytes(args[0], fn);
+    torch::IValue loaded;
+    try {
+        loaded = torch::pickle_load(
+            normalise_state_dict_archive(std::vector<char>(bytes.begin(), bytes.end())));
+    } catch (const c10::Error &e) {
+        std::string m = e.what_without_backtrace();
+        throw Error(msg(fn, "the blob is not a torch state dict: " + m.substr(0, m.find('\n'))));
+    } catch (const std::exception &e) {
+        throw Error(msg(fn, std::string("the blob is not a torch state dict: ") + e.what()));
+    }
+    if (loaded.isTuple() && loaded.toTupleRef().elements().size() == 2 &&
+        loaded.toTupleRef().elements()[1].isGenericDict())
+        loaded = loaded.toTupleRef().elements()[1]; /* a normalised OrderedDict (above) */
+    if (!loaded.isGenericDict())
+        throw Error(msg(fn, "the blob holds a " + loaded.tagKind() + ", not a state dict"));
+    std::map<std::string, std::vector<std::string> > by_torch_name;
+    for (const auto &kv : torch_names(args[1], fn))
+        by_torch_name[kv.second].push_back(kv.first);
+    EastType *struct_type = unwrap(output_type)->data.dict.value;
+    std::map<std::string, EastValue *> weights;
+    std::set<std::string> present;
+    for (const auto &entry : loaded.toGenericDict()) {
+        if (!entry.key().isString()) throw Error(msg(fn, "the state dict has a non-string key"));
+        std::string torch_name = entry.key().toStringRef();
+        present.insert(torch_name);
+        if (!entry.value().isTensor())
+            throw Error(msg(fn, "the state dict's '" + torch_name + "' is not a tensor"));
+        Tensor t = entry.value().toTensor();
+        if (!t.is_floating_point())
+            throw Error(msg(fn, "the state dict's '" + torch_name + "' is " +
+                                    std::string(c10::toString(t.scalar_type())) +
+                                    ", not a float tensor"));
+        auto it = by_torch_name.find(torch_name);
+        std::vector<std::string> targets =
+            it != by_torch_name.end() ? it->second : std::vector<std::string>{torch_name};
+        for (const std::string &weight : targets)
+            weights[weight] = struct_of_tensor(t.to(torch::kCPU).contiguous(), struct_type, fn);
+    }
+    for (const auto &kv : by_torch_name)
+        if (!present.count(kv.first))
+            throw Error(msg(fn, "the state dict has no '" + kv.first + "' (named for '" +
+                                    kv.second[0] + "')"));
+    EastValue *d = dict(output_type, fn);
+    for (const auto &kv : weights)
+        dict_put(d, string(kv.first), kv.second);
+    return eval_ok(d);
+}
+
+EvalResult nn_export_torch(EastValue **args, size_t, EastType **, size_t, EastType *)
+{
+    const char *fn = "nn_export_torch";
+    std::map<std::string, std::string> mapping = torch_names(args[1], fn);
+    c10::Dict<torch::IValue, torch::IValue> state(c10::StringType::get(), c10::TensorType::get());
+    std::set<std::string> used;
+    for (size_t k = 0, n = east_dict_len(args[0]); k < n; k++) {
+        std::string weight(as_string(east_dict_key_at(args[0], k), fn));
+        auto it = mapping.find(weight);
+        std::string torch_name = it != mapping.end() ? it->second : weight;
+        if (!used.insert(torch_name).second)
+            throw Error(msg(fn, "two weights are named '" + torch_name + "' for torch"));
+        state.insert(torch_name,
+                     tensor_of_struct(east_dict_val_at(args[0], k), DType::Float, fn, weight));
+    }
+    std::vector<char> bytes = torch::pickle_save(torch::IValue(state));
+    return eval_ok(blob(bytes.data(), bytes.size()));
 }
 
 /* The libtorch this library runs on, for `east-c version`. */
@@ -460,6 +727,8 @@ extern "C" const EastNnEntry *east_nn_entry(void)
         east_ds::platform_call_typed<east_ds::nn_init>,
         east_ds::platform_call_typed<east_ds::nn_run>,
         east_ds::platform_call_typed<east_ds::nn_train>,
+        east_ds::platform_call_typed<east_ds::nn_import_torch>,
+        east_ds::platform_call_typed<east_ds::nn_export_torch>,
         east_ds::torch_text,
     };
     return &entry;

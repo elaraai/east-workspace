@@ -36,6 +36,60 @@ _TORCH_DTYPES = {"float": "float32", "float64": "float64", "integer": "int64", "
 # Attention): bounds the working memory of a pairwise pass to a few tens of MB.
 KEY_SET_CHUNK = 16384
 
+# The draws' arithmetic (spec §4, Training and noise): SplitMix64's finaliser
+# over the seed, the step, the path of calls and loops to the drawing node, the
+# row's key and the element's position — the same on every runner and device.
+_MASK64 = (1 << 64) - 1
+_GAMMA = 0x9E3779B97F4A7C15
+_MIX1 = 0xBF58476D1CE4E5B9
+_MIX2 = 0x94D049BB133111EB
+_SEED_SALT = 0x6A09E667F3BCC909
+_M53 = (1 << 53) - 1
+
+
+def mix64(z: int) -> int:
+    """SplitMix64's finaliser, unsigned 64-bit."""
+    z &= _MASK64
+    z = ((z ^ (z >> 30)) * _MIX1) & _MASK64
+    z = ((z ^ (z >> 27)) * _MIX2) & _MASK64
+    return z ^ (z >> 31)
+
+
+def _signed(u: int) -> int:
+    """An unsigned 64-bit value as the int64 torch holds it."""
+    return u - (1 << 64) if u >= (1 << 63) else u
+
+
+def _lsr(z: Any, k: int) -> Any:
+    """A logical right shift of an int64 tensor."""
+    return (z >> k) & ((1 << (64 - k)) - 1)
+
+
+def mix64_tensor(z: Any) -> Any:
+    """SplitMix64's finaliser over an int64 tensor (wrapping arithmetic)."""
+    z = (z ^ _lsr(z, 30)) * _signed(_MIX1)
+    z = (z ^ _lsr(z, 27)) * _signed(_MIX2)
+    return z ^ _lsr(z, 31)
+
+
+def draw(stream: int, keys: Any, row_elements: int, normal: bool) -> Any:
+    """The draws of a node whose stream is `stream` (spec §4): one row per key,
+    `row_elements` each, uniform on [0, 1) or standard normal, as f64 on the
+    CPU (the caller casts and moves them)."""
+    import torch
+
+    n = keys.shape[0]
+    if n == 0 or row_elements == 0:
+        return torch.zeros((n, row_elements), dtype=torch.float64)
+    p = torch.arange(1, row_elements + 1, dtype=torch.int64).unsqueeze(0)
+    z = mix64_tensor(keys.to(torch.int64).cpu().unsqueeze(1) * _signed(_MIX1) + p * _signed(_MIX2) + _signed(stream))
+    top = _lsr(z, 11)
+    if not normal:
+        return top.to(torch.float64) * 2.0**-53
+    u1 = (top + 1).to(torch.float64) * 2.0**-53
+    u2 = _lsr(mix64_tensor(z), 11).to(torch.float64) * 2.0**-53
+    return torch.sqrt(-2.0 * torch.log(u1)) * torch.cos(2.0 * math.pi * u2)
+
 
 def torch_dtype(dtype: str) -> Any:
     import torch
@@ -63,19 +117,46 @@ class Interpreter:
         fn: The platform function's name, for error messages.
         device: The torch device every tensor lives on.
         training: Whether ``dropout`` drops.
-        generator: The seeded generator the random operations draw from.
+        seed: What every draw's stream starts from (spec §4, Training and noise).
         recompute: Module names whose calls are checkpointed (recomputed in the
             backward pass) while training.
+        step: The training step from 1, or 0 outside training; settable between steps.
     """
 
-    def __init__(self, fn: str, device: Any, training: bool, generator: Any, recompute: frozenset[str] = frozenset()):
+    def __init__(self, fn: str, device: Any, training: bool, seed: int, recompute: frozenset[str] = frozenset(), step: int = 0):
         self.fn = fn
         self.device = device
         self.training = training
-        self.generator = generator
+        self.seed = int(seed)
         self.recompute = recompute
         self.weights: dict[str, Any] = {}
         self.demand: dict[int, dict[str, set[str | None]]] = {}
+        self.path = 0
+        self.step = step
+
+    @property
+    def step(self) -> int:
+        return self._step
+
+    @step.setter
+    def step(self, value: int) -> None:
+        """The step the draws' streams are refined by; resets the path to the call's root."""
+        self._step = int(value)
+        self.path = mix64(mix64((self.seed & _MASK64) ^ _SEED_SALT) + (self._step + 1) * _GAMMA)
+
+    def _draw(self, plan: Plan, node: Node, like: Any, keys: Any, normal: bool, bad: Callable[[str], NnError]) -> Any:
+        """A tensor shaped like `like` of the node's draws (spec §4, Training and noise)."""
+        import torch
+
+        rows = like.shape[0] if like.dim() >= 1 else 1
+        row_elements = int(math.prod(like.shape[1:])) if like.dim() >= 1 else 1
+        if keys is None:
+            keys = torch.arange(rows, dtype=torch.int64)
+        elif keys.dim() != 1 or keys.shape[0] != rows:
+            raise bad(f"keys must be an integer vector of {rows} entries, one per row of like")
+        stream = mix64(self.path + (plan.index[node.name] + 1) * _GAMMA)
+        values = draw(stream, keys, row_elements, normal)
+        return values.reshape(like.shape).to(dtype=torch.float32, device=like.device)
 
     # ------------------------------------------------------------------ entry
 
@@ -161,7 +242,7 @@ class Interpreter:
         if op == "call":
             return self._call(plan, node, env, prefix, wanted, bad)
         if op == "loop":
-            return self._loop(node, env, prefix, bad)
+            return self._loop(plan, node, env, prefix, bad)
 
         # ---- indexing and layout
         if op == "gather":
@@ -532,16 +613,13 @@ class Interpreter:
             if not self.training:
                 return x
             p = float(a["p"])
-            keep = torch.rand(x.shape, generator=self.generator, device=x.device) >= p
+            keep = self._draw(plan, node, x, None, False, bad) >= p
             return x * keep.to(x.dtype) / (1.0 - p)
         if op == "stop_gradient":
             return g("x").detach()
-        if op == "random_normal":
+        if op in ("random_normal", "random_uniform"):
             like = g("like")
-            return torch.randn(like.shape, generator=self.generator, device=like.device, dtype=torch.float32)
-        if op == "random_uniform":
-            like = g("like")
-            return torch.rand(like.shape, generator=self.generator, device=like.device, dtype=torch.float32)
+            return self._draw(plan, node, like, opt("keys"), op == "random_normal", bad)
         raise bad("unknown operation")
 
     # ---------------------------------------------------------------- helpers
@@ -812,21 +890,33 @@ class Interpreter:
                 raise bad(f"the module has no output '{out}'")
         operands = [module.outputs[out] for out in outputs]
         sub_prefix = prefix + a["prefix"] + "."
-        if self.training and a["module"] in self.recompute and torch.is_grad_enabled():
-            from torch.utils.checkpoint import checkpoint
+        # the call refines the draws' stream for everything inside it (spec §4)
+        outer = self.path
+        inner = mix64(outer + (plan.index[node.name] + 1) * _GAMMA)
+        try:
+            if self.training and a["module"] in self.recompute and torch.is_grad_enabled():
+                from torch.utils.checkpoint import checkpoint
 
-            names = list(bound)
+                names = list(bound)
 
-            def recomputed(*tensors: Any) -> tuple[Any, ...]:
-                values = self._eval(module, dict(zip(names, tensors, strict=True)), sub_prefix, operands)
-                return tuple(values[o] for o in operands)
+                def recomputed(*tensors: Any) -> tuple[Any, ...]:
+                    saved = self.path
+                    self.path = inner
+                    try:
+                        values = self._eval(module, dict(zip(names, tensors, strict=True)), sub_prefix, operands)
+                    finally:
+                        self.path = saved
+                    return tuple(values[o] for o in operands)
 
-            results = checkpoint(recomputed, *[bound[n] for n in names], use_reentrant=False)
-            return dict(zip(outputs, results, strict=True))
-        values = self._eval(module, bound, sub_prefix, operands)
+                results = checkpoint(recomputed, *[bound[n] for n in names], use_reentrant=False)
+                return dict(zip(outputs, results, strict=True))
+            self.path = inner
+            values = self._eval(module, bound, sub_prefix, operands)
+        finally:
+            self.path = outer
         return {out: values[module.outputs[out]] for out in outputs}
 
-    def _loop(self, node: Node, env: dict[str, Any], prefix: str, bad: Callable[[str], NnError]) -> dict[str, Any]:
+    def _loop(self, plan: Plan, node: Node, env: dict[str, Any], prefix: str, bad: Callable[[str], NnError]) -> dict[str, Any]:
         import torch
 
         a = node.args
@@ -843,11 +933,18 @@ class Interpreter:
         if stop_operand is not None and stop_operand not in operands:
             operands = [*operands, stop_operand]
         limit = int(payload) if tag == "fixed" else int(payload["max"])
+        outer = self.path
+        loop_stream = mix64(outer + (plan.index[node.name] + 1) * _GAMMA)
         for i in range(limit):
             bound = {**carried, **fixed}
             if step_name is not None:
                 bound[step_name] = torch.tensor(i, dtype=torch.int64, device=self.device)
-            values = self._eval(body, bound, prefix, operands)
+            # each iteration refines the draws' stream (spec §4)
+            self.path = mix64(loop_stream + (i + 1) * _GAMMA)
+            try:
+                values = self._eval(body, bound, prefix, operands)
+            finally:
+                self.path = outer
             for name in carried:
                 t = values[body.outputs[name]]
                 if t.dim() != body.inputs[name].rank:

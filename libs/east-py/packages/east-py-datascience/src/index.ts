@@ -21,6 +21,8 @@ export {
     nn_init,
     nn_train,
     nn_run,
+    nn_import_torch,
+    nn_export_torch,
     nnOpType,
     NetType,
     TensorType,

@@ -129,8 +129,9 @@ def family(name: str, net_data: dict, batch_data: dict, seed: int, reference: An
     batch = fam.east_batch(batch_data)
     ref = reference(batch, weights)
     integer_outputs = [k for k, t in ref.items() if not t.dtype.is_floating_point]
+    whose = "the python runner's draws (specified, not torch's)" if name == "draws" else "torch's outputs"
     return (
-        f"/** {name}: the network, its weights (nn_init, seed {seed}), a batch and torch's outputs. */\n"
+        f"/** {name}: the network, its weights (nn_init, seed {seed}), a batch and {whose}. */\n"
         f"export const {name}: Family = {{\n"
         f"    net: {ts(net, 1)},\n"
         f"    weights: {ts(weights, 1)},\n"
@@ -198,6 +199,8 @@ def main() -> None:
         family("timeGrid", fam.time_grid_net(), fam.time_grid_batch(), 0, fam.ref_time_grid),
         "\n",
         family("rotaryConventions", fam.rotary_conventions_net(), fam.rotary_conventions_batch(), 0, fam.ref_rotary_conventions),
+        "\n",
+        family("draws", fam.draws_net(), fam.draws_batch(), 0, fam.ref_draws),
     ]
     OUT.write_text("".join(parts))
     print(f"wrote {OUT} ({OUT.stat().st_size // 1024} KB)")

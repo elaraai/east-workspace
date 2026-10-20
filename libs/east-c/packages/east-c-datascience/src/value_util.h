@@ -455,6 +455,27 @@ inline std::string python_float(double x)
 
 using Clock = std::chrono::steady_clock;
 
+/* east-c's profiler, two of its entry points (east/compiler.h, which this C++
+ * cannot include: its IR header is C alone). The runtime the binary exports
+ * provides them when the library is opened. */
+extern "C" {
+bool east_profile_enabled(void);
+void east_profile_platform_note(const char *name, uint64_t convert_in_ns, uint64_t convert_out_ns,
+                                uint64_t crossings);
+}
+
+/* What a call spent outside the native library (#1357, R30): its build (the
+ * arguments into the library's structures, `build_s`) and its write-back (the
+ * result into East values, `writeback_s`), reported to east-c's profiler as
+ * the bridge line under the function's own entry — what east-py's bridge
+ * reports for its python functions — when the profiler is on. Off, nothing. */
+inline void note_bridge(const char *fn, double build_s, double writeback_s)
+{
+    if (!east_profile_enabled()) return;
+    east_profile_platform_note(fn, (uint64_t)(build_s > 0 ? build_s * 1e9 : 0),
+                               (uint64_t)(writeback_s > 0 ? writeback_s * 1e9 : 0), 0);
+}
+
 inline Clock::time_point now()
 {
     return Clock::now();

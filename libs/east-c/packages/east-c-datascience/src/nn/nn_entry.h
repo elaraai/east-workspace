@@ -14,13 +14,15 @@
 #include <east/platform.h>
 #include <east_datascience/east_datascience.h>
 
-#define EAST_NN_ENTRY_ABI 1
+#define EAST_NN_ENTRY_ABI 2
 
 typedef struct {
     int abi;
     PlatformFn nn_init;
     PlatformFn nn_run;
     PlatformFn nn_train;
+    PlatformFn nn_import_torch;
+    PlatformFn nn_export_torch;
     /* The libtorch this library runs on, as `east-c version` prints it. */
     const char *(*torch)(void);
 } EastNnEntry;

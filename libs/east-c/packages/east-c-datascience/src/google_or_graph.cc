@@ -42,11 +42,13 @@ auto timed(Clock::time_point t0, Times *times, Solve solve) -> decltype(solve())
     return st;
 }
 
-void set_times(StructBuilder &r, const Times &times)
+void set_times(StructBuilder &r, const Times &times, const char *fn)
 {
+    double wall_time = seconds_since(times.t0);
     r.set("build_time", east_float(times.build_time));
     r.set("solve_time", east_float(times.solve_time));
-    r.set("wall_time", east_float(seconds_since(times.t0)));
+    r.set("wall_time", east_float(wall_time));
+    note_bridge(fn, times.build_time, wall_time - times.build_time - times.solve_time);
 }
 
 /* A flow result: the status, the objective and the per-arc flows. */
@@ -57,7 +59,7 @@ EvalResult flow_result(EastType *out, const char *fn, const char *total_field, c
     r.set("status", status(field_type(out, "status", fn), tag));
     r.set(total_field, east_integer(total));
     r.set("flows", integer_array(field_type(out, "flows", fn), flows, fn));
-    set_times(r, times);
+    set_times(r, times, fn);
     return eval_ok(r.build());
 }
 
@@ -149,7 +151,7 @@ EvalResult assignment_result(EastType *out, const char *fn, const char *tag, int
     r.set("status", status(field_type(out, "status", fn), tag));
     r.set("total_cost", east_integer(total));
     r.set("assignments", array_value);
-    set_times(r, times);
+    set_times(r, times, fn);
     return eval_ok(r.build());
 }
 

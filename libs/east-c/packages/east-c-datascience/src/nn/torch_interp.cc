@@ -225,19 +225,80 @@ torch::ScalarType scalar_type_of(DType d)
     return torch::kFloat32;
 }
 
-Interpreter::Interpreter(std::string fn, torch::Device device, bool training, uint64_t seed,
-                         std::set<std::string> recompute)
-    : fn_(std::move(fn)), device_(device), training_(training),
-      generator_(at::detail::createCPUGenerator(seed)), recompute_(std::move(recompute))
+namespace
 {
+const uint64_t GAMMA = 0x9E3779B97F4A7C15ULL, MIX1 = 0xBF58476D1CE4E5B9ULL,
+               MIX2 = 0x94D049BB133111EBULL, SEED_SALT = 0x6A09E667F3BCC909ULL;
+
+/* A logical right shift of an int64 tensor. */
+Tensor lsr(const Tensor &z, int64_t k)
+{
+    return torch::bitwise_right_shift(z, k) & (int64_t)((1ULL << (64 - k)) - 1);
 }
 
-Tensor Interpreter::random(const std::vector<int64_t> &shape, bool normal)
+/* SplitMix64's finaliser over an int64 tensor (wrapping arithmetic). */
+Tensor mix64_tensor(const Tensor &z0)
 {
-    auto options = torch::dtype(torch::kFloat32);
-    Tensor t =
-        normal ? torch::randn(shape, generator_, options) : torch::rand(shape, generator_, options);
-    return t.to(device_);
+    Tensor z = (z0 ^ lsr(z0, 30)) * (int64_t)MIX1;
+    z = (z ^ lsr(z, 27)) * (int64_t)MIX2;
+    return z ^ lsr(z, 31);
+}
+} // namespace
+
+uint64_t mix64(uint64_t z)
+{
+    z = (z ^ (z >> 30)) * MIX1;
+    z = (z ^ (z >> 27)) * MIX2;
+    return z ^ (z >> 31);
+}
+
+Interpreter::Interpreter(std::string fn, torch::Device device, bool training, uint64_t seed,
+                         std::set<std::string> recompute)
+    : fn_(std::move(fn)), device_(device), training_(training), seed_(seed),
+      recompute_(std::move(recompute))
+{
+    set_step(0);
+}
+
+void Interpreter::set_step(int64_t step)
+{
+    step_ = step;
+    path_ = mix64(mix64(seed_ ^ SEED_SALT) + ((uint64_t)step + 1) * GAMMA);
+}
+
+Tensor Interpreter::draw(const Plan &plan, const Node &nd, const Tensor &like, const Tensor &keys0,
+                         bool normal)
+{
+    int64_t rows = like.dim() >= 1 ? like.size(0) : 1, row_elements = 1;
+    for (int64_t k = 1; k < like.dim(); k++)
+        row_elements *= like.size(k);
+    Tensor keys = keys0;
+    if (!keys.defined()) {
+        keys = torch::arange(rows, torch::dtype(torch::kInt64));
+    } else if (keys.dim() != 1 || keys.size(0) != rows) {
+        throw Error(fn_ + ": node '" + nd.name + "': " + nd.op +
+                    ": keys must be an integer vector of " + std::to_string(rows) +
+                    " entries, one per row of like");
+    }
+    uint64_t stream = mix64(path_ + ((uint64_t)plan.index.at(nd.name) + 1) * GAMMA);
+    Tensor values;
+    if (rows == 0 || row_elements == 0) {
+        values = torch::zeros({rows, row_elements}, torch::dtype(torch::kFloat64));
+    } else {
+        Tensor p = torch::arange(1, row_elements + 1, torch::dtype(torch::kInt64)).unsqueeze(0);
+        Tensor z =
+            mix64_tensor(keys.to(torch::kInt64).to(torch::kCPU).unsqueeze(1) * (int64_t)MIX1 +
+                         p * (int64_t)MIX2 + (int64_t)stream);
+        Tensor top = lsr(z, 11);
+        if (!normal) {
+            values = top.to(torch::kFloat64) * std::ldexp(1.0, -53);
+        } else {
+            Tensor u1 = (top + 1).to(torch::kFloat64) * std::ldexp(1.0, -53);
+            Tensor u2 = lsr(mix64_tensor(z), 11).to(torch::kFloat64) * std::ldexp(1.0, -53);
+            values = torch::sqrt(-2.0 * torch::log(u1)) * torch::cos(2.0 * M_PI * u2);
+        }
+    }
+    return values.reshape(like.sizes()).to(like.device(), torch::kFloat32);
 }
 
 // ============================================================================
@@ -319,7 +380,7 @@ Interpreter::Value Interpreter::node(const Plan &plan, const Node &nd, Env &env,
     };
 
     if (op == "call") return call(plan, nd, env, prefix, wanted);
-    if (op == "loop") return loop(nd, env, prefix);
+    if (op == "loop") return loop(plan, nd, env, prefix);
 
     // ---- indexing and layout
     if (op == "gather") {
@@ -694,13 +755,13 @@ Interpreter::Value Interpreter::node(const Plan &plan, const Node &nd, Env &env,
         if (op == "dropout") {
             if (!training_) return one(x);
             double p = nd.fv("p");
-            Tensor keep = random(sizes_of(x), false) >= p;
+            Tensor keep = draw(plan, nd, x, Tensor(), false) >= p;
             return one(x * keep.to(x.scalar_type()) / (1.0 - p));
         }
         if (op == "stop_gradient") return one(x.detach());
     }
     if (op == "random_normal" || op == "random_uniform")
-        return one(random(sizes_of(g("like")), op == "random_normal"));
+        return one(draw(plan, nd, g("like"), opt("keys"), op == "random_normal"));
 
     // ---- along an axis
     if (op == "sum" || op == "mean" || op == "max" || op == "min" || op == "logsumexp" ||
@@ -905,13 +966,24 @@ Interpreter::Value Interpreter::call(const Plan &plan, const Node &nd, Env &env,
         operands.push_back(*operand);
     }
     std::string sub_prefix = prefix + nd.s("prefix") + ".";
-    if (training_ && recompute_.count(nd.s("module")) && torch::GradMode::is_enabled())
-        return recomputed_call(*module, nd, bound, sub_prefix, outputs, operands);
-    Tensors values = eval(*module, bound, sub_prefix, operands);
+    // the call refines the draws' stream for everything inside it (§4)
+    uint64_t outer = path_;
+    path_ = mix64(outer + ((uint64_t)plan.index.at(nd.name) + 1) * GAMMA);
     Value result;
-    result.many = true;
-    for (size_t k = 0; k < outputs.size(); k++)
-        result.several[outputs[k]] = values.at(operands[k]);
+    try {
+        if (training_ && recompute_.count(nd.s("module")) && torch::GradMode::is_enabled()) {
+            result = recomputed_call(*module, nd, bound, sub_prefix, outputs, operands);
+        } else {
+            Tensors values = eval(*module, bound, sub_prefix, operands);
+            result.many = true;
+            for (size_t k = 0; k < outputs.size(); k++)
+                result.several[outputs[k]] = values.at(operands[k]);
+        }
+    } catch (...) {
+        path_ = outer;
+        throw;
+    }
+    path_ = outer;
     return result;
 }
 
@@ -926,7 +998,7 @@ struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
         std::string prefix;
         std::vector<std::string> input_names, weight_names, operands;
         Tensors bound_fixed; /* the inputs that take no gradient */
-        torch::Tensor rng_state;
+        uint64_t path;       /* the draws' stream inside the call, replayed by the backward */
     };
     static std::mutex mutex;
     static std::map<int64_t, std::shared_ptr<Closure> > closures;
@@ -944,18 +1016,18 @@ struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
             substituted[c.weight_names[k]] = weights[k];
         const Tensors *saved = c.self->weights_;
         c.self->weights_ = &substituted;
-        torch::Tensor state = c.self->generator_.get_state();
-        c.self->generator_.set_state(c.rng_state);
+        uint64_t path = c.self->path_;
+        c.self->path_ = c.path;
         Tensors values;
         try {
             values = c.self->eval(*c.module, bound, c.prefix, c.operands);
         } catch (...) {
             c.self->weights_ = saved;
-            c.self->generator_.set_state(state);
+            c.self->path_ = path;
             throw;
         }
         c.self->weights_ = saved;
-        c.self->generator_.set_state(state);
+        c.self->path_ = path;
         torch::autograd::variable_list out;
         for (const std::string &operand : c.operands)
             out.push_back(values.at(operand));
@@ -972,7 +1044,6 @@ struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
             std::lock_guard<std::mutex> lock(mutex);
             c = closures.at(id);
         }
-        c->rng_state = c->self->generator_.get_state();
         torch::autograd::variable_list inputs(tensors.begin(), tensors.begin() + n_inputs),
             weights(tensors.begin() + n_inputs, tensors.end());
         torch::autograd::variable_list out;
@@ -1047,6 +1118,7 @@ Interpreter::Value Interpreter::recomputed_call(const Plan &module, const Node &
     c->module = &module;
     c->prefix = sub_prefix;
     c->operands = operands;
+    c->path = path_;
     torch::autograd::variable_list tensors;
     for (const auto &kv : bound) {
         if (kv.second.requires_grad()) {
@@ -1080,7 +1152,8 @@ Interpreter::Value Interpreter::recomputed_call(const Plan &module, const Node &
     return result;
 }
 
-Interpreter::Value Interpreter::loop(const Node &nd, Env &env, const std::string &prefix)
+Interpreter::Value Interpreter::loop(const Plan &plan, const Node &nd, Env &env,
+                                     const std::string &prefix)
 {
     Bad bad = [&](const std::string &what) {
         return Error(fn_ + ": node '" + nd.name + "': loop: " + what);
@@ -1106,6 +1179,8 @@ Interpreter::Value Interpreter::loop(const Node &nd, Env &env, const std::string
         std::find(operands.begin(), operands.end(), *stop_operand) == operands.end())
         operands.push_back(*stop_operand);
     int64_t limit = until ? nd.iv("max") : nd.iv("fixed");
+    uint64_t outer = path_;
+    uint64_t loop_stream = mix64(outer + ((uint64_t)plan.index.at(nd.name) + 1) * GAMMA);
     for (int64_t i = 0; i < limit; i++) {
         Tensors bound = fixed;
         for (const auto &kv : carried)
@@ -1113,7 +1188,16 @@ Interpreter::Value Interpreter::loop(const Node &nd, Env &env, const std::string
         if (nd.has("step"))
             bound[nd.s("step")] =
                 torch::scalar_tensor(i, torch::dtype(torch::kInt64).device(device_));
-        Tensors values = eval(body, bound, prefix, operands);
+        // each iteration refines the draws' stream (§4)
+        path_ = mix64(loop_stream + ((uint64_t)i + 1) * GAMMA);
+        Tensors values;
+        try {
+            values = eval(body, bound, prefix, operands);
+        } catch (...) {
+            path_ = outer;
+            throw;
+        }
+        path_ = outer;
         for (auto &kv : carried) {
             Tensor t = values.at(*body.output(kv.first));
             if (t.dim() != body.inputs.at(kv.first).rank)
@@ -1370,6 +1454,7 @@ TrainResult train(const Plan &plan, const Tensors &weights, const std::vector<Te
         for (int64_t index : order) {
             if (!config.per_epoch) set_lr(learning_rate(config, step, total_steps));
             Tensors inputs = to_device(batches[index], config.device);
+            trainer.set_step(step + 1); // the draws' stream: the training step from 1 (§4)
             Tensor loss;
             {
                 Autocast autocast(config.device, config.bf16);

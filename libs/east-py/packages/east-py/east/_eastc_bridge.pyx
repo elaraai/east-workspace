@@ -1881,6 +1881,12 @@ cpdef void _proxy_ref_set(uintptr_t ptr, uintptr_t inner_type_ptr, object value)
     _eastc.east_ref_set(<_eastc.EastValue*>ptr, c_val)
     _eastc.east_value_release(c_val)
 
+cpdef bint _proxy_frozen(uintptr_t ptr):
+    """Whether the C value at `ptr` carries the frozen (task-input) brand: a
+    platform function keying a cache by a value's address asks this first
+    (#1357 R24 — a frozen value cannot change under the address it holds)."""
+    return _eastc.east_value_frozen(<_eastc.EastValue*>ptr)
+
 cpdef void _proxy_retain(uintptr_t ptr):
     _eastc.east_value_retain(<_eastc.EastValue*>ptr)
 

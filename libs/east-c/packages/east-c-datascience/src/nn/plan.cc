@@ -283,7 +283,7 @@ Node parse_node(EastValue *entry, const std::string &fn_s, const Plan *parent)
     } else if (o == "dropout")
         read_fields(node, p, {{"x", K_NAME}, {"p", K_FLOAT}}, fn);
     else if (o == "random_normal" || o == "random_uniform")
-        read_fields(node, p, {{"like", K_NAME}}, fn);
+        read_fields(node, p, {{"like", K_NAME}, {"keys", K_OPT_NAME}}, fn);
     else if (o == "call")
         read_fields(node, p, {{"module", K_STR}, {"prefix", K_STR}, {"inputs", K_NAME_DICT}}, fn);
     else if (o == "loop") {
@@ -663,6 +663,8 @@ void node_dtype(Plan &plan, Node &node, const std::string &fn)
     }
     if (op == "random_normal" || op == "random_uniform") {
         d(node.s("like"));
+        if (node.has("keys") && d(node.s("keys")) != DType::Integer)
+            throw bad("keys must be integer");
         return set(DType::Float);
     }
     if (AXIS_OPS.count(op)) {
@@ -892,6 +894,7 @@ std::vector<std::string> operands_of(const Node &node)
         add("positions");
     } else if (op == "random_normal" || op == "random_uniform") {
         add("like");
+        add("keys");
     } else if (op == "call") {
         for (const auto &kv : node.dict)
             names.push_back(kv.second);

@@ -149,8 +149,12 @@ npm run test      # Run test suite
 npm run lint      # Check code quality
 ```
 
-A masked attention's memory on each runner is measured by
-`bench/attention.mjs`: a `segments` mask and a `key_sets` mask listing the same
+A long-lived model's cost on each runner is measured by `bench/model.mjs`: a
+W2-shaped model of about seven million parameters run 564 times over 120
+steps, the weights a program input read once; the preparation and each later
+call's cost beyond the forward pass (timed by `bench/model_forward.py` on the
+python interpreter) against the requirement's 1 s and 5 ms. A masked
+attention's memory on each runner is measured by `bench/attention.mjs`: a `segments` mask and a `key_sets` mask listing the same
 pairs at the requirements' size (12,288 tokens, 8 heads, width 256, 600
 segments with one of 1,500), each program's peak resident set over its
 baseline's, beside the dense path at a size it fits in

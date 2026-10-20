@@ -13,11 +13,12 @@
  * float64 element type, the rotary conventions and the pair-proportional
  * attention paths are east-workspace#1357's R13–R17.
  */
-import { East, variant, some, none, type BlockBuilder, type NullType, type ValueTypeOf } from "@elaraai/east";
+import { East, variant, some, none, BlobType, DictType, StringType, type BlockBuilder, type NullType, type ValueTypeOf } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
 import { NeuralNet, NetType, NnBatchType, NnWeightsType, NnRunConfigType } from "@elaraai/east-py-datascience";
 import * as ex from "./nn.examples.js";
 import * as ref from "./nn.reference.generated.js";
+import * as torchRef from "./nn.torch.reference.generated.js";
 
 type Block = BlockBuilder<NullType>;
 type Net = ValueTypeOf<typeof NetType>;
@@ -672,16 +673,127 @@ describeEast("NeuralNet platform functions", test => {
 
     test("random_normal and random_uniform draw tensors shaped like an operand", $ => {
         const like = ft([2000], new Array(2000).fill(0));
-        const normal = net1({ like: F(1) }, variant("random_normal", { like: "like" }));
+        const normal = net1({ like: F(1) }, variant("random_normal", { like: "like", keys: none }));
         const n = $.let(run($, normal, batch({ like }), new Map(), ["y"], 1n).get("y").unwrap("float"));
         $(Assert.equal(n.shape, sh(2000)));
         $(Assert.between(n.data.sum().divide(2000.0), -0.15, 0.15));
         $(Assert.between(n.data.map(($, v) => v.multiply(v)).sum().divide(2000.0), 0.8, 1.2));
-        const uniform = net1({ like: F(1) }, variant("random_uniform", { like: "like" }));
+        const uniform = net1({ like: F(1) }, variant("random_uniform", { like: "like", keys: none }));
         const u = $.let(run($, uniform, batch({ like }), new Map(), ["y"], 1n).get("y").unwrap("float"));
         $(Assert.greaterEqual(u.data.min(), 0.0));
         $(Assert.less(u.data.max(), 1.0));
         $(Assert.between(u.data.sum().divide(2000.0), 0.4, 0.6));
+    });
+
+    // ========================================================================
+    // Draws keyed by row (R25, R26), the weight cache (R24), torch state dicts (R28)
+    // ========================================================================
+
+    test("a row's draws depend on its key alone: the same in one batch and in batches of 1, 7 and 100", $ => {
+        const rows = 1000, width = 3;
+        const keys = Array.from({ length: rows }, (_, i) => (i * 7919) % 100003);
+        const zeros = (n: number) => new Array<number>(n).fill(0);
+        const draws = (op: "random_uniform" | "random_normal", keyed: boolean) =>
+            net1({ like: F(2), keys: I(1) }, variant(op, { like: "like", keys: keyed ? some("keys") : none }));
+        for (const op of ["random_uniform", "random_normal"] as const) {
+            const whole = $.let(run($, draws(op, true), batch({ like: ft([rows, width], zeros(rows * width)), keys: it([rows], keys) }), new Map(), ["y"], 5n)
+                .get("y").unwrap("float").data);
+            $(Assert.equal(whole.length(), BigInt(rows * width)));
+            for (const [size, starts] of [[1, [0, 123, 999]], [7, [0, 497, 993]], [100, [0, 900]]] as const) {
+                for (const start of starts) {
+                    const part = $.let(run($, draws(op, true), batch({
+                        like: ft([size, width], zeros(size * width)), keys: it([size], keys.slice(start, start + size)),
+                    }), new Map(), ["y"], 5n).get("y").unwrap("float").data);
+                    $(Assert.equal(part.map(($, v, i) => v.subtract(whole.get(i.add(BigInt(start * width)))).abs()).max(), 0.0));
+                }
+            }
+            // without keys a row is keyed by its position: a batch of the first rows answers the whole's first rows
+            const byPosition = $.let(run($, draws(op, true), batch({ like: ft([rows, width], zeros(rows * width)), keys: it([rows], keys.map((_, i) => i)) }), new Map(), ["y"], 5n)
+                .get("y").unwrap("float").data);
+            const head = $.let(run($, draws(op, false), batch({ like: ft([4, width], zeros(4 * width)), keys: it([4], [0, 0, 0, 0]) }), new Map(), ["y"], 5n)
+                .get("y").unwrap("float").data);
+            $(Assert.equal(head.map(($, v, i) => v.subtract(byPosition.get(i)).abs()).max(), 0.0));
+            // another seed draws other values
+            const other = $.let(run($, draws(op, true), batch({ like: ft([rows, width], zeros(rows * width)), keys: it([rows], keys) }), new Map(), ["y"], 6n)
+                .get("y").unwrap("float").data);
+            $(Assert.greater(other.map(($, v, i) => v.subtract(whole.get(i)).abs()).max(), 0.0));
+        }
+        // the uniforms are on [0, 1), the normals standard, to the eye
+        const u = $.let(run($, draws("random_uniform", true), batch({ like: ft([rows, width], zeros(rows * width)), keys: it([rows], keys) }), new Map(), ["y"], 5n).get("y").unwrap("float").data);
+        $(Assert.greaterEqual(u.min(), 0.0));
+        $(Assert.less(u.max(), 1.0));
+        $(Assert.between(u.sum().divide(rows * width), 0.47, 0.53));
+        const n = $.let(run($, draws("random_normal", true), batch({ like: ft([rows, width], zeros(rows * width)), keys: it([rows], keys) }), new Map(), ["y"], 5n).get("y").unwrap("float").data);
+        $(Assert.between(n.sum().divide(rows * width), -0.06, 0.06));
+        $(Assert.between(n.map(($, v) => v.multiply(v)).sum().divide(rows * width), 0.9, 1.1));
+    });
+
+    test("one seed draws what the python runner drew: uniforms bit for bit, normals within 1e-6, in a module, a loop and a dropout", $ => {
+        const family = ref.draws;
+        const net = $.let(family.net, NetType);
+        const b = $.let(family.batch, NnBatchType);
+        const cfg = $.let({ device: variant("cpu", null), seed: 11n, training: true }, NnRunConfigType);
+        const names = [...family.outputs.keys()];
+        const out = $.let(NeuralNet.run(net, $.let(new Map(), NnWeightsType), b, names, cfg));
+        for (const [name, want] of family.outputs) {
+            if (want.type !== "float") continue;
+            const exact = name === "u_keyed" || name === "u_pos" || name === "called" || name === "scalar" || name === "dropped";
+            const got = $.let(out.get(name).unwrap("float"));
+            $(Assert.equal(got.shape, want.value.shape));
+            if (exact) {
+                $(Assert.equal(got.data, want.value.data as Float64Array));
+            } else {
+                const expected = $.let(want.value.data as Float64Array);
+                $(Assert.lessEqual(got.data.map(($, v, i) => v.subtract(expected.get(i)).abs().divide(expected.get(i).abs().add(1.0))).max(), 1e-6));
+            }
+        }
+        // the dropout kept each element of ones at 2 or dropped it to 0
+        const dropped = $.let(out.get("dropped").unwrap("float").data);
+        $(Assert.equal(dropped.map(($, v) => v.multiply(v.subtract(2.0)).abs()).max(), 0.0));
+    });
+
+    test("nn_run sees a changed weight: the prepared form follows the weights' vectors, not their first bytes", $ => {
+        const net = net1({ x: F(2) }, variant("linear", { x: "x", weight: "w", bias: none }), { w: param([1, 1]) });
+        const b = batch({ x: ft([1, 1], [2]) });
+        const times2: Weights = new Map([["w", tensor([1, 1], [2])]]);
+        const times3: Weights = new Map([["w", tensor([1, 1], [3])]]);
+        expectFloat($, run($, net, b, times2), "y", sh(1, 1), f64(4));
+        expectFloat($, run($, net, b, times3), "y", sh(1, 1), f64(6));
+        expectFloat($, run($, net, b, times2), "y", sh(1, 1), f64(4));
+        // a weights value built afresh with the same bytes answers the same
+        const again: Weights = new Map([["w", tensor([1, 1], [3])]]);
+        expectFloat($, run($, net, b, again), "y", sh(1, 1), f64(6));
+    });
+
+    test("nn_import_torch reads a torch-trained state dict, which answers what torch answered; nn_export_torch round-trips it exactly", $ => {
+        const blob = $.let(torchRef.stateDict, BlobType);
+        const names = $.let(torchRef.names, DictType(StringType, StringType));
+        const w = $.let(NeuralNet.importTorch(blob, names));
+        $(Assert.equal(w.keys(), new Set(["w1", "b1", "w2", "b2"])));
+        $(Assert.equal(w.get("w1").shape, sh(5, 3)));
+        const net = $.let(torchRef.net, NetType);
+        const b = $.let(torchRef.batch, NnBatchType);
+        const cfg = $.let({ device: variant("cpu", null), seed: 0n, training: false }, NnRunConfigType);
+        const out = $.let(NeuralNet.run(net, w, b, ["y"], cfg));
+        const want = torchRef.outputs.get("y");
+        if (want === undefined || want.type !== "float") throw new Error("the fixture has no float y");
+        expectFloat($, out, "y", want.value.shape, want.value.data as Float64Array, 1e-5);
+        // export then import: every tensor back exactly (float32 → f64 → float32 is exact)
+        const again = $.let(NeuralNet.importTorch(NeuralNet.exportTorch(w, names), names));
+        for (const name of ["w1", "b1", "w2", "b2"]) {
+            $(Assert.equal(again.get(name).shape, w.get(name).shape));
+            $(Assert.equal(again.get(name).data, w.get(name).data));
+        }
+        // a torch name no entry maps keeps itself
+        const raw = $.let(NeuralNet.importTorch(blob, $.let(new Map(), DictType(StringType, StringType))));
+        $(Assert.equal(raw.keys(), new Set(["0.weight", "0.bias", "2.weight", "2.bias"])));
+        $(Assert.equal(raw.get("0.weight").data, w.get("w1").data));
+        // the refusals
+        $(Assert.throws(NeuralNet.importTorch(blob, $.let(new Map([["w9", "9.weight"]]), DictType(StringType, StringType))),
+            /nn_import_torch: the state dict has no '9\.weight' \(named for 'w9'\)/));
+        $(Assert.throws(NeuralNet.importTorch($.let(new Uint8Array([80, 75, 3, 4, 9, 9]), BlobType), names), /nn_import_torch: the blob is not a torch state dict/));
+        $(Assert.throws(NeuralNet.exportTorch(w, $.let(new Map([["w1", "same"], ["w2", "same"]]), DictType(StringType, StringType))),
+            /nn_export_torch: two weights are named 'same' for torch/));
     });
 
     // ========================================================================

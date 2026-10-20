@@ -475,9 +475,12 @@ EastValue *result_struct(EastType *result_t, const char *fn, const char *status_
           assignments ? some(objective_t, east_float(objective)) : none(objective_t));
     r.set("best_bound", bound ? some(bound_t, east_float(*bound)) : none(bound_t));
     r.set("assignments", dict_value);
+    double wall_time = times.carried ? seconds_since(times.t0) : 0.0;
     r.set("build_time", east_float(times.carried ? times.build_time : 0.0));
     r.set("solve_time", east_float(times.carried ? times.solve_time : 0.0));
-    r.set("wall_time", east_float(times.carried ? seconds_since(times.t0) : 0.0));
+    r.set("wall_time", east_float(wall_time));
+    if (times.carried)
+        note_bridge(fn, times.build_time, wall_time - times.build_time - times.solve_time);
     return r.build();
 }
 
@@ -659,7 +662,9 @@ EvalResult cpsat_solve_columns(EastValue **args, size_t num_args, EastType *out)
     r.set("values", integer_vector(values));
     r.set("build_time", east_float(build_time));
     r.set("solve_time", east_float(solve_time));
-    r.set("wall_time", east_float(seconds_since(t0)));
+    double wall_time = seconds_since(t0);
+    r.set("wall_time", east_float(wall_time));
+    note_bridge(fn, build_time, wall_time - build_time - solve_time);
     return eval_ok(r.build());
 }
 
