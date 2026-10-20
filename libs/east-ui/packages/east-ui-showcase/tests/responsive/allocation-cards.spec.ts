@@ -134,9 +134,9 @@ for (const theme of ["light", "dark"] as const) {
         await expect(frame.locator('[data-allocation-cards="timeline"]')).toBeVisible();
         await expect(frame.locator(DRAG)).toHaveCount(0);
         expect(await cardFaults(frame, "[data-allocation-resource-card]")).toEqual([]);
-        // K-101's card: bin 3125's Unlink, Move and Back to Events, and Book an event….
+        // K-101's card: bin 3125's Unlink, Move, Split… and Back to Events, and Book an event….
         const k101 = frame.locator('[data-allocation-resource-card="K-101"]');
-        await expect(k101.locator('[data-allocation-card-bin="3125"]').getByRole("button")).toHaveText(["22:35 · B-2LD-222031 m³", "Unlink", "Move", "Back to Events"]);
+        await expect(k101.locator('[data-allocation-card-bin="3125"]').getByRole("button")).toHaveText(["22:35 · B-2LD-222031 m³", "Unlink", "Move", "Split…", "Back to Events"]);
         await expect(k101.getByRole("button", { name: "Book an event…" })).toBeVisible();
         expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });

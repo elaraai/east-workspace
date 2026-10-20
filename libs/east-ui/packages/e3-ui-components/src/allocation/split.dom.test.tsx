@@ -6,9 +6,10 @@
  * Split loads and Find a fit (#1332, `Allocation Spec.md` §9.10, A70–A74) over
  * the kiln yard's Wed 12, its loads split across kilns, through the
  * dispatcher, the shared drag layer and the yard's fit served by name: the
- * card's line and the Partly allocated issue (A70); `Split…`, each part's
- * field, Unlink of one part, the connector and a link's drag, and the Table's
- * part chips with `+ resource` (A71); a link per part, weighted within its
+ * card's line and the Partly allocated issue (A70); `Split…` of the remainder
+ * and, on a bin wholly on its resources, of its largest part (#1362), each
+ * part's field, Unlink of one part, the connector and a link's drag, and the
+ * Table's part chips with `+ resource` (A71); a link per part, weighted within its
  * family (A72); the fit asked for the quantity placed (A73); and Find a fit,
  * as an issue's fix and a bin's action, in the Library's Resources tab (A74).
  * Every fit is the yard's answer.
@@ -16,7 +17,7 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { FloatType, compareFor, type ValueTypeOf } from "@elaraai/east";
+import { FloatType, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
@@ -26,6 +27,7 @@ import { act, allocationHarness, mount, settle, slot, stubLinkGeometry, WED } fr
 const h = allocationHarness();
 type FitResult = ValueTypeOf<typeof AllocationFitResultType>;
 const byScore = compareFor(FloatType);
+const byKey = compareFor(StringType);
 const details = (c: HTMLElement) => slot(c, "end").querySelector<HTMLElement>('[data-allocation-inspector="details"]')!;
 const issuesTab = (c: HTMLElement) => slot(c, "end").querySelector<HTMLElement>('[data-allocation-inspector="issues"]')!;
 const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-allocation-card="${id}"]`)!;
@@ -34,11 +36,14 @@ const row = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data
 const tableRow = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-allocation-row="${key}"]`)!;
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 const undo = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.undo() });
+const redo = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.redo() });
 const save = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.apply() });
 const text = (el: Element | null | undefined) => el?.textContent ?? null;
 const button = (root: HTMLElement, name: string | RegExp) => within(root).getByRole("button", { name });
 async function press(node: Element | null | undefined) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
 async function key(c: HTMLElement, k: string) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: k }); }); await settle(); }
+/** Lets the shared number inputs' boxes catch up: zag writes a box's text on an animation frame once its number changes, as the number input's own tests wait for. */
+async function frames() { await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>(resolve => { requestAnimationFrame(() => resolve()); }); }); }
 async function open(example: { fn: { toIR(): unknown } } = ex.allocationSplit) { const r = mount(example); await settle(); return r.container; }
 async function tab(c: HTMLElement, side: "start" | "end", name: string) { await press(within(slot(c, side)).getAllByRole("tab").find(t => t.textContent!.startsWith(name))); }
 async function hover(from: Element, into: Element) {
@@ -72,8 +77,11 @@ const partsShown = (c: HTMLElement) => [...details(c).querySelectorAll<HTMLEleme
     return [f.getAttribute("data-field"), Number(f.querySelector("input")?.value)];
 });
 const remainder = (c: HTMLElement) => text(details(c).querySelector("[data-allocation-remainder]"));
-/** `Split…`'s popover, portaled out of the pane. */
+/** `Split…`'s popover, portaled out of the pane, and whether it is open: closed, it stays mounted while its bin has something to split. */
 const splitBox = (bin: string) => document.querySelector<HTMLElement>(`[data-allocation-split="${bin}"]`);
+const splitOpen = (bin: string) => splitBox(bin)?.closest("[role=dialog]")?.getAttribute("data-state") === "open";
+/** A bin's code, as its card shows it. */
+const codeOf = (c: HTMLElement, id: string) => text(card(c, id).querySelector("[data-allocation-code]"));
 const options = (root: HTMLElement, section: string) => [...root.querySelectorAll(`[role=group][aria-label="${section}"] [role=option]`)]
     .map(o => o.querySelector("span:nth-child(2) > span:first-child")!.textContent);
 
@@ -103,15 +111,16 @@ describe("a split bin on its card and in Issues (A70)", () => {
 });
 
 describe("splitting (A71, A73)", () => {
-    test("A71 — Assigned to: each part's quantity a field, by its resource, and what they leave in warn; `Split…` while some is left", async () => {
+    test("A71 — Assigned to: each part's quantity a field, by its resource, and what they leave in warn; `Split…` on every bin, of what is left, or with nothing left of its largest part", async () => {
         const c = await open();
         await press(card(c, "3201"));
         expect(partsShown(c)).toEqual([["K-208", 6], ["K-601", 20]]);
         expect(remainder(c)).toBe("4 m³ unallocated");
-        expect(details(c).querySelector("[data-allocation-split-open]")).not.toBeNull();
-        // A wholly split bin: its parts, nothing left, and no `Split…`.
+        expect(details(c).querySelector("[data-allocation-split-open]")!.getAttribute("title")).toBe("Split LD-2232 · 4 m³ unallocated");
+        // A wholly split bin: its parts, nothing left, and `Split…` of its largest part (#1362).
         await press(card(c, "3202"));
-        expect([partsShown(c), remainder(c), details(c).querySelector("[data-allocation-split-open]")]).toEqual([[["K-107", 12], ["K-110", 6]], null, null]);
+        expect([partsShown(c), remainder(c)]).toEqual([[["K-107", 12], ["K-110", 6]], null]);
+        expect(details(c).querySelector("[data-allocation-split-open]")!.getAttribute("title")).toBe(`Split ${codeOf(c, "3202")} · 12 m³ on K-107`);
     });
 
     test("A71, A73 — `Split…` puts the remainder on another resource: the quantity the remainder's, the Chooser the fit's answer for it, the bin's own resources left out; one draft that Saves", async () => {
@@ -128,13 +137,42 @@ describe("splitting (A71, A73)", () => {
         expect(offered).toEqual(fitsOf(answer, ["K-208", "K-601"]));
         expect(offered.some(k => k === "K-208" || k === "K-601")).toBe(false);
         await press(within(box).getByRole("option", { name: new RegExp(offered[0]!) }));
-        expect(splitBox("3201")).toBeNull();
+        expect(splitOpen("3201")).toBe(false);
         expect([partsShown(c).map(([k]) => k), remainder(c)]).toEqual([[...["K-208", "K-601", offered[0]!].sort()], null]);
         expect(text(card(c, "3201").querySelector("[data-allocation-to]"))).toBe("K-601 + 2");
         await press(save(c));
         expect(saved("3201").parts.get(offered[0]!)).toBe(4);
         await tab(c, "end", "Issues");
         expect(issuesTab(c).querySelector('[data-allocation-issue-group="unallocated"]')).toBeNull();
+    });
+
+    test("A71, A73 — `Split…` on a bin wholly on its resources takes half its largest part by default onto the resource chosen, the fit asked for that half, the bin's own resources left out: one step Undo takes back, that Saves (#1362)", async () => {
+        const c = await open();
+        // 3202: 12 on K-107 and 6 on K-110, nothing left.
+        await press(card(c, "3202"));
+        await press(details(c).querySelector("[data-allocation-split-open]"));
+        const box = splitBox("3202")!;
+        expect(box.closest("[role=dialog]")!.textContent).toContain(`Split ${codeOf(c, "3202")} · 12 m³ on K-107`);
+        expect(Number((within(box).getByRole("spinbutton") as HTMLInputElement).value)).toBe(6);
+        // The question is the half's: 6 m³ of the bin placed (A73).
+        const answer = answerFor("3202", 6)!;
+        expect(answer).toBeDefined();
+        const offered = options(box, "Gaps that fit");
+        expect(offered.length).toBeGreaterThan(0);
+        expect(offered).toEqual(fitsOf(answer, ["K-107", "K-110"]));
+        await press(within(box).getByRole("option", { name: new RegExp(offered[0]!) }));
+        await frames();
+        expect(splitOpen("3202")).toBe(false);
+        // K-107 keeps the other half; nothing is left unallocated.
+        const split = [["K-107", 6], ["K-110", 6], [offered[0]!, 6]].sort((x, y) => byKey(x[0] as string, y[0] as string));
+        expect([partsShown(c), remainder(c)]).toEqual([split, null]);
+        // One step: Undo puts the bin back whole on its two resources, Redo splits it again.
+        await press(undo(c)); await frames();
+        expect(partsShown(c)).toEqual([["K-107", 12], ["K-110", 6]]);
+        await press(redo(c)); await frames();
+        expect(partsShown(c)).toEqual(split);
+        await press(save(c));
+        expect([...saved("3202").parts]).toEqual(split);
     });
 
     test("A71, A73 — a part's field sets what it holds, no more than it and the remainder: 20 → 16 leaves 8; its Clear, or nothing, unlinks it", async () => {

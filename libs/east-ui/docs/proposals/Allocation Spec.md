@@ -103,7 +103,8 @@ These are settled.
    superseding the mock's "the library always lists everything"; the same rule
    holds for every BuilderFrame component.)*
 9. **Split loads.** A bin's quantity may be split across resources, each part
-   with its quantity. *(Ruled 17 Oct.)*
+   with its quantity. *(Ruled 17 Oct.)* A bin wholly on its resources splits
+   onto another the same way, off its largest part (A71). *(Ruled 20 Oct.)*
 10. **Find a fit** runs the app's fit for a bin's unallocated quantity and
     narrows the Library's Resources tab to the fits. *(Ruled 17 Oct.)*
 11. **Links are Plan's** (`Plan links.html` with the user's overrides): they
@@ -1066,10 +1067,16 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
   `→ K-203 + 1` with `4 m³ unallocated` in warn-text; Issues lists it as Partly
   allocated, a warning that never blocks.
 - **A71.** Splitting: the inspector's `Split…` (an anchored popover: the resource
-  through the Chooser, the quantity defaulting to the remainder) adds a part; each
-  part's quantity is a field in Assigned to; Unlink removes one part. The connector
-  links the remainder; dragging a link moves its part. The Table lists a bin's
-  parts as resource chips with their quantities, and `+ resource` for a remainder.
+  through the Chooser, and the quantity) adds a part, on every bin with something
+  to split. With some of the bin unallocated it places that, the quantity
+  defaulting to the remainder; with none, it takes the quantity off the bin's
+  largest part, half of it by default and editable, and puts it on the resource
+  chosen: one gesture, one undo step. *(Ruled 20 Oct, #1362.)* It takes at least 1
+  (half, of a part under 2) and at most the part less that, so both parts keep
+  some. Each part's quantity is a field in Assigned to; Unlink removes one part.
+  The connector links the remainder; dragging a link moves its part. The Table
+  lists a bin's parts as resource chips with their quantities, and `+ resource`
+  for a remainder.
 - **A72.** Each part is its own link, weighted by its quantity within the family; a
   split bin in the focus shows a link to each of its resources.
 - **A73.** The fit is always asked for the quantity being placed: the part's, or the
@@ -1097,10 +1104,13 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
 
 - **A78.** Below 480px of main (`useContainerBelow(main, NARROW_WIDTH)`), the
   Timeline is a card per resource (its load line, its bins with Unlink · Move ·
-  Back to Events, and `Book an event…`), and the Table a card per slot (`Book…`,
-  `Reserve…`, `Allocate…`, `Unlink`, `Back to Events`), each action an anchored
-  popover running the same command. No drag source, target or handle is
-  registered. Resizing keeps the layout, the selection and the drafts.
+  Split… · Back to Events, and `Book an event…`), and the Table a card per slot
+  (`Book…`, `Reserve…`, `Allocate…`, `Split…` on a bin wholly on its resources,
+  `Unlink`, `Back to Events`), each action an anchored popover running the same
+  command; `Split…` is the inspector's (A71; on the cards, *ruled 20 Oct*). On a
+  resource's card it takes off its bin's part there; a slot's card leaves a
+  remainder to `Allocate…`. No drag source, target or handle is registered.
+  Resizing keeps the layout, the selection and the drafts.
 
 ### 9.13 Footer and loading (owner: frame)
 

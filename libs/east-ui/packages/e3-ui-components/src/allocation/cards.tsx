@@ -6,13 +6,14 @@
 /**
  * The narrow layout (`Allocation Spec.md` §9.12, A78, #1333): below 480px of
  * main, the Timeline is a card per resource the narrowing shows — its load
- * line, its bins today with Unlink, Move and Back to Events, and `Book an
- * event…` — and the Table a card per row in its time bands, with `Book…`,
- * `Reserve…`, `Allocate…`, `Unlink` and `Back to Events`. A choice is the
- * Table's Chooser in its anchored popover, asking the fit what its cell asks;
- * Unlink and Back to Events act at once, each a draft the history undoes, and
- * Move takes a bin's part to another resource (ruled 19 Oct). Every action is
- * one of the board's commands. Nothing here registers a drag source, a drop
+ * line, its bins today with Unlink, Move, `Split…` and Back to Events, and
+ * `Book an event…` — and the Table a card per row in its time bands, with
+ * `Book…`, `Reserve…`, `Allocate…`, a whole bin's `Split…`, `Unlink` and `Back
+ * to Events`. A choice is the Table's Chooser in its anchored popover, asking
+ * the fit what its cell asks; Unlink and Back to Events act at once, each a
+ * draft the history undoes, and Move takes a bin's part to another resource
+ * (ruled 19 Oct). `Split…` is the Inspector's popover (`split.tsx`, #1362).
+ * Every action is one of the board's commands. Nothing here registers a drag source, a drop
  * target or a handle; the cards' looks are the shared agenda part's, as the
  * Roster's and the Calendar's are.
  *
@@ -24,10 +25,11 @@ import { Box, Button, chakra } from "@chakra-ui/react";
 import { variant, type SortedMap, type option } from "@elaraai/east";
 import { VirtualRows, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
-import { remainderOf } from "./actions.js";
+import { remainderOf, splitOf } from "./actions.js";
 import { eventChoices, type ChoiceWords } from "./choices.js";
 import { binCode, matesOf, type InspectorWords, type Mate } from "./inspector-model.js";
 import { NarrowedEmpty } from "./narrowed.js";
+import { SplitPopover } from "./split.js";
 import { a, one, useNouns } from "./nouns.js";
 import { ChoiceCell, ChooserPopover, openKey, type ChoiceScene, type Open } from "./table.js";
 import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
@@ -136,7 +138,9 @@ function ResourceCard({ props, words, resource, rows, open, setOpen }: {
 /**
  * A bin on a resource's card: its time, lane, code and what it puts there, one
  * button that selects it; then Unlink (its part there), Move (that part, to
- * another resource) and Back to Events — a reservation's Move and Remove.
+ * another resource), `Split…` (what is left unallocated, or with nothing left
+ * some of its part there, onto another resource) and Back to Events — a
+ * reservation's Move and Remove.
  */
 function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
     props: CardsProps; words: CardWords; resource: string; mate: Mate; row: TableRow | undefined; open: CardsOpen; setOpen: (open: CardsOpen) => void;
@@ -152,6 +156,8 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
     const move = row === undefined ? null : <ChoiceCell props={props} row={row} side="resource" part={resource} words={words.choice}
         open={open?.row === row.key && openKey(open.side, open.part) === openKey("resource", resource)} setOpen={setOpen}
         trigger={() => <Button size="xs" variant="outline" title={reserved ? `Move the reservation to another ${one(nouns.resource)}` : `Move the ${mate.quantity} on ${name} to another ${one(nouns.resource)}`}>Move</Button>} />;
+    const split = reserved || splitOf(bin, resource) === undefined ? null : <SplitPopover id={mate.id} bin={bin} from={resource} context={context} plan={plan} commands={commands}
+        fit={props.fit} words={words.inspector} shown={props.visibleResources} trigger={label => <Button size="xs" variant="outline" title={label} data-allocation-split-open="">Split…</Button>} />;
     return <Box css={styles.agendaBin} data-allocation-card-bin={mate.id} data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined}>
         <chakra.button type="button" css={styles.agendaBinHead} title={mate.tip} aria-pressed={selected} onClick={() => props.select({ type: "bin", id: mate.id })}>
             <span>{mate.time} · {mate.lane}</span><span>{mate.code}</span><span>{mate.quantity}</span>
@@ -163,6 +169,7 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
             </> : <>
                 <Button size="xs" variant="outline" title={`Unlink ${mate.code} from ${name}`} onClick={() => commands.unlink(mate.id, resource)}>Unlink</Button>
                 {move}
+                {split}
                 <Button size="xs" variant="outline" onClick={() => commands.remove(mate.id)}
                     title={committed !== undefined ? `Remove ${mate.code} from the plan · it moves to ${nouns.event.other}` : `Return ${mate.code} to ${nouns.event.other}`}>
                     Back to {nouns.event.other}
@@ -240,8 +247,9 @@ function ownRow(selection: Selection, row: TableRow): boolean {
 /**
  * A row's card: its lane and time, what it holds and its status, one button
  * that selects it; and its actions — a free slot's `Book…` and `Reserve…`, a
- * bin's `Allocate…`, `Unlink` and `Back to Events`, a reservation's `Book…`,
- * `Reserve…` and `Remove` — each its cell's command.
+ * bin's `Allocate…`, `Split…` while it is wholly on its resources (with some
+ * of it unallocated, `Allocate…` places that), `Unlink` and `Back to Events`,
+ * a reservation's `Book…`, `Reserve…` and `Remove` — each its cell's command.
  */
 function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; words: CardWords; row: TableRow; open: CardsOpen; setOpen: (open: CardsOpen) => void }) {
     const { plan, held, context, styles, commands } = props;
@@ -288,6 +296,8 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
                 {/* What it links: the remainder of a split or partly allocated bin (A71), else its one part, as its row's chevron does. */}
                 {chooser("resource", "Allocate…", unallocated ? null : undefined,
                     parts.length === 0 ? `Choose ${a(nouns.resource)}` : unallocated ? `Choose ${a(nouns.resource)} for the ${board.quantity(remainder, unit)} unallocated` : `Change the ${one(nouns.resource)}`)}
+                {bin !== undefined && parts.length > 0 && !unallocated && <SplitPopover id={row.bin} bin={bin} context={context} plan={plan} commands={commands} fit={props.fit}
+                    words={words.inspector} shown={props.visibleResources} trigger={label => <Button size="xs" variant="outline" title={label} data-allocation-split-open="">Split…</Button>} />}
                 {parts.length > 0 && <Button size="xs" variant="outline" title={`Unlink ${code} from ${parts.map(part => nameOf(part.key)).join(" and ")}`}
                     onClick={() => commands.unlink(row.bin!)}>Unlink</Button>}
                 <Button size="xs" variant="outline" onClick={() => commands.remove(row.bin!)}

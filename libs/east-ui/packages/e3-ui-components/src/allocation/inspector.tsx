@@ -10,7 +10,8 @@
  * slot (A60), a reservation (A61), a resource (A62) — else the summary (A63);
  * Issues groups every issue with its fix (A64). A bin's Assigned to holds its
  * parts (A70–A74, #1332): each part's quantity a field, the remainder in
- * warn, `Split…` to put the remainder on another resource, and Find a fit.
+ * warn, `Split…` to put the remainder — or, with none, some of a part — on
+ * another resource (`split.tsx`, #1362), and Find a fit.
  * Every edit is one of the board's commands, a draft of the day's session
  * until Save; every fit is the app's answer; every figure and word is e3-ui's
  * or `inspector-model.ts`'s. The parts are the shared inspector's — its head,
@@ -21,7 +22,7 @@
  * @packageDocumentation
  */
 
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -31,13 +32,13 @@ import {
 import { DateTimeType, FloatType, OptionType, StringType, StructType, none, some, variant, type SortedMap, type ValueTypeOf, type option } from "@elaraai/east";
 import { Fields, UIComponentType, type FieldSpecValue } from "@elaraai/east-ui";
 import {
-    BannerView, EastChakraComponent, FieldForm, SliceEditPopover, fieldFormMessages, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
+    BannerView, EastChakraComponent, FieldForm, fieldFormMessages, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
     type FieldFormWords,
 } from "@elaraai/east-ui-components";
 import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
-import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
+import { linkedQuantity, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
 import { resourceChoices } from "./choices.js";
 import { dropTarget, landing, placeAsk, rowCoord, type AllocationDrag, type Grip, type Refusal, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
@@ -51,6 +52,7 @@ import {
     type ResourceLine, type Selection, type Slot,
 } from "./model.js";
 import { a, one, other } from "./nouns.js";
+import { SplitPopover } from "./split.js";
 import { RESERVE_PROBE } from "./table.js";
 import { resourceAxis } from "./timeline-layout.js";
 import { countedIssues } from "./toolbar.js";
@@ -59,8 +61,6 @@ type Styles = Record<string, Record<string, unknown>>;
 
 /** The Bin section's fields (A57): its lane and its time, each drawn by the board in the shared field, and its quantity. */
 const BIN_FIELDS = StructType({ lane: StringType, at: DateTimeType, quantity: FloatType });
-/** What `Split…` places (A71): a quantity, the remainder's at most. */
-const SPLIT_FIELDS = StructType({ quantity: FloatType });
 /** A part's field (A71): its quantity, an Option so its Clear unlinks it. */
 const PART = OptionType(FloatType);
 /** A bin's parts as a struct: a field per part, named by its resource's key, as the bin's parts are keyed — the key the shared field shows. */
@@ -477,9 +477,12 @@ function AssignedTo({ id, bin, current, at, ...part }: Part & { id: string; bin:
     </chakra.button>;
     const choices = open && <Chooser sections={sections} placeholder={`Find ${a(nouns.resource)}`} surface="inline" autoFocus
         onChoose={key => { close(); if (key !== current) commands.link(id, key, current); }} onClose={close} />;
-    // `Split…` (A71) while the parts leave some of the bin unallocated: the remainder onto another resource.
+    // `Split…` (A71, #1362) on every bin with something to split: the remainder, or with none some of its largest part, onto another resource.
     const remainder = remainderOf(bin);
-    const split = editable && compareFloat(remainder, 0) > 0 ? <Split {...part} id={id} bin={bin} remainder={remainder} /> : undefined;
+    const split = editable && splitOf(bin) !== undefined ? <SplitPopover id={id} bin={bin} context={context} plan={args.plan} commands={commands} fit={fit} words={words}
+        shown={args.shown.resources} trigger={label => <chakra.button type="button" css={styles.link} data-allocation-split-open="" title={label}>
+            <FontAwesomeIcon icon={faArrowsSplitUpAndLeft} />Split…
+        </chakra.button>} /> : undefined;
     const opener = current !== undefined && at !== undefined
         ? <chakra.button type="button" css={styles.link} onClick={() => args.inspect({ type: "resource", key: current })}>Open {one(nouns.resource)}<FontAwesomeIcon icon={faArrowRight} /></chakra.button>
         : undefined;
@@ -547,47 +550,6 @@ function Parts({ args, styles, words, id, bin, remainder }: Part & { id: string;
         <FieldForm specs={specs} value={value} baseline={baseline} onChange={onChange} readOnly={!editable} words={formWords} />
         {compareFloat(remainder, 0) > 0 && <Box css={styles.remainder} data-allocation-remainder="">{words.quantity(remainder)} unallocated</Box>}
     </Box>;
-}
-
-/**
- * `Split…` (A71): an anchored popover over the shared one — the quantity,
- * the remainder by default and at most, and the resource through the
- * Chooser, every section of it the fit's answer for that quantity (A73),
- * the bin's own resources left out. A choice adds the part, one command.
- */
-function Split({ args, styles, words, id, bin, remainder }: Part & { id: string; bin: Bin; remainder: number }) {
-    const { context, commands, fit } = args;
-    const nouns = words.nouns;
-    const [open, setOpen] = useState(false);
-    const [quantity, setQuantity] = useState(remainder);
-    // Opened again, or the remainder moved: it places the remainder again.
-    useEffect(() => { if (!open) setQuantity(remainder); }, [open, remainder]);
-    const placed = compareFloat(quantity, remainder) > 0 ? remainder : quantity;
-    const ask = useMemo(() => variant("place", { subject: variant("bin", id), quantity: placed }), [id, placed]);
-    const { ask: asking } = fit;
-    useEffect(() => { if (open) asking(ask); }, [open, ask, asking, args.plan]);
-    const except = useMemo(() => new Set(bin.parts.keys()), [bin.parts]);
-    const sections = open ? resourceChoices({ context, words, binRow: true, current: undefined, answer: fit.answer(ask), shown: args.shown.resources, except }) : [];
-    const least = compareFloat(remainder, 1) < 0 ? remainder : 1;
-    const specs = useMemo(() => Fields.specs(SPLIT_FIELDS, {
-        quantity: Fields.number({ label: nouns.quantity, min: least, max: remainder, step: 1, ...(context.unit === "" ? {} : { unit: context.unit }) }),
-    }), [nouns.quantity, least, remainder, context.unit]);
-    const shownValue = useMemo(() => ({ quantity: placed }), [placed]);
-    const onChange = useCallback((path: readonly string[], next: unknown) => { if (path[0] === "quantity") setQuantity(next as number); }, []);
-    const code = binCode(context, bin);
-    const label = `Split ${code} · ${words.quantity(remainder)} unallocated`;
-    // It opens on the Chooser's search: the remainder is what a split most often places.
-    return <SliceEditPopover open={open} onOpenChange={setOpen} label={label}
-        initialFocusEl={() => document.querySelector<HTMLElement>(`[data-allocation-split="${id}"] [data-chooser] input`)}
-        trigger={<chakra.button type="button" css={styles.link} data-allocation-split-open="" title={label}>
-            <FontAwesomeIcon icon={faArrowsSplitUpAndLeft} />Split…
-        </chakra.button>}>
-        <Box css={styles.split} data-allocation-split={id}>
-            <FieldForm specs={specs} value={shownValue} onChange={onChange} />
-            {open && <Chooser sections={sections} placeholder={`Find ${a(nouns.resource)}`} surface="inline"
-                onChoose={key => { setOpen(false); commands.split(id, key, placed); }} />}
-        </Box>
-    </SliceEditPopover>;
 }
 
 /** One booking or reservation in a list (A60, A61): its name and figure, its line, and its button. */

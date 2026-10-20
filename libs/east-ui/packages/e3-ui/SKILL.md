@@ -2521,7 +2521,7 @@ export const yardFit = e3.function("yard_fit", East.function([Allocation.Types.F
 | `quantity={{ unit }}` · `rules={{ under }}` · `every` · `view={{ layout, date }}` · `horizon={{ before, after }}` · `title` · `id` | The quantity's unit; whether the built-in rules warn under a resource's minimum (true); the slot spacing; the first layout and day, then kept under `id`; the Timeline's resource axis around the day (3 days before, 10 after); the summary's heading; storage keys when a surface holds two boards. | `allocationKilnYard` |
 | **Library and inspector** | | |
 | `Allocation.library.events()` / `.resources()` **❗** | The start pane's tabs, in order — Events: overdue, ready, removed from the plan, allocated; Resources: free, loading and busy today. Each card drags onto the board, or a click picks it and a click on a free lane hour books it; each tab follows its source of the rail. A tab listed twice is refused. | `allocationKilnYard` |
-| `inspector` / `inspector={{ bin }}` **❗** | The end pane, Details and Issues: what is selected — a bin with its Assigned to, each part's quantity, `Split…` and its other fits; a reservation; a free slot with what it can book and reserve; a resource — or the day's summary; and the day's issues, each with its fix. `bin` is the app's typed bin form in place of the quantity field and the value rows, `update(edited)` one draft; a function of another type is refused. | `allocationKilnYard`, `allocationCustomBin` |
+| `inspector` / `inspector={{ bin }}` **❗** | The end pane, Details and Issues: what is selected — a bin with its Assigned to, each part's quantity, `Split…` (the remainder, or with none some of its largest part) and its other fits; a reservation; a free slot with what it can book and reserve; a resource — or the day's summary; and the day's issues, each with its fix. `bin` is the app's typed bin form in place of the quantity field and the value rows, `update(edited)` one draft; a function of another type is refused. | `allocationKilnYard`, `allocationCustomBin` |
 | **The fit** | | |
 | `fit={Func.bind(fn: FunctionDef<[Allocation.Types.FitRequest(V)], Allocation.Types.FitResult>)}` **❗** | Required. The board asks for its active subject — the selected bin, a picked event, what a drag, a Chooser or Find a fit is for — and again when the drafts change, one question in flight at a time. While an answer is pending no verdict shows and a drop waits; a failure is the banner `Fits couldn't be checked`, with Retry. A fit bound over other bin values than the plans' is refused, naming both types. | `allocationMinimal`, `allocationFitRule` |
 | `Allocation.answer(V): (FitRequest(V), fit: fn(Candidate) => Fit, basis: String) => FitResult` | The question's candidates, each given a verdict by `fit`: a place's by resource, a take's by bin, by event and for reserving. `basis` is the answer's words for how it ranks. An app's fit's body. | `allocationAnswerPlace`, `allocationAnswerTake` |
@@ -2542,11 +2542,14 @@ the same request. A bin's quantity may be split across resources: each part is
 its own link, and what the parts leave is unallocated — a Partly allocated
 issue, whose Find a fit asks the fit for the remainder and shows its fits in
 the Library's Resources tab, best first, each with the fit's reason, under a
-chip that clears it (`allocationSplit`). Below 480px of main the Timeline is a
-card per resource and the Table a card per row, every action explicit — Book
-an event…, Move, Unlink and Back to Events; Book…, Reserve… and Allocate… —
-the same commands, the pickers in anchored popovers, and nothing drags
-(`allocationMobile`).
+chip that clears it (`allocationSplit`). `Split…` is on every bin with
+something to split: it places the remainder, or, on a bin wholly on its
+resources, takes a quantity off its largest part — half of it by default —
+onto the resource chosen, one undo step (`allocationKilnYard`). Below 480px of
+main the Timeline is a card per resource and the Table a card per row, every
+action explicit — Book an event…, Move, Split…, Unlink and Back to Events;
+Book…, Reserve…, Allocate… and a whole bin's Split… — the same commands, the
+pickers in anchored popovers, and nothing drags (`allocationMobile`).
 
 The runnable examples `allocationMinimal`, `allocationKilnYard`,
 `allocationTable`, `allocationLabels`, `allocationPublished`,

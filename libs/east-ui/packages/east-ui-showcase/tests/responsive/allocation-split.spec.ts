@@ -10,10 +10,11 @@
  * (A71); the Table's part chips and `+ resource` inside their cell at the
  * Table's least width (A71); and Find a fit's chip and found cards in the
  * Library's Resources tab (A74) — measured in the page in both themes, from
- * 1440px to a 294px parent, nothing leaving the frame.
+ * 1440px to a 294px parent, nothing leaving the frame. And a bin wholly on one
+ * kiln split onto a second (#1362), saved to e3 and read back.
  */
 import { expect, test, type Locator, type Page } from "playwright/test";
-import { open, size, token } from "./allocation-page";
+import { FILE, open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 
 const endPane = (frame: Locator) => frame.locator('[data-frame-slot="end"]');
@@ -215,3 +216,44 @@ for (const theme of ["light", "dark"] as const) {
         }
     });
 }
+
+test(`#1362, A71 — a bin wholly on one kiln splits onto a second on e3: Split… takes half of LD-2210's 32 m³ off K-108 onto the kiln the fit offers first; Save writes both parts, and the board remounted reads them back (light) @desktop`, async ({ page }) => {
+    await page.setViewportSize({ width: 2160, height: 1200 });
+    const entry = await open(page, "allocationKilnYard");
+    await size(page, entry, 1440);
+    const frame = entry.locator("[data-allocation-frame]").first();
+    const card = frame.locator('[data-allocation-timeline] [data-allocation-card="3113"]');
+    await card.scrollIntoViewIfNeeded();
+    await card.click(); await settled(page);
+    const opener = details(frame).locator("[data-allocation-split-open]");
+    await expect(opener).toHaveAttribute("title", "Split LD-2210 · 32 m³ on K-108");
+    await opener.click(); await settled(page);
+    const popover = page.locator('[data-allocation-split="3113"]');
+    await expect(popover.getByRole("spinbutton")).toHaveValue("16");
+    // The kiln the yard's fit ranks first for 16 m³, K-108 left out.
+    const fits = popover.getByRole("group", { name: "Gaps that fit" }).getByRole("option");
+    await expect(fits.first()).toBeVisible();
+    const to = await fits.first().evaluate(o => o.querySelector("span:nth-child(2) > span:first-child")!.textContent!);
+    expect(to).not.toBe("K-108");
+    await fits.first().click(); await settled(page);
+    const parts = (at: Locator) => details(at).locator("[data-allocation-parts] [data-field]")
+        .evaluateAll(fields => Object.fromEntries(fields.map(f => [f.getAttribute("data-field"), Number(f.querySelector("input")!.value)])));
+    expect(await parts(frame)).toEqual({ "K-108": 16, [to]: 16 });
+    await expect(card).toHaveAttribute("data-draft", "");
+    await frame.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(card).not.toHaveAttribute("data-draft", "");
+    // Another example and back: the board reads the day the record now holds.
+    await page.evaluate(() => { location.hash = "#e3/plan/plan/planTargetState"; });
+    await expect(page.locator("[data-plan-frame]").first()).toBeVisible({ timeout: 30_000 });
+    await page.evaluate(key => { location.hash = key; }, `#${FILE}/allocationKilnYard`);
+    await entry.scrollIntoViewIfNeeded();
+    await expect(entry.locator("[data-allocation-frame]").first()).toBeVisible({ timeout: 30_000 });
+    await settled(page);
+    await size(page, entry, 1440);
+    const again = entry.locator("[data-allocation-frame]").first();
+    const saved = again.locator('[data-allocation-timeline] [data-allocation-card="3113"]');
+    await saved.scrollIntoViewIfNeeded();
+    await saved.click(); await settled(page);
+    expect(await parts(again)).toEqual({ "K-108": 16, [to]: 16 });
+    await expect(saved).not.toHaveAttribute("data-draft", "");
+});

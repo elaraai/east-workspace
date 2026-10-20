@@ -29,6 +29,41 @@ export function remainderOf(bin: Bin): number {
     return compareFloat(left, 0) > 0 ? left : 0;
 }
 
+/** What `Split…` takes of a bin (A71): from where, how much there is, and the quantity's bounds and default. */
+export interface SplitTake {
+    /** The part it takes off, or `undefined` for what the parts leave unallocated. */
+    from: string | undefined;
+    /** What there is to take: the part, or the remainder. */
+    held: number;
+    /** The least and the most it takes, and what it takes unless told otherwise. */
+    least: number;
+    most: number;
+    initial: number;
+}
+
+/**
+ * What `Split…` takes of a bin (A71, #1362): with some of it unallocated, that
+ * — all of it by default and at most, at least 1 of it (all of it, under 1);
+ * with none, a quantity off a part — its largest, or the one named — half of
+ * it by default, at least 1 (half of it, for a part under 2) and at most the
+ * part less that, so both keep some. A reservation, a bin with nothing on a
+ * resource and nothing left, and a part it does not have split nothing.
+ *
+ * @param bin - The bin
+ * @param from - The part to take off when nothing is left; its largest by default
+ * @returns What it takes, or `undefined` for nothing to split
+ */
+export function splitOf(bin: Bin, from?: string): SplitTake | undefined {
+    if (bin.event.type === "none") return undefined;
+    const remainder = remainderOf(bin);
+    if (compareFloat(remainder, 0) > 0) return { from: undefined, held: remainder, least: compareFloat(remainder, 1) < 0 ? remainder : 1, most: remainder, initial: remainder };
+    const key = from ?? partsOf(bin)[0]?.key;
+    const part = key === undefined ? undefined : bin.parts.get(key);
+    if (key === undefined || part === undefined || compareFloat(part, 0) <= 0) return undefined;
+    const half = part / 2, least = compareFloat(half, 1) < 0 ? half : 1;
+    return { from: key, held: part, least, most: part - least, initial: half };
+}
+
 /**
  * What a drag onto a resource carries of a bin (A39, A73): a link's part, or
  * a connector's remainder — all of it with no part — or, with nothing left
@@ -67,10 +102,13 @@ export interface AllocationCommands {
     /** Takes a bin as the app's bin form wrote it (`inspector={{ bin }}`): one transaction, as every gesture is (A75). */
     edit(id: string, bin: Bin): boolean;
     /**
-     * Splits a bin (A71): a new part on a resource it is not on, of what its
-     * parts leave unallocated — more than nothing, no more than all of it.
+     * Splits a bin (A71, #1362): a new part on a resource it is not on, of
+     * what {@link splitOf} takes — of what its parts leave unallocated, more
+     * than nothing and no more than all of it; with nothing left, off a part
+     * (its largest, or `from`), more than nothing and less than all of it, so
+     * both keep some. One step.
      */
-    split(id: string, resource: string, quantity: number): boolean;
+    split(id: string, resource: string, quantity: number, from?: string): boolean;
     /**
      * Sets one part's quantity (A71, the inspector's field in Assigned to): no
      * more than the part and the remainder together; nothing unlinks it, what
@@ -246,11 +284,16 @@ export function allocationCommands(value: AllocationValue, domain: AllocationDom
             if (was === undefined || domain.sameBin(was, bin)) return false;
             return write("Edit bin", "typed", next => { next.bins.set(id, bin); });
         },
-        split(id, resource, quantity) {
+        split(id, resource, quantity, from) {
             const bin = plan.bins.get(id);
-            if (bin === undefined || bin.event.type === "none" || bin.parts.has(resource) || !Number.isFinite(quantity)
-                || compareFloat(quantity, 0) <= 0 || compareFloat(quantity, remainderOf(bin)) > 0) return false;
-            const done = write("Split", "typed", next => { next.bins.get(id)!.parts.set(resource, quantity); });
+            const take = bin === undefined ? undefined : splitOf(bin, from);
+            if (bin === undefined || take === undefined || bin.parts.has(resource) || !Number.isFinite(quantity) || compareFloat(quantity, 0) <= 0
+                || (take.from === undefined ? compareFloat(quantity, take.held) > 0 : compareFloat(quantity, take.held) >= 0)) return false;
+            const done = write("Split", "typed", next => {
+                const parts = next.bins.get(id)!.parts;
+                if (take.from !== undefined) parts.set(take.from, take.held - quantity);
+                parts.set(resource, quantity);
+            });
             if (done) select({ type: "bin", id }, true);
             return done;
         },

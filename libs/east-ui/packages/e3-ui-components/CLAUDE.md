@@ -48,10 +48,12 @@ reaches a drag target's `onDrag`: its `onRefuse` hears it, which is how the
 refusal's note reaches the inspector (A40). A bin split across resources
 (#1332) is its parts and what they leave: Assigned to holds each part's
 quantity as a field of the shared form, keyed by its resource, its Clear the
-part's Unlink, the remainder in warn, and `Split…`, an anchored popover that
-puts the remainder on another resource through the Chooser; the Table lists
-the parts as chips across its Resource and Load columns with `+ resource` for
-the remainder, and a card's line says what is left. Every one of them asks
+part's Unlink, the remainder in warn, and `Split…` (`split.tsx`), an anchored
+popover that puts the remainder — or, on a bin wholly on its resources, a
+quantity off its largest part, half of it by default (#1362) — on another
+resource through the Chooser; the Table lists the parts as chips across its
+Resource and Load columns with `+ resource` for the remainder, and a card's
+line says what is left. Every one of them asks
 the fit for the quantity it places — a part's, or the remainder's (A73) — and
 each edit is one of the board's commands (`split`, `setPart`, `link`,
 `unlink`). Find a fit (A74) asks the fit to place a bin's remainder and shows
@@ -59,13 +61,14 @@ the answer in the Library's Resources tab — the fits among what the rail
 shows, best first, each card's reason the fit's — under a chip that clears
 it, as the Roster's Find fixes do: the tab's, never a filter. Below 480px of
 main (#1333, A78) the Timeline is a card per resource the rail shows — its
-load line, its bins with Unlink, Move (the part, to another resource) and Back
-to Events, and `Book an event…` — and the Table a card per row in its bands,
-with `Book…`, `Reserve…`, `Allocate…`, `Unlink` and `Back to Events`
-(`cards.tsx`): a choice is the Table's Chooser in its anchored popover
-(`ChoiceCell`), Unlink and Back to Events act at once, every action one of the
-board's commands, and nothing registers a drag source, a drop target or a
-handle. The cards' looks are the shared agenda part
+load line, its bins with Unlink, Move (the part, to another resource),
+`Split…` (off the part there) and Back to Events, and `Book an event…` — and
+the Table a card per row in its bands, with `Book…`, `Reserve…`, `Allocate…`,
+a whole bin's `Split…`, `Unlink` and `Back to Events` (`cards.tsx`): a choice
+is the Table's Chooser in its anchored popover (`ChoiceCell`), `Split…` the
+Inspector's popover, Unlink and Back to Events act at once, every action one
+of the board's commands, and nothing registers a drag source, a drop target or
+a handle. The cards' looks are the shared agenda part
 (`slot-recipes/schedule-agenda.ts`) the Roster's and the Calendar's cards are
 on too. The segment strip
 and the one chip it folds into, which the Plan's and the Flowchart's
