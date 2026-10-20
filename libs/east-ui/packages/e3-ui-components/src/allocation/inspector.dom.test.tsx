@@ -20,7 +20,7 @@ import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, mount, settle, slot, TUE } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, TUE } from "./harness.test-utils.js";
 import { allocationWords } from "./model.js";
 import { RESERVE_PROBE } from "./table.js";
 
@@ -62,7 +62,7 @@ const rowsOf = (dl: Element | null) => {
 const mates = (c: HTMLElement) => [...details(c).querySelectorAll<HTMLElement>("[data-allocation-mate]")].map(m => [...m.children].map(s => s.textContent).concat(m.hasAttribute("data-current") ? ["current"] : []));
 async function press(node: Element | null | undefined) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
 async function key(c: HTMLElement, k: string) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: k }); }); await settle(); }
-async function open(example: { fn: { toIR(): unknown } } = ex.allocationKilnYard) { const r = mount(example); await settle(); return r.container; }
+async function open(example: { fn: { toIR(): unknown } } = ex.allocationKilnYard) { const r = await h.mount(example); return r.container; }
 async function tab(c: HTMLElement, name: "Details" | "Issues") { await press(tabs(c).find(t => t.textContent!.startsWith(name))); }
 const button = (root: HTMLElement, name: string | RegExp) => within(root).getByRole("button", { name });
 /** A row of the Table, its pane scrolled until it is mounted. */
@@ -88,7 +88,7 @@ async function over(into: Element, x = 14) { await act(async () => { pointAt(int
 async function release() { await act(async () => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", clientX: 14, clientY: 12 }); }); await settle(); }
 async function cancel() { await act(async () => { fireEvent.keyDown(document, { key: "Escape", code: "Escape" }); }); await settle(); }
 /** The yard fit's answer to a question, the latest. */
-const answerTo = (match: (ask: FitResult["ask"]) => boolean) => [...h.fits.history].reverse().find(a => match((a as FitResult).ask)) as FitResult;
+const answerTo = (match: (ask: FitResult["ask"]) => boolean) => [...h.fits.answers()].reverse().find(a => match((a as FitResult).ask)) as FitResult;
 const placing = (bin: string) => (ask: FitResult["ask"]) => ask.type === "place" && ask.value.subject.type === "bin" && ask.value.subject.value === bin;
 /** An answer's best fits, the current resource excepted. */
 const bestOf = (a: FitResult, current?: string) => [...a.resources].flatMap(([k, f]) => f.type === "fits" && k !== current ? [{ k, score: f.value.score }] : [])
@@ -211,7 +211,7 @@ describe("a bin (A56–A59)", () => {
         await press(lanes[2]!);
         await press(button(details(c), "One hour earlier"));
         await press(save(c));
-        const moved = h.read(ex.kilnPlans).get(TUE)!.bins.get("3113")!;
+        const moved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!;
         expect([moved.lane, moved.at, [...moved.parts]]).toEqual(["B-3", hour(9, 55), [["K-108", 32]]]);
         expect(details(c).querySelector('[data-field="at"]')!.textContent).toContain("B-3 bins at :55 · ± 1 h, 00–23 on Tue 11");
         await press(card(c, "3126"));
@@ -238,7 +238,7 @@ describe("a bin (A56–A59)", () => {
         expect(headOf(c).title).toBe("LD-2210 · 30 m³");
         expect(headOf(c).status).toBe("Edited · unsaved");
         await press(save(c));
-        const saved = h.read(ex.kilnPlans).get(TUE)!.bins.get("3113")!;
+        const saved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!;
         expect([saved.quantity, [...saved.parts]]).toEqual([30, [["K-108", 30]]]);
     });
 
@@ -320,10 +320,10 @@ describe("a bin (A56–A59)", () => {
     test("A59 — with no other gap: `no other free gap is long enough`", async () => {
         const c = await open();
         // Every kiln but K-108 drying a charge through the plan day: busy, none takes the bin.
-        const kilns = h.read(ex.kilns);
+        const kilns = await h.read(ex.kilns);
         const busy = new SortedMap([...kilns].map(([k, kiln]) => [k, k === "K-108" ? kiln
             : { ...kiln, charges: [{ label: "C-9000", start: new Date("2027-05-01T00:00:00Z"), end: new Date("2027-06-01T00:00:00Z") }] }] as const), compareFor(StringType));
-        await h.commit(ex.kilns, busy);
+        await h.patch(ex.kilns, busy);
         await press(card(c, "3113"));
         expect(text(details(c).querySelector("[data-allocation-alternatives]"))).toBe("Other gaps that fitno other free gap is long enough");
     });
@@ -357,7 +357,7 @@ describe("a free slot (A60)", () => {
         const fits = [...answer.resources].filter(([, f]) => f.type === "fits");
         for (const [key, line] of lines) expect(line.replace(/^(free|loading) · /, "")).toBe(whyOf(answer, key));
         // Free first, each best first: a resource is loading when a bin of the day is on it (the probe in the slot holds none).
-        const loading = new Set([...h.read(ex.kilnPlans).get(TUE)!.bins.values()].flatMap(bin => [...bin.parts.keys()]));
+        const loading = new Set([...(await h.read(ex.kilnPlans)).get(TUE)!.bins.values()].flatMap(bin => [...bin.parts.keys()]));
         const ranked = fits.map(([key, f]) => ({ key, score: f.type === "fits" ? f.value.score : 0, loading: loading.has(key) }))
             .sort((x, y) => Number(x.loading) - Number(y.loading) || byScore(y.score, x.score) || byKey(x.key, y.key));
         expect(lines.map(([key, line]) => [key, line.split(" · ")[0]])).toEqual(ranked.slice(0, 5).map(f => [f.key, f.loading ? "loading" : "free"]));
@@ -590,7 +590,7 @@ describe("the drop list (A34, A86)", () => {
         await press(button(rows[0]!, "Book"));
         expect([text(card(c, "N1").querySelector("[data-allocation-code]")), text(card(c, "N1").querySelector("[data-allocation-to]"))]).toEqual(["LD-2235", bestOf(answer)[0]]);
         await press(save(c));
-        const booked = h.read(ex.kilnPlans).get(TUE)!.bins.get("N1")!;
+        const booked = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("N1")!;
         expect([booked.lane, booked.at]).toEqual(["B-1", hour(0, 15)]);
     });
 });
@@ -671,9 +671,9 @@ describe("the app's bin form (`inspector={{ bin }}`)", () => {
         await act(async () => { fireEvent.change(instruction, { target: { value: "Stack under cover" } }); });
         await settle();
         expect(headOf(c).status).toBe("Edited · unsaved");
-        expect(h.read(ex.kilnPlans).get(TUE)!.bins.get("3113")!.values.instruction).toEqual(none);
+        expect((await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!.values.instruction).toEqual(none);
         await press(save(c));
-        expect(h.read(ex.kilnPlans).get(TUE)!.bins.get("3113")!.values.instruction).toEqual(some("Stack under cover"));
+        expect((await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!.values.instruction).toEqual(some("Stack under cover"));
     });
 });
 

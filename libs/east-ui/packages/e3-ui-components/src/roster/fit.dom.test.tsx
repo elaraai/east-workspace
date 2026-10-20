@@ -238,13 +238,12 @@ describe("the warehouse's example asks its greedy fit (R5)", () => {
     test("R5 — rosterWarehouse asks `roster_staff_fit` on e3, and the People tab is its ranking: the most spare contract hours first, a tie in staff order", async () => {
         expect(ex.rosterStaffFit.name).toBe("roster_staff_fit");
         const { container: c } = await open(ex.rosterWarehouse);
-        const answers = h.fits.answers();
         // A. Alder's Thursday shift removed first: A. Alder and J. Quartz both have 14 hours to spare, so the fit ranks them in staff order.
         await press(within(assignment(c, "s1")).getByRole("button", { name: "Remove A. Alder" }));
         await issues(c);
         await press(fix(c, LEAD_ISSUE));
         await waitFor(() => expect(found(c)).toEqual([["aalder", "from Inbound · 14 h spare"], ["jquartz", "Dispatch · 14 h spare"]]));
-        const answer = answers().at(-1)!;
+        const answer = h.fits.answers(ex.rosterStaffFit.name).at(-1)!;
         expect(["aalder", "jquartz"].map(key => answer.people.get(key))).toEqual([
             variant("fits", { score: 14, why: "from Inbound · 14 h spare", warn: none }),
             variant("fits", { score: 14, why: "Dispatch · 14 h spare", warn: none }),

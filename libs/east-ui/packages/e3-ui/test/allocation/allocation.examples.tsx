@@ -20,6 +20,8 @@ export const kilns = e3.record("kilns", DictType(StringType, Kiln), yardKilns);
 export const kilnsByGroup = e3.recordIndex("kilns_by_group", kilns, { on: ["group"] });
 export const kilnsByGroupMax = e3.recordIndex("kilns_by_group_max", kilns, { on: ["group", "max"] });
 export const kilnsByName = e3.recordIndex("kilns_by_name", kilns, { on: ["name"] });
+// The kilns' patch door: another session's edit of the yard's kilns, as the renderer's tests on e3 commit it (#1376).
+export const kilnsPatch = e3.mutation.patch(kilns);
 // Every load the day may book: booked or not, the board tells them apart by the plan; indexed by spec for the narrowing.
 export const arrivals = e3.record("arrivals", DictType(StringType, TimberLoad), yardArrivals);
 export const arrivalsBySpec = e3.recordIndex("arrivals_by_spec", arrivals, { on: ["spec"] });

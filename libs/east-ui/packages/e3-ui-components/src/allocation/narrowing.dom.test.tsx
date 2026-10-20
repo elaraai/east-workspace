@@ -19,17 +19,16 @@ import { StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant }
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { pathText } from "../platform/record-paging.test-utils.js";
-import { act, allocationHarness, mount, programOf, settle, slot } from "./harness.test-utils.js";
+import { act, allocationHarness, programOf, settle, slot, type Example, type MountOptions } from "./harness.test-utils.js";
 import { countBuilds } from "../shared/builds.test-utils.js";
 
 const h = allocationHarness();
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
 /** An example mounted over a store of its own, where each source's state is kept. */
-async function open(example: Parameters<typeof mount>[0]) {
+async function open(example: Example, options: MountOptions = {}) {
     const store = new UIStore(); StateRuntime.initializeStore(store);
-    const r = mount(example); await settle();
+    const r = await h.mount(example, options);
     return { c: r.container, store };
 }
 /** A source's narrowing written as the rail writes it: one field's values. */
@@ -65,8 +64,8 @@ const total = (bands: readonly { rows: number; bins: number; free: number }[]) =
 });
 const summary = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-record-slices-summary]")?.textContent;
 const HALL_A = ["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"];
-const bayPages = () => h.paging.requests.filter(r => r.includes("yard_bays_by_area page"));
-const kilnPages = () => h.paging.requests.filter(r => / index kilns_by_\w+ page /.test(r));
+const bayPages = () => h.requests("page", "records.yard_bays").filter(r => r.query.get("index") === ex.yardBaysByArea.name);
+const kilnPages = () => h.requests("page", "records.kilns").filter(r => r.query.get("index")?.startsWith("kilns_by_") === true);
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("one rail over the lanes, the resources and the events", () => {
@@ -186,7 +185,7 @@ describe("the Table, narrowed", () => {
         expect(offered).toEqual(HALL_A);
         expect(list.querySelector("[role=group]")!.getAttribute("aria-label")).toBe("Current");
         type Answer = { resources: Map<string, unknown> };
-        expect((h.fits.history as Answer[]).at(-1)!.resources.size).toBe(33);
+        expect((h.fits.answers() as Answer[]).at(-1)!.resources.size).toBe(33);
     });
 
     test("loads and issues read every resource, whatever the narrowing hides", async () => {
@@ -260,7 +259,7 @@ describe("the Timeline, narrowed", () => {
     test("a failed lane read keeps the last lanes, says `Lane results unavailable`, and Retry reads the lanes again", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await waitFor(() => expect(cards(c)).toHaveLength(26));
-        h.paging.failing.add(pathText(ex.yardBays.path));
+        const failing = h.unavailable(ex.yardBays);
         await narrow(store, "allocationKilnYard", "lanes", "area", ["North"]);
         const banner = () => within(slot(c, "banners")).queryByText("Lane results unavailable");
         await waitFor(() => expect(banner()).not.toBeNull());
@@ -269,7 +268,7 @@ describe("the Timeline, narrowed", () => {
         expect(laneHeads(c)).toEqual(["B-1", "B-2", "B-3"]);
         expect(slot(c, "main").querySelector("[data-allocation-main]")!.hasAttribute("inert")).toBe(true);
         // The service answers again: Retry asks again at once.
-        h.paging.failing.clear();
+        failing();
         await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));
         await waitFor(() => expect(banner()).toBeNull());
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
@@ -279,7 +278,7 @@ describe("the Timeline, narrowed", () => {
 describe("a filter change rebuilds no builder (#1354)", () => {
     test("a choice on the rail builds the board no more: the lanes, the resource rows and the summary follow it over the payload it mounted with", async () => {
         const builds = countBuilds("Allocation", programOf(ex.allocationKilnYard));
-        const { c, store } = await open(builds.program);
+        const { c, store } = await open(ex.allocationKilnYard, { program: builds.program });
         await waitFor(() => expect(cards(c)).toHaveLength(26));
         const mounted = [builds.runs, builds.decodes];
         expect(Math.min(...mounted)).toBeGreaterThan(0);

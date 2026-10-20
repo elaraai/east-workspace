@@ -17,7 +17,7 @@ import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt, press as key, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, mount, settle, slot, stubLinkGeometry, TUE } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, stubLinkGeometry, TUE } from "./harness.test-utils.js";
 import { allocationWords } from "./model.js";
 
 const h = allocationHarness();
@@ -31,7 +31,7 @@ const caption = () => document.querySelector<HTMLElement>("[data-drag-caption]")
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 const undo = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.undo() });
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
-async function open(example: { fn: { toIR(): unknown } } = ex.allocationMinimal) { const r = mount(example); await settle(); return r.container; }
+async function open(example: { fn: { toIR(): unknown } } = ex.allocationMinimal) { const r = await h.mount(example); return r.container; }
 /** Scrolls the resource pane so a row far down it is mounted. */
 async function reveal(c: HTMLElement, key: string) {
     const el = pane(c);
@@ -53,7 +53,7 @@ async function release() { await act(async () => { fireEvent.pointerUp(document,
 async function cancel() { await act(async () => { fireEvent.keyDown(document, { key: "Escape", code: "Escape" }); }); await settle(); }
 async function drop(from: Element, into: Element) { await hover(from, into); await release(); }
 /** The yard fit's last answer. */
-const answer = (name = "yard_fit") => h.fits.answers.get(name) as FitResult;
+const answer = (name = "yard_fit") => h.fits.answers(name).at(-1) as FitResult;
 const timeline = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-allocation-timeline]")!;
 const linkCaption = (c: HTMLElement, bin: string, resource: string) => c.querySelector<SVGGElement>(`[data-allocation-caption="${bin}|${resource}"]`)!;
 const linkLine = (c: HTMLElement, bin: string, resource: string) => c.querySelector<SVGPathElement>(`[data-allocation-link="${bin}|${resource}"]`)!;
@@ -86,16 +86,16 @@ async function moveTo(into: Element | null, x: number, y: number) {
 }
 /** A reservation of a lane hour on a resource, in the day as the record holds it. */
 async function reserve(id: string, lane: string, at: Date, resource: string) {
-    const plans = h.read(ex.kilnPlans);
+    const plans = await h.read(ex.kilnPlans);
     plans.get(TUE)!.bins.set(id, { lane, at, event: none, quantity: 0, kind: none, hold: variant("days", 0),
         parts: new SortedMap([[resource, 0]], compareFor(StringType)), values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
-    await h.commit(ex.kilnPlans, plans);
+    await h.patch(ex.kilnPlans, plans);
 }
 /** A kiln's minimum changed in the record, as another session's commit lands under the board. */
 async function setMinimum(key: string, min: number) {
-    const kilns = h.read(ex.kilns);
+    const kilns = await h.read(ex.kilns);
     kilns.set(key, { ...kilns.get(key)!, min });
-    await h.commit(ex.kilns, kilns);
+    await h.patch(ex.kilns, kilns);
 }
 /** An answer's reason for a resource it fits. */
 const whyOf = (a: FitResult, key: string) => { const fit = a.resources.get(key); return fit?.type === "fits" ? fit.value.why : undefined; };
@@ -107,26 +107,26 @@ const bestOf = (a: FitResult, current: string) => [...a.resources].flatMap(([k, 
 describe("when the board asks the fit (F1, A23)", () => {
     test("A23 — the selected bin's question is asked before a drag needs it; A35 — once per question, however far a drag goes", async () => {
         const c = await open();
-        expect(h.fits.calls.get("yard_fit") ?? 0).toBe(0);
+        expect(h.fits.calls("yard_fit")).toBe(0);
         await press(card(c, "3101"));
-        expect(h.fits.calls.get("yard_fit")).toBe(1);
+        expect(h.fits.calls("yard_fit")).toBe(1);
         expect(answer().ask).toEqual(variant("place", { subject: variant("bin", "3101"), quantity: 35 }));
         // Its connector's drag asks the same question: answered already.
         await hover(connector(c, "3101"), row(c, "K-101"));
         for (const key of ["K-102", "K-103", "K-104", "K-105", "K-201", "K-202"]) await over(row(c, key));
-        expect(h.fits.calls.get("yard_fit")).toBe(1);
+        expect(h.fits.calls("yard_fit")).toBe(1);
         await cancel();
     });
 
     test("F1 — a draft asks again: the drafts changed, the kept answer is not theirs", async () => {
         const c = await open();
         await press(card(c, "3101"));
-        expect(h.fits.calls.get("yard_fit")).toBe(1);
+        expect(h.fits.calls("yard_fit")).toBe(1);
         // A move selects its bin: its question, of the new drafts.
         await drop(card(c, "3103"), c.querySelector(`[data-allocation-cell="B-2|${Date.UTC(2027, 4, 11, 0, 35)}"]`)!);
-        expect(h.fits.calls.get("yard_fit")).toBe(2);
+        expect(h.fits.calls("yard_fit")).toBe(2);
         await press(card(c, "3101"));
-        expect(h.fits.calls.get("yard_fit")).toBe(3);
+        expect(h.fits.calls("yard_fit")).toBe(3);
     });
 
     test("F1 — a record the board reads, committed under it, asks again of the same drafts: the kept answer was of the kilns as they were", async () => {
@@ -134,18 +134,18 @@ describe("when the board asks the fit (F1, A23)", () => {
         // A draft first: the day as drafted is the session's, whatever the record under it does.
         await drop(card(c, "3103"), c.querySelector(`[data-allocation-cell="B-2|${Date.UTC(2027, 4, 11, 0, 35)}"]`)!);
         await press(card(c, "3101"));
-        const asked = h.fits.calls.get("yard_fit")!;
+        const asked = h.fits.calls("yard_fit");
         expect(whyOf(answer(), "K-601")?.startsWith("open gap · leaves 35 m³ · min 40 · 5 short")).toBe(true);
         // Another session lowers K-601's minimum: LD-2201's 35 m³ there no longer leaves it short.
         await setMinimum("K-601", 30);
         await reveal(c, "K-601");
         expect([row(c, "K-601").textContent, card(c, "3103").hasAttribute("data-draft")]).toEqual([expect.stringContaining("takes 30–60 m³"), true]);
-        expect(h.fits.calls.get("yard_fit")).toBe(asked + 1);
+        expect(h.fits.calls("yard_fit")).toBe(asked + 1);
         expect(whyOf(answer(), "K-601")?.startsWith("open gap · leaves 35 m³ · takes 30–60")).toBe(true);
         // Its connector's drag shows that answer, and asks nothing more.
         await hover(connector(c, "3101"), row(c, "K-601"));
         expect(row(c, "K-601").querySelector("[data-allocation-reason]")!.textContent).toBe(whyOf(answer(), "K-601"));
-        expect(h.fits.calls.get("yard_fit")).toBe(asked + 1);
+        expect(h.fits.calls("yard_fit")).toBe(asked + 1);
         await cancel();
     });
 
@@ -154,13 +154,13 @@ describe("when the board asks the fit (F1, A23)", () => {
         await drop(card(c, "3103"), c.querySelector(`[data-allocation-cell="B-2|${Date.UTC(2027, 4, 11, 0, 35)}"]`)!);
         const answerFit = h.fits.hold();
         await press(card(c, "3101"));
-        const asked = h.fits.calls.get("yard_fit")!;
+        const asked = h.fits.calls("yard_fit");
         await setMinimum("K-601", 30);
         // One question in flight at a time: the board's next waits for it.
-        expect(h.fits.calls.get("yard_fit")).toBe(asked);
-        await act(async () => { answerFit(); }); await settle();
+        expect(h.fits.calls("yard_fit")).toBe(asked);
+        await act(async () => { answerFit.release(); }); await settle();
         // That answer was of the kilns as they were: the same question, asked again of these.
-        expect(h.fits.calls.get("yard_fit")).toBe(asked + 1);
+        expect(h.fits.calls("yard_fit")).toBe(asked + 1);
         expect(whyOf(answer(), "K-601")?.startsWith("open gap · leaves 35 m³ · takes 30–60")).toBe(true);
     });
 });
@@ -259,7 +259,7 @@ describe("a connector's drag over the resources", () => {
         expect(card(c, "3101").querySelector("[data-allocation-to]")!.textContent).toBe("K-209");
         await press(toolbar(c).getByRole("button", { name: editingMessages.redo() }));
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        expect([...h.read(ex.kilnPlans).get(TUE)!.bins.get("3101")!.parts]).toEqual([["K-601", 35]]);
+        expect([...(await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3101")!.parts]).toEqual([["K-601", 35]]);
     });
 
     test("A40 — a refused drop moves nothing and adds no banner; a connector onto a lane hour is refused `drop on a resource`", async () => {
@@ -325,7 +325,8 @@ describe("a drag's start (A22)", () => {
     test("A22 — as a drag goes nothing above the board comes or goes: a fit that fails during the drag says so once it is dropped", async () => {
         const c = await open();
         const banners = () => slot(c, "banners")?.textContent ?? "";
-        h.fits.failure = "the kiln service is down";
+        // e3 cannot serve the fit: it answers each call 503, unavailable.
+        h.fits.fail();
         await hover(connector(c, "3101"), row(c, "K-101"));
         expect([caption()!.textContent, caption()!.hasAttribute("data-refused")]).toEqual(["fits unavailable", true]);
         expect(banners()).not.toContain("Fits couldn't be checked");
@@ -350,7 +351,7 @@ describe("a card body's drag between lane hours", () => {
         expect(c.querySelectorAll("[data-allocation-rank], [data-refused], [data-run]")).toHaveLength(0);
         await release();
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const moved = h.read(ex.kilnPlans).get(TUE)!.bins.get("3103")!;
+        const moved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3103")!;
         expect([moved.lane, moved.at, [...moved.parts]]).toEqual(["B-2", hour(0, 35), [["K-109", 24]]]);
         await drop(card(c, "3103"), cell(c, "B-2", hour(0, 35)));
         expect(card(c, "3103").hasAttribute("data-draft")).toBe(false);
@@ -362,7 +363,7 @@ describe("a card body's drag between lane hours", () => {
         expect(caption()!.textContent).toBe("to B-3 01:57");
         await release();
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const moved = h.read(ex.kilnPlans).get(TUE)!.bins.get("3103")!;
+        const moved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3103")!;
         expect([moved.lane, moved.at]).toEqual(["B-3", hour(1, 57)]);
     });
 
@@ -382,7 +383,7 @@ describe("a card body's drag between lane hours", () => {
         await release();
         expect(card(c, "R1")).toBeNull();
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const day = h.read(ex.kilnPlans).get(TUE)!;
+        const day = (await h.read(ex.kilnPlans)).get(TUE)!;
         const filled = day.bins.get("3103")!;
         expect([filled.lane, filled.at, [...filled.parts], day.bins.has("R1")]).toEqual(["B-1", hour(0, 15), [["K-601", 24]], false]);
     });
@@ -407,21 +408,23 @@ describe("the fit's answer on its way, failed, and the app's own (F2–F4)", () 
         expect(c.querySelectorAll("[data-refused], [data-allocation-rank]")).toHaveLength(0);
         await release();
         expect(card(c, "3101").querySelector("[data-allocation-to]")!.textContent).toBe("K-209");
-        await act(async () => { releaseFit(); }); await settle();
+        await act(async () => { releaseFit.release(); }); await settle();
         expect(card(c, "3101").querySelector("[data-allocation-to]")!.textContent).toBe("K-601");
     });
 
-    test("F3 — a failed call: `Fits couldn't be checked` with the function's message and Retry; a drop meanwhile is refused `fits unavailable`", async () => {
+    test("F3 — a failed call: `Fits couldn't be checked` with the call's message and Retry; a drop meanwhile is refused `fits unavailable`", async () => {
         const c = await open();
-        h.fits.failure = "the kiln service is down";
+        // e3 cannot serve the fit: it answers each call 503, unavailable.
+        const failing = h.fits.fail();
         await press(card(c, "3101"));
         expect(slot(c, "banners").textContent).toContain("Fits couldn't be checked");
-        expect(slot(c, "banners").textContent).toContain("the kiln service is down");
+        // What e3's client makes of the answer.
+        expect(slot(c, "banners").textContent).toContain("API error: unavailable");
         await hover(connector(c, "3101"), row(c, "K-101"));
         expect([caption()!.textContent, caption()!.hasAttribute("data-refused")]).toEqual(["fits unavailable", true]);
         await release();
         expect(undo(c)).toHaveProperty("disabled", true);
-        h.fits.failure = undefined;
+        failing();
         await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));
         expect(slot(c, "banners").textContent).not.toContain("Fits couldn't be checked");
     });
@@ -434,7 +437,7 @@ describe("the fit's answer on its way, failed, and the app's own (F2–F4)", () 
         expect(row(rule, "K-601").querySelector("[data-allocation-reason]")!.textContent!.trim()).toBe("bulk kilns take 20 m³ and more");
         expect(caption()!.textContent).toBe("bulk kilns take 20 m³ and more");
         await cancel();
-        expect(h.fits.calls.get("yard_fit") ?? 0).toBe(0);
+        expect(h.fits.calls("yard_fit")).toBe(0);
         const minimal = await open(ex.allocationMinimal);
         await reveal(minimal, "K-601");
         await hover(connector(minimal, "3110"), row(minimal, "K-601"));
@@ -524,7 +527,7 @@ describe("a link's drag (A69, A65)", () => {
         // The drop selects its bin: the focus its new resource, its link there a draft's.
         expect([card(c, "3123").getAttribute("aria-pressed"), drawn(c)]).toEqual(["true", [["3123|K-107", "draft", false]]]);
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        expect([...h.read(ex.kilnPlans).get(TUE)!.bins.get("3123")!.parts]).toEqual([["K-107", 22]]);
+        expect([...(await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3123")!.parts]).toEqual([["K-107", 22]]);
     });
 
     test("A69 — a link dropped on the fits marker goes to the #1", async () => {
@@ -566,7 +569,7 @@ describe("a link's drag (A69, A65)", () => {
         await carry(linkCaption(c, "3110", "K-304"), row(c, "K-202"), 600, 300);
         const family = (key: string) => drawn(c).filter(([link]) => link!.endsWith(`|${key}`));
         expect(family("K-202")).toEqual([["3123|K-202", null, false], ["3126|K-202", null, false]]);
-        await act(async () => { answerFit(); }); await settle();
+        await act(async () => { answerFit.release(); }); await settle();
         expect(family("K-202")).toEqual([["3123|K-202", "fits", false], ["3126|K-202", "fits", false]]);
         // The dragged bin's resource's family plain, before the target's; its own link last, the `was` line.
         expect(family("K-304")).toEqual([["3106|K-304", null, false], ["3112|K-304", null, false], ["3114|K-304", null, false], ["3121|K-304", null, false], ["3110|K-304", null, true]]);

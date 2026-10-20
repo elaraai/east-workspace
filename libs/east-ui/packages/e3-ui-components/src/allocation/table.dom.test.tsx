@@ -15,7 +15,7 @@ import { variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, mount, settle, slot, TUE } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, TUE } from "./harness.test-utils.js";
 import { dayKey, type FitResult } from "./model.js";
 import { RESERVE_PROBE } from "./table.js";
 
@@ -27,7 +27,7 @@ const freeRow = (c: HTMLElement, lane: string, when: Date) => row(c, `slot:${lan
 const cells = (el: HTMLElement) => [...el.children].map(cell => cell.textContent);
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
-async function open(example: { fn: { toIR(): unknown } } = ex.allocationTable) { const r = mount(example); await settle(); return r.container; }
+async function open(example: { fn: { toIR(): unknown } } = ex.allocationTable) { const r = await h.mount(example); return r.container; }
 /** A cell's Chooser, opened: its sections and their options, as the popover lists them. */
 async function choose(cell: HTMLElement) {
     const trigger = cell.querySelector<HTMLElement>("[aria-haspopup=listbox]")!;
@@ -50,7 +50,7 @@ const status = (r: HTMLElement) => r.querySelector("[data-status]")!.getAttribut
 
 describe("the bands and the rows", () => {
     test("A41, A42 — four time bands of 20 rows, each its counts: `7 bins · 13 free · 208 m³`, `· collapsed` folded; the fold is kept", async () => {
-        const first = mount(ex.allocationTable); await settle();
+        const first = await h.mount(ex.allocationTable);
         const c = first.container;
         const bands = () => [...c.querySelectorAll<HTMLElement>("[data-allocation-band]")];
         // Folded, every band's head shows: what each holds, as the mock's.
@@ -96,12 +96,12 @@ describe("the bands and the rows", () => {
 
     test("A43 — the statuses: Not linked, Check (its resource overlapping or over max), Draft", async () => {
         const c = await open();
-        const plans = h.read(ex.kilnPlans);
+        const plans = await h.read(ex.kilnPlans);
         // LD-2201 50 m³ puts K-209 over its 40 m³ max.
         plans.get(TUE)!.bins.get("3101")!.quantity = 50;
         plans.get(TUE)!.bins.get("3101")!.parts.set("K-209", 50);
         plans.get(TUE)!.bins.get("3102")!.parts.clear();
-        await h.commit(ex.kilnPlans, plans);
+        await h.patch(ex.kilnPlans, plans);
         expect(status(binRow(c, "3101"))).toBe("Check");
         expect(binRow(c, "3101").querySelector("[data-mark=over]")).not.toBeNull();
         expect(status(binRow(c, "3102"))).toBe("Not linked");
@@ -151,7 +151,7 @@ describe("the chips' ×", () => {
         await press(within(binRow(c, "3102")).getByRole("button", { name: "Unlink LD-2202 from K-102" }));
         expect(status(binRow(c, "3102"))).toBe("Not linked");
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const saved = h.read(ex.kilnPlans).get(TUE)!;
+        const saved = (await h.read(ex.kilnPlans)).get(TUE)!;
         expect([saved.bins.has("3101"), saved.bins.get("3102")!.parts.size]).toEqual([false, 0]);
     });
 });
@@ -185,7 +185,7 @@ describe("the Chooser on a cell (A48, A49)", () => {
         expect(list.option("LD-2206").getAttribute("aria-disabled")).toBe("true");
         // No resource, no question: the free row's events are not the fit's to judge. The one question asked is the slot's own, its
         // row selected: what the inspector reserves it on (A60).
-        expect((h.fits.history as FitResult[]).map(answer => answer.ask)).toEqual([variant("place", { subject: variant("bin", RESERVE_PROBE), quantity: 0 })]);
+        expect((h.fits.answers() as FitResult[]).map(answer => answer.ask)).toEqual([variant("place", { subject: variant("bin", RESERVE_PROBE), quantity: 0 })]);
         await press(list.option("LD-2231"));
         const booked = c.querySelector<HTMLElement>('[data-allocation-row="bin:N1"]')!;
         expect(cells(booked).slice(0, 4)).toEqual(["00:15", "B-1", "LD-2231BRK · R2 · spec MC12", "21 m³"]);
@@ -199,7 +199,7 @@ describe("the Chooser on a cell (A48, A49)", () => {
         const sections = chooser().sections();
         expect(sections[0]).toEqual(["Current", ["LD-2201"]]);
         type Take = { ask: { type: string }; events: Map<string, { type: string }> };
-        const take = (h.fits.history as Take[]).find(a => a.ask.type === "take")!;
+        const take = (h.fits.answers() as Take[]).find(a => a.ask.type === "take")!;
         // The six loads still to book (LD-2201's own bin is the row's: Current), each as the fit judged it on K-209.
         const judged = [...take.events].filter(([k]) => k !== "LD-2201");
         const fits = judged.filter(([, f]) => f.type === "fits").map(([k]) => k);
@@ -236,12 +236,12 @@ describe("the Chooser on a cell (A48, A49)", () => {
 
     test("F2 — while the fit's answer is on its way the Chooser says `checking fits…`, its options not yet choosable", async () => {
         const c = await open();
-        const release = h.fits.hold();
+        const held = h.fits.hold();
         const list = await choose(resourceCell(binRow(c, "3101")));
         expect(list.sections()[1]![0]).toBe("Gaps that fit");
         expect(list.line("K-601")).toBe("checking fits…");
         expect(list.option("K-601").getAttribute("aria-disabled")).toBe("true");
-        await act(async () => { release(); }); await settle();
+        await act(async () => { held.release(); }); await settle();
         expect(chooser().line("K-601")!.startsWith("open gap")).toBe(true);
     });
 });
@@ -268,7 +268,7 @@ describe("a chip's drag (A47, A45)", () => {
         await act(async () => { pointAt(eventCell(freeRow(c, "B-2", at(0, 35)))); fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", clientX: 18, clientY: 12 }); }); await settle();
         await release();
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const moved = h.read(ex.kilnPlans).get(TUE)!.bins.get("3103")!;
+        const moved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3103")!;
         expect([moved.lane, moved.at, [...moved.parts]]).toEqual(["B-2", at(0, 35), [["K-109", 24]]]);
     });
 });

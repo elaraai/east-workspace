@@ -20,7 +20,7 @@ import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, mount, settle, slot, stubLinkGeometry, TUE } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, stubLinkGeometry, TUE } from "./harness.test-utils.js";
 
 const h = allocationHarness();
 type FitResult = ValueTypeOf<typeof AllocationFitResultType>;
@@ -46,7 +46,7 @@ const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 const undo = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.undo() });
 const save = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.apply() });
 async function press(node: Element) { expect(node).not.toBeNull(); await act(async () => { fireEvent.click(node); }); await settle(); }
-async function open(example: { fn: { toIR(): unknown } }) { const r = mount(example); await settle(); return r.container; }
+async function open(example: { fn: { toIR(): unknown } }) { const r = await h.mount(example); return r.container; }
 async function tab(c: HTMLElement, name: "Events" | "Resources") {
     const tabs = within(slot(c, "start")).getAllByRole("tab");
     await press(tabs.find(t => t.textContent!.startsWith(name))!);
@@ -107,7 +107,7 @@ const guides = (c: HTMLElement) => [...c.querySelectorAll("[data-allocation-link
 const drawn = (c: HTMLElement) => [...c.querySelectorAll("[data-allocation-links] [data-plan-link]")]
     .map(g => [g.querySelector("[data-link]")!.getAttribute("data-allocation-link"), g.getAttribute("data-tone"), g.hasAttribute("data-was")] as const);
 /** The fit's answer to placing an event, and its three best. */
-const answerFor = (event: string) => [...h.fits.history].reverse().find(a => {
+const answerFor = (event: string) => [...h.fits.answers()].reverse().find(a => {
     const ask = (a as FitResult).ask;
     return ask.type === "place" && ask.value.subject.type === "event" && ask.value.subject.value === event;
 }) as FitResult;
@@ -200,7 +200,7 @@ describe("the Events (A51, A83)", () => {
         expect(boardCard(c, "3113").querySelector("[data-allocation-to]")!.textContent).toBe("not linked");
         expect(pane(c, "events").querySelector("[data-library-item='removed:3113']")).toBeNull();
         await press(save(c));
-        const back = h.read(ex.kilnPlans).get(TUE)!.bins.get("3113")!;
+        const back = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!;
         expect([back.lane, back.at, back.parts.size, back.values.specMeasured]).toEqual(["B-1", hour(0, 15), 0, "MC22"]);
     });
 });
@@ -329,9 +329,9 @@ describe("the foot's hint and the picked card's action (A53, A87)", () => {
         const note = () => action(c, "events")!.firstElementChild!.textContent;
         expect(note()).toContain("leaves 8 m³ · takes 4–10");
         // Another session raises K-305's minimum past LD-2235's 8 m³.
-        const kilns = h.read(ex.kilns);
+        const kilns = await h.read(ex.kilns);
         kilns.set("K-305", { ...kilns.get("K-305")!, min: 9 });
-        await h.commit(ex.kilns, kilns);
+        await h.patch(ex.kilns, kilns);
         // Its question asked again: the reason is the fit's for the kilns as they are.
         const fit = answerFor("LD-2235").resources.get("K-305")!;
         expect(fit.type === "fits" ? fit.value.why : "").toContain("leaves 8 m³ · min 9 · 1 short");
@@ -432,14 +432,14 @@ describe("Library drags (§10, A32, A33, A36)", () => {
         await release();
         expect(boardCard(c, "N1").querySelector("[data-allocation-to]")!.textContent).toBe(best);
         await press(save(c));
-        const saved = h.read(ex.kilnPlans).get(TUE)!.bins.get("N1")!;
+        const saved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("N1")!;
         expect([saved.lane, saved.at, [...saved.parts]]).toEqual(["B-1", hour(0, 15), [[best, 8]]]);
     });
 
     test("A36 — with no free slot left in the day, a drop onto a resource books nothing, under `Not booked · No free bin is left on Tue 11 for LD-2235.`", async () => {
         const c = await open(ex.allocationKilnYard);
         // Every free slot of the day reserved, on no resource: no slot is free.
-        const plans = h.read(ex.kilnPlans);
+        const plans = await h.read(ex.kilnPlans);
         const day = plans.get(TUE)!;
         const offsets = { "B-1": 15, "B-2": 35, "B-3": 55 } as const;
         for (const [lane, offset] of Object.entries(offsets)) {
@@ -450,7 +450,7 @@ describe("Library drags (§10, A32, A33, A36)", () => {
                     values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
             }
         }
-        await h.commit(ex.kilnPlans, plans);
+        await h.patch(ex.kilnPlans, plans);
         expect(c.querySelector("[data-allocation-cell][data-free]")).toBeNull();
         const target = await reveal(c, "K-305");
         await hover(card(c, "events", "event:LD-2235"), target);

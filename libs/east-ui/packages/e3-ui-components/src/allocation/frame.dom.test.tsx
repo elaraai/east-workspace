@@ -14,7 +14,7 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { issueSummary } from "./toolbar.js";
 import type { Issue } from "./model.js";
-import { act, allocationHarness, mount, settle, slot, THU, TUE, TUE_4 } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, THU, TUE, TUE_4 } from "./harness.test-utils.js";
 
 const h = allocationHarness();
 const day = printFor(DateTimeType);
@@ -26,7 +26,7 @@ const shownDay = (c: HTMLElement) => Number(c.querySelector("[data-allocation-ma
 
 describe("the board's frame", () => {
     test("A1 — one toolbar: the date, the layout (Table, then Timeline), the day's status, the history and Publish", async () => {
-        const { container } = mount(ex.allocationKilnYard); await settle();
+        const { container } = await h.mount(ex.allocationKilnYard);
         const bar = toolbar(container);
         expect(bar.getByRole("button", { name: "Choose plan day" })).toBeTruthy();
         expect(bar.getAllByRole("radio").map(r => r.textContent)).toEqual(["Table", "Timeline"]);
@@ -36,7 +36,7 @@ describe("the board's frame", () => {
     });
 
     test("A2 — [ and ] step one day; the arrows step a day", async () => {
-        const { container } = mount(ex.allocationKilnYard); await settle();
+        const { container } = await h.mount(ex.allocationKilnYard);
         expect(shownDay(container)).toBe(TUE.getTime());
         await key(container, "]");
         expect(shownDay(container)).toBe(TUE.getTime() + 86_400_000);
@@ -47,7 +47,7 @@ describe("the board's frame", () => {
     });
 
     test("A2 — the picker marks each day of its open month Published · Draft · Not started", async () => {
-        const { container } = mount(ex.allocationKilnYard); await settle();
+        const { container } = await h.mount(ex.allocationKilnYard);
         await press(toolbar(container).getByRole("button", { name: "Choose plan day" }));
         const picker = within(document.body).getByRole("dialog");
         const mark = (date: Date) => picker.querySelector(`[data-time-day="${date.getTime()}"] [data-state]`)?.getAttribute("data-state");
@@ -58,15 +58,15 @@ describe("the board's frame", () => {
     });
 
     test("A2 — read a day at a time, the picker marks each day of the month it browses to, the month read as one run of keys", async () => {
-        const { container } = mount(ex.allocationWindowed); await settle();
+        const { container } = await h.mount(ex.allocationWindowed);
         await press(toolbar(container).getByRole("button", { name: "Choose plan day" }));
         const picker = within(document.body).getByRole("dialog");
         const marks = () => [...picker.querySelectorAll("[data-time-day]")].map(d => d.querySelector("[data-state]")?.getAttribute("data-state"));
         // May's weeks, Mon 26 Apr to Sun 6 Jun: published to Mon 10, the draft on Tue 11, not started from Wed 12.
         expect(marks()).toEqual([...Array(15).fill("published"), "draft", ...Array(26).fill("empty")]);
         // April's, Mon 29 Mar to Sun 2 May, every day published: 35 days, more than the runtime keeps windows of, read a window a day.
-        const before = h.paging.requests.length;
-        const history = () => h.paging.requests.slice(before).filter(r => r.startsWith("records.kiln_plan_history "));
+        const before = h.requests().length;
+        const history = () => h.requests().slice(before).filter(r => r.dataset === "records.kiln_plan_history");
         fireEvent.click(within(picker).getByRole("button", { name: "Previous month" }));
         // Counted before anything waits on a timer: reads that evict each other never stop asking, and their landings starve every timer.
         for (let i = 0; i < 100; i++) await Promise.resolve();
@@ -74,12 +74,12 @@ describe("the board's frame", () => {
         await settle();
         expect(marks()).toEqual(Array(35).fill("published"));
         // One search for the month's run of keys, and one page of it.
-        expect(history().filter(r => r.includes(" seek ")).length).toBe(1);
-        expect(history().filter(r => r.includes(" page "))).toEqual([expect.stringMatching(/ page \d+\+35$/)]);
+        expect(history().filter(r => r.kind === "find").length).toBe(1);
+        expect(history().filter(r => r.kind === "page").map(r => r.query.get("limit"))).toEqual(["35"]);
     });
 
     test("A3 — a day with no entry is Not started, under the banner `Day not started`", async () => {
-        const { container } = mount(ex.allocationKilnYard); await settle();
+        const { container } = await h.mount(ex.allocationKilnYard);
         expect(container.textContent).not.toContain("Day not started");
         await key(container, "]"); await key(container, "]");
         expect(shownDay(container)).toBe(THU.getTime());
@@ -88,9 +88,9 @@ describe("the board's frame", () => {
     });
 
     test("A4 — Publish records the day published, in one patch; a published day is read-only under its banner", async () => {
-        const { container } = mount(ex.allocationKilnYard); await settle();
+        const { container } = await h.mount(ex.allocationKilnYard);
         await press(toolbar(container).getByRole("button", { name: "Publish" }));
-        const saved = h.read(ex.kilnPlans).get(TUE)!;
+        const saved = (await h.read(ex.kilnPlans)).get(TUE)!;
         expect(saved.status.type).toBe("published");
         expect(saved.bins.size).toBe(26);
         expect(status(container)).toBe("Published");
@@ -102,21 +102,21 @@ describe("the board's frame", () => {
     });
 
     test("A4 — the published example's day, Tue 4, opens read-only", async () => {
-        const { container } = mount(ex.allocationPublished); await settle();
+        const { container } = await h.mount(ex.allocationPublished);
         expect(shownDay(container)).toBe(TUE_4.getTime());
         expect(status(container)).toBe("Published");
         expect(container.querySelector("[data-allocation-readonly]")).not.toBeNull();
     });
 
     test("`publish={false}`: no status chip and no Publish", async () => {
-        const { container } = mount(ex.allocationNoPublish); await settle();
+        const { container } = await h.mount(ex.allocationNoPublish);
         expect(container.querySelector("[data-allocation-status]")).toBeNull();
         expect(toolbar(container).queryByRole("button", { name: "Publish" })).toBeNull();
         expect(toolbar(container).getByRole("button", { name: editingMessages.apply() })).toBeTruthy();
     });
 
     test("A79 — the footer is the layout's legend only", async () => {
-        const { container } = mount(ex.allocationKilnYard); await settle();
+        const { container } = await h.mount(ex.allocationKilnYard);
         const items = () => [...slot(container, "footer").querySelectorAll("[data-allocation-legend]")].map(i => i.textContent);
         expect(items()).toEqual(["Bin", "Draft", "Today's load", "Prior job", "Next job", "Overlap", "Link", "Draft link"]);
         await press(toolbar(container).getByRole("radio", { name: "Table" }));
@@ -124,7 +124,7 @@ describe("the board's frame", () => {
     });
 
     test("A80 — the frame is covered until the active day resolves, a day at a time through the window", async () => {
-        const { container } = mount(ex.allocationWindowed); await settle();
+        const { container } = await h.mount(ex.allocationWindowed);
         expect(container.querySelector("[data-allocation-main]")!.getAttribute("aria-busy")).toBe("false");
         expect(shownDay(container)).toBe(TUE.getTime());
         expect(day(TUE)).toContain("2027-05-11");

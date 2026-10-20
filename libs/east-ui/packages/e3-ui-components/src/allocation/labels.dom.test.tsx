@@ -18,8 +18,7 @@ import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { pathText } from "../platform/record-paging.test-utils.js";
-import { act, allocationHarness, mount, settle, slot } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot } from "./harness.test-utils.js";
 import { lower } from "./nouns.js";
 
 const h = allocationHarness();
@@ -28,7 +27,7 @@ async function press(node: Element) { await act(async () => { fireEvent.click(no
 async function key(c: HTMLElement, k: string) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: k }); }); await settle(); }
 async function open() {
     const store = new UIStore(); StateRuntime.initializeStore(store);
-    const r = mount(ex.allocationLabels); await settle();
+    const r = await h.mount(ex.allocationLabels);
     return { c: r.container, store };
 }
 const row = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-allocation-row="${key}"]`)!;
@@ -92,7 +91,7 @@ describe("the board's nouns (#1338)", () => {
         await key(c, "]"); await key(c, "]");
         expect(slot(c, "banners").textContent).toContain("Book a delivery or reserve a slot to start this day's plan.");
         await key(c, "["); await key(c, "[");
-        h.paging.failing.add(pathText(ex.yardBays.path));
+        h.unavailable(ex.yardBays);
         const key_ = "ex.allocationLabels.lanes";
         const state = decodeBeast2For(RecordSliceStateType)(store.read(key_)!);
         await act(async () => { store.write(key_, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none,

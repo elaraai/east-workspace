@@ -19,7 +19,7 @@ import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { editingMessages, StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, mount, settle, slot, TUE, TUE_4, WED, width } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, TUE, TUE_4, WED, width } from "./harness.test-utils.js";
 
 const h = allocationHarness();
 /** A source's narrowing written as the rail writes it: one field's values (the follows-rail tests' way). */
@@ -57,13 +57,13 @@ const splitBox = (bin: string) => document.querySelector<HTMLElement>(`[data-all
 const options = (root: HTMLElement, section: string) => [...root.querySelectorAll(`[role=group][aria-label="${section}"] [role=option]`)]
     .map(o => o.querySelector("span:nth-child(2) > span:first-child")!.textContent);
 /** The record's day, as Save wrote it. */
-const saved = (day: Date) => h.read(ex.kilnPlans).get(day)!;
+const saved = async (day: Date) => (await h.read(ex.kilnPlans)).get(day)!;
 /** The yard fit's latest answer to placing a bin with a quantity, or to taking a resource. */
-const placed = (bin: string, quantity: number) => [...h.fits.history].reverse().find(a => {
+const placed = (bin: string, quantity: number) => [...h.fits.answers()].reverse().find(a => {
     const ask = (a as FitResult).ask;
     return ask.type === "place" && ask.value.subject.type === "bin" && ask.value.subject.value === bin && ask.value.quantity === quantity;
 }) as FitResult | undefined;
-const taken = (resource: string) => [...h.fits.history].reverse().find(a => { const ask = (a as FitResult).ask; return ask.type === "take" && ask.value.resource === resource; }) as FitResult | undefined;
+const taken = (resource: string) => [...h.fits.answers()].reverse().find(a => { const ask = (a as FitResult).ask; return ask.type === "take" && ask.value.resource === resource; }) as FitResult | undefined;
 /** An answer's fitting resources, best first. */
 const fitsOf = (a: FitResult, except: readonly string[] = []) => [...a.resources].flatMap(([k, f]) => f.type === "fits" && !except.includes(k) ? [{ k, score: f.value.score }] : [])
     .sort((x, y) => byScore(y.score, x.score)).map(f => f.k);
@@ -72,7 +72,7 @@ const DRAG = "[data-draggable], [data-drag-cell], [data-allocation-grip], [data-
 
 describe("the Timeline's cards (A78)", () => {
     test("A78 — below 480px of main the Timeline is a card per resource, in key order: its load line, its bins today, each with Unlink, Move, Split… and Back to Events, and Book an event…; nothing registered to drag", async () => {
-        const { container: c } = mount(ex.allocationKilnYard); await settle();
+        const { container: c } = await h.mount(ex.allocationKilnYard);
         expect(c.querySelector("[data-allocation-timeline]")).not.toBeNull();
         await width(479);
         expect(c.querySelector('[data-allocation-cards="timeline"]')).not.toBeNull();
@@ -89,7 +89,7 @@ describe("the Timeline's cards (A78)", () => {
     });
 
     test("A78 — a bin's Unlink unlinks its part there and Back to Events removes it, each at once, one draft Undo puts back; a card's head selects its resource", async () => {
-        const { container: c } = mount(ex.allocationKilnYard); await settle();
+        const { container: c } = await h.mount(ex.allocationKilnYard);
         await width(479);
         await press(button(binLine(c, "K-108", "3113")!, "Unlink"));
         expect(binLine(c, "K-108", "3113")).toBeNull();
@@ -98,14 +98,14 @@ describe("the Timeline's cards (A78)", () => {
         await press(button(binLine(c, "K-108", "3113")!, "Back to Events"));
         expect(binLine(c, "K-108", "3113")).toBeNull();
         await press(save(c));
-        expect(saved(TUE).bins.has("3113")).toBe(false);
+        expect((await saved(TUE)).bins.has("3113")).toBe(false);
         // The head selects the resource: its card is selected, and the Inspector shows it.
         await press(resourceCard(c, "K-108")!.querySelector("button"));
         expect(resourceCard(c, "K-108")!.hasAttribute("data-selected")).toBe(true);
     });
 
     test("A78, A73 — a bin's Move is its part's Chooser, the fit asked for its 32 m³: a choice moves it to another resource, one draft that Saves", async () => {
-        const { container: c } = mount(ex.allocationKilnYard); await settle();
+        const { container: c } = await h.mount(ex.allocationKilnYard);
         await width(479);
         await press(button(binLine(c, "K-108", "3113")!, "Move"));
         const box = choices("bin:3113|resource:K-108")!;
@@ -117,11 +117,11 @@ describe("the Timeline's cards (A78)", () => {
         expect(binLine(c, "K-108", "3113")).toBeNull();
         expect(binLine(c, offered[0]!, "3113")).not.toBeNull();
         await press(save(c));
-        expect([...saved(TUE).bins.get("3113")!.parts]).toEqual([[offered[0]!, 32]]);
+        expect([...(await saved(TUE)).bins.get("3113")!.parts]).toEqual([[offered[0]!, 32]]);
     });
 
     test("A78, A71, A73 — a bin's Split… is the Inspector's popover: half its part there by default, the fit asked for that half, its own resource left out; a choice puts it on another resource, one draft that Saves (#1362)", async () => {
-        const { container: c } = mount(ex.allocationKilnYard); await settle();
+        const { container: c } = await h.mount(ex.allocationKilnYard);
         await width(479);
         await press(button(binLine(c, "K-108", "3113")!, "Split…"));
         const box = splitBox("3113")!;
@@ -138,11 +138,11 @@ describe("the Timeline's cards (A78)", () => {
         await scrollTo(c, () => binLine(c, offered[0]!, "3113"));
         expect(text(binLine(c, offered[0]!, "3113")!.querySelector("button"))).toContain("16 m³");
         await press(save(c));
-        expect([...saved(TUE).bins.get("3113")!.parts]).toEqual([["K-108", 16], [offered[0]!, 16]].sort((x, y) => byKey(x[0] as string, y[0] as string)));
+        expect([...(await saved(TUE)).bins.get("3113")!.parts]).toEqual([["K-108", 16], [offered[0]!, 16]].sort((x, y) => byKey(x[0] as string, y[0] as string)));
     });
 
     test("A78, A36 — Book an event… lists the events the fit takes on the resource; a choice books it there at the day's first free slot, B-1 00:15", async () => {
-        const { container: c } = mount(ex.allocationKilnYard); await settle();
+        const { container: c } = await h.mount(ex.allocationKilnYard);
         await width(479);
         await press(button(resourceCard(c, "K-107")!, "Book an event…"));
         const box = choices("resource:K-107|book")!;
@@ -156,14 +156,14 @@ describe("the Timeline's cards (A78)", () => {
         const line = [...resourceCard(c, "K-107")!.querySelectorAll("[data-allocation-card-bin]")].find(l => l.textContent!.includes(fits[0]!))!;
         expect(text(line.querySelector("button"))).toContain("00:15 · B-1");
         await press(save(c));
-        const booked = [...saved(TUE).bins.values()].find(bin => bin.event.type === "some" && bin.event.value === fits[0])!;
+        const booked = [...(await saved(TUE)).bins.values()].find(bin => bin.event.type === "some" && bin.event.value === fits[0])!;
         expect([booked.lane, booked.at.getTime(), [...booked.parts.keys()]]).toEqual(["B-1", Date.UTC(2027, 4, 11, 0, 15), ["K-107"]]);
     });
 });
 
 describe("the Table's cards (A78)", () => {
     test("A78 — below 480px of main the Table is a card per row in its bands: a free row's Book… and Reserve…; nothing registered to drag", async () => {
-        const { container: c } = mount(ex.allocationTable); await settle();
+        const { container: c } = await h.mount(ex.allocationTable);
         await width(479);
         expect(c.querySelector('[data-allocation-cards="table"]')).not.toBeNull();
         expect(c.querySelector(DRAG)).toBeNull();
@@ -175,7 +175,7 @@ describe("the Table's cards (A78)", () => {
     });
 
     test("A78 — a free row's Book… books an event there; its card's Allocate… links it, Unlink unlinks it and Back to Events removes it, each one draft", async () => {
-        const { container: c } = mount(ex.allocationTable); await settle();
+        const { container: c } = await h.mount(ex.allocationTable);
         await width(479);
         const first = c.querySelector<HTMLElement>('[data-allocation-row-card][data-kind="free"]')!;
         const key = first.getAttribute("data-allocation-row-card")!;
@@ -192,7 +192,7 @@ describe("the Table's cards (A78)", () => {
         await press(button(card(), "Allocate…"));
         const allocate = choices(`${id}|resource`)!;
         const bin = id.slice("bin:".length);
-        const quantity = h.read(ex.arrivals).get(code)!.m3;
+        const quantity = (await h.read(ex.arrivals)).get(code)!.m3;
         const offered = options(allocate, "Gaps that fit");
         expect(offered).toEqual(fitsOf(placed(bin, quantity)!));
         await press(within(allocate).getByRole("option", { name: new RegExp(offered[0]!) }));
@@ -206,7 +206,7 @@ describe("the Table's cards (A78)", () => {
     });
 
     test("A78 — a free row's Reserve… reserves it on a resource the fit takes; the reservation's card offers Book…, Reserve… and Remove", async () => {
-        const { container: c } = mount(ex.allocationTable); await settle();
+        const { container: c } = await h.mount(ex.allocationTable);
         await width(479);
         const first = c.querySelector<HTMLElement>('[data-allocation-row-card][data-kind="free"]')!;
         const key = first.getAttribute("data-allocation-row-card")!;
@@ -225,7 +225,7 @@ describe("the Table's cards (A78)", () => {
 
 describe("a split bin's cards (A78, A71, A73)", () => {
     test("A78, A73 — on its resource's card a split bin's Move asks the fit for that part's 6 m³, and its Unlink unlinks that part alone", async () => {
-        const { container: c } = mount(ex.allocationSplit); await settle();
+        const { container: c } = await h.mount(ex.allocationSplit);
         await width(479);
         // 3201 (LD-2232, 30 m³): 20 on K-601, 6 on K-208, 4 unallocated.
         await scrollTo(c, () => binLine(c, "K-208", "3201"));
@@ -235,11 +235,11 @@ describe("a split bin's cards (A78, A71, A73)", () => {
         await press(button(binLine(c, "K-208", "3201")!, "Unlink"));
         expect(binLine(c, "K-208", "3201")).toBeNull();
         await press(save(c));
-        expect([...saved(WED).bins.get("3201")!.parts]).toEqual([["K-601", 20]]);
+        expect([...(await saved(WED)).bins.get("3201")!.parts]).toEqual([["K-601", 20]]);
     });
 
     test("A78, A71, A73 — the Table's card of a split bin: where its parts are and what they leave; Allocate… links the remainder, asked for 4 m³, its own resources left out", async () => {
-        const { container: c } = mount(ex.allocationTable); await settle();
+        const { container: c } = await h.mount(ex.allocationTable);
         await key(c, "]");
         await width(479);
         await scrollTo(c, () => rowCard(c, "bin:3201"));
@@ -258,7 +258,7 @@ describe("a split bin's cards (A78, A71, A73)", () => {
 
 describe("a whole bin's Split… on the Table's card (A78, A71, #1362)", () => {
     test("A78, A71, A73 — a bin wholly on its resources: Split… beside Allocate…, half its largest part by default; a choice splits it there, one draft that Saves", async () => {
-        const { container: c } = mount(ex.allocationTable); await settle();
+        const { container: c } = await h.mount(ex.allocationTable);
         await width(479);
         await scrollTo(c, () => rowCard(c, "bin:3113"));
         const card = () => rowCard(c, "bin:3113")!;
@@ -272,14 +272,14 @@ describe("a whole bin's Split… on the Table's card (A78, A71, #1362)", () => {
         await press(within(box).getByRole("option", { name: new RegExp(offered[0]!) }));
         expect(card().textContent).toContain([["K-108", "K-108 16 m³"], [offered[0]!, `${offered[0]!} 16 m³`]].sort((x, y) => byKey(x[0]!, y[0]!)).map(([, said]) => said).join(" · "));
         await press(save(c));
-        expect([...saved(TUE).bins.get("3113")!.parts]).toEqual([["K-108", 16], [offered[0]!, 16]].sort((x, y) => byKey(x[0] as string, y[0] as string)));
+        expect([...(await saved(TUE)).bins.get("3113")!.parts]).toEqual([["K-108", 16], [offered[0]!, 16]].sort((x, y) => byKey(x[0] as string, y[0] as string)));
     });
 });
 
 describe("the cards follow the rail (A78, A92, A93)", () => {
     test("A78 — a resource narrowing shows its resources' cards alone, in key order", async () => {
         const store = new UIStore(); StateRuntime.initializeStore(store);
-        const { container: c } = mount(ex.allocationKilnYard); await settle();
+        const { container: c } = await h.mount(ex.allocationKilnYard);
         await width(479);
         await narrow(store, "allocationKilnYard", "resources", "group", ["Hall B"]);
         expect([...c.querySelectorAll("[data-allocation-resource-card]")].map(card => card.getAttribute("data-allocation-resource-card")))
@@ -288,7 +288,7 @@ describe("the cards follow the rail (A78, A92, A93)", () => {
 
     test("A78 — a lane narrowing hides the Table's cards of the lanes it hides", async () => {
         const store = new UIStore(); StateRuntime.initializeStore(store);
-        const { container: c } = mount(ex.allocationTable); await settle();
+        const { container: c } = await h.mount(ex.allocationTable);
         await width(479);
         await narrow(store, "allocationTable", "lanes", "area", ["South"]);
         const lanes = [...c.querySelectorAll("[data-allocation-row-card]")].map(card => text(card.querySelector("button")!.firstElementChild)!.split(" · ")[0]);
@@ -299,7 +299,7 @@ describe("the cards follow the rail (A78, A92, A93)", () => {
 
 describe("resizing and a published day (A78)", () => {
     test("A78 — a pick on a phone registers no drop target: the Inspector's fits are Book buttons, no drop cells", async () => {
-        const { container: c } = mount(ex.allocationKilnYard); await settle();
+        const { container: c } = await h.mount(ex.allocationKilnYard);
         await width(479);
         const start = slot(c, "start");
         if (start.hasAttribute("data-collapsed")) await press(button(start, "Expand Library"));
@@ -311,7 +311,7 @@ describe("resizing and a published day (A78)", () => {
     });
 
     test("A78 — resizing keeps the layout, the selection and the drafts: a bin moved on the Timeline is selected and drafted on its card, and back", async () => {
-        const { container: c } = mount(ex.allocationKilnYard); await settle();
+        const { container: c } = await h.mount(ex.allocationKilnYard);
         await press(c.querySelector('[data-allocation-card="3113"]'));
         // A draft: the bin an hour later, from the Inspector.
         await press(button(slot(c, "end"), "One hour later"));
@@ -322,11 +322,11 @@ describe("resizing and a published day (A78)", () => {
         const card = c.querySelector<HTMLElement>('[data-allocation-card="3113"]')!;
         expect([card.hasAttribute("data-selected"), card.hasAttribute("data-draft"), c.querySelector("[data-allocation-main]")!.getAttribute("data-allocation-layout")]).toEqual([true, true, "timeline"]);
         await press(save(c));
-        expect(saved(TUE).bins.get("3113")!.at.getTime()).toBe(Date.UTC(2027, 4, 11, 11, 35));
+        expect((await saved(TUE)).bins.get("3113")!.at.getTime()).toBe(Date.UTC(2027, 4, 11, 11, 35));
     });
 
     test("A78 — a published day's cards have no actions", async () => {
-        const { container: c } = mount(ex.allocationPublished); await settle();
+        const { container: c } = await h.mount(ex.allocationPublished);
         await width(479);
         expect(c.querySelector('[data-allocation-main]')!.getAttribute("data-allocation-day")).toBe(String(TUE_4.getTime()));
         const cards = [...c.querySelectorAll<HTMLElement>("[data-allocation-resource-card]")];

@@ -18,8 +18,7 @@ import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { pathText } from "../platform/record-paging.test-utils.js";
-import { act, allocationHarness, mount, settle, slot } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot } from "./harness.test-utils.js";
 
 const h = allocationHarness();
 type Tab = "events" | "resources";
@@ -29,7 +28,7 @@ async function press(node: Element | null) { expect(node).not.toBeNull(); await 
 /** An example mounted over a store of its own, where each source's state is kept. */
 async function open(example: { fn: { toIR(): unknown } }) {
     const store = new UIStore(); StateRuntime.initializeStore(store);
-    const r = mount(example); await settle();
+    const r = await h.mount(example);
     return { c: r.container, store };
 }
 /** A source's narrowing written as the rail writes it: one field's values. */
@@ -221,14 +220,14 @@ describe("an events source (A99)", () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await narrow(store, "allocationKilnYard", "events", "spec", ["MC12"]);
         await waitFor(() => expect(tabs(c)).toEqual(["Events 3 of 27", "Resources 33"]));
-        h.paging.failing.add(pathText(ex.arrivals.path));
+        const failing = h.unavailable(ex.arrivals);
         await narrow(store, "allocationKilnYard", "events", "spec", ["MC16"]);
         const banner = () => within(slot(c, "banners")).queryByText("Event results unavailable");
         await waitFor(() => expect(banner()).not.toBeNull());
         expect(tabs(c)).toEqual(["Events 3 of 27", "Resources 33"]);
         expect([pane(c, "events").hasAttribute("inert"), pane(c, "events").getAttribute("aria-busy")]).toEqual([true, "true"]);
         expect(pane(c, "resources").hasAttribute("inert")).toBe(false);
-        h.paging.failing.clear();
+        failing();
         await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));
         await waitFor(() => expect(banner()).toBeNull());
         // LD-2211 is in the plan; LD-2236 still to book.
@@ -275,7 +274,7 @@ describe("several indexes on a source", () => {
         await waitFor(() => expect(tabs(c)).toEqual(["Events 27", "Resources 4 of 33"]));
         await tab(c, "Resources");
         expect([...keys(c, "resources")].sort()).toEqual(["K-106", "K-107", "K-109", "K-110"]);
-        expect(h.paging.requests.some(r => / index kilns_by_group_max page /.test(r))).toBe(true);
+        expect(h.requests("page", "records.kilns").some(r => r.query.get("index") === ex.kilnsByGroupMax.name)).toBe(true);
     });
 
     test("a kiln's name, searched by its start on its own index: `K-2` shows Hall B's nine", async () => {
@@ -283,7 +282,7 @@ describe("several indexes on a source", () => {
         await write(store, "allocationKilnYard", "resources", new Map<string, Choice>([["name", variant("prefix", "K-2")]]));
         await waitFor(() => expect(resourceCount(c)).toBe(9));
         await waitFor(() => expect(tabs(c)).toEqual(["Events 27", "Resources 9 of 33"]));
-        expect(h.paging.requests.some(r => / index kilns_by_name /.test(r))).toBe(true);
+        expect(h.requests(undefined, "records.kilns").some(r => r.query.get("index") === ex.kilnsByName.name)).toBe(true);
     });
 
     test("a max with no group first: bounds typed, its editor asks for the preceding field, and Apply is off", async () => {

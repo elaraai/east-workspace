@@ -11,11 +11,11 @@
  * and every Save and Publish is a real commit through the weeks' patch door.
  * Another session's edit of the staff, the configuration or the proposals goes
  * in through their own doors (`h.patch`). The fit a Find fix asks is an
- * example's own `e3.function`, called by name on e3: what the Roster asked is
- * its call's body ({@link RosterFits.requests}), what e3 answered a tap's
- * ({@link RosterFits.answers}), and a fit held or failed a fault at the
- * harness's fetch ({@link RosterFits.hold}, {@link RosterFits.fail}). What a
- * test counts it reads from the request log (`h.requests`).
+ * example's own `e3.function`, called by name on e3
+ * (`shared/func/fit-calls.test-utils.ts`): what the Roster asked is its calls'
+ * bodies, what e3 answered a tap's, and a fit held or failed a fault at the
+ * harness's fetch. What a test counts it reads from the request log
+ * (`h.requests`).
  *
  * Each test runs alone (#1280, `test-runs.test-utils.ts`): a test file takes
  * `act` from here, never from Testing Library.
@@ -28,9 +28,8 @@ import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import { Data, Func, Record, Roster } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { ExecuteResultType, FunctionCallRequestType, ResponseType } from "@elaraai/e3-types";
-import type { E3Answer, E3Hold, E3Match, E3Request } from "../e3-web.test-utils.js";
 import { act, currentHarness, e3Harness, settle, type E3Harness, type Example, type MountOptions } from "../e3-web-mount.test-utils.js";
+import { fitCalls, type FitCalls } from "../shared/func/fit-calls.test-utils.js";
 import "./index.js";
 export { act, programOf, settle, slot, width } from "../e3-web-mount.test-utils.js";
 export { searched } from "../e3-web.test-utils.js";
@@ -44,57 +43,10 @@ export const NEXT = new Date("2028-03-12T00:00:00Z");
 export type FitRequest = ValueTypeOf<typeof Roster.Types.FitRequest>;
 export type FitResult = ValueTypeOf<typeof Roster.Types.FitResult>;
 
-/**
- * A call of an app's fit, by its function's name: the Roster's question, as
- * e3's client sends it.
- *
- * @param name - The fit's `e3.function` name
- * @returns The match
- */
-export const isFitCall = (name: string): E3Match => (request) => request.kind === "call" && request.method === "POST" && request.name === name;
-
-const readCall = decodeBeast2For(FunctionCallRequestType);
-const readFitRequest = decodeBeast2For(Roster.Types.FitRequest);
-const readExecuted = decodeBeast2For(ResponseType(ExecuteResultType));
-const readFitResult = decodeBeast2For(Roster.Types.FitResult);
-
-/** The question a fit's call asked: its one argument, sent by value. */
-function questionOf(request: E3Request): FitRequest {
-    if (request.body === undefined) throw new Error(`${request.path} sent no body`);
-    const [arg] = readCall(request.body).args;
-    if (arg === undefined || arg.type !== "value") throw new Error(`${request.path} asked no question by value`);
-    return readFitRequest(arg.value);
-}
-
-/** The fit's answers among e3's answers to its calls: each it gave, decoded — a failure a fault answered with is none. */
-function answersOf(answers: readonly E3Answer[]): FitResult[] {
-    return answers.flatMap((answer) => {
-        if (answer.status !== 200) return [];
-        const response = readExecuted(answer.body);
-        if (response.type !== "success" || response.value.outcome.type !== "success") return [];
-        return [readFitResult(response.value.outcome.value.value)];
-    });
-}
-
-/** An app's fit, as the Roster asks it on e3: each of its methods takes the fit's `e3.function` name, the warehouse's unless given. */
-export interface RosterFits {
-    /** Each question the Roster has asked the fit so far, in order, as its call's body says. */
-    requests(name?: string): FitRequest[];
-    /** Keeps e3's answers to the fit from now: each it answered with, in the order they came. */
-    answers(name?: string): () => FitResult[];
-    /** Holds each call of the fit on its way to e3, from now until released. */
-    hold(name?: string): E3Hold;
-    /**
-     * Answers each call of the fit as e3 answers one it cannot serve now
-     * (`503`, `unavailable`), from now until the returned function stops it.
-     */
-    fail(name?: string): () => void;
-}
-
 /** The Roster's harness: e3 with the warehouse's module deployed, and the fit its Find fixes ask. */
 export interface RosterHarness extends E3Harness {
-    /** The fit, as the Roster asks it. */
-    readonly fits: RosterFits;
+    /** The fit, as the Roster asks it: the warehouse's, or another app's, by its `e3.function` name. */
+    readonly fits: FitCalls<FitRequest, FitResult>;
 }
 
 /**
@@ -107,17 +59,7 @@ export interface RosterHarness extends E3Harness {
  */
 export function rosterHarness(modules: Parameters<typeof e3Harness>[0] = {}): RosterHarness {
     const h = e3Harness({ "roster/roster": ex, ...modules }, { main: "data-roster-main" });
-    const named = (name: string | undefined) => isFitCall(name ?? ex.rosterStaffFit.name);
-    const fits: RosterFits = {
-        requests: (name) => h.requests("call").filter(named(name)).map(questionOf),
-        answers: (name) => {
-            const answers = h.e3.answers(named(name));
-            return () => answersOf(answers);
-        },
-        hold: (name) => h.e3.hold(named(name)),
-        fail: (name) => h.e3.fail(named(name), { status: 503, type: "unavailable", message: "the staffing service is down" }),
-    };
-    return Object.assign(h, { fits });
+    return Object.assign(h, { fits: fitCalls(h, { request: Roster.Types.FitRequest, result: Roster.Types.FitResult }) });
 }
 
 /**
