@@ -6,24 +6,27 @@
  *
  * UI state survives a remount (#813) — under the canvas's `storageKey`, the
  * user's collapse toggles, expanded charts and scroll anchor persist, and a
- * remount restores them; the slice's source keeps the resolution (#1344). jsdom lays
+ * remount restores them; the slice's source — the Plan's dated rows on e3
+ * itself (`rail.test-utils.ts`, #1376) — keeps the resolution (#1344). jsdom lays
  * nothing out and cannot scroll, so the bounded frame's geometry is stubbed
  * and its `scrollTo` moves `scrollTop` the way a browser does.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { render, cleanup, fireEvent, act, waitFor, screen } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
-import { system, UIStore } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { Slice } from "@elaraai/east-ui/internal";
+import { system } from "@elaraai/east-ui-components";
+import { Data } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { act, e3Harness } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import { blocksSource, oneBlock, rowId, rowItem, rowKey, rowSel } from "./plan.test-utils.js";
-import { recordPart, recordSlices } from "./record-slices.test-utils.js";
+import { RAIL_MODULES, bindRail, type RailChrome } from "./rail.test-utils.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+e3Harness(RAIL_MODULES, { measure: false });
 
 // ── Layout stand-ins: a 400px bounded frame over a tall scroll extent ─────
 const VIEWPORT = 400;
@@ -37,7 +40,6 @@ const saved = {
 };
 
 beforeEach(() => {
-    initializeStore(new UIStore());
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
         configurable: true, get(this: HTMLElement) { return frameHeight(this) ?? 0; },
     });
@@ -56,9 +58,8 @@ beforeEach(() => {
         },
     });
 });
+// The harness unmounts what a test rendered and clears the viewer's storage after it.
 afterEach(() => {
-    cleanup();
-    localStorage.clear();
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", saved.offsetHeight);
     Object.defineProperty(Element.prototype, "clientHeight", saved.clientHeight);
     Object.defineProperty(Element.prototype, "scrollHeight", saved.scrollHeight);
@@ -137,16 +138,20 @@ const storedAt = (key: string) => JSON.parse(localStorage.getItem(key) ?? "null"
     collapse: [string, boolean][]; charts: string[]; anchor: { key: string; offset: number; index: number } | null;
 };
 
-/** A slice for the resolution segment (WEEK / DAY): its rows' source, holding the window W27..W39 by the week. */
-function resolutionSlice(key: string) {
-    const part = recordPart({ key: `${key}.rows`, range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime()] },
-        window: [W27.getTime(), W39.getTime()], resolution: "week" });
-    return recordSlices(key, [{ source: "rows", slice: part }], ["resolution"]);
+/** A slice for the resolution segment (WEEK / DAY): its rows' source — the dated rows — holding the window W27..W39. */
+async function resolutionSlice(key: string): Promise<RailChrome> {
+    const rail = await bindRail(() => Slice.bindRecords(key, {
+        rows: {
+            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+            fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
+        },
+    }), ["resolution"]);
+    return rail.chrome;
 }
 
 describe("Plan UI state survives a remount (#813)", () => {
     test("collapse, expanded charts, resolution and the scroll anchor come back with the same storageKey", async () => {
-        const slice = resolutionSlice("plan-813-slice");
+        const slice = await resolutionSlice("plan-813-slice");
         const value = () => planRoot(rows(), {
             slice: some(slice),
             resolutions: [variant("week", null), variant("day", null)],

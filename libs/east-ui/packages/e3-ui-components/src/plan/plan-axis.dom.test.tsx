@@ -6,36 +6,31 @@
  *
  * Plan typed-axis DOM tests (#631) — every row kind on every axis kind, and
  * the chrome each kind mounts: a window written as the record Slice's range of
- * the axis's arm, half-open (#1344), over parts holding their rows in the test
- * (`record-slices.test-utils.ts`).
+ * the axis's arm, half-open (#1344), over the Plan's records on e3 itself
+ * (`rail.test-utils.ts`, #1376) — the vans by their days, the orders by their
+ * whole ones, the dated rows by their dates. A canvas persists its toggles
+ * under its storageKey (#813), and the harness clears them after each test.
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
-import { describe, test, expect, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { describe, test, expect } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
-import { system, UIStore } from "@elaraai/east-ui-components";
-import { initializeStore, recordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { Slice, type RecordSliceAffordance } from "@elaraai/east-ui/internal";
+import { system } from "@elaraai/east-ui-components";
+import { recordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { Data } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
-import { recordPart, recordSlices, type RangeKind } from "./record-slices.test-utils.js";
+import { RAIL_MODULES, bindRail, type Rail } from "./rail.test-utils.js";
 
-// A canvas persists its toggles under its storageKey (#813), and several tests
-// share one — nothing may carry from one test to the next.
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
-
-// jsdom lacks ResizeObserver — the floating-ui positioner behind the
-// resolver popovers needs one; a no-op stub keeps positioning inert (the
-// slice / schematic dom-test convention).
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+e3Harness(RAIL_MODULES, { measure: false });
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -247,21 +242,32 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
 
 describe("Plan typed axis (#631) — chrome per kind", () => {
     const numberAxis = variant("number", { window: some({ min: 1, max: 9 }), step: 1, now: some(5), format: none });
-    /** The rows' source over orders by day, its range field of `kind`, holding the window `[1, 9)`. */
-    const numberSlice = (key: string, days: number[], kind: RangeKind = "float") => {
-        initializeStore(new UIStore());
-        const part = recordPart({ key: `${key}.rows`, range: { id: "day", kind, label: "Day", values: days }, window: [1, 9] });
-        return { part, window: () => recordSliceWindow(part) };
-    };
+    /** The rail over the vans — leaving on day 1 and day 12 — their `FLOAT` days the window, `[1, 9)`. */
+    const vansRail = (key: string, affordances: readonly RecordSliceAffordance[]): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
+        rows: {
+            source: Data.bindPaged(records.planDayVans, { indexes: [records.planDayVansByDay] }),
+            fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1.0, to: 9.0 } },
+        },
+    }), affordances);
+    /** The rail over the orders — one a day, day 1 to day 12 — their `INTEGER` days the window, `[1, 9)`. */
+    const ordersRail = (key: string): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
+        rows: {
+            source: Data.bindPaged(records.planDayOrders, { indexes: [records.planDayOrdersByDay] }),
+            fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1n, to: 9n } },
+        },
+    }), []);
     const ticks = (container: HTMLElement) =>
         [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
 
     test("a number axis rules 1 … 8 with the NOW divider, mounts no resolution segment, and brushes the source's FLOAT range, written on release", async () => {
-        const { part, window } = numberSlice("plan.631.brush", [1, 12]);
+        const rail = await vansRail("plan.631.brush", ["brush", "resolution"]);
+        const window = () => recordSliceWindow(rail.part("rows"));
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: numberAxis,
-            slice: some(recordSlices("plan.631.brush", [{ source: "rows", slice: part }], ["brush", "resolution"])),
+            slice: some(rail.chrome),
         }), "plan-631-number");
+        // The horizon is the vans' days' extent, read from e3: the strip draws once it has landed.
+        await settle();
         expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
         expect(screen.getByText("NOW")).toBeTruthy();
         // `step` is the declaration — there is no unit to switch.
@@ -286,10 +292,11 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
     });
 
-    test("[ / ] and n write a number axis's window as the source's float range — half-open, and read back whole", () => {
-        const { part, window } = numberSlice("plan.631.keys", [1, 12]);
+    test("[ / ] and n write a number axis's window as the source's float range — half-open, and read back whole", async () => {
+        const rail = await vansRail("plan.631.keys", []);
+        const window = () => recordSliceWindow(rail.part("rows"));
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            axis: numberAxis, slice: some(recordSlices("plan.631.keys", [{ source: "rows", slice: part }], [])),
+            axis: numberAxis, slice: some(rail.chrome),
         }), "plan-631-keys");
         const surface = container.querySelector('[tabindex="0"]')!;
         fireEvent.keyDown(surface, { key: "]" });
@@ -305,12 +312,14 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         expect(window()).toEqual({ kind: "float", min: 3, max: 11 });
     });
 
-    test("an INTEGER field's window is written on whole values — `[1, 9)` the eight days 1 … 8 — and read back whole", () => {
+    test("an INTEGER field's window is written on whole values — `[1, 9)` the eight days 1 … 8 — and read back whole", async () => {
         // The eight days 1 … 8, the window half-open as every record range is.
-        const { part, window } = numberSlice("plan.949.integer", Array.from({ length: 12 }, (_u, i) => i + 1), "integer");
+        const rail = await ordersRail("plan.949.integer");
+        const part = rail.part("rows");
+        const window = () => recordSliceWindow(part);
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: variant("number", { window: none, step: 1, now: some(5), format: none }),
-            slice: some(recordSlices("plan.949.integer", [{ source: "rows", slice: part }], [])),
+            slice: some(rail.chrome),
         }), "plan-949-integer");
         // `[1, 9)` is eight columns — the source's range IS the grid.
         expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
@@ -320,17 +329,22 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
     });
 
-    test("an ordinal axis rules its values with NOW on the named phase; the brush never mounts and the window keys idle", () => {
-        initializeStore(new UIStore());
-        // A DATETIME source with the brush affordance — the arm a time axis
-        // would brush; an ordinal axis has no arm to speak, so the strip does
-        // not mount and a pan writes nothing.
-        const part = recordPart({ key: "plan.631.ordinal.rows", range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime(), W39.getTime()] },
-            window: [W27.getTime(), W39.getTime()] });
+    test("an ordinal axis rules its values with NOW on the named phase; the brush never mounts and the window keys idle", async () => {
+        // A DATETIME source with the brush affordance — the dated rows, W27's
+        // and W39's: the arm a time axis would brush; an ordinal axis has no
+        // arm to speak, so the strip does not mount and a pan writes nothing.
+        const rail = await bindRail(() => Slice.bindRecords("plan.631.ordinal", {
+            rows: {
+                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
+            },
+        }), ["brush"]);
+        const part = rail.part("rows");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: variant("ordinal", { values: ["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"], now: some("PRINT") }),
-            slice: some(recordSlices("plan.631.ordinal", [{ source: "rows", slice: part }], ["brush"])),
+            slice: some(rail.chrome),
         }), "plan-631-ordinal");
+        await settle();
         expect(ticks(container)).toEqual(["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"]);
         expect(screen.getByText("NOW")).toBeTruthy();
         expect(container.querySelector("[data-slot='horizon']")).toBeNull();

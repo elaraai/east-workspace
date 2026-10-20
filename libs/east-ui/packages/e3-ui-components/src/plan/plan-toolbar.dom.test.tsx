@@ -15,23 +15,26 @@
  * overlaps chip with them; the history item folds last, to its buttons. The window is the date
  * navigator's on a time axis, so the rows' range field is no chip of the rail;
  * on a number axis the leading source's range is, and another source's range
- * follows it. A segment's menu chip draws Font Awesome's caret (#1263). jsdom
- * lays nothing out, so each item's width is stubbed by the form it shows; the
- * gap is 10px.
+ * follows it. A segment's menu chip draws Font Awesome's caret (#1263). The
+ * rail is the Plan's records' on e3 itself (`rail.test-utils.ts`, #1376): its
+ * counts are e3's. jsdom lays nothing out, so each item's width is stubbed by
+ * the form it shows; the gap is 10px.
  */
 
-import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
+import { describe, test, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import { useMemo } from "react";
-import { act, render, cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, printFor, toEastTypeValue, variant, some, none } from "@elaraai/east";
-import { Editing } from "@elaraai/east-ui/internal";
+import { Editing, Slice } from "@elaraai/east-ui/internal";
 import {
-    system, formatters, EditSession, editingMessages, UIStore, Toolbar, type HistoryBarProps,
+    system, formatters, EditSession, editingMessages, Toolbar, type HistoryBarProps,
 } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { Data } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { usePlanToolbarItems } from "./shell/Toolbar.js";
 import type { PlanChrome } from "./root/chrome.js";
 import type { PlanEventItemValue, PlanOverlaps } from "./frame/counts.js";
@@ -42,9 +45,9 @@ import { PLAN_WORDS } from "./words.js";
 import { createPlanController } from "./controller/index.js";
 import { PlanControllerContext } from "./controller/react.js";
 import { rowKey } from "./plan.test-utils.js";
-import { recordPart, recordSlices } from "./record-slices.test-utils.js";
+import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 
-afterEach(cleanup);
+const h = e3Harness(RAIL_MODULES, { measure: false });
 
 // jsdom lacks ResizeObserver; the toolbar observes its row and items through it.
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
@@ -79,6 +82,9 @@ beforeAll(() => {
         const width = widthOf(this);
         return { x: 0, y: 0, left: 0, top: 0, width, height: 30, right: width, bottom: 30, toJSON() { return {}; } } as DOMRect;
     };
+});
+// The row's gap, spied on for each test: the harness restores every mock once a test ends.
+beforeEach(() => {
     const computed = window.getComputedStyle.bind(window);
     vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element, pseudo?: string | null) => {
         const style = computed(el, pseudo);
@@ -105,26 +111,27 @@ const STEPS: PlanScale = planScale({ kind: "number", window: { min: 1, max: 9 },
 /**
  * The rail over the canvas's rows (#1344): one source, `rows`, its owner and
  * hall fields chips of the rail and its range — the window — the date
- * navigator's, nothing narrowed: two rows in the window, as the canvas hands
+ * navigator's, nothing narrowed: two rows in the window — Team A's in W27,
+ * Team B's in W28, both in Hall 1, another session's — as the canvas hands
  * them over.
  *
  * @returns The chrome's narrowing parts
  */
-function railParts(): ChromeParts {
-    initializeStore(new UIStore());
-    const owners = ["Team A", "Team B"];
-    const part = recordPart({
-        key: "plan.toolbar.ladder.rows",
-        range: { id: "at", kind: "datetime", label: "Dates", values: [W27.getTime(), W28.getTime()] },
-        strings: [
-            { id: "owner", label: "Owner", hints: owners, values: owners },
-            { id: "hall", label: "Hall", hints: ["Hall 1"], values: ["Hall 1", "Hall 1"] },
-        ],
-        window: [W27.getTime(), W39.getTime()], resolution: "week",
-    });
-    const slices = recordSlices("plan.toolbar.ladder", [{ source: "rows", slice: part }], ["fields", "summary"]);
+async function railParts(): Promise<ChromeParts> {
+    await h.patch(records.planDatedRows, new Map([
+        ["r1", { at: W27, owner: "Team A", hall: "Hall 1" }],
+        ["r2", { at: W28, owner: "Team B", hall: "Hall 1" }],
+    ]));
+    const rail = await bindRail(() => Slice.bindRecords("plan.toolbar.ladder", {
+        rows: {
+            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt, records.planDatedRowsByOwnerAt, records.planDatedRowsByHallAt] }),
+            fields: { owner: { label: "Owner", hints: ["Team A", "Team B"] }, hall: { label: "Hall", hints: ["Hall 1"] }, at: { label: "Dates" } },
+            range: "at", search: [], initial: { at: { from: W27, to: W39 } },
+        },
+    }), ["fields", "summary"]);
+    const part = rail.part("rows");
     const holder = { source: "rows", part };
-    return { slices, windowParts: [holder], lead: holder, rowsPart: part, nouns: { rows: "rows" }, affordances: ["fields", "summary"] };
+    return { slices: rail.chrome, windowParts: [holder], lead: holder, rowsPart: part, nouns: { rows: "rows" }, affordances: ["fields", "summary"] };
 }
 
 /** A key search over a seekable source's String keys — the toolbar mounts it; nothing here searches. */
@@ -191,8 +198,8 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
 }
 
 /** A canvas with a root group, the rail over its rows, the resolutions and editing. */
-function everything(): ChromeParts {
-    return { ...railParts(), resolutions: ["week", "day"], grain: "group", history: historyProps() };
+async function everything(): Promise<ChromeParts> {
+    return { ...await railParts(), resolutions: ["week", "day"], grain: "group", history: historyProps() };
 }
 
 /** Each item's form of its forms, as the toolbar says it folded them, in the row's order. */
@@ -269,10 +276,11 @@ function needs(forms: ReadonlyMap<string, number>): number {
 }
 
 describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
-    test("they are one row in §7.1's order: the rail's chips, the fold toggle, the date navigator, the resolution; at the end the rail's summary and the history (PB20)", () => {
+    test("they are one row in §7.1's order: the rail's chips, the fold toggle, the date navigator, the resolution; at the end the rail's summary and the history (PB20)", async () => {
         row.px = 4000;
-        const parts = everything();
+        const parts = await everything();
         const { container } = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
+        await settle();
         expect([...stateOf(container).keys()]).toEqual(["record-slices", "record-summary", "groups", "time-navigation", "resolution", "history"]);
         const end = [...container.querySelectorAll("[data-toolbar-item][data-toolbar-end]")].map((el) => el.getAttribute("data-toolbar-item"));
         expect(end).toEqual(["record-summary"]);
@@ -281,9 +289,11 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
             .map((el) => `${el.getAttribute("data-record-slice-source")}.${el.getAttribute("data-record-slice-field")}`);
         expect(chips).toEqual(["rows.owner", "rows.hall"]);
         expect(container.querySelector("[data-toolbar-item='time-navigation'] [data-time-navigation='plan']")).not.toBeNull();
-        // The window holds every row: the summary names none; a narrowing that hides some names them, in the Plan's words (#1358).
+        // The window holds every row: the summary names none; a narrowing that hides some names them, in the Plan's
+        // words (#1358), as e3 counts them.
         expect(container.querySelector("[data-toolbar-item='record-summary']")!.textContent).toBe("");
-        act(() => { parts.rowsPart!.choose("owner", [printFor(StringType)("Team A")]); });
+        await act(async () => { parts.rowsPart!.choose("owner", [printFor(StringType)("Team A")]); });
+        await settle();
         expect(container.querySelector("[data-toolbar-item='record-summary']")!.textContent).toBe("1 of 2 rows");
         // A Plan approves and rejects nothing (#1260): no review item, no batch verbs.
         expect(container.querySelector('[data-toolbar-item="review"], [data-review-batch]')).toBeNull();
@@ -298,7 +308,7 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
 
     test("a narrowing row folds the rail first, then its summary; the date navigator compacts, the resolution and the fold toggle shorten, the three fold into the navigator's View, and the history folds last (PB21)", async () => {
         const start = new Map([["record-slices", 0], ["record-summary", 0], ["groups", 0], ["time-navigation", 0], ["resolution", 0], ["history", 0]]);
-        const c = walk(everything(), start, LADDER);
+        const c = walk(await everything(), start, LADDER);
         // Folded all the way: the rail's icon, no summary, the navigator's View, and the history's buttons alone.
         expect(c.querySelector("[data-toolbar-item='record-slices'] [data-rail-rung='icon']")).not.toBeNull();
         expect(c.querySelector("[data-toolbar-item='record-summary']")).toBeNull();
@@ -319,17 +329,19 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         // The rail at its icon, the summary folded: the Plan's own items at their widest; an owner chosen.
         const folded = new Map([["record-slices", 4], ["record-summary", 1], ["groups", 0], ["time-navigation", 0], ["resolution", 0], ["history", 0]]);
         row.px = needs(folded);
-        const parts = everything();
+        const parts = await everything();
         parts.rowsPart!.choose("owner", [printFor(StringType)("Team A")]);
         const { container } = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
         expect(stateOf(container)).toEqual(folded);
         await userEvent.setup().click(container.querySelector("[data-toolbar-item='record-slices'] [data-slot='railTrigger']")!);
         const editor = await screen.findByRole("dialog");
+        // The count is e3's, of the record's index.
+        await settle();
         expect(editor.querySelector("[data-record-slices-summary]")!.textContent).toBe("1 of 2 rows");
     });
 
-    test("on a seekable source the key search follows the rail and its summary; it folds to its icon after them, before the history (PB21)", () => {
-        const seekable = { ...everything(), search: SEARCH };
+    test("on a seekable source the key search follows the rail and its summary; it folds to its icon after them, before the history (PB21)", async () => {
+        const seekable = { ...await everything(), search: SEARCH };
         row.px = 4000;
         const wide = render(<ChakraProvider value={system}><Harness parts={seekable} /></ChakraProvider>);
         // After the rail's narrowing and before the fold toggle, in §7.1's order; its box with room.
@@ -346,7 +358,7 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
     test("on a time axis the overlaps chip shortens after the date navigator compacts, and folds into its View with the fold toggle and the resolution, one move; the View's chip selects the first pair (#1198, #1344)", async () => {
         const pair = onePair();
         const selected: (readonly string[])[] = [];
-        const parts: ChromeParts = { ...everything(), selectEvents: (keys) => { selected.push(keys); } };
+        const parts: ChromeParts = { ...await everything(), selectEvents: (keys) => { selected.push(keys); } };
         const start = new Map([["record-slices", 0], ["record-summary", 0], ["groups", 0], ["time-navigation", 0], ["resolution", 0], ["overlaps", 0], ["history", 0]]);
         const c = walk(parts, start, OVERLAPS_LADDER, pair);
         // Folded all the way: no chip in the row; the View holds it, beside the fold toggle and the resolution.
@@ -361,16 +373,26 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect(selected).toEqual([[scheduleEventKey(pair.pairs[0]!.first), scheduleEventKey(pair.pairs[0]!.second)]]);
     });
 
-    test("on a number axis the leading source's range is a chip of the rail, and another source's range follows it, out of the rail; no date navigator", () => {
-        initializeStore(new UIStore());
-        const orders = recordPart({ key: "plan.toolbar.number.orders", range: { id: "day", kind: "integer", label: "Day", values: [1, 2] }, window: [1, 9] });
-        const vans = recordPart({ key: "plan.toolbar.number.vans", range: { id: "day", kind: "float", label: "Day", values: [1.5] }, window: [1, 9] });
-        const slices = recordSlices("plan.toolbar.number", [{ source: "orders", slice: orders }, { source: "vans", slice: vans }], ["fields"]);
+    test("on a number axis the leading source's range is a chip of the rail, and another source's range follows it, out of the rail; no date navigator", async () => {
+        // The orders by their whole days and the vans by theirs, each holding the window `[1, 9)`.
+        const rail = await bindRail(() => Slice.bindRecords("plan.toolbar.number", {
+            orders: {
+                source: Data.bindPaged(records.planDayOrders, { indexes: [records.planDayOrdersByDay] }),
+                fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1n, to: 9n } },
+            },
+            vans: {
+                source: Data.bindPaged(records.planDayVans, { indexes: [records.planDayVansByDay] }),
+                fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1.0, to: 9.0 } },
+            },
+        }), ["fields"]);
+        const orders = rail.part("orders");
+        const vans = rail.part("vans");
         row.px = 4000;
         const { container } = render(<ChakraProvider value={system}><Harness parts={{
-            scale: STEPS, slices, windowParts: [{ source: "orders", part: orders }, { source: "vans", part: vans }],
+            scale: STEPS, slices: rail.chrome, windowParts: [{ source: "orders", part: orders }, { source: "vans", part: vans }],
             lead: { source: "orders", part: orders }, affordances: ["fields"],
         }} /></ChakraProvider>);
+        await settle();
         const chips = [...container.querySelectorAll("[data-toolbar-item='record-slices'] [data-record-slice-field]")]
             .map((el) => `${el.getAttribute("data-record-slice-source")}.${el.getAttribute("data-record-slice-field")}`);
         expect(chips).toEqual(["orders.day"]);

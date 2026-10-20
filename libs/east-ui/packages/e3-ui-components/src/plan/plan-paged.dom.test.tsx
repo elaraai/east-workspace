@@ -6,38 +6,36 @@
  *
  * Plan paged-source DOM tests (P-c) — the resident run, its bands, the
  * transport line and paging around the viewport. The rail narrows a record
- * itself (#1344): its counts are the record's, exact, and nothing narrows the
- * loaded prefix — so no scope badge — while a seekable source keeps its key
- * search.
+ * itself (#1344) — the Plan's dated rows on e3 itself (`rail.test-utils.ts`,
+ * #1376): its counts are the record's, exact, and nothing narrows the loaded
+ * prefix — so no scope badge — while a seekable source keeps its key search.
+ * The canvas's own sources here are built by the test. A canvas persists its
+ * toggles under its storageKey (#813), and the harness clears them after each
+ * test.
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
-import { describe, test, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
+import { describe, test, expect, vi } from "vitest";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { StringType, printFor, variant, some, none } from "@elaraai/east";
-import { system, UIStore, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { StringType, printFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui/internal";
+import { system, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
+import { Data } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel } from "./plan.test-utils.js";
-import { recordPart, recordSlices } from "./record-slices.test-utils.js";
+import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 
-// A canvas persists its toggles under its storageKey (#813), and several tests
-// share one — nothing may carry from one test to the next.
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
+const h = e3Harness(RAIL_MODULES, { measure: false });
 
-// jsdom lacks ResizeObserver — the floating-ui positioner behind the
-// resolver popovers needs one; a no-op stub keeps positioning inert (the
-// slice / schematic dom-test convention).
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+/** A dated row, decoded. */
+type DatedRow = ValueTypeOf<typeof records.PlanDatedRow>;
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -351,10 +349,16 @@ describe("Plan paged source (P-c)", () => {
         // A record rail asks the record's indexes, whatever has landed of the
         // canvas's windows: its counts are exact, and nothing it narrows is a
         // prefix's — the footer's transport line alone says how much is loaded.
-        initializeStore(new UIStore());
-        const part = recordPart({ key: "plan.paged.chrome.rows", strings: [{
-            id: "hall", label: "Hall", hints: ["Hall A", "Hall B"], values: Array.from({ length: 600 }, (_x, i) => (i % 2 === 0 ? "Hall A" : "Hall B")),
-        }] });
+        // Six hundred rows, another session's, every other one in Hall A.
+        await h.patch(records.planDatedRows, new Map(Array.from({ length: 600 }, (_x, i): [string, DatedRow] =>
+            [`r${String(i).padStart(3, "0")}`, { at: W27, owner: "Team A", hall: i % 2 === 0 ? "Hall A" : "Hall B" }])));
+        const rail = await bindRail(() => Slice.bindRecords("plan.paged.chrome", {
+            rows: {
+                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByHallAt] }),
+                fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } }, search: [],
+            },
+        }), ["fields", "summary"]);
+        const part = rail.part("rows");
         // Hall A: every other row of the six hundred.
         part.choose("hall", [printFor(StringType)("Hall A")]);
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
@@ -368,9 +372,10 @@ describe("Plan paged source (P-c)", () => {
         };
         const { container } = renderPlan(planRoot([], {
             source,
-            slice: some(recordSlices("plan.paged.chrome", [{ source: "rows", slice: part }], ["fields", "summary"])),
+            slice: some(rail.chrome),
         }), "plan-d9-chrome");
         await screen.findByText("R1");
+        await settle();
 
         expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
         // The summary counts the record's rows — Hall A's three hundred of six hundred — whatever has landed of the canvas's windows.
@@ -382,7 +387,6 @@ describe("Plan paged source (P-c)", () => {
     test("a seekable source mounts its KEY SEARCH (#574): the source's own seek, primary-key navigation", async () => {
         // Seeking the whole source is the key search's, not a narrowing's: the
         // rail's own search, when it has one, is the record's (#1344).
-        initializeStore(new UIStore());
         const queries: { type: string; value: unknown }[] = [];
         const w0 = [
             planRow("h1p1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
@@ -428,7 +432,6 @@ describe("Plan paged source (P-c)", () => {
     });
 
     test("a source WITHOUT seek mounts no key search, and nothing narrows its loaded prefix", async () => {
-        initializeStore(new UIStore());
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
             page: (offset: bigint) => (offset === 0n ? some(w0) : none),

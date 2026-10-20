@@ -42340,7 +42340,7 @@
         "window"
       ],
       "imports": [
-        "import { ArrayType, DictType, East, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",
@@ -42368,7 +42368,7 @@
         "paging"
       ],
       "imports": [
-        "import { ArrayType, DictType, East, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some } from \"@elaraai/east\";",
         "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
         "import { Data, Plan, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";",

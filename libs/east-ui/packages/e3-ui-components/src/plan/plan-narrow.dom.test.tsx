@@ -7,42 +7,34 @@
  * Plan narrow-layout DOM tests (§10 / #570) — below the compact width the
  * canvas is a review tool: tabs, cards, the shared ruler and the chips; a
  * section header's go mark is Font Awesome's chevron (#1263). A pan writes the
- * window as the record Slice's half-open range (#1344).
+ * window as the record Slice's half-open range (#1344), the rows' source the
+ * Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376). A canvas
+ * persists its toggles under its storageKey (#813), and the harness clears
+ * them after each test; its jsdom has what Zag's tabs find their triggers
+ * through when an arrow key moves between them (`CSS.escape`, #819).
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
-import { system, UIStore } from "@elaraai/east-ui-components";
+import { Slice } from "@elaraai/east-ui/internal";
+import { system } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { initializeStore, recordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { recordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { Data } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { act, e3Harness } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { NO_EDITS, blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel, testKeyOf } from "./plan.test-utils.js";
-import { recordPart, recordSlices } from "./record-slices.test-utils.js";
+import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 
-// A canvas persists its toggles under its storageKey (#813), and several tests
-// share one — nothing may carry from one test to the next.
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
-
-// jsdom lacks ResizeObserver — the floating-ui positioner behind the
-// resolver popovers needs one; a no-op stub keeps positioning inert (the
-// slice / schematic dom-test convention).
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-// jsdom has no `CSS.escape`, and Zag's tabs find their triggers through it
-// when an arrow key moves between them (#819) — every browser has one. A
-// stand-in escaping whatever an id may hold.
-const cssApi = ((globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {});
-cssApi.escape ??= (s: string) => s.replace(/[^\w-]/g, (c) => `\\${c}`);
+e3Harness(RAIL_MODULES, { measure: false });
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -255,13 +247,16 @@ describe("Plan narrow layout (§10 / #570)", () => {
     });
 
     test("Measures stacks the chart rows at expanded density with their ticks overlaid; a two-finger drag pans the window", async () => {
-        initializeStore(new UIStore());
-        const part = recordPart({
-            key: "plan.narrow.pan.rows", range: { id: "at", kind: "datetime", label: "At", values: [W27.getTime(), W39.getTime()] },
-            window: [W27.getTime(), W39.getTime()], resolution: "week",
-        });
+        // The rows' source holds the window, W27..W39.
+        const rail = await bindRail(() => Slice.bindRecords("plan.narrow.pan", {
+            rows: {
+                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
+            },
+        }), ["range"]);
+        const part = rail.part("rows");
         const range = () => { const w = recordSliceWindow(part)!; return { from: new Date(w.min), to: new Date(w.max) }; };
-        const { container } = renderPlan(fixture({ slice: some(recordSlices("plan.narrow.pan", [{ source: "rows", slice: part }], ["range"])) }), "plan-570-measures");
+        const { container } = renderPlan(fixture({ slice: some(rail.chrome) }), "plan-570-measures");
         // A tab is Zag's (#819): its click selects on the machine's next turn.
         fireEvent.click(container.querySelector("[data-plan-tab='measures']")!);
         await waitFor(() => expect(container.querySelector(rowSel("ontime", "data-plan-card"))).toBeTruthy());
