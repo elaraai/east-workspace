@@ -33,7 +33,7 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, BlobType, East, OptionType, PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, equalFor, none, some, variant,
@@ -44,9 +44,11 @@ import { EastChakraComponent, UIStore, editingMessages, formatters, getRegistere
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as edits from "./edits.js";
-import { commits, enabled, mountRecord, press, readRecord, recordHarness, settle, toolbar } from "./flowchart.test-utils.js";
+import { act, enabled, flowchartHarness, press, settle, toolbar } from "./flowchart.test-utils.js";
 import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
 import { flowchartMessages } from "./messages.js";
+
+const h = flowchartHarness();
 
 // jsdom lacks the ResizeObserver the panes and the canvas reach for, and the matchMedia the tooltips do.
 beforeAll(() => {
@@ -578,16 +580,17 @@ describe("Save's outcomes (FB23)", () => {
 
 describe("Save's commit (FB22, FB23)", () => {
     test("over a record, one patch through its patch mutation: the open flow's update by name; the drafts retire once the record reads it back", async () => {
-        const harness = recordHarness(FLOWS);
-        const { container } = await mountRecord({ flow: "Sort", library: [Flowchart.library.flows()] });
+        await h.commitFlows(FLOWS);
+        const before = await h.commits();
+        const { container } = await h.mountRecord({ flow: "Sort", library: [Flowchart.library.flows()] });
         await addLane(container);
         await renameLane(container, "sort", "Sortation");
         // The open flow's card is Pending in the Flows tab while its drafts are.
         expect(container.querySelector("[data-frame-slot='start'] [data-library-item='Sort'] [data-tone]")!.textContent).toBe(m.flowPending());
         await press(SAVE);
         const expected = withFlow(FLOWS, "Sort", edits.renameLane(edits.addLane(SORT, laneLabel).flow, "sort", "Sortation"));
-        expect(flowsEqual(readRecord(harness), expected)).toBe(true);
-        expect(await commits(harness)).toEqual(["patch", "$init"]);
+        expect(flowsEqual(await h.flows(), expected)).toBe(true);
+        expect(await h.commits()).toEqual(["patch", ...before]);
         await waitFor(() => expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`));
         expect(enabled(SAVE)).toBe(false);
         expect(laneHeads(container)).toEqual(["INDUCT", "SORTATION", "HOLD", laneLabel(4).toUpperCase()]);
@@ -595,8 +598,9 @@ describe("Save's commit (FB22, FB23)", () => {
     });
 
     test("a new flow takes gestures as its drafts: Save inserts it, as its gestures left it, by name", async () => {
-        const harness = recordHarness(FLOWS);
-        const { container } = await mountRecord({ flow: "Sort", library: [Flowchart.library.flows()] });
+        await h.commitFlows(FLOWS);
+        const before = await h.commits();
+        const { container } = await h.mountRecord({ flow: "Sort", library: [Flowchart.library.flows()] });
         await gesture(() => { fireEvent.click(container.querySelector("[data-frame-slot='start'] [data-flowchart-new-flow]")!); });
         const popover = within(await screen.findByRole("dialog"));
         await gesture(() => { fireEvent.change(popover.getByRole("textbox", { name: m.flowName() }), { target: { value: "Night shift" } }); });
@@ -607,8 +611,8 @@ describe("Save's commit (FB22, FB23)", () => {
         expect(stateKeys(container)).toEqual(["NGT"]);
         await press(SAVE);
         const night = edits.addState(edits.addLane({ description: none, lanes: [], states: [], links: [], triggers: [] }, laneLabel).flow, "lane-1", "NGT", "Night intake");
-        expect(flowsEqual(readRecord(harness), withFlow(FLOWS, "Night shift", night))).toBe(true);
-        expect(await commits(harness)).toEqual(["patch", "$init"]);
+        expect(flowsEqual(await h.flows(), withFlow(FLOWS, "Night shift", night))).toBe(true);
+        expect(await h.commits()).toEqual(["patch", ...before]);
     });
 
     const FLOWS_KEY = "flowchart.editing.host-flows";

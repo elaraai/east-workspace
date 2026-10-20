@@ -4,22 +4,22 @@
  *
  * @vitest-environment jsdom
  *
- * The flowchart's drag and drop (#1249, `Flowchart Builder Spec.md` §9.8,
- * §10, FB30–FB34), through the page's drag layer and its test seams, over a
- * record of flows in memory bound with its patch mutation: a state template
- * dropped on a lane at the row under the pointer — the ghost saying where, the
- * lane washed and the landing line drawn — its key the card's, made unique or
- * minted, the new state selected; a transition template retyping the
- * transition it lands on, which takes the brand wash; an author's card setting
- * its fields on a decision's diamond, a state and a lane's header; every
- * refusal in its words, red, dropping nothing; a read-only flowchart refusing
- * every drop; a card carried over the canvas raising no dimming and no
- * "+ STATE" ghost; ⏎ on a card dropping it on the canvas's selection — a
- * lane's card on the lane a click on its header selected (#1250) — refused,
- * the footer saying why — and scrolling the state it
- * adds into view, where a pointer's drop leaves the view be; on a touch screen
- * a tap on the selected card doing what ⏎ does; and each drop one
- * transaction, one Undo taking it back, Save committing it through the record.
+ * The flowchart's drag and drop (#1249, `Flowchart Builder Spec.md` §9.8, §10,
+ * FB30–FB34), through the page's drag layer and its test seams, over the
+ * depot's record of flows on e3 itself (#1376), bound with its patch mutation:
+ * a state template dropped on a lane at the row under the pointer — the ghost
+ * saying where, the lane washed and the landing line drawn — its key the
+ * card's, made unique or minted, the new state selected; a transition template
+ * retyping the transition it lands on, which takes the brand wash; an author's
+ * card setting its fields on a decision's diamond, a state and a lane's header;
+ * every refusal in its words, red, dropping nothing; a read-only flowchart
+ * refusing every drop; a card carried over the canvas raising no dimming and no
+ * "+ STATE" ghost; ⏎ on a card dropping it on the canvas's selection — a lane's
+ * card on the lane a click on its header selected (#1250) — refused, the footer
+ * saying why — and scrolling the state it adds into view, where a pointer's
+ * drop leaves the view be; on a touch screen a tap on the selected card doing
+ * what ⏎ does; and each drop one transaction, one Undo taking it back, Save
+ * committing it through the record.
  *
  * jsdom lays nothing out: the canvas measures 0×0, so its lanes are 166px wide
  * from the left edge and its states sit where `layout.ts` puts them; the
@@ -28,30 +28,30 @@
  *
  * Templates are records (#1346): each templates list names its source of the
  * flowchart's one `Slice.bindRecords`, here over the examples' templates
- * records, served by the harness's paging service. Nothing narrows them here,
+ * records, paged through their indexes on e3. Nothing narrows them here,
  * so each list shows the rows it is given whole; the narrowing's own tests are
  * `flowchart-narrowing.dom.test.tsx`'s.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render, type RenderResult } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
+import { cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import {
     ArrayType, DictType, East, SortedMap, StringType, StructType, compareFor, equalFor, none, some, variant,
     type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
-import { DragLayerProvider, UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { UIStore, editingMessages, formatters } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
 import { Data, Flowchart } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import * as edits from "./edits.js";
-import { enabled, exampleRecord, mountRecord, press, readRecord, recordHarness, servedRecord, settle, type RecordHarness } from "./flowchart.test-utils.js";
-import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
+import { act, enabled, flowchartHarness, press, settle } from "./flowchart.test-utils.js";
 import { NODE_H, NODE_W, computeLayout, type FlowchartLayout } from "./layout.js";
 import { flowchartMessages } from "./messages.js";
 import { buildModel } from "./model.js";
+
+const h = flowchartHarness();
 
 // jsdom lacks the ResizeObserver the panes and the canvas reach for, and the matchMedia the popovers do.
 beforeAll(() => {
@@ -125,10 +125,6 @@ const NOTES: ValueTypeOf<typeof NoteRow>[] = [{ text: "Checked at the bay" }];
 const NameRow = StructType({ label: StringType });
 const NAMES: ValueTypeOf<typeof NameRow>[] = [{ label: "Sortation" }];
 
-/** The records the templates lists' sources page, each through its index (#1346). */
-const TEMPLATE_RECORDS = [ex.stepTemplates, ex.moveTemplates].map(exampleRecord);
-const SERVED = [servedRecord(ex.stepTemplates, [ex.stepsByKind]), servedRecord(ex.moveTemplates, [ex.movesByKind])];
-
 /**
  * The sort flow opened first, with its library: the Flows tab, the step
  * types, the transition types, and the author's owners (onto a decision),
@@ -175,27 +171,16 @@ function depot<T extends EastType>($: BlockBuilder<T>) {
     };
 }
 
-/** The sort flow over a record, its library listed, under the page's drag layer. */
-async function mountDepot(): Promise<{ container: HTMLElement; harness: RecordHarness }> {
-    const harness = recordHarness(FLOWS, TEMPLATE_RECORDS, SERVED);
-    const { container } = await mountRecord(depot, { drag: true });
-    return { container, harness };
+/** The sort flow over the depot's record, its library listed, under the page's drag layer. */
+async function mountDepot(): Promise<{ container: HTMLElement }> {
+    await h.commitFlows(FLOWS);
+    const { container } = await h.mountRecord(depot, { drag: true });
+    return { container };
 }
 
 /** The sort flow as the host's read-only flows — no `onApply` — its library listed, under the page's drag layer. */
 async function mountReadOnly(): Promise<RenderResult> {
-    recordHarness(FLOWS, TEMPLATE_RECORDS, SERVED);
-    const value = East.compile(East.function([], Flowchart.Types.Payload, ($) => Flowchart.Payload({ data: FLOWS, ...depot($) })),
-        getRegisteredPlatformImplementations())() as FlowchartValue;
-    const utils = render(
-        <ChakraProvider value={system}>
-            <DragLayerProvider>
-                <EastChakraFlowchart value={value} storageKey="flowchart.drop" />
-            </DragLayerProvider>
-        </ChakraProvider>,
-    );
-    await settle();
-    return utils;
+    return h.mountPayload(East.function([], Flowchart.Types.Payload, ($) => Flowchart.Payload({ data: FLOWS, ...depot($) })), { drag: true, storageKey: "flowchart.drop" });
 }
 
 /** Where the canvas draws the sort flow in jsdom: lanes 166px wide, rows 96px apart from 56px down, the legend's strip under them. */
@@ -298,7 +283,7 @@ const held = (key: string, lane: string) => ({ key, label: some("Held"), lane, m
 
 describe("a state template dropped on a lane (FB30, FB31)", () => {
     test("lands at the row under the pointer, after the states above it: the ghost says where, the lane takes its wash and the landing line runs where it lands; dropped, the state is added and selected — one transaction, one Undo taking it back — and Save commits it", async () => {
-        const { container, harness } = await mountDepot();
+        const { container } = await mountDepot();
         await openTab(container, "Steps");
         pickUp(cardOf(container, "Held"));
         // Picked up, over nothing: the ghost alone.
@@ -335,11 +320,11 @@ describe("a state template dropped on a lane (FB30, FB31)", () => {
         await press(REDO);
         expect(stateKeys(container)).toEqual(["ARV", "HLD", "SCN", "CH*"]);
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort")!, edits.insertState(SORT, 1, held("HLD", "intake")))).toBe(true);
+        expect(flowEqual((await h.flows()).get("Sort")!, edits.insertState(SORT, 1, held("HLD", "intake")))).toBe(true);
     });
 
     test("its key is the card's, made unique where the flow holds it — HLD-2 — or minted where the card gives none; in a lane holding no state, it lands in its first row", async () => {
-        const { container, harness } = await mountDepot();
+        const { container } = await mountDepot();
         await openTab(container, "Steps");
         for (const _ of [1, 2]) {
             pickUp(cardOf(container, "Held"));
@@ -357,7 +342,7 @@ describe("a state template dropped on a lane (FB30, FB31)", () => {
         expect([stateKeys(container), enabled(UNDO)]).toEqual([["ARV", "SCN", "CH*"], false]);
         for (let i = 0; i < 3; i++) await press(REDO);
         await press(SAVE);
-        const saved = readRecord(harness).get("Sort")!;
+        const saved = (await h.flows()).get("Sort")!;
         expect(saved.states.map((s) => [s.key, s.lane])).toEqual([["ARV", "intake"], ["SCN", "intake"], ["state-6", "sort"], ["CH*", "sort"], ["HLD", "hold"], ["HLD-2", "hold"]]);
     });
 
@@ -423,7 +408,7 @@ describe("a card carried over the canvas (FB30)", () => {
 
 describe("a transition template dropped on a transition (FB32)", () => {
     test("retypes it — connect, then retype — the transition taking the brand wash while the drag rests on it; anywhere else refused: Drop onto a transition", async () => {
-        const { container, harness } = await mountDepot();
+        const { container } = await mountDepot();
         await openTab(container, m.libraryTab({ tab: "transitions" }));
         pickUp(cardOf(container, "Observed"));
         restOn(container, centreOf("CH*"));
@@ -442,7 +427,7 @@ describe("a transition template dropped on a transition (FB32)", () => {
         expect(pending(container)).toBe(` · ${m.footerPending({ n: 0, count: "0" })}`);
         await press(REDO);
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort")!, { ...SORT, links: [{ ...SORT.links[0]!, kind: some(variant("observed", null)) }, SORT.links[1]!] })).toBe(true);
+        expect(flowEqual((await h.flows()).get("Sort")!, { ...SORT, links: [{ ...SORT.links[0]!, kind: some(variant("observed", null)) }, SORT.links[1]!] })).toBe(true);
     });
 });
 
@@ -452,7 +437,7 @@ describe("a transition template dropped on a transition (FB32)", () => {
 
 describe("an author's card lands where its drop's type says (FB33)", () => {
     test("on a decision's diamond, a state and a lane's header — each taking the brand while the drag rests there — setting its fields; refused elsewhere, naming where it lands; each one transaction", async () => {
-        const { container, harness } = await mountDepot();
+        const { container } = await mountDepot();
         const diamond = routeOf("SCN→CH*").mid;
         // The owner: onto the route decision's diamond.
         await openTab(container, "Owners");
@@ -489,7 +474,7 @@ describe("an author's card lands where its drop's type says (FB33)", () => {
         expect(enabled(UNDO)).toBe(false);
         for (let i = 0; i < 3; i++) await press(REDO);
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort")!, {
+        expect(flowEqual((await h.flows()).get("Sort")!, {
             ...SORT,
             lanes: [SORT.lanes[0]!, { ...SORT.lanes[1]!, label: some("Sortation") }, SORT.lanes[2]!],
             states: [SORT.states[0]!, SORT.states[1]!, { ...SORT.states[2]!, notes: some("Checked at the bay") }],
@@ -504,7 +489,7 @@ describe("an author's card lands where its drop's type says (FB33)", () => {
 
 describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
     test("a state template after the selected state, in its lane, selected — never picked up; a card the selection takes no such drop of is refused, the footer saying why, until a drop lands", async () => {
-        const { container, harness } = await mountDepot();
+        const { container } = await mountDepot();
         await act(async () => { fireEvent.click(node(container, "SCN")); });
         await settle();
         await openTab(container, "Steps");
@@ -533,7 +518,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
         await enter(cardOf(container, "customs-desk"));
         // Three drops, three transactions; Save commits them.
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort")!, {
+        expect(flowEqual((await h.flows()).get("Sort")!, {
             ...SORT,
             states: [...SORT.states, held("HLD", "intake")],
             links: [{ ...SORT.links[0]!, kind: some(variant("observed", null)) }, SORT.links[1]!],
@@ -542,7 +527,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
     });
 
     test("a lane's card lands on the lane a click on its header selected (#1250): with a state selected it is refused, the footer saying why; with the lane, it names the lane, one transaction", async () => {
-        const { container, harness } = await mountDepot();
+        const { container } = await mountDepot();
         await openTab(container, "Names");
         // A state selected: no lane's header to set the name on.
         await act(async () => { fireEvent.click(node(container, "SCN")); });
@@ -557,7 +542,7 @@ describe("⏎ on a card drops it on the canvas's selection (FB34)", () => {
         expect([...container.querySelectorAll("[data-flowchart-lane]")].map((el) => el.textContent)).toEqual(["INTAKE", "SORTATION", "HOLD"]);
         expect([footerMessage(container), pending(container)]).toEqual(["", ` · ${m.footerPending({ n: 1, count: "1" })}`]);
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort")!, { ...SORT, lanes: [SORT.lanes[0]!, { ...SORT.lanes[1]!, label: some("Sortation") }, SORT.lanes[2]!] })).toBe(true);
+        expect(flowEqual((await h.flows()).get("Sort")!, { ...SORT, lanes: [SORT.lanes[0]!, { ...SORT.lanes[1]!, label: some("Sortation") }, SORT.lanes[2]!] })).toBe(true);
     });
 
     test("with a lane selected, a state template lands at the end of that lane (#1250)", async () => {

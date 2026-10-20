@@ -15,8 +15,8 @@
  * own search finding within the narrowing, the rail and every count as they
  * were; the flows paged, counted, searched and saved through their indexes
  * and reads by name, never read whole; and the examples mounted as they are.
- * Over the examples' records in memory and the paging service over their
- * indexes (`flowchart.test-utils.tsx`), the flowchart in a Reactive root as a
+ * Over the examples' records on e3 itself, paged through their indexes
+ * (`flowchart.test-utils.tsx`, #1376), the flowchart in a Reactive root as a
  * ui task draws it, the rail written as its chips write it. That no function
  * holds the whole slice is e3-ui's one guard over every builder's examples
  * (#1356). A filter change builds nothing again: the flowchart's body runs no
@@ -24,18 +24,18 @@
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import { East, IntegerType, OptionType, SortedMap, StringType, compareFor, equalFor, printFor, some, variant, type EastIR } from "@elaraai/east";
+import { cleanup, fireEvent, waitFor, within, type RenderResult } from "@testing-library/react";
+import { East, IntegerType, OptionType, StringType, equalFor, printFor, some, variant, type EastIR } from "@elaraai/east";
 import { Reactive, RecordSlicesChromeType, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
-import { EastChakraComponent, UIStore, editingMessages, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { UIStore, editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
-import { WORKSPACE, exampleRecord, recordHarness, servedRecord, settle, type RecordHarness } from "./flowchart.test-utils.js";
-import { pathText } from "../platform/record-paging.test-utils.js";
+import { act, flowchartHarness, settle } from "./flowchart.test-utils.js";
 import { flowchartMessages } from "./messages.js";
 import { countBuilds, type UIProgram } from "../shared/builds.test-utils.js";
+
+const h = flowchartHarness();
 
 // jsdom lacks the ResizeObserver the panes and the canvas reach for, and the matchMedia the popovers do.
 beforeAll(() => {
@@ -47,24 +47,18 @@ beforeAll(() => {
     });
 });
 
-/** The examples' records, in memory: the route flows, the depot's, and the library's templates and roles. */
-const RECORDS = [ex.indexedFlows, ex.depotFlows, ex.stepTemplates, ex.moveTemplates, ex.decisionOwners];
 /** The flows' indexes, as the rail's `flows` source lists them. */
 const FLOW_INDEXES = [ex.flowsByName, ex.flowsByDescription, ex.flowsByDescriptionName, ex.flowsByStateCount, ex.flowsByDescriptionStateCount, ex.flowsByLane, ex.flowsByDecisionOwner];
-/** The route flows' dataset, by its path's text: paged through its indexes, never read whole. */
-const FLOWS_PATH = pathText(ex.indexedFlows.path);
+/** The route flows' record, as its dataset's requests name it: paged through its indexes, never read whole. */
+const FLOWS_DATASET = `records.${ex.indexedFlows.name}`;
+/** The step types' record, as its dataset's requests name it. */
+const STEPS_DATASET = `records.${ex.stepTemplates.name}`;
+/** The route flows' commits, newest first, by the mutation that made each. */
+const flowCommits = async () => (await h.history(ex.indexedFlows)).commits.map((c) => c.mutation);
 
-let harness: RecordHarness;
-
-// Each test its own UI store, its own records and its own paged windows.
+// Each test its own UI store; its own records and paged windows are its workspace's on e3.
 beforeEach(() => {
     initializeStore(new UIStore());
-    harness = recordHarness(new SortedMap([], compareFor(StringType)), RECORDS.map(exampleRecord), [
-        servedRecord(ex.indexedFlows, FLOW_INDEXES),
-        servedRecord(ex.stepTemplates, [ex.stepsByKind]),
-        servedRecord(ex.moveTemplates, [ex.movesByKind]),
-        servedRecord(ex.decisionOwners, [ex.ownersByDesk]),
-    ]);
 });
 
 afterEach(() => {
@@ -146,10 +140,9 @@ function railParts() {
 const programOf = (example: { fn: { toIR(): unknown } }): UIProgram =>
     (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile(getRegisteredPlatformImplementations());
 
-/** Mounts an example, the test's flowchart, or a program already compiled, as a ui task draws it. */
-function mount(example: { fn: { toIR(): unknown } } | UIProgram): RenderResult {
-    const program = "fn" in example ? programOf(example) : example;
-    return render(<ChakraProvider value={system}><EastChakraComponent value={program()} storageKey="flowchart.narrowing" /></ChakraProvider>);
+/** Mounts an example or the test's flowchart as a ui task draws it, or a program compiled from one (a counted one) in its place. */
+function mount(example: { fn: { toIR(): unknown } }, program?: UIProgram): Promise<RenderResult> {
+    return h.mount(example, { drag: false, storageKey: "flowchart.narrowing", ...(program === undefined ? {} : { program }) });
 }
 
 /** A region of the frame. */
@@ -188,7 +181,7 @@ const TRANSITIONS_TAB = m.libraryTab({ tab: "transitions" });
 
 describe("the Flows tab pages the `flows` source (#1346)", () => {
     test("it lists and counts every flow while nothing narrows, and `683 of 2,048` while the rail narrows them; the collapsed rail's badge is what it shows", async () => {
-        const { container } = mount(flowchart);
+        const { container } = await mount(flowchart);
         const part = railParts();
         await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 2,048`));
         await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
@@ -204,11 +197,11 @@ describe("the Flows tab pages the `flows` source (#1346)", () => {
         expect(badge.getAttribute("title")).toBe("683");
         // Paged and counted through the indexes alone: the flows are never read whole, as the templates are, which
         // the Steps list reads whole beside them.
-        expect([harness.wholeReads.includes(FLOWS_PATH), harness.wholeReads.includes(pathText(ex.stepTemplates.path))]).toEqual([false, true]);
+        expect([h.requests("read", FLOWS_DATASET).length, h.requests("read", STEPS_DATASET).length > 0]).toEqual([0, true]);
     });
 
     test("while the rail leaves it no flow, it says so, with Clear filters for the `flows` source alone", async () => {
-        const { container } = mount(flowchart);
+        const { container } = await mount(flowchart);
         const part = railParts();
         await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 2,048`));
         await act(async () => {
@@ -230,7 +223,7 @@ describe("the Flows tab pages the `flows` source (#1346)", () => {
 
 describe("each other source narrows the tab that names it (#1346)", () => {
     test("the templates lists and the Owners tab show the cards their sources show, counted; a source the rail empties says so, with its own Clear filters", async () => {
-        const { container } = mount(flowchart);
+        const { container } = await mount(flowchart);
         const part = railParts();
         await waitFor(() => expect(tabs(container)).toEqual([`${FLOWS_TAB} 2,048`, "Steps 5", `${TRANSITIONS_TAB} 3`, "Owners 2"]));
         await act(async () => {
@@ -261,7 +254,7 @@ describe("each other source narrows the tab that names it (#1346)", () => {
 
 describe("the open flow, its drafts and its Save (#1346)", () => {
     test("the open flow stays open, its drafts kept, while the rail narrows it away; the Flows tab marks it Pending again once it shows", async () => {
-        const { container } = mount(flowchart);
+        const { container } = await mount(flowchart);
         const part = railParts();
         await waitFor(() => expect(cardKeys(container)).toContain("FLOW-10001"));
         await act(async () => { fireEvent.click(panel(container).querySelector('[data-library-item="FLOW-10001"]')!); });
@@ -282,8 +275,9 @@ describe("the open flow, its drafts and its Save (#1346)", () => {
     });
 
     test("a Save that takes the open flow out of the narrowing confirms by its name, and the footer says one flow left the view", async () => {
-        const { container } = mount(flowchart);
+        const { container } = await mount(flowchart);
         const part = railParts();
+        const before = await flowCommits();
         // FLOW-10001 holds four states; the rail keeps flows of four.
         await act(async () => { part("flows").range("stateCount", printCount(4n), printCount(5n)); });
         await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10001"));
@@ -298,10 +292,9 @@ describe("the open flow, its drafts and its Save (#1346)", () => {
         await waitFor(() => expect(container.querySelector("[data-record-save-notice]")?.textContent).toBe("1 flow left this view"));
         // Still open, read by its name, its Save seen through.
         expect([openFlow(container), pending(container)]).toEqual(["FLOW-10001", ` · ${m.footerPending({ n: 0, count: "0" })}`]);
-        const { commits } = await harness.memory.history(WORKSPACE, ex.indexedFlows.name, undefined);
-        expect(commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
+        expect(await flowCommits()).toEqual(["patch", ...before]);
         // Its Save confirmed, and its exit counted, by reads of the flow and seeks of the indexes: never the flows whole.
-        expect(harness.wholeReads).not.toContain(FLOWS_PATH);
+        expect(h.requests("read", FLOWS_DATASET)).toEqual([]);
     });
 });
 
@@ -310,7 +303,7 @@ describe("the Flows tab's own search (#1340, ruling 11; #1346)", () => {
     const searchBox = (container: HTMLElement) => within(panel(container)).getByRole("textbox", { name: "Search flows by name" }) as HTMLInputElement;
 
     test("finds a flow by its name within the narrowing — the rail, its count and the tab's count as they were — and says how many it hides, with Show all", async () => {
-        const { container } = mount(flowchart);
+        const { container } = await mount(flowchart);
         const part = railParts();
         await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
         expect(searchBox(container).placeholder).toBe("Search 2,048 flows by name…");
@@ -324,14 +317,14 @@ describe("the Flows tab's own search (#1340, ruling 11; #1346)", () => {
         await waitFor(() => expect(cardKeys(container)).toEqual(["FLOW-10501", "FLOW-10504", "FLOW-10507"]));
         expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 683 of 2,048`);
         // Found through the indexes, never over the flows read whole.
-        expect(harness.wholeReads).not.toContain(FLOWS_PATH);
+        expect(h.requests("read", FLOWS_DATASET)).toEqual([]);
         await act(async () => { fireEvent.click(within(panel(container)).getByRole("button", { name: "Show all" })); });
         await waitFor(() => expect(cardKeys(container).slice(0, 2)).toEqual(["FLOW-10000", "FLOW-10003"]));
         expect(searchBox(container).value).toBe("");
     });
 
     test("the rail's choices that no index combines with a name say so, naming them, with the rail's Clear filters", async () => {
-        const { container } = mount(flowchart);
+        const { container } = await mount(flowchart);
         const part = railParts();
         await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
         await act(async () => { part("flows").range("stateCount", printCount(4n), printCount(6n)); });
@@ -353,18 +346,18 @@ describe("the Flows tab's own search (#1340, ruling 11; #1346)", () => {
 
 describe("the examples, mounted as they are (#1346)", () => {
     test("the library example's rail narrows its templates and its Owners tab, a source each; its Flows tab lists the depot's flows read whole", async () => {
-        const { container } = mount(ex.flowchartLibrary);
+        const { container } = await mount(ex.flowchartLibrary);
         await waitFor(() => expect(tabs(container)).toEqual([`${FLOWS_TAB} 2`, "Steps 5", `${TRANSITIONS_TAB} 3`, "Owners 2"]));
         const sourcesOnRail = new Set([...slot(container, "toolbar")!.querySelectorAll("[data-record-slice-source]")].map((el) => el.getAttribute("data-record-slice-source")));
         expect([...sourcesOnRail].sort()).toEqual(["moves", "owners", "steps"]);
     });
 
     test("the record indexes example pages and counts its 2,048 flows through its `flows` source", async () => {
-        const { container } = mount(ex.flowchartRecordIndexes);
+        const { container } = await mount(ex.flowchartRecordIndexes);
         await waitFor(() => expect(tabs(container)).toEqual([`${FLOWS_TAB} 2,048`]));
         await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));
-        expect(harness.requests.some((request) => request.startsWith(`${FLOWS_PATH} `))).toBe(true);
-        expect(harness.wholeReads).not.toContain(FLOWS_PATH);
+        expect(h.requests("page", FLOWS_DATASET).length).toBeGreaterThan(0);
+        expect(h.requests("read", FLOWS_DATASET)).toEqual([]);
     });
 });
 
@@ -372,7 +365,7 @@ describe("a filter change rebuilds no builder (#1354)", () => {
     test("a choice on the rail builds the flowchart no more: the Flows tab and a templates list follow it over the payload it mounted with", async () => {
         const builds = countBuilds("Flowchart", programOf(flowchart));
         try {
-            const { container } = mount(builds.program);
+            const { container } = await mount(flowchart, builds.program);
             const part = railParts();
             await waitFor(() => expect(tabs(container)[0]).toBe(`${FLOWS_TAB} 2,048`));
             await waitFor(() => expect(cardKeys(container)[0]).toBe("FLOW-10000"));

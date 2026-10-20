@@ -136,6 +136,8 @@ export const stepTemplates = e3.record("flowchart_step_templates", DictType(Stri
     ["LDD", { name: "Loaded", kind: "Load", slots: none }],
 ]));
 export const stepsByKind = e3.recordIndex("flowchart_steps_by_kind", stepTemplates, { on: ["kind"] });
+/** The step types' patch door: what another writer adds a step type through, the Steps tab's cards following. */
+export const stepTemplatesPatch = e3.mutation.patch(stepTemplates);
 export const MoveTemplate = StructType({ kind: Flowchart.Types.Kind, decision: OptionType(StringType), note: StringType });
 export const moveTemplates = e3.record("flowchart_move_templates", DictType(StringType, MoveTemplate), new Map([
     ["Observed", { kind: variant("observed", null), decision: none, note: "Mined from the scans" }],
