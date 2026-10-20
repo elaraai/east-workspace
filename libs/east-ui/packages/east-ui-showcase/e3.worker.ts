@@ -9,20 +9,18 @@
  * example renders. Its repositories are kept in memory, so each page load
  * starts from the showcase's package afresh, and its unit workers run
  * `unit.worker.ts`. It cuts a split task's pieces at the showcase's piece size
- * (#1132, `showcase-pieces.ts`), as `E3_TEST_PIECE_BYTES` sets a local
- * runner's, so a query over the generated order history runs as a split call
- * over its pieces.
+ * (#1132, `showcase-pieces.ts`, its `pieceBytes`), as `E3_TEST_PIECE_BYTES`
+ * sets a local runner's, so a query over the generated order history runs as a
+ * split call over its pieces.
  *
  * @packageDocumentation
  */
 
-import { readTestPieceBytesFrom } from "@elaraai/e3-core/portable";
 import { serveE3 } from "@elaraai/e3-web/worker";
 import { SHOWCASE_PIECE_TARGET } from "./showcase-pieces";
-
-readTestPieceBytesFrom(() => String(SHOWCASE_PIECE_TARGET));
 
 serveE3({
     units: () => new Worker(new URL("./unit.worker.ts", import.meta.url), { type: "module" }),
     persist: false,
+    pieceBytes: SHOWCASE_PIECE_TARGET,
 });

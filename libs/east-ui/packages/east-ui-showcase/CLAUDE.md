@@ -49,8 +49,8 @@ The query builder's calls go to that e3 (#1132): `E3Gate` renders each e3
 example under an `E3Provider` over it, so a run is a real one-shot call, or
 a real split call that e3 cuts into pieces, and a run weighs its datasets by
 their statuses there. The e3 worker cuts pieces at 64 KiB
-(`showcase-pieces.ts`, through e3-core's `readTestPieceBytesFrom`, as
-`E3_TEST_PIECE_BYTES` sets a local runner's), and `main.tsx`'s
+(`showcase-pieces.ts`, `serveE3`'s `pieceBytes`, as `E3_TEST_PIECE_BYTES`
+sets a local runner's), and `main.tsx`'s
 `QueryPlanOptionsProvider` tells the planner that e3's smallest piece,
 16 KiB: the fixture's datasets are one call, and the order history the
 query examples' tasks generate when the dataflow runs (36,000 orders, the

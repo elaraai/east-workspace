@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 
-import { LocalOrchestrator, type TaskRunner } from '@elaraai/e3-core/portable';
+import { LocalOrchestrator, readTestPieceBytesFrom, type TaskRunner } from '@elaraai/e3-core/portable';
 import { oneShotAccessByRoles, type OneShotAccess } from '@elaraai/e3-api-server/portable';
 import { createWebApp, type Identify } from './app.js';
 import { serveBridge, type BridgeBoot, type BridgeEndpoint } from './bridge/worker.js';
@@ -104,6 +104,30 @@ export interface ServeE3Options {
    * next: 16 MiB unless given.
    */
   readonly transferExportRoundBytes?: number;
+  /**
+   * The size the e3 cuts a split task's pieces and an intake's runs of
+   * segments at, in stored bytes: each piece aims at it, and closes between a
+   * quarter of it and four times it, as `E3_TEST_PIECE_BYTES` sets a local
+   * runner's. The platform's, 64 MiB, unless given; a small one cuts a small
+   * dataset into many pieces, as an app showing a split call over a few
+   * megabytes needs. It is the setting of the thread the e3 runs in: given,
+   * every e3 in the thread cuts at it, and not given, the thread's stands. One
+   * that is not a whole number of bytes, at least 4, is refused as the e3
+   * boots.
+   */
+  readonly pieceBytes?: number;
+}
+
+/**
+ * A piece size a host gives, checked as e3 reads `E3_TEST_PIECE_BYTES`.
+ *
+ * @param bytes - The size
+ * @returns It, a whole number of bytes, at least 4
+ * @throws {RangeError} When it is not
+ */
+function pieceBytesOf(bytes: number): number {
+  if (!Number.isSafeInteger(bytes) || bytes < 4) throw new RangeError(`a piece size is a whole number of bytes, at least 4, not ${bytes}`);
+  return bytes;
 }
 
 /** What closes an e3 the e3 worker runs, once its page has gone. */
@@ -183,6 +207,10 @@ async function start(options: ServeE3Options): Promise<Running> {
   // The runners are made as repositories need them: what they would refuse is
   // refused here, before anything opens.
   const wholeIntakeLimit = wholeIntakeLimitOf(options.wholeIntakeLimit);
+  if (options.pieceBytes !== undefined) {
+    const pieceBytes = String(pieceBytesOf(options.pieceBytes));
+    readTestPieceBytesFrom(() => pieceBytes);
+  }
   const persist = options.persist ?? true;
   const storage: WebStorage = await openWebStorage({ persist, ...(options.name !== undefined && { name: options.name }) });
   try {
