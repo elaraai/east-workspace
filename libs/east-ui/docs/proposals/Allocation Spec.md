@@ -243,15 +243,16 @@ loads by spec, from one rail over the three records, each source with its icon (
 A99) — a choice in a field another index serves replaces the one before, as the
 shared Slice says — the bin values shown as the Table's Spec and Grade columns
 and the inspector's rows, and the yard's check flagging a booked ≠ measured
-mismatch, as the mock's Spec mismatch group does.
+mismatch, as the mock's Spec mismatch group does. Its plans are a few days,
+read whole; `allocationWindowed` (§3.4) reads a long history a day at a time
+through `window`.
 
 ```tsx
 export const allocationKilnYard = example({
-    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area, the kilns by group and the loads by spec from one rail over the three records, the bin values as columns, a yard check, and the yard's greedy fit on e3.",
+    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area or cover, the kilns by group, a range of max within a group or a name's start, and the loads by spec, from one rail over the three records — each source with its icon, headed by the board's noun, and each narrowing every place its rows appear, the Library's tabs included — the bin values as columns, a yard check, and the yard's greedy fit on e3.",
     keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "Allocation.lanes", "Func.bind", "fit", "links", "Publish", "Library", "narrowing"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        const history = $.let(Data.bindPaged(kilnPlans));
         // Every bay, kiln and load is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea, yardBaysByCover] }));
@@ -280,7 +281,7 @@ export const allocationKilnYard = example({
             const issues = $2.let([], ArrayType(Allocation.Types.Issue));
             $2.for(cx.plan.bins, ($3, bin, id) => {
                 $3.match(bin.event, { some: ($4, code) => {
-                    $4.if(East.notEqual(bin.values.specBooked, bin.values.specMeasured), $5 => {
+                    $4.if(East.notEqual(bin.values.specBooked, bin.values.specMeasured), ($5) => {
                         $5(issues.pushLast({ kind: variant("custom", "Spec mismatch"), tone: variant("neutral", null),
                             title: East.str`${code} · bin ${id}`,
                             detail: East.str`Spec booked ${bin.values.specBooked} · measured ${bin.values.specMeasured} · ${bin.lane} ${bin.at.printFormatted("HH:mm")}`,
@@ -290,7 +291,7 @@ export const allocationKilnYard = example({
             });
             return issues;
         }));
-        return <Box width="100%" height="900px"><Allocation id="allocationKilnYard" title="Kiln loading" days={days} window={history}
+        return <Box width="100%" height="900px"><Allocation id="allocationKilnYard" title="Kiln loading" days={days}
             lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit} check={check}
             events={Allocation.events(loads.read(), {
                 label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
