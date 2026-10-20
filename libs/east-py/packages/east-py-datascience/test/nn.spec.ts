@@ -6,12 +6,14 @@
 /**
  * Neural networks as East data (east-workspace#1357): every operation of
  * docs/neural-networks.md held to its stated shapes and conventions, nn_init
- * and nn_run, the specification's refusals, and the two reference families
+ * and nn_run, the specification's refusals, and the reference families
  * (test/nn.reference.generated.ts) held to what hand-written torch answered —
  * on both runners, the python interpreter and east-c-datascience, which run on
- * the same torch kernels.
+ * the same torch kernels. The selection, expansion and grid operations, the
+ * float64 element type, the rotary conventions and the pair-proportional
+ * attention paths are east-workspace#1357's R13–R17.
  */
-import { variant, some, none, type BlockBuilder, type NullType, type ValueTypeOf } from "@elaraai/east";
+import { East, variant, some, none, type BlockBuilder, type NullType, type ValueTypeOf } from "@elaraai/east";
 import { describeEast, Assert } from "@elaraai/east-node-std";
 import { NeuralNet, NetType, NnBatchType, NnWeightsType, NnRunConfigType } from "@elaraai/east-py-datascience";
 import * as ex from "./nn.examples.js";
@@ -28,8 +30,11 @@ type InputSpec = ValueTypeOf<typeof NeuralNet.Types.NnInputSpecType>;
 const F = (rank: number): InputSpec => ({ dtype: variant("float", null), rank: BigInt(rank) });
 const I = (rank: number): InputSpec => ({ dtype: variant("integer", null), rank: BigInt(rank) });
 const Bo = (rank: number): InputSpec => ({ dtype: variant("boolean", null), rank: BigInt(rank) });
+const F64 = (rank: number): InputSpec => ({ dtype: variant("float64", null), rank: BigInt(rank) });
 const ft = (shape: number[], data: number[]) =>
     variant("float", { shape: shape.map(BigInt), data: new Float64Array(data) });
+const f64t = (shape: number[], data: number[]) =>
+    variant("float64", { shape: shape.map(BigInt), data: new Float64Array(data) });
 const it = (shape: number[], data: number[]) =>
     variant("integer", { shape: shape.map(BigInt), data: new BigInt64Array(data.map(BigInt)) });
 const bt = (shape: number[], data: boolean[]) =>
@@ -72,6 +77,15 @@ const expectFloat = ($: Block, got: ReturnType<typeof run>, name: string, shape:
         $(Assert.lessEqual(t.data.map(($, x, i) => x.subtract(want.get(i)).abs()).max(), tol));
     }
 };
+const expectFloat64 = ($: Block, got: ReturnType<typeof run>, name: string, shape: bigint[], data: Float64Array, tol = 1e-12) => {
+    const t = $.let(got.get(name).unwrap("float64"));
+    $(Assert.equal(t.shape, shape));
+    $(Assert.equal(t.data.length(), BigInt(data.length)));
+    if (data.length > 0) {
+        const want = $.let(data);
+        $(Assert.lessEqual(t.data.map(($, x, i) => x.subtract(want.get(i)).abs()).max(), tol));
+    }
+};
 const expectInteger = ($: Block, got: ReturnType<typeof run>, name: string, shape: bigint[], data: BigInt64Array) => {
     const t = $.let(got.get(name).unwrap("integer"));
     $(Assert.equal(t.shape, shape));
@@ -86,6 +100,24 @@ const f64 = (...xs: number[]) => new Float64Array(xs);
 const i64 = (...xs: number[]) => new BigInt64Array(xs.map(BigInt));
 const bools = (...xs: boolean[]) => new Uint8ClampedArray(xs.map(b => b ? 1 : 0));
 const sh = (...xs: number[]) => xs.map(BigInt);
+/** A Park–Miller stream: data both runners see as the same literals. */
+const stream = (seed: number) => {
+    let x = seed;
+    return () => {
+        x = (x * 48271) % 2147483647;
+        return x / 2147483647;
+    };
+};
+/** `n` floats in (−1, 1) from `seed`. */
+const floats = (n: number, seed: number) => {
+    const r = stream(seed);
+    return Array.from({ length: n }, () => r() * 2 - 1);
+};
+/** `n` integers in `0 .. k−1` from `seed`. */
+const ints = (n: number, k: number, seed: number) => {
+    const r = stream(seed);
+    return Array.from({ length: n }, () => Math.floor(r() * k) % k);
+};
 
 describeEast("NeuralNet platform functions", test => {
     Assert.examples(test, { nnInit: ex.nnInit, nnRun: ex.nnRun });
@@ -213,6 +245,89 @@ describeEast("NeuralNet platform functions", test => {
         expectFloat($, run($, toFloat, batch({ x: bt([2], [true, false]) })), "y", sh(2), f64(1, 0));
         const toBool = net1({ x: I(1) }, variant("cast", { x: "x", dtype: variant("boolean", null) }));
         expectBoolean($, run($, toBool, batch({ x: it([2], [0, 2]) })), "y", sh(2), bools(false, true));
+    });
+
+    test("mask_select takes the rows a mask picks, mask_indices their indices, repeat expands rows by counts", $ => {
+        const sel = net1({ x: F(2), m: Bo(1) }, variant("mask_select", { x: "x", mask: "m" }));
+        const x = ft([3, 2], [1, 2, 3, 4, 5, 6]);
+        expectFloat($, run($, sel, batch({ x, m: bt([3], [true, false, true]) })), "y", sh(2, 2), f64(1, 2, 5, 6));
+        expectFloat($, run($, sel, batch({ x, m: bt([3], [false, false, false]) })), "y", sh(0, 2), f64());
+        const isel = net1({ x: I(1), m: Bo(1) }, variant("mask_select", { x: "x", mask: "m" }));
+        expectInteger($, run($, isel, batch({ x: it([3], [7, 8, 9]), m: bt([3], [false, true, true]) })), "y", sh(2), i64(8, 9));
+        const idx = net1({ m: Bo(1) }, variant("mask_indices", { mask: "m" }));
+        expectInteger($, run($, idx, batch({ m: bt([4], [true, false, false, true]) })), "y", sh(2), i64(0, 3));
+        expectInteger($, run($, idx, batch({ m: bt([2], [false, false]) })), "y", sh(0), i64());
+        const rep = net1({ x: F(2), c: I(1) }, variant("repeat", { x: "x", counts: "c" }));
+        expectFloat($, run($, rep, batch({ x, c: it([3], [2, 0, 1]) })), "y", sh(3, 2), f64(1, 2, 1, 2, 5, 6));
+        const cfg = $.let({ device: variant("cpu", null), seed: 0n, training: false }, NnRunConfigType);
+        const w0 = $.let(new Map(), NnWeightsType);
+        const negative = $.let(batch({ x, c: it([3], [2, -1, 1]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run($.let(rep, NetType), w0, negative, ["y"], cfg), /nn_run: node 'y': repeat: counts must not be negative/));
+        const short = $.let(batch({ x, m: bt([2], [true, false]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run($.let(sel, NetType), w0, short, ["y"], cfg),
+            /nn_run: node 'y': mask_select: mask is a boolean vector with one entry per row of x/));
+    });
+
+    test("range builds an integer grid short of a rank-0 stop, in either direction", $ => {
+        const up = net1({ n: I(0) }, variant("range", { start: 1n, stop: "n", step: 2n }));
+        expectInteger($, run($, up, batch({ n: it([], [8]) })), "y", sh(4), i64(1, 3, 5, 7));
+        const down = net1({ n: I(0) }, variant("range", { start: 5n, stop: "n", step: -2n }));
+        expectInteger($, run($, down, batch({ n: it([], [0]) })), "y", sh(3), i64(5, 3, 1));
+        const empty = net1({ n: I(0) }, variant("range", { start: 3n, stop: "n", step: 1n }));
+        expectInteger($, run($, empty, batch({ n: it([], [3]) })), "y", sh(0), i64());
+        // a grid following a constant length, cast and scaled: a position channel
+        const grid = net1({}, variant("div", { a: "t", b: "Lf" }), {}, [
+            { name: "L", op: variant("constant", { value: variant("integer", 4n) }) },
+            { name: "g", op: variant("range", { start: 0n, stop: "L", step: 1n }) },
+            { name: "t", op: variant("cast", { x: "g", dtype: variant("float", null) }) },
+            { name: "Lf", op: variant("cast", { x: "L", dtype: variant("float", null) }) },
+        ]);
+        expectFloat($, run($, grid, new Map()), "y", sh(4), f64(0, 0.25, 0.5, 0.75));
+        const cfg = $.let({ device: variant("cpu", null), seed: 0n, training: false }, NnRunConfigType);
+        const zero = $.let(net1({ n: I(0) }, variant("range", { start: 0n, stop: "n", step: 0n })), NetType);
+        const b = $.let(batch({ n: it([], [3]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run(zero, $.let(new Map(), NnWeightsType), b, ["y"], cfg), /nn_run: node 'y': range: step must not be zero/));
+    });
+
+    test("floor, ceil and round (halves to even) follow torch, and remainder takes the divisor's sign", $ => {
+        const un = (op: "floor" | "ceil" | "round") => net1({ x: F(1) }, variant(op, { x: "x" }));
+        const x = ft([6], [-1.5, -0.5, 0.5, 1.5, 2.5, 2.7]);
+        expectFloat($, run($, un("floor"), batch({ x })), "y", sh(6), f64(-2, -1, 0, 1, 2, 2));
+        expectFloat($, run($, un("ceil"), batch({ x })), "y", sh(6), f64(-1, 0, 1, 2, 3, 3));
+        expectFloat($, run($, un("round"), batch({ x })), "y", sh(6), f64(-2, 0, 0, 2, 2, 3));
+        const rem = net1({ a: F(1), b: F(1) }, variant("remainder", { a: "a", b: "b" }));
+        expectFloat($, run($, rem, batch({ a: ft([3], [-7, 7, 7.5]), b: ft([3], [3, -3, 2]) })), "y", sh(3), f64(2, -2, 1.5));
+        const irem = net1({ a: I(1), b: I(1) }, variant("remainder", { a: "a", b: "b" }));
+        expectInteger($, run($, irem, batch({ a: it([3], [-7, 7, 9]), b: it([3], [3, -3, 3]) })), "y", sh(3), i64(2, -2, 0));
+        // a float remainder by zero is NaN; an integer one is refused
+        const byZero = net1({ a: F(1), b: F(1) }, variant("is_nan", { x: "r" }), {}, [{ name: "r", op: variant("remainder", { a: "a", b: "b" }) }]);
+        expectBoolean($, run($, byZero, batch({ a: ft([2], [1, 1]), b: ft([2], [0, 1]) })), "y", sh(2), bools(true, false));
+        const cfg = $.let({ device: variant("cpu", null), seed: 0n, training: false }, NnRunConfigType);
+        const b = $.let(batch({ a: it([1], [1]), b: it([1], [0]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run($.let(irem, NetType), $.let(new Map(), NnWeightsType), b, ["y"], cfg),
+            /nn_run: node 'y': remainder: integer division by zero/));
+    });
+
+    test("searchsorted finds insertion points on either side, take_along gathers along an axis", $ => {
+        const left = net1({ s: F(1), v: F(1) }, variant("searchsorted", { sorted: "s", values: "v", right: false }));
+        const b = batch({ s: ft([4], [1, 2, 2, 4]), v: ft([4], [0, 2, 3, 5]) });
+        expectInteger($, run($, left, b), "y", sh(4), i64(0, 1, 3, 4));
+        const right = net1({ s: F(1), v: F(1) }, variant("searchsorted", { sorted: "s", values: "v", right: true }));
+        expectInteger($, run($, right, b), "y", sh(4), i64(0, 3, 3, 4));
+        const ileft = net1({ s: I(1), v: I(2) }, variant("searchsorted", { sorted: "s", values: "v", right: false }));
+        expectInteger($, run($, ileft, batch({ s: it([3], [10, 20, 30]), v: it([1, 2], [15, 30]) })), "y", sh(1, 2), i64(1, 2));
+        const along = net1({ x: F(2), i: I(2) }, variant("take_along", { x: "x", index: "i", axis: 1n }));
+        const x = ft([2, 3], [1, 2, 3, 4, 5, 6]);
+        expectFloat($, run($, along, batch({ x, i: it([2, 2], [2, 0, 1, 1]) })), "y", sh(2, 2), f64(3, 1, 5, 5));
+        const along0 = net1({ x: F(2), i: I(2) }, variant("take_along", { x: "x", index: "i", axis: 0n }));
+        expectFloat($, run($, along0, batch({ x, i: it([1, 3], [1, 0, 1]) })), "y", sh(1, 3), f64(4, 2, 6));
+        const cfg = $.let({ device: variant("cpu", null), seed: 0n, training: false }, NnRunConfigType);
+        const w0 = $.let(new Map(), NnWeightsType);
+        const outside = $.let(batch({ x, i: it([2, 2], [3, 0, 1, 1]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run($.let(along, NetType), w0, outside, ["y"], cfg), /nn_run: node 'y': take_along: index 3 is outside 0 \.\. 2/));
+        const offAxis = $.let(batch({ x, i: it([1, 2], [0, 1]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run($.let(along, NetType), w0, offAxis, ["y"], cfg),
+            /nn_run: node 'y': take_along: index is shaped \[1, 2\] but x is \[2, 3\]: they differ off the axis/));
     });
 
     // ========================================================================
@@ -343,6 +458,58 @@ describeEast("NeuralNet platform functions", test => {
     });
 
     // ========================================================================
+    // float64 (docs/neural-networks.md §2)
+    // ========================================================================
+
+    test("float64 is an element type of its own: inputs, cast and constant, promoted with float", $ => {
+        const add = net1({ a: F64(1), b: F(1) }, variant("add", { a: "a", b: "b" }));
+        // 0.2 as a float is 0.20000000298…: the sum is taken in double, of the float's value
+        expectFloat64($, run($, add, batch({ a: f64t([1], [0.1]), b: ft([1], [0.2]) })), "y", sh(1), f64(0.1 + Math.fround(0.2)));
+        const keep = net1({ a: F64(1), b: F64(1) }, variant("mul", { a: "a", b: "b" }));
+        expectFloat64($, run($, keep, batch({ a: f64t([2], [1e-300, 2.5]), b: f64t([2], [1e-10, 4]) })), "y", sh(2), f64(1e-310, 10));
+        const cast = net1({ x: F(1) }, variant("cast", { x: "x", dtype: variant("float64", null) }));
+        expectFloat64($, run($, cast, batch({ x: ft([1], [0.1]) })), "y", sh(1), f64(Math.fround(0.1)));
+        const back = net1({ x: F64(1) }, variant("cast", { x: "x", dtype: variant("float", null) }));
+        expectFloat($, run($, back, batch({ x: f64t([1], [0.1]) })), "y", sh(1), f64(Math.fround(0.1)), 0);
+        const c = net1({}, variant("constant", { value: variant("float64", 0.1) }));
+        expectFloat64($, run($, c, new Map()), "y", sh(), f64(0.1));
+        const toInt = net1({ x: F64(1) }, variant("cast", { x: "x", dtype: variant("integer", null) }));
+        expectInteger($, run($, toInt, batch({ x: f64t([2], [12345678901234.7, -2.9]) })), "y", sh(2), i64(12345678901234, -2));
+        const where = net1({ c: Bo(1), a: F(1), b: F64(1) }, variant("where", { cond: "c", a: "a", b: "b" }));
+        expectFloat64($, run($, where, batch({ c: bt([2], [true, false]), a: ft([2], [1, 1]), b: f64t([2], [0.1, 0.1]) })), "y", sh(2), f64(1, 0.1));
+        const lt = net1({ a: F(1), b: F64(1) }, variant("lt", { a: "a", b: "b" }));
+        expectBoolean($, run($, lt, batch({ a: ft([2], [0.1, 0.1]), b: f64t([2], [0.1, 0.2]) })), "y", sh(2), bools(false, true));
+        const cfg = $.let({ device: variant("cpu", null), seed: 0n, training: false }, NnRunConfigType);
+        const w0 = $.let(new Map(), NnWeightsType);
+        const mixed = $.let(net1({ a: F64(1), b: I(1) }, variant("add", { a: "a", b: "b" })), NetType);
+        const mixedBatch = $.let(batch({ a: f64t([1], [1]), b: it([1], [1]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run(mixed, w0, mixedBatch, ["y"], cfg),
+            /nn_run: node 'y': add: takes float or integer operands of one type, got float64 and integer/));
+        const declared = $.let(net1({ x: F64(1) }, variant("neg", { x: "x" })), NetType);
+        const given = $.let(batch({ x: ft([1], [1]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run(declared, w0, given, ["y"], cfg), /nn_run: input 'x' is float but the network declares float64/));
+        const dense = $.let(net1({ x: F64(2) }, variant("linear", { x: "x", weight: "w", bias: none }), { w: param([1, 1]) }), NetType);
+        const row = $.let(batch({ x: f64t([1, 1], [1]) }), NnBatchType);
+        $(Assert.throws(NeuralNet.run(dense, w0, row, ["y"], cfg), /nn_run: node 'y': linear: x must be float/));
+    });
+
+    test("the cumsum of a million values of 1e-3 is within 1e-9 relative of its sum in float64, and is not in float", $ => {
+        const cum = (dtype: InputSpec): Net => net1({ x: dtype }, variant("slice", { x: "c", axis: 0n, start: -1n, stop: none }), {}, [
+            { name: "c", op: variant("cumsum", { x: "x", axis: 0n }) },
+        ]);
+        const cfg = $.let({ device: variant("cpu", null), seed: 0n, training: false }, NnRunConfigType);
+        const w0 = $.let(new Map(), NnWeightsType);
+        const n64 = $.let(cum(F64(1)), NetType);
+        const b64 = $.let(new Map([["x", variant("float64", { shape: [1000000n], data: East.Vector.fill(1000000n, 1e-3) })]]), NnBatchType);
+        const last64 = $.let(NeuralNet.run(n64, w0, b64, ["y"], cfg).get("y").unwrap("float64").data.get(0n));
+        $(Assert.lessEqual(last64.subtract(1000.0).abs(), 1e-6));
+        const n32 = $.let(cum(F(1)), NetType);
+        const b32 = $.let(new Map([["x", variant("float", { shape: [1000000n], data: East.Vector.fill(1000000n, 1e-3) })]]), NnBatchType);
+        const last32 = $.let(NeuralNet.run(n32, w0, b32, ["y"], cfg).get("y").unwrap("float").data.get(0n));
+        $(Assert.greater(last32.subtract(1000.0).abs(), 1e-6));
+    });
+
+    // ========================================================================
     // Along an axis
     // ========================================================================
 
@@ -403,8 +570,81 @@ describeEast("NeuralNet platform functions", test => {
         expectFloat($, run($, net, batch({ q, k, v })), "y", sh(1, 2, 2), f64(1, 10, (e * 1 + 2) / (1 + e), 15));
     });
 
+    test("attention over a segments mask answers the dense mask's answer, ids in any order and batched", $ => {
+        const T = 40, d = 8, heads = 2;
+        type Mask = ValueTypeOf<typeof NeuralNet.Types.NnMaskType>;
+        const attn = (mask: Mask, rank: number, extra: Record<string, InputSpec>, bias: string | null) => net1(
+            { q: F(rank), k: F(rank), v: F(rank), ...extra },
+            variant("attention", { q: "q", k: "k", v: "v", heads: BigInt(heads), mask, bias: bias === null ? none : some(bias), scale: none }),
+        );
+        for (const [lead, causal, seed] of [[0, false, 11], [0, true, 12], [2, false, 13], [2, true, 14]] as const) {
+            const B = Math.max(lead, 1);
+            const shape = lead ? [B, T, d] : [T, d];
+            const q = ft(shape, floats(B * T * d, seed));
+            const k = ft(shape, floats(B * T * d, seed + 100));
+            const v = ft(shape, floats(B * T * d, seed + 200));
+            // ids out of order, from six values, with one token alone under its own id
+            const ids = ints(B * T, 6, seed + 300);
+            for (let b = 0; b < B; b++) ids[b * T] = 9;
+            // the dense answer: the same mask as an additive bias over `none`
+            const bias = new Array<number>(B * T * T).fill(-1e30);
+            for (let b = 0; b < B; b++)
+                for (let i = 0; i < T; i++)
+                    for (let j = 0; j < T; j++)
+                        if (ids[b * T + i] === ids[b * T + j] && (!causal || j <= i)) bias[(b * T + i) * T + j] = 0;
+            const dense = run($, attn(variant("none", null), lead ? 3 : 2, { bias: F(lead ? 4 : 3) }, "bias"),
+                batch({ q, k, v, bias: ft(lead ? [B, 1, T, T] : [1, T, T], bias) }));
+            const want = $.let(dense.get("y").unwrap("float"));
+            const structured = run($, attn(variant("segments", { ids: "ids", causal }), lead ? 3 : 2, { ids: I(lead ? 2 : 1) }, null),
+                batch({ q, k, v, ids: it(lead ? [B, T] : [T], ids) }));
+            const got = $.let(structured.get("y").unwrap("float"));
+            $(Assert.equal(got.shape, want.shape));
+            $(Assert.lessEqual(got.data.map(($, x, i) => x.subtract(want.data.get(i)).abs()).max(), 1e-5));
+        }
+    });
+
+    test("attention over a key_sets mask answers the dense mask's answer, and refuses a key listed twice", $ => {
+        const Tq = 30, Tk = 20, d = 8, heads = 2;
+        type Mask = ValueTypeOf<typeof NeuralNet.Types.NnMaskType>;
+        const attn = (mask: Mask, extra: Record<string, InputSpec>, bias: string | null) => net1(
+            { q: F(2), k: F(2), v: F(2), ...extra },
+            variant("attention", { q: "q", k: "k", v: "v", heads: BigInt(heads), mask, bias: bias === null ? none : some(bias), scale: none }),
+        );
+        const q = ft([Tq, d], floats(Tq * d, 21));
+        const k = ft([Tk, d], floats(Tk * d, 22));
+        const v = ft([Tk, d], floats(Tk * d, 23));
+        const r = stream(24);
+        const ptr: number[] = [0];
+        const keys: number[] = [];
+        for (let i = 0; i < Tq; i++) {
+            const chosen = new Set<number>();
+            const count = 1 + Math.floor(r() * 6);
+            while (chosen.size < count) chosen.add(Math.floor(r() * Tk) % Tk);
+            keys.push(...[...chosen].sort((a, b) => a - b));
+            ptr.push(keys.length);
+        }
+        const bias = new Array<number>(Tq * Tk).fill(-1e30);
+        for (let i = 0; i < Tq; i++)
+            for (let p = ptr[i] ?? 0; p < (ptr[i + 1] ?? 0); p++) bias[i * Tk + (keys[p] ?? 0)] = 0;
+        const dense = run($, attn(variant("none", null), { bias: F(3) }, "bias"), batch({ q, k, v, bias: ft([1, Tq, Tk], bias) }));
+        const want = $.let(dense.get("y").unwrap("float"));
+        const structured = run($, attn(variant("key_sets", { ptr: "ptr", keys: "keys" }), { ptr: I(1), keys: I(1) }, null),
+            batch({ q, k, v, ptr: it([Tq + 1], ptr), keys: it([keys.length], keys) }));
+        const got = $.let(structured.get("y").unwrap("float"));
+        $(Assert.equal(got.shape, want.shape));
+        $(Assert.lessEqual(got.data.map(($, x, i) => x.subtract(want.data.get(i)).abs()).max(), 1e-5));
+        const cfg = $.let({ device: variant("cpu", null), seed: 0n, training: false }, NnRunConfigType);
+        const n = $.let(attn(variant("key_sets", { ptr: "ptr", keys: "keys" }), { ptr: I(1), keys: I(1) }, null), NetType);
+        const twice = $.let(batch({
+            q: ft([2, d], floats(2 * d, 25)), k: ft([2, d], floats(2 * d, 26)), v: ft([2, d], floats(2 * d, 27)),
+            ptr: it([3], [0, 2, 2]), keys: it([2], [1, 1]),
+        }), NnBatchType);
+        $(Assert.throws(NeuralNet.run(n, $.let(new Map(), NnWeightsType), twice, ["y"], cfg),
+            /nn_run: node 'y': attention: the mask lists key 1 twice for query 0/));
+    });
+
     test("rotary turns each head's halves by the position's angle", $ => {
-        const net = net1({ x: F(2), pos: I(1) }, variant("rotary", { x: "x", positions: "pos", heads: 1n, base: 10000.0 }));
+        const net = net1({ x: F(2), pos: I(1) }, variant("rotary", { x: "x", positions: "pos", heads: 1n, base: 10000.0, convention: variant("halves", null) }));
         const out = run($, net, batch({ x: ft([2, 2], [1, 0, 1, 0]), pos: it([2], [0, 1]) }));
         expectFloat($, out, "y", sh(2, 2), f64(1, 0, 0.5403023058681398, 0.8414709848078965));
     });
@@ -618,7 +858,13 @@ describeEast("NeuralNet platform functions", test => {
     // The reference families: what hand-written torch answered (f32)
     // ========================================================================
 
-    for (const [label, family] of [["the ragged grouped transformer", ref.raggedTransformer], ["the conditioned 1-D U-Net", ref.conditionedUnet]] as const) {
+    for (const [label, family] of [
+        ["the ragged grouped transformer", ref.raggedTransformer],
+        ["the conditioned 1-D U-Net", ref.conditionedUnet],
+        ["the head on the events a mask selects, written back by their indices", ref.headSelection],
+        ["the time grid from range into a sinusoidal embedding", ref.timeGrid],
+        ["rotary under both pairing conventions", ref.rotaryConventions],
+    ] as const) {
         test(`${label} answers what torch answered, to tolerance`, $ => {
             const net = $.let(family.net, NetType);
             const weights = $.let(family.weights, NnWeightsType);

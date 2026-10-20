@@ -2,8 +2,8 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""The two reference families of ``docs/neural-networks.md`` (#1357), each as
-a ``NetType`` value and as a hand-written torch implementation over the same
+"""The reference families of ``docs/neural-networks.md`` (#1357), each as a
+``NetType`` value and as a hand-written torch implementation over the same
 weights, in the same operation order:
 
 - a transformer over ragged, grouped sequences: embedding and embedding-bag
@@ -14,6 +14,13 @@ weights, in the same operation order:
   and an attention-pooled set encoder, trained as a flow-matching model with
   an auxiliary variance head, sampled by Heun's ODE integration as a ``loop``
   and by an SDE, with monotone output constraints on the sample.
+
+And three small ones for the operations the event and series workloads
+select, expand and grid with (east-workspace#1357 R13, R16): a head run on
+the events a boolean mask picks and written back by index, segment features
+expanded to their events; a time grid from ``range`` into a sinusoidal
+embedding, a position channel and a prefix mask; and ``rotary`` under both
+pairing conventions.
 
 ``test_nn_reference.py`` holds the interpreter to the hand-written torch, and
 ``fixtures/make_nn_reference.py`` writes the TypeScript reference module the
@@ -70,7 +77,7 @@ def net(inputs: dict, params: dict, modules: dict, nodes: list, outputs: dict) -
 def tensor(data: Any, dtype: str = "float") -> Any:
     arr = np.asarray(data)
     flat = arr.reshape(-1)
-    if dtype == "float":
+    if dtype in ("float", "float64"):
         flat = flat.astype(np.float64)
     elif dtype == "integer":
         flat = flat.astype(np.int64)
@@ -110,8 +117,8 @@ def transformer_block(d: int, heads: int, mask: str) -> dict[str, Any]:
     ]
     if mask == "segments":
         nodes += [
-            node("qr", op("rotary", x="q", positions="positions", heads=heads, base=10000.0)),
-            node("kr", op("rotary", x="k", positions="positions", heads=heads, base=10000.0)),
+            node("qr", op("rotary", x="q", positions="positions", heads=heads, base=10000.0, convention=variant("halves", None))),
+            node("kr", op("rotary", x="k", positions="positions", heads=heads, base=10000.0, convention=variant("halves", None))),
             node("att", op("attention", q="qr", k="kr", v="v", heads=heads,
                            mask=variant("segments", {"ids": "groups", "causal": True}), bias=none, scale=none)),
         ]
@@ -552,7 +559,7 @@ def torch_weights(weights: Any, device: Any = None) -> dict[str, Any]:
 def torch_batch(batch: Any) -> dict[str, Any]:
     import torch
 
-    dt = {"float": np.float32, "integer": np.int64, "boolean": np.bool_}
+    dt = {"float": np.float32, "float64": np.float64, "integer": np.int64, "boolean": np.bool_}
     out = {}
     for name, v in batch.items():
         shape = [int(d) for d in v.value["shape"]]
@@ -745,6 +752,166 @@ def ref_unet_family(batch: Any, weights: Any, c: dict[str, int] = B_CFG) -> dict
         "mono_max": torch.cummax(ch0, -1).values,
         "mono_min": torch.cummin(ch0, -1).values,
         "mono_sum": torch.cumsum(F.softplus(ch1), -1) * w["mono_scale"],
+    }
+
+
+# ============================================================================
+# Family C: a head on the events a mask selects (W2-shaped), features expanded by counts
+# ============================================================================
+
+C_CFG = {"N": 9, "S": 3, "d": 6, "c": 4}
+
+
+def head_selection_net(c: dict[str, int] = C_CFG) -> dict[str, Any]:
+    """Segment features repeated to their events, added to the events; a head
+    run on the events a boolean mask selects, its probabilities written back
+    to every event's row by the mask's indices (zeros elsewhere)."""
+    inputs = {
+        "x": spec("float", 2), "seg_feat": spec("float", 2), "counts": spec("integer", 1), "mask": spec("boolean", 1),
+    }
+    params = {"w": param([c["c"], c["d"]], "xavier_uniform"), "b": param([c["c"]], "zeros")}
+    nodes = [
+        node("rep", op("repeat", x="seg_feat", counts="counts")),
+        node("h", binary("add", "x", "rep")),
+        node("sel", op("mask_select", x="h", mask="mask")),
+        node("idx", op("mask_indices", mask="mask")),
+        node("logits", op("linear", x="sel", weight="w", bias=some("b"))),
+        node("probs", axis_op("softmax", "logits", -1)),
+        node("back", op("scatter_add", x="probs", index="idx", size="x")),
+        node("top", axis_op("argmax", "probs", -1)),
+    ]
+    return net(inputs, params, {}, nodes, {"back": "back", "idx": "idx", "sel": "sel", "top": "top"})
+
+
+def head_selection_batch(c: dict[str, int] = C_CFG, seed: int = 7) -> dict[str, Any]:
+    rng = np.random.default_rng(seed)
+    N, S, d = c["N"], c["S"], c["d"]
+    counts = np.array([4, 0, 5])
+    assert counts.sum() == N and len(counts) == S
+    mask = np.array([True, False, True, True, False, False, True, False, True])
+    return {
+        "x": tensor(rng.normal(size=(N, d))),
+        "seg_feat": tensor(rng.normal(size=(S, d))),
+        "counts": tensor(counts, "integer"),
+        "mask": tensor(mask, "boolean"),
+    }
+
+
+def ref_head_selection(batch: Any, weights: Any) -> dict[str, Any]:
+    import torch
+    import torch.nn.functional as F
+
+    b, w = torch_batch(batch), torch_weights(weights)
+    rep = b["seg_feat"].repeat_interleave(b["counts"], dim=0)
+    h = b["x"] + rep
+    sel = h[b["mask"]]
+    idx = b["mask"].nonzero().reshape(-1)
+    probs = torch.softmax(F.linear(sel, w["w"], w["b"]), -1)
+    back = torch.zeros(h.shape[0], probs.shape[1]).index_add(0, idx, probs)
+    return {"back": back, "idx": idx, "sel": sel, "top": probs.argmax(-1)}
+
+
+# ============================================================================
+# Family D: a time grid (W3-shaped) — range into a sinusoidal embedding, a position channel, a prefix mask
+# ============================================================================
+
+D_CFG = {"L": 12, "nf": 4}
+
+
+def time_grid_net(c: dict[str, int] = D_CFG) -> dict[str, Any]:
+    """``range`` builds the grid `0 .. L-1` from a constant length and the
+    frequencies' index; the geometric frequencies come from `exp`, the
+    embedding from `sin` and `cos`, the position channel from a division, and
+    a prefix mask from comparing the grid with an input length."""
+    L, nf = c["L"], c["nf"]
+    inputs = {"prefix": spec("integer", 0)}
+    nodes = [
+        node("L", op("constant", value=variant("integer", L))),
+        node("grid", op("range", start=0, stop="L", step=1)),
+        node("t", op("cast", x="grid", dtype=variant("float", None))),
+        node("nf", op("constant", value=variant("integer", nf))),
+        node("i", op("range", start=0, stop="nf", step=1)),
+        node("fi", op("cast", x="i", dtype=variant("float", None))),
+        node("decay", op("constant", value=variant("float", -math.log(10000.0) / nf))),
+        node("scaled", binary("mul", "fi", "decay")),
+        node("freq", unary("exp", "scaled")),
+        node("t2", op("reshape", x="t", shape=[-1, 1])),
+        node("f2", op("reshape", x="freq", shape=[1, -1])),
+        node("ang", binary("mul", "t2", "f2")),
+        node("s", unary("sin", "ang")),
+        node("co", unary("cos", "ang")),
+        node("emb", op("concat", inputs=["s", "co"], axis=-1)),
+        node("Lf", op("cast", x="L", dtype=variant("float", None))),
+        node("pos", binary("div", "t", "Lf")),
+        node("in_prefix", binary("lt", "grid", "prefix")),
+        node("m", op("cast", x="in_prefix", dtype=variant("float", None))),
+        node("m2", op("reshape", x="m", shape=[-1, 1])),
+        node("masked", binary("mul", "emb", "m2")),
+    ]
+    return net(inputs, {}, {}, nodes, {"grid": "grid", "emb": "emb", "pos": "pos", "masked": "masked"})
+
+
+def time_grid_batch(c: dict[str, int] = D_CFG) -> dict[str, Any]:
+    return {"prefix": tensor(5, "integer")}
+
+
+def ref_time_grid(batch: Any, weights: Any, c: dict[str, int] = D_CFG) -> dict[str, Any]:
+    import torch
+
+    del weights
+    b = torch_batch(batch)
+    L, nf = c["L"], c["nf"]
+    grid = torch.arange(L)
+    t = grid.float()
+    freq = torch.exp(torch.arange(nf).float() * (-math.log(10000.0) / nf))
+    ang = t[:, None] * freq[None, :]
+    emb = torch.cat([ang.sin(), ang.cos()], -1)
+    pos = t / float(L)
+    m = (grid < b["prefix"]).float()
+    return {"grid": grid, "emb": emb, "pos": pos, "masked": emb * m[:, None]}
+
+
+# ============================================================================
+# Family E: rotary under both pairing conventions
+# ============================================================================
+
+E_CFG = {"T": 3, "d": 8, "heads": 2}
+
+
+def rotary_conventions_net(c: dict[str, int] = E_CFG) -> dict[str, Any]:
+    inputs = {"x": spec("float", 2), "positions": spec("integer", 1)}
+    nodes = [
+        node("halves", op("rotary", x="x", positions="positions", heads=c["heads"], base=10000.0, convention=variant("halves", None))),
+        node("inter", op("rotary", x="x", positions="positions", heads=c["heads"], base=10000.0, convention=variant("interleaved", None))),
+    ]
+    return net(inputs, {}, {}, nodes, {"halves": "halves", "inter": "inter"})
+
+
+def rotary_conventions_batch(c: dict[str, int] = E_CFG, seed: int = 9) -> dict[str, Any]:
+    rng = np.random.default_rng(seed)
+    return {"x": tensor(rng.normal(size=(c["T"], c["d"]))), "positions": tensor([0, 1, 7], "integer")}
+
+
+def ref_rotary_interleaved(x: Any, positions: Any, heads: int, base: float) -> Any:
+    import torch
+
+    t, d = x.shape
+    dh = d // heads
+    half = dh // 2
+    inv = base ** (-torch.arange(half, dtype=x.dtype) * 2.0 / dh)
+    ang = positions.to(x.dtype)[:, None] * inv  # [T, half]
+    cos, sin = ang.cos()[:, None, :], ang.sin()[:, None, :]
+    pairs = x.reshape(t, heads, half, 2)
+    x1, x2 = pairs[..., 0], pairs[..., 1]
+    return torch.stack([x1 * cos - x2 * sin, x2 * cos + x1 * sin], -1).reshape(t, d)
+
+
+def ref_rotary_conventions(batch: Any, weights: Any, c: dict[str, int] = E_CFG) -> dict[str, Any]:
+    del weights
+    b = torch_batch(batch)
+    return {
+        "halves": ref_rotary(b["x"], b["positions"], c["heads"], 10000.0),
+        "inter": ref_rotary_interleaved(b["x"], b["positions"], c["heads"], 10000.0),
     }
 
 

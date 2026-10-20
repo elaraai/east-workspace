@@ -94,8 +94,10 @@ Task → What do you need?
     ├─ LightGBM → train .trainRegressor(), .trainClassifier() · predict .predict(), .predictClass(), .predictProba()
     ├─ NGBoost (probabilistic boosting) → .trainRegressor() · .predict(), .predictDist()
     ├─ NeuralNet — a network as East data (NetType: inputs, params, modules, nodes in dependency order, outputs;
-    │   the operations of docs/neural-networks.md: gather/embedding_bag/segment ops, linear/einsum/conv1d/norms,
-    │   element-wise, axis reductions, attention with none/causal/segments/key_sets masks, rotary, dropout, call, loop)
+    │   the operations of docs/neural-networks.md: gather/take_along/mask_select/mask_indices/repeat/range/searchsorted,
+    │   embedding_bag/segment ops, linear/einsum/conv1d/norms, element-wise (float, float64, integer, boolean element
+    │   types), axis reductions, attention with none/causal/segments/key_sets masks (segments and key_sets in memory
+    │   proportional to the allowed pairs), rotary (halves or interleaved), dropout, call, loop)
     │   → .init(net, seed) weights · .train(net, weights, batches, validation, config) · .run(net, weights,
     │     batch, outputs, config), each on the python runtime or on east-c (libtorch), CPU or CUDA — for a
     │     transformer over ragged grouped sequences, a conditioned U-Net, any architecture a fixed one cannot state

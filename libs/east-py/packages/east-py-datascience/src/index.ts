@@ -38,6 +38,7 @@ export {
     NnPadModeType,
     NnGeluType,
     NnConstantType,
+    NnRotaryType,
     NnStepsType,
     NnDeviceType,
     NnRunConfigType,

@@ -30,7 +30,11 @@ from east_py_datascience.nn._plan import (
 if TYPE_CHECKING:
     pass
 
-_TORCH_DTYPES = {"float": "float32", "integer": "int64", "boolean": "bool"}
+_TORCH_DTYPES = {"float": "float32", "float64": "float64", "integer": "int64", "boolean": "bool"}
+
+# How many (query, key) pairs a key_sets attention gathers at once (spec §4,
+# Attention): bounds the working memory of a pairwise pass to a few tens of MB.
+KEY_SET_CHUNK = 16384
 
 
 def torch_dtype(dtype: str) -> Any:
@@ -40,10 +44,14 @@ def torch_dtype(dtype: str) -> Any:
 
 
 def dtype_name(t: Any) -> str:
-    """``float``, ``integer`` or ``boolean`` for a tensor."""
+    """``float``, ``float64``, ``integer`` or ``boolean`` for a tensor (any other floating type is ``float``)."""
+    import torch
+
+    if t.dtype == torch.float64:
+        return "float64"
     if t.dtype.is_floating_point:
         return "float"
-    if t.dtype == t.new_empty(0).bool().dtype:
+    if t.dtype == torch.bool:
         return "boolean"
     return "integer"
 
@@ -162,6 +170,45 @@ class Interpreter:
                 raise bad("table must have a first dimension")
             self._check_index(index, table.shape[0], bad, "index")
             return table[index]
+        if op == "take_along":
+            x, index = g("x"), g("index")
+            if x.dim() == 0:
+                raise bad("x must have an axis")
+            axis = axis_of(x, a["axis"])
+            if index.dim() != x.dim():
+                raise bad(f"index has rank {index.dim()} but x has rank {x.dim()}")
+            for k in range(x.dim()):
+                if k != axis and index.shape[k] != x.shape[k]:
+                    raise bad(f"index is shaped {list(index.shape)} but x is {list(x.shape)}: they differ off the axis")
+            self._check_index(index, x.shape[axis], bad, "index")
+            return torch.gather(x, axis, index)
+        if op == "mask_select":
+            x, mask = g("x"), g("mask")
+            if x.dim() < 1 or mask.dim() != 1 or mask.shape[0] != x.shape[0]:
+                raise bad("mask is a boolean vector with one entry per row of x")
+            return x[mask]
+        if op == "mask_indices":
+            mask = g("mask")
+            if mask.dim() != 1:
+                raise bad("mask is a boolean vector")
+            return torch.nonzero(mask).reshape(-1)
+        if op == "repeat":
+            x, counts = g("x"), g("counts")
+            if x.dim() < 1 or counts.dim() != 1 or counts.shape[0] != x.shape[0]:
+                raise bad("counts is an integer vector with one entry per row of x")
+            if counts.numel() > 0 and bool((counts < 0).any()):
+                raise bad("counts must not be negative")
+            return torch.repeat_interleave(x, counts, dim=0)
+        if op == "range":
+            stop = g("stop")
+            if stop.dim() != 0:
+                raise bad("stop must be an integer of rank 0")
+            return torch.arange(int(a["start"]), int(stop.item()), int(a["step"]), dtype=torch.int64, device=self.device)
+        if op == "searchsorted":
+            sorted_t, values = g("sorted"), g("values")
+            if sorted_t.dim() != 1:
+                raise bad("sorted is a vector")
+            return torch.searchsorted(sorted_t, values, right=bool(a["right"]))
         if op == "embedding_bag":
             table, index, segments, size = g("table"), g("index"), g("segments"), g("size")
             weights = opt("weights")
@@ -360,10 +407,21 @@ class Interpreter:
                 "logical_and": torch.logical_and, "logical_or": torch.logical_or,
             }
             return self._broadcast2(fns[op], g("a"), g("b"), bad)
+        if op == "remainder":
+            x, y = g("a"), g("b")
+            if not x.dtype.is_floating_point and y.numel() > 0 and bool((y == 0).any()):
+                raise bad("integer division by zero")
+            return self._broadcast2(torch.remainder, x, y, bad)
         if op == "neg":
             return -g("x")
         if op == "abs":
             return g("x").abs()
+        if op == "floor":
+            return torch.floor(g("x"))
+        if op == "ceil":
+            return torch.ceil(g("x"))
+        if op == "round":
+            return torch.round(g("x"))
         if op == "exp":
             return torch.exp(g("x"))
         if op == "log":
@@ -459,6 +517,11 @@ class Interpreter:
             cos = angle.cos().unsqueeze(-2)
             sin = angle.sin().unsqueeze(-2)
             xh = x.reshape(*x.shape[:-1], heads, dh)
+            if a["convention"][0] == "interleaved":
+                pairs = xh.reshape(*x.shape[:-1], heads, half, 2)
+                x1, x2 = pairs[..., 0], pairs[..., 1]
+                out = torch.stack([x1 * cos - x2 * sin, x2 * cos + x1 * sin], -1)
+                return out.reshape(x.shape)
             x1, x2 = xh[..., :half], xh[..., half:]
             out = torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], -1)
             return out.reshape(x.shape)
@@ -512,7 +575,6 @@ class Interpreter:
 
     def _attention(self, a: dict[str, Any], env: dict[str, Any], bad: Callable[[str], NnError]) -> Any:
         import torch
-        import torch.nn.functional as F
 
         q, k, v = self._get(env, a["q"]), self._get(env, a["k"]), self._get(env, a["v"])
         heads = int(a["heads"])
@@ -535,15 +597,14 @@ class Interpreter:
         tag = None if mask is None else mask[0]
         payload = None if mask is None else mask[1]
 
-        # Structured masks over one sequence, blockwise: each group of
-        # consecutive ids attends within itself through torch's fused kernel.
-        if tag == "segments" and bias is None and not lead:
-            assert payload is not None
-            ids = self._get(env, payload["ids"])
-            if tuple(ids.shape) != (tq,) or tq != tk:
-                raise bad(f"the mask's ids must be shaped [{tq}] with Tq = Tk")
-            if tq > 0 and bool((ids[1:] >= ids[:-1]).all()):
-                return self._attention_blocks(q, k, v, heads, dh, ids, bool(payload["causal"]), scale)
+        # The structured masks without a bias run in memory proportional to the
+        # allowed pairs (spec §4, Attention); everything else through dense scores.
+        if tag == "segments" and bias is None:
+            ids = self._segment_ids(payload, env, lead, tq, tk, bad)
+            return self._attention_segments(q, k, v, heads, dh, ids, bool(payload["causal"]), scale)
+        if tag == "key_sets" and bias is None:
+            ptr, keys = self._key_sets(payload, env, lead, tq, tk, bad)
+            return self._attention_key_sets(q, k, v, heads, dh, ptr, keys, scale)
 
         allowed = self._mask(tag, payload, env, lead, tq, tk, q.device, bad)
         qh = q.reshape(*lead, tq, heads, dh).transpose(-3, -2)
@@ -563,13 +624,49 @@ class Interpreter:
         out = torch.matmul(probs, vh)
         if allowed is not None:
             out = out * any_allowed.unsqueeze(-2).unsqueeze(-1).to(out.dtype)
-        del F
         return out.transpose(-3, -2).reshape(*lead, tq, d)
+
+    def _segment_ids(
+        self, payload: Any, env: dict[str, Any], lead: tuple[int, ...], tq: int, tk: int, bad: Callable[[str], NnError],
+    ) -> Any:
+        """A segments mask's ids, checked: shaped like the tokens, with Tq = Tk."""
+        ids = self._get(env, payload["ids"])
+        if tuple(ids.shape) != (*lead, tq) or tq != tk:
+            raise bad(f"the mask's ids must be shaped {[*lead, tq]} with Tq = Tk")
+        return ids
+
+    def _key_sets(
+        self, payload: Any, env: dict[str, Any], lead: tuple[int, ...], tq: int, tk: int, bad: Callable[[str], NnError],
+    ) -> tuple[Any, Any]:
+        """A key_sets mask's ptr and keys, checked: unbatched, CSR from 0, every
+        key in range and no key listed twice for one query."""
+        import torch
+
+        ptr, keys = self._get(env, payload["ptr"]), self._get(env, payload["keys"])
+        if lead:
+            raise bad("a key_sets mask takes unbatched q, k and v")
+        if ptr.dim() != 1 or ptr.shape[0] != tq + 1:
+            raise bad(f"the mask's ptr must have {tq + 1} entries")
+        if tq > 0 and (int(ptr[0].item()) != 0 or bool((ptr[1:] < ptr[:-1]).any())):
+            raise bad("the mask's ptr must start at 0 and not decrease")
+        total = int(ptr[-1].item()) if tq > 0 else 0
+        if keys.dim() != 1 or keys.shape[0] != total:
+            raise bad(f"the mask's keys must have {total} entries, ptr's last")
+        self._check_index(keys, tk, bad, "the mask's key")
+        if total > 1:
+            qi = torch.repeat_interleave(torch.arange(tq, device=keys.device), ptr[1:] - ptr[:-1])
+            pairs = torch.sort(qi * tk + keys).values
+            twice = pairs[1:] == pairs[:-1]
+            if bool(twice.any()):
+                p = int(pairs[1:][twice][0].item())
+                raise bad(f"the mask lists key {p % tk} twice for query {p // tk}")
+        return ptr, keys
 
     def _mask(
         self, tag: str | None, payload: Any, env: dict[str, Any], lead: tuple[int, ...], tq: int, tk: int, device: Any,
         bad: Callable[[str], NnError],
     ) -> Any:
+        """The dense boolean mask `[…, Tq, Tk]` (`None` for every key)."""
         import torch
 
         if tag is None or tag == "none":
@@ -579,62 +676,119 @@ class Interpreter:
                 raise bad("a causal mask needs Tq = Tk")
             return torch.ones(tq, tk, dtype=torch.bool, device=device).tril()
         if tag == "segments":
-            ids = self._get(env, payload["ids"])
-            if tuple(ids.shape) != (*lead, tq) or tq != tk:
-                raise bad(f"the mask's ids must be shaped {[*lead, tq]} with Tq = Tk")
+            ids = self._segment_ids(payload, env, lead, tq, tk, bad)
             allowed = ids.unsqueeze(-1) == ids.unsqueeze(-2)
             if payload["causal"]:
                 allowed = allowed & torch.ones(tq, tk, dtype=torch.bool, device=device).tril()
             return allowed
         if tag == "key_sets":
-            ptr, keys = self._get(env, payload["ptr"]), self._get(env, payload["keys"])
-            if lead:
-                raise bad("a key_sets mask takes unbatched q, k and v")
-            if ptr.dim() != 1 or ptr.shape[0] != tq + 1:
-                raise bad(f"the mask's ptr must have {tq + 1} entries")
-            if tq > 0 and (int(ptr[0].item()) != 0 or bool((ptr[1:] < ptr[:-1]).any())):
-                raise bad("the mask's ptr must start at 0 and not decrease")
-            total = int(ptr[-1].item()) if tq > 0 else 0
-            if keys.dim() != 1 or keys.shape[0] != total:
-                raise bad(f"the mask's keys must have {total} entries, ptr's last")
-            self._check_index(keys, tk, bad, "the mask's key")
+            ptr, keys = self._key_sets(payload, env, lead, tq, tk, bad)
             allowed = torch.zeros(tq, tk, dtype=torch.bool, device=device)
-            if total > 0:
-                counts = ptr[1:] - ptr[:-1]
-                qi = torch.repeat_interleave(torch.arange(tq, device=device), counts)
+            if keys.shape[0] > 0:
+                qi = torch.repeat_interleave(torch.arange(tq, device=device), ptr[1:] - ptr[:-1])
                 allowed[qi, keys] = True
             return allowed
         raise bad(f"unknown mask '{tag}'")
 
     @staticmethod
-    def _attention_blocks(q: Any, k: Any, v: Any, heads: int, dh: int, ids: Any, causal: bool, scale: float) -> Any:
-        """Attention within consecutive groups of equal ids, padded to the
-        longest group and run through the fused kernel; answers what the dense
-        mask answers."""
+    def _attention_segments(q: Any, k: Any, v: Any, heads: int, dh: int, ids: Any, causal: bool, scale: float) -> Any:
+        """Attention within the groups of equal ids (in any order, across any
+        leading dimensions), each bucket of groups padded to the next power of
+        two and run through the fused kernel: what the dense mask answers, in
+        memory proportional to the allowed pairs (spec §4, Attention)."""
         import torch
         import torch.nn.functional as F
 
-        t, d = q.shape
-        _, counts = torch.unique_consecutive(ids, return_counts=True)
-        n_groups = counts.shape[0]
-        longest = int(counts.max().item())
+        t, d = q.shape[-2], q.shape[-1]
+        qf, kf, vf = q.reshape(-1, d), k.reshape(-1, d), v.reshape(-1, d)
+        n = qf.shape[0]
+        if n == 0:
+            return torch.zeros_like(q)
+        device = q.device
+        arange = torch.arange(n, device=device)
+        # one group per (leading index, id): the ids shifted to be non-negative
+        # so a group key orders by the leading index first
+        flat_ids = ids.reshape(-1)
+        shifted = flat_ids - flat_ids.min()
+        key = (arange // t) * (int(shifted.max().item()) + 1) + shifted
+        _, group = torch.unique(key, return_inverse=True)
+        counts = torch.bincount(group)
+        order = torch.argsort(group, stable=True)  # tokens by group, each group in token order
         starts = torch.cumsum(counts, 0) - counts
-        group_of = torch.repeat_interleave(torch.arange(n_groups, device=q.device), counts)
-        pos = torch.arange(t, device=q.device) - starts[group_of]
-        padded = torch.full((n_groups, longest), -1, dtype=torch.int64, device=q.device)
-        padded[group_of, pos] = torch.arange(t, device=q.device)
-        valid = padded >= 0
-        safe = padded.clamp(min=0)
-        qp = q[safe].reshape(n_groups, longest, heads, dh).transpose(1, 2)
-        kp = k[safe].reshape(n_groups, longest, heads, dh).transpose(1, 2)
-        vp = v[safe].reshape(n_groups, longest, heads, dh).transpose(1, 2)
-        attend = valid[:, None, None, :]
-        if causal:
-            attend = attend & torch.ones(longest, longest, dtype=torch.bool, device=q.device).tril()[None, None]
-        # A padded query attends everywhere (finite, then dropped) so no row is empty.
-        attend = attend | torch.logical_not(valid)[:, None, :, None]
-        out = F.scaled_dot_product_attention(qp, kp, vp, attn_mask=attend, scale=scale)
-        return out.transpose(1, 2).reshape(n_groups, longest, d)[valid]
+        group_in_order = group[order]
+        pos = arange - starts[group_in_order]
+        # each group's bucket: its length rounded up to a power of two
+        buckets = {}
+        for length in set(counts.tolist()):
+            width = 1
+            while width < length:
+                width *= 2
+            buckets.setdefault(width, []).append(length)
+        local_of_group = torch.full((counts.shape[0],), -1, dtype=torch.int64, device=device)
+        indices, rows = [], []
+        for width, lengths in sorted(buckets.items()):
+            in_bucket = torch.zeros_like(counts, dtype=torch.bool)
+            for length in lengths:
+                in_bucket |= counts == length
+            groups = torch.nonzero(in_bucket).reshape(-1)
+            local_of_group.fill_(-1)
+            local_of_group[groups] = torch.arange(groups.shape[0], device=device)
+            local = local_of_group[group_in_order]
+            sel = local >= 0
+            padded = torch.full((groups.shape[0], width), -1, dtype=torch.int64, device=device)
+            padded[local[sel], pos[sel]] = order[sel]
+            valid = padded >= 0
+            safe = padded.clamp(min=0)
+            qp = qf[safe].reshape(groups.shape[0], width, heads, dh).transpose(1, 2)
+            kp = kf[safe].reshape(groups.shape[0], width, heads, dh).transpose(1, 2)
+            vp = vf[safe].reshape(groups.shape[0], width, heads, dh).transpose(1, 2)
+            attend = valid[:, None, None, :]
+            if causal:
+                attend = attend & torch.ones(width, width, dtype=torch.bool, device=device).tril()[None, None]
+            # a padded query attends everywhere (finite, then dropped) so no row is empty
+            attend = attend | torch.logical_not(valid)[:, None, :, None]
+            out = F.scaled_dot_product_attention(qp, kp, vp, attn_mask=attend, scale=scale)
+            rows.append(out.transpose(1, 2).reshape(groups.shape[0], width, d)[valid])
+            indices.append(padded[valid])
+        back = torch.argsort(torch.cat(indices))
+        return torch.cat(rows)[back].reshape(q.shape)
+
+    @staticmethod
+    def _attention_key_sets(q: Any, k: Any, v: Any, heads: int, dh: int, ptr: Any, keys: Any, scale: float) -> Any:
+        """Attention over the listed (query, key) pairs: each pair scored by a
+        gathered dot product in chunks, the softmax by segment operations over
+        the query, the values summed by index — what the dense mask answers,
+        in memory proportional to the pairs (spec §4, Attention)."""
+        import torch
+
+        tq, d = q.shape
+        tk = k.shape[0]
+        total = keys.shape[0]
+        out = torch.zeros(tq, heads, dh, dtype=q.dtype, device=q.device)
+        if total == 0:
+            return out.reshape(tq, d)
+        qi = torch.repeat_interleave(torch.arange(tq, device=q.device), ptr[1:] - ptr[:-1])
+        qh, kh, vh = q.reshape(tq, heads, dh), k.reshape(tk, heads, dh), v.reshape(tk, heads, dh)
+        chunks = range(0, total, KEY_SET_CHUNK)
+        scores = torch.empty(total, heads, dtype=q.dtype, device=q.device)
+        for c in chunks:
+            scores[c:c + KEY_SET_CHUNK] = (qh[qi[c:c + KEY_SET_CHUNK]] * kh[keys[c:c + KEY_SET_CHUNK]]).sum(-1) * scale
+        seg_max = torch.zeros(tq, heads, dtype=q.dtype, device=q.device).scatter_reduce(
+            0, qi.unsqueeze(-1).expand(-1, heads), scores.detach(), reduce="amax", include_self=False
+        )
+        if torch.is_grad_enabled():
+            e = torch.exp(scores - seg_max[qi])
+            seg_sum = torch.zeros(tq, heads, dtype=q.dtype, device=q.device).index_add(0, qi, e)
+            probs = e / seg_sum[qi]
+        else:
+            # inference: the softmax in place, so two [pairs, heads] tensors live at most
+            scores.sub_(seg_max[qi]).exp_()
+            seg_sum = torch.zeros(tq, heads, dtype=q.dtype, device=q.device).index_add(0, qi, scores)
+            probs = scores.div_(seg_sum[qi])
+        for c in chunks:
+            weighted = probs[c:c + KEY_SET_CHUNK].unsqueeze(-1) * vh[keys[c:c + KEY_SET_CHUNK]]
+            out = out.index_add(0, qi[c:c + KEY_SET_CHUNK], weighted)
+        return out.reshape(tq, d)
 
     def _call(
         self, plan: Plan, node: Node, env: dict[str, Any], prefix: str, wanted: set[str | None],

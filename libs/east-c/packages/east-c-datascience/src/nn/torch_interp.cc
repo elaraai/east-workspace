@@ -13,6 +13,8 @@
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <map>
+#include <set>
 
 namespace east_ds::nn
 {
@@ -76,10 +78,132 @@ std::vector<int64_t> sizes_of(const Tensor &t)
     return std::vector<int64_t>(t.sizes().begin(), t.sizes().end());
 }
 
+/* How many (query, key) pairs a key_sets attention gathers at once (spec §4,
+ * Attention): bounds the working memory of a pairwise pass to a few tens of
+ * MB. The python interpreter's KEY_SET_CHUNK. */
+const int64_t KEY_SET_CHUNK = 16384;
+
+/* Attention within the groups of equal ids (in any order, across any leading
+ * dimensions), each bucket of groups padded to the next power of two and run
+ * through the fused kernel: what the dense mask answers, in memory
+ * proportional to the allowed pairs (spec §4, Attention). The twin of the
+ * python interpreter's _attention_segments. */
+Tensor attention_segments(const Tensor &q, const Tensor &k, const Tensor &v, int64_t heads,
+                          int64_t dh, const Tensor &ids, bool causal, double scale)
+{
+    int64_t t = q.size(-2), d = q.size(-1);
+    Tensor qf = q.reshape({-1, d}), kf = k.reshape({-1, d}), vf = v.reshape({-1, d});
+    int64_t n = qf.size(0);
+    if (n == 0) return torch::zeros_like(q);
+    auto i64 = torch::dtype(torch::kInt64).device(q.device());
+    auto bool_opts = torch::dtype(torch::kBool).device(q.device());
+    Tensor arange = torch::arange(n, i64);
+    // one group per (leading index, id): the ids shifted to be non-negative
+    // so a group key orders by the leading index first
+    Tensor flat_ids = ids.reshape({-1});
+    Tensor shifted = flat_ids - flat_ids.min();
+    Tensor key = torch::floor_divide(arange, t) * (shifted.max().item<int64_t>() + 1) + shifted;
+    Tensor group = std::get<1>(torch::_unique2(key, true, true, false));
+    Tensor counts = torch::bincount(group);
+    Tensor order = torch::argsort(group, /*stable=*/true, 0, false); // by group, in token order
+    Tensor starts = torch::cumsum(counts, 0) - counts;
+    Tensor group_in_order = group.index({order});
+    Tensor pos = arange - starts.index({group_in_order});
+    // each group's bucket: its length rounded up to a power of two
+    std::map<int64_t, std::vector<int64_t> > buckets;
+    Tensor counts_cpu = counts.to(torch::kCPU);
+    std::set<int64_t> lengths(counts_cpu.data_ptr<int64_t>(),
+                              counts_cpu.data_ptr<int64_t>() + counts_cpu.numel());
+    for (int64_t length : lengths) {
+        int64_t width = 1;
+        while (width < length)
+            width *= 2;
+        buckets[width].push_back(length);
+    }
+    Tensor local_of_group = torch::full({counts.size(0)}, -1, i64);
+    std::vector<Tensor> indices, rows;
+    for (const auto &bucket : buckets) {
+        int64_t width = bucket.first;
+        Tensor in_bucket = torch::zeros_like(counts, torch::kBool);
+        for (int64_t length : bucket.second)
+            in_bucket |= counts.eq(length);
+        Tensor groups = torch::nonzero(in_bucket).reshape({-1});
+        int64_t gb = groups.size(0);
+        local_of_group.fill_(-1);
+        local_of_group.index_put_({groups}, torch::arange(gb, i64));
+        Tensor local = local_of_group.index({group_in_order});
+        Tensor sel = local >= 0;
+        Tensor padded = torch::full({gb, width}, -1, i64);
+        padded.index_put_({local.index({sel}), pos.index({sel})}, order.index({sel}));
+        Tensor valid = padded >= 0;
+        Tensor safe = padded.clamp_min(0);
+        Tensor qp = qf.index({safe}).reshape({gb, width, heads, dh}).transpose(1, 2);
+        Tensor kp = kf.index({safe}).reshape({gb, width, heads, dh}).transpose(1, 2);
+        Tensor vp = vf.index({safe}).reshape({gb, width, heads, dh}).transpose(1, 2);
+        Tensor attend = valid.unsqueeze(1).unsqueeze(2);
+        if (causal)
+            attend =
+                attend & torch::ones({width, width}, bool_opts).tril().unsqueeze(0).unsqueeze(0);
+        // a padded query attends everywhere (finite, then dropped) so no row is empty
+        attend = attend | torch::logical_not(valid).unsqueeze(1).unsqueeze(3);
+        Tensor out = at::scaled_dot_product_attention(qp, kp, vp, attend, 0.0, false, scale);
+        rows.push_back(out.transpose(1, 2).reshape({gb, width, d}).index({valid}));
+        indices.push_back(padded.index({valid}));
+    }
+    Tensor back = torch::argsort(torch::cat(indices));
+    return torch::cat(rows).index({back}).reshape(q.sizes());
+}
+
+/* Attention over the listed (query, key) pairs: each pair scored by a gathered
+ * dot product in chunks, the softmax by segment operations over the query, the
+ * values summed by index — what the dense mask answers, in memory proportional
+ * to the pairs (spec §4, Attention). The twin of _attention_key_sets. */
+Tensor attention_key_sets(const Tensor &q, const Tensor &k, const Tensor &v, int64_t heads,
+                          int64_t dh, const Tensor &ptr, const Tensor &keys, double scale)
+{
+    int64_t tq = q.size(0), d = q.size(1), tk = k.size(0), total = keys.size(0);
+    Tensor out = torch::zeros({tq, heads, dh}, q.options());
+    if (total == 0) return out.reshape({tq, d});
+    auto i64 = torch::dtype(torch::kInt64).device(q.device());
+    Tensor qi = torch::repeat_interleave(torch::arange(tq, i64),
+                                         ptr.narrow(0, 1, tq) - ptr.narrow(0, 0, tq));
+    Tensor qh = q.reshape({tq, heads, dh}), kh = k.reshape({tk, heads, dh}),
+           vh = v.reshape({tk, heads, dh});
+    Tensor scores = torch::empty({total, heads}, q.options());
+    for (int64_t c = 0; c < total; c += KEY_SET_CHUNK) {
+        int64_t len = std::min(KEY_SET_CHUNK, total - c);
+        scores.narrow(0, c, len).copy_(
+            (qh.index({qi.narrow(0, c, len)}) * kh.index({keys.narrow(0, c, len)})).sum(-1) *
+            scale);
+    }
+    Tensor seg_max = torch::zeros({tq, heads}, q.options())
+                         .scatter_reduce(0, qi.unsqueeze(-1).expand({-1, heads}), scores.detach(),
+                                         "amax", /*include_self=*/false);
+    Tensor probs;
+    if (torch::GradMode::is_enabled()) {
+        Tensor e = torch::exp(scores - seg_max.index({qi}));
+        Tensor seg_sum = torch::zeros({tq, heads}, q.options()).index_add(0, qi, e);
+        probs = e / seg_sum.index({qi});
+    } else {
+        // inference: the softmax in place, so two [pairs, heads] tensors live at most
+        scores.sub_(seg_max.index({qi})).exp_();
+        Tensor seg_sum = torch::zeros({tq, heads}, q.options()).index_add(0, qi, scores);
+        probs = scores.div_(seg_sum.index({qi}));
+    }
+    for (int64_t c = 0; c < total; c += KEY_SET_CHUNK) {
+        int64_t len = std::min(KEY_SET_CHUNK, total - c);
+        Tensor weighted =
+            probs.narrow(0, c, len).unsqueeze(-1) * vh.index({keys.narrow(0, c, len)});
+        out = out.index_add(0, qi.narrow(0, c, len), weighted);
+    }
+    return out.reshape({tq, d});
+}
+
 } // namespace
 
 DType dtype_of_tensor(const Tensor &t)
 {
+    if (t.scalar_type() == torch::kFloat64) return DType::Float64;
     if (t.is_floating_point()) return DType::Float;
     if (t.scalar_type() == torch::kBool) return DType::Boolean;
     return DType::Integer;
@@ -90,6 +214,8 @@ torch::ScalarType scalar_type_of(DType d)
     switch (d) {
     case DType::Float:
         return torch::kFloat32;
+    case DType::Float64:
+        return torch::kFloat64;
     case DType::Integer:
         return torch::kInt64;
     case DType::Boolean:
@@ -199,6 +325,50 @@ Interpreter::Value Interpreter::node(const Plan &plan, const Node &nd, Env &env,
         if (table.dim() == 0) throw bad("table must have a first dimension");
         check_index(index, table.size(0), bad, "index");
         return one(table.index({index}));
+    }
+    if (op == "take_along") {
+        Tensor x = g("x"), index = g("index");
+        if (x.dim() == 0) throw bad("x must have an axis");
+        int64_t axis = axis_of(x, nd.iv("axis"), bad);
+        if (index.dim() != x.dim())
+            throw bad("index has rank " + std::to_string(index.dim()) + " but x has rank " +
+                      std::to_string(x.dim()));
+        for (int64_t k = 0; k < x.dim(); k++)
+            if (k != axis && index.size(k) != x.size(k))
+                throw bad("index is shaped " + sizes_text(index) + " but x is " + sizes_text(x) +
+                          ": they differ off the axis");
+        check_index(index, x.size(axis), bad, "index");
+        return one(torch::gather(x, axis, index));
+    }
+    if (op == "mask_select") {
+        Tensor x = g("x"), mask = g("mask");
+        if (x.dim() < 1 || mask.dim() != 1 || mask.size(0) != x.size(0))
+            throw bad("mask is a boolean vector with one entry per row of x");
+        return one(x.index({mask}));
+    }
+    if (op == "mask_indices") {
+        Tensor mask = g("mask");
+        if (mask.dim() != 1) throw bad("mask is a boolean vector");
+        return one(torch::nonzero(mask).reshape({-1}));
+    }
+    if (op == "repeat") {
+        Tensor x = g("x"), counts = g("counts");
+        if (x.dim() < 1 || counts.dim() != 1 || counts.size(0) != x.size(0))
+            throw bad("counts is an integer vector with one entry per row of x");
+        if (counts.numel() > 0 && (counts < 0).any().item<bool>())
+            throw bad("counts must not be negative");
+        return one(torch::repeat_interleave(x, counts, 0));
+    }
+    if (op == "range") {
+        Tensor stop = g("stop");
+        if (stop.dim() != 0) throw bad("stop must be an integer of rank 0");
+        return one(torch::arange(nd.iv("start"), stop.item<int64_t>(), nd.iv("step"),
+                                 torch::dtype(torch::kInt64).device(device_)));
+    }
+    if (op == "searchsorted") {
+        Tensor sorted = g("sorted"), values = g("values");
+        if (sorted.dim() != 1) throw bad("sorted is a vector");
+        return one(torch::searchsorted(sorted, values, /*out_int32=*/false, nd.bv("right")));
     }
     if (op == "embedding_bag") {
         Tensor table = g("table"), index = g("index"), segments = g("segments"), size = g("size"),
@@ -357,6 +527,9 @@ Interpreter::Value Interpreter::node(const Plan &plan, const Node &nd, Env &env,
         if (tag == "float")
             return one(torch::scalar_tensor(nd.fv("value"),
                                             torch::dtype(torch::kFloat32).device(device_)));
+        if (tag == "float64")
+            return one(torch::scalar_tensor(nd.fv("value"),
+                                            torch::dtype(torch::kFloat64).device(device_)));
         if (tag == "integer")
             return one(
                 torch::scalar_tensor(nd.iv("value"), torch::dtype(torch::kInt64).device(device_)));
@@ -472,10 +645,20 @@ Interpreter::Value Interpreter::node(const Plan &plan, const Node &nd, Env &env,
         };
         return one(broadcasting(f, a, b, bad));
     }
+    if (op == "remainder") {
+        Tensor a = g("a"), b = g("b");
+        if (!a.is_floating_point() && b.numel() > 0 && b.eq(0).any().item<bool>())
+            throw bad("integer division by zero");
+        auto f = [](const Tensor &x, const Tensor &y) -> Tensor { return torch::remainder(x, y); };
+        return one(broadcasting(f, a, b, bad));
+    }
     {
         Tensor x = nd.has("x") ? get(env, nd.s("x")) : Tensor();
         if (op == "neg") return one(-x);
         if (op == "abs") return one(x.abs());
+        if (op == "floor") return one(torch::floor(x));
+        if (op == "ceil") return one(torch::ceil(x));
+        if (op == "round") return one(torch::round(x));
         if (op == "exp") return one(torch::exp(x));
         if (op == "log") return one(torch::log(x));
         if (op == "log1p") return one(torch::log1p(x));
@@ -562,6 +745,14 @@ Interpreter::Value Interpreter::node(const Plan &plan, const Node &nd, Env &env,
         std::vector<int64_t> hshape = lead;
         hshape.insert(hshape.end(), {heads, dh});
         Tensor xh = x.reshape(hshape);
+        if (nd.s("convention") == "interleaved") {
+            std::vector<int64_t> pshape = lead;
+            pshape.insert(pshape.end(), {heads, half, 2});
+            Tensor pairs = xh.reshape(pshape);
+            Tensor x1 = pairs.select(-1, 0), x2 = pairs.select(-1, 1);
+            Tensor out = torch::stack({x1 * cos - x2 * sin, x2 * cos + x1 * sin}, -1);
+            return one(out.reshape(x.sizes()));
+        }
         Tensor x1 = xh.narrow(-1, 0, half), x2 = xh.narrow(-1, half, half);
         Tensor out = torch::cat({x1 * cos - x2 * sin, x2 * cos + x1 * sin}, -1);
         return one(out.reshape(x.sizes()));
@@ -594,21 +785,19 @@ Tensor Interpreter::attention(const Node &nd, Env &env)
     double scale = nd.fval.count("scale") ? nd.fv("scale") : 1.0 / std::sqrt((double)dh);
     const std::string &mask = nd.s("mask");
     auto bool_opts = torch::dtype(torch::kBool).device(q.device());
+    auto i64 = torch::dtype(torch::kInt64).device(q.device());
 
-    Tensor allowed;
-    if (mask == "causal") {
-        if (tq != tk) throw bad("a causal mask needs Tq = Tk");
-        allowed = torch::ones({tq, tk}, bool_opts).tril();
-    } else if (mask == "segments") {
-        Tensor ids = get(env, nd.s("ids"));
+    // The mask's operands, checked as the specification states them.
+    Tensor ids, ptr, keys;
+    if (mask == "segments") {
+        ids = get(env, nd.s("ids"));
         std::vector<int64_t> want = lead;
         want.push_back(tq);
         if (sizes_of(ids) != want || tq != tk)
             throw bad("the mask's ids must be shaped " + shape_text(want) + " with Tq = Tk");
-        allowed = ids.unsqueeze(-1).eq(ids.unsqueeze(-2));
-        if (nd.bv("causal")) allowed = allowed & torch::ones({tq, tk}, bool_opts).tril();
     } else if (mask == "key_sets") {
-        Tensor ptr = get(env, nd.s("ptr")), keys = get(env, nd.s("keys"));
+        ptr = get(env, nd.s("ptr"));
+        keys = get(env, nd.s("keys"));
         if (!lead.empty()) throw bad("a key_sets mask takes unbatched q, k and v");
         if (ptr.dim() != 1 || ptr.size(0) != tq + 1)
             throw bad("the mask's ptr must have " + std::to_string(tq + 1) + " entries");
@@ -620,11 +809,39 @@ Tensor Interpreter::attention(const Node &nd, Env &env)
             throw bad("the mask's keys must have " + std::to_string(total) +
                       " entries, ptr's last");
         check_index(keys, tk, bad, "the mask's key");
+        if (total > 1) {
+            Tensor qi = torch::repeat_interleave(torch::arange(tq, i64),
+                                                 ptr.narrow(0, 1, tq) - ptr.narrow(0, 0, tq));
+            Tensor pairs = std::get<0>(torch::sort(qi * tk + keys));
+            Tensor later = pairs.narrow(0, 1, total - 1);
+            Tensor twice = later.eq(pairs.narrow(0, 0, total - 1));
+            if (twice.any().item<bool>()) {
+                int64_t p = later.index({twice})[0].item<int64_t>();
+                throw bad("the mask lists key " + std::to_string(p % tk) + " twice for query " +
+                          std::to_string(p / tk));
+            }
+        }
+    }
+
+    // The structured masks without a bias run in memory proportional to the
+    // allowed pairs (spec §4, Attention); everything else through dense scores.
+    if (mask == "segments" && !bias.defined())
+        return attention_segments(q, k, v, heads, dh, ids, nd.bv("causal"), scale);
+    if (mask == "key_sets" && !bias.defined())
+        return attention_key_sets(q, k, v, heads, dh, ptr, keys, scale);
+
+    Tensor allowed;
+    if (mask == "causal") {
+        if (tq != tk) throw bad("a causal mask needs Tq = Tk");
+        allowed = torch::ones({tq, tk}, bool_opts).tril();
+    } else if (mask == "segments") {
+        allowed = ids.unsqueeze(-1).eq(ids.unsqueeze(-2));
+        if (nd.bv("causal")) allowed = allowed & torch::ones({tq, tk}, bool_opts).tril();
+    } else if (mask == "key_sets") {
         allowed = torch::zeros({tq, tk}, bool_opts);
-        if (total > 0) {
-            Tensor counts = ptr.narrow(0, 1, tq) - ptr.narrow(0, 0, tq);
-            Tensor qi = torch::repeat_interleave(
-                torch::arange(tq, torch::dtype(torch::kInt64).device(q.device())), counts);
+        if (keys.size(0) > 0) {
+            Tensor qi = torch::repeat_interleave(torch::arange(tq, i64),
+                                                 ptr.narrow(0, 1, tq) - ptr.narrow(0, 0, tq));
             allowed.index_put_({qi, keys}, true);
         }
     }

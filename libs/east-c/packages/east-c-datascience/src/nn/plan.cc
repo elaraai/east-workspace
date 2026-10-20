@@ -105,32 +105,36 @@ void read_fields(Node &node, EastValue *p, const std::vector<Field> &fields, con
     }
 }
 
-const std::set<std::string> BINARY = {"add", "sub", "mul", "div", "pow",         "eq",        "ne",
-                                      "lt",  "le",  "gt",  "ge",  "logical_and", "logical_or"};
-const std::set<std::string> UNARY = {"neg",
-                                     "abs",
-                                     "exp",
-                                     "log",
-                                     "log1p",
-                                     "sqrt",
-                                     "softplus",
-                                     "sigmoid",
-                                     "tanh",
-                                     "relu",
-                                     "silu",
-                                     "sin",
-                                     "cos",
-                                     "is_nan",
-                                     "normal_cdf",
-                                     "log_normal_cdf",
-                                     "normal_quantile",
-                                     "log1mexp",
-                                     "logical_not",
-                                     "stop_gradient"};
-const std::set<std::string> FLOAT_UNARY = {
-    "exp",  "log",        "log1p",      "sqrt",           "softplus",        "sigmoid",
-    "tanh", "relu",       "gelu",       "silu",           "clamp",           "sin",
-    "cos",  "nan_to_num", "normal_cdf", "log_normal_cdf", "normal_quantile", "log1mexp"};
+const std::set<std::string> BINARY = {"add",       "sub", "mul",         "div",       "pow",
+                                      "remainder", "eq",  "ne",          "lt",        "le",
+                                      "gt",        "ge",  "logical_and", "logical_or"};
+const std::set<std::string> UNARY = {
+    "neg",      "abs",         "floor",        "ceil",           "round",
+    "exp",      "log",         "log1p",        "sqrt",           "softplus",
+    "sigmoid",  "tanh",        "relu",         "silu",           "sin",
+    "cos",      "is_nan",      "normal_cdf",   "log_normal_cdf", "normal_quantile",
+    "log1mexp", "logical_not", "stop_gradient"};
+const std::set<std::string> FLOAT_UNARY = {"floor",
+                                           "ceil",
+                                           "round",
+                                           "exp",
+                                           "log",
+                                           "log1p",
+                                           "sqrt",
+                                           "softplus",
+                                           "sigmoid",
+                                           "tanh",
+                                           "relu",
+                                           "gelu",
+                                           "silu",
+                                           "clamp",
+                                           "sin",
+                                           "cos",
+                                           "nan_to_num",
+                                           "normal_cdf",
+                                           "log_normal_cdf",
+                                           "normal_quantile",
+                                           "log1mexp"};
 const std::set<std::string> AXIS_OPS = {"sum",       "mean",    "max",         "min",
                                         "logsumexp", "softmax", "log_softmax", "cumsum",
                                         "cummax",    "cummin",  "argmax"};
@@ -148,6 +152,18 @@ Node parse_node(EastValue *entry, const std::string &fn_s, const Plan *parent)
     const std::string &o = node.op;
     if (o == "gather")
         read_fields(node, p, {{"table", K_NAME}, {"index", K_NAME}}, fn);
+    else if (o == "take_along")
+        read_fields(node, p, {{"x", K_NAME}, {"index", K_NAME}, {"axis", K_INT}}, fn);
+    else if (o == "mask_select")
+        read_fields(node, p, {{"x", K_NAME}, {"mask", K_NAME}}, fn);
+    else if (o == "mask_indices")
+        read_fields(node, p, {{"mask", K_NAME}}, fn);
+    else if (o == "repeat")
+        read_fields(node, p, {{"x", K_NAME}, {"counts", K_NAME}}, fn);
+    else if (o == "range")
+        read_fields(node, p, {{"start", K_INT}, {"stop", K_NAME}, {"step", K_INT}}, fn);
+    else if (o == "searchsorted")
+        read_fields(node, p, {{"sorted", K_NAME}, {"values", K_NAME}, {"right", K_BOOL}}, fn);
     else if (o == "embedding_bag")
         read_fields(node, p,
                     {{"table", K_NAME},
@@ -187,7 +203,7 @@ Node parse_node(EastValue *entry, const std::string &fn_s, const Plan *parent)
         EastValue *value = field(p, "value", fn);
         std::string tag = case_of(value, fn);
         node.str["value"] = tag;
-        if (tag == "float")
+        if (tag == "float" || tag == "float64")
             node.fval["value"] = as_float(payload(value), fn);
         else if (tag == "integer")
             node.ival["value"] = as_integer(payload(value), fn);
@@ -259,11 +275,12 @@ Node parse_node(EastValue *entry, const std::string &fn_s, const Plan *parent)
             node.str["ptr"] = str_of(field(payload(mask), "ptr", fn), fn);
             node.str["keys"] = str_of(field(payload(mask), "keys", fn), fn);
         }
-    } else if (o == "rotary")
+    } else if (o == "rotary") {
         read_fields(node, p,
                     {{"x", K_NAME}, {"positions", K_NAME}, {"heads", K_INT}, {"base", K_FLOAT}},
                     fn);
-    else if (o == "dropout")
+        node.str["convention"] = case_of(field(p, "convention", fn), fn);
+    } else if (o == "dropout")
         read_fields(node, p, {{"x", K_NAME}, {"p", K_FLOAT}}, fn);
     else if (o == "random_normal" || o == "random_uniform")
         read_fields(node, p, {{"like", K_NAME}}, fn);
@@ -382,6 +399,7 @@ void check_static(const Plan &plan, const Node &node, const std::string &fn)
     }
     if (op == "pad" && (node.iv("before") < 0 || node.iv("after") < 0))
         throw node_err(fn, node, "before and after must not be negative");
+    if (op == "range" && node.iv("step") == 0) throw node_err(fn, node, "step must not be zero");
     if (op == "reshape") {
         int minus = 0;
         for (int64_t d : node.ints) {
@@ -475,8 +493,9 @@ void node_dtype(Plan &plan, Node &node, const std::string &fn)
         node.many = false;
         node.dtype = t;
     };
-    if (op == "add" || op == "sub" || op == "mul") {
+    if (op == "add" || op == "sub" || op == "mul" || op == "remainder") {
         DType da = d(node.s("a")), db = d(node.s("b"));
+        if (is_float_kind(da) && is_float_kind(db)) return set(wider(da, db));
         if (da != db || da == DType::Boolean)
             throw bad("takes float or integer operands of one type, got " + name(da) + " and " +
                       name(db));
@@ -484,9 +503,9 @@ void node_dtype(Plan &plan, Node &node, const std::string &fn)
     }
     if (op == "div" || op == "pow") {
         DType da = d(node.s("a")), db = d(node.s("b"));
-        if (da != DType::Float || db != DType::Float)
+        if (!(is_float_kind(da) && is_float_kind(db)))
             throw bad("takes float operands, got " + name(da) + " and " + name(db));
-        return set(DType::Float);
+        return set(wider(da, db));
     }
     if (op == "neg" || op == "abs") {
         DType dx = d(node.s("x"));
@@ -495,21 +514,22 @@ void node_dtype(Plan &plan, Node &node, const std::string &fn)
     }
     if (FLOAT_UNARY.count(op)) {
         DType dx = d(node.s("x"));
-        if (dx != DType::Float) throw bad("takes a float operand, got " + name(dx));
-        return set(DType::Float);
+        if (!is_float_kind(dx)) throw bad("takes a float operand, got " + name(dx));
+        return set(dx);
     }
     if (op == "is_nan") {
-        if (d(node.s("x")) != DType::Float) throw bad("takes a float operand");
+        if (!is_float_kind(d(node.s("x")))) throw bad("takes a float operand");
         return set(DType::Boolean);
     }
     if (op == "eq" || op == "ne") {
         DType da = d(node.s("a")), db = d(node.s("b"));
-        if (da != db) throw bad("takes operands of one type, got " + name(da) + " and " + name(db));
+        if (da != db && !(is_float_kind(da) && is_float_kind(db)))
+            throw bad("takes operands of one type, got " + name(da) + " and " + name(db));
         return set(DType::Boolean);
     }
     if (op == "lt" || op == "le" || op == "gt" || op == "ge") {
         DType da = d(node.s("a")), db = d(node.s("b"));
-        if (da != db || da == DType::Boolean)
+        if ((da != db && !(is_float_kind(da) && is_float_kind(db))) || da == DType::Boolean)
             throw bad("takes float or integer operands of one type, got " + name(da) + " and " +
                       name(db));
         return set(DType::Boolean);
@@ -526,6 +546,7 @@ void node_dtype(Plan &plan, Node &node, const std::string &fn)
     if (op == "where") {
         if (d(node.s("cond")) != DType::Boolean) throw bad("cond must be boolean");
         DType da = d(node.s("a")), db = d(node.s("b"));
+        if (is_float_kind(da) && is_float_kind(db)) return set(wider(da, db));
         if (da != db)
             throw bad("a and b must be of one type, got " + name(da) + " and " + name(db));
         return set(da);
@@ -538,6 +559,33 @@ void node_dtype(Plan &plan, Node &node, const std::string &fn)
     if (op == "gather") {
         if (d(node.s("index")) != DType::Integer) throw bad("index must be integer");
         return set(d(node.s("table")));
+    }
+    if (op == "take_along") {
+        if (d(node.s("index")) != DType::Integer) throw bad("index must be integer");
+        return set(d(node.s("x")));
+    }
+    if (op == "mask_select") {
+        if (d(node.s("mask")) != DType::Boolean) throw bad("mask must be boolean");
+        return set(d(node.s("x")));
+    }
+    if (op == "mask_indices") {
+        if (d(node.s("mask")) != DType::Boolean) throw bad("mask must be boolean");
+        return set(DType::Integer);
+    }
+    if (op == "repeat") {
+        if (d(node.s("counts")) != DType::Integer) throw bad("counts must be integer");
+        return set(d(node.s("x")));
+    }
+    if (op == "range") {
+        if (d(node.s("stop")) != DType::Integer) throw bad("stop must be integer");
+        return set(DType::Integer);
+    }
+    if (op == "searchsorted") {
+        DType ds = d(node.s("sorted")), dv = d(node.s("values"));
+        if (ds != dv || ds == DType::Boolean)
+            throw bad("sorted and values must be float or integer of one type, got " + name(ds) +
+                      " and " + name(dv));
+        return set(DType::Integer);
     }
     if (op == "split" || op == "slice" || op == "pad" || op == "reshape" || op == "permute" ||
         op == "stop_gradient")
@@ -572,7 +620,7 @@ void node_dtype(Plan &plan, Node &node, const std::string &fn)
         if (d(node.s("segments")) != DType::Integer) throw bad("segments must be integer");
         d(node.s("size"));
         if (dx == DType::Boolean) throw bad("x must be float or integer");
-        if (node.s("reduce") == "mean" && dx != DType::Float) throw bad("mean takes a float x");
+        if (node.s("reduce") == "mean" && !is_float_kind(dx)) throw bad("mean takes a float x");
         return set(dx);
     }
     if (op == "scatter_add") {
@@ -621,7 +669,7 @@ void node_dtype(Plan &plan, Node &node, const std::string &fn)
         DType dx = d(node.s("x"));
         if (dx == DType::Boolean) throw bad("takes a float or integer operand, got boolean");
         if ((op == "mean" || op == "logsumexp" || op == "softmax" || op == "log_softmax") &&
-            dx != DType::Float)
+            !is_float_kind(dx))
             throw bad("takes a float operand, got " + name(dx));
         return set(op == "argmax" ? DType::Integer : dx);
     }
@@ -784,6 +832,22 @@ std::vector<std::string> operands_of(const Node &node)
     if (op == "gather") {
         add("table");
         add("index");
+    } else if (op == "take_along") {
+        add("x");
+        add("index");
+    } else if (op == "mask_select") {
+        add("x");
+        add("mask");
+    } else if (op == "mask_indices") {
+        add("mask");
+    } else if (op == "repeat") {
+        add("x");
+        add("counts");
+    } else if (op == "range") {
+        add("stop");
+    } else if (op == "searchsorted") {
+        add("sorted");
+        add("values");
     } else if (op == "embedding_bag") {
         add("table");
         add("index");

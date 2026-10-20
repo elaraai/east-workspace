@@ -38,8 +38,8 @@ _check_nn_support = extra_guard("torch", "torch", "Neural network")
 # Tensors
 # ============================================================================
 
-NnDTypeType = VariantType([("float", NullType), ("integer", NullType), ("boolean", NullType)])
-"""An element type: ``float`` (f64 at rest, f32 or f64 in flight), ``integer`` (i64), ``boolean``."""
+NnDTypeType = VariantType([("float", NullType), ("float64", NullType), ("integer", NullType), ("boolean", NullType)])
+"""An element type: ``float`` (f64 at rest, f32 in flight), ``float64`` (f64 throughout), ``integer`` (i64), ``boolean``."""
 
 TensorType = StructType([("shape", ArrayType(IntegerType)), ("data", VectorType(FloatType))])
 """A float tensor: its shape and its elements in row-major order."""
@@ -51,9 +51,14 @@ BooleanTensorType = StructType([("shape", ArrayType(IntegerType)), ("data", Vect
 """A boolean tensor: its shape and its elements in row-major order."""
 
 NnValueType = VariantType(
-    [("float", TensorType), ("integer", IntegerTensorType), ("boolean", BooleanTensorType)]
+    [
+        ("float", TensorType),
+        ("float64", TensorType),
+        ("integer", IntegerTensorType),
+        ("boolean", BooleanTensorType),
+    ]
 )
-"""A tensor of any element type: what a batch holds and what ``nn_run`` answers."""
+"""A tensor of any element type: what a batch holds and what ``nn_run`` answers (``float`` and ``float64`` both carry f64 data at rest)."""
 
 NnBatchType = DictType(StringType, NnValueType)
 """Input name → tensor; also ``nn_run``'s result, output name → tensor."""
@@ -101,7 +106,11 @@ NnMaskType = VariantType(
 NnReduceType = VariantType([("sum", NullType), ("mean", NullType), ("max", NullType), ("min", NullType)])
 NnPadModeType = VariantType([("zeros", NullType), ("replicate", NullType)])
 NnGeluType = VariantType([("exact", NullType), ("tanh", NullType)])
-NnConstantType = VariantType([("float", FloatType), ("integer", IntegerType), ("boolean", BooleanType)])
+NnConstantType = VariantType(
+    [("float", FloatType), ("float64", FloatType), ("integer", IntegerType), ("boolean", BooleanType)]
+)
+NnRotaryType = VariantType([("halves", NullType), ("interleaved", NullType)])
+"""How ``rotary`` pairs the dimensions it turns: ``i`` with ``i + dh/2``, or ``2i`` with ``2i + 1``."""
 NnStepsType = VariantType(
     [("fixed", IntegerType), ("until", StructType([("output", StringType), ("max", IntegerType)]))]
 )
@@ -118,6 +127,12 @@ def nn_op_type(self: Any) -> Any:
         [
             # indexing and layout
             ("gather", StructType([("table", _Name), ("index", _Name)])),
+            ("take_along", StructType([("x", _Name), ("index", _Name), ("axis", IntegerType)])),
+            ("mask_select", StructType([("x", _Name), ("mask", _Name)])),
+            ("mask_indices", StructType([("mask", _Name)])),
+            ("repeat", StructType([("x", _Name), ("counts", _Name)])),
+            ("range", StructType([("start", IntegerType), ("stop", _Name), ("step", IntegerType)])),
+            ("searchsorted", StructType([("sorted", _Name), ("values", _Name), ("right", BooleanType)])),
             (
                 "embedding_bag",
                 StructType(
@@ -208,8 +223,12 @@ def nn_op_type(self: Any) -> Any:
             ("mul", binary),
             ("div", binary),
             ("pow", binary),
+            ("remainder", binary),
             ("neg", unary),
             ("abs", unary),
+            ("floor", unary),
+            ("ceil", unary),
+            ("round", unary),
             ("exp", unary),
             ("log", unary),
             ("log1p", unary),
@@ -268,7 +287,18 @@ def nn_op_type(self: Any) -> Any:
                     ]
                 ),
             ),
-            ("rotary", StructType([("x", _Name), ("positions", _Name), ("heads", IntegerType), ("base", FloatType)])),
+            (
+                "rotary",
+                StructType(
+                    [
+                        ("x", _Name),
+                        ("positions", _Name),
+                        ("heads", IntegerType),
+                        ("base", FloatType),
+                        ("convention", NnRotaryType),
+                    ]
+                ),
+            ),
             # training and noise
             ("dropout", StructType([("x", _Name), ("p", FloatType)])),
             ("stop_gradient", unary),
@@ -385,6 +415,7 @@ __all__ = [
     "NnInputSpecType",
     "NnMaskType",
     "NnParamSpecType",
+    "NnRotaryType",
     "NnRunConfigType",
     "NnTrainConfigType",
     "NnTrainHistoryType",

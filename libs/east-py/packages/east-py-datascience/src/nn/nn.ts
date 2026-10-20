@@ -42,8 +42,13 @@ import {
 // Tensors
 // ============================================================================
 
-/** An element type: `float` (f64 at rest, f32 or f64 in flight), `integer` (i64) or `boolean`. */
-export const NnDTypeType = VariantType({ float: NullType, integer: NullType, boolean: NullType });
+/**
+ * An element type: `float` (f64 at rest, f32 in flight: the networks' working
+ * precision), `float64` (f64 throughout: running sums, hazards and samplers
+ * that need it), `integer` (i64) or `boolean`. A `float` and a `float64`
+ * operand of one element-wise operation answer `float64`, as torch promotes.
+ */
+export const NnDTypeType = VariantType({ float: NullType, float64: NullType, integer: NullType, boolean: NullType });
 
 /** A float tensor: its shape and its elements in row-major order (`shape: []` is a scalar). */
 export const TensorType = StructType({ shape: ArrayType(IntegerType), data: VectorType(FloatType) });
@@ -54,8 +59,10 @@ export const IntegerTensorType = StructType({ shape: ArrayType(IntegerType), dat
 /** A boolean tensor: its shape and its elements in row-major order. */
 export const BooleanTensorType = StructType({ shape: ArrayType(IntegerType), data: VectorType(BooleanType) });
 
-/** A tensor of any element type: what a batch holds and what {@link nn_run} answers. */
-export const NnValueType = VariantType({ float: TensorType, integer: IntegerTensorType, boolean: BooleanTensorType });
+/** A tensor of any element type: what a batch holds and what {@link nn_run} answers (`float` and `float64` both carry f64 data at rest). */
+export const NnValueType = VariantType({
+    float: TensorType, float64: TensorType, integer: IntegerTensorType, boolean: BooleanTensorType,
+});
 
 /** Input name → tensor; also {@link nn_run}'s result, output name → tensor. */
 export const NnBatchType = DictType(StringType, NnValueType);
@@ -116,7 +123,15 @@ export const NnPadModeType = VariantType({ zeros: NullType, replicate: NullType 
 export const NnGeluType = VariantType({ exact: NullType, tanh: NullType });
 
 /** A `constant` node's value: a rank-0 tensor of its case's dtype. */
-export const NnConstantType = VariantType({ float: FloatType, integer: IntegerType, boolean: BooleanType });
+export const NnConstantType = VariantType({ float: FloatType, float64: FloatType, integer: IntegerType, boolean: BooleanType });
+
+/**
+ * How `rotary` pairs the dimensions it turns, per head: `halves` pairs
+ * dimension `i` with `i + dh/2` (the first half with the second), `interleaved`
+ * pairs `2i` with `2i + 1` (neighbours). Weights trained one way need the
+ * other's query and key columns permuted.
+ */
+export const NnRotaryType = VariantType({ halves: NullType, interleaved: NullType });
 
 /** How a `loop` ends: `fixed n` iterations, or `until { output, max }`, a boolean rank-0 body output, at most `max` times. */
 export const NnStepsType = VariantType({
@@ -134,19 +149,22 @@ const Name = StringType;
  * `call` or a `loop`). The families, with the shapes and conventions stated
  * in `docs/neural-networks.md` §4:
  *
- * - indexing and layout: `gather`, `embedding_bag`, `segment_reduce`,
+ * - indexing and layout: `gather`, `take_along`, `mask_select`, `mask_indices`,
+ *   `repeat`, `range`, `searchsorted`, `embedding_bag`, `segment_reduce`,
  *   `segment_softmax`, `segment_log_softmax`, `scatter_add`, `concat`, `split`,
  *   `slice`, `pad`, `reshape`, `permute`, `broadcast`, `where`, `constant`, `cast`;
  * - dense: `linear`, `einsum`, `conv1d`, `avg_pool1d`, `upsample_nearest`,
  *   `layer_norm`, `group_norm`;
- * - element-wise: `add`, `sub`, `mul`, `div`, `pow`, `neg`, `abs`, `exp`, `log`,
- *   `log1p`, `sqrt`, `softplus`, `sigmoid`, `tanh`, `relu`, `gelu`, `silu`,
- *   `clamp`, `sin`, `cos`, `nan_to_num`, `is_nan`, `normal_cdf`, `log_normal_cdf`,
- *   `normal_quantile`, `log1mexp`, the comparisons `eq`, `ne`, `lt`, `le`, `gt`,
- *   `ge`, and `logical_not`, `logical_and`, `logical_or`;
+ * - element-wise: `add`, `sub`, `mul`, `div`, `pow`, `remainder`, `neg`, `abs`,
+ *   `floor`, `ceil`, `round`, `exp`, `log`, `log1p`, `sqrt`, `softplus`,
+ *   `sigmoid`, `tanh`, `relu`, `gelu`, `silu`, `clamp`, `sin`, `cos`,
+ *   `nan_to_num`, `is_nan`, `normal_cdf`, `log_normal_cdf`, `normal_quantile`,
+ *   `log1mexp`, the comparisons `eq`, `ne`, `lt`, `le`, `gt`, `ge`, and
+ *   `logical_not`, `logical_and`, `logical_or`;
  * - along an axis: `sum`, `mean`, `max`, `min`, `logsumexp`, `softmax`,
  *   `log_softmax`, `cumsum`, `cummax`, `cummin`, `argmax`;
- * - attention: `attention`, `rotary`;
+ * - attention: `attention` (its `segments` and `key_sets` masks evaluated in
+ *   memory proportional to the allowed pairs), `rotary` (halves or interleaved);
  * - training and noise: `dropout`, `stop_gradient`, `random_normal`, `random_uniform`;
  * - structure: `call` (a module under a weight prefix), `loop` (a body network
  *   iterated over carried values).
@@ -161,6 +179,12 @@ export function nnOpType(self: RecursiveTypeMarker) {
     return VariantType({
         // indexing and layout
         gather: StructType({ table: Name, index: Name }),
+        take_along: StructType({ x: Name, index: Name, axis: IntegerType }),
+        mask_select: StructType({ x: Name, mask: Name }),
+        mask_indices: StructType({ mask: Name }),
+        repeat: StructType({ x: Name, counts: Name }),
+        range: StructType({ start: IntegerType, stop: Name, step: IntegerType }),
+        searchsorted: StructType({ sorted: Name, values: Name, right: BooleanType }),
         embedding_bag: StructType({ table: Name, index: Name, weights: OptionType(Name), segments: Name, size: Name }),
         segment_reduce: StructType({ x: Name, segments: Name, size: Name, reduce: NnReduceType }),
         segment_softmax: StructType({ x: Name, segments: Name }),
@@ -192,8 +216,12 @@ export function nnOpType(self: RecursiveTypeMarker) {
         mul: binary,
         div: binary,
         pow: binary,
+        remainder: binary,
         neg: unary,
         abs: unary,
+        floor: unary,
+        ceil: unary,
+        round: unary,
         exp: unary,
         log: unary,
         log1p: unary,
@@ -238,7 +266,7 @@ export function nnOpType(self: RecursiveTypeMarker) {
         attention: StructType({
             q: Name, k: Name, v: Name, heads: IntegerType, mask: NnMaskType, bias: OptionType(Name), scale: OptionType(FloatType),
         }),
-        rotary: StructType({ x: Name, positions: Name, heads: IntegerType, base: FloatType }),
+        rotary: StructType({ x: Name, positions: Name, heads: IntegerType, base: FloatType, convention: NnRotaryType }),
         // training and noise
         dropout: StructType({ x: Name, p: FloatType }),
         stop_gradient: unary,
@@ -374,6 +402,7 @@ export const NeuralNetTypes = {
     NnPadModeType,
     NnGeluType,
     NnConstantType,
+    NnRotaryType,
     NnStepsType,
     NetType,
     NnDeviceType,

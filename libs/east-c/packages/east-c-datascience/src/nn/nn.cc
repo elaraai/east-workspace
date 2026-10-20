@@ -52,6 +52,12 @@ Tensor tensor_of_struct(EastValue *s, DType dtype, const char *fn, const std::st
         t = torch::from_blob(xs.data(), {n}, torch::kFloat64).to(torch::kFloat32);
         break;
     }
+    case DType::Float64: {
+        std::vector<double> xs = vector_floats(data, fn);
+        n = (int64_t)xs.size();
+        t = torch::from_blob(xs.data(), {n}, torch::kFloat64).clone();
+        break;
+    }
     case DType::Integer: {
         std::vector<int64_t> xs = vector_integers(data, fn);
         n = (int64_t)xs.size();
@@ -86,7 +92,8 @@ EastValue *struct_of_tensor(const Tensor &tensor, EastType *struct_type, const c
     b.set("shape", integer_array(field_type(struct_type, "shape", fn), shape, fn));
     size_t n = (size_t)t.numel();
     switch (nn::dtype_of_tensor(t)) {
-    case DType::Float: {
+    case DType::Float:
+    case DType::Float64: {
         Tensor d = t.to(torch::kFloat64);
         b.set("data",
               float_vector(std::vector<double>(d.data_ptr<double>(), d.data_ptr<double>() + n)));

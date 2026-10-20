@@ -116,11 +116,13 @@ it is not (multi-worker CP-SAT), and tolerance where floating point may differ
 suite also predicts from model blobs the python runner trained and wrote
 (`test/fixtures/xgboost_interchange.json`), and must answer what that runner
 answered. The neural-network suites hold every operation to the
-specification's shapes and conventions, the two reference networks (a
-transformer over ragged grouped sequences, a conditioned 1-D U-Net:
-`test/nn.reference.generated.ts`, written by python from hand-written torch)
-to torch's outputs within 1e-4 and their integer outputs exactly, and
-`nn_train` to its history, early stopping and EMA.
+specification's shapes and conventions, the reference networks (a transformer
+over ragged grouped sequences, a conditioned 1-D U-Net, and the small
+selection, time-grid and rotary families: `test/nn.reference.generated.ts`,
+written by python from hand-written torch) to torch's outputs within 1e-4 and
+their integer outputs exactly, the `segments` and `key_sets` attention paths
+to the dense mask's answer within 1e-5, and `nn_train` to its history, early
+stopping and EMA.
 
 ## Layout
 

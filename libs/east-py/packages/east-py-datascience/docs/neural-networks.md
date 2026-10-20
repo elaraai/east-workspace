@@ -18,7 +18,7 @@ operation to this document on both runners.
 ## 1. Types
 
 ```ts
-NnDTypeType     = VariantType({ float: NullType, integer: NullType, boolean: NullType })
+NnDTypeType     = VariantType({ float: NullType, float64: NullType, integer: NullType, boolean: NullType })
 NnInputSpecType = StructType({ dtype: NnDTypeType, rank: IntegerType })
 NnInitType      = VariantType({ zeros, ones, constant: FloatType, normal: FloatType /* std */,
                                 uniform: FloatType /* bound: U(-b, b) */, xavier_uniform, xavier_normal,
@@ -28,7 +28,7 @@ NnParamSpecType = StructType({ shape: ArrayType(IntegerType), init: NnInitType, 
 TensorType        = StructType({ shape: ArrayType(IntegerType), data: VectorType(FloatType) })    // row-major
 IntegerTensorType = StructType({ shape: ArrayType(IntegerType), data: VectorType(IntegerType) })
 BooleanTensorType = StructType({ shape: ArrayType(IntegerType), data: VectorType(BooleanType) })
-NnValueType       = VariantType({ float: TensorType, integer: IntegerTensorType, boolean: BooleanTensorType })
+NnValueType       = VariantType({ float: TensorType, float64: TensorType, integer: IntegerTensorType, boolean: BooleanTensorType })
 NnBatchType       = DictType(StringType, NnValueType)     // input name → tensor; also nn_run's result
 NnWeightsType     = DictType(StringType, TensorType)      // weight name → tensor
 
@@ -64,40 +64,51 @@ trained. The same module called twice with the same prefix shares weights.
 
 ## 2. Element types
 
-Node dtypes are inferred from the operands' before anything runs:
+`float` and `float64` are the two **float kinds**: `float` is IEEE single in
+flight (the networks' working precision; `bf16` under `nn_train`'s autocast),
+`float64` IEEE double throughout (running sums, hazards and samplers that
+single precision cannot carry); both are f64 East data at rest. Parameters are
+`float`. An operation that takes a float kind keeps it; one that takes two
+answers `float64` when either operand is `float64`, as torch promotes ("the
+wider" below). Node dtypes are inferred from the operands' before anything
+runs:
 
 | operation | operands | result |
 |---|---|---|
-| `add`, `sub`, `mul` | both float, or both integer | the same |
-| `div`, `pow` | float | float |
-| `neg`, `abs` | float or integer | the same |
-| `exp` … `log1mexp`, `gelu`, `clamp`, `nan_to_num`, `softplus`, `sigmoid`, `tanh`, `relu`, `silu`, `sin`, `cos` | float | float |
-| `is_nan` | float | boolean |
-| `eq`, `ne` | both of one dtype | boolean |
-| `lt`, `le`, `gt`, `ge` | both float or both integer | boolean |
+| `add`, `sub`, `mul`, `remainder` | both of a float kind, or both integer | the wider float kind, or integer |
+| `div`, `pow` | float kinds | the wider |
+| `neg`, `abs` | a float kind or integer | the same |
+| `floor`, `ceil`, `round`, `exp` … `log1mexp`, `gelu`, `clamp`, `nan_to_num`, `softplus`, `sigmoid`, `tanh`, `relu`, `silu`, `sin`, `cos` | a float kind | the same |
+| `is_nan` | a float kind | boolean |
+| `eq`, `ne` | both of one dtype, or both of a float kind | boolean |
+| `lt`, `le`, `gt`, `ge` | both of a float kind, or both integer | boolean |
 | `logical_not`, `logical_and`, `logical_or` | boolean | boolean |
-| `where` | `cond` boolean; `a` and `b` of one dtype | that dtype |
+| `where` | `cond` boolean; `a` and `b` of one dtype, or both of a float kind | that dtype, or the wider float kind |
 | `cast` | any | the named dtype |
 | `constant` | — | its case |
-| `gather`, `concat`, `split`, `slice`, `pad`, `reshape`, `permute`, `broadcast` | any (`index` integer; `concat`'s inputs of one dtype) | the operand's |
+| `gather`, `take_along`, `mask_select`, `repeat`, `concat`, `split`, `slice`, `pad`, `reshape`, `permute`, `broadcast` | any (`index`, `counts` integer; `mask` boolean; `concat`'s inputs of one dtype) | the operand's |
+| `mask_indices`, `range`, `searchsorted` | `mask` boolean; `stop` integer; `sorted` and `values` of one dtype, not boolean | integer |
 | `embedding_bag`, `segment_softmax`, `segment_log_softmax` | float (`index`, `segments` integer) | float |
-| `segment_reduce` (`sum`, `max`, `min`), `scatter_add` | float or integer | the same |
-| `segment_reduce` (`mean`) | float | float |
+| `segment_reduce` (`sum`, `max`, `min`), `scatter_add` | a float kind or integer | the same |
+| `segment_reduce` (`mean`) | a float kind | the same |
 | `linear`, `einsum`, `conv1d`, `avg_pool1d`, `upsample_nearest`, `layer_norm`, `group_norm`, `attention`, `rotary`, `dropout` | float | float |
-| `sum`, `max`, `min`, `cumsum`, `cummax`, `cummin` | float or integer | the same |
-| `mean`, `logsumexp`, `softmax`, `log_softmax` | float | float |
-| `argmax` | float or integer | integer |
+| `sum`, `max`, `min`, `cumsum`, `cummax`, `cummin` | a float kind or integer | the same |
+| `mean`, `logsumexp`, `softmax`, `log_softmax` | a float kind | the same |
+| `argmax` | a float kind or integer | integer |
 | `stop_gradient` | any | the same |
 | `random_normal`, `random_uniform` | `like` any | float |
 
-Casts: integer → float exactly up to 2⁵³; float → integer truncates toward
-zero (a non-finite float is an error); boolean → integer or float gives 0 and
-1; integer or float → boolean is `≠ 0`.
+Casts: integer → `float64` exactly up to 2⁵³, integer → `float` exactly up to
+2²⁴ and rounded to nearest beyond; `float` ↔ `float64` as IEEE converts; a
+float kind → integer truncates toward zero (a non-finite float is an error);
+boolean → integer or a float kind gives 0 and 1; integer or a float kind →
+boolean is `≠ 0`.
 
-Float arithmetic is IEEE single on both runtimes (`bf16` inside `nn_train`
-when configured), through the same torch kernels; a float tensor at rest is
-f64 East data and is converted at the boundary. Integer arithmetic is 64-bit
-and exact.
+Float arithmetic is IEEE single on both runtimes for `float` (`bf16` inside
+`nn_train` when configured, which leaves `float64` alone) and IEEE double for
+`float64`, through the same torch kernels; a float tensor of either kind at
+rest is f64 East data and is converted at the boundary. Integer arithmetic is
+64-bit and exact.
 
 ## 3. Shapes and broadcasting
 
@@ -116,6 +127,27 @@ own. `name` below is an operand.
 - `gather { table, index }` — rows of `table` by `index`: `table` `[N, …R]`,
   `index` integer of any shape `[…I]` → `[…I, …R]`. An index outside
   `0 .. N-1` is an error.
+- `take_along { x, index, axis }` — `x` of any rank, `index` integer of the
+  same rank with `x`'s extents but along `axis` → shaped like `index`:
+  `out[…, i, …] = x[…, index[…, i, …], …]` along the axis. An index outside
+  `0 .. x.shape[axis]−1` is an error.
+- `mask_select { x, mask }` — the rows of `x` where `mask` is true, in order:
+  `x` `[N, …R]`, `mask` boolean `[N]` → `[K, …R]`, `K` the number of true
+  entries.
+- `mask_indices { mask }` — the indices where `mask` is true, increasing:
+  `mask` boolean `[N]` → integer `[K]`.
+- `repeat { x, counts }` — row `i` of `x` repeated `counts[i]` times, in
+  order: `x` `[N, …R]`, `counts` integer `[N]` with every entry ≥ 0 →
+  `[Σ counts, …R]`.
+- `range { start, stop, step }` — the integers `start, start + step, …` short
+  of `stop`: `start` and `step` are the node's own (`step ≠ 0`), `stop` an
+  integer rank-0 operand (a `constant`, or an input carrying a size) →
+  integer `[max(0, ⌈(stop − start)/step⌉)]`.
+- `searchsorted { sorted, values, right }` — for each of `values` the position
+  in `sorted` that keeps it sorted: `sorted` a non-decreasing vector `[N]` of
+  `values`' dtype → integer shaped like `values`, the first `i` with
+  `sorted[i] ≥ v` (`right: false`) or `sorted[i] > v` (`right: true`), `N`
+  when there is none.
 - `embedding_bag { table, index, weights, segments, size }` — a weighted sum of
   gathered rows per segment: `table` `[N, …R]`, `index` and `segments` integer
   `[M]`, `weights` an option of a float `[M]` (1 for every row when `none`),
@@ -148,7 +180,8 @@ own. `name` below is an operand.
 - `permute { x, axes }` — a permutation of `0 .. rank-1`.
 - `broadcast { x, like }` — `x` broadcast to the shape of `like` (§3).
 - `where { cond, a, b }` — `cond ? a : b`, all three broadcast together.
-- `constant { value }` — a rank-0 tensor of its case's dtype.
+- `constant { value }` — a rank-0 tensor of its case's dtype (`float64`'s
+  payload is the same East float as `float`'s; the case names the dtype).
 - `cast { x, dtype }` — §2.
 
 ### Dense
@@ -179,12 +212,18 @@ own. `name` below is an operand.
 
 ### Element-wise
 
-`add`, `sub`, `mul`, `div`, `pow { a, b }` and the unary `neg`, `abs`, `exp`,
-`log`, `log1p`, `sqrt`, `softplus`, `sigmoid`, `tanh`, `relu`, `silu`, `sin`,
-`cos`, `is_nan`, `normal_cdf`, `log_normal_cdf`, `normal_quantile`,
-`log1mexp { x }` are IEEE where the function is; `log` of a negative is NaN,
-`div` by zero ±∞ or NaN, as in torch. Conventions:
+`add`, `sub`, `mul`, `div`, `pow`, `remainder { a, b }` and the unary `neg`,
+`abs`, `floor`, `ceil`, `round`, `exp`, `log`, `log1p`, `sqrt`, `softplus`,
+`sigmoid`, `tanh`, `relu`, `silu`, `sin`, `cos`, `is_nan`, `normal_cdf`,
+`log_normal_cdf`, `normal_quantile`, `log1mexp { x }` are IEEE where the
+function is; `log` of a negative is NaN, `div` by zero ±∞ or NaN, as in
+torch. Conventions:
 
+- `remainder(a, b)` has the divisor's sign (python's `%`, torch's):
+  `remainder(−7, 3) = 2`, `remainder(7, −3) = −2`; for a float kind it is
+  `a − b·⌊a/b⌋`, NaN for `b = 0`; for integers `b = 0` is an error.
+- `floor`, `ceil` as IEEE; `round` is to the nearest integer, halves to even
+  (`round(0.5) = 0`, `round(1.5) = round(2.5) = 2`).
 - `softplus(x) = log(1 + eˣ)`, and `x` itself above 20.
 - `sigmoid(x) = 1/(1 + e⁻ˣ)`; `silu(x) = x·sigmoid(x)`.
 - `gelu { x, approximate }` — `exact`: `½x(1 + erf(x/√2))`; `tanh`:
@@ -224,13 +263,30 @@ index of the maximum. `cummax`/`cummin` are the running maximum/minimum.
     integer `[Tq + 1]` non-decreasing from 0, `keys` integer `[ptr[Tq]]` with
     every entry in `0 .. Tk-1`; query `i` attends to `keys[ptr[i] .. ptr[i+1])`.
 
-  A query with no allowed key outputs zeros. Where a mask is structured an
-  interpreter may evaluate it blockwise rather than through a dense `Tq × Tk`
-  mask (python does, for sorted segment ids); the answer is the same.
-- `rotary { x, positions, heads, base }` — `x` `[…, T, d]`, `positions`
-  integer `[…, T]`, `dh = d/heads` even: per head the halves `x₁ = x[:dh/2]`,
-  `x₂ = x[dh/2:]` turn by `θᵢ = positions · base^(−2i/dh)` (`i` in
-  `0 .. dh/2−1`): `(x₁cos θ − x₂sin θ, x₂cos θ + x₁sin θ)`.
+  A query with no allowed key outputs zeros. The keys of one query in a
+  `key_sets` mask are distinct: a key listed twice for a query is an error.
+
+  Both interpreters evaluate `none`, `causal` and any attention given a
+  `bias` through dense `Tq × Tk` scores. They evaluate a `segments` or a
+  `key_sets` mask without a bias **in memory proportional to the allowed
+  pairs**, and answer what the dense mask answers, to rounding: `segments`
+  groups the tokens by id (in any order, across any leading dimensions),
+  buckets the groups by length to the next power of two (so padding is at
+  most 2×) and attends within each bucket through the fused kernel;
+  `key_sets` scores each listed pair by a gathered dot product (in chunks of
+  pairs), normalises the scores by segment operations over the query and sums
+  the values by index. While training, the gathered values of a `key_sets`
+  attention are kept for the backward pass, so its memory is the pairs times
+  the width.
+- `rotary { x, positions, heads, base, convention }` — `x` `[…, T, d]`,
+  `positions` integer `[…, T]`, `dh = d/heads` even: per head, `dh/2` pairs
+  of dimensions each turn by `θᵢ = positions · base^(−2i/dh)` (`i` in
+  `0 .. dh/2−1`): a pair `(a, b)` becomes `(a cos θᵢ − b sin θᵢ, b cos θᵢ +
+  a sin θᵢ)`. `convention` names the pairs: `halves` pairs `x[i]` with
+  `x[i + dh/2]` (the first half with the second), `interleaved` pairs `x[2i]`
+  with `x[2i + 1]` (neighbours). Weights trained under one convention serve
+  under the other once the query and key projections' output columns are
+  permuted accordingly.
 
 ### Training and noise
 

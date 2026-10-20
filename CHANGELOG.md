@@ -86,6 +86,38 @@ requests; this file is the record of behaviour. Changes land under
   UBJSON blob on both runners, byte for byte; the XGBoost suite holds both to
   the blob the python runner wrote.
 
+### east-py-datascience and east-c-datascience (the neural networks: the network operations)
+
+- **Operations to select, expand and grid** (`NetType` nodes, on both
+  runners): `mask_select` (the rows a boolean mask picks), `mask_indices`
+  (their indices), `repeat` (rows expanded by counts), `range` (an integer
+  grid short of a rank-0 `stop` operand), `take_along` (a gather along an
+  axis), `searchsorted`, and the element-wise `floor`, `ceil`, `round`
+  (halves to even) and `remainder` (the divisor's sign). `docs/neural-networks.md`
+  §4 states each.
+- **A `float64` element type** beside `float`, `integer` and `boolean`: for
+  inputs (`NnValueType` gains a `float64` case), `cast` and `constant`
+  (`NnConstantType` gains one), kept by the element-wise, axis and segment
+  operations and promoted — a `float` with a `float64` answers `float64`, as
+  torch promotes; the dense operations, attention and the normalisations take
+  `float` alone, and `nn_train`'s `bf16` autocast leaves `float64` alone. A
+  `cumsum` of a million values of 1e-3 is within 1e-9 relative of its sum in
+  `float64` (1.7e-11), and is not in `float` (6e-8).
+- **`rotary` takes a `convention`**, `halves` (dimension `i` paired with
+  `i + dh/2`) or `interleaved` (`2i` with `2i + 1`); the field is required.
+- **Masked attention in memory proportional to the allowed pairs**, on both
+  runners: a `segments` mask (its ids in any order, batched or not) groups the
+  tokens by id, buckets the groups by length to the next power of two and
+  attends within each bucket through the fused kernel; a `key_sets` mask
+  scores each listed pair in chunks, normalises by segment operations and sums
+  the values by index. The dense path stays for `none`, `causal` and any
+  attention given a `bias`. The keys one query lists must be distinct (a key
+  listed twice is refused). Measured by `bench/attention.mjs` at 12,288
+  tokens, 8 heads, width 256, 600 segments with one of 1,500: the `segments`
+  call takes about 100 MB over its inputs on east-c and the `key_sets` call
+  (2.4 million pairs) about 260 MB, against the dense path's 4.6 GB of scores
+  (9.2 GB with the softmax).
+
 ### The test harnesses
 
 - **A test named `… (x86-64)` pins an answer only x86-64 gives** — a native

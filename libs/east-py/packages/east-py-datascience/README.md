@@ -149,7 +149,13 @@ npm run test      # Run test suite
 npm run lint      # Check code quality
 ```
 
-The solver family's overhead on each runner is measured by
+A masked attention's memory on each runner is measured by
+`bench/attention.mjs`: a `segments` mask and a `key_sets` mask listing the same
+pairs at the requirements' size (12,288 tokens, 8 heads, width 256, 600
+segments with one of 1,500), each program's peak resident set over its
+baseline's, beside the dense path at a size it fits in
+(`node bench/attention.mjs <outdir> [--runner east-c|east-py|both]`; needs GNU
+`time`). The solver family's overhead on each runner is measured by
 `bench/solvers.mjs`: W1-shaped models at the sizes the requirements name — a
 33,526-variable LP and an 840,000-term LP, in columns and named, and
 assignment models of 50, 300 and 600 decisions — solved through the platform

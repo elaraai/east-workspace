@@ -2,9 +2,9 @@
 # Copyright (c) 2025 Elara AI Pty Ltd
 # Licensed under the Business Source License 1.1. See LICENSE.md for details.
 #
-"""The torch interpreter against hand-written torch (#1357): both reference
+"""The torch interpreter against hand-written torch (#1357): the reference
 families from the same weights, in the same operation order, agree to f32
-rounding; the blockwise attention path agrees with the dense one; and
+rounding; the pair-proportional attention paths agree with the dense mask; and
 ``nn_train`` lowers the U-Net's loss."""
 
 from __future__ import annotations
@@ -69,29 +69,84 @@ def test_conditioned_unet_matches_hand_written_torch():
     assert (np.diff(mono_sum, axis=-1) >= -1e-6).all()
 
 
-def test_blockwise_attention_matches_the_dense_mask():
+def _dense_attention(q, k, v, heads, allowed, scale):
+    """The dense mask's answer over `[…, T, d]` with `allowed` `[…, Tq, Tk]`."""
+    *lead, t, d = q.shape
+    dh = d // heads
+    qh = q.reshape(*lead, t, heads, dh).transpose(-3, -2)
+    kh = k.reshape(*lead, -1, heads, dh).transpose(-3, -2)
+    vh = v.reshape(*lead, -1, heads, dh).transpose(-3, -2)
+    scores = (qh @ kh.transpose(-1, -2)) * scale
+    any_allowed = allowed.any(-1)
+    scores = scores.masked_fill((~allowed & any_allowed.unsqueeze(-1)).unsqueeze(-3), float("-inf"))
+    out = (torch.softmax(scores, -1) @ vh) * any_allowed.unsqueeze(-2).unsqueeze(-1).to(q.dtype)
+    return out.transpose(-3, -2).reshape(*lead, t, d)
+
+
+def test_segments_attention_matches_the_dense_mask_in_any_order_and_batched():
     from east_py_datascience.nn._torch import Interpreter
 
     g = torch.Generator().manual_seed(0)
-    t, d, heads = 12, 8, 2
-    q, k, v = (torch.randn(t, d, generator=g) for _ in range(3))
-    ids = torch.tensor([0, 0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3])
-    interp = Interpreter("nn_run", torch.device("cpu"), False, g)
-    for causal in (False, True):
-        blocks = Interpreter._attention_blocks(q, k, v, heads, d // heads, ids, causal, 1.0 / 2.0)
-        env = {"q": q, "k": k, "v": v, "ids": ids}
-        args = {"q": "q", "k": "k", "v": "v", "heads": heads, "bias": None, "scale": None,
-                "mask": ("segments", {"ids": "ids", "causal": causal})}
-        # the dense path: ids out of order would take it, so give it the same ids through a permuted copy
-        allowed = interp._mask("segments", {"ids": "ids", "causal": causal}, env, (), t, t, q.device, RuntimeError)
-        qh = q.reshape(t, heads, 4).transpose(0, 1)
-        kh = k.reshape(t, heads, 4).transpose(0, 1)
-        vh = v.reshape(t, heads, 4).transpose(0, 1)
-        scores = (qh @ kh.transpose(1, 2)) / 2.0
-        scores = scores.masked_fill((~allowed)[None], float("-inf"))
-        dense = (torch.softmax(scores, -1) @ vh).transpose(0, 1).reshape(t, d)
-        torch.testing.assert_close(blocks, dense, atol=1e-5, rtol=1e-5)
-        del args
+    t, d, heads = 23, 8, 2
+    for lead in ((), (3,)):
+        q, k, v = (torch.randn(*lead, t, d, generator=g) for _ in range(3))
+        # ids out of order, repeated apart, one id alone, lengths across several buckets
+        ids = torch.randint(0, 5, (*lead, t), generator=g)
+        ids[..., 0] = 7
+        for causal in (False, True):
+            got = Interpreter._attention_segments(q, k, v, heads, d // heads, ids, causal, 0.5)
+            allowed = ids.unsqueeze(-1) == ids.unsqueeze(-2)
+            if causal:
+                allowed = allowed & torch.ones(t, t, dtype=torch.bool).tril()
+            torch.testing.assert_close(got, _dense_attention(q, k, v, heads, allowed, 0.5), atol=1e-5, rtol=1e-5)
+
+
+def test_key_sets_attention_matches_the_dense_mask():
+    from east_py_datascience.nn import _torch
+    from east_py_datascience.nn._torch import Interpreter
+
+    g = torch.Generator().manual_seed(1)
+    tq, tk, d, heads = 17, 13, 8, 2
+    q = torch.randn(tq, d, generator=g)
+    k, v = (torch.randn(tk, d, generator=g) for _ in range(2))
+    ptr, keys = [0], []
+    for i in range(tq):
+        chosen = sorted(set(torch.randint(0, tk, (1 + i % 4,), generator=g).tolist())) if i % 5 else []
+        keys.extend(chosen)
+        ptr.append(len(keys))
+    ptr_t, keys_t = torch.tensor(ptr), torch.tensor(keys)
+    allowed = torch.zeros(tq, tk, dtype=torch.bool)
+    for i in range(tq):
+        allowed[i, keys_t[ptr[i] : ptr[i + 1]]] = True
+    want = _dense_attention(q, k, v, heads, allowed, 0.5)
+    got = Interpreter._attention_key_sets(q, k, v, heads, d // heads, ptr_t, keys_t, 0.5)
+    torch.testing.assert_close(got, want, atol=1e-5, rtol=1e-5)
+    # the same through several chunks
+    chunk = _torch.KEY_SET_CHUNK
+    _torch.KEY_SET_CHUNK = 5
+    try:
+        got = Interpreter._attention_key_sets(q, k, v, heads, d // heads, ptr_t, keys_t, 0.5)
+    finally:
+        _torch.KEY_SET_CHUNK = chunk
+    torch.testing.assert_close(got, want, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("build", "batch", "reference", "names", "seed"),
+    [
+        (fam.head_selection_net, fam.head_selection_batch, fam.ref_head_selection, ["back", "idx", "sel", "top"], 3),
+        (fam.time_grid_net, fam.time_grid_batch, fam.ref_time_grid, ["grid", "emb", "pos", "masked"], 0),
+        (fam.rotary_conventions_net, fam.rotary_conventions_batch, fam.ref_rotary_conventions, ["halves", "inter"], 0),
+    ],
+)
+def test_the_operation_families_match_hand_written_torch(build, batch, reference, names, seed):
+    net = fam.east_net(build())
+    weights = nn_init(net, seed)
+    b = fam.east_batch(batch())
+    got = nn_run(net, weights, b, fam.output_names(names), fam.run_config())
+    want = reference(b, weights)
+    for name in names:
+        _assert_close(got[name], want[name], name)
 
 
 def test_nn_train_lowers_the_unet_loss():

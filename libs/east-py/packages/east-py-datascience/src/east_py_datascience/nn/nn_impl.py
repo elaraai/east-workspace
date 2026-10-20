@@ -50,8 +50,8 @@ _WEIGHTS: OrderedDict[tuple[str, str, str], dict[str, Any]] = OrderedDict()
 _PLAN_CACHE_SIZE = 16
 _WEIGHT_CACHE_SIZE = 8
 
-_ELEMENT_TYPES = {"float": FloatType, "integer": IntegerType, "boolean": BooleanType}
-_NUMPY_DTYPES = {"float": np.float32, "integer": np.int64, "boolean": np.bool_}
+_ELEMENT_TYPES = {"float": FloatType, "float64": FloatType, "integer": IntegerType, "boolean": BooleanType}
+_NUMPY_DTYPES = {"float": np.float32, "float64": np.float64, "integer": np.int64, "boolean": np.bool_}
 
 
 # ============================================================================
@@ -133,7 +133,7 @@ def _to_torch(value: tuple[str, dict[str, Any]], device: Any, fn: str, name: str
 def _from_torch(t: Any) -> EastVariant:
     tag = dtype_name(t)
     arr = t.detach().cpu().contiguous().reshape(-1).numpy()
-    if tag == "float":
+    if tag in ("float", "float64"):
         arr = arr.astype(np.float64)
     return EastVariant(tag, _tensor_struct([int(d) for d in t.shape], arr, tag))
 

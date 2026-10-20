@@ -27,7 +27,18 @@ from east.types.values import (
     EastVector,
 )
 
-DTYPES = ("float", "integer", "boolean")
+DTYPES = ("float", "float64", "integer", "boolean")
+FLOAT_KINDS = ("float", "float64")
+
+
+def is_float(dtype: str) -> bool:
+    """Whether a dtype is a float kind (``float`` or ``float64``)."""
+    return dtype in FLOAT_KINDS
+
+
+def wider(a: str, b: str) -> str:
+    """The float kind two float kinds promote to: ``float64`` when either is."""
+    return "float64" if "float64" in (a, b) else "float"
 
 # The operands each operation names: a plain field, "?f" an option, "*f" an
 # array of names, "+f" a dict whose values are names.
@@ -35,6 +46,12 @@ _UNARY = ["x"]
 _BINARY = ["a", "b"]
 OPERAND_FIELDS: dict[str, list[str]] = {
     "gather": ["table", "index"],
+    "take_along": ["x", "index"],
+    "mask_select": ["x", "mask"],
+    "mask_indices": ["mask"],
+    "repeat": ["x", "counts"],
+    "range": ["stop"],
+    "searchsorted": ["sorted", "values"],
     "embedding_bag": ["table", "index", "?weights", "segments", "size"],
     "segment_reduce": ["x", "segments", "size"],
     "segment_softmax": ["x", "segments"],
@@ -66,19 +83,21 @@ OPERAND_FIELDS: dict[str, list[str]] = {
     "call": ["+inputs"],
     "loop": ["+carried", "+inputs"],
 }
-for _op in ("add", "sub", "mul", "div", "pow", "eq", "ne", "lt", "le", "gt", "ge", "logical_and", "logical_or"):
+for _op in (
+    "add", "sub", "mul", "div", "pow", "remainder", "eq", "ne", "lt", "le", "gt", "ge", "logical_and", "logical_or",
+):
     OPERAND_FIELDS[_op] = _BINARY
 for _op in (
-    "neg", "abs", "exp", "log", "log1p", "sqrt", "softplus", "sigmoid", "tanh", "relu", "gelu", "silu",
-    "clamp", "sin", "cos", "nan_to_num", "is_nan", "normal_cdf", "log_normal_cdf", "normal_quantile",
-    "log1mexp", "logical_not", "sum", "mean", "max", "min", "logsumexp", "softmax", "log_softmax",
-    "cumsum", "cummax", "cummin", "argmax",
+    "neg", "abs", "floor", "ceil", "round", "exp", "log", "log1p", "sqrt", "softplus", "sigmoid", "tanh", "relu",
+    "gelu", "silu", "clamp", "sin", "cos", "nan_to_num", "is_nan", "normal_cdf", "log_normal_cdf",
+    "normal_quantile", "log1mexp", "logical_not", "sum", "mean", "max", "min", "logsumexp", "softmax",
+    "log_softmax", "cumsum", "cummax", "cummin", "argmax",
 ):
     OPERAND_FIELDS[_op] = _UNARY
 
 FLOAT_UNARY = {
-    "exp", "log", "log1p", "sqrt", "softplus", "sigmoid", "tanh", "relu", "gelu", "silu", "clamp", "sin",
-    "cos", "nan_to_num", "normal_cdf", "log_normal_cdf", "normal_quantile", "log1mexp",
+    "floor", "ceil", "round", "exp", "log", "log1p", "sqrt", "softplus", "sigmoid", "tanh", "relu", "gelu", "silu",
+    "clamp", "sin", "cos", "nan_to_num", "normal_cdf", "log_normal_cdf", "normal_quantile", "log1mexp",
 }
 AXIS_OPS = {"sum", "mean", "max", "min", "logsumexp", "softmax", "log_softmax", "cumsum", "cummax", "cummin", "argmax"}
 
@@ -285,6 +304,8 @@ def _check_static(plan: Plan, node: Node, fn: str) -> None:
             raise bad(f"part {a['part']} is outside 0 .. {len(a['sizes']) - 1}")
     if op == "pad" and (a["before"] < 0 or a["after"] < 0):
         raise bad("before and after must not be negative")
+    if op == "range" and a["step"] == 0:
+        raise bad("step must not be zero")
     if op == "reshape" and sum(1 for d in a["shape"] if d == -1) > 1:
         raise bad("at most one dimension may be -1")
     if op == "reshape" and any(d < -1 for d in a["shape"]):
@@ -405,16 +426,18 @@ def _node_dtype(plan: Plan, node: Node, fn: str) -> Any:
     def d(operand: str) -> str:
         return dtype_of(plan, operand, fn, node.name)
 
-    if op in ("add", "sub", "mul"):
+    if op in ("add", "sub", "mul", "remainder"):
         da, db = d(a["a"]), d(a["b"])
+        if is_float(da) and is_float(db):
+            return wider(da, db)
         if da != db or da == "boolean":
             raise bad(f"takes float or integer operands of one type, got {da} and {db}")
         return da
     if op in ("div", "pow"):
         da, db = d(a["a"]), d(a["b"])
-        if da != "float" or db != "float":
+        if not (is_float(da) and is_float(db)):
             raise bad(f"takes float operands, got {da} and {db}")
-        return "float"
+        return wider(da, db)
     if op in ("neg", "abs"):
         dx = d(a["x"])
         if dx == "boolean":
@@ -422,21 +445,21 @@ def _node_dtype(plan: Plan, node: Node, fn: str) -> Any:
         return dx
     if op in FLOAT_UNARY:
         dx = d(a["x"])
-        if dx != "float":
+        if not is_float(dx):
             raise bad(f"takes a float operand, got {dx}")
-        return "float"
+        return dx
     if op == "is_nan":
-        if d(a["x"]) != "float":
+        if not is_float(d(a["x"])):
             raise bad("takes a float operand")
         return "boolean"
     if op in ("eq", "ne"):
         da, db = d(a["a"]), d(a["b"])
-        if da != db:
+        if da != db and not (is_float(da) and is_float(db)):
             raise bad(f"takes operands of one type, got {da} and {db}")
         return "boolean"
     if op in ("lt", "le", "gt", "ge"):
         da, db = d(a["a"]), d(a["b"])
-        if da != db or da == "boolean":
+        if (da != db and not (is_float(da) and is_float(db))) or da == "boolean":
             raise bad(f"takes float or integer operands of one type, got {da} and {db}")
         return "boolean"
     if op == "logical_not":
@@ -451,6 +474,8 @@ def _node_dtype(plan: Plan, node: Node, fn: str) -> Any:
         if d(a["cond"]) != "boolean":
             raise bad("cond must be boolean")
         da, db = d(a["a"]), d(a["b"])
+        if is_float(da) and is_float(db):
+            return wider(da, db)
         if da != db:
             raise bad(f"a and b must be of one type, got {da} and {db}")
         return da
@@ -463,6 +488,31 @@ def _node_dtype(plan: Plan, node: Node, fn: str) -> Any:
         if d(a["index"]) != "integer":
             raise bad("index must be integer")
         return d(a["table"])
+    if op == "take_along":
+        if d(a["index"]) != "integer":
+            raise bad("index must be integer")
+        return d(a["x"])
+    if op == "mask_select":
+        if d(a["mask"]) != "boolean":
+            raise bad("mask must be boolean")
+        return d(a["x"])
+    if op == "mask_indices":
+        if d(a["mask"]) != "boolean":
+            raise bad("mask must be boolean")
+        return "integer"
+    if op == "repeat":
+        if d(a["counts"]) != "integer":
+            raise bad("counts must be integer")
+        return d(a["x"])
+    if op == "range":
+        if d(a["stop"]) != "integer":
+            raise bad("stop must be integer")
+        return "integer"
+    if op == "searchsorted":
+        ds, dv = d(a["sorted"]), d(a["values"])
+        if ds != dv or ds == "boolean":
+            raise bad(f"sorted and values must be float or integer of one type, got {ds} and {dv}")
+        return "integer"
     if op in ("split", "slice", "pad", "reshape", "permute", "stop_gradient"):
         return d(a["x"])
     if op == "broadcast":
@@ -496,7 +546,7 @@ def _node_dtype(plan: Plan, node: Node, fn: str) -> Any:
         reduce = a["reduce"][0]
         if dx == "boolean":
             raise bad("x must be float or integer")
-        if reduce == "mean" and dx != "float":
+        if reduce == "mean" and not is_float(dx):
             raise bad("mean takes a float x")
         return dx
     if op == "scatter_add":
@@ -547,7 +597,7 @@ def _node_dtype(plan: Plan, node: Node, fn: str) -> Any:
         dx = d(a["x"])
         if dx == "boolean":
             raise bad("takes a float or integer operand, got boolean")
-        if op in ("mean", "logsumexp", "softmax", "log_softmax") and dx != "float":
+        if op in ("mean", "logsumexp", "softmax", "log_softmax") and not is_float(dx):
             raise bad(f"takes a float operand, got {dx}")
         return "integer" if op == "argmax" else dx
     if op == "call":

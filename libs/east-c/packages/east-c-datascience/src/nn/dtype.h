@@ -15,13 +15,15 @@
 namespace east_ds::nn
 {
 
-enum class DType { Float, Integer, Boolean };
+enum class DType { Float, Float64, Integer, Boolean };
 
 inline const char *dtype_name(DType d)
 {
     switch (d) {
     case DType::Float:
         return "float";
+    case DType::Float64:
+        return "float64";
     case DType::Integer:
         return "integer";
     case DType::Boolean:
@@ -33,9 +35,22 @@ inline const char *dtype_name(DType d)
 inline DType dtype_of_name(const std::string &s)
 {
     if (s == "float") return DType::Float;
+    if (s == "float64") return DType::Float64;
     if (s == "integer") return DType::Integer;
     if (s == "boolean") return DType::Boolean;
     throw std::runtime_error("unknown element type '" + s + "'");
+}
+
+/* The two float kinds (§2): `float` is f32 in flight, `float64` f64 throughout. */
+inline bool is_float_kind(DType d)
+{
+    return d == DType::Float || d == DType::Float64;
+}
+
+/* What two float kinds promote to: float64 when either is. */
+inline DType wider(DType a, DType b)
+{
+    return (a == DType::Float64 || b == DType::Float64) ? DType::Float64 : DType::Float;
 }
 
 using Shape = std::vector<int64_t>;
