@@ -163,8 +163,6 @@ export interface CanvasOptions {
     ready?: boolean;
     /** The presses (default {@link SEED}). */
     seed?: ReadonlyMap<string, PressValue>;
-    /** Paged: windows past this element stay in flight. */
-    heldFrom?: number;
     /** The canvas's storage key. */
     storageKey?: string;
     /** What the canvas renders inside — a message table, a locale. */
@@ -173,7 +171,7 @@ export interface CanvasOptions {
     events?: PlanEventRows;
 }
 
-type Resolved = Required<Omit<CanvasOptions, "heldFrom" | "seed" | "events">> & Pick<CanvasOptions, "heldFrom" | "events"> & { seed: Map<string, PressValue> };
+type Resolved = Required<Omit<CanvasOptions, "seed" | "events">> & Pick<CanvasOptions, "events"> & { seed: Map<string, PressValue> };
 
 /** The root's chrome besides its rows and editing. */
 function chromeOf(o: Resolved) {

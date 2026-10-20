@@ -372,10 +372,24 @@ package is), and each test gets a workspace copied from it.
 `E3Provider` over the test's workspace, `ReactiveDatasetProvider`, and the
 example's reads loaded first and polled while it shows.
 
-- **Counting.** What a test counts it reads from the request log (`h.requests`).
-- **Faults.** A held or failed request is a fault at the harness's fetch (`h.e3.hold`, `h.e3.fail`).
-- **Another session.** Another session's change is a real commit through the record's patch door (`h.patch`).
-- **Waiting.** `settle()` waits until no request is in flight and React has flushed. e3's client retries a lost answer under the same idempotency key, and a backoff between its tries is a timer `settle()` cannot see, so a test waits for what the user sees then.
+- **Counting.** What a test counts it reads from the request log (`h.requests`), and what e3 answered from a tap of its answers (`h.e3.answers`).
+- **Faults.** A held or failed request is a fault at the harness's fetch (`h.e3.hold`, `h.e3.fail`): e3's own failure, `network`, `lost` (committed, its answer never arriving) or `untagged` (its answer's tags dropped). An answer slow on its way back is `h.e3.holdAnswers`, and a unit e3 runs, held before it starts, `h.e3.holdUnits`.
+- **Another session.** Another session's change is a real commit through the record's patch door (`h.patch`), a write (`h.write`) or a run (`h.run`); a Save it overtakes is `h.race`. A workspace deployed and not run is the node harness's `h.unrun`.
+- **Waiting.** `settle()` waits until no request is in flight and React has flushed. It waits on real time, so a test's fake clock stands still meanwhile. e3's client retries a lost answer under the same idempotency key, and a backoff between its tries is a timer `settle()` cannot see, so a test waits for what the user sees then.
+- **Mounting.** `h.mount` settles once what the example reads has loaded, it has rendered and a first poll has told it e3's status, so the run that status brings lands before the test begins. It takes a counted `program`, a `view` the test renders itself under the example's reads, a `wrap` around the page (a locale), a `host` inside e3's providers (calls or plan options of its own) and a `token`. `h.install` installs the runtimes alone, for a program or a hook outside a mount, and `E3Surface` renders a component of the test's own over the file's e3. A builder's fit is asked through `fitCalls` (`shared/func/fit-calls.test-utils.ts`), and a Plan canvas's rail is bound through `bindRail` (`plan/rail.test-utils.ts`).
+
+A runtime spec under `node --test` (`test/*.spec.ts`) takes the same e3
+through `test/fixtures/e3.ts`: `e3Spec(modules)` deploys the modules once for
+the file and gives each test a workspace of its own. A runtime reads e3
+through its default API over the harness's fetch (`h.cache`, `h.bindRecord`),
+and an e3-ui East function — a tag's payload, a Schedule kind — compiles
+against the platform its UI task's preview gives it (`h.platform`): its
+manifest derived, what it reads whole loaded and polled, each runtime scoped
+to the manifest. A read answers `none` until what it waits on lands:
+`h.ready` reads it until it does, and `h.inFlight` until a hold holds what it
+waits on. e3-ui's own specs keep what reads no e3 — a payload's build, a
+refusal, a type — compiled against a platform whose every handle refuses
+(e3-ui's `test/refusing-platform.ts`).
 
 A jsdom test runs under `vitest.setup.ts`, which gives bytes one realm, as a
 browser page has. e3-ui-components declares no e3 SDK. A definition a test
