@@ -73,6 +73,9 @@ export const calendarShiftTemplates = e3.record("calendar_shift_templates", Dict
     ["day", { name: "Day shift", group: "Day", hour: 6n, values: { title: "Day shift", notes: "" } }],
     ["late", { name: "Late shift", group: "Late", hour: 14n, values: { title: "Late shift", notes: "" } }],
 ]));
+// The shop edits its machines and job templates elsewhere, each through its patch door; the Calendar reads them live.
+export const calendarMachinesPatch = e3.mutation.patch(calendarMachines);
+export const calendarJobTemplatesPatch = e3.mutation.patch(calendarJobTemplates);
 
 // The rail narrows each record through its own indexes (#1343): each event kind over its interval index — on its own,
 // and after its status, its machine or its person — so a narrowing keeps every event overlapping the window once.

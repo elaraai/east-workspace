@@ -24,12 +24,14 @@ import userEvent from "@testing-library/user-event";
 import { DateTimeType, OptionType, StringType, printFor, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
-import { initializePagedApi } from "../platform/index.js";
-import { act, calendarHarness, card, event, mount, narrow, narrowing, open, programOf, settle, slot, width, WORKSPACE, type Where } from "./harness.test-utils.js";
+import { act, calendarHarness, card, event, narrow, narrowing, programOf, searched, settle, slot, width, type Where } from "./harness.test-utils.js";
 import { countBuilds } from "../shared/builds.test-utils.js";
 import { setCalendarFrameRenderProbe } from "./index.js";
 
 const h = calendarHarness();
+const open = (...args: Parameters<typeof h.open>) => h.open(...args);
+/** The jobs record, as its dataset's requests name it. */
+const JOBS = "records.calendar_jobs";
 const EX = "calendarOperations";
 const text = printFor(StringType), maybeText = printFor(OptionType(StringType));
 const time = printFor(DateTimeType), maybeTime = printFor(OptionType(DateTimeType));
@@ -182,9 +184,9 @@ describe("each source narrows every place its records appear (#1343)", () => {
         await narrow(store, EX, "job", new Map([["status", variant("values", [status(variant("planned", null))])], ["start", start]]));
         expect(event(container, "job", "job1")).toBeNull();
         await press(toolbar(container).getByRole("button", { name: editingMessages.apply() }));
-        // Nothing read the record whole — the test's own read, below, comes after.
-        expect(h.paging.reads.paths.filter(path => path === "records.calendar_jobs")).toEqual([]);
-        expect(h.read(ex.calendarJobs).get("job1")!.customer).toBe("Hidden customer");
+        // Nothing read the record whole: the test's own read is another session's.
+        expect(h.requests("read", JOBS)).toEqual([]);
+        expect((await h.read(ex.calendarJobs)).get("job1")!.customer).toBe("Hidden customer");
     });
     test("a Save that moves an event out of its kind's narrowing says so in the footer, in that kind's words", async () => {
         const { container, store } = await open(ex.calendarOperations);
@@ -194,17 +196,17 @@ describe("each source narrows every place its records appear (#1343)", () => {
         await choose(slot(container, "end").querySelector<HTMLElement>('[data-field="resource"]')!, "Lathe 2 · Machines");
         await press(toolbar(container).getByRole("button", { name: editingMessages.apply() }));
         await waitFor(() => expect(slot(container, "footer").querySelector("[data-record-save-notice]")?.textContent).toBe("1 production event left this view"));
-        expect(h.read(ex.calendarJobs).get("job1")!.machine).toEqual(some("lathe2"));
+        expect((await h.read(ex.calendarJobs)).get("job1")!.machine).toEqual(some("lathe2"));
     });
 });
 
 describe("the windowed Calendar's own navigation picks its days (#1343)", () => {
     test("it reads the days through the day index, and selection and Save read by key without downloading the record", async () => {
-        const { container } = mount(ex.calendarWindowed); await settle();
+        const { container } = await h.mount(ex.calendarWindowed);
         expect(event(container, "job", "job1")).not.toBeNull();
-        expect(h.paging.requests.some(request => request.includes("index calendar_jobs_by_day seek 2026-10-01"))).toBe(true);
+        expect(h.requests("find", JOBS).some(request => searched(request, ex.calendarJobsByDay.name, "2026-10-01"))).toBe(true);
         await press(toolbar(container).getByRole("button", { name: "Next day" }));
-        expect(h.paging.requests.some(request => request.includes("index calendar_jobs_by_day seek 2026-10-02"))).toBe(true);
+        expect(h.requests("find", JOBS).some(request => searched(request, ex.calendarJobsByDay.name, "2026-10-02"))).toBe(true);
         expect(event(container, "job", "job1")).toBeNull(); expect(event(container, "job", "job4")).not.toBeNull();
         await width(390); expect(card(container, "job", "job4")).not.toBeNull();
         await width(900);
@@ -213,26 +215,22 @@ describe("the windowed Calendar's own navigation picks its days (#1343)", () => 
         const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
         const user = userEvent.setup(); await user.clear(input); await user.type(input, "Scoped customer{Enter}"); await settle();
         await press(toolbar(container).getByRole("button", { name: editingMessages.apply() }));
-        expect(h.paging.requests.some(request => request.includes('seek "job1"'))).toBe(true);
-        expect(h.paging.reads.paths.filter(path => path === "records.calendar_jobs")).toEqual([]);
-        expect(h.read(ex.calendarJobs).get("job1")!.customer).toBe("Scoped customer");
+        expect(h.requests("find", JOBS).some(request => searched(request, undefined, '"job1"'))).toBe(true);
+        expect(h.requests("read", JOBS)).toEqual([]);
+        expect((await h.read(ex.calendarJobs)).get("job1")!.customer).toBe("Scoped customer");
     });
 });
 
 describe("a window read through interval indexes re-renders its reader, never the frame (#1343)", () => {
-    /** Every key search through an event kind's interval index, held until it is let land, in the order asked. */
+    /** Every key search through an event kind's interval index, held on its way to e3 until it is let land, in the order asked. */
     function holdIntervalSearches() {
         const intervals = new Set<string>([ex.calendarJobsByTime.name, ex.calendarServicesByTime.name, ex.calendarShiftsByTime.name]);
-        const held: (() => void)[] = [];
-        const served = h.paging.api;
-        initializePagedApi({ ...served, findKey: (workspace, path, query) => query.index !== undefined && intervals.has(query.index)
-            ? new Promise(resolve => { held.push(() => resolve(served.findKey(workspace, path, query))); })
-            : served.findKey(workspace, path, query) }, WORKSPACE);
+        const held = h.e3.hold(request => request.kind === "find" && intervals.has(request.query.get("index") ?? ""));
         /** Lets every held search but the last land, one at a time, then the rest. */
         return {
-            held,
-            async landAllButOne() { while (held.length > 1) { await act(async () => { held.shift()!(); }); } await settle(); },
-            async landAll() { while (held.length > 0) { await act(async () => { held.shift()!(); }); await settle(); } },
+            get held() { return held.held; },
+            async landAllButOne() { while (held.held > 1) { await act(async () => { held.releaseOne(); }); } await settle(); },
+            async landAll() { while (held.held > 0) { await act(async () => { held.releaseOne(); }); await settle(); } },
         };
     }
 
@@ -243,7 +241,7 @@ describe("a window read through interval indexes re-renders its reader, never th
         try {
             const { container } = await open(ex.calendarOperations);
             // One start range and the carry-in ranges at each span, for each event kind's window.
-            expect(searches.held.length).toBeGreaterThan(3 * 50);
+            expect(searches.held).toBeGreaterThan(3 * 50);
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);
@@ -253,7 +251,7 @@ describe("a window read through interval indexes re-renders its reader, never th
             // With an event selected, the next window's searches render nothing until they have all landed either.
             await press(event(container, "job", "job1"));
             await press(toolbar(container).getByRole("button", { name: "Next week" }));
-            expect(searches.held.length).toBeGreaterThan(3 * 50);
+            expect(searches.held).toBeGreaterThan(3 * 50);
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);
@@ -270,7 +268,7 @@ describe("a window read through interval indexes re-renders its reader, never th
 describe("a filter change rebuilds no builder (#1354)", () => {
     test("a choice on the rail, and the window's navigation, build the Calendar no more: the events, the columns and the tabs follow over the payload it mounted with", async () => {
         const builds = countBuilds("Calendar", programOf(ex.calendarOperations));
-        const { container, store } = await open(builds.program);
+        const { container, store } = await open(ex.calendarOperations, { program: builds.program });
         const mounted = [builds.runs, builds.decodes];
         expect(Math.min(...mounted)).toBeGreaterThan(0);
         // An event kind's source, its window kept.
