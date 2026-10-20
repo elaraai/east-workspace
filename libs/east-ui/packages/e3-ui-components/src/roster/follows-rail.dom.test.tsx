@@ -15,7 +15,8 @@
  * rail's fields each offer something to choose, its Skill a search;
  * coverage and costs read every person and activity, whatever the rail hides.
  * A filter change builds nothing again: the Roster's body runs no more, and no
- * payload is decoded (#1354).
+ * payload is decoded (#1354). On e3 (#1376): the staff and the activities are
+ * paged through their own indexes, as e3 serves them.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -40,8 +41,8 @@ const people = (c: HTMLElement) => [...pane(c, "people").querySelectorAll("[data
 const marks = (c: HTMLElement) => [...slot(c, "main").querySelectorAll('[role="img"][aria-label]')].map(el => el.getAttribute("aria-label"));
 const values = (field: string, chosen: readonly string[]) => new Map<string, Choice>([[field, variant("values", [...chosen])]]);
 type Person = ValueTypeOf<typeof ex.rosterStaff.type> extends Map<string, infer P> ? P : never;
-/** The staff's keys whose row passes the test, in key order. */
-const staff = (test: (person: Person) => boolean) => [...h.read(ex.rosterStaff)].filter(([, person]) => test(person)).map(([key]) => key);
+/** The staff's keys whose row passes the test, in key order, as e3 holds them. */
+const staff = async (test: (person: Person) => boolean) => [...(await h.read(ex.rosterStaff))].filter(([, person]) => test(person)).map(([key]) => key);
 /** The inspector summary's figure under a label: `Cost`, `Filled`. */
 const stat = (c: HTMLElement, label: string) => within(slot(c, "end")).getByText(label, { selector: "div" }).nextElementSibling?.textContent;
 /** Opens a form's select, reads what it offers, and closes it again. */
@@ -63,7 +64,7 @@ describe("the Roster's Library follows the rail (#1342)", () => {
         const { container: c, store } = await open(ex.rosterWarehouse);
         expect(tabs(c)).toEqual(["People 69", "Activities 17", "Positions 4"]);
         const coverage = marks(c);
-        const inbound = staff(person => person.team === "inbound");
+        const inbound = await staff(person => person.team === "inbound");
         await narrow(store, "rosterWarehouse", "people", values("team", [text("inbound")]));
         await waitFor(() => expect(tabs(c)).toEqual([`People ${inbound.length} of 69`, "Activities 17", "Positions 4"]));
         expect(people(c).length).toBeGreaterThan(0);
@@ -141,13 +142,13 @@ describe("the Roster's Library follows the rail (#1342)", () => {
         expect(tabs(c)[0]).toBe("People 0 of 69");
         await press(chip);
         expect(pane(c, "people").querySelector("[data-roster-find]")).toBeNull();
-        expect(tabs(c)[0]).toBe(`People ${staff(person => person.team === "inbound").length} of 69`);
+        expect(tabs(c)[0]).toBe(`People ${(await staff(person => person.team === "inbound")).length} of 69`);
     });
 
     test("a Find that finds no one says `No one found` above the agency requests, with no Clear filters: its chip clears it", async () => {
         const { container: c, store } = await open(ex.rosterWarehouse);
         // Every trainer is rostered on Thursday, and Dispatch has none: the fit finds no one, whatever the rail shows.
-        expect(staff(person => person.trainer && person.team === "dispatch")).toEqual([]);
+        expect(await staff(person => person.trainer && person.team === "dispatch")).toEqual([]);
         await narrow(store, "rosterWarehouse", "people", values("team", [text("dispatch")]));
         await press(within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }));
         await press(within(slot(c, "end")).getAllByRole("button", { name: "Find a trainer" })[0]);
@@ -171,7 +172,7 @@ describe("the Roster's Library follows the rail (#1342)", () => {
         await waitFor(() => expect(screen.getByRole("option", { name: /^unload/ })).toBeTruthy());
         await user.keyboard("{ArrowDown}{Enter}");
         await waitFor(() => expect(narrowing(store, "rosterWarehouse", "people").get("skills")).toEqual(variant("values", [text("unload")])));
-        const holders = staff(person => person.skills.has("unload"));
+        const holders = await staff(person => person.skills.has("unload"));
         await waitFor(() => expect(tabs(c)[0]).toBe(`People ${holders.length} of 69`));
         expect(people(c).every(key => holders.includes(key))).toBe(true);
     });
@@ -181,7 +182,7 @@ describe("each source narrows every place its rows appear (#1342)", () => {
     test("the people source narrows the People layout's rows, and on a phone its cards", async () => {
         const { container: c, store } = await open(ex.rosterPeople);
         const rows = () => [...slot(c, "main").querySelectorAll("[data-roster-person-row]")].map(el => el.getAttribute("data-roster-person-row")!);
-        const dispatch = staff(person => person.team === "dispatch"), keys = staff(() => true);
+        const dispatch = await staff(person => person.team === "dispatch"), keys = await staff(() => true);
         // The rows start with the first group's people, none of them Dispatch's.
         expect(rows().filter(key => keys.includes(key)).some(key => !dispatch.includes(key))).toBe(true);
         await narrow(store, "rosterPeople", "people", values("team", [text("dispatch")]));
@@ -204,7 +205,7 @@ describe("each source narrows every place its rows appear (#1342)", () => {
         await press(slot(c, "main").querySelector("[data-roster-requirement]"));
         await press(within(slot(c, "end")).getAllByRole("button", { name: "Assign person" })[0]);
         const form = await waitFor(() => { const el = document.querySelector<HTMLElement>('[data-field="person"]'); expect(el).not.toBeNull(); return el!; });
-        const picking = [...h.read(ex.rosterStaff)].filter(([, person]) => person.team === "picking").map(([, person]) => person.name);
+        const picking = [...(await h.read(ex.rosterStaff))].filter(([, person]) => person.team === "picking").map(([, person]) => person.name);
         expect(await offered(form)).toEqual(picking);
     });
 
@@ -230,11 +231,11 @@ describe("each source narrows every place its rows appear (#1342)", () => {
 describe("a filter change rebuilds no builder (#1354)", () => {
     test("a choice on the rail builds the Roster no more: the board and the People and Activities tabs follow it over the payload it mounted with", async () => {
         const builds = countBuilds("Roster", programOf(ex.rosterWarehouse));
-        const { container: c, store } = await open(builds.program);
+        const { container: c, store } = await open(ex.rosterWarehouse, { program: builds.program });
         expect(tabs(c)).toEqual(["People 69", "Activities 17", "Positions 4"]);
         const mounted = [builds.runs, builds.decodes];
         expect(Math.min(...mounted)).toBeGreaterThan(0);
-        const inbound = staff(person => person.team === "inbound");
+        const inbound = await staff(person => person.team === "inbound");
         await narrow(store, "rosterWarehouse", "people", values("team", [text("inbound")]));
         await waitFor(() => expect(tabs(c)[0]).toBe(`People ${inbound.length} of 69`));
         expect([...slot(c, "main").querySelectorAll("[data-roster-assignment]:not([data-request])")].every(el => el.closest('[data-roster-slot*="inbound"]') !== null)).toBe(true);

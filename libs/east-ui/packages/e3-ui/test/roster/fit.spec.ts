@@ -16,7 +16,7 @@ import { Allocation, Roster, Schedule } from "@elaraai/e3-ui";
 import { rosterPersonHours } from "@elaraai/e3-ui/internal";
 import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehousePeople, warehouseStart, warehouseWeek } from "./warehouse.js";
 import { indexedRosterStaff } from "./roster-records.examples.js";
-import { rosterStaffFitBody } from "./roster.examples.js";
+import { rosterContractFitBody, rosterStaffFitBody } from "./roster.examples.js";
 
 type Week = ValueTypeOf<typeof Roster.Types.Week>;
 type Context = ValueTypeOf<typeof Roster.Types.Context>;
@@ -51,6 +51,7 @@ const builtIn = East.compile(East.function([Roster.Types.FitRequest], Roster.Typ
     return answer(req, rule);
 }), []);
 const greedy = East.compile(rosterStaffFitBody, []);
+const contract = East.compile(rosterContractFitBody, []);
 
 /** An issue's find, as `Roster.check` reports it: its need and its slot. */
 function findOf(title: string, day: bigint, week: Week = fresh(), ctx: Context = context): Find {
@@ -154,6 +155,22 @@ test("R5 — the warehouse's greedy fit: the ready-made rule's fits and reasons,
     assert.deepEqual(ranked(greedy(ask(TRAINER_THU(), fresh(), indexed))).slice(0, 3), [
         ["pool-1013", 38, "from Inbound · 38 h spare"], ["pool-1027", 38, "from Inbound · 38 h spare"], ["pool-1056", 38, "Picking · 38 h spare"],
     ]);
+});
+
+test("another app's fit: the warehouse's order and reasons, and a warning on whoever the slot's 8-hour shift would take past their contract", () => {
+    /** An answer's fits, best first: key, score, reason and warning. */
+    const warned = (result: Result) => [...result.people].flatMap(([key, fit]) => fit.type === "fits" ? [{ key, ...fit.value }] : [])
+        .sort((a, b) => byScore(b.score, a.score)).map(f => [f.key, f.score, f.why, f.warn]);
+    // Thursday's lead: J. Quartz has 14 hours to spare, more than the shift.
+    assert.deepEqual(warned(contract(ask(LEAD()))), [["jquartz", 14, "Dispatch · 14 h spare", none]]);
+    // Saturday's trainee: D. Heath has 6 to spare, short of the shift, and H. Aspen is 2 over already.
+    assert.deepEqual(warned(contract(ask(findOf("B. Swale · trainee without trainer", 6n)))), [
+        ["dheath", 6, "from Inbound · 6 h spare", some("past contract")],
+        ["haspen", -2, "from Inbound · 2 h over contract", some("past contract")],
+    ]);
+    // Whom the rule refuses, it refuses too.
+    const rule = builtIn(ask(LEAD())), ours = contract(ask(LEAD()));
+    assert.deepEqual([...ours.people].filter(([, fit]) => fit.type === "refused"), [...rule.people].filter(([, fit]) => fit.type === "refused"));
 });
 
 test("Roster.fit's hours are the ones Roster.weekHours gives each person", () => {

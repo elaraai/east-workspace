@@ -16,11 +16,11 @@ import { decodeBeast2For, encodeBeast2For, none, type ValueTypeOf } from "@elara
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
-import type { E3Request } from "../e3-web.test-utils.js";
 import { act, e3Harness, settle, type E3Harness, type Example, type MountOptions } from "../e3-web-mount.test-utils.js";
 import { eventKey } from "./model.js";
 import "./index.js";
 export { act, settle, slot, width, programOf } from "../e3-web-mount.test-utils.js";
+export { searched } from "../e3-web.test-utils.js";
 
 /** A source's narrowing: each field's choice, as the rail writes it. */
 export type Where = ValueTypeOf<typeof RecordSliceStateType>["where"];
@@ -56,21 +56,6 @@ export function calendarHarness(): CalendarHarness {
 
 export const event = (container: HTMLElement, kind: string, key: string) => container.querySelector<HTMLElement>(`[data-calendar-event=${JSON.stringify(eventKey({ kind, key }))}]`)!;
 export const card = (container: HTMLElement, kind: string, key: string) => container.querySelector<HTMLElement>(`[data-calendar-card=${JSON.stringify(eventKey({ kind, key }))}]`)!;
-
-/**
- * Whether a request searched an index for a key or a range from it, by the
- * key's East text (`2026-10-01`, `"job1"`).
- *
- * @param request - The request
- * @param index - The index; the record's own keys when omitted
- * @param text - What the key's or the range's lower bound's text starts with
- * @returns Whether it did
- */
-export function searched(request: E3Request, index: string | undefined, text: string): boolean {
-    if (request.kind !== "find" || (request.query.get("index") ?? undefined) !== index) return false;
-    const keys = [...request.query.getAll("key"), ...request.query.getAll("from")];
-    return keys.some((key) => key.startsWith(text));
-}
 
 /**
  * A source's narrowing as the store keeps it.

@@ -2,19 +2,42 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { afterEach, beforeEach } from "vitest";
+
+/**
+ * The Roster's examples on e3 itself (#1376): the warehouse's module deployed
+ * to e3-web (`roster/roster`), each test a workspace of its own. The staff and
+ * the activities are read a window at a time through their indexes, as e3
+ * serves them; the weeks whole, or a week at a time, as an example binds them;
+ * and every Save and Publish is a real commit through the weeks' patch door.
+ * Another session's edit of the staff, the configuration or the proposals goes
+ * in through their own doors (`h.patch`). The fit a Find fix asks is an
+ * example's own `e3.function`, called by name on e3: what the Roster asked is
+ * its call's body ({@link RosterFits.requests}), what e3 answered a tap's
+ * ({@link RosterFits.answers}), and a fit held or failed a fault at the
+ * harness's fetch ({@link RosterFits.hold}, {@link RosterFits.fail}). What a
+ * test counts it reads from the request log (`h.requests`).
+ *
+ * Each test runs alone (#1280, `test-runs.test-utils.ts`): a test file takes
+ * `act` from here, never from Testing Library.
+ *
+ * @packageDocumentation
+ */
+
 import { East, decodeBeast2For, encodeBeast2For, none, type ValueTypeOf } from "@elaraai/east";
-import { RecordSliceStateType } from "@elaraai/east-ui/internal";
+import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
-import { Roster } from "@elaraai/e3-ui";
+import { Data, Func, Record, Roster } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { clearFunctionApi, clearPagedApi, createInMemoryFunctionApi, initializeFunctionApi, initializePagedApi, initializeRecordApi, type PagedApi } from "../platform/index.js";
-import { countWholeReads, pathText, recordPaging, servedIndex, type WholeReads } from "../platform/record-paging.test-utils.js";
-import { act, builderHarness, mount, settle } from "../shared/builder-harness.test-utils.js";
+import { ExecuteResultType, FunctionCallRequestType, ResponseType } from "@elaraai/e3-types";
+import type { E3Answer, E3Hold, E3Match, E3Request } from "../e3-web.test-utils.js";
+import { act, currentHarness, e3Harness, settle, type E3Harness, type Example, type MountOptions } from "../e3-web-mount.test-utils.js";
 import "./index.js";
-export { act, mount, programOf, settle, slot, width } from "../shared/builder-harness.test-utils.js";
-export const WORKSPACE = "roster-test";
+export { act, programOf, settle, slot, width } from "../e3-web-mount.test-utils.js";
+export { searched } from "../e3-web.test-utils.js";
+
+/** The warehouse's week, the one its examples open on. */
 export const START = new Date("2028-03-05T00:00:00Z");
+/** The week after it, which the weeks record does not hold. */
 export const NEXT = new Date("2028-03-12T00:00:00Z");
 
 /** A question to the Roster's fit, and its answer, decoded. */
@@ -22,67 +45,125 @@ export type FitRequest = ValueTypeOf<typeof Roster.Types.FitRequest>;
 export type FitResult = ValueTypeOf<typeof Roster.Types.FitResult>;
 
 /**
- * The warehouse's records under the shared builder harness, the staff and the
- * activities read a window at a time through the stand-in paging service as e3
- * serves them — the staff with their group-then-name, position, trainer,
- * agency, skill and name indexes, the activities with their group index — and
- * the weeks with none; `paging.failing` names the records whose reads fail,
- * and `paging.api` is the service a test may wrap. The warehouse's fit is
- * served by name through the shared `Func` runtime, its `e3.function`'s own
- * East body, as e3 runs it (#1334): `fits.requests` keeps every question the
- * Roster asks, in turn, and `fits.answers` every answer; `fits.hold()` keeps
- * the answers on their way until its release, `fits.failure` makes every call
- * fail with its message, and `fits.answer` answers in the body's place — an
- * app's fit of the test's own.
+ * A call of an app's fit, by its function's name: the Roster's question, as
+ * e3's client sends it.
+ *
+ * @param name - The fit's `e3.function` name
+ * @returns The match
  */
-export function rosterHarness() {
-    const h = builderHarness(WORKSPACE, [ex.rosterWeeks, ex.rosterStaff, ex.rosterActivities, ex.rosterConfiguration, ex.rosterForecast, ex.rosterProposals], "data-roster-main");
-    const paging = { failing: new Set<string>() } as { reads: WholeReads; requests: string[]; failing: Set<string>; api: PagedApi };
-    const fits = {
-        requests: [] as FitRequest[], answers: [] as FitResult[], failure: undefined as string | undefined,
-        answer: undefined as ((request: FitRequest) => FitResult) | undefined, gate: undefined as Promise<void> | undefined,
-        /** Holds every answer until the release. */
-        hold() { let release!: () => void; fits.gate = new Promise<void>(resolve => { release = resolve; }); return () => { fits.gate = undefined; release(); }; },
-    };
-    const staffFit = East.compile(ex.rosterStaffFitBody, []) as (request: FitRequest) => FitResult;
-    beforeEach(() => {
-        fits.requests.length = 0; fits.answers.length = 0; fits.failure = undefined; fits.answer = undefined; fits.gate = undefined;
-        initializeFunctionApi(createInMemoryFunctionApi([{
-            name: ex.rosterStaffFit.name, inputTypes: [Roster.Types.FitRequest], outputType: Roster.Types.FitResult,
-            fn: async (request: unknown) => {
-                fits.requests.push(request as FitRequest);
-                if (fits.gate !== undefined) await fits.gate;
-                if (fits.failure !== undefined) throw new Error(fits.failure);
-                const answer = (fits.answer ?? staffFit)(request as FitRequest);
-                fits.answers.push(answer);
-                return answer;
-            },
-        }]), WORKSPACE);
-    });
-    afterEach(() => { clearFunctionApi(); });
-    beforeEach(() => {
-        paging.reads = countWholeReads(h.cache);
-        initializeRecordApi(paging.reads.serve(h.memory), h.cache, WORKSPACE);
-        const service = recordPaging(h.cache, paging.reads.raw, [
-            { path: ex.rosterWeeks.path, type: ex.rosterWeeks.type },
-            { path: ex.rosterStaff.path, type: ex.rosterStaff.type, indexes: [ex.rosterStaffByTeamName, ex.rosterStaffByPosition, ex.rosterStaffByTrainer,
-                ex.rosterStaffByAgency, ex.rosterStaffBySkill, ex.rosterStaffByName].map(servedIndex) },
-            { path: ex.rosterActivities.path, type: ex.rosterActivities.type, indexes: [servedIndex(ex.rosterActivitiesByGroup)] },
-        ]);
-        paging.requests = service.requests;
-        paging.failing.clear();
-        const fails = (path: Parameters<typeof service.api.getPage>[1]) => {
-            if (paging.failing.has(pathText(path))) throw new Error(`${pathText(path)} is unavailable`);
-        };
-        paging.api = { ...service.api,
-            getPage: async (workspace, path, window) => { fails(path); return service.api.getPage(workspace, path, window); },
-            findKey: async (workspace, path, query) => { fails(path); return service.api.findKey(workspace, path, query); },
-        };
-        initializePagedApi(paging.api, WORKSPACE);
-    });
-    afterEach(() => { clearPagedApi(); });
-    return Object.assign(h, { paging, fits });
+export const isFitCall = (name: string): E3Match => (request) => request.kind === "call" && request.method === "POST" && request.name === name;
+
+const readCall = decodeBeast2For(FunctionCallRequestType);
+const readFitRequest = decodeBeast2For(Roster.Types.FitRequest);
+const readExecuted = decodeBeast2For(ResponseType(ExecuteResultType));
+const readFitResult = decodeBeast2For(Roster.Types.FitResult);
+
+/** The question a fit's call asked: its one argument, sent by value. */
+function questionOf(request: E3Request): FitRequest {
+    if (request.body === undefined) throw new Error(`${request.path} sent no body`);
+    const [arg] = readCall(request.body).args;
+    if (arg === undefined || arg.type !== "value") throw new Error(`${request.path} asked no question by value`);
+    return readFitRequest(arg.value);
 }
+
+/** The fit's answers among e3's answers to its calls: each it gave, decoded — a failure a fault answered with is none. */
+function answersOf(answers: readonly E3Answer[]): FitResult[] {
+    return answers.flatMap((answer) => {
+        if (answer.status !== 200) return [];
+        const response = readExecuted(answer.body);
+        if (response.type !== "success" || response.value.outcome.type !== "success") return [];
+        return [readFitResult(response.value.outcome.value.value)];
+    });
+}
+
+/** An app's fit, as the Roster asks it on e3: each of its methods takes the fit's `e3.function` name, the warehouse's unless given. */
+export interface RosterFits {
+    /** Each question the Roster has asked the fit so far, in order, as its call's body says. */
+    requests(name?: string): FitRequest[];
+    /** Keeps e3's answers to the fit from now: each it answered with, in the order they came. */
+    answers(name?: string): () => FitResult[];
+    /** Holds each call of the fit on its way to e3, from now until released. */
+    hold(name?: string): E3Hold;
+    /**
+     * Answers each call of the fit as e3 answers one it cannot serve now
+     * (`503`, `unavailable`), from now until the returned function stops it.
+     */
+    fail(name?: string): () => void;
+}
+
+/** The Roster's harness: e3 with the warehouse's module deployed, and the fit its Find fixes ask. */
+export interface RosterHarness extends E3Harness {
+    /** The fit, as the Roster asks it. */
+    readonly fits: RosterFits;
+}
+
+/**
+ * The Roster's records on e3: the warehouse's module's package deployed once
+ * for the file, with any other module the file mounts, and a workspace of its
+ * own for each test.
+ *
+ * @param modules - Other e3-ui example modules the file mounts, by their keys under e3-ui's `test/` (`roster/roster-records`)
+ * @returns The harness
+ */
+export function rosterHarness(modules: Parameters<typeof e3Harness>[0] = {}): RosterHarness {
+    const h = e3Harness({ "roster/roster": ex, ...modules }, { main: "data-roster-main" });
+    const named = (name: string | undefined) => isFitCall(name ?? ex.rosterStaffFit.name);
+    const fits: RosterFits = {
+        requests: (name) => h.requests("call").filter(named(name)).map(questionOf),
+        answers: (name) => {
+            const answers = h.e3.answers(named(name));
+            return () => answersOf(answers);
+        },
+        hold: (name) => h.e3.hold(named(name)),
+        fail: (name) => h.e3.fail(named(name), { status: 503, type: "unavailable", message: "the staffing service is down" }),
+    };
+    return Object.assign(h, { fits });
+}
+
+/**
+ * The warehouse's Roster as `rosterWarehouse` mounts it — its staff,
+ * configuration, forecast, proposals and activities, its rail over the staff
+ * and the activities, its library and its inspector — over the weeks a test
+ * needs, and asking the fit it needs: the warehouse's own weeks, or the weeks
+ * it has locked, whose patch door refuses every change; the warehouse's own
+ * fit, or the app's that warns past contract.
+ *
+ * @param options - Whether its weeks are the locked ones, and which fit it asks
+ * @returns The example
+ */
+export function warehouseRoster(options: { readonly locked?: boolean; readonly fit?: "warehouse" | "contract" } = {}): Example {
+    const locked = options.locked === true, contract = options.fit === "contract";
+    return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const weeks = $.let(locked ? Record.bind(ex.rosterLockedWeeks, [ex.rosterLockedWeeksPatch]) : Record.bind(ex.rosterWeeks, [ex.rosterWeeksPatch]));
+        const staff = $.let(Data.bind(ex.rosterStaff));
+        const configuration = $.let(Data.bind(ex.rosterConfiguration));
+        const forecast = $.let(Data.bind(ex.rosterForecast));
+        const proposals = $.let(Data.bind(ex.rosterProposals));
+        const cfg = $.const(configuration.read());
+        const acts = $.let(Data.bind(ex.rosterActivities));
+        const people = $.let(Data.bindPaged(ex.rosterStaff, { indexes: [ex.rosterStaffByTeamName, ex.rosterStaffByPosition, ex.rosterStaffByTrainer, ex.rosterStaffByAgency, ex.rosterStaffBySkill, ex.rosterStaffByName] }));
+        const activities = $.let(Data.bindPaged(ex.rosterActivities, { indexes: [ex.rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("test.warehouseRoster", {
+            people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: activities, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
+        const fit = $.let(contract ? Func.bind(ex.rosterContractFit) : Func.bind(ex.rosterStaffFit));
+        return Roster({
+            id: "warehouseRoster", weeks, slice: { slice }, fit,
+            people: Roster.people(staff.read(), { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
+                contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+            groups: cfg.groups, shifts: cfg.shifts,
+            activities: Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order }),
+            positions: cfg.positions.toArray((_$2, p) => p), agencies: cfg.agencies,
+            rules: cfg.rules, costs: cfg.costs, forecast: forecast.read(), proposals: proposals.read(),
+            week: { start: "sunday" }, view: { layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") },
+            library: [Roster.library.people(), Roster.library.activities()], inspector: true,
+        });
+    }))) };
+}
+
 export const assignment = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-assignment="${id}"]`)!;
 export const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-roster-card="${id}"]`)!;
 
@@ -94,11 +175,12 @@ export type Choice = Where extends Map<string, infer C> ? C : never;
  * An example mounted over a store of its own, where each source's narrowing is kept.
  *
  * @param example - The example
+ * @param options - A program in its place, where its sessions are kept
  * @returns Its container, its store and its unmount
  */
-export async function open(example: Parameters<typeof mount>[0]) {
+export async function open(example: Example, options: MountOptions = {}) {
     const store = new UIStore(); StateRuntime.initializeStore(store);
-    const mounted = mount(example); await settle();
+    const mounted = await currentHarness().mount(example, options);
     return { container: mounted.container, store, unmount: mounted.unmount };
 }
 /**

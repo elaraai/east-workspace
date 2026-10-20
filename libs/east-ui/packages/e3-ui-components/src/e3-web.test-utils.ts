@@ -317,6 +317,21 @@ export function e3RequestOf(
     }
 }
 
+/**
+ * Whether a request searched a record's keys, or one of its indexes, for a key
+ * or a range from one, by the key's East text (`2026-10-01`, `"job1"`).
+ *
+ * @param request - The request
+ * @param index - The index; the record's own keys when omitted
+ * @param text - What the key's or the range's lower bound's text starts with
+ * @returns Whether it did
+ */
+export function searched(request: E3Request, index: string | undefined, text: string): boolean {
+    if (request.kind !== "find" || (request.query.get("index") ?? undefined) !== index) return false;
+    const keys = [...request.query.getAll("key"), ...request.query.getAll("from")];
+    return keys.some((key) => key.startsWith(text));
+}
+
 /** What a request's signal aborting rejects with, as `fetch` rejects. */
 function aborted(signal: AbortSignal): Promise<never> {
     return new Promise<never>((_resolve, reject) => {

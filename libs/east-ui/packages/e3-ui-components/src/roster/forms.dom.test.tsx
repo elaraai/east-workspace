@@ -8,7 +8,7 @@ import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { none, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { act, assignment, card, mount, narrow, open, rosterHarness, settle, slot, START, width, type Choice } from "./harness.test-utils.js";
+import { act, assignment, card, narrow, open, rosterHarness, settle, slot, START, width, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 const press = async (node: Element) => { await act(async () => { fireEvent.click(node); }); await settle(); };
 const save = async (c: HTMLElement) => press(within(slot(c, 'toolbar')).getByRole('button', { name: 'Save' }));
@@ -25,39 +25,39 @@ async function typeNumber(user: ReturnType<typeof userEvent.setup>, input: HTMLE
 }
 describe('Roster shared and custom forms', () => {
     test('typed custom assignment and target callbacks use the same history and whole-week Save', async () => {
-        const { container } = mount(ex.rosterCustomInspector); await settle(); const user = userEvent.setup();
+        const { container } = await h.mount(ex.rosterCustomInspector); const user = userEvent.setup();
         await press(assignment(container, 's37'));
         const overtime = within(slot(container, 'end')).getByRole('spinbutton', { name: 'Custom overtime' });
         await typeNumber(user, overtime, '1.5');
         expect(assignment(container, 's37').hasAttribute('data-drafted')).toBe(true);
-        expect(h.read(ex.rosterWeeks).get(START)!.assignments.get('s37')!.overtime).toBe(0);
+        expect((await h.read(ex.rosterWeeks)).get(START)!.assignments.get('s37')!.overtime).toBe(0);
         const requirement = slot(container, 'main').querySelector('[data-roster-requirement]')!;
         await press(requirement);
         const positions = within(slot(container, 'end')).getByRole('spinbutton', { name: 'Custom positions' });
         await typeNumber(user, positions, '20');
         await save(container);
-        const week = h.read(ex.rosterWeeks).get(START)!;
+        const week = (await h.read(ex.rosterWeeks)).get(START)!;
         expect(week.assignments.get('s37')!.overtime).toBe(1.5);
         expect(week.assignments.get('s37')!.agreed.type).toBe('none');
         expect(week.requirements.get({ day: 4n, group: 'inbound', shift: 'early' })!.positions).toBe(20n);
         expect(week.assignments.size).toBe(316);
     });
     test('live configuration and proposals refresh without replacing a pending assignment', async () => {
-        const { container } = mount(ex.rosterWarehouse); await settle();
+        const { container } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(container, 's37')).getByRole('button', { name: 'Remove C. Clover' }));
-        const cfg = h.read(ex.rosterConfiguration);
-        await h.commit(ex.rosterConfiguration, { ...cfg, groups: cfg.groups.map(g => ({ ...g, label: g.key === 'inbound' ? 'Receiving' : g.label })) });
-        await h.commit(ex.rosterProposals, []);
+        const cfg = await h.read(ex.rosterConfiguration);
+        await h.patch(ex.rosterConfiguration, { ...cfg, groups: cfg.groups.map(g => ({ ...g, label: g.key === 'inbound' ? 'Receiving' : g.label })) });
+        await h.patch(ex.rosterProposals, []);
         expect(slot(container, 'main').textContent).toContain('Receiving');
         expect(slot(container, 'main').querySelector('[data-roster-proposal]')).toBeNull();
         expect(assignment(container, 's37').hasAttribute('data-removed')).toBe(true);
-        await save(container); expect(h.read(ex.rosterWeeks).get(START)!.assignments.has('s37')).toBe(false);
+        await save(container); expect((await h.read(ex.rosterWeeks)).get(START)!.assignments.has('s37')).toBe(false);
     });
     test('mobile agency requests remain restorable in People view', async () => {
-        const weeks = h.read(ex.rosterWeeks), week = weeks.get(START)!;
+        const weeks = await h.read(ex.rosterWeeks), week = weeks.get(START)!;
         week.assignments.set('request', { slot: { day: 4n, group: 'inbound', shift: 'early' }, who: variant('request', 'northside'), position: 'crew', activity: none, offset: 0, overtime: 0, agreed: none });
         // The stored request is deliberately changed below through the same remove/restore commands.
-        await h.commit(ex.rosterWeeks, weeks);
+        await h.patch(ex.rosterWeeks, weeks);
         const { container, store } = await open(ex.rosterPeople);
         // Hide named staff through the rail's people source so the request row is
         // in the mounted virtual window; narrowing must not hide agency requests.

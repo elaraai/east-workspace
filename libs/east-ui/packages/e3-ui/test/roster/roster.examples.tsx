@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, some, variant } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, OptionType, PatchType, StringType, example, none, some, variant } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster } from "@elaraai/e3-ui";
@@ -43,6 +43,52 @@ export const rosterStaffFitBody = East.function([Roster.Types.FitRequest], Roste
 });
 // The warehouse's fit, on e3: who fits a Find fix's need on its slot.
 export const rosterStaffFit = e3.function("roster_staff_fit", rosterStaffFitBody);
+
+// What the renderer's tests on e3 write and ask beside the examples (#1376): another session's edits of the
+// reference data, a roster the warehouse has locked, and another app's fit over the same staff.
+
+/** The staff's patch door: another session's edit of the staff. */
+export const rosterStaffPatch = e3.mutation.patch(rosterStaff);
+/** The configuration's door: another session's edit of it, a patch of the one struct it is. */
+export const rosterConfigurationPatch = e3.mutation.reduce("patch", rosterConfiguration,
+    East.function([WarehouseConfig, PatchType(WarehouseConfig)], WarehouseConfig, (_$, configuration, patch) => East.applyPatch(configuration, patch)));
+/** The proposals' door: another session's edit of them, a patch of the one list they are. */
+export const rosterProposalsPatch = e3.mutation.reduce("patch", rosterProposals,
+    East.function([ArrayType(Roster.Types.Proposal), PatchType(ArrayType(Roster.Types.Proposal))], ArrayType(Roster.Types.Proposal),
+        (_$, proposals, patch) => East.applyPatch(proposals, patch)));
+
+/** The weeks of a roster the warehouse has locked: the warehouse's own weeks, which no Save changes. */
+export const rosterLockedWeeks = e3.record("roster_locked_weeks", Roster.Types.Weeks, warehouseWeeks);
+/** The locked roster's door, a checked one: it refuses every change, naming why — what a Save over it is answered. */
+export const rosterLockedWeeksPatch = e3.mutation.reduce("patch", rosterLockedWeeks,
+    East.function([Roster.Types.Weeks, PatchType(Roster.Types.Weeks)], Roster.Types.Weeks, ($, weeks, _patch) => {
+        $.error("the roster is locked for the week");
+        return weeks;
+    }));
+
+/**
+ * Another app's fit over the same staff: the warehouse's order — the most spare contract hours first, whatever
+ * their group — and a warning on whoever the slot's shift would take past their contract.
+ */
+export const rosterContractFitBody = East.function([Roster.Types.FitRequest], Roster.Types.FitResult, ($, req) => {
+    const answer = $.const(Roster.answer);
+    const rule = $.const(Roster.fit);
+    const weekHours = $.const(Roster.weekHours);
+    const hours = $.const(weekHours(req.week, req.context));
+    // What the slot's shift adds to a person's week.
+    const shifts = $.const(req.context.shifts.toDict((_$2, shift) => shift.key, (_$2, shift) => shift.hours));
+    const shift = $.const(shifts.get(req.slot.shift, () => 0.0));
+    return answer(req, East.function([Roster.Types.FitRequest, Roster.Types.Person], Roster.Types.Fit, ($2, request, person) => {
+        const verdict = $2.const(rule(request, person));
+        $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
+        const fits = $2.const(verdict.unwrap("fits"));
+        const spare = $2.const(person.contract.subtract(hours.get(person.key, () => 0.0)));
+        const warn = $2.const(East.less(spare, shift).ifElse(() => some("past contract"), () => none), OptionType(StringType));
+        return variant("fits", { score: spare, why: fits.why, warn });
+    }));
+});
+// Another app's fit, on e3.
+export const rosterContractFit = e3.function("roster_contract_fit", rosterContractFitBody);
 
 export const rosterWarehouse = example({
     inputs: [], description: 'The mock warehouse roster: 69 bound staff, three groups and three shifts, live configuration and proposals, one Slice.bindRecords rail over the staff and activities records that the People and Activities tabs follow, a Positions tab, typed inspector, whole-week Save and Publish, and the warehouse\'s greedy fit on e3, which a Find fix asks who fits.',
