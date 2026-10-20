@@ -40576,7 +40576,7 @@
         "FunctionDef"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Func } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -40602,7 +40602,7 @@
         "lifecycle"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Func } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -40627,7 +40627,7 @@
         "abort"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Func } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -40653,7 +40653,7 @@
         "name"
       ],
       "imports": [
-        "import { East, FloatType, IntegerType, NullType, example } from \"@elaraai/east\";",
+        "import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Func } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
@@ -40682,8 +40682,8 @@
         "system of record"
       ],
       "imports": [
-        "import { DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Box, Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -40708,8 +40708,8 @@
         "mutate"
       ],
       "imports": [
-        "import { DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Box, Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -40739,8 +40739,8 @@
         "system of record"
       ],
       "imports": [
-        "import { DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Box, Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
@@ -40765,8 +40765,8 @@
         "chain"
       ],
       "imports": [
-        "import { DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
-        "import { Box, Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],

@@ -40,7 +40,7 @@ import {
 } from "./platform/index.js";
 import type { RecordHistoryResult } from "@elaraai/e3-api-client";
 import {
-    EXAMPLES_PIECE_MIN, patchRecord, readDataset, recordHistory, runDataflow, startTestE3, writeDataset,
+    EXAMPLES_PIECE_MIN, patchRecord, readDataset, recordHistory, runDataflow, settleE3, startTestE3, workspaceRequests, writeDataset,
     type E3Dataset, type E3Record, type E3Request, type TestE3,
 } from "./e3-web.test-utils.js";
 import { QueryPlanOptionsProvider } from "./query/hooks.js";
@@ -389,12 +389,7 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
             await runDataflow(e3(), workspace());
             await refreshMounted(workspace());
         },
-        requests(kind, of) {
-            const ws = workspace();
-            return e3().requests.filter((request) => request.workspace === ws
-                && (kind === undefined || request.kind === kind)
-                && (of === undefined || request.dataset === of || request.record === of));
-        },
+        requests: (kind, of) => workspaceRequests(e3(), workspace(), kind, of),
     };
     fileHarness = harness;
     return harness;
@@ -477,15 +472,7 @@ const turns = () => act(async () => { for (let i = 0; i < 8; i++) await new Prom
  * starts, the test moves it on to.
  */
 export async function settle(): Promise<void> {
-    for (;;) {
-        const e3 = current?.e3;
-        const before = e3?.started() ?? 0;
-        await turns();
-        if (e3 === undefined) return;
-        await e3.idle();
-        await turns();
-        if (e3.started() === before) return;
-    }
+    await settleE3(current?.e3, turns);
 }
 
 /**

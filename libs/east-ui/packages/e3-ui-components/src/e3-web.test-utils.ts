@@ -691,6 +691,42 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
 }
 
 /**
+ * The requests a test's code made of one workspace so far: its datasets',
+ * records', functions' and tasks' routes, and its own.
+ *
+ * @param e3 - e3 under test
+ * @param workspace - The workspace
+ * @param kind - Only those of this kind (`read`, `find`, `page`, …)
+ * @param of - Only those naming this dataset (`records.jobs`) or record (`jobs`)
+ * @returns The requests, in order
+ */
+export function workspaceRequests(e3: TestE3, workspace: string, kind?: E3RequestKind, of?: string): E3Request[] {
+    return e3.requests.filter((request) => request.workspace === workspace
+        && (kind === undefined || request.kind === kind)
+        && (of === undefined || request.dataset === of || request.record === of));
+}
+
+/**
+ * Waits until no request to e3 is in flight — those a hold parks aside — and
+ * what their answers started has run: `turns`, then e3 idle, then `turns`
+ * again, until no request started meanwhile. A DOM test's settle and a
+ * runtime spec's are this, over turns of their own.
+ *
+ * @param e3 - e3 under test; with none, `turns` runs once
+ * @param turns - Lets what is queued run: a few turns of real time, React flushing between them in a DOM test
+ */
+export async function settleE3(e3: TestE3 | undefined, turns: () => Promise<void>): Promise<void> {
+    for (;;) {
+        const before = e3?.started() ?? 0;
+        await turns();
+        if (e3 === undefined) return;
+        await e3.idle();
+        await turns();
+        if (e3.started() === before) return;
+    }
+}
+
+/**
  * What e3 holds of a dataset or a record now, read through e3's API.
  *
  * @param e3 - e3 under test
