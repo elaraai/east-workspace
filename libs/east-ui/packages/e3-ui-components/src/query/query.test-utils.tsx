@@ -4,182 +4,105 @@
  */
 
 /**
- * The query builder's DOM test harness (#935, #936): the shared fixture's
- * orders and customers bound on a page — the orders paged, the customers
- * whole — and a saved queries record in memory whose patch door applies each
- * patch with East's own checks; the builder mounted through its carrier, as a
- * surface mounts it, with a host's one-shot call — and, for a run's plan
- * (#941), its split call and its explain (#1132), the data sources' statuses
- * and the plan's options;
- * and the query library (#1063) mounted the same way, alone or beside a
- * builder sharing its id.
+ * The query builder's DOM test harness (#935, #936), on e3 itself (#1376): the
+ * query examples deployed to e3-web (`query/query`), each test a workspace of
+ * its own. A test's saved queries are the `queries` record as another
+ * session's commit leaves them ({@link QueryHarness.seed}); the builder is
+ * mounted over it as a surface mounts it — the orders paged, the customers
+ * whole ({@link QueryHarness.mountBuilder}) — or over the order history the
+ * examples' tasks generate, too large for one call
+ * ({@link QueryHarness.mountHistory}); and the query library (#1063) the same
+ * way, alone or beside a builder sharing its id. A run is e3's: a one-shot
+ * call, or a split call e3 cuts into pieces as the showcase's e3 does (#941,
+ * #1132). What a run sent is its request's body ({@link QueryHarness.oneShots},
+ * {@link QueryHarness.splitCalls}); what e3 answered, a tap's
+ * ({@link QueryHarness.oneShotResults}, {@link QueryHarness.splitResults}); a
+ * fault, the harness's fetch's (`h.e3.hold`, `h.e3.fail`); and what a result
+ * must equal, e3's own answer to the test's own call
+ * ({@link QueryHarness.oneShot}, {@link QueryHarness.explain}).
  *
- * Each test of a file that loads it runs alone (#1280,
- * `test-runs.test-utils.ts`): once a test ends, the work it left in flight
- * settles before the next begins, and a body its timeout abandoned starts
- * nothing more. A test file takes `act` from here, never from Testing
- * Library.
+ * e3's execution cache is the file's, as its repository is: a split call one
+ * test ran is served from the cache in the next, its units run no more. A test
+ * whose run must be caught going — its units held — runs a program of its own.
+ *
+ * Each test runs alone (#1280, `test-runs.test-utils.ts`): a test file takes
+ * `act` from here, never from Testing Library.
  *
  * @packageDocumentation
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { StrictMode } from "react";
-import { fireEvent, render, screen, within, type RenderResult } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import {
-    BooleanType, East, NullType, OptionType, PatchType, SortedMap, StringType, applyFor, checkJq, compareFor, decodeBeast2, decodeBeast2For,
-    encodeBeast2For, fromEastTypeValue, none, toEastTypeValue, variant,
-    type EastType, type ValueTypeOf,
-} from "@elaraai/east";
+import { StrictMode, type ReactNode } from "react";
+import { fireEvent, screen, within, type RenderResult } from "@testing-library/react";
+import { East, NullType, StringType, decodeBeast2For, encodeBeast2For, toEastTypeValue } from "@elaraai/east";
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { StateRuntime } from "@elaraai/east-ui-components";
+import { Data, Query, Record, queryKeys } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/query/query";
+import { datasetGetStatus, oneShotExecute, splitCallExplain, splitCallStatus } from "@elaraai/e3-api-client";
 import {
-    DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
-} from "@elaraai/east-ui-components";
-import {
-    Query, RecordBindHandleType, bindPagedPinnedPlatformFn, bindPlatformFn, queryKeys, recordBindPlatformFn,
-} from "@elaraai/e3-ui/internal";
-import { TreePathType, type ExecuteResult, type OneShotRequest, type SplitCallRequest } from "@elaraai/e3-types";
-import {
-    E3Provider, ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi, type E3Config, type RecordApi,
-} from "../platform/index.js";
-import {
-    QueryCallProvider, QueryPlanOptionsProvider, QuerySourceStatusProvider, QuerySplitCallProvider,
-    type QueryCall, type QuerySourceStatus, type QuerySplitCall, type QuerySplitCallOptions, type QuerySplitExplain,
-} from "./hooks.js";
-import { act, isolateRuns } from "../test-runs.test-utils.js";
-import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall, type InMemoryDataset } from "./in-memory-call.js";
+    ExecuteResultType, OneShotRequestType, PackageJobResponseType, ResponseType, SplitCallRequestType, SplitCallStatusType,
+    type DatasetStatusDetail, type ExecuteResult, type OneShotRequest, type SplitCallPlan, type SplitCallRequest, type SplitCallStatus,
+} from "@elaraai/e3-types";
+import { act, e3Harness, settle, type E3Harness } from "../e3-web-mount.test-utils.js";
+import type { E3Answer, E3Dataset, E3Match } from "../e3-web.test-utils.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
 import { QueryOpenType, type QueryOpen } from "./open-query.js";
 import type { SavedQuery } from "./session.js";
+import { savedRecord, type Saved } from "./fixture.test-utils.js";
 // The builder and the query library are extensions: their renderers register as they load.
 import "./builder.js";
 import "./library.js";
 
-// jsdom lacks the ResizeObserver the panes and the menus' positioners reach for, and the CSS.escape a menu finds its items with.
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-(globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
-(globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
-(globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
-});
-
-// Each test of the file a run of its own (#1280): registered as the file is collected, which loads this module.
-isolateRuns();
-
 /** The `act` the query tests take: each scope its test's work, until it closes (#1280). */
-export { act };
+export { act, settle };
 
-/** The saved queries record. */
-export type Saved = ValueTypeOf<typeof Query.Types.Saved>;
-type TreePath = ValueTypeOf<typeof TreePathType>;
+/** The State a query library's `onOpen` writes the name it opened to, in the surface {@link QueryHarness.mountLibrary} mounts. */
+export const TOLD = "query-library-test.told";
 
-export const WORKSPACE = "query-builder-test";
-export const RECORD = "queries";
-export const ORDERS: TreePath = [variant("field", "inputs"), variant("field", "orders")];
-export const CUSTOMERS: TreePath = [variant("field", "inputs"), variant("field", "customers")];
+/** A one-shot call: what a run of one call, or a summary, sends. */
+export const isRun: E3Match = (request) => request.kind === "one-shot";
+/** A split call's launch (#941). */
+export const isSplitLaunch: E3Match = (request) => request.kind === "split" && request.method === "POST" && request.query.get("explain") !== "1";
+/** The launch of a split call's explain (#1132). */
+export const isExplain: E3Match = (request) => request.kind === "split" && request.method === "POST" && request.query.get("explain") === "1";
+/** A poll of a split call's job, or of an explain's: of one job's, when given. */
+export const isPoll = (job?: string): E3Match => (request) => request.kind === "split" && request.method === "GET" && (job === undefined || request.name === job);
 
-/** The shared fixture's types: the orders and the customers. */
-const fixture = decodeBeast2(readFileSync(join(import.meta.dirname, "../../../../../east/test/fixtures/query-fixture.beast2")));
-const FIXTURE = fromEastTypeValue(fixture.type);
-if (FIXTURE.type !== "Struct") throw new Error("the fixture's root is a struct");
-export const OrdersType = FIXTURE.fields["orders"] as EastType;
-export const CustomersType = FIXTURE.fields["customers"] as EastType;
-/** The shared fixture's root type, and its value: every dataset, by name. */
-export const FixtureType: EastType = FIXTURE;
-export const FIXTURE_VALUE: unknown = fixture.value;
-
-/** The root a page binding orders and customers gives. */
-export const ROOT: QueryRoot = queryRoot([
-    { name: "orders", path: ORDERS, type: toEastTypeValue(OrdersType) },
-    { name: "customers", path: CUSTOMERS, type: toEastTypeValue(CustomersType) },
+/**
+ * The root the history builder's data sources give ({@link QueryHarness.mountHistory}): the
+ * order history, the accounts and their credit limits as the examples' tasks generate them,
+ * and the fixture's customers — what a test prepares its own calls over.
+ */
+export const HISTORY_ROOT: QueryRoot = queryRoot([
+    { name: "order_history", path: ex.historyTask.output.path, type: toEastTypeValue(ex.historyTask.output.type) },
+    { name: "accounts", path: ex.accountsTask.output.path, type: toEastTypeValue(ex.accountsTask.output.type) },
+    { name: "credit", path: ex.creditTask.output.path, type: toEastTypeValue(ex.creditTask.output.type) },
+    { name: "customers", path: ex.customers.path, type: toEastTypeValue(ex.customers.type) },
 ]);
 
-/** A saved query over the root, checked as a save checks it. */
-export function savedQuery(name: string, program: string, description = none as ValueTypeOf<OptionType<typeof StringType>>): SavedQuery {
-    const checked = checkJq(program, ROOT.type, { root: true });
-    if (checked.program === null) throw new Error(`${program}: ${checked.diagnostics.map(d => d.message).join("; ")}`);
-    return {
-        name, description, program: checked.program, saved_at: new Date(Date.UTC(2026, 8, 30, 9, 0)),
-        root: ROOT.entries.filter(e => checked.reads.includes(e.name)).map(e => ({ name: e.name, path: e.path })),
-    };
-}
+const readOneShot = decodeBeast2For(OneShotRequestType);
+const readSplit = decodeBeast2For(SplitCallRequestType);
+const readExecuted = decodeBeast2For(ResponseType(ExecuteResultType));
+const readJob = decodeBeast2For(ResponseType(PackageJobResponseType));
+const readSplitStatus = decodeBeast2For(ResponseType(SplitCallStatusType));
 
-export const keys = compareFor(StringType);
-export const HandleType = RecordBindHandleType(Query.Types.Saved, { patch: [PatchType(Query.Types.Saved)] });
-
-/** The record in memory, and the dataset cache it writes through. */
-export interface RecordHarness {
-    /** The record's runtime: its patch door, and its history. */
-    readonly memory: RecordApi;
-    /** The dataset cache it writes through. */
-    readonly cache: ReactiveDatasetCache;
+/** The body a request sent, which the route's type decodes. */
+function sent(request: { readonly body: Uint8Array | undefined; readonly path: string }): Uint8Array {
+    if (request.body === undefined) throw new Error(`${request.path} sent no body`);
+    return request.body;
 }
 
 /**
- * A fresh UI store, and a saved queries record in memory holding `initial`.
- *
- * @param initial - The saved queries it starts with
- * @returns The record's runtime and its cache
+ * The values of a route's answers that came: each one e3 answered with a
+ * success, read by the route's type — a failure a fault answered with, or
+ * e3's refusal, is not one.
  */
-export function recordHarness(initial: Saved): RecordHarness {
-    StateRuntime.initializeStore(new UIStore());
-    const store = new Map<string, Uint8Array>();
-    const api: DatasetApi = {
-        async get(ws, path) {
-            const bytes = store.get(datasetCacheKey(ws, path));
-            if (!bytes) throw new Error(`no dataset ${datasetCacheKey(ws, path)}`);
-            return { data: bytes, hash: null };
-        },
-        async set(ws, path, value) { store.set(datasetCacheKey(ws, path), value); },
-        async launchDataflow() { /* in memory — nothing to launch */ },
-        async listRoot() { return []; },
-        async listAt() { return []; },
-        async workspaceStatus() { return { datasets: [] }; },
-    };
-    const cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
-    cache.setScheduler((notify) => queueMicrotask(notify));
-    initializeReactiveDatasetCache(cache);
-    const applyPatch = applyFor(Query.Types.Saved);
-    const memory = createInMemoryRecordApi(cache, WORKSPACE, [{
-        name: RECORD, stateType: Query.Types.Saved, initial,
-        mutations: [{ name: "patch", argTypes: [PatchType(Query.Types.Saved)], reduce: (state, patch) => applyPatch(state as never, patch as never) }],
-    }]);
-    initializeRecordApi(memory, cache, WORKSPACE);
-    return { memory, cache };
-}
-
-/** Let the record's reads, the session, the writes and the renders settle. */
-export async function settle() {
-    await act(async () => {
-        for (let i = 0; i < 8; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+function successes<T>(read: (bytes: Uint8Array) => { type: "success"; value: T } | { type: "error"; value: unknown }, answers: readonly E3Answer[]): T[] {
+    return answers.flatMap((answer) => {
+        if (answer.status !== 200) return [];
+        const response = read(answer.body);
+        return response.type === "success" ? [response.value] : [];
     });
-}
-
-/**
- * The record as it stands — what its patch door last wrote.
- *
- * @param harness - The record in memory
- * @returns The saved queries
- */
-export function readRecord(harness: RecordHarness): Saved {
-    const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", RECORD)]);
-    if (bytes === undefined) throw new Error("the record has not loaded");
-    return decodeBeast2For(Query.Types.Saved)(bytes);
-}
-
-/**
- * The mutations the record committed, newest first.
- *
- * @param harness - The record in memory
- * @returns Their names
- */
-export async function commits(harness: RecordHarness): Promise<string[]> {
-    return (await harness.memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation);
 }
 
 /**
@@ -215,288 +138,228 @@ export async function press(name: string, container?: HTMLElement) {
  */
 export const enabled = (name: string) => !(screen.getByRole("button", { name }) as HTMLButtonElement).disabled;
 
-/** A one-shot call that never reaches a server: it records each request, and fails. */
-export function offlineCall(): { call: QueryCall; requests: Parameters<QueryCall>[0][] } {
-    const requests: Parameters<QueryCall>[0][] = [];
-    return {
-        requests,
-        call: async (request) => {
-            requests.push(request);
-            throw new Error("offline");
-        },
-    };
-}
-
-/** What a builder is mounted with besides its one-shot call: an e3 server, and what a run's plan reaches (#941). */
-export interface MountOptions {
-    /** The server's config, for an `E3Provider` around the builder, whose dataset statuses the Datasets tab reads (#939). */
-    readonly e3?: E3Config;
-    /** How a split call is made: a `QuerySplitCallProvider` around the builder. */
-    readonly split?: QuerySplitCall;
-    /** How a split call's pieces are counted when its run answered before it reported them (#1132): the provider's `explain`. */
-    readonly explain?: QuerySplitExplain;
-    /** How a data source's status is read: a `QuerySourceStatusProvider` around the builder. */
-    readonly status?: QuerySourceStatus;
-    /** The most a dataset may weigh and still be read by one call: a `QueryPlanOptionsProvider` around the builder. */
-    readonly pieceBytes?: number;
+/** How a builder is mounted. */
+export interface BuilderOptions {
     /** The saved query the builder opens first, by name — its payload's `query`, which it runs as it mounts. */
     readonly query?: string;
-    /** Mounts it under React's `StrictMode`, as the showcase's dev server does: mounted, unmounted and mounted again. */
+    /** Mounts it under React's `StrictMode`, as the showcase does: mounted, unmounted and mounted again. */
     readonly strict?: boolean;
+    /** The token its `E3Provider` gives e3 with every request. */
+    readonly token?: string;
+    /** What the host holds it in, inside e3's providers: its own calls, or plan options of its own, say. */
+    readonly host?: (builder: ReactNode) => ReactNode;
+}
+
+/** How the query library is mounted. */
+export interface LibraryOptions {
+    /** The name the library and the builder share. */
+    readonly id?: string;
+    /** Mounts the builder beside it, sharing its id. */
+    readonly builder?: boolean;
+    /** Under the page's drag layer, as a surface whose cards drag is. */
+    readonly drag?: boolean;
+}
+
+/** What a query test reads, writes and mounts through: e3, the saved queries on it, and the builders and libraries over them. */
+export interface QueryHarness extends E3Harness {
+    /**
+     * Commits the saved queries record as another session would, then
+     * settles: the test's saved queries, before its builder mounts, or
+     * another operator's save under it.
+     *
+     * @param queries - The saved queries, as the commit leaves them
+     */
+    seed(queries: readonly SavedQuery[]): Promise<void>;
+    /** What e3 holds of the saved queries now. */
+    saved(): Promise<Saved>;
+    /** The saved queries' commits, newest first, by the mutation that made each. */
+    commits(): Promise<string[]>;
+    /**
+     * Commits the order history's saved queries record as another session
+     * would, then settles: what the history builder opens
+     * ({@link QueryHarness.mountHistory}).
+     *
+     * @param queries - The saved queries, as the commit leaves them
+     */
+    seedHistory(queries: readonly SavedQuery[]): Promise<void>;
+    /**
+     * The builder over the saved queries, as a surface mounts it: the record
+     * bound with its patch door, the orders paged and the customers whole.
+     *
+     * @param options - The query it opens first, `StrictMode`, its token
+     * @returns The render
+     */
+    mountBuilder(options?: BuilderOptions): Promise<RenderResult>;
+    /**
+     * The builder over the order history's saved queries and the three
+     * datasets the examples' tasks generate — the order history, the accounts
+     * that place it and their credit limits — each paged, and each of more
+     * than e3's smallest piece here: a query over them runs as a split call;
+     * and the fixture's customers, whole, within one piece ({@link HISTORY_ROOT}).
+     *
+     * @param options - The query it opens first, `StrictMode`, its token
+     * @returns The render
+     */
+    mountHistory(options?: BuilderOptions): Promise<RenderResult>;
+    /**
+     * The query library over the saved queries and the same two data
+     * sources, under a line saying what it last told the host it opened
+     * (`told Big orders`); with the builder beside it, sharing its id, when
+     * asked; under a drag layer when asked.
+     *
+     * @param options - The id, the builder, the drag layer
+     * @returns The render
+     */
+    mountLibrary(options?: LibraryOptions): Promise<RenderResult>;
+    /**
+     * Refuses every one-shot call from now, as e3 refuses a call it cannot
+     * run (`500`, `internal`): a run that gives no result, for a test of what
+     * the builder shows of a query rather than of its runs.
+     *
+     * @returns What stops it
+     */
+    refuseRuns(): () => void;
+    /** Each one-shot call the test's surfaces sent so far, in order, as its body says. */
+    oneShots(): OneShotRequest[];
+    /** Keeps e3's answer to each one-shot call from now: each result it answered, in the order they came. */
+    oneShotResults(): () => ExecuteResult[];
+    /** Each split call the test's surfaces launched so far, in order, as its body says. */
+    splitCalls(): SplitCallRequest[];
+    /** Each split call the test's surfaces had explained so far, in order, as its body says (#1132). */
+    explains(): SplitCallRequest[];
+    /** Keeps e3's answer to each split call's and explain's launch from now: the job each started, in the order they came. */
+    jobs(): () => string[];
+    /** Keeps e3's answer to each split call's launch from now: the job each started, in the order the launches were sent. */
+    splitJobs(): () => string[];
+    /** Keeps e3's answer to each explain's launch from now: the job each started, in the order the launches were sent (#1132). */
+    explainJobs(): () => string[];
+    /** Keeps e3's answer to each poll from now: each job's id and what the poll found, in the order they came. */
+    splitResults(): () => { readonly job: string; readonly status: SplitCallStatus }[];
+    /**
+     * Settles once e3 says a split call's or an explain's job has ended, as
+     * the test polls it itself: what a test waits on to have the job's next
+     * poll find it ended — a call that answered before e3 said how many pieces
+     * it cut.
+     *
+     * @param job - The job's id
+     */
+    jobEnded(job: string): Promise<void>;
+    /**
+     * A dataset's status, as e3 answers the test itself.
+     *
+     * @param dataset - The dataset
+     * @returns Its status: its hash, what it weighs, its rows
+     */
+    statusOf(dataset: E3Dataset): Promise<DatasetStatusDetail>;
+    /**
+     * A one-shot call the test makes itself, in its workspace: what a run's
+     * result must equal.
+     *
+     * @param request - The call
+     * @returns e3's result
+     */
+    oneShot(request: OneShotRequest): Promise<ExecuteResult>;
+    /**
+     * A split call's pieces, as e3 plans them for the test itself: what a
+     * run's read-out must count.
+     *
+     * @param request - The call
+     * @returns e3's plan
+     */
+    explain(request: SplitCallRequest): Promise<SplitCallPlan>;
 }
 
 /**
- * Mounts the builder as a surface mounts it: the record and two data sources
- * bound, with a host's one-shot call — under an e3 server's config when one is
- * given, whose dataset statuses the Datasets tab reads (#939); with a split
- * call, a data source's status and the plan's options, when given (#941); open
- * on a saved query, and under `StrictMode`, when asked.
+ * Installs the harness around each test of the file: e3 with the query
+ * examples deployed, started once, and a workspace of its own for each test.
  *
- * @param call - How a one-shot call is made
- * @param options - The server's config, what a run's plan reaches, the query it opens and `StrictMode` ({@link MountOptions})
- * @returns The rendered builder
+ * @returns The harness
  */
-export async function mountBuilder(call?: QueryCall, options: MountOptions = {}): Promise<RenderResult> {
-    const opening = options.query === undefined ? {} : { query: options.query };
-    const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const orders = $.let(bindPagedPinnedPlatformFn([OrdersType], ORDERS, East.value(none, OptionType(StringType)), East.value(false, BooleanType)));
-        const customers = $.let(bindPlatformFn([CustomersType], CUSTOMERS, none, variant("direct", null)));
-        const record = $.let(recordBindPlatformFn([HandleType], RECORD));
-        return Query.Builder({ queries: record as never, datasets: { orders: orders as never, customers: customers as never }, ...opening });
-    }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
-    let tree = <EastChakraComponent value={program()} storageKey="query-builder" />;
-    if (call !== undefined) tree = <QueryCallProvider call={call}>{tree}</QueryCallProvider>;
-    if (options.split !== undefined) {
-        const explain = options.explain === undefined ? {} : { explain: options.explain };
-        tree = <QuerySplitCallProvider call={options.split} {...explain}>{tree}</QuerySplitCallProvider>;
-    }
-    if (options.status !== undefined) tree = <QuerySourceStatusProvider status={options.status}>{tree}</QuerySourceStatusProvider>;
-    if (options.pieceBytes !== undefined) tree = <QueryPlanOptionsProvider pieceBytes={options.pieceBytes}>{tree}</QueryPlanOptionsProvider>;
-    const app = (
-        <ChakraProvider value={system}>
-            {options.e3 === undefined ? tree : <E3Provider config={options.e3}>{tree}</E3Provider>}
-        </ChakraProvider>
-    );
-    const utils = render(options.strict === true ? <StrictMode>{app}</StrictMode> : app);
-    await settle();
-    return utils;
-}
-
-/** The State a query library's `onOpen` writes the name it opened to, in the surface {@link mountLibrary} mounts. */
-export const TOLD = "query-library-test.told";
-
-/**
- * Mounts the query library as a surface mounts it — the record and the same
- * two data sources bound — under a line saying what it last told the host it
- * opened ("told Big orders"); with the builder beside it, sharing its id and
- * with a host's one-shot call, when one is given; under a drag layer when
- * asked.
- *
- * @param options - `id`: the name the library and the builder share; `builder`: the builder's one-shot call, which mounts the builder too; `drag`: a `DragLayerProvider` around them
- * @returns The rendered surface
- */
-export async function mountLibrary(options: { id?: string; builder?: QueryCall; drag?: boolean } = {}): Promise<RenderResult> {
-    const named = options.id === undefined ? {} : { id: options.id };
-    const withBuilder = options.builder !== undefined;
-    const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const orders = $.let(bindPagedPinnedPlatformFn([OrdersType], ORDERS, East.value(none, OptionType(StringType)), East.value(false, BooleanType)));
-        const customers = $.let(bindPlatformFn([CustomersType], CUSTOMERS, none, variant("direct", null)));
-        const record = $.let(recordBindPlatformFn([HandleType], RECORD));
-        const told = $.let(State.bind([StringType], TOLD, "nothing"));
-        const onOpen = $.const(East.function([StringType], NullType, ($2, name) => { $2(told.write(name)); }));
-        const datasets = { orders: orders as never, customers: customers as never };
-        const library = Query.Library({ queries: record as never, datasets, onOpen, ...named });
-        const builder = Query.Builder({ queries: record as never, datasets, ...named });
-        return Stack.VStack(withBuilder ? [Text.Root(East.str`told ${told.read()}`), library, builder] : [Text.Root(East.str`told ${told.read()}`), library]);
-    }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
-    const surface = <EastChakraComponent value={program()} storageKey="query-library" />;
-    const called = options.builder === undefined ? surface : <QueryCallProvider call={options.builder}>{surface}</QueryCallProvider>;
-    const utils = render(
-        <ChakraProvider value={system}>
-            {options.drag === true ? <DragLayerProvider>{called}</DragLayerProvider> : called}
-        </ChakraProvider>,
-    );
-    await settle();
-    return utils;
-}
-
-/** The saved queries record, keyed by name. */
-export function savedRecord(queries: readonly SavedQuery[]): Saved {
-    return new SortedMap(queries.map((q): [string, SavedQuery] => [q.name, q]), keys);
-}
-
-/** The hash e3 pins each of the page's datasets at. */
-export const HASHES: ReadonlyMap<string, string> = new Map([["orders", "4f2a1c8d".repeat(8)], ["customers", "9b07e3a4".repeat(8)]]);
-
-/** A one-shot call answered here, and what it was asked. */
-export interface FixtureCall {
-    /** The call. */
-    readonly call: QueryCall;
-    /** Each request, in order. */
-    readonly requests: OneShotRequest[];
-    /** Each answer, in the order the requests were made. */
-    readonly answers: ExecuteResult[];
-    /** Answers the calls held so far, when the call holds its answers: in the order they were made, or the newest first, as a slow call answers last. */
-    readonly release: (options?: { newestFirst?: boolean }) => Promise<void>;
-}
-
-/**
- * A one-shot call answered here, as e3 answers it: the in-memory call
- * (`createInMemoryQueryCall`) over the fixture's orders and customers, each
- * pinned at its hash in {@link HASHES}, recording what it was asked and what
- * it answered.
- *
- * @param options - `hold`: answer only on `release()`, so a test sees a run going
- * @returns the call, its requests and its answers, and `release`
- */
-export function fixtureCall(options: { hold?: boolean } = {}): FixtureCall {
-    const requests: OneShotRequest[] = [];
-    const answers: ExecuteResult[] = [];
-    const held: (() => void)[] = [];
-    const memory = createInMemoryQueryCall(fixtureDatasets());
-    return {
-        requests,
-        answers,
-        call: async (request) => {
-            requests.push(request);
-            const index = requests.length - 1;
-            if (options.hold === true) await new Promise<void>(resolve => { held.push(resolve); });
-            answers[index] = await memory(request);
-            return answers[index];
+export function queryHarness(): QueryHarness {
+    const h = e3Harness({ "query/query": ex }, { measure: false });
+    const mountOver = h.mount;
+    /** The page around the builder: under `StrictMode` when asked, and in the host's own providers, inside e3's. */
+    const paged = ({ strict, host }: BuilderOptions) => ({
+        ...(strict === true && { wrap: (page: ReactNode) => <StrictMode>{page}</StrictMode> }),
+        ...(host !== undefined && { host }),
+    });
+    const tokened = (token: string | undefined) => (token === undefined ? {} : { token });
+    /** The jobs the launches a match takes started, in the order the launches were sent. */
+    const launched = (match: E3Match) => {
+        const answers = h.e3.answers(match);
+        return () => successes(readJob, [...answers].sort((a, b) => h.e3.requests.indexOf(a.request) - h.e3.requests.indexOf(b.request))).map((job) => job.id);
+    };
+    return Object.assign(h, {
+        seed: (queries: readonly SavedQuery[]) => h.patch(ex.queries, savedRecord(queries)),
+        saved: () => h.read(ex.queries),
+        commits: async () => (await h.history(ex.queries)).commits.map((commit) => commit.mutation),
+        seedHistory: (queries: readonly SavedQuery[]) => h.patch(ex.historyQueries, savedRecord(queries)),
+        mountBuilder: (options: BuilderOptions = {}) => {
+            const opening = options.query === undefined ? {} : { query: options.query };
+            const builder = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+                const saved = $.let(Record.bind(ex.queries, [ex.queriesPatch]));
+                const orders = $.let(Data.bindPaged(ex.orders));
+                const customers = $.let(Data.bind(ex.customers));
+                return Query.Builder({ queries: saved, datasets: { orders, customers }, ...opening });
+            }))) };
+            return mountOver(builder, { drag: false, storageKey: "query-builder", ...paged(options), ...tokened(options.token) });
         },
-        release: async ({ newestFirst = false } = {}) => {
-            const answers = held.splice(0);
-            if (newestFirst) answers.reverse();
-            // Each answer settles before the next, so a later one never lands in the same render.
-            for (const resolve of answers) {
-                await act(async () => { resolve(); });
-                await settle();
+        mountHistory: (options: BuilderOptions = {}) => {
+            const opening = options.query === undefined ? {} : { query: options.query };
+            const builder = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+                const saved = $.let(Record.bind(ex.historyQueries, [ex.historyQueriesPatch]));
+                const history = $.let(Data.bindPaged(ex.historyTask));
+                const accounts = $.let(Data.bindPaged(ex.accountsTask));
+                const credit = $.let(Data.bindPaged(ex.creditTask));
+                const customers = $.let(Data.bind(ex.customers));
+                return Query.Builder({ queries: saved, datasets: { order_history: history, accounts, credit, customers }, ...opening });
+            }))) };
+            return mountOver(builder, { drag: false, storageKey: "query-history", ...paged(options), ...tokened(options.token) });
+        },
+        mountLibrary: (options: LibraryOptions = {}) => {
+            const named = options.id === undefined ? {} : { id: options.id };
+            const withBuilder = options.builder === true;
+            const library = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+                const saved = $.let(Record.bind(ex.queries, [ex.queriesPatch]));
+                const orders = $.let(Data.bindPaged(ex.orders));
+                const customers = $.let(Data.bind(ex.customers));
+                const told = $.let(State.bind([StringType], TOLD, "nothing"));
+                const onOpen = $.const(East.function([StringType], NullType, ($2, name) => { $2(told.write(name)); }));
+                const shelf = $.let(Query.Library({ queries: saved, datasets: { orders, customers }, onOpen, ...named }));
+                const said = $.let(Text.Root(East.str`told ${told.read()}`));
+                return withBuilder
+                    ? Stack.VStack([said, shelf, Query.Builder({ queries: saved, datasets: { orders, customers }, ...named })])
+                    : Stack.VStack([said, shelf]);
+            }))) };
+            return mountOver(library, { drag: options.drag === true, storageKey: "query-library" });
+        },
+        refuseRuns: () => h.e3.fail(isRun, { status: 500, type: "internal", message: "the test refused the run" }),
+        oneShots: () => h.requests("one-shot").map((request) => readOneShot(sent(request))),
+        oneShotResults: () => {
+            const answers = h.e3.answers(isRun);
+            return () => successes(readExecuted, answers);
+        },
+        splitCalls: () => h.requests("split").filter(isSplitLaunch).map((request) => readSplit(sent(request))),
+        explains: () => h.requests("split").filter(isExplain).map((request) => readSplit(sent(request))),
+        jobs: () => {
+            const answers = h.e3.answers((request) => isSplitLaunch(request) || isExplain(request));
+            return () => successes(readJob, answers).map((job) => job.id);
+        },
+        splitJobs: () => launched(isSplitLaunch),
+        explainJobs: () => launched(isExplain),
+        splitResults: () => {
+            const answers = h.e3.answers(isPoll());
+            return () => answers.flatMap((answer) => successes(readSplitStatus, [answer]).map((status) => ({ job: answer.request.name!, status })));
+        },
+        jobEnded: async (job: string) => {
+            for (;;) {
+                const status = await splitCallStatus(h.e3.apiUrl, h.e3.repo, h.workspace, job, h.e3.direct);
+                if (status.type !== "processing") return;
+                await new Promise<void>((resolve) => { setTimeout(resolve, 20); });
             }
         },
-    };
-}
-
-/** What the fixture's datasets weigh, by name, when a test weighs them as more than their bytes. */
-export interface FixtureWeights {
-    /** What the orders weigh, in bytes. */
-    readonly orders?: number;
-    /** What the customers weigh, in bytes. */
-    readonly customers?: number;
-}
-
-/**
- * The fixture's orders and customers as datasets in memory, each pinned at
- * its hash in {@link HASHES}, and weighed as given: its beast2 bytes' length
- * otherwise.
- *
- * @param weights - What each weighs, by name
- * @returns The datasets
- */
-export function fixtureDatasets(weights: FixtureWeights = {}): InMemoryDataset[] {
-    const fixture = FIXTURE_VALUE as Readonly<Record<string, unknown>>;
-    return [
-        { path: ORDERS, type: OrdersType, value: fixture["orders"], hash: HASHES.get("orders")!, ...(weights.orders === undefined ? {} : { bytes: weights.orders }) },
-        { path: CUSTOMERS, type: CustomersType, value: fixture["customers"], hash: HASHES.get("customers")!, ...(weights.customers === undefined ? {} : { bytes: weights.customers }) },
-    ];
-}
-
-/**
- * The fixture's data sources' statuses, answered in memory: each one's rows,
- * hash and weight (#941).
- *
- * @param weights - What each weighs, by name, when not its bytes
- * @returns The status
- */
-export function fixtureStatus(weights: FixtureWeights = {}): QuerySourceStatus {
-    return createInMemorySourceStatus(fixtureDatasets(weights));
-}
-
-/** A split call answered here, and what it was asked. */
-export interface FixtureSplit {
-    /** The call. */
-    readonly split: QuerySplitCall;
-    /** Each request, in order. */
-    readonly requests: SplitCallRequest[];
-    /** Each request's signal, in order: an abandoned run's is aborted. */
-    readonly signals: AbortSignal[];
-    /** Each answer's result, in the order the requests were made. */
-    readonly answers: ExecuteResult[];
-    /** Each answer's assembled output's hash, in the order the requests were made. */
-    readonly outputs: (string | null)[];
-    /** Answers the calls held so far, in the order they were made. */
-    readonly release: () => Promise<void>;
-    /** Its explain (#1132): the in-memory call's, which counts the pieces it cuts. */
-    readonly explain: QuerySplitExplain;
-    /** Each request explained, in order. */
-    readonly explained: SplitCallRequest[];
-    /** Each explain's signal, in order: an abandoned run's is aborted. */
-    readonly explainSignals: AbortSignal[];
-    /** Answers the explains held so far, in the order they were made. */
-    readonly releaseExplains: () => Promise<void>;
-}
-
-/** Answers held promises, in the order they were made, each settling before the next. */
-async function releaseAll(held: (() => void)[]): Promise<void> {
-    for (const resolve of held.splice(0)) {
-        await act(async () => { resolve(); });
-        await settle();
-    }
-}
-
-/**
- * A split call answered here, as e3 answers it (#941): the in-memory split
- * call (`createInMemorySplitCall`) over the fixture's orders and customers,
- * the partitioned one cut into `pieces`, recording each request, its signal
- * and its answer — a re-keyed join's two calls among them (#942), the second
- * reading the first's output by its hash — and its explain, recording each
- * request it explains and its signal (#1132).
- *
- * @param options - `pieces`: how many pieces; `hold`: each call reports half
- *   its pieces done and waits for `release()`, so a test sees it going;
- *   `quiet`: each call reports no progress, as a job that ended between two
- *   polls, or that e3's cache served whole; `holdExplain`: each explain waits
- *   for `releaseExplains()`
- * @returns the call, its requests, signals and answers, and `release`; its
- *   explain, what it explained and its signals, and `releaseExplains`
- */
-export function fixtureSplit(options: { pieces: number; hold?: boolean; quiet?: boolean; holdExplain?: boolean }): FixtureSplit {
-    const requests: SplitCallRequest[] = [];
-    const signals: AbortSignal[] = [];
-    const answers: ExecuteResult[] = [];
-    const outputs: (string | null)[] = [];
-    const held: (() => void)[] = [];
-    const explained: SplitCallRequest[] = [];
-    const explainSignals: AbortSignal[] = [];
-    const heldExplains: (() => void)[] = [];
-    const memory = createInMemorySplitCall(fixtureDatasets(), { pieces: options.pieces });
-    return {
-        requests,
-        signals,
-        answers,
-        outputs,
-        split: async (request: SplitCallRequest, callOptions: QuerySplitCallOptions) => {
-            requests.push(request);
-            signals.push(callOptions.signal);
-            const index = requests.length - 1;
-            const told = options.quiet === true ? { ...callOptions, onProgress: () => {} } : callOptions;
-            if (options.hold === true) {
-                told.onProgress({ phase: variant("partition", null), done: BigInt(Math.floor(options.pieces / 2)), units: BigInt(options.pieces) });
-                await new Promise<void>(resolve => { held.push(resolve); });
-            }
-            const answer = await memory(request, told);
-            answers[index] = answer.result;
-            outputs[index] = answer.output;
-            return answer;
-        },
-        release: () => releaseAll(held),
-        explain: async (request, explainOptions) => {
-            explained.push(request);
-            explainSignals.push(explainOptions.signal);
-            if (options.holdExplain === true) await new Promise<void>(resolve => { heldExplains.push(resolve); });
-            return memory.explain(request, explainOptions);
-        },
-        explained,
-        explainSignals,
-        releaseExplains: () => releaseAll(heldExplains),
-    };
+        statusOf: (dataset: E3Dataset) => datasetGetStatus(h.e3.apiUrl, h.e3.repo, h.workspace, dataset.path, h.e3.direct),
+        oneShot: (request: OneShotRequest) => oneShotExecute(h.e3.apiUrl, h.e3.repo, h.workspace, request, h.e3.direct),
+        explain: (request: SplitCallRequest) => splitCallExplain(h.e3.apiUrl, h.e3.repo, h.workspace, request, h.e3.direct),
+    });
 }

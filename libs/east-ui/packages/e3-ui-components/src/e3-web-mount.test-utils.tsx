@@ -10,7 +10,9 @@
  * installs the runtimes `Data.bind`, `Data.bindPaged`, `Func.bind` and
  * `Record.bind` resolve through, what the example reads whole (its manifest's
  * paths) loaded before it renders, as the showcase's gate and a UI task's
- * preview load it.
+ * preview load it — and under the showcase's plan options, so a query run over
+ * a dataset of more than e3's smallest piece here is a split call
+ * (`QueryPlanOptionsProvider`, {@link EXAMPLES_PIECE_MIN}).
  *
  * {@link e3Harness} gives a file its e3 — started once, a workspace of its own
  * per test — and each test a run of its own (`test-runs.test-utils.ts`).
@@ -38,8 +40,10 @@ import {
 } from "./platform/index.js";
 import type { RecordHistoryResult } from "@elaraai/e3-api-client";
 import {
-    patchRecord, readDataset, recordHistory, runDataflow, startTestE3, writeDataset, type E3Dataset, type E3Record, type E3Request, type TestE3,
+    EXAMPLES_PIECE_MIN, patchRecord, readDataset, recordHistory, runDataflow, startTestE3, writeDataset,
+    type E3Dataset, type E3Record, type E3Request, type TestE3,
 } from "./e3-web.test-utils.js";
+import { QueryPlanOptionsProvider } from "./query/hooks.js";
 import { act, isolateRuns } from "./test-runs.test-utils.js";
 
 export { act };
@@ -109,6 +113,13 @@ export interface MountOptions {
     readonly drag?: boolean;
     /** What the page holds the surface in, inside the theme: a locale (`I18nProvider`), say. Nothing unless given. */
     readonly wrap?: (surface: ReactNode) => ReactNode;
+    /**
+     * What the host holds the example in, inside e3's providers once what it reads has loaded: its own calls,
+     * or plan options of its own, say — the nearest of a kind is the one the example takes. Nothing unless given.
+     */
+    readonly host?: (example: ReactNode) => ReactNode;
+    /** The token its `E3Provider` gives e3 with every request; none unless given. */
+    readonly token?: string;
 }
 
 /** How {@link e3Harness} lays out what jsdom cannot. */
@@ -318,14 +329,17 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         get workspace() { return workspace(); },
         async mount(example, mountOptions = {}) {
             const ws = mountOptions.workspace ?? workspace();
+            const view = mountOptions.view ?? <Program example={example} program={mountOptions.program} storageKey={mountOptions.storageKey ?? "builder-test"} />;
             const surface = (
-                <E3Provider config={{ apiUrl: e3().apiUrl, fetch: e3().fetch, repo: e3().repo, workspace: ws, token: null }}>
-                    <ReactiveDatasetProvider>
-                        <ExampleReads example={example} workspace={ws}>
-                            {mountOptions.view ?? <Program example={example} program={mountOptions.program} storageKey={mountOptions.storageKey ?? "builder-test"} />}
-                        </ExampleReads>
-                    </ReactiveDatasetProvider>
-                </E3Provider>
+                <QueryPlanOptionsProvider pieceBytes={EXAMPLES_PIECE_MIN}>
+                    <E3Provider config={{ apiUrl: e3().apiUrl, fetch: e3().fetch, repo: e3().repo, workspace: ws, token: mountOptions.token ?? null }}>
+                        <ReactiveDatasetProvider>
+                            <ExampleReads example={example} workspace={ws}>
+                                {mountOptions.host === undefined ? view : mountOptions.host(view)}
+                            </ExampleReads>
+                        </ReactiveDatasetProvider>
+                    </E3Provider>
+                </QueryPlanOptionsProvider>
             );
             const page = mountOptions.drag === false ? surface : <DragLayerProvider>{surface}</DragLayerProvider>;
             const mounted = render(<ChakraProvider value={system}>{mountOptions.wrap === undefined ? page : mountOptions.wrap(page)}</ChakraProvider>);
@@ -415,12 +429,14 @@ export function E3Surface({ children }: { children: ReactNode }) {
     const workspace = current?.workspace;
     if (e3 === undefined || workspace === undefined) throw new Error("E3Surface renders under a file's e3Harness, inside a test");
     return (
-        <E3Provider config={{ apiUrl: e3.apiUrl, fetch: e3.fetch, repo: e3.repo, workspace, token: null }}>
-            <ReactiveDatasetProvider>
-                <PolledReads datasets={NO_READS} />
-                {children}
-            </ReactiveDatasetProvider>
-        </E3Provider>
+        <QueryPlanOptionsProvider pieceBytes={EXAMPLES_PIECE_MIN}>
+            <E3Provider config={{ apiUrl: e3.apiUrl, fetch: e3.fetch, repo: e3.repo, workspace, token: null }}>
+                <ReactiveDatasetProvider>
+                    <PolledReads datasets={NO_READS} />
+                    {children}
+                </ReactiveDatasetProvider>
+            </E3Provider>
+        </QueryPlanOptionsProvider>
     );
 }
 

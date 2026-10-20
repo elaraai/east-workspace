@@ -5,9 +5,9 @@
  * @vitest-environment jsdom
  *
  * `<Query.Builder>`'s surfaces (#936, `Query Editor Spec.md` §7 B1–B8, U1,
- * U2), rendered through its carrier over a saved queries record in memory —
- * the shared fixture's default query among them — with a one-shot call that
- * never reaches a server:
+ * U2), rendered through its carrier over the saved queries record on e3
+ * (#1376) — the shared fixture's default query among them — each run refused
+ * at the harness's fetch, so none gives a result:
  *
  * - **B1–B8**: the one toolbar and its fold; the pane, its tabs and its rail;
  *   the Query tab's parts — the source, the step cards and their rows, the
@@ -28,15 +28,15 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { East, JqType, PatchType, checkJq, encodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { JqType, SortedMap, checkJq, equalFor, none, some, variant } from "@elaraai/east";
 import { system } from "@elaraai/east-ui-components";
 import { faIcons } from "@elaraai/east-ui-components/testing";
 import { Query } from "@elaraai/e3-ui/internal";
-import {
-    act, RECORD, ROOT, WORKSPACE, commits as committed, mountBuilder, offlineCall, openQuery, press, readRecord as recordOf, recordHarness, savedQuery,
-    savedRecord, settle, type RecordHarness,
-} from "./query.test-utils.js";
+import * as ex from "@elaraai/e3-ui/examples/query/query";
+import { ROOT, keys, savedQuery, type Saved } from "./fixture.test-utils.js";
+import { act, isRun, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
+import type { SavedQuery } from "./session.js";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_PROGRAM = [
@@ -54,15 +54,25 @@ const COUNT = savedQuery("Order count", ".orders | length");
 const programEqual = equalFor(JqType);
 const savedEqual = equalFor(Query.Types.SavedQuery);
 
-let harness: RecordHarness;
+const h = queryHarness();
 
-beforeEach(() => {
-    harness = recordHarness(savedRecord([TOP, BIG, COUNT]));
+/** The saved queries' commits once the test's own were made: what a save adds to. */
+let before: string[] = [];
+
+beforeEach(async () => {
+    await h.seed([TOP, BIG, COUNT]);
+    before = await h.commits();
 });
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
+
+/** Mounts the builder with every run refused, so none gives a result. */
+async function mount() {
+    h.refuseRuns();
+    return h.mountBuilder();
+}
+
+/** The saved queries record with another operator's save of Big orders in it: what that save leaves. */
+const withOther = (other: SavedQuery) => (now: Saved): Saved =>
+    new SortedMap([...now].map(([name, query]): [string, SavedQuery] => [name, name === BIG.name ? other : query]), keys);
 
 // ─── What the builder shows ──────────────────────────────────────────────────
 
@@ -135,8 +145,8 @@ function statusOf(container: HTMLElement) {
     };
 }
 
-/** A saved query's program, as the record holds it. */
-const savedProgramOf = (name: string) => recordOf(harness).get(name)!.program;
+/** A saved query's program, as e3 holds the record now. */
+const savedProgramOf = async (name: string) => (await h.saved()).get(name)!.program;
 
 /** The pane's rail, while it is collapsed: its icon, its badge and its name. */
 const railOf = (container: HTMLElement) => builderOf(container).querySelector<HTMLElement>("[data-collapsed] [title=Query]")!;
@@ -154,7 +164,7 @@ const viewButton = (name: "Visual" | "jq") => within(screen.getByRole("group", {
 
 describe("<Query.Builder> — the toolbar, the pane, the Query tab and the status line (#936)", () => {
     test("B1: the one toolbar — the history item, Copy jq, Save… and Run with its keys at its end; Visual · jq in the Query tab's band; Table · Tree and Download ▾ in the results'", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", TOP.name));
         const items = [...builderOf(container).querySelector<HTMLElement>("[data-frame-slot=toolbar]")!.querySelectorAll<HTMLElement>("[data-toolbar-item]")];
         expect(items.map((el) => [el.getAttribute("data-toolbar-item"), el.hasAttribute("data-toolbar-end")])).toEqual([
@@ -176,14 +186,14 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
     });
 
     test("B2: the toolbar folds on one ladder — Run's keys, Copy jq to its icon, then Copy jq and Save… into the ⋯ chip in one move (#1229), then the history item; the results' band, Download to its icon, then Table · Tree to its icons", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         expect(builderOf(container).querySelector("[data-frame-slot=toolbar] [data-toolbar]")!.getAttribute("data-toolbar-ladder"))
             .toBe("run>1 copy>1 copy>2 save>1 more>1 history>1");
         expect(container.querySelector("[data-query-results-bar] [data-toolbar]")!.getAttribute("data-toolbar-ladder")).toBe("download>1 result-view>1");
     });
 
     test("B3: the pane — Query, Datasets and Library; collapsed, its rail counts the steps; one width in either view", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", TOP.name));
         expect(screen.getAllByRole("tab").map((tab) => [tab.textContent, tab.getAttribute("aria-selected")])).toEqual([
             ["Query", "true"], ["Datasets", "false"], ["Library", "false"],
@@ -202,10 +212,11 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
     });
 
     test("B4: the Query tab over the default query — the source, five cards with their numbers, titles and rows, the shape lines, and the foot", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", TOP.name));
+        // The source's line names it in the workspace the builder reads it in.
         const source = container.querySelector<HTMLElement>("[data-query-source]")!;
-        expect(source.textContent).toBe("Start with ordersorders · list of orders");
+        expect(source.textContent).toBe(`Start with orders${h.workspace}.orders · list of orders`);
         const cards = cardsOf(container);
         expect(cards.map((card) => [card.querySelector("span")!.textContent, titleOf(card)])).toEqual([
             ["1", "Keep rows where"], ["2", "Look up from another dataset"], ["3", "Show only these fields"], ["4", "Sort"], ["5", "Keep the first"],
@@ -237,7 +248,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
     });
 
     test("B5: an unfinished step is dashed and says so; its empty slot is dashed with its placeholder; a step added opens its first empty slot", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await quickAdd("Sort by");
         const card = cardsOf(container)[1]!;
@@ -250,7 +261,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
     });
 
     test("B6: the status line — the check and the shape the query gives; the save state and the name", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         expect(statusOf(container)).toEqual({ check: ["success", "Checks clean"], gives: "Gives many orders", save: ["new", "Not saved", "Untitled orders query"] });
         await openQuery(variant("saved", TOP.name));
         expect(statusOf(container)).toEqual({ check: ["success", "Checks clean"], gives: "Gives up to 10 orders", save: ["saved", "Saved", "Top shipped orders, 2026"] });
@@ -260,7 +271,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
     });
 
     test("B7: the save popover — Save query · its name, the name offered, the generated description muted with its hint; edited, its count and Use generated", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await act(async () => { fireEvent.click(container.querySelector("[data-query-save-open]")!); });
         await settle();
@@ -288,7 +299,7 @@ describe("<Query.Builder> — the toolbar, the pane, the Query tab and the statu
 
 describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", () => {
     test("a condition built by clicks: Keep rows opens its field; a field opens its value; the comparison's own offers; each pick one gesture", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await quickAdd("Keep rows");
         expect(popoverLabel()).toBe("Field");
@@ -308,8 +319,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
     });
 
     test("the autocomplete's keys: ↓ ↑ move and wrap, Esc closes, Tab and ⏎ pick, typing offers the value typed; ⌘⏎ anywhere runs", async () => {
-        const offline = offlineCall();
-        const { container } = await mountBuilder(offline.call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         const card = cardsOf(container)[0]!;
         await openSlot(card, "is at least");
@@ -332,7 +342,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         await openSlot(cardsOf(container)[0]!, "1000");
         // Opening the query ran it (#938), under the server's time limit (#1131); a value slot reads the summary of its rows:
         // one one-shot call more, with a summary's limits.
-        expect(offline.requests.map((r) => r.limits)).toEqual([
+        expect(h.oneShots().map((r) => r.limits)).toEqual([
             some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }),
             some({ timeoutMs: some(5_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
         ]);
@@ -344,7 +354,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
         // ⌘⏎ — not a pick — runs the query, from anywhere in the builder: one one-shot call more, with a run's limits.
         await act(async () => { fireEvent.keyDown(cardsOf(container)[0]!, { key: "Enter", metaKey: true }); });
         await settle();
-        expect(offline.requests.map((r) => r.limits)).toEqual([
+        expect(h.oneShots().map((r) => r.limits)).toEqual([
             some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }),
             some({ timeoutMs: some(5_000n), maxResultBytes: some(1_048_576n), maxLogBytes: none }),
             some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none }),
@@ -353,7 +363,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
     });
 
     test("a fix: a payload's field read before the rows are narrowed says so, and Keep only shipped orders first narrows them", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await openSlot(cardsOf(container)[0]!, "total");
         await pick("shipped date");
@@ -377,7 +387,7 @@ describe("<Query.Builder> — chaining, keys, fixes and the history (#936 U1)", 
     });
 
     test("the history: a pick, undone and redone by the history item; Discard returns to the saved query", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await openSlot(cardsOf(container)[0]!, "is at least");
         await pick("is more than");
@@ -407,7 +417,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
     }
 
     test("to jq prints the program, and back to visual leaves the steps as they were", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await act(async () => { fireEvent.click(viewButton("jq")); });
         await settle();
@@ -419,7 +429,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
     });
 
     test("the jq view says what it leaves out; jq it cannot read as steps stays jq, said; parts that are not steps stay jq steps, with a notice", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await quickAdd("Sort by");
         await act(async () => { fireEvent.click(viewButton("jq")); });
@@ -449,8 +459,9 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
     test("Copy jq copies the program — in the jq view, the jq as typed — and shows its check for a moment; Run says Running while its call goes", async () => {
         const copied: string[] = [];
         Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
-        let answer: (() => void) | undefined;
-        const { container } = await mountBuilder(() => new Promise((_resolve, reject) => { answer = () => reject(new Error("offline")); }));
+        // Each run's call is held on its way to e3, so the builder is seen while it goes.
+        const runs = h.e3.hold(isRun);
+        const { container } = await h.mountBuilder();
         try {
             await openQuery(variant("saved", BIG.name));
             const copy = () => container.querySelector<HTMLElement>("[data-query-copy]")!;
@@ -471,7 +482,8 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
             await settle();
             const run = container.querySelector<HTMLElement>("[data-query-run]")!;
             expect([run.hasAttribute("data-loading"), run.textContent]).toEqual([true, "Running"]);
-            await act(async () => { answer!(); });
+            // e3 answers: the run that opened the query, which this one abandoned, and this one.
+            await act(async () => { runs.release(); });
             await settle();
             expect([container.querySelector("[data-query-run]")!.hasAttribute("data-loading"), container.querySelector("[data-query-run]")!.textContent]).toEqual([false, "Run⌘⏎"]);
         } finally {
@@ -481,7 +493,7 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
     });
 
     test("Save… saves the open query as one patch of its entry, under its name, with its description", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await quickAdd("Keep the first");
         await act(async () => { fireEvent.click(container.querySelector("[data-query-save-open]")!); });
@@ -490,8 +502,8 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await act(async () => { fireEvent.change(dialog.getByRole("textbox", { name: "What the query answers, in one sentence" }), { target: { value: "The first ten big orders." } }); });
         await press("Save", screen.getByRole("dialog"));
         await closed();
-        expect(await committed(harness)).toEqual(["patch", "$init"]);
-        const saved = recordOf(harness).get("Big orders")!;
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        const saved = (await h.saved()).get("Big orders")!;
         expect(programEqual(saved.program, checkJq(".orders\n| map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
         expect(saved.description).toEqual(some("The first ten big orders."));
         expect(statusOf(container).save).toEqual(["saved", "Saved", "Big orders"]);
@@ -499,42 +511,38 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
     });
 
     test("the history item's Save: from its click until the record reads back, the steps are the drafts it saves — never the query as it stood before them", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await quickAdd("Keep the first");
         const steps = () => cardsOf(container).map(titleOf);
         const drafted = ["Keep rows where", "Keep the first"];
         expect(steps()).toEqual(drafted);
-        // The record takes the save only once released, so the builder is seen while the save goes.
-        const forward = harness.memory.mutate.bind(harness.memory);
-        let release = (): void => { throw new Error("the save never reached the record"); };
-        harness.memory.mutate = async (ws, record, mutation, request) => {
-            await new Promise<void>((resolve) => { release = resolve; });
-            return forward(ws, record, mutation, request);
-        };
+        // e3 takes the save only once the hold lets it go, so the builder is seen while the save goes.
+        const saving = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.queries.name);
         await press("Save", builderOf(container).querySelector<HTMLElement>("[data-slot=history]")!);
+        await saving.holding;
         expect([steps(), statusOf(container).save[0]]).toEqual([drafted, "unsaved"]);
-        await act(async () => { release(); });
+        await act(async () => { saving.release(); });
         await settle();
-        expect(await committed(harness)).toEqual(["patch", "$init"]);
+        expect(await h.commits()).toEqual(["patch", ...before]);
         expect([steps(), statusOf(container).save[0]]).toEqual([drafted, "saved"]);
     });
 
     test("a rename: saved under a new name, the query moves to it, and the builder opens it", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await act(async () => { fireEvent.click(container.querySelector("[data-query-save-open]")!); });
         await settle();
         await act(async () => { fireEvent.change(screen.getByRole("textbox", { name: "Query name" }), { target: { value: "Large orders" } }); });
         await press("Save", screen.getByRole("dialog"));
-        expect(await committed(harness)).toEqual(["patch", "$init"]);
-        expect([...recordOf(harness).keys()]).toEqual(["Large orders", "Order count", "Top shipped orders, 2026"]);
-        expect(programEqual(savedProgramOf("Large orders"), BIG.program)).toBe(true);
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        expect([...(await h.saved()).keys()]).toEqual(["Large orders", "Order count", "Top shipped orders, 2026"]);
+        expect(programEqual(await savedProgramOf("Large orders"), BIG.program)).toBe(true);
         expect(builderOf(container).getAttribute("data-query-open")).toBe(`query.saved:"Large orders"`);
     });
 
     test("a name another saved query holds is refused in the popover; a stale entry's save is refused there, and the other save stands", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await quickAdd("Keep the first");
         await act(async () => { fireEvent.click(container.querySelector("[data-query-save-open]")!); });
@@ -545,50 +553,43 @@ describe("<Query.Builder> — Visual · jq and saving (#936 U2)", () => {
         await act(async () => { fireEvent.change(name, { target: { value: "Big orders" } }); });
         // Another operator's save of the query lands between this save's read and its commit.
         const other = { ...BIG, description: some("Orders of 1,000 or more."), saved_at: new Date(Date.UTC(2026, 9, 1, 8, 0)) };
-        const patch = East.compile(Query.save, [])(savedRecord([TOP, BIG, COUNT]), some(BIG.name), other);
-        const forward = harness.memory.mutate.bind(harness.memory);
-        let raced = false;
-        harness.memory.mutate = async (ws, record, mutation, request) => {
-            if (!raced) {
-                raced = true;
-                await forward(ws, record, mutation, { args: [encodeBeast2For(PatchType(Query.Types.Saved))(patch)] });
-            }
-            return forward(ws, record, mutation, request);
-        };
-        await press("Save", screen.getByRole("dialog"));
+        await h.race(ex.queries, () => {
+            const save = saveIn();
+            fireEvent.mouseDown(save, { button: 0 });
+            fireEvent.click(save);
+        }, withOther(other));
         expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe(
-            "Big orders changed since this edit began — last changed by memory. Discard your changes to see it, or save under another name.",
+            "Big orders changed since this edit began — last changed by another session. Discard your changes to see it, or save under another name.",
         );
-        expect(savedEqual(recordOf(harness).get(BIG.name)!, other)).toBe(true);
+        expect(savedEqual((await h.saved()).get(BIG.name)!, other)).toBe(true);
     });
 
     test("drafts gone stale under another save of the query are not saved: the popover says why, and the other save stands", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await quickAdd("Keep the first");
         // Another operator's save of the query lands while these drafts stand.
         const other = { ...BIG, description: some("Orders of 1,000 or more."), saved_at: new Date(Date.UTC(2026, 9, 1, 8, 0)) };
-        const patch = East.compile(Query.save, [])(savedRecord([TOP, BIG, COUNT]), some(BIG.name), other);
-        await act(async () => { await harness.memory.mutate(WORKSPACE, RECORD, "patch", { args: [encodeBeast2For(PatchType(Query.Types.Saved))(patch)] }); });
-        await settle();
+        await h.patch(ex.queries, withOther(other)(await h.saved()));
         await act(async () => { fireEvent.click(container.querySelector("[data-query-save-open]")!); });
         await settle();
         await press("Save", screen.getByRole("dialog"));
         expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe("Source changed — review or discard these drafts");
-        expect(await committed(harness)).toEqual(["patch", "$init"]);
-        expect(savedEqual(recordOf(harness).get(BIG.name)!, other)).toBe(true);
+        // The other session's save, and nothing of these drafts'.
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        expect(savedEqual((await h.saved()).get(BIG.name)!, other)).toBe(true);
     });
 
     test("a new query's Apply opens the save popover to name it, and its save opens the saved query", async () => {
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await quickAdd("Keep the first");
         await press("Save", builderOf(container).querySelector<HTMLElement>("[data-slot=history]")!);
         const dialog = within(screen.getByRole("dialog"));
         expect(dialog.getByText("Save query ·").textContent).toBe("Save query · Untitled orders query");
         await act(async () => { fireEvent.change(dialog.getByRole("textbox", { name: "Query name" }), { target: { value: "First ten orders" } }); });
         await press("Save", screen.getByRole("dialog"));
-        expect(await committed(harness)).toEqual(["patch", "$init"]);
-        expect(programEqual(savedProgramOf("First ten orders"), checkJq(".orders\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        expect(programEqual(await savedProgramOf("First ten orders"), checkJq(".orders\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
         expect(builderOf(container).getAttribute("data-query-open")).toBe(`query.saved:"First ten orders"`);
         expect(statusOf(container).save).toEqual(["saved", "Saved", "First ten orders"]);
     });
@@ -696,7 +697,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
 
     test("one ladder: Run's keys, Copy jq to its icon, then Copy jq and Save… into the ⋯ chip in one move, the history item last — each configuration holding in the row it needs", async () => {
         row.px = 4000;
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         expect(bar(container).getAttribute("data-toolbar-ladder")).toBe("run>1 copy>1 copy>2 save>1 more>1 history>1");
         let forms = new Map([["history", 0], ["copy", 0], ["save", 0], ["more", 0], ["run", 0]]);
         expect(stateOf(container)).toEqual(forms);
@@ -722,7 +723,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
         try {
             row.px = 1;
-            const { container } = await mountBuilder(offlineCall().call);
+            const { container } = await mount();
             await openQuery(variant("saved", BIG.name));
             const chip = chipOf(container)!;
             await openMenu(chip);
@@ -741,7 +742,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
         try {
             row.px = 1;
-            const { container } = await mountBuilder(offlineCall().call);
+            const { container } = await mount();
             await openQuery(variant("saved", BIG.name));
             await act(async () => { fireEvent.click(viewButton("jq")); });
             await settle();
@@ -756,7 +757,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
 
     test("the ⋯ chip's Save… opens the save popover hung from the chip: its save is the query's one patch, and the focus is back on the chip", async () => {
         row.px = 1;
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openQuery(variant("saved", BIG.name));
         await quickAdd("Keep the first");
         await openMenu(chipOf(container)!);
@@ -769,8 +770,8 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         await act(async () => { fireEvent.change(dialog.getByRole("textbox", { name: "What the query answers, in one sentence" }), { target: { value: "The first ten big orders." } }); });
         await press("Save", screen.getByRole("dialog"));
         await closed();
-        expect(await committed(harness)).toEqual(["patch", "$init"]);
-        const saved = recordOf(harness).get("Big orders")!;
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        const saved = (await h.saved()).get("Big orders")!;
         expect(programEqual(saved.program, checkJq(".orders\n| map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).program!)).toBe(true);
         expect(saved.description).toEqual(some("The first ten big orders."));
         await waitFor(() => expect(document.activeElement).toBe(chipOf(container)));
@@ -778,7 +779,7 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
 
     test("while the save popover hangs from the ⋯ chip, the chip and what folded into it keep their forms as the row widens — Run and the history item unfold around it; closed, the row unfolds", async () => {
         row.px = 1;
-        const { container } = await mountBuilder(offlineCall().call);
+        const { container } = await mount();
         await openMenu(chipOf(container)!);
         await pick(chipOf(container)!, "Save…");
         await frames();
@@ -788,6 +789,6 @@ describe("<Query.Builder> — the toolbar on a row short of room (#1229)", () =>
         await act(async () => { fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" })); });
         await closed();
         await waitFor(() => expect(stateOf(container)).toEqual(new Map([["history", 0], ["copy", 0], ["save", 0], ["more", 0], ["run", 0]])));
-        expect(await committed(harness)).toEqual(["$init"]);
+        expect(await h.commits()).toEqual(before);
     });
 });

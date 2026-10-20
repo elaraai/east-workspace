@@ -20,10 +20,16 @@
  *   indexes and task outputs with it, so nothing runs again and no test sees
  *   another's writes.
  * - **Every request** goes through {@link TestE3.fetch}: it is logged
- *   ({@link E3Request}: what it asks, of which dataset or record), counted in
- *   flight, and held or failed where the test says ({@link TestE3.hold},
- *   {@link TestE3.fail}) — a fault at the network's boundary, over e3's real
- *   answer to everything else.
+ *   ({@link E3Request}: what it asks, of which dataset or record, and what it
+ *   sent), counted in flight, and held or failed where the test says
+ *   ({@link TestE3.hold}, {@link TestE3.fail}) — a fault at the network's
+ *   boundary, over e3's real answer to everything else — and its answer kept
+ *   where the test asks ({@link TestE3.answers}).
+ * - **Every unit** e3 runs — a task, a piece of a split call, a one-shot — runs
+ *   in this thread (`inProcessUnits`), and may be held before it starts
+ *   ({@link TestE3.holdUnits}): a split call caught with some of its pieces
+ *   run. e3 cuts a split task's pieces as the showcase's does
+ *   ({@link EXAMPLES_PIECE_BYTES}).
  * - **Another session's changes** go in through e3's API:
  *   {@link patchRecord}, {@link writeDataset}; what e3 holds is read back
  *   through it ({@link readDataset}). These are the test's own requests
@@ -42,7 +48,7 @@ import {
 } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { exampleModule, examplesPackageZip } from "@elaraai/e3-ui/examples-package";
-import { createWebE3, inProcessUnits, type WebE3 } from "@elaraai/e3-web";
+import { createWebE3, inProcessUnits, type HostMessage, type UnitWorker, type WebE3, type WorkerMessage } from "@elaraai/e3-web";
 import { serveE3 } from "@elaraai/e3-web/worker";
 
 /** The repository the package is imported into. */
@@ -50,6 +56,21 @@ export const TEST_REPO = "default";
 
 /** The workspace the package is deployed to, which each test's workspace copies. */
 const DEPLOYED = "deployed";
+
+/**
+ * The size e3 cuts a split task's pieces at here, in stored bytes: the
+ * showcase's (`east-ui-showcase/showcase-pieces.ts`, its e3 worker's
+ * `pieceBytes`), so a query over the examples' generated order history —
+ * megabytes — runs as a split call over its pieces here as there.
+ */
+export const EXAMPLES_PIECE_BYTES = 64 * 1024;
+
+/**
+ * The smallest piece e3 cuts here: a quarter of {@link EXAMPLES_PIECE_BYTES}.
+ * The query builder plans a run over a dataset that weighs more as a split
+ * call, as the showcase's `QueryPlanOptionsProvider` tells it.
+ */
+export const EXAMPLES_PIECE_MIN = EXAMPLES_PIECE_BYTES / 4;
 
 /** What a request asks e3. */
 export type E3RequestKind =
@@ -73,8 +94,10 @@ export type E3RequestKind =
     | "compact"
     /** A named function called, or described. */
     | "call"
-    /** A one-shot or split call. */
+    /** A one-shot call. */
     | "one-shot"
+    /** A split call launched, or explained (`explain=1`); or its job polled, the job's id its `name`. */
+    | "split"
     /** A workspace's status. */
     | "status"
     /** A dataflow run started, polled or cancelled. */
@@ -96,7 +119,7 @@ export interface E3Request {
     readonly dataset: string | undefined;
     /** The record it names (`jobs`), for a record's route; a record's dataset route names it as `dataset`. */
     readonly record: string | undefined;
-    /** The mutation or function it names, for a mutation's or a call's route. */
+    /** The mutation or function it names, for a mutation's or a call's route; the job's id, for a split call's poll. */
     readonly name: string | undefined;
     /** Its query. */
     readonly query: URLSearchParams;
@@ -104,6 +127,22 @@ export interface E3Request {
     readonly path: string;
     /** The key a retry repeats so it cannot apply twice (`Idempotency-Key`), when it sends one. */
     readonly idempotencyKey: string | undefined;
+    /** The credentials it carries (`Authorization`), when it carries any. */
+    readonly authorization: string | undefined;
+    /** What it sent, when it sent its body whole — every body e3's client sends; a request's body is decoded by its route's type. */
+    readonly body: Uint8Array | undefined;
+    /** Its signal: aborted once its caller gave it up. */
+    readonly signal: AbortSignal;
+}
+
+/** e3's answer to a request, as {@link TestE3.answers} keeps it. */
+export interface E3Answer {
+    /** The request it answers. */
+    readonly request: E3Request;
+    /** Its HTTP status. */
+    readonly status: number;
+    /** Its body: beast2 of the route's response type, or the JSON of a failure. */
+    readonly body: Uint8Array;
 }
 
 /** Which requests a hold or a fault takes. */
@@ -117,7 +156,25 @@ export interface E3Hold {
     readonly holding: Promise<void>;
     /** Lets the request it has held longest go on to e3; it holds the others, and those still to come. */
     releaseOne(): void;
+    /** Lets the request it has held the shortest go on to e3, as a slow answer's overtaker; it holds the others, and those still to come. */
+    releaseLast(): void;
     /** Lets every request it holds go on to e3, and holds no more. */
+    release(): void;
+}
+
+/** Units e3 runs, held before they start until the test lets them go. */
+export interface E3UnitHold {
+    /** How many units it holds now. */
+    readonly held: number;
+    /** Settles once it holds a unit. */
+    readonly holding: Promise<void>;
+    /**
+     * Lets the unit it has held longest start — once it holds one — and
+     * settles once that unit has run; it holds the others, and those still to
+     * come.
+     */
+    releaseOne(): Promise<void>;
+    /** Lets every unit it holds start, and holds no more. */
     release(): void;
 }
 
@@ -156,6 +213,17 @@ export interface TestE3 {
     /** Answers each request it matches as e3 answers a failure, from now until the returned function stops it. */
     fail(match: E3Match, failure?: E3Failure): () => void;
     /**
+     * Keeps the answer to each request it matches, from now until the test
+     * ends: e3's, or the failure a fault answered with. A request that never
+     * had one — lost, given up, failed as a network fails — has none.
+     *
+     * @param match - The requests whose answers it keeps
+     * @returns Their answers, in the order they came, as they come
+     */
+    answers(match: E3Match): readonly E3Answer[];
+    /** Holds each unit e3 starts from now — a task, a piece, a one-shot — before it runs, until released. */
+    holdUnits(): E3UnitHold;
+    /**
      * Counts the test's own work as a request in flight until it settles, so
      * {@link idle} waits for it: another session's write that a held request
      * waits on, say.
@@ -164,7 +232,7 @@ export interface TestE3 {
      * @returns The same work
      */
     background<T>(work: Promise<T>): Promise<T>;
-    /** Lets every hold go and stops every fault, as a test ends. */
+    /** Lets every hold go — its units' too — stops every fault and keeps no more answers, as a test ends. */
     reset(): void;
     /** Stops e3-web. */
     close(): void;
@@ -198,10 +266,15 @@ function segmentsOf(url: URL): string[] {
  * @param headers - The request's headers
  * @returns The request, as the log keeps it
  */
-export function e3RequestOf(method: string, url: URL, headers: Headers = new Headers()): E3Request {
+export function e3RequestOf(
+    method: string, url: URL, headers: Headers = new Headers(), body?: Uint8Array, signal: AbortSignal = new AbortController().signal,
+): E3Request {
     const path = segmentsOf(url);
     const query = url.searchParams;
-    const base = { method, query, path: `/${path.join("/")}`, idempotencyKey: headers.get("Idempotency-Key") ?? undefined };
+    const base = {
+        method, query, path: `/${path.join("/")}`, idempotencyKey: headers.get("Idempotency-Key") ?? undefined,
+        authorization: headers.get("Authorization") ?? undefined, body, signal,
+    };
     // repos/<repo>/workspaces/<ws>/<area>/…
     if (path[0] !== "repos" || path[2] !== "workspaces" || path[3] === undefined) {
         return { ...base, kind: "other", workspace: undefined, dataset: undefined, record: undefined, name: undefined };
@@ -232,7 +305,7 @@ export function e3RequestOf(method: string, url: URL, headers: Headers = new Hea
         case "functions":
             return { ...base, ...unnamed, name: rest[0], kind: "call" };
         case "one-shot":
-            return { ...base, ...unnamed, kind: "one-shot" };
+            return rest[0] === "split" ? { ...base, ...unnamed, name: rest[1], kind: "split" } : { ...base, ...unnamed, kind: "one-shot" };
         case "status":
             return { ...base, ...unnamed, kind: "status" };
         case "dataflow":
@@ -250,6 +323,145 @@ function aborted(signal: AbortSignal): Promise<never> {
         if (signal.aborted) reject(signal.reason);
         else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     });
+}
+
+/**
+ * A body e3's client sent whole, as bytes — a copy, so the caller's stays its
+ * own; `undefined` for none, or for one sent another way (a stream).
+ */
+function bodyBytes(body: BodyInit | null | undefined): Uint8Array | undefined {
+    if (body === undefined || body === null) return undefined;
+    if (typeof body === "string") return new TextEncoder().encode(body);
+    if (body instanceof ArrayBuffer) return new Uint8Array(body.slice(0));
+    if (ArrayBuffer.isView(body)) return new Uint8Array(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength));
+    return undefined;
+}
+
+/** A unit a hold parks before it runs: what sends it on, and what settles once it has run. */
+interface ParkedUnit {
+    /** Sends it on to its worker. */
+    readonly go: () => void;
+    /** Settles once its worker has answered it, or ended with it parked. */
+    readonly ran: Promise<void>;
+    /** Settles {@link ran}. */
+    readonly end: () => void;
+}
+
+/** A hold on units: whether it holds what comes, what it parks — the oldest first — and who waits for it to park one. */
+interface UnitHoldState {
+    live: boolean;
+    readonly parked: ParkedUnit[];
+    readonly heldNow: () => void;
+    readonly waiters: (() => void)[];
+}
+
+/** Unit workers whose units a test may hold before they run: what {@link TestE3.holdUnits} holds. */
+interface HeldUnits {
+    /** Starts a unit worker: `serveE3`'s `units`. */
+    readonly start: () => UnitWorker;
+    /** Holds each unit sent from now on. */
+    hold(): E3UnitHold;
+    /** Lets every hold go, as a test ends. */
+    reset(): void;
+}
+
+/**
+ * Unit workers whose units a test may hold: each a worker `start` makes, its
+ * `run` messages parked while a hold is live, and sent on as the test lets
+ * them go — a unit e3 started, not yet begun. A worker's `done` or `broken`
+ * for a unit sent on settles that unit's `ran`.
+ *
+ * @param start - Starts a unit worker: `inProcessUnits()`'s
+ * @returns The workers' factory, and their holds
+ */
+function heldUnits(start: () => UnitWorker): HeldUnits {
+    const holds: UnitHoldState[] = [];
+    const letGo = (hold: UnitHoldState) => {
+        hold.live = false;
+        for (const unit of hold.parked.splice(0)) unit.go();
+        for (const waiter of hold.waiters.splice(0)) waiter();
+    };
+    return {
+        start: () => {
+            const worker = start();
+            // Each unit sent on, by its run's id: what settles once the worker answers it.
+            const running = new Map<number, () => void>();
+            const parkedHere = new Set<ParkedUnit>();
+            const unit: UnitWorker = {
+                onmessage: null,
+                onerror: null,
+                postMessage(message: HostMessage, transfer: Transferable[]) {
+                    const hold = message.kind === "run" ? holds.find((candidate) => candidate.live) : undefined;
+                    if (hold === undefined || message.kind !== "run") {
+                        worker.postMessage(message, transfer);
+                        return;
+                    }
+                    let end!: () => void;
+                    const ran = new Promise<void>((resolve) => { end = resolve; });
+                    const parked: ParkedUnit = {
+                        go: () => {
+                            parkedHere.delete(parked);
+                            running.set(message.id, end);
+                            worker.postMessage(message, transfer);
+                        },
+                        ran,
+                        end,
+                    };
+                    parkedHere.add(parked);
+                    hold.parked.push(parked);
+                    hold.heldNow();
+                    for (const waiter of hold.waiters.splice(0)) waiter();
+                },
+                terminate() {
+                    // What the worker held, parked or running, never answers: each has run, for a test that waits on it.
+                    for (const parked of parkedHere) {
+                        for (const hold of holds) {
+                            const at = hold.parked.indexOf(parked);
+                            if (at >= 0) hold.parked.splice(at, 1);
+                        }
+                        parked.end();
+                    }
+                    parkedHere.clear();
+                    for (const end of running.values()) end();
+                    running.clear();
+                    worker.terminate();
+                },
+            };
+            worker.onmessage = (event: MessageEvent) => {
+                const message = event.data as WorkerMessage;
+                if (message.kind === "done" || message.kind === "broken") {
+                    running.get(message.id)?.();
+                    running.delete(message.id);
+                }
+                unit.onmessage?.(event);
+            };
+            worker.onerror = (event: ErrorEvent) => { unit.onerror?.(event); };
+            return unit;
+        },
+        hold() {
+            let heldNow!: () => void;
+            const holding = new Promise<void>((resolve) => { heldNow = resolve; });
+            const hold: UnitHoldState = { live: true, parked: [], heldNow, waiters: [] };
+            holds.push(hold);
+            return {
+                get held() { return hold.parked.length; },
+                holding,
+                async releaseOne() {
+                    while (hold.parked.length === 0) {
+                        if (!hold.live) throw new Error("the hold has let go of its units: it holds none to release");
+                        await new Promise<void>((resolve) => { hold.waiters.push(resolve); });
+                    }
+                    const parked = hold.parked.shift()!;
+                    parked.go();
+                    await parked.ran;
+                },
+                release: () => letGo(hold),
+            };
+        },
+        reset() {
+            for (const hold of holds.splice(0)) letGo(hold);
+        },
+    };
 }
 
 /** An answer as e3's API server sends a failure (`sendJsonError`): its status, and its error's type and message as JSON. */
@@ -270,8 +482,9 @@ function failureResponse(failure: Exclude<E3Failure, "network" | "lost">, reques
  */
 export async function startTestE3(modules: Readonly<Record<string, Readonly<Record<string, unknown>>>>): Promise<TestE3> {
     const zip = await examplesPackageZip(Object.entries(modules).map(([pathKey, exports]) => exampleModule(pathKey, exports)));
+    const units = heldUnits(inProcessUnits());
     const { port1, port2 } = new MessageChannel();
-    serveE3({ units: inProcessUnits(), persist: false }, port1);
+    serveE3({ units: units.start, persist: false, pieceBytes: EXAMPLES_PIECE_BYTES }, port1);
     const web: WebE3 = await createWebE3(port2);
     try {
         const direct: RequestOptions = { token: null, fetch: web.fetch };
@@ -284,19 +497,21 @@ export async function startTestE3(modules: Readonly<Record<string, Readonly<Reco
             const failed = run.tasks.filter((task) => task.state.type === "error" || task.state.type === "failed").map((task) => task.name);
             throw new Error(`the examples' dataflow did not succeed: ${failed.join(", ") || "no task failed, but the run did not succeed"}`);
         }
-        return testE3Over(web);
+        return testE3Over(web, units);
     } catch (err) {
         web.close();
         throw err;
     }
 }
 
-/** The harness over a started e3-web. */
-function testE3Over(web: WebE3): TestE3 {
+/** The harness over a started e3-web, whose units the given workers run. */
+function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
     const requests: E3Request[] = [];
     /** A hold: what it matches, whether it holds what comes, each request it parks — the oldest first — and who waits for its first. */
     const holds: { match: E3Match; live: boolean; parked: (() => void)[]; holdingNow: () => void }[] = [];
     const faults: { match: E3Match; failure: E3Failure }[] = [];
+    /** Each tap a test set: what it matches, and the answers it keeps. */
+    const taps: { match: E3Match; answers: E3Answer[] }[] = [];
     const idlers = new Set<() => void>();
     let inFlight = 0;
     let parked = 0;
@@ -313,9 +528,18 @@ function testE3Over(web: WebE3): TestE3 {
         for (const idler of [...idlers]) idler();
     };
 
+    /** The answer, kept by each tap that matches its request. */
+    const kept = async (entry: E3Request, response: Response): Promise<Response> => {
+        const tapped = taps.filter((tap) => tap.match(entry));
+        if (tapped.length === 0) return response;
+        const body = new Uint8Array(await response.clone().arrayBuffer());
+        for (const tap of tapped) tap.answers.push({ request: entry, status: response.status, body });
+        return response;
+    };
+
     const fetch: typeof globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
-        const entry = e3RequestOf(request.method, new URL(request.url), request.headers);
+        const entry = e3RequestOf(request.method, new URL(request.url), request.headers, bodyBytes(init?.body), request.signal);
         requests.push(entry);
         started++;
         inFlight++;
@@ -343,9 +567,9 @@ function testE3Over(web: WebE3): TestE3 {
                     throw new TypeError(`fetch failed: the test lost e3's answer to ${entry.method} ${entry.path}`);
                 }
                 if (fault.failure === "network") throw new TypeError(`fetch failed: the test failed the network for ${entry.method} ${entry.path}`);
-                return failureResponse(fault.failure, entry);
+                return await kept(entry, failureResponse(fault.failure, entry));
             }
-            return await web.fetch(request);
+            return await kept(entry, await web.fetch(request));
         } finally {
             inFlight--;
             tellIdle();
@@ -387,9 +611,16 @@ function testE3Over(web: WebE3): TestE3 {
                 get held() { return hold.parked.length; },
                 holding,
                 releaseOne: () => { hold.parked.shift()?.(); },
+                releaseLast: () => { hold.parked.pop()?.(); },
                 release: () => { hold.live = false; for (const go of hold.parked.splice(0)) go(); },
             };
         },
+        answers(match) {
+            const tap = { match, answers: [] as E3Answer[] };
+            taps.push(tap);
+            return tap.answers;
+        },
+        holdUnits: () => units.hold(),
         background(work) {
             inFlight++;
             const done = () => { inFlight--; tellIdle(); };
@@ -406,11 +637,14 @@ function testE3Over(web: WebE3): TestE3 {
         },
         reset() {
             for (const hold of holds.splice(0)) letGo(hold);
+            units.reset();
             faults.splice(0);
+            taps.splice(0);
             requests.splice(0);
         },
         close() {
             for (const hold of holds.splice(0)) letGo(hold);
+            units.reset();
             web.close();
         },
     };
