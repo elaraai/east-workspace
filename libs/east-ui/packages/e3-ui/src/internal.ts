@@ -482,6 +482,8 @@ export {
 } from './schedule/events.js';
 export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from './schedule/resources.js';
 export { scheduleDays, scheduleUnscheduled } from './schedule/days.js';
+// The number the Allocation's and the Roster's pure functions write, one printer for both.
+export { scheduleNumberText } from './schedule/words.js';
 // The window reader (#1199): an event kind's record read a window at a time,
 // through its day index and its backlog index — the Calendar's and Plan's —
 // and one entry of a record read by its key, through its own entries.

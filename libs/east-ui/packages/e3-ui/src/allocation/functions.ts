@@ -23,6 +23,7 @@ import {
     StructType, none, some, variant, type EastType, type ExprType,
 } from "@elaraai/east";
 import { StatusTokenType, TimeStepType } from "@elaraai/east-ui";
+import { scheduleNumberText } from "../schedule/words.js";
 import {
     AllocationCandidateType, AllocationContextType, AllocationDayTypeFor, AllocationEventType, AllocationFitRequestTypeFor,
     AllocationFitResultType, AllocationFitType, AllocationFixType, AllocationIntervalType, AllocationIssueType, AllocationJobType, AllocationLoadType,
@@ -52,17 +53,6 @@ export const allocationMilliseconds = East.function([TimeStepType], IntegerType,
 })));
 
 /**
- * A number as the board writes it: a whole number without a decimal point.
- *
- * @param value - The number
- * @returns `21`, `12.5`
- */
-export const allocationNumberText = East.function([FloatType], StringType, ($, value) => {
-    const whole = $.const(East.Float.roundHalf(value));
-    return East.equal(whole.toFloat(), value).ifElse(() => East.print(whole), () => East.print(value));
-});
-
-/**
  * A quantity and its unit.
  *
  * @param value - The quantity
@@ -70,7 +60,7 @@ export const allocationNumberText = East.function([FloatType], StringType, ($, v
  * @returns `21 m³`, or `21` with no unit
  */
 export const allocationQuantityText = East.function([FloatType, StringType], StringType, ($, value, unit) => {
-    const num = $.const(allocationNumberText);
+    const num = $.const(scheduleNumberText);
     return East.equal(unit, "").ifElse(() => num(value), () => East.str`${num(value)} ${unit}`);
 });
 
@@ -91,7 +81,7 @@ export const allocationDayText = East.function([DateTimeType], StringType, (_$, 
  * @returns `11 m³ · max 9 · 2 over`, `16 m³ · min 40 · 24 short`, or `45 m³ · takes 26–48`
  */
 export const allocationLoadText = East.function([FloatType, AllocationResourceType, StringType], StringType, ($, fill, resource, unit) => {
-    const num = $.const(allocationNumberText);
+    const num = $.const(scheduleNumberText);
     const qty = $.const(allocationQuantityText);
     const f = $.const(East.Float.roundHalf(fill).toFloat());
     const out = $.let(East.str`${qty(f, unit)} · takes ${num(resource.min)}–${num(resource.max)}`);
@@ -166,7 +156,7 @@ export const allocationResourceLine = East.function([DateTimeType, AllocationRes
     const busyOf = $.const(allocationBusyJob);
     const nextOf = $.const(allocationNextJob);
     const dayText = $.const(allocationDayText);
-    const num = $.const(allocationNumberText);
+    const num = $.const(scheduleNumberText);
     const qty = $.const(allocationQuantityText);
     const loadText = $.const(allocationLoadText);
     const over = $.const(East.greater(load.fill, resource.max));
@@ -364,7 +354,7 @@ export const allocationFit = East.function([AllocationCandidateType], Allocation
     const nextOf = $.const(allocationNextJob);
     const dayText = $.const(allocationDayText);
     const qty = $.const(allocationQuantityText);
-    const num = $.const(allocationNumberText);
+    const num = $.const(scheduleNumberText);
     const loadText = $.const(allocationLoadText);
     const resource = $.const(candidate.resource);
     $.match(busyOf(resource, candidate.day), {
@@ -655,7 +645,7 @@ export function allocationCheck<V extends EastType>(values: V) {
         const loadsFor = $.const(loadsOf);
         const nextOf = $.const(allocationNextJob);
         const qty = $.const(allocationQuantityText);
-        const num = $.const(allocationNumberText);
+        const num = $.const(scheduleNumberText);
         const dayText = $.const(allocationDayText);
         const loadText = $.const(allocationLoadText);
         const loads = $.const(loadsFor(day, plan, context));

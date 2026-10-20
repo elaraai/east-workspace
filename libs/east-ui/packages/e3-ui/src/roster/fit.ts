@@ -15,6 +15,7 @@
  */
 
 import { East, FloatType, FunctionType, StringType, none, variant } from "@elaraai/east";
+import { scheduleNumberText } from "../schedule/words.js";
 import { rosterRest } from "./rules.js";
 import {
     RosterAssignmentType, RosterContextType, RosterFitRequestType, RosterFitResultType, RosterFitType, RosterPersonType, RosterWeekType,
@@ -22,18 +23,6 @@ import {
 
 /** A week's hours: the slot's group's bonus, more than any spare hours of a week. */
 const WEEK_HOURS = 168.0;
-
-/**
- * Hours as a fit's words write them: a whole number without a decimal point.
- *
- * @param hours - The hours
- * @returns `14`, `7.5`
- * @internal
- */
-export const rosterHoursText = East.function([FloatType], StringType, ($, hours) => {
-    const whole = $.const(East.Float.roundHalf(hours));
-    return East.equal(whole.toFloat(), hours).ifElse(() => East.print(whole), () => East.print(hours));
-});
 
 /**
  * One person's hours this week: each of their assignments' shift hours and its
@@ -81,7 +70,7 @@ export const rosterPersonHours = East.function([RosterWeekType, RosterContextTyp
 export const rosterFit = East.function([RosterFitRequestType, RosterPersonType], RosterFitType, ($, request, person) => {
     const restOf = $.const(rosterRest);
     const hoursOf = $.const(rosterPersonHours);
-    const hoursText = $.const(rosterHoursText);
+    const hoursText = $.const(scheduleNumberText);
     const context = $.const(request.context);
     const slot = $.const(request.slot);
     const groups = $.const(context.groups.toDict((_$2, group) => group.key, (_$2, group) => group.label));
