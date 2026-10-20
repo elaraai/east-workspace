@@ -34,7 +34,8 @@ Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame,
 toolbar and day sessions (`index.tsx`, `toolbar.tsx`, `editing.ts`), the
 Timeline (`timeline.tsx`) and the Table (`table.tsx`) over one drag grammar
-and verdict (`drag.ts`), the app's fit called by name (`fit.ts`), its
+and verdict (`drag.ts`), the app's fit called by name through the shared fit
+(`fit.ts` over `shared/func/use-fit.ts`, as the Roster's), its
 commands (`actions.ts`), its Library (`library.tsx`) and its Inspector
 (`inspector.tsx`, #1331) — the end pane: Details (a refused drop's note, the
 drop list while a drag or a pick is under way, else the selection, else the
@@ -451,10 +452,14 @@ do not read the whole record to build the picker. Test reverse navigation.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
 rail fields of the staff record (#1342). A Find fix asks the app's fit
-(`roster/fit.ts`, #1334) through the shared fit (`shared/func/use-fit.ts`, the
-Allocation's machinery over its own questions): one question in flight, the
-latest asked first, answers kept by question and drafts, asked again when the
-drafts change. The People tab shows the answer — the fits among what the rail
+(`roster/fit.ts`, #1334) through the shared fit (`shared/func/use-fit.ts`), as
+the Allocation's board asks its own (`allocation/fit.ts`): one question in
+flight, the latest asked first, answers kept by question, drafts and context,
+asked again when the drafts or the context change. `ask` is theirs: an effect
+that asks, listing it, asks again then; one that asks through something else —
+the Allocation's Library foot, through a drop's verdict — lists the context
+itself, since a record committed under a builder changes its context and keeps
+its drafts. The People tab shows the answer — the fits among what the rail
 shows, best first in the fit's order, each card's reason the shared Library's
 note line — with a chip that clears it. While its answer for the drafts as
 they are is on its way the tab shows no verdict, only what the rail shows,

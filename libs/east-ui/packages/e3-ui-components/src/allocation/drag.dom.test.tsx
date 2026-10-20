@@ -91,6 +91,14 @@ async function reserve(id: string, lane: string, at: Date, resource: string) {
         parts: new SortedMap([[resource, 0]], compareFor(StringType)), values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
     await h.commit(ex.kilnPlans, plans);
 }
+/** A kiln's minimum changed in the record, as another session's commit lands under the board. */
+async function setMinimum(key: string, min: number) {
+    const kilns = h.read(ex.kilns);
+    kilns.set(key, { ...kilns.get(key)!, min });
+    await h.commit(ex.kilns, kilns);
+}
+/** An answer's reason for a resource it fits. */
+const whyOf = (a: FitResult, key: string) => { const fit = a.resources.get(key); return fit?.type === "fits" ? fit.value.why : undefined; };
 /** The resources an answer refuses, and its three best fits, the current resource excepted. */
 const refusedBy = (a: FitResult) => [...a.resources].filter(([, f]) => f.type === "refused").map(([k]) => k);
 const bestOf = (a: FitResult, current: string) => [...a.resources].flatMap(([k, f]) => f.type === "fits" && k !== current ? [{ k, score: f.value.score }] : [])
@@ -119,6 +127,41 @@ describe("when the board asks the fit (F1, A23)", () => {
         expect(h.fits.calls.get("yard_fit")).toBe(2);
         await press(card(c, "3101"));
         expect(h.fits.calls.get("yard_fit")).toBe(3);
+    });
+
+    test("F1 — a record the board reads, committed under it, asks again of the same drafts: the kept answer was of the kilns as they were", async () => {
+        const c = await open();
+        // A draft first: the day as drafted is the session's, whatever the record under it does.
+        await drop(card(c, "3103"), c.querySelector(`[data-allocation-cell="B-2|${Date.UTC(2027, 4, 11, 0, 35)}"]`)!);
+        await press(card(c, "3101"));
+        const asked = h.fits.calls.get("yard_fit")!;
+        expect(whyOf(answer(), "K-601")?.startsWith("open gap · leaves 35 m³ · min 40 · 5 short")).toBe(true);
+        // Another session lowers K-601's minimum: LD-2201's 35 m³ there no longer leaves it short.
+        await setMinimum("K-601", 30);
+        await reveal(c, "K-601");
+        expect([row(c, "K-601").textContent, card(c, "3103").hasAttribute("data-draft")]).toEqual([expect.stringContaining("takes 30–60 m³"), true]);
+        expect(h.fits.calls.get("yard_fit")).toBe(asked + 1);
+        expect(whyOf(answer(), "K-601")?.startsWith("open gap · leaves 35 m³ · takes 30–60")).toBe(true);
+        // Its connector's drag shows that answer, and asks nothing more.
+        await hover(connector(c, "3101"), row(c, "K-601"));
+        expect(row(c, "K-601").querySelector("[data-allocation-reason]")!.textContent).toBe(whyOf(answer(), "K-601"));
+        expect(h.fits.calls.get("yard_fit")).toBe(asked + 1);
+        await cancel();
+    });
+
+    test("F1 — committed under the board while its question is on its way, the question is asked again of what the board reads once that answer lands", async () => {
+        const c = await open();
+        await drop(card(c, "3103"), c.querySelector(`[data-allocation-cell="B-2|${Date.UTC(2027, 4, 11, 0, 35)}"]`)!);
+        const answerFit = h.fits.hold();
+        await press(card(c, "3101"));
+        const asked = h.fits.calls.get("yard_fit")!;
+        await setMinimum("K-601", 30);
+        // One question in flight at a time: the board's next waits for it.
+        expect(h.fits.calls.get("yard_fit")).toBe(asked);
+        await act(async () => { answerFit(); }); await settle();
+        // That answer was of the kilns as they were: the same question, asked again of these.
+        expect(h.fits.calls.get("yard_fit")).toBe(asked + 1);
+        expect(whyOf(answer(), "K-601")?.startsWith("open gap · leaves 35 m³ · takes 30–60")).toBe(true);
     });
 });
 

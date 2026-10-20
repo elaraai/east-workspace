@@ -433,12 +433,12 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         // The verdict stands for the pick, the selection, these drafts and the fit's answers.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editable, pick, selection, events, plan, layout, nouns, words, context, drag.peek]);
-    // Its question, asked once the pane has rendered.
+    // Its question, asked once the pane has rendered, and again when the drafts change or the events and resources it reads (F1).
     const asking = action?.button;
     const { verdict } = drag;
     useEffect(() => { if (asking !== undefined) verdict(asking.grip, asking.target); },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [asking?.label, asking?.grip, plan]);
+        [asking?.label, asking?.grip, plan, context]);
     const { onVerdict } = args;
     const runAction = () => { if (asking === undefined || asking.disabled) return; onVerdict(drag.verdict(asking.grip, asking.target)); };
 

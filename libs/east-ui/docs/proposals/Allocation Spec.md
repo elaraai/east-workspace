@@ -1316,9 +1316,10 @@ The result echoes its `ask`, so the board matches each answer to its question:
 
 - **F1.** The board asks for its active subject: the selected bin, the picked
   event, the card or connector under a pointer-down, the bin a Chooser or Find is
-  for, the resource card being dragged. It asks again when the drafts change.
-  Answers are cached by question and drafts version; one question is in flight at
-  a time.
+  for, the resource card being dragged. It asks again when the drafts change, and
+  when the events, lanes or resources it reads change: a record committed under
+  the board, its drafts kept. Answers are cached by question, drafts and those
+  records; one question is in flight at a time.
 - **F2.** While an answer is pending, rows and cells show no verdict, the caption
   reads `checking fits…`, and a drop waits: the ghost stays at the drop until the
   answer lands, then the command runs or refuses.

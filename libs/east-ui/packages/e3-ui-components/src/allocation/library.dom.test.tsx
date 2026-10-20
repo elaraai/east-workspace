@@ -316,6 +316,27 @@ describe("the foot's hint and the picked card's action (A53, A87)", () => {
         expect(c.querySelector("[data-allocation-row='bin:V1']")).toBeNull();
         expect(tableRow(c, "bin:N1").querySelector("[data-allocation-chip=resource]")!.textContent).toBe("K-305");
     });
+
+    test("A53, F1 — a record the board reads, committed under it, asks the picked card's question again: its reason is of the kilns as they are", async () => {
+        // The Timeline: no Table's rows ask a pick's questions of its reservations beside the foot.
+        const c = await open(ex.allocationKilnYard);
+        await tab(c, "Resources");
+        // A reservation is a draft: the day as drafted is the session's, whatever the record under it does.
+        await drop(card(c, "resources", "K-305"), cell(c, "B-1", hour(0, 15)));
+        expect(boardCard(c, "V1").hasAttribute("data-selected")).toBe(true);
+        await tab(c, "Events");
+        await press(card(c, "events", "event:LD-2235"));
+        const note = () => action(c, "events")!.firstElementChild!.textContent;
+        expect(note()).toContain("leaves 8 m³ · takes 4–10");
+        // Another session raises K-305's minimum past LD-2235's 8 m³.
+        const kilns = h.read(ex.kilns);
+        kilns.set("K-305", { ...kilns.get("K-305")!, min: 9 });
+        await h.commit(ex.kilns, kilns);
+        // Its question asked again: the reason is the fit's for the kilns as they are.
+        const fit = answerFor("LD-2235").resources.get("K-305")!;
+        expect(fit.type === "fits" ? fit.value.why : "").toContain("leaves 8 m³ · min 9 · 1 short");
+        expect(note()).toBe(`Reserved on K-305 · ${fit.type === "fits" ? fit.value.why : ""}`);
+    });
 });
 
 describe("picks (A9–A11)", () => {

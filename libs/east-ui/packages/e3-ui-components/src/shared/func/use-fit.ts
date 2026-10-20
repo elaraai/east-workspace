@@ -11,11 +11,14 @@
  * question — its key, which the answer echoes, so an answer lands only on the
  * question it answers. One question is in flight at a time; the others wait,
  * the latest asked first, and a question of drafts or a context the builder has
- * moved on from goes unasked. A failed call keeps its question until it is
- * asked again (`retry`). The builder computes no fit of its own.
+ * moved on from goes unasked. `ask` is the drafts' and the context's: an
+ * effect that asks, listing it, asks again when either changes — a record
+ * committed under the builder changes its context, its drafts kept. A failed
+ * call keeps its question until it is asked again (`retry`). The builder
+ * computes no fit of its own.
  *
- * The Roster's Find fixes ask through this (#1334); the Allocation's board
- * keeps the same machinery over its own questions (`allocation/fit.ts`).
+ * The Roster's Find fixes (#1334) and the Allocation's board
+ * (`allocation/fit.ts`) ask through this.
  *
  * @packageDocumentation
  */
@@ -60,7 +63,10 @@ export interface FitQuestions<Q, P extends object, C extends object, R> {
 export interface FitAnswers<Q, P, R> {
     /** The answer to a question about the plan as it stands, or about one derived from it, once it has landed (F1). */
     answer: (question: Q, of?: P) => R | undefined;
-    /** Asks a question of the plan as it stands, or of one derived from it: answered from what is kept, else sent once nothing is in flight. */
+    /**
+     * Asks a question of the plan as it stands, or of one derived from it: answered from what is kept, else sent once nothing is in
+     * flight. A new plan or context is a new `ask`, so an effect that asks, listing it, asks again then (F1).
+     */
     ask: (question: Q, of?: P) => void;
     /** Whether a question asked of the plan as it stands is unanswered (F2). */
     pending: boolean;
@@ -134,13 +140,16 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
         });
     });
     const answer = useCallback((question: Q, of?: P) => kept.current.get(context)?.get(of ?? plan)?.get(live.current.questions.key(question)), [context, plan]);
+    // A new plan or context, a new `ask`: an effect that asks, listing it, asks again (F1). It asks of them as they stand when it
+    // runs, so a caller holding an older one still asks of these.
     const ask = useCallback((question: Q, of?: P) => {
         const now = live.current, key = now.questions.key(question), first = waiting.current[0];
         if (first !== undefined && first.key === key && Object.is(first.of, of) && Object.is(first.base, now.plan) && Object.is(first.context, now.context)) return;
         waiting.current = [{ key, question, of, base: now.plan, context: now.context },
             ...waiting.current.filter(w => !(w.key === key && Object.is(w.of, of)))].slice(0, WAITING);
         changed();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [plan, context]);
     const retry = useCallback(() => { flight.current = undefined; changed(); }, []);
     const error = call.status === "failed" ? call.error?.message ?? "the fit could not run" : undefined;
     // A question asked of the drafts as they are, still unanswered.
