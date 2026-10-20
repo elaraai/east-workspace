@@ -6,8 +6,8 @@
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType, isTypeEqual, some, variant, type ExprType } from "@elaraai/east";
-import { Reactive, Stat, Button, UIComponentType, resolveRowSource } from "@elaraai/east-ui/internal";
+import { ArrayType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, isTypeEqual, some, variant, type ExprType } from "@elaraai/east";
+import { Reactive, Stat, Button, UIComponentType, bindRecord, resolveRowSource } from "@elaraai/east-ui/internal";
 import { TreePathType } from "@elaraai/e3-types";
 import { Data, bindPagedPlatformFn } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -175,5 +175,53 @@ describe("Data.bindPaged and the row-source contract", () => {
         const resolved = resolveRowSource(released, "Table");
         assert.equal(resolved.kind, "paged");
         assert.equal(resolved.kind === "paged" && resolved.pinned, false);
+    });
+});
+
+// What a record Slice cannot read is refused as the record is bound with its
+// indexes, naming the fix, before anything is deployed: these records are the
+// refusals' own.
+describe("Data.bindPaged over indexes refuses what a Slice cannot read", () => {
+    const Person = StructType({ name: StringType, skills: SetType(StringType) });
+    const people = e3.record("refused_people", DictType(StringType, Person), new Map());
+    const byName = e3.recordIndex("by_name", people, { on: ["name"] });
+    const bySkill = e3.recordIndex("by_skill", people, { on: ["skills"] });
+    const Step = StructType({ lane: StringType, owner: OptionType(StringType) });
+    const Flow = StructType({ description: StringType, states: ArrayType(Step) });
+    const flows = e3.record("refused_flows", DictType(StringType, Flow), new Map());
+    const byLane = e3.recordIndex("lane", flows, {
+        keys: East.function([StringType, Flow], SetType(StructType({ lane: StringType })),
+            (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane }))),
+    });
+
+    hostTest("its indexes are listed, each once", () => {
+        assert.throws(() => Data.bindPaged(people, { indexes: [] }), /at least one/);
+        assert.throws(() => Data.bindPaged(people, { indexes: [byName, byName] }), /repeated index/);
+    });
+
+    hostTest("a read of the indexes alone needs one without Set fields, so its unfiltered view has one entry a row", () => {
+        assert.throws(() => Data.bindPaged(people, { indexes: [bySkill], join: false }), /without Set fields/);
+        assert.throws(() => Data.bindPaged(flows, { indexes: [byLane], join: false }), /without Set fields/);
+    });
+
+    hostTest("a computed key names its fields: one with none is refused, and a fan-out names exactly one", () => {
+        const empty = e3.recordIndex("empty", flows, { key: East.function([StringType, Flow], StructType({}), () => ({})) });
+        assert.throws(() => Data.bindPaged(flows, { indexes: [empty] }), /at least one key field/);
+        const compound = e3.recordIndex("compound", flows, {
+            keys: East.function([StringType, Flow], SetType(StructType({ lane: StringType, owner: OptionType(StringType) })),
+                (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane, owner: state.owner }))),
+        });
+        assert.throws(() => Data.bindPaged(flows, { indexes: [compound] }), /cannot duplicate records/);
+    });
+
+    hostTest("a computed field named after a record's field of another type is refused by the Slice", () => {
+        const wrong = e3.recordIndex("wrong", flows, { key: East.function([StringType, Flow], StructType({ description: IntegerType }),
+            (_$, _id, flow) => ({ description: flow.states.size() })) });
+        assert.throws(() => bindRecord("wrong", Data.bindPaged(flows, { indexes: [wrong] })), /inconsistent types/);
+    });
+
+    hostTest("a computed scalar key is a field by its index's name, which a Slice searches", () => {
+        const computed = e3.recordIndex("computed_name", people, { key: East.function([StringType, Person], StringType, (_$, _key, person) => person.name) });
+        assert.doesNotThrow(() => bindRecord("computed", Data.bindPaged(people, { indexes: [computed] }), { search: "computed_name" }));
     });
 });

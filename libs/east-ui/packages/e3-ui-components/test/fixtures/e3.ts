@@ -19,14 +19,26 @@
 
 import { after, afterEach, before, beforeEach } from "node:test";
 import { toEastTypeValue, type EastType, type StructType, type ValueTypeOf } from "@elaraai/east";
-import type { RecordHistoryResult, RequestOptions } from "@elaraai/e3-api-client";
+import { workspaceCopy, type RecordHistoryResult, type RequestOptions } from "@elaraai/e3-api-client";
 import {
     patchRecord, readDataset, recordHistory, runDataflow, settleE3, startTestE3, workspaceRequests, writeDataset,
     type E3Dataset, type E3Record, type E3Request, type TestE3,
 } from "../../src/e3-web.test-utils.js";
-import { ReactiveDatasetCache, createDefaultDatasetApi } from "../../src/platform/dataset-store.js";
+import { ReactiveDatasetCache, createDefaultDatasetApi, type Visibility } from "../../src/platform/dataset-store.js";
 import { RecordRuntime, createDefaultRecordApi } from "../../src/platform/record-runtime.js";
 import { createFakeClock, type FakeClock } from "./fake-clock.js";
+
+/** How {@link E3Spec.cache} makes a cache. */
+export interface E3CacheOptions {
+    /** The workspace it reads; the test's own unless given. */
+    readonly workspace?: string;
+    /** Whether the page is hidden, as the cache sees it; the document's unless given. */
+    readonly visibility?: Visibility;
+    /** The interval its polls run at while what they show changes; the cache's default unless given. */
+    readonly pollIntervalMs?: number;
+    /** The longest its polls back off to; the cache's default unless given. */
+    readonly pollBackoffMs?: number;
+}
 
 /** A dataset cache over e3 in the test's workspace, and the clock its polls are timed by. */
 export interface E3Cache {
@@ -85,6 +97,13 @@ export interface E3Spec {
     /** Runs the test's workspace's dataflow, as another session's run would. */
     run(): Promise<void>;
     /**
+     * Replaces the test's workspace with one the package is freshly deployed
+     * to, its dataflow not run, as another session resetting it would: each
+     * input holds its default, and each task's output has no value until the
+     * next run ({@link run}).
+     */
+    unrun(): Promise<void>;
+    /**
      * The requests made of the test's workspace so far.
      *
      * @param kind - Only those of this kind (`read`, `find`, `page`, …)
@@ -93,13 +112,14 @@ export interface E3Spec {
      */
     requests(kind?: E3Request["kind"], of?: string): E3Request[];
     /**
-     * A dataset cache over e3 in the test's workspace — the one a page's
-     * provider makes, its polls timed by a clock the test drives — destroyed
-     * as the test ends.
+     * A dataset cache over e3 — the one a page's provider makes, its polls
+     * timed by a clock the test drives — destroyed as the test ends.
      *
+     * @param options - The workspace it reads (the test's own unless given), whether the page is hidden as the
+     *   cache sees it (the document's unless given), and the intervals its polls run at
      * @returns The cache and its clock
      */
-    cache(): E3Cache;
+    cache(options?: E3CacheOptions): E3Cache;
     /**
      * A record bound through a record runtime over e3 in the test's workspace:
      * its writes through e3's record API, its reads through a cache of its own
@@ -162,9 +182,14 @@ export function e3Spec(modules: Readonly<Record<string, Readonly<Record<string, 
         for (const cache of caches.splice(0)) cache.destroy();
         state.workspace = undefined;
     });
-    const cache = (): E3Cache => {
+    const cache = (options: E3CacheOptions = {}): E3Cache => {
         const clock = createFakeClock();
-        const made = new ReactiveDatasetCache({ workspace: workspace() }, createDefaultDatasetApi(e3().apiUrl, e3().repo, () => e3().options), clock);
+        const config = {
+            workspace: options.workspace ?? workspace(),
+            ...(options.pollIntervalMs !== undefined && { pollIntervalMs: options.pollIntervalMs }),
+            ...(options.pollBackoffMs !== undefined && { pollBackoffMs: options.pollBackoffMs }),
+        };
+        const made = new ReactiveDatasetCache(config, createDefaultDatasetApi(e3().apiUrl, e3().repo, () => e3().options), clock, options.visibility);
         caches.push(made);
         return { cache: made, clock };
     };
@@ -178,6 +203,9 @@ export function e3Spec(modules: Readonly<Record<string, Readonly<Record<string, 
         async patch(record, next) { await patchRecord(e3(), workspace(), record, next); },
         history: (record) => recordHistory(e3(), workspace(), record),
         run: () => runDataflow(e3(), workspace()),
+        async unrun() {
+            await workspaceCopy(e3().apiUrl, e3().repo, await e3().unrun(), workspace(), e3().direct);
+        },
         requests: (kind, of) => workspaceRequests(e3(), workspace(), kind, of),
         cache,
         async bindRecord(record, handleType, options = {}) {

@@ -3,58 +3,32 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+/**
+ * Computed record indexes under a record Slice, on e3 itself (#1378): the
+ * Data.bind examples' computed flows, whose indexes e3 computes from their
+ * steps — how many, their lanes, their owners — read through the paging
+ * runtime's default API over the harness's fetch, and another session's edit
+ * committed through the record's patch door.
+ */
+
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-    ArrayType, DictType, East, Expr, IntegerType, OptionType, SetType, StringType, StructType,
-    decodeBeast2For, encodeBeast2For, none, some, type option,
-} from "@elaraai/east";
-import * as e3 from "@elaraai/e3";
+import { East, Expr, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, type option, type ValueTypeOf } from "@elaraai/east";
 import { Data } from "@elaraai/e3-ui/internal";
 import { bindRecord } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
-import { PagedRuntime } from "../src/platform/paged-runtime.js";
-import { ReactiveDatasetCache, type DatasetApi } from "../src/platform/index.js";
-import { recordPaging, contentHash } from "../src/platform/record-paging.test-utils.js";
+import { datasetGetStatus } from "@elaraai/e3-api-client";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import { PagedRuntime, createDefaultPagedApi } from "../src/platform/paged-runtime.js";
+import { e3Spec } from "./fixtures/e3.js";
 
-const Step = StructType({ lane: StringType, owner: OptionType(StringType) });
-const Flow = StructType({ description: StringType, states: ArrayType(Step) });
-const Flows = DictType(StringType, Flow);
-const step = (lane: string, owner: string | null = null) => ({ lane, owner: owner === null ? none : some(owner) });
-const rows = new Map([
-    ["a", { description: "Inbound", states: [step("load", "team-a"), step("load", "team-a"), step("review")] }],
-    ["b", { description: "Inbound", states: [step("load", "team-b")] }],
-    ["c", { description: "Returns", states: [step("review")] }],
-    ["d", { description: "Empty", states: [] }],
-]);
-const flows = e3.record("computed_flows", Flows, rows);
-const byDescription = e3.recordIndex("description", flows, { on: ["description"] });
-const byCount = e3.recordIndex("state_count", flows, {
-    key: East.function([StringType, Flow], StructType({ stateCount: IntegerType }), (_$, _id, flow) => ({ stateCount: flow.states.size() })),
-});
-const byDescriptionCount = e3.recordIndex("description_count", flows, {
-    key: East.function([StringType, Flow], StructType({ description: StringType, stateCount: IntegerType }),
-        (_$, _id, flow) => ({ description: flow.description, stateCount: flow.states.size() })),
-});
-const byLane = e3.recordIndex("lane", flows, {
-    keys: East.function([StringType, Flow], SetType(StructType({ lane: StringType })),
-        (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane }))),
-});
-const byOwner = e3.recordIndex("owner", flows, {
-    keys: East.function([StringType, Flow], SetType(StructType({ owner: OptionType(StringType) })),
-        (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ owner: state.owner }))),
-});
-const byLabel = e3.recordIndex("label", flows, {
-    key: East.function([StringType, Flow], StringType, (_$, _id, flow) => flow.description),
-});
-const bySize = e3.recordIndex("size", flows, {
-    key: East.function([StringType, Flow], IntegerType, (_$, _id, flow) => flow.states.size()),
-});
-const byScalarOwner = e3.recordIndex("decisionOwner", flows, {
-    keys: East.function([StringType, Flow], SetType(OptionType(StringType)),
-        (_$, _id, flow) => flow.states.toSet((_$2, state) => state.owner)),
-});
-const indexes = [byDescription, byCount, byDescriptionCount, byLane, byOwner, byLabel, bySize, byScalarOwner] as const;
+const h = e3Spec({ "bind/data/data": ex });
+
+const flows = ex.computedFlows;
+const indexes = [
+    ex.computedByDescription, ex.computedByStateCount, ex.computedByDescriptionCount, ex.computedByLane,
+    ex.computedByOwner, ex.computedByLabel, ex.computedBySize, ex.computedByDecisionOwner,
+] as const;
 const binding = Data.bindPaged(flows, { indexes });
 const slice = bindRecord("computed", binding, {
     fields: { description: {}, stateCount: {}, lane: {}, owner: {} },
@@ -62,39 +36,48 @@ const slice = bindRecord("computed", binding, {
 });
 const Slice = Expr.type(slice);
 const program = East.function([], Slice, () => slice);
+const revisionEqual = equalFor(OptionType(StringType));
+/** A step of a flow, in its lane, owned by whoever is given. */
+const step = (lane: string, owner: string | null = null): ValueTypeOf<typeof ex.ComputedStep> => ({ lane, owner: owner === null ? none : some(owner) });
 
+/** The pages of the flows asked of the test's workspace so far. */
+const pages = () => h.requests("page", `records.${flows.name}`);
+/** How many times the flows were read whole. */
+const wholeReads = () => h.requests("read", `records.${flows.name}`).length;
+
+/**
+ * Reads until the read is answered: a read that is not launches what it waits
+ * on — the revision, then the searches and windows — and e3 answers it.
+ *
+ * @param read - The read
+ * @returns What it answered
+ */
 async function ready<T>(read: () => option<T>): Promise<T> {
     for (let attempt = 0; attempt < 12; attempt++) {
         const result = read();
         if (result.type === "some") return result.value;
-        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        await h.settle();
     }
-    assert.fail("bounded computed-index read did not settle");
+    assert.fail("the computed-index read was not answered");
 }
 
+/** A paging runtime over e3's paging API in the test's workspace, the platform a record Slice runs on over it, and the slice. */
 function fixture() {
-    let bytes = encodeBeast2For(Flows)(rows);
-    let wholeReads = 0;
-    const api: DatasetApi = {
-        async get() { wholeReads++; throw new Error("No whole-record reads"); }, async set() {},
-        async launchDataflow() {}, async listRoot() { return []; }, async listAt() { return []; }, async workspaceStatus() { return { datasets: [] }; },
-    };
-    const cache = new ReactiveDatasetCache({ workspace: "computed" }, api);
-    const service = recordPaging(cache, () => bytes, [{ path: flows.path, type: Flows,
-        indexes: indexes.map(index => {
-            const key = East.compile(index.keyFn as never, []) as (id: unknown, row: unknown) => unknown;
-            return { name: index.name, keyType: index.keyType,
-                keys: (id: unknown, row: unknown) => index.multi ? key(id, row) as Iterable<unknown> : [key(id, row)] };
-        }),
-    }]);
+    const { cache } = h.cache();
     const runtime = new PagedRuntime();
-    runtime.initialize(service.api, "computed");
+    runtime.initialize(createDefaultPagedApi(h.e3.apiUrl, h.e3.repo, h.options, cache), h.workspace);
     StateRuntime.initializeStore(new UIStore());
     const platform = [...runtime.indexed.platform(null), ...runtime.buildPrimitives()];
     platform.push(...createRecordSliceImplementation(() => platform));
     const create = East.compile(program, platform);
-    return { create, platform, service, runtime, wholeReads: () => wholeReads,
-        commit(next: typeof rows) { bytes = encodeBeast2For(Flows)(next); return contentHash(bytes); } };
+    return { create, platform, runtime };
+}
+
+/** The content hash e3 holds the flows' state under now. */
+async function stateHash(): Promise<string> {
+    const status = await datasetGetStatus(h.e3.apiUrl, h.e3.repo, h.workspace, flows.path, h.e3.direct);
+    assert.equal(status.hash.type, "some", "the record has a state");
+    return status.hash.value!;
 }
 
 test("named computed fields retain their types and use bounded exact, range and compound queries", async () => {
@@ -113,11 +96,11 @@ test("named computed fields retain their types and use bounded exact, range and 
         assert.deepEqual((await ready(() => f.create().data.page(0n, 10n))).map(row => row.key), ["a"]);
         assert.deepEqual(await ready(() => handle.domain("stateCount")), { from: "1", to: "3" });
         assert.equal(handle.sourceId, flows.name);
-        const reads = f.service.requests.length;
+        const asked = h.requests().length;
         await ready(() => handle.count());
-        assert.equal(f.service.requests.length, reads, "repeat counts reuse revision-pinned bounds");
-        assert.equal(f.wholeReads(), 0);
-        assert.ok(f.service.requests.filter(request => request.includes(" page ")).every(request => Number(request.split("+").at(-1)) <= 10));
+        assert.equal(h.requests().length, asked, "repeat counts reuse revision-pinned bounds");
+        assert.equal(wholeReads(), 0);
+        assert.ok(pages().every(request => Number(request.query.get("limit")) <= 10));
     } finally { f.runtime.clear(); }
 });
 
@@ -145,14 +128,13 @@ test("computed membership deduplicates per record, searches nested values, survi
         assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["a", "b", "c", "d"]);
         decoded.choose("lane", ['"load"']);
         assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["a", "b"]);
-        const changed = new Map(rows);
+        // Another session moves flow a off the load lane, and the source is told the state it committed.
+        const changed = await h.read(flows);
         changed.set("a", { description: "Inbound", states: [step("review")] });
-        const committed = f.commit(changed);
+        await h.patch(flows, changed);
+        const committed = await stateHash();
         decoded.data.refresh(some(committed));
-        await ready(() => {
-            const revision = decoded.data.revision();
-            return revision.type === "some" && revision.value === committed ? some(null) : none;
-        });
+        await ready(() => revisionEqual(decoded.data.revision(), some(committed)) ? some(null) : none);
         assert.deepEqual((await ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["b"]);
         assert.equal(await ready(() => decoded.countWhere(captured)), 1n);
         assert.equal(await ready(() => decoded.contains(captured, "a")), false);
@@ -162,14 +144,14 @@ test("computed membership deduplicates per record, searches nested values, survi
         assert.equal(await ready(() => decoded.count()), 2n);
         decoded.clearAll();
         assert.equal(await ready(() => decoded.count()), 4n, "empty graphs survive an unfiltered view");
-        assert.equal(f.wholeReads(), 0);
+        assert.equal(wholeReads(), 0);
     } finally { f.runtime.clear(); }
 });
 
 test("scalar computed keys infer controls from their index types and support covering-only paging", async () => {
     const f = fixture();
     try {
-        const source = Data.bindPaged(flows, { indexes: [byLabel, bySize, byScalarOwner], join: false });
+        const source = Data.bindPaged(flows, { indexes: [ex.computedByLabel, ex.computedBySize, ex.computedByDecisionOwner], join: false });
         const sliced = bindRecord("computed-scalars", source, { search: ["label", "decisionOwner"], range: "size" });
         const create = East.compile(East.function([], Expr.type(sliced), () => sliced), f.platform);
         const handle = create();
@@ -188,22 +170,8 @@ test("scalar computed keys infer controls from their index types and support cov
         handle.choose("decisionOwner", ['.some "team-a"']);
         assert.deepEqual((await ready(() => create().data.page(0n, 10n))).map(row => row.key), ["a"]);
         assert.equal(await ready(() => handle.count()), 1n);
-        assert.equal(f.wholeReads(), 0);
+        assert.equal(wholeReads(), 0);
     } finally { f.runtime.clear(); }
-});
-
-test("computed declarations reject ambiguous keys and incompatible field types before a view runs", () => {
-    const empty = e3.recordIndex("empty", flows, { key: East.function([StringType, Flow], StructType({}), () => ({})) });
-    assert.throws(() => Data.bindPaged(flows, { indexes: [empty] }), /at least one key field/);
-    const compound = e3.recordIndex("compound", flows, {
-        keys: East.function([StringType, Flow], SetType(StructType({ lane: StringType, owner: OptionType(StringType) })),
-            (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane, owner: state.owner }))),
-    });
-    assert.throws(() => Data.bindPaged(flows, { indexes: [compound] }), /cannot duplicate records/);
-    const wrong = e3.recordIndex("wrong", flows, { key: East.function([StringType, Flow], StructType({ description: IntegerType }),
-        (_$, _id, flow) => ({ description: flow.states.size() })) });
-    assert.throws(() => bindRecord("wrong", Data.bindPaged(flows, { indexes: [wrong] })), /inconsistent types/);
-    assert.throws(() => Data.bindPaged(flows, { indexes: [byLane], join: false }), /without Set fields/);
 });
 
 function _computedTypeRefusals() {

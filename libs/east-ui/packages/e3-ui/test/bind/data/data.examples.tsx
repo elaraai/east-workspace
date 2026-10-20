@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SetType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
 import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record, Sheet, ui } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
@@ -191,6 +191,9 @@ export const workQueue = e3.recordIndex('by_status', workOrders, {
     key:   East.function([StringType, WorkOrderRow], WorkQueueKey, ($, _id, order) => ({ status: order.status, due: order.due })),
     value: East.function([StringType, WorkOrderRow], StringType, ($, _id, order) => order.title),
 });
+
+/** The work orders' patch door: another session's change to an order commits through it, and moves the queue with it. */
+export const workOrdersPatch = e3.mutation.patch(workOrders);
 
 export const dataBindFloat = example({
     keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],
@@ -745,3 +748,87 @@ export const previewOrdersView = ui('preview_orders_view', [], East.function([],
         );
     }}</Reactive>
 )));
+
+// ── What the indexed bindings' specs read ───────────────────────────────────
+// e3-ui-components' specs of a record bound with its indexes
+// (`Data.bindPaged(record, { indexes })`) and narrowed by a record Slice read
+// these on e3 itself: each small enough that what a narrowing shows, counts
+// and finds can be read off its rows. Each has a patch door, which another
+// session's change commits through.
+
+/** A person and the skills they hold: a Set field, which an index lists once under each skill. */
+export const IndexedPerson = StructType({ name: StringType, skills: SetType(StringType) });
+/** People by key: Ada and Amy share skill `b`, and Abe holds none, so the skills index lists him nowhere. */
+export const indexedPeople = e3.record('indexed_people', DictType(StringType, IndexedPerson), new Map([
+    ["p1", { name: "Ada", skills: new Set(["a", "b"]) }],
+    ["p2", { name: "Abe", skills: new Set<string>() }],
+    ["p3", { name: "Amy", skills: new Set(["b"]) }],
+]));
+export const indexedPeoplePatch = e3.mutation.patch(indexedPeople);
+export const peopleByName = e3.recordIndex('by_name', indexedPeople, { on: ["name"] });
+export const peopleBySkill = e3.recordIndex('by_skill', indexedPeople, { on: ["skills"] });
+
+/** An event of a status over a span of time: no end is an instant, and no start the backlog. */
+export const IntervalEvent = StructType({ status: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+/**
+ * Events about one day, 2 October 2026: one carried in from the night before,
+ * one spanning it, one inside it, one ending as it starts and one starting as
+ * it ends, an instant at each of its bounds, one cancelled and one in the
+ * backlog — what an overlap with `[2 Oct, 3 Oct)` takes and what it leaves.
+ */
+export const indexedIntervals = e3.record('indexed_intervals', DictType(StringType, IntervalEvent), new Map([
+    ["backlog",         { status: "Ready",     start: none, end: none }],
+    ["carry",           { status: "Ready",     start: some(new Date("2026-10-01T22:00:00Z")), end: some(new Date("2026-10-02T06:00:00Z")) }],
+    ["span",            { status: "Ready",     start: some(new Date("2025-01-01T00:00:00Z")), end: some(new Date("2027-01-01T00:00:00Z")) }],
+    ["inside",          { status: "Ready",     start: some(new Date("2026-10-02T10:00:00Z")), end: some(new Date("2026-10-02T11:00:00Z")) }],
+    ["ends-at-from",    { status: "Ready",     start: some(new Date("2026-10-01T12:00:00Z")), end: some(new Date("2026-10-02T00:00:00Z")) }],
+    ["starts-at-to",    { status: "Ready",     start: some(new Date("2026-10-03T00:00:00Z")), end: some(new Date("2026-10-03T01:00:00Z")) }],
+    ["instant-at-from", { status: "Ready",     start: some(new Date("2026-10-02T00:00:00Z")), end: none }],
+    ["instant-at-to",   { status: "Ready",     start: some(new Date("2026-10-03T00:00:00Z")), end: none }],
+    ["cancelled",       { status: "Cancelled", start: some(new Date("2026-01-01T00:00:00Z")), end: some(new Date("2027-01-01T00:00:00Z")) }],
+]));
+export const indexedIntervalsPatch = e3.mutation.patch(indexedIntervals);
+// The start alone is listed first: a declared overlap must never be read as a start range because its index came first.
+export const intervalsByStart = e3.recordIndex('by_start', indexedIntervals, { on: ["start"] });
+export const intervalsByStatusTime = e3.recordIndex('by_status_time', indexedIntervals, { on: ["status"], interval: { from: "start", to: "end" } });
+export const intervalsByTime = e3.recordIndex('by_time', indexedIntervals, { interval: { from: "start", to: "end" } });
+
+/** A step of a flow: its lane, and who owns it, if anyone. */
+export const ComputedStep = StructType({ lane: StringType, owner: OptionType(StringType) });
+/** A flow: what it is, and its steps. */
+export const ComputedFlow = StructType({ description: StringType, states: ArrayType(ComputedStep) });
+/** Flows whose indexes are computed from their steps: `a` has two steps in one lane, `c` a step no one owns, and `d` none at all. */
+export const computedFlows = e3.record('computed_flows', DictType(StringType, ComputedFlow), new Map([
+    ["a", { description: "Inbound", states: [{ lane: "load", owner: some("team-a") }, { lane: "load", owner: some("team-a") }, { lane: "review", owner: none }] }],
+    ["b", { description: "Inbound", states: [{ lane: "load", owner: some("team-b") }] }],
+    ["c", { description: "Returns", states: [{ lane: "review", owner: none }] }],
+    ["d", { description: "Empty",   states: [] }],
+]));
+export const computedFlowsPatch = e3.mutation.patch(computedFlows);
+export const computedByDescription = e3.recordIndex('description', computedFlows, { on: ["description"] });
+export const computedByStateCount = e3.recordIndex('state_count', computedFlows, {
+    key: East.function([StringType, ComputedFlow], StructType({ stateCount: IntegerType }), (_$, _id, flow) => ({ stateCount: flow.states.size() })),
+});
+export const computedByDescriptionCount = e3.recordIndex('description_count', computedFlows, {
+    key: East.function([StringType, ComputedFlow], StructType({ description: StringType, stateCount: IntegerType }),
+        (_$, _id, flow) => ({ description: flow.description, stateCount: flow.states.size() })),
+});
+export const computedByLane = e3.recordIndex('lane', computedFlows, {
+    keys: East.function([StringType, ComputedFlow], SetType(StructType({ lane: StringType })),
+        (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane }))),
+});
+export const computedByOwner = e3.recordIndex('owner', computedFlows, {
+    keys: East.function([StringType, ComputedFlow], SetType(StructType({ owner: OptionType(StringType) })),
+        (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ owner: state.owner }))),
+});
+// Scalar computed keys, each a field by its index's name.
+export const computedByLabel = e3.recordIndex('label', computedFlows, {
+    key: East.function([StringType, ComputedFlow], StringType, (_$, _id, flow) => flow.description),
+});
+export const computedBySize = e3.recordIndex('size', computedFlows, {
+    key: East.function([StringType, ComputedFlow], IntegerType, (_$, _id, flow) => flow.states.size()),
+});
+export const computedByDecisionOwner = e3.recordIndex('decisionOwner', computedFlows, {
+    keys: East.function([StringType, ComputedFlow], SetType(OptionType(StringType)),
+        (_$, _id, flow) => flow.states.toSet((_$2, state) => state.owner)),
+});

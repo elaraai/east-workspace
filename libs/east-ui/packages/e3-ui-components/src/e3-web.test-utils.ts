@@ -18,7 +18,8 @@
  *   first deploy pays for the records' initial values and their indexes.
  * - **Per test**, {@link TestE3.workspace} copies that workspace, its records,
  *   indexes and task outputs with it, so nothing runs again and no test sees
- *   another's writes.
+ *   another's writes; {@link TestE3.unrun} deploys the package to a fresh one
+ *   and runs nothing, so each task's output has no value yet.
  * - **Every request** goes through {@link TestE3.fetch}: it is logged
  *   ({@link E3Request}: what it asks, of which dataset or record, and what it
  *   sent), counted in flight, and held or failed where the test says
@@ -128,6 +129,8 @@ export interface E3Request {
     readonly path: string;
     /** The key a retry repeats so it cannot apply twice (`Idempotency-Key`), when it sends one. */
     readonly idempotencyKey: string | undefined;
+    /** The tag of the answer a conditional request holds (`If-None-Match`), when it asks conditionally. */
+    readonly ifNoneMatch: string | undefined;
     /** The credentials it carries (`Authorization`), when it carries any. */
     readonly authorization: string | undefined;
     /** What it sent, when it sent its body whole — every body e3's client sends; a request's body is decoded by its route's type. */
@@ -183,9 +186,11 @@ export interface E3UnitHold {
  * How a fault answers:
  * - as e3 answers a failure: its HTTP status, its error's type and message;
  * - `network`: the request never reaches e3, and the fetch fails as a network does;
- * - `lost`: e3 answers the request — a mutation commits — but its answer never arrives, and the fetch fails as a network does.
+ * - `lost`: e3 answers the request — a mutation commits — but its answer never arrives, and the fetch fails as a network does;
+ * - `untagged`: e3 answers, and its answer arrives without the headers that tag it — its `ETag`, and the content hash it
+ *   names (`X-Content-SHA256`) — as through a proxy that drops them.
  */
-export type E3Failure = { readonly status?: number; readonly type?: string; readonly message?: string } | "network" | "lost";
+export type E3Failure = { readonly status?: number; readonly type?: string; readonly message?: string } | "network" | "lost" | "untagged";
 
 /** e3 under test: see the module's documentation. */
 export interface TestE3 {
@@ -203,6 +208,14 @@ export interface TestE3 {
     readonly requests: E3Request[];
     /** A fresh workspace: a copy of the one the package is deployed to, its dataflow run. */
     workspace(): Promise<string>;
+    /**
+     * A fresh workspace the package is deployed to, its dataflow not run, as a
+     * deploy leaves one: each input holds its default, and each task's output
+     * no value until a run computes it.
+     *
+     * @returns Its name
+     */
+    unrun(): Promise<string>;
     /** How many requests are in flight now, those a hold parks among them. */
     inFlight(): number;
     /** How many requests have been made through {@link fetch}. */
@@ -283,7 +296,7 @@ export function e3RequestOf(
     const query = url.searchParams;
     const base = {
         method, query, path: `/${path.join("/")}`, idempotencyKey: headers.get("Idempotency-Key") ?? undefined,
-        authorization: headers.get("Authorization") ?? undefined, body, signal,
+        ifNoneMatch: headers.get("If-None-Match") ?? undefined, authorization: headers.get("Authorization") ?? undefined, body, signal,
     };
     // repos/<repo>/workspaces/<ws>/<area>/…
     if (path[0] !== "repos" || path[2] !== "workspaces" || path[3] === undefined) {
@@ -490,7 +503,7 @@ function heldUnits(start: () => UnitWorker): HeldUnits {
 }
 
 /** An answer as e3's API server sends a failure (`sendJsonError`): its status, and its error's type and message as JSON. */
-function failureResponse(failure: Exclude<E3Failure, "network" | "lost">, request: E3Request): Response {
+function failureResponse(failure: Exclude<E3Failure, "network" | "lost" | "untagged">, request: E3Request): Response {
     const status = failure.status ?? 500;
     const type = failure.type ?? "internal";
     const message = failure.message ?? `the test failed ${request.method} ${request.path}`;
@@ -522,15 +535,15 @@ export async function startTestE3(modules: Readonly<Record<string, Readonly<Reco
             const failed = run.tasks.filter((task) => task.state.type === "error" || task.state.type === "failed").map((task) => task.name);
             throw new Error(`the examples' dataflow did not succeed: ${failed.join(", ") || "no task failed, but the run did not succeed"}`);
         }
-        return testE3Over(web, units);
+        return testE3Over(web, units, `${name}@${version}`);
     } catch (err) {
         web.close();
         throw err;
     }
 }
 
-/** The harness over a started e3-web, whose units the given workers run. */
-function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
+/** The harness over a started e3-web, whose units the given workers run, the package it deploys named by its reference. */
+function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
     const requests: E3Request[] = [];
     /** A hold: what it matches, whether it holds what comes, each request it parks — the oldest first — and who waits for its first. */
     type Hold = { match: E3Match; live: boolean; parked: (() => void)[]; holdingNow: () => void };
@@ -609,12 +622,20 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
             if (hold !== undefined) await parkOn(hold, request.signal);
             const fault = faults.find((candidate) => candidate.match(entry));
             if (fault !== undefined) {
-                if (fault.failure === "lost") {
+                const failure = fault.failure;
+                if (failure === "untagged") {
+                    const answered = await web.fetch(request);
+                    const headers = new Headers(answered.headers);
+                    headers.delete("ETag");
+                    headers.delete("X-Content-SHA256");
+                    return await kept(entry, new Response(answered.body, { status: answered.status, statusText: answered.statusText, headers }));
+                }
+                if (failure === "lost") {
                     await web.fetch(request);
                     throw new TypeError(`fetch failed: the test lost e3's answer to ${entry.method} ${entry.path}`);
                 }
-                if (fault.failure === "network") throw new TypeError(`fetch failed: the test failed the network for ${entry.method} ${entry.path}`);
-                return await kept(entry, failureResponse(fault.failure, entry));
+                if (failure === "network") throw new TypeError(`fetch failed: the test failed the network for ${entry.method} ${entry.path}`);
+                return await kept(entry, failureResponse(failure, entry));
             }
             const answer = await web.fetch(request);
             // e3 has answered: an answer the test holds is slow on its way back.
@@ -639,6 +660,12 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
         async workspace() {
             const name = `test-${++copies}`;
             await workspaceCopy(web.apiUrl, TEST_REPO, DEPLOYED, name, direct);
+            return name;
+        },
+        async unrun() {
+            const name = `unrun-${++copies}`;
+            await workspaceCreate(web.apiUrl, TEST_REPO, name, direct);
+            await workspaceDeploy(web.apiUrl, TEST_REPO, name, packageRef, direct);
             return name;
         },
         inFlight: () => inFlight,
