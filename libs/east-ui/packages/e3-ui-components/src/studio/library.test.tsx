@@ -4,56 +4,33 @@
  *
  * @vitest-environment jsdom
  *
- * `<Studio.Library>` rendered over a pages record in memory, whose patch
- * door applies each patch with East's own checks (#997): headerless, with one
- * toolbar (D1); the pane of projects and pages with its legend (D2); the
- * Templates row, Blank grid first (D3); the Pages row, "Open in builder →"
- * and the dashed card (D4); a new page, one commit, in the popover under the
- * New page button, from the toolbar and from a template's card, and a name
- * taken refused in it, its template picker's chevron and checks Font
- * Awesome's (D5, #1263); the search, Sort and Grid · List (D6). The surface
- * tells the host which page it opened.
+ * `<Studio.Library>` rendered over the studio examples' pages record on e3
+ * (#1376), its patch door e3's own and its pages the test's, committed as
+ * another session's (#997): headerless, with one toolbar (D1); the pane of
+ * projects and pages with its legend (D2); the Templates row, Blank grid
+ * first (D3); the Pages row, "Open in builder →" and the dashed card (D4); a
+ * new page, one commit, in the popover under the New page button, from the
+ * toolbar and from a template's card, and a name taken refused in it, its
+ * template picker's chevron and checks Font Awesome's (D5, #1263); the
+ * search, Sort and Grid · List (D6). The surface tells the host which page
+ * it opened.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import {
-    East, NullType, PatchType, SortedMap, StringType, applyFor, compareFor, decodeBeast2For, none, some, variant, type ValueTypeOf,
-} from "@elaraai/east";
+import { describe, test, expect, beforeEach } from "vitest";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { East, NullType, SortedMap, StringType, compareFor, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Stack, State, Text, UIComponentType } from "@elaraai/east-ui/internal";
-import {
-    DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
-} from "@elaraai/east-ui-components";
+import { StateRuntime } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
-import {
-    RecordBindHandleType, Studio, StudioKeyType, StudioPagesType, builderKeys, recordBindPlatformFn,
-} from "@elaraai/e3-ui/internal";
-import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi, type RecordApi,
-} from "../platform/index.js";
+import { Record, Studio, StudioKeyType, builderKeys } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/studio/studio";
+import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 // The page library is an extension: its renderer registers as it loads.
 import "./library.js";
 
 type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
-
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-(globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
-});
-// The template select scrolls its open listbox to the chosen option; jsdom does not scroll.
-Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
-(globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
-(globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
-
-const WORKSPACE = "library-test";
-const RECORD = "library_pages";
-const HandleType = RecordBindHandleType(StudioPagesType, { patch: [PatchType(StudioPagesType)] });
 
 /** The listed components. */
 const components = [
@@ -114,68 +91,32 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
     })],
 ], compareFor(StudioKeyType));
 
-let memory: RecordApi;
-let cache: ReactiveDatasetCache;
+const h = e3Harness({ "studio/studio": ex }, { measure: false });
 
-beforeEach(() => {
-    StateRuntime.initializeStore(new UIStore());
-    const store = new Map<string, Uint8Array>();
-    const api: DatasetApi = {
-        async get(ws, path) {
-            const bytes = store.get(datasetCacheKey(ws, path));
-            if (!bytes) throw new Error(`no dataset ${datasetCacheKey(ws, path)}`);
-            return { data: bytes, hash: null };
-        },
-        async set(ws, path, value) { store.set(datasetCacheKey(ws, path), value); },
-        async launchDataflow() { /* in memory — nothing to launch */ },
-        async listRoot() { return []; },
-        async listAt() { return []; },
-        async workspaceStatus() { return { datasets: [] }; },
-    };
-    cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
-    cache.setScheduler((notify) => queueMicrotask(notify));
-    initializeReactiveDatasetCache(cache);
-    const applyPatch = applyFor(StudioPagesType);
-    memory = createInMemoryRecordApi(cache, WORKSPACE, [{
-        name: RECORD, stateType: StudioPagesType, initial: PAGES,
-        mutations: [{ name: "patch", argTypes: [PatchType(StudioPagesType)], reduce: (state, patch) => applyPatch(state as never, patch as never) }],
-    }]);
-    initializeRecordApi(memory, cache, WORKSPACE);
-});
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
+/** The pages record's commits once the test's own pages were made: what a new page adds to. */
+let before: string[] = [];
+
+beforeEach(async () => {
+    await h.patch(ex.studioPages, PAGES);
+    before = await commits();
 });
 
-/** Mount the page library over the record, with a line saying which page it told the host it opened, and let the record load. */
-async function mountLibrary() {
-    const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+/** The page library over the record, as a surface mounts it, with a line saying which page it told the host it opened. */
+const library = {
+    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
-        const record = $.let(recordBindPlatformFn([HandleType], RECORD));
+        const record = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
         const told = $.let(State.bind([StringType], "library-test.told", "nothing"));
         const onOpen = $.const(East.function([StudioKeyType], NullType, ($2, key) => { $2(told.write(East.str`${key.project}/${key.page}`)); }));
         return Stack.VStack([
             Text.Root(East.str`told ${told.read()}`),
-            Studio.Library({ pages: record as never, components: listed, project: "ops", onOpen }),
+            Studio.Library({ pages: record, components: listed, project: "ops", onOpen }),
         ]);
-    }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
-    const utils = render(
-        <ChakraProvider value={system}>
-            <DragLayerProvider>
-                <EastChakraComponent value={program()} storageKey="studio-library" />
-            </DragLayerProvider>
-        </ChakraProvider>,
-    );
-    await settle();
-    return utils;
-}
+    }))),
+};
 
-/** Let the record's reads, the writes and the renders settle. */
-async function settle() {
-    await act(async () => {
-        for (let i = 0; i < 6; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
-    });
-}
+/** Mount the page library under the page's drag layer, once what it reads has loaded. */
+const mountLibrary = () => h.mount(library, { storageKey: "studio-library" });
 
 /** The page the builder has open, as its screens share it. */
 function builderPage(): Key | undefined {
@@ -183,11 +124,12 @@ function builderPage(): Key | undefined {
     return bytes === undefined ? undefined : decodeBeast2For(StudioKeyType)(bytes);
 }
 
-/** The record as it stands — what its patch door last wrote. */
-async function readRecord(): Promise<Pages> {
-    const bytes = cache.read(WORKSPACE, [variant("field", "records"), variant("field", RECORD)]);
-    if (bytes === undefined) throw new Error("the record has not loaded");
-    return decodeBeast2For(StudioPagesType)(bytes);
+/** The record as e3 holds it now. */
+const readRecord = (): Promise<Pages> => h.read(ex.studioPages);
+
+/** The mutations the record committed, newest first. */
+async function commits(): Promise<string[]> {
+    return (await h.history(ex.studioPages)).commits.map((c) => c.mutation);
 }
 
 /** The pane beside the rows. */
@@ -345,7 +287,7 @@ describe("<Studio.Library> — a new page (#997)", () => {
         await act(async () => { fireEvent.click(popover().getByRole("button", { name: "Create page" })); });
         await settle();
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-        expect((await memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
         expect((await readRecord()).get({ project: "ops", page: "Q3 review" })).toEqual(
             variant("page", { draft: { title: "Q3 review", cells: [] }, live: none }),
         );
@@ -381,7 +323,7 @@ describe("<Studio.Library> — a new page (#997)", () => {
         await act(async () => { fireEvent.click(popover().getByRole("button", { name: "Cancel" })); });
         await settle();
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-        expect((await memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation)).toEqual(["$init"]);
+        expect(await commits()).toEqual(before);
     });
 
     test("D5: the template picker offers Blank grid and the project's templates; its chevron and the picked one's check are Font Awesome's (#1263)", async () => {
