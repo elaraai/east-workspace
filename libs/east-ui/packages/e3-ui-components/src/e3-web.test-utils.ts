@@ -23,7 +23,8 @@
  *   ({@link E3Request}: what it asks, of which dataset or record, and what it
  *   sent), counted in flight, and held or failed where the test says
  *   ({@link TestE3.hold}, {@link TestE3.fail}) — a fault at the network's
- *   boundary, over e3's real answer to everything else — and its answer kept
+ *   boundary, over e3's real answer to everything else — its answer held on
+ *   its way back where the test says ({@link TestE3.holdAnswers}), and kept
  *   where the test asks ({@link TestE3.answers}).
  * - **Every unit** e3 runs — a task, a piece of a split call, a one-shot — runs
  *   in this thread (`inProcessUnits`), and may be held before it starts
@@ -210,6 +211,15 @@ export interface TestE3 {
     idle(): Promise<void>;
     /** Holds each request it matches in flight, from now until released. */
     hold(match: E3Match): E3Hold;
+    /**
+     * Holds e3's answer to each request it matches, from now until released:
+     * the request reaches e3, which answers it, and the answer is slow on its
+     * way back, so a later request's answer may overtake it.
+     *
+     * @param match - The requests whose answers it holds
+     * @returns The hold
+     */
+    holdAnswers(match: E3Match): E3Hold;
     /** Answers each request it matches as e3 answers a failure, from now until the returned function stops it. */
     fail(match: E3Match, failure?: E3Failure): () => void;
     /**
@@ -523,7 +533,11 @@ export async function startTestE3(modules: Readonly<Record<string, Readonly<Reco
 function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
     const requests: E3Request[] = [];
     /** A hold: what it matches, whether it holds what comes, each request it parks — the oldest first — and who waits for its first. */
-    const holds: { match: E3Match; live: boolean; parked: (() => void)[]; holdingNow: () => void }[] = [];
+    type Hold = { match: E3Match; live: boolean; parked: (() => void)[]; holdingNow: () => void };
+    /** The holds on requests, which park a request before it reaches e3. */
+    const holds: Hold[] = [];
+    /** The holds on answers, which park e3's answer to a request on its way back. */
+    const answerHolds: Hold[] = [];
     const faults: { match: E3Match; failure: E3Failure }[] = [];
     /** Each tap a test set: what it matches, and the answers it keeps. */
     const taps: { match: E3Match; answers: E3Answer[] }[] = [];
@@ -533,7 +547,7 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
     let started = 0;
     let copies = 0;
 
-    const letGo = (hold: (typeof holds)[number]) => {
+    const letGo = (hold: Hold) => {
         hold.live = false;
         for (const go of hold.parked.splice(0)) go();
     };
@@ -541,6 +555,38 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
     const tellIdle = () => {
         if (inFlight - parked !== 0) return;
         for (const idler of [...idlers]) idler();
+    };
+
+    /** Parks a request on a hold until the hold lets it go, or its caller gives it up. */
+    const parkOn = async (hold: Hold, signal: AbortSignal): Promise<void> => {
+        parked++;
+        let go!: () => void;
+        const released = new Promise<void>((resolve) => { go = resolve; });
+        hold.parked.push(go);
+        hold.holdingNow();
+        tellIdle();
+        try {
+            await Promise.race([released, aborted(signal)]);
+        } finally {
+            parked--;
+            const at = hold.parked.indexOf(go);
+            if (at >= 0) hold.parked.splice(at, 1);
+        }
+    };
+
+    /** A hold over the requests it matches, kept in a list of holds. */
+    const holdIn = (list: Hold[], match: E3Match): E3Hold => {
+        let holdingNow!: () => void;
+        const holding = new Promise<void>((resolve) => { holdingNow = resolve; });
+        const hold: Hold = { match, live: true, parked: [], holdingNow };
+        list.push(hold);
+        return {
+            get held() { return hold.parked.length; },
+            holding,
+            releaseOne: () => { hold.parked.shift()?.(); },
+            releaseLast: () => { hold.parked.pop()?.(); },
+            release: () => letGo(hold),
+        };
     };
 
     /** The answer, kept by each tap that matches its request. */
@@ -560,21 +606,7 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
         inFlight++;
         try {
             const hold = holds.find((candidate) => candidate.live && candidate.match(entry));
-            if (hold !== undefined) {
-                parked++;
-                let go!: () => void;
-                const released = new Promise<void>((resolve) => { go = resolve; });
-                hold.parked.push(go);
-                hold.holdingNow();
-                tellIdle();
-                try {
-                    await Promise.race([released, aborted(request.signal)]);
-                } finally {
-                    parked--;
-                    const at = hold.parked.indexOf(go);
-                    if (at >= 0) hold.parked.splice(at, 1);
-                }
-            }
+            if (hold !== undefined) await parkOn(hold, request.signal);
             const fault = faults.find((candidate) => candidate.match(entry));
             if (fault !== undefined) {
                 if (fault.failure === "lost") {
@@ -584,7 +616,11 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
                 if (fault.failure === "network") throw new TypeError(`fetch failed: the test failed the network for ${entry.method} ${entry.path}`);
                 return await kept(entry, failureResponse(fault.failure, entry));
             }
-            return await kept(entry, await web.fetch(request));
+            const answer = await web.fetch(request);
+            // e3 has answered: an answer the test holds is slow on its way back.
+            const answerHold = answerHolds.find((candidate) => candidate.live && candidate.match(entry));
+            if (answerHold !== undefined) await parkOn(answerHold, request.signal);
+            return await kept(entry, answer);
         } finally {
             inFlight--;
             tellIdle();
@@ -617,19 +653,8 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
                 idlers.add(idler);
             });
         },
-        hold(match) {
-            let holdingNow!: () => void;
-            const holding = new Promise<void>((resolve) => { holdingNow = resolve; });
-            const hold = { match, live: true, parked: [] as (() => void)[], holdingNow };
-            holds.push(hold);
-            return {
-                get held() { return hold.parked.length; },
-                holding,
-                releaseOne: () => { hold.parked.shift()?.(); },
-                releaseLast: () => { hold.parked.pop()?.(); },
-                release: () => { hold.live = false; for (const go of hold.parked.splice(0)) go(); },
-            };
-        },
+        hold: (match) => holdIn(holds, match),
+        holdAnswers: (match) => holdIn(answerHolds, match),
         answers(match) {
             const tap = { match, answers: [] as E3Answer[] };
             taps.push(tap);
@@ -651,14 +676,14 @@ function testE3Over(web: WebE3, units: HeldUnits): TestE3 {
             };
         },
         reset() {
-            for (const hold of holds.splice(0)) letGo(hold);
+            for (const hold of [...holds.splice(0), ...answerHolds.splice(0)]) letGo(hold);
             units.reset();
             faults.splice(0);
             taps.splice(0);
             requests.splice(0);
         },
         close() {
-            for (const hold of holds.splice(0)) letGo(hold);
+            for (const hold of [...holds.splice(0), ...answerHolds.splice(0)]) letGo(hold);
             units.reset();
             web.close();
         },

@@ -40198,7 +40198,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40234,7 +40234,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40260,7 +40260,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40294,7 +40294,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40333,7 +40333,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40368,7 +40368,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40407,7 +40407,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40462,7 +40462,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40507,7 +40507,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -40549,7 +40549,7 @@
       "imports": [
         "import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from \"@elaraai/east\";",
         "import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Plan, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Plan, Record, Sheet, ui } from \"@elaraai/e3-ui\";",
         "import * as e3 from \"@elaraai/e3\";"
       ],
       "languages": [

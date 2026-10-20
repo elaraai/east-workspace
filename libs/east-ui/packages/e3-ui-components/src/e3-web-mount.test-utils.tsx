@@ -463,19 +463,27 @@ function Program({ example, program, storageKey }: { example: Example; program: 
     return <EastChakraComponent value={value} storageKey={storageKey} />;
 }
 
+/** The timer real time passes on, as the page started with it: a test whose clock is fake (`vi.useFakeTimers`) settles on it too. */
+const realSetTimeout = globalThis.setTimeout;
+
+/** Lets real time pass for a few turns, React flushing between them. */
+const turns = () => act(async () => { for (let i = 0; i < 8; i++) await new Promise<void>(resolve => realSetTimeout(resolve, 0)); });
+
 /**
  * Waits until React has flushed and no request to e3 is in flight — those a
  * hold parks aside — again until both hold at once with no request started
- * meanwhile. Outside a harness's file, it flushes React alone.
+ * meanwhile. Outside a harness's file, it flushes React alone. It waits on
+ * real time, so a test's fake clock stands still meanwhile: what the clock
+ * starts, the test moves it on to.
  */
 export async function settle(): Promise<void> {
     for (;;) {
         const e3 = current?.e3;
         const before = e3?.started() ?? 0;
-        await act(async () => { for (let i = 0; i < 8; i++) await new Promise<void>(resolve => setTimeout(resolve, 0)); });
+        await turns();
         if (e3 === undefined) return;
         await e3.idle();
-        await act(async () => { for (let i = 0; i < 8; i++) await new Promise<void>(resolve => setTimeout(resolve, 0)); });
+        await turns();
         if (e3.started() === before) return;
     }
 }

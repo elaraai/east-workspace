@@ -4,75 +4,69 @@
  *
  * @vitest-environment jsdom
  *
- * A task's details as `useTaskDetails` reads them: from the server once, under
- * the key `useTaskGet` reads by, so a preview and the host that opened it
- * share one read; and from the host that holds them, without a request, and
- * again as the host's change.
+ * A task's details as `useTaskDetails` reads them, from e3 itself (#1377):
+ * from the server once, under the key `useTaskGet` reads by, so a preview and
+ * the host that opened it share one read; and from the host that holds them,
+ * without a request, and again as the host's change.
  */
 
-import { describe, test, expect, afterEach, vi } from "vitest";
-import { renderHook, cleanup } from "@testing-library/react";
+import { describe, test, expect, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { variant, type ValueTypeOf } from "@elaraai/east";
-import { taskGet } from "@elaraai/e3-api-client";
-import type { TaskDetailsType } from "@elaraai/e3-types";
+import { taskGet, type RequestOptions, type TaskDetails } from "@elaraai/e3-api-client";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import { e3Harness } from "../e3-web-mount.test-utils.js";
 import { useTaskGet } from "./tasks.js";
 import { useTaskDetails } from "./useTaskDetails.js";
 
-vi.mock("@elaraai/e3-api-client", async (importOriginal) => ({
-    ...await importOriginal<typeof import("@elaraai/e3-api-client")>(),
-    taskGet: vi.fn(),
-}));
+const h = e3Harness({ "bind/data/data": ex }, { measure: false });
 
-afterEach(() => {
-    cleanup();
-    vi.mocked(taskGet).mockReset();
-});
+/** The data task the preview shows, `preview_report`. */
+const REPORT = ex.previewReportTask.name;
+/** The ui task beside it. */
+const VIEW = ex.previewView.name;
 
-const API = "http://e3.test";
+/** The requests' options: their token, and the harness's fetch they go through. */
+const options = (): RequestOptions => ({ token: null, fetch: h.e3.fetch });
 
-/** A data task, `report`, whose output is `.tasks.report.output`, by its hash. */
-function details(hash: string): ValueTypeOf<typeof TaskDetailsType> {
-    return {
-        name: "report",
-        hash,
-        body: variant("east", { program: "3".repeat(64) }),
-        runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
-        inputs: [],
-        output: { path: [variant("field", "tasks"), variant("field", "report"), variant("field", "output")], kind: variant("value", null) },
-        role: variant("data", null),
-    };
-}
+/** A task's details, read as another session would: no request of the hooks'. */
+const detailsOf = (task: string): Promise<TaskDetails> => taskGet(h.e3.apiUrl, h.e3.repo, h.workspace, task, h.e3.direct);
 
 /** A client, as a host and the preview it opened share one. */
 function client(): QueryClient {
     return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
+/** The requests made of the task's details. */
+const detailReads = (task: string) => h.requests("task").filter((request) => request.name === task);
+
 describe("useTaskDetails", () => {
     test("reads the task once for a host and the preview it opened, under one key", async () => {
-        vi.mocked(taskGet).mockResolvedValue(details("1".repeat(64)) as never);
         const shared = client();
+        const requestOptions = options();
         const { result } = renderHook(() => ({
-            host: useTaskGet(API, "default", "w", "report"),
-            preview: useTaskDetails(API, "default", "w", "report"),
+            host: useTaskGet(h.e3.apiUrl, h.e3.repo, h.workspace, REPORT, requestOptions),
+            preview: useTaskDetails(h.e3.apiUrl, h.e3.repo, h.workspace, REPORT, { requestOptions }),
         }), { wrapper: ({ children }) => <QueryClientProvider client={shared}>{children}</QueryClientProvider> });
-        await vi.waitFor(() => expect(result.current.preview.data?.hash).toBe("1".repeat(64)));
-        expect(result.current.host.data?.hash).toBe("1".repeat(64));
-        expect(vi.mocked(taskGet)).toHaveBeenCalledTimes(1);
+        const stored = await detailsOf(REPORT);
+        await vi.waitFor(() => expect(result.current.preview.data?.hash).toBe(stored.hash));
+        expect(result.current.host.data?.hash).toBe(stored.hash);
+        expect(detailReads(REPORT)).toHaveLength(1);
     });
 
     test("answers from the details the host holds, without a request, and follows them as they change", async () => {
         const shared = client();
+        const report = await detailsOf(REPORT);
         const { result, rerender } = renderHook(
-            ({ held }: { held: ValueTypeOf<typeof TaskDetailsType> }) => useTaskDetails(API, "default", "w", "report", { details: held }),
-            { initialProps: { held: details("1".repeat(64)) }, wrapper: ({ children }) => <QueryClientProvider client={shared}>{children}</QueryClientProvider> },
+            ({ held }: { held: TaskDetails }) => useTaskDetails(h.e3.apiUrl, h.e3.repo, h.workspace, REPORT, { requestOptions: options(), details: held }),
+            { initialProps: { held: report }, wrapper: ({ children }) => <QueryClientProvider client={shared}>{children}</QueryClientProvider> },
         );
-        expect(result.current.data?.hash, "the details the host holds, at once").toBe("1".repeat(64));
+        expect(result.current.data?.hash, "the details the host holds, at once").toBe(report.hash);
 
-        // The host read the task again: what it hands over now is shown.
-        rerender({ held: details("2".repeat(64)) });
-        await vi.waitFor(() => expect(result.current.data?.hash).toBe("2".repeat(64)));
-        expect(vi.mocked(taskGet), "the server is never asked").not.toHaveBeenCalled();
+        // The host hands over other details — another task's, so the change shows: they are shown.
+        const view = await detailsOf(VIEW);
+        rerender({ held: view });
+        await vi.waitFor(() => expect(result.current.data?.hash).toBe(view.hash));
+        expect(detailReads(REPORT), "the server is never asked").toEqual([]);
     });
 });
