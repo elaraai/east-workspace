@@ -61,7 +61,7 @@ import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates, planPrintJobTemplatesByGroup } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
-import { patchRecord, type E3Request } from "../../e3-web.test-utils.js";
+import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
@@ -154,12 +154,14 @@ afterEach(() => {
 /** The jobs as e3 holds them now, read as another planner would. */
 const readJobs = async () => (await h.read(ex.planWindowJobs)) as ReadonlyMap<string, Job>;
 
-/** One job changed in the jobs e3 holds now: what another planner's write commits. */
-async function jobChanged(key: string, change: Partial<Job>) {
-    const next = new Map(await readJobs());
+/** One job changed in the jobs given: what another planner's write commits. */
+function jobWith(jobs: ReadonlyMap<string, Job>, key: string, change: Partial<Job>) {
+    const next = new Map(jobs);
     next.set(key, { ...next.get(key)!, ...change });
     return next;
 }
+/** One job changed in the jobs e3 holds now. */
+const jobChanged = async (key: string, change: Partial<Job>) => jobWith(await readJobs(), key, change);
 
 /** Another planner's write to one job, through the record's patch door. */
 async function writeJob(key: string, change: Partial<Job>) {
@@ -793,15 +795,10 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await select(bar(c, "W-0003", "P-1002")!);
         await typeInto(c, "customer", "Driftwood Museum Trust");
         // Another planner changes the brochure run's customer just as Save goes: the Save's write reaches e3 after theirs.
-        const write = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.planWindowJobs.name);
-        await act(async () => {
+        await h.race(ex.planWindowJobs, () => {
             fireEvent.mouseDown(historyButton(c, SAVE), { button: 0 });
             fireEvent.click(historyButton(c, SAVE));
-        });
-        await write.holding;
-        await patchRecord(h.e3, h.workspace, ex.planWindowJobs, await jobChanged("W-0001", { customer: "Alder & Finch Group" }));
-        await act(async () => { write.release(); });
-        await settle();
+        }, (jobs) => jobWith(jobs, "W-0001", { customer: "Alder & Finch Group" }));
         await waitFor(() => expect(bannerTexts(c).map((b) => b.kind)).toEqual(["conflict", "stale"]));
         const conflict = bannerTexts(c)[0]!.text;
         expect(conflict).toContain(editingMessages.bannerSource({ source: "Print job", title: editingMessages.bannerConflict({ n: 1, count: "1" }) }));
@@ -911,20 +908,16 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
             expect(carrySaid(container)).toMatch(/^Dropped RUN · J-4642 on H1-P03/);
             expect(pending(container)).toBe("1 pending");
             // Another write moves the same run two weeks on, just as Save goes: the Save's write reaches e3 after it.
-            const write = h.e3.hold((request) => request.kind === "mutate" && request.record === ops.name);
-            await act(async () => {
+            await h.race(ops, () => {
                 fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
                 fireEvent.click(historyButton(container, SAVE));
+            }, (now) => {
+                const p03 = now.get("p03")!;
+                const job = p03.jobs[0]!;
+                const next = new Map(now);
+                next.set("p03", { ...p03, jobs: [{ ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }] });
+                return next;
             });
-            await write.holding;
-            const now = await h.read(ops);
-            const p03 = now.get("p03")!;
-            const job = p03.jobs[0]!;
-            const next = new Map(now);
-            next.set("p03", { ...p03, jobs: [{ ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }] });
-            await patchRecord(h.e3, h.workspace, ops, next);
-            await act(async () => { write.release(); });
-            await settle();
             await waitFor(() => expect(bannerTexts(container).map((b) => b.kind)).toEqual(["conflict", "stale"]));
             expect(bannerTexts(container)[0]!.text)
                 .toContain(editingMessages.bannerIssue({ where: "H1-P03", message: "Changed since this edit began — last changed by another session" }));

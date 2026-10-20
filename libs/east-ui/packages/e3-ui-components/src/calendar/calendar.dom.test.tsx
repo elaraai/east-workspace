@@ -12,7 +12,6 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import { Calendar, Record } from "@elaraai/e3-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
-import { patchRecord } from "../e3-web.test-utils.js";
 import { act, calendarHarness, card, event, settle, slot, width } from "./harness.test-utils.js";
 const h = calendarHarness();
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")).getByRole("button", { name });
@@ -224,15 +223,12 @@ describe("Calendar explicit action forms", () => {
             await press(event(container, kind!, key!));
             await act(async () => { fireEvent.keyDown(event(container, kind!, key!), { key: "Delete" }); }); await settle();
         }
-        // The jobs' patch held on its way to e3 while another session changes the job it deletes.
-        const jobsWrite = h.e3.hold(request => request.kind === "mutate" && request.record === ex.calendarJobs.name);
-        await act(async () => { fireEvent.click(history(container, editingMessages.apply())); });
-        await jobsWrite.holding;
-        const others = new Map(await jobs());
-        others.set("job1", { ...others.get("job1")!, customer: "Changed elsewhere" });
-        await patchRecord(h.e3, h.workspace, ex.calendarJobs, others);
-        await act(async () => { jobsWrite.release(); });
-        await settle();
+        // Another session changes the job it deletes while the jobs' patch is on its way to e3.
+        await h.race(ex.calendarJobs, () => { fireEvent.click(history(container, editingMessages.apply())); }, (now) => {
+            const others = new Map(now);
+            others.set("job1", { ...others.get("job1")!, customer: "Changed elsewhere" });
+            return others;
+        });
         expect(container.querySelector('[data-session-banner="conflict"]')).not.toBeNull();
         expect((await jobs()).get("job1")!.customer).toBe("Changed elsewhere");
         expect((await h.read(ex.calendarServices)).has("service1")).toBe(false);

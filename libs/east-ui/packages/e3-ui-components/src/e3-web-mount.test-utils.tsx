@@ -154,6 +154,18 @@ export interface E3Harness {
      */
     patch<T extends EastType>(record: E3Record<T>, next: ValueTypeOf<T>): Promise<void>;
     /**
+     * A Save another session's write overtakes: the record's next mutation is
+     * held on its way to e3 while the other session commits the record's new
+     * state, then let go — so e3 checks the Save against the record as it has
+     * moved, and what is mounted hears of the other write only from the Save's
+     * answer. Then settles.
+     *
+     * @param record - The record both write, which declares a patch mutation
+     * @param save - What sends the Save: a press of its button, say
+     * @param next - The record's state as the other session leaves it, from its state as the Save goes
+     */
+    race<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
+    /**
      * Writes a dataset as another session would, then settles.
      *
      * @param dataset - The dataset
@@ -320,6 +332,14 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         async patch(record, next) {
             await patchRecord(e3(), workspace(), record, next);
             await refreshMounted(workspace());
+        },
+        async race(record, save, next) {
+            const saving = e3().hold((request) => request.kind === "mutate" && request.record === record.name);
+            await act(async () => { save(); });
+            await saving.holding;
+            await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
+            await act(async () => { saving.release(); });
+            await settle();
         },
         async write(dataset, value) {
             await writeDataset(e3(), workspace(), dataset, value);

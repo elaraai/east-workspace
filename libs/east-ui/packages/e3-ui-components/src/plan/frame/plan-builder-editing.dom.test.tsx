@@ -29,7 +29,6 @@ import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, fieldFormMessages, getRegisteredPlatformImplementations, type EditHistoryJoined } from "@elaraai/east-ui-components";
 import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import { patchRecord } from "../../e3-web.test-utils.js";
 import { usePlanEventEditing, type PlanEventChange } from "../edit/events.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
@@ -46,12 +45,14 @@ type Job = ValueTypeOf<typeof ex.PrintJob>;
 const readJobs = () => h.read(ex.planPrintJobs);
 const readStops = () => h.read(ex.planPrintStops);
 
-/** One job changed in the jobs e3 holds now: what another planner's write commits. */
-async function jobChanged(key: string, change: Partial<Job>) {
-    const next = new Map(await readJobs());
+/** One job changed in the jobs given: what another planner's write commits. */
+function jobWith(jobs: ReadonlyMap<string, Job>, key: string, change: Partial<Job>) {
+    const next = new Map(jobs);
     next.set(key, { ...next.get(key)!, ...change });
     return next;
 }
+/** One job changed in the jobs e3 holds now. */
+const jobChanged = async (key: string, change: Partial<Job>) => jobWith(await readJobs(), key, change);
 
 /** A record's commits, newest first, by the mutation that made each. */
 async function commits(name: string): Promise<string[]> {
@@ -564,12 +565,10 @@ describe("Save per kind (PB45–PB48)", () => {
         await act(async () => { fireEvent.click(pane(container).querySelector<HTMLInputElement>("[data-inspector-fields='custom'] input[value='service']")!); });
         await settle();
         // Another planner changes the same job just as Save goes: the jobs' write reaches e3 after theirs.
-        const jobsWrite = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.planPrintJobs.name);
-        await press(historyButton(container, SAVE));
-        await jobsWrite.holding;
-        await patchRecord(h.e3, h.workspace, ex.planPrintJobs, await jobChanged("J-1001", { customer: "Alder & Finch Group" }));
-        await act(async () => { jobsWrite.release(); });
-        await settle();
+        await h.race(ex.planPrintJobs, () => {
+            fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
+            fireEvent.click(historyButton(container, SAVE));
+        }, (jobs) => jobWith(jobs, "J-1001", { customer: "Alder & Finch Group" }));
         const conflict = editingMessages.bannerConflict({ n: 1, count: "1" });
         expect(banners(container).map((b) => b.kind)).toEqual(["conflict", "stale"]);
         expect(banners(container)[0]!.text).toContain(titled("Print job", conflict));
