@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import { system } from "@elaraai/east-ui-components";
-import { act, settle } from "../builder-harness.test-utils.js";
+import { act, settle } from "../../e3-web-mount.test-utils.js";
 import { TimeNavigator, type TimeNavigatorProps } from "./navigation.js";
 
 afterEach(cleanup);
