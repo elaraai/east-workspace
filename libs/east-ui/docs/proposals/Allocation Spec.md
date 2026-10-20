@@ -13,6 +13,18 @@ its drag grammar are the authority**, and this document transcribes all of them.
 Only the rulings in §2 change what the mock does; §14 lists each change. Each
 sub-issue copies the sections and rules it owns.
 
+> **Since 20 Oct 2026 the authoring surface is the builder-interfaces spec's**
+> (`Builder Interfaces Spec.md` §6, approved with the epic #1365). The bins and
+> the days are the app's own records: an instant event kind over the app's bin
+> rows (`Schedule.events`) and, for Publish, the app's days (`Schedule.periods`).
+> Lanes and resources are `Schedule.resources` kinds, and what the board books is
+> `arrivals`. `Allocation.Types.Days(V)` and `V` are removed. This document's
+> §3–§5 and its decisions 2, 3 and 7 are amended to match. Its behaviour rules
+> (A1–A99, F1–F4, R1–R5) stand, with one change: the board's default noun for
+> what it books is **Arrival** (D12). So every default word below that names an
+> event for what is booked says arrival on the screen: the Arrivals tab, Back to
+> Arrivals, `no arrival`, `Book an arrival…`.
+
 ## 0. The files
 
 | File | What it is |
@@ -52,12 +64,13 @@ slot is B-1 00:15.
   e3-ui-components (`src/allocation/`). It binds records, so it is an e3
   component.
 - **Slots.**
-  - The plans: one record keyed by UTC day, in the component's own types,
-    generic over the app's bin values (`Allocation.Types.Days(V)`), bound with
-    its patch mutation.
-  - Events and resources: the app's own keyed data, read through accessors.
+  - The plans: the app's own records, each bound with its patch mutation: its
+    bins, an instant event kind (`Schedule.events`), and its days, for Publish
+    (`Schedule.periods`).
+  - Arrivals, lanes and resources: the app's own keyed data, read through
+    accessors (`Allocation.arrivals`, `Schedule.resources`).
   - The fit: the app's `e3.function`, bound with `Func.bind`.
-- **Draws.** `BuilderFrame`: one toolbar; the Library (Events · Resources) in
+- **Draws.** `BuilderFrame`: one toolbar; the Library (Arrivals · Resources) in
   the start pane; the Timeline or the Table in main; the Inspector (Details ·
   Issues) in the end pane; a footer with only the layout's legend.
 - **Built in.** Drag and drop of bins, connectors, links and library cards;
@@ -70,13 +83,17 @@ These are settled.
 
 1. **`Allocation` is in e3-ui**, record-bound like the Roster, Studio, the
    query builder and the Calendar. BuilderFrame is internal to the renderer.
-2. **The plans are one record keyed by UTC day**, `Allocation.Types.Days(V)`.
-   A day is one entry, so one Save writes a day's bins, parts and status
-   together. Each day keeps its own drafts while the viewer moves between days.
-3. **Bins carry the app's own values**, `V`: a struct the app declares (the
-   yard's booked and measured moisture and grade). The app shows them in a
-   Table column and the inspector, and flags mismatches through `check`.
-   *(Ruled 17 Oct.)*
+2. **The plans are the app's own records**: its bins, an instant event kind
+   (`Schedule.events`), and its days for Publish (`Schedule.periods`). Each
+   record is one session of one history, and Save sends each record's changes
+   as its own request. Each day keeps its own drafts while the viewer moves
+   between days. *(Ruled 20 Oct, superseding one plans record of
+   `Allocation.Types.Days(V)`; builder-interfaces spec D2, D4, D6, D8.)*
+3. **Bins are the app's own rows.** Fields the app declares, such as the yard's
+   booked and measured moisture and grade, sit on its bin row beside the
+   board's roles. The app shows them in a Table column and the inspector, and
+   flags mismatches through `check`. *(Ruled 17 Oct; the row in place of `V`
+   ruled 20 Oct.)*
 4. **Events and resources are the app's keyed data**, read through accessors.
    The board never writes them. `resources` is complete: fits, checks and
    totals read all of it, whatever the narrowing hides.
@@ -90,15 +107,18 @@ These are settled.
    *(Ruled 17 Oct.)*
 6. **Issues never block Save or Publish.** What the fit refuses never becomes
    a draft; everything else is a warning with its fix. *(Ruled 17 Oct.)*
-7. **Publish** sets the day's status, as the Roster's Publish sets a week's; a
-   published day is read-only. `publish={false}` removes the step. *(Ruled 17 Oct.)*
+7. **Publish** sets the day's status in the app's days record, once the day's
+   bins are saved, as the Roster's Publish sets a week's; a published day is
+   read-only. Leaving `periods` out removes the step. *(Ruled 17 Oct; the
+   record ruled 20 Oct.)*
 8. **One record Slice narrows the lanes and the resources**, in the Timeline and
    the Table alike, from one rail: `Slice.bindRecords` over the lanes' and the
-   resources' records, each source named after what it narrows. The board reads
+   resources' records, each source named after the kind it narrows (the lanes'
+   and the resources' slots; builder-interfaces spec §6.1). The board reads
    the narrowing from the slice it is given; no prop repeats it (§9.15). *(Ruled
    17 Oct, superseding "the Table is never narrowed".)* Each source narrows
    every place its rows appear, the Library's tabs included, and an app may add
-   an `events` source; a Library tab keeps its search and its groups and has no
+   an `arrivals` source; a Library tab keeps its search and its groups and has no
    filter of its own: every filter is the rail's (A98, A99). *(Ruled 18 Oct,
    superseding the mock's "the library always lists everything"; the same rule
    holds for every BuilderFrame component.)*
@@ -124,200 +144,39 @@ These are settled.
 
 ## 3. The authoring surface
 
-### 3.1 The records and the fit an app declares
+### 3.1 The records, the fit and the boards
+
+The authoring surface is the builder-interfaces spec's (`Builder Interfaces
+Spec.md` §6). Its §6.5 holds the code this section held, moved onto it:
+
+- the yard's records: its bins (`KilnBin`, the board's roles beside the yard's
+  own spec, grade and instruction fields) and its days (`YardDay`), each bound
+  with its patch mutation, beside its kilns, loads and bays;
+- the yard's fit, an `e3.function` over `Allocation.Types.FitRequest(KilnBin)`;
+- the smallest board (`allocationMinimal`), and the kiln yard
+  (`allocationKilnYard`): the library, the inspector, the rail over the bays,
+  the kilns and the loads, the yard's own fields as columns, and a check.
 
 Kilns and loads are the app's own, kept as its other systems keep them; the
-board only reads them. The plans record takes the component's own type over the
-app's bin values, as a Studio app's pages record takes `Studio.Types.Pages`. The
-fit is an `e3.function`, so it runs on e3 (or e3-web in a browser), never in the
-renderer.
+board only reads them. The fit is an `e3.function`, so it runs on e3 (or e3-web
+in a browser), never in the renderer. `Allocation.answer` builds the candidates
+for the request and maps a per-candidate fit over them, with the app's words for
+how its fit ranks (the answer's `basis`); `Allocation.fit` is the built-in rule
+set (§12); `Allocation.lookahead` is a pure greedy best-fit-decreasing pass: it
+places the candidate, then the day's unbooked arrivals largest first, each on
+its best fitting resource, and lowers the score by one for each arrival left
+with no fit, adding `· leaves 1 load with no fit` to `why`. All three are
+ordinary East functions an app may call, replace or ignore. Those over a plan
+take the bin row type, because an East function has one type —
+`Allocation.answer(KilnBin)` is an East function over
+`Allocation.Types.FitRequest(KilnBin)`; `Allocation.fit` reads one candidate
+and needs none.
 
-```tsx
-// kiln-yard.tsx — module-level e3 units, types and seeds; every UI definition stays inline in its example.
-/** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Box, Reactive, Slice, TimeStepType, UIComponentType } from "@elaraai/east-ui";
-import { Allocation, Data, Func, Record } from "@elaraai/e3-ui";
-import e3 from "@elaraai/e3";
-import { yardArrivals, yardBayRows, yardKilns, yardPlans } from "./kiln-yard-data.js";
-
-/** What each bin carries of the yard's own: the moisture target and grade booked, and as measured on arrival. */
-export const BinValues = StructType({
-    specBooked: StringType, specMeasured: StringType,
-    gradeBooked: StringType, gradeMeasured: StringType,
-    instruction: OptionType(StringType),
-});
-/** A drying kiln. */
-export const Kiln = StructType({
-    name: StringType, group: StringType, min: FloatType, max: FloatType,
-    days: FloatType,                                 // the days it usually dries for: a reservation's hold
-    note: OptionType(StringType),                    // a line about its next charge
-    charges: ArrayType(Allocation.Types.Job),        // the charge drying now, and the next one planned
-});
-/** A load of sawn timber on its way from a mill. */
-export const TimberLoad = StructType({
-    code: StringType, mill: StringType, spec: StringType, grade: StringType,
-    m3: FloatType, dryingDays: FloatType, due: DateTimeType, from: DateTimeType, to: DateTimeType,
-    schedule: StringType,                            // the kiln schedule it dries on
-    instruction: OptionType(StringType),             // its loading instruction
-});
-
-// The plans the board edits: one per UTC day, each patched as a whole.
-export const kilnPlans = e3.record("kiln_plans", Allocation.Types.Days(BinValues), yardPlans);
-export const kilnPlansPatch = e3.mutation.patch(kilnPlans);
-// The kilns, indexed by group for the narrowing; and by group then max, so a group and a range of max combine, and by name, for a search.
-export const kilns = e3.record("kilns", DictType(StringType, Kiln), yardKilns);
-export const kilnsByGroup = e3.recordIndex("kilns_by_group", kilns, { on: ["group"] });
-export const kilnsByGroupMax = e3.recordIndex("kilns_by_group_max", kilns, { on: ["group", "max"] });
-export const kilnsByName = e3.recordIndex("kilns_by_name", kilns, { on: ["name"] });
-// Every load the day may book: booked or not, the board tells them apart by the plan; indexed by spec for the narrowing.
-export const arrivals = e3.record("arrivals", DictType(StringType, TimberLoad), yardArrivals);
-export const arrivalsBySpec = e3.recordIndex("arrivals_by_spec", arrivals, { on: ["spec"] });
-/** An unloading bay: its name, the yard area it stands in, whether it is covered or open, and how far past each hour it takes its bin. */
-export const Bay = StructType({ name: StringType, area: StringType, cover: StringType, offset: TimeStepType });
-// The unloading bays, by key: each takes one bin an hour, at its offset past the hour; indexed by area, and by cover, for the narrowing.
-export const yardBays = e3.record("yard_bays", DictType(StringType, Bay), yardBayRows);
-export const yardBaysByArea = e3.recordIndex("yard_bays_by_area", yardBays, { on: ["area"] });
-export const yardBaysByCover = e3.recordIndex("yard_bays_by_cover", yardBays, { on: ["cover"] });
-
-// The yard's fit, on e3: the built-in rules (busy, gap too short, over max; under min warns),
-// then a greedy look-ahead — a fit that leaves more of the day's unbooked loads with nowhere to go ranks lower.
-export const yardFit = e3.function("yard_fit", East.function(
-    [Allocation.Types.FitRequest(BinValues)], Allocation.Types.FitResult, ($, req) => {
-        const answer = $.const(Allocation.answer(BinValues));
-        const rule = $.const(Allocation.fit);
-        const ahead = $.const(Allocation.lookahead(BinValues));
-        return answer(req, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, ($2, c) => ahead(req, c, rule)),
-            "ranked by load, kind and spare days, and what it leaves for the day's other loads");
-    }));
-```
-
-`Allocation.answer` builds the candidates for the request and maps a
-per-candidate fit over them, with the app's words for how its fit ranks (the
-answer's `basis`); `Allocation.fit` is the built-in rule set (§12);
-`Allocation.lookahead` is a pure greedy best-fit-decreasing pass: it places the
-candidate, then the day's unbooked events largest first, each on its best
-fitting resource, and lowers the score by one for each event left with no fit,
-adding `· leaves 1 load with no fit` to `why`. All three are ordinary East
-functions an app may call, replace or ignore. Those over a plan take the plans'
-bin values type, as `Editing.apply` takes its source type —
-`Allocation.answer(BinValues)` is an East function over
-`Allocation.Types.FitRequest(BinValues)` — because an East function has one
-type; `Allocation.fit` reads one candidate and needs none.
-
-### 3.2 The smallest board
-
-```tsx
-export const allocationMinimal = example({
-    description: "The smallest board: one plan per day, the bays, the loads and the kilns, and the yard's fit on e3. No library and no inspector; every gesture is still a draft until Save.",
-    keywords: ["Allocation", "Record.bind", "Func.bind", "e3.function", "fit", "BuilderFrame", "Save"], inputs: [],
-    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        const loads = $.let(Data.bind(arrivals));
-        const yard = $.let(Data.bind(kilns));
-        const bays = $.let(Data.bind(yardBays));
-        const fit = $.let(Func.bind(yardFit));
-        return <Box width="100%" height="760px"><Allocation id="allocationMinimal" days={days} fit={fit}
-            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })}
-            events={Allocation.events(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
-                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }) })}
-            resources={Allocation.resources(yard.read(), { label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges })}
-            quantity={{ unit: "m³" }} view={{ date: new Date("2027-05-11T00:00:00Z") }} />
-        </Box>;
-    }}</Reactive>),
-});
-```
-
-Five props and the values an event gives a new bin make a working board:
-`days`, `lanes`, `events`, `resources` and `fit`. `values` is reified at the
-plans' bin values, so an event can only start a bin the plans hold; a
-reservation's values are `V`'s default (East's `defaultValue`), as the mock's
-reservations are blank. Cards drag between bay hours, the
-connector links, every gesture is one undo step, and Save patches the open day.
-
-### 3.3 The kiln yard
-
-The mock's surface: the library and the inspector, the bays narrowed by area or
-cover, the kilns by group, a range of max within a group or a name's start, and the
-loads by spec, from one rail over the three records, each source with its icon (A95,
-A99) — a choice in a field another index serves replaces the one before, as the
-shared Slice says — the bin values shown as the Table's Spec and Grade columns
-and the inspector's rows, and the yard's check flagging a booked ≠ measured
-mismatch, as the mock's Spec mismatch group does. Its plans are a few days,
-read whole; `allocationWindowed` (§3.4) reads a long history a day at a time
-through `window`.
-
-```tsx
-export const allocationKilnYard = example({
-    description: "The kiln yard's board: 33 kilns and the day's loads, the Events and Resources library, the inspector, the bays narrowed by area or cover, the kilns by group, a range of max within a group or a name's start, and the loads by spec, from one rail over the three records — each source with its icon, headed by the board's noun, and each narrowing every place its rows appear, the Library's tabs included — the bin values as columns, a yard check, and the yard's greedy fit on e3.",
-    keywords: ["Allocation", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "Allocation.lanes", "Func.bind", "fit", "links", "Publish", "Library", "narrowing"], inputs: [],
-    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
-        // Every bay, kiln and load is the calculation scope; the narrowing only chooses which show.
-        const yard = $.let(Data.bind(kilns));
-        const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea, yardBaysByCover] }));
-        const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroupMax, kilnsByName] }));
-        const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
-        const slice = $.let(Slice.bindRecords("ex.allocationKilnYard", {
-            lanes: { source: bayIndex, icon: { prefix: "fas", name: "warehouse" },
-                fields: { area: { label: "Area", hints: ["North", "South"] }, cover: { label: "Cover", hints: ["Covered", "Open"] } } },
-            // A max narrows within a group (one index on group, then max); a name is searched by its start.
-            resources: { source: kilnIndex, icon: { prefix: "fas", name: "fire" },
-                fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] }, max: { label: "Max m³" }, name: { label: "Name" } } },
-            events: { source: loadIndex, icon: { prefix: "fas", name: "truck" }, fields: { spec: { label: "Spec", hints: ["MC08", "MC10", "MC12", "MC14", "MC16", "MC18", "MC20", "MC22"] } } },
-        }, {
-            presets: [
-                { id: "halls", name: "Halls", where: { resources: { group: ["Hall A", "Hall B"] } } },
-                { id: "small", name: "Compact and standard", where: { resources: { group: ["Compact", "Standard"] } } },
-                { id: "large", name: "Large and bulk", where: { resources: { group: ["Large", "Bulk"] } } },
-                { id: "north", name: "North bays, halls", where: { lanes: { area: ["North"] }, resources: { group: ["Hall A", "Hall B"] } } },
-            ],
-        }));
-        const loads = $.let(Data.bind(arrivals));
-        const bays = $.let(Data.bind(yardBays));
-        const fit = $.let(Func.bind(yardFit));
-        // The yard's check: a bin measured off its booked moisture target is flagged, never refused.
-        const check = $.const(East.function([Allocation.Types.CheckContext(BinValues)], ArrayType(Allocation.Types.Issue), ($2, cx) => {
-            const issues = $2.let([], ArrayType(Allocation.Types.Issue));
-            $2.for(cx.plan.bins, ($3, bin, id) => {
-                $3.match(bin.event, { some: ($4, code) => {
-                    $4.if(East.notEqual(bin.values.specBooked, bin.values.specMeasured), ($5) => {
-                        $5(issues.pushLast({ kind: variant("custom", "Spec mismatch"), tone: variant("neutral", null),
-                            title: East.str`${code} · bin ${id}`,
-                            detail: East.str`Spec booked ${bin.values.specBooked} · measured ${bin.values.specMeasured} · ${bin.lane} ${bin.at.printFormatted("HH:mm")}`,
-                            bin: some(id), resource: none, flag: some("≠ spec"), fix: none }));
-                    });
-                } });
-            });
-            return issues;
-        }));
-        return <Box width="100%" height="900px"><Allocation id="allocationKilnYard" title="Kiln loading" days={days}
-            lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })} fit={fit} check={check}
-            events={Allocation.events(loads.read(), {
-                label: l => l.code, meta: l => some(East.str`${l.mill} · ${l.grade} · spec ${l.spec}`),
-                quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
-                due: l => some(l.due), window: l => some({ from: l.from, to: l.to }),
-                details: l => [{ label: "Settings", value: l.schedule }],
-                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
-            })}
-            resources={Allocation.resources(yard.read(), {
-                label: k => k.name, group: k => some(k.group), meta: k => some(East.str`${k.group} · ${East.Float.roundHalf(k.max)} m³`), note: k => k.note,
-                min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
-            })}
-            columns={[
-                { key: "spec", label: "Spec", text: v => East.equal(v.specBooked, v.specMeasured).ifElse(() => v.specMeasured, () => East.str`booked ${v.specBooked} · measured ${v.specMeasured}`),
-                    tone: v => East.equal(v.specBooked, v.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
-                { key: "grade", label: "Grade", text: v => v.gradeMeasured.startsWith(v.gradeBooked).ifElse(() => v.gradeMeasured, () => East.str`booked ${v.gradeBooked} · measured ${v.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: v => v.instruction.unwrap("some", () => "none"), table: false },
-            ]}
-            slice={{ slice }}
-            quantity={{ unit: "m³" }}
-            library={[Allocation.library.events(), Allocation.library.resources()]} inspector
-            view={{ layout: "timeline", date: new Date("2027-05-11T00:00:00Z") }} />
-        </Box>;
-    }}</Reactive>),
-});
-```
+A booking writes the bin's roles and the arrival's `values` into the row's other
+fields; a reservation's other fields are their type's default (East's
+`defaultValue`), as the mock's reservations are blank. Cards drag between bay
+hours, the connector links, every gesture is one undo step, and Save sends the
+changed bins and the day's status, each record its own request.
 
 ### 3.4 The example set
 
@@ -326,211 +185,149 @@ records, and each is paired with its behavioural tests.
 
 | Example | Shows |
 |---|---|
-| `allocationMinimal` | §3.2. |
-| `allocationKilnYard` | §3.3, Timeline. |
+| `allocationMinimal` | §3.1: the bins, the bays, the loads and the kilns, and the yard's fit. |
+| `allocationKilnYard` | §3.1, Timeline. |
 | `allocationTable` | The same, `view={{ layout: "table" }}`. |
-| `allocationLabels` | The Table in the yard's own words and shifts: `labels={{ lane: "Bay", event: { one: "Delivery", other: "Deliveries" }, resource: "Kiln", quantity: "Vol" }}`, `table={{ bands }}` Night · Day shift · Evening. |
+| `allocationLabels` | The Table in the yard's own words and shifts: `labels={{ lane: "Bay", arrival: { one: "Delivery", other: "Deliveries" }, resource: "Kiln", quantity: "Vol" }}`, `table={{ bands }}` Night · Day shift · Evening. |
 | `allocationPublished` | A published day (Tue 4 May): read-only; navigation, narrowing, focus, links and the inspector still work. |
-| `allocationNoPublish` | `publish={false}`: no status chip, no Publish. |
+| `allocationNoPublish` | No `periods`: no status chip, no Publish. |
 | `allocationSplit` | A day with loads split across kilns (Wed 12 May): parts, an unallocated remainder, its issue and its links. |
-| `allocationWindowed` | Two years of plans, `window={Data.bindPaged(plans)}`: navigation reads the active day and the open picker's month only. |
+| `allocationWindowed` | Two years of bins, read a day at a time through the `bin` source of the slice (an interval index over `at`): navigation reads the active day and the open picker's month of days only. |
 | `allocationMobile` | The kiln yard in a 390px container: explicit-action cards, no drag. |
-| `allocationCustomBin` | `inspector={{ bin }}`: a typed bin form in place of the built-in quantity and values rows. |
+| `allocationCustomBin` | The bin kind's own `inspector`: a typed bin form in place of the built-in quantity field and the row's other fields. |
 | `allocationFitRule` | The ready-made fit with one yard rule over it, as an e3.function (a bulk kiln takes loads of 20 m³ and more). |
 
 ## 4. The options
 
-### 4.1 `Allocation.events(rows, config)`, `Allocation.lanes(rows, config)` and `Allocation.resources(rows, config)`
+The props and the declarations are the builder-interfaces spec's §6.1–§6.4. The
+accessors keep the meanings they had here; where each now lives:
 
-Any `Dict<String, R>` of the app's, usually a record's `read()`, with accessors
-that take the row and its key, `(row, key) => …`, reified once into one East
-function, as `Roster.people` does.
-
-| `events` accessor | Returns | What it gives the board |
+| Was | Is | What it gives the board |
 |---|---|---|
-| `label` | `String` | The event's code on cards, chips, captions and lists (`LD-2231`). Required. |
-| `quantity` | `Float` | Its quantity, booked whole unless split. Required. |
-| `hold` | `Duration` | How long a resource holds it (`variant("days", 8)`). Required. |
-| `values` | `V` | What a new bin of it starts with. Required. |
-| `kind` | `Option<String>` | What makes two events go together: a resource already holding the same kind ranks higher in `Allocation.fit` (+0.25), one holding only other kinds lower (−0.1). |
-| `meta` | `Option<String>` | The card's second line and the Table chip's tail (`RDG · R2 · spec MC12`). |
-| `due` | `Option<DateTime>` | Overdue when before the plan day (the Library's Overdue group, the warning on its ready line). |
-| `window` | `Option<{ from, to }>` | Its ready window, on its card (`due Wed 12 · window Tue–Fri`). |
-| `details` | `Array<{ label, value }>` | Read-only lines in a bin's inspector (Settings). |
+| `days`, `window` | `events={{ <slot>: Schedule.events(bins, …) }}`, an instant kind with `at`, `resource` (the lane), `arrival`, `quantity`, `parts`, `hold` and `kind?` | The bins: the app's rows, each a booking in a lane slot and its parts on resources |
+| the day's status in `Days(V)`; `publish` | `periods={Schedule.periods(days, { every: "day", status })}`; leave it out for no Publish | The day's stored status and Publish |
+| `Allocation.events(rows, { label, quantity, hold, kind?, meta?, due?, window?, details?, values })` | `Allocation.arrivals(rows, { label, quantity, hold, kind?, meta?, due?, window?, details?, values? })` | Every arrival the day may book. `values` now returns the bin row's own fields, the ones no role maps; without it they take their type's default |
+| `Allocation.lanes(rows, { label, offset? })` | a `Schedule.resources` kind (`label`, `offset?`), the one the bin kind's `resource.of` names | The lanes, in key order |
+| `Allocation.resources(rows, { label, min, max, group?, meta?, note?, hold?, jobs? })` | a `Schedule.resources` kind (`label`, `min`, `max`, `group?` as a `String`, `meta?`, `note?`, `hold?`, `jobs?`), the one `parts.of` names | Every resource; fits, checks and totals read all of them |
+| `quantity={{ unit }}` | the `quantity` role's `unit` | The unit everywhere a quantity shows |
+| `inspector={{ bin }}` | the bin kind's own `inspector` (`Schedule.events`) | A typed bin form |
+| `columns` over `V` | `columns` over the bin row | The row's fields as Table columns and inspector rows |
+| `labels.event` | `labels.arrival` (`Arrival` by default) | The noun for what is booked (A97) |
+| `library={[Allocation.library.events(), …]}` | `Allocation.library.arrivals()` | The Arrivals tab |
 
-| `lanes` accessor | Returns | What it gives the board |
-|---|---|---|
-| `label` | `String` | Its name in its head and every line that names it (`B-1`). Required. |
-| `offset` | `Duration`, none by default | How far past each slot's start its bins are booked (`variant("minutes", 15)`). |
-
-The lanes are the rows in key order, each keyed by its row's key: a
-`Slice.bindRecords` source named `lanes` over the same record narrows them.
-
-| `resources` accessor | Returns | What it gives the board |
-|---|---|---|
-| `label` | `String` | Its name (`K-203`). Required. |
-| `min`, `max` | `Float` | Its range in the quantity's unit. Required. |
-| `group` | `Option<String>` | Its group: its row's line, the Library, the narrowing's field when indexed. |
-| `meta` | `Option<String>` | Its free line (`Hall B · 40 m³`). |
-| `note` | `Option<String>` | A line about its next job, after the inspector's next fill (`the plan had this charge on Wed 12`). |
-| `hold` | `Duration`, no time by default | How long a reservation on it is checked for, and how long it is held when it holds only reservations: the mock's kiln hold. |
-| `jobs` | `Array<Job>` | Other work on it: a job covering the plan day's start makes it busy, until it ends; the first starting after the day's start is its next job, a short gap when a hold runs past it. |
-
-### 4.2 `Allocation` props
-
-| Prop | Takes | What it does |
-|---|---|---|
-| `days` | `Record.bind(plans, [plansPatch])` | What the board reads and saves through, a day an entry. |
-| `window` | `Data.bindPaged(plans)` | Reads a day at a time by key seek, for a long history; it must page the same record with no index. |
-| `lanes` | `Allocation.lanes(…)`, or `Array<Allocation.Types.Lane>` | The lanes, in order; nonempty, refused at build otherwise. |
-| `every` | `Duration`, default `hours 1` | Slot spacing for every lane. |
-| `events` | `Allocation.events(…)` | Every event the day may book. |
-| `resources` | `Allocation.resources(…)` | Complete. |
-| `fit` | `Func.bind(e3.function)` over `[Allocation.Types.FitRequest(V)] → Allocation.Types.FitResult` | The fit (§12). Required: the board has no fit of its own. |
-| `check` | `Fn(Allocation.Types.CheckContext(V)) → Array<Issue>` | The app's issues, wherever issues show. |
-| `columns` | `Array<{ key, label, text: Fn(V) → String, tone?: Fn(V) → Option<StatusToken>, table?: boolean }>` | The bin values as Table columns (after Quantity) and inspector rows (the Bin section); `table: false` shows a value in the inspector only. |
-| `slice` | `{ slice: Slice.bindRecords(key, { lanes, resources }), affordances?, persist? }` | The narrowing: one rail over the lanes' and the resources' records, in both layouts. The board reads each source's narrowed keys itself (§9.15); its sources are named `lanes` and `resources`, and optionally `events` (A99); each narrows every place its rows appear, the Library's tabs included (A98); a bare `Slice.bindRecord` or a local Slice is refused at build. |
-| `quantity` | `{ unit?: string }` | The unit everywhere a quantity shows. |
-| `rules` | `{ under?: Boolean }` | Whether `Allocation.fit` and `Allocation.check` warn under min (true). |
-| `library` | `[Allocation.library.events(), Allocation.library.resources()]` | Tabs, in order; omitted, no start pane. |
-| `inspector` | `boolean` or `{ bin?: Fn(Bin(V), Fn(Bin(V)) → Null) → UI }` | The end pane; a typed bin form replaces the quantity field and the values rows. |
-| `view` | `{ layout?: "timeline" \| "table"; date?: DateTime }` | The first view, then persisted under `id`. Today's date by default. |
-| `horizon` | `{ before?: Duration; after?: Duration }`, default days 3 and 10 | The Timeline's resource axis around the day. |
-| `title` | `string`, default `"Allocation"` | The summary's heading. |
-| `publish` | `boolean`, default `true` | The status chip and Publish. |
-| `readOnly` | `Boolean` | No edits; a published day is always read-only. |
-| `id` | `string` | Storage keys and drag-source ids when a surface holds two. |
-| `labels` | `{ lane?, event?, resource?: Noun; quantity?: string }`, a `Noun` a string (`"Bay"`) or `{ one, other?, article? }` | The board's nouns everywhere it writes them (A97); Lane, Event, Resource and `QTY` by default. A plural defaults to the singular and `s`, an article to `an` before a vowel letter. |
-| `table` | `{ bands?: Array<{ from: number; label?: string }> }` | The Table's time bands: each from its hour to the next band's, the last to midnight; the first from 0, each later than the one before (A41). Four by default. |
+Unchanged: `fit` (over `Allocation.Types.FitRequest(R)`), `check` (over
+`Allocation.Types.CheckContext(R)`), `slice` (its sources named after the bin
+kind's, the lanes' and the resources' slots, and `arrivals`), `every`, `rules`,
+`inspector` (a boolean), `view`, `horizon`, `title`, `readOnly`, `id`, `table`.
 
 ## 5. The East types
 
 ### 5.1 `Allocation.Types`
 
 ```ts
-Allocation.Types.Lane         = StructType({ key: StringType, label: StringType, offset: TimeStepType });     // takes one bin each `every`, at `offset` past it
-Allocation.Types.Bin(V)       = StructType({
+Allocation.Types.Lane          = StructType({ key: StringType, label: StringType, offset: TimeStepType });     // takes one bin each `every`, at `offset` past it
+Allocation.Types.Bin(R)        = StructType({                 // the board's reading of the app's bin row; stored nowhere
     lane:     StringType,
     at:       DateTimeType,                                  // the bin time; a batch's bins follow one minute apart
-    event:    OptionType(StringType),                        // none: a reservation
+    arrival:  OptionType(StringType),                        // none: a reservation
     quantity: FloatType,                                     // 0 for a reservation
-    kind:     OptionType(StringType),                        // what it goes with: its event's kind when booked
-    hold:     TimeStepType,                                  // how long a resource holds it: its event's hold when booked
+    kind:     OptionType(StringType),                        // what it goes with: its arrival's kind when booked
+    hold:     TimeStepType,                                  // how long a resource holds it: its arrival's hold when booked
     parts:    DictType(StringType, FloatType),               // the quantity on each resource, by key; empty: not linked
-    values:   V,                                             // the app's; V's default for a reservation
+    row:      R,                                             // the app's row, every field of it
 });
-Allocation.Types.Status       = VariantType({ draft: NullType, published: StructType({ at: DateTimeType }) });
-Allocation.Types.Day(V)       = StructType({ status: Status, bins: DictType(StringType, Bin(V)) });
-Allocation.Types.Days(V)      = DictType(DateTimeType, Day(V));                                               // keyed by UTC midnight
+Allocation.Types.Status        = VariantType({ draft: NullType, published: StructType({ at: DateTimeType }), other: StringType });
+Allocation.Types.Day(R)        = StructType({ status: Status, bins: DictType(StringType, Bin(R)) });   // a view: the day's bins and its period's status
 
-Allocation.Types.Job          = StructType({ label: StringType, start: DateTimeType, end: DateTimeType });
-Allocation.Types.Event        = StructType({ key: StringType, label: StringType, meta: OptionType(StringType), quantity: FloatType, hold: TimeStepType, kind: OptionType(StringType),
-                                             due: OptionType(DateTimeType), window: OptionType(StructType({ from: DateTimeType, to: DateTimeType })),
-                                             details: ArrayType(StructType({ label: StringType, value: StringType })) });
-Allocation.Types.Resource     = StructType({ key: StringType, label: StringType, group: OptionType(StringType), meta: OptionType(StringType),
-                                             note: OptionType(StringType), min: FloatType, max: FloatType,
-                                             hold: TimeStepType,     // a reservation's hold; a resource holding only reservations holds for it
-                                             jobs: ArrayType(Job) });
-Allocation.Types.Rules        = StructType({ under: BooleanType });
-Allocation.Types.Context      = StructType({ lanes: ArrayType(Lane), every: TimeStepType, events: DictType(StringType, Event),
-                                             resources: DictType(StringType, Resource), rules: Rules, unit: StringType });
+Allocation.Types.Job           = StructType({ label: StringType, start: DateTimeType, end: DateTimeType });
+Allocation.Types.Arrival       = StructType({ key: StringType, label: StringType, meta: OptionType(StringType), quantity: FloatType, hold: TimeStepType, kind: OptionType(StringType),
+                                              due: OptionType(DateTimeType), window: OptionType(StructType({ from: DateTimeType, to: DateTimeType })),
+                                              details: ArrayType(StructType({ label: StringType, value: StringType })) });
+Allocation.Types.Resource      = StructType({ key: StringType, label: StringType, group: OptionType(StringType), meta: OptionType(StringType),
+                                              note: OptionType(StringType), min: FloatType, max: FloatType,
+                                              hold: TimeStepType,     // a reservation's hold; a resource holding only reservations holds for it
+                                              jobs: ArrayType(Job) });
+Allocation.Types.Rules         = StructType({ under: BooleanType });
+Allocation.Types.Context       = StructType({ lanes: ArrayType(Lane), every: TimeStepType, arrivals: DictType(StringType, Arrival),
+                                              resources: DictType(StringType, Resource), rules: Rules, unit: StringType });
 
-Allocation.Types.Load         = StructType({ resource: StringType, fill: FloatType, bins: IntegerType,
-                                             hold: OptionType(StructType({ from: DateTimeType, to: DateTimeType })),   // the day for its longest bin's hold
-                                             state: VariantType({ free: NullType, loading: NullType, busy: NullType }) });
-Allocation.Types.Candidate    = StructType({ day: DateTimeType, bin: OptionType(StringType), reserve: BooleanType, quantity: FloatType,
-                                             event: OptionType(Event), kind: OptionType(StringType), resource: Resource, load: Load,
-                                             after: FloatType, hold: StructType({ from: DateTimeType, to: DateTimeType }),
-                                             spare: OptionType(FloatType), kindMates: BooleanType, otherMates: BooleanType,
-                                             rules: Rules, unit: StringType });
-// bin: the bin it is for (none for an event not yet booked, and a new reservation); reserve: it reserves a slot, checked
+Allocation.Types.Load          = StructType({ resource: StringType, fill: FloatType, bins: IntegerType,
+                                              hold: OptionType(StructType({ from: DateTimeType, to: DateTimeType })),   // the day for its longest bin's hold
+                                              state: VariantType({ free: NullType, loading: NullType, busy: NullType }) });
+Allocation.Types.Candidate     = StructType({ day: DateTimeType, bin: OptionType(StringType), reserve: BooleanType, quantity: FloatType,
+                                              arrival: OptionType(Arrival), kind: OptionType(StringType), resource: Resource, load: Load,
+                                              after: FloatType, hold: StructType({ from: DateTimeType, to: DateTimeType }),
+                                              spare: OptionType(FloatType), kindMates: BooleanType, otherMates: BooleanType,
+                                              rules: Rules, unit: StringType });
+// bin: the bin it is for (none for an arrival not yet booked, and a new reservation); reserve: it reserves a slot, checked
 // with no quantity and refused when the resource is full; kind: its own; rules and unit: what the rules warn and write by
-Allocation.Types.Refusal      = StructType({ group: StringType, reason: StringType,
-                                             measure: VariantType({ none: NullType,
-                                                 amount: StructType({ lead: StringType, value: FloatType }),
-                                                 day: StructType({ lead: StringType, at: DateTimeType }) }) });
-Allocation.Types.Fit          = Schedule.Types.Fit;          // fits { score, why, warn: Option<String> } | refused Refusal — shared with the Roster
-Allocation.Types.FitAsk       = VariantType({
-    place: StructType({ subject: VariantType({ bin: StringType, event: StringType }), quantity: FloatType }),   // → a verdict per resource
-    take:  StructType({ resource: StringType }),                                                               // → a verdict per bin, and one to reserve
+Allocation.Types.Refusal       = StructType({ group: StringType, reason: StringType,
+                                              measure: VariantType({ none: NullType,
+                                                  amount: StructType({ lead: StringType, value: FloatType }),
+                                                  day: StructType({ lead: StringType, at: DateTimeType }) }) });
+Allocation.Types.Fit           = Schedule.Types.Fit;          // fits { score, why, warn: Option<String> } | refused Refusal — shared with the Roster
+Allocation.Types.FitAsk        = VariantType({
+    place: StructType({ subject: VariantType({ bin: StringType, arrival: StringType }), quantity: FloatType }),   // → a verdict per resource
+    take:  StructType({ resource: StringType }),                                                                 // → a verdict per bin, and one to reserve
 });
-Allocation.Types.FitRequest(V) = StructType({ day: DateTimeType, plan: Day(V), ask: FitAsk, context: Context });
-Allocation.Types.FitResult    = StructType({ ask: FitAsk, resources: DictType(StringType, Fit), bins: DictType(StringType, Fit),
-                                             events: DictType(StringType, Fit),   // a take's: each event the plan has not booked, on its resource
-                                             reserve: OptionType(Fit),
-                                             basis: StringType });   // how the fits are ranked, in words: the drop list's meta (A34)
+Allocation.Types.FitRequest(R) = StructType({ day: DateTimeType, plan: Day(R), ask: FitAsk, context: Context });
+Allocation.Types.FitResult     = StructType({ ask: FitAsk, resources: DictType(StringType, Fit), bins: DictType(StringType, Fit),
+                                              arrivals: DictType(StringType, Fit),   // a take's: each arrival the plan has not booked, on its resource
+                                              reserve: OptionType(Fit),
+                                              basis: StringType });   // how the fits are ranked, in words: the drop list's meta (A34)
 
-Allocation.Types.Issue        = StructType({
+Allocation.Types.Issue         = StructType({
     kind:     VariantType({ unlinked: NullType, unallocated: NullType, over: NullType, under: NullType, overlap: NullType, custom: StringType }),
     tone:     StatusTokenType, title: StringType, detail: StringType,
     bin:      OptionType(StringType), resource: OptionType(StringType),
     flag:     OptionType(StringType),                        // the card's short mark
     fix:      OptionType(Fix),
 });
-Allocation.Types.Fix          = VariantType({ choose: NullType, move: StringType, find: NullType });
-Allocation.Types.CheckContext(V) = StructType({ day: DateTimeType, plan: Day(V), context: Context, loads: DictType(StringType, Load) });
-Allocation.Types.Slot         = StructType({ lane: StringType, at: DateTimeType, status: VariantType({ free: NullType, booked: NullType, reserved: NullType }),
-                                             bins: ArrayType(StringType) });
-Allocation.Types.Layout       = VariantType({ timeline: NullType, table: NullType });
+Allocation.Types.Fix           = VariantType({ choose: NullType, move: StringType, find: NullType });
+Allocation.Types.CheckContext(R) = StructType({ day: DateTimeType, plan: Day(R), context: Context, loads: DictType(StringType, Load) });
+Allocation.Types.Slot          = StructType({ lane: StringType, at: DateTimeType, status: VariantType({ free: NullType, booked: NullType, reserved: NullType }),
+                                              bins: ArrayType(StringType) });
+Allocation.Types.Layout        = VariantType({ timeline: NullType, table: NullType });
 
-// Each over a plan takes the plans' bin values type and returns its East function, as Editing.apply(Type) does:
-Allocation.loads(V)      : (DateTime, Day(V), Context) → Dict<String, Load>
-Allocation.candidates(V) : (FitRequest(V)) → Array<Candidate>      // place: one per resource; take: one per bin, one per event not booked, and one for an empty slot
+// Each over a plan takes the bin row type and returns its East function, as Editing.apply(Type) does:
+Allocation.loads(R)      : (DateTime, Day(R), Context) → Dict<String, Load>
+Allocation.candidates(R) : (FitRequest(R)) → Array<Candidate>      // place: one per resource; take: one per bin, one per arrival not booked, and one for an empty slot
 Allocation.fit           : (Candidate) → Fit                       // the built-in rules (§12)
-Allocation.answer(V)     : (FitRequest(V), Fn(Candidate) → Fit, String) → FitResult   // the String: the answer's basis, the app's words
-Allocation.lookahead(V)  : (FitRequest(V), Candidate, Fn(Candidate) → Fit) → Fit
-Allocation.check(V)      : (DateTime, Day(V), Context) → Array<Issue>
-Allocation.slots(V)      : (DateTime, Day(V), Context) → Array<Slot>
+Allocation.answer(R)     : (FitRequest(R), Fn(Candidate) → Fit, String) → FitResult   // the String: the answer's basis, the app's words
+Allocation.lookahead(R)  : (FitRequest(R), Candidate, Fn(Candidate) → Fit) → Fit
+Allocation.check(R)      : (DateTime, Day(R), Context) → Array<Issue>
+Allocation.slots(R)      : (DateTime, Day(R), Context) → Array<Slot>
 ```
 
-A bin keeps what it was booked with: its kind and its hold come from its event
-when it is booked, as its values do, and stay with it when it moves, as the
-mock's bins carry theirs — so a delivery measured on arrival can differ from
-its event, and the mock's committed bins, whose holds it seeds from their kiln,
-keep exactly the holds the worked facts are figured from. `Allocation.events`
-returns a declaration the tag resolves at the plans' `V`: a values literal
-carries no East type of its own. `Allocation.place` is not built: a new bin of
-an event needs the app's values, which a request does not carry, and the
-look-ahead places onto loads alone.
+A bin keeps what it was booked with: its kind and its hold come from its arrival
+when it is booked, as its row's other fields do, and stay with it when it moves,
+as the mock's bins carry theirs — so a delivery measured on arrival can differ
+from its arrival, and the mock's committed bins, whose holds it seeds from their
+kiln, keep exactly the holds the worked facts are figured from.
+`Allocation.place` is not built: a new bin of an arrival needs the app's other
+fields, which a request does not carry, and the look-ahead places onto loads
+alone.
 
-A type constructor such as `Allocation.Types.Days(V)` returns the same East type
-for the same `V` (`isTypeEqual`), so a record declared once matches the board's
-props and the fit's request. A board whose `fit` was bound over a different
-`V` than its `days` is refused at build, naming both types.
+A type constructor such as `Allocation.Types.Day(R)` returns the same East type
+for the same `R` (`isTypeEqual`), so a row type declared once matches the
+board's kind and the fit's request. A board whose `fit` was bound over a
+different row type than its bin kind's is refused at build, naming both types.
 
 ### 5.2 The payload
 
-```ts
-AllocationPayloadType = StructType({
-    sourceId: StringType,
-    read: FunctionType([], BlobType),                                               // the plans, as bytes at Days(V)
-    apply: AsyncFunctionType([BlobType], Editing.Types.ApplyResult),               // a day's ChangeSet(Day(V), DateTime), as bytes
-    window: OptionType(DataPagedHandleType(BlobType)), valuesType: EastTypeType,   // Data.bindPaged(plans), its windows as bytes at Days(V)
-    lanes: ArrayType(Lane), every: TimeStepType, events: ArrayType(Event), resources: ArrayType(Resource), initial: FunctionType([StringType], BlobType),
-    narrowed: StructType({ lanes: OptionType(RowSourceType(ArrayType(StringType))), resources: OptionType(RowSourceType(ArrayType(StringType))),
-                           events: OptionType(RowSourceType(ArrayType(StringType))) }),   // each source's keys, from slice
-    fit: FuncBindingType, check: OptionType(FunctionType([BlobType], ArrayType(Issue))),
-    columns: ArrayType(StructType({ key: StringType, label: StringType, text: FunctionType([BlobType], StringType),
-                                    tone: OptionType(FunctionType([BlobType], OptionType(StatusTokenType))), table: BooleanType })),
-    rules: Rules, quantity: StructType({ unit: OptionType(StringType) }),
-    library: ArrayType(AllocationLibraryTabType), inspector: OptionType(AllocationInspectorType),
-    slice: OptionType(RecordSlicesChromeType),                                       // Slice.bindRecords' chrome: one rail over every source
-    settings: StructType({ layout: Layout, date: OptionType(DateTimeType), horizon: StructType({ before: TimeStepType, after: TimeStepType }),
-                           title: StringType, publish: BooleanType, readOnly: BooleanType }),
-    id: OptionType(StringType),
-    labels: StructType({ lane: Noun, event: Noun, resource: Noun, quantity: StringType }),   // Noun = { one, other, article }, resolved by the tag
-    table: StructType({ bands: ArrayType(StructType({ from: FloatType, label: OptionType(StringType) })) }),
-});
-AllocationComponent = EastUI.component("Allocation", AllocationPayloadType, { optional: true });
-```
-
-The app's `V` crosses the closed payload as beast2 bytes, as Schedule's event
-kinds' rows do: `initial` encodes an event's starting values, and `check` and the
-columns' accessors decode them. The tag only validates, reifies the accessors
+The payload carries the bin kind as `buildAllocation` closes it (its sessions'
+seams, `rows`, `view`, `unview` and `rowType`; builder-interfaces spec §4.1),
+the periods as `Schedule.periods` closes them (§4.3), the lanes and the
+resources as `Schedule.resources`' `buildAllocation` resolves them, the
+arrivals, each arrival's starting fields as bytes at the row type, the
+narrowing, the fit's binding, `check` and the columns over bytes at the row
+type, and the settings, the library, the inspector, the labels and the Table's
+bands as before. The app's row crosses the closed payload as beast2 bytes, as
+Schedule's event kinds' rows do. The tag only validates, reifies the accessors
 once and assembles; it composes no East UI component and emits no layout,
-session or gesture program. `apply` is `Record.onApply(days, { keyed: true })`.
-The renderer calls the fit by name through the shared `Func` runtime
-(`useFuncCall`, as Experiment does), and the pure functions compiled once.
+session or gesture program. The renderer calls the fit by name through the
+shared `Func` runtime (`useFuncCall`, as Experiment does), and the pure
+functions compiled once per row type.
 
 ## 6. Parts: what is reused, what is new
 
@@ -546,8 +343,8 @@ neutral owner and its existing consumer moves onto it in the same change.
 | Date | `TimeNavigator` (`period="day"`, `initialPanel="day"`, `onWeeks`), plus a new `dayMarker` | `e3-ui-components/src/shared/time/navigation.tsx` |
 | Segments | `Seg`, `Seg fullWidth` | `shared/schedule/segments.tsx` |
 | Narrowing | `Slice.bindRecords` and `useRecordSlicesToolbarItems` (one rail over several records, each part the record Slice's own controls, each source headed by its name and icon, A95); each source's visibility through `useSourceVisibility`, over `useKeyVisibility`'s `PagedScan`, as the Roster's | `east-ui/src/platform/slice/`, `east-ui-components/src/slice/record/`, `shared/schedule/visibility.ts` |
-| Session | `useEditHistory` keyed per day, `EditSession`, `historyToolbarItem`, `historyShortcut`, `typedInto`, `SessionBanners`, `BannerView` | `east-ui-components/src/editing/` |
-| Record door | `Record.onApply(days, { keyed: true })`; the keyed day read (new shared day reader) | `e3-ui/src/bind/record.ts`; `roster/data.ts` → `shared/schedule/` |
+| Session | one `useEditHistory` over a session per record (the bins and the days), `EditSession`, `historyToolbarItem`, `historyShortcut`, `typedInto`, `SessionBanners`, `BannerView` | `east-ui-components/src/editing/` |
+| Record door | `Record.onApply(record, { keyed: true })` for each record, through the bin kind's and the periods' seams; the day's bins through the kind's `rows`, the days by key | `e3-ui/src/bind/record.ts`; `e3-ui/src/schedule/` |
 | Fit call | `useFuncCall` and the shared `Func` runtime | `e3-ui-components/src/experiment/run-runtime.ts` → `shared/func/` |
 | Library | `EastChakraLibrary` via `scheduleLibrary` / `scheduleLibraryCard`, groups, DockPane tabs, counts (`narrowedCount`, `10 of 33`), badge; the host's card parts (`extras`: a tooltip, a figure, a note line, a look, an ×), its search and no-match words, a group's mark, the rail's `mark`, its narrowing's empty state (`narrowing`); the pane's foot (`schedule-pane`) | `shared/schedule/library.ts`; `east-ui-components` Library and DockPane |
 | Inspector | `ScheduleInspectorHead`, `planInspector` recipe, `FieldForm` + `Fields.specs`, `SliceEditPopover` | `shared/schedule/inspector-head.tsx` |
@@ -586,7 +383,7 @@ loading from confirmed absent; Roster moves onto it); **`shared/func/`**
 │ banners: session problems; published or not-started day; checks unavailable; fits unavailable; narrowing failed; nothing left to book │
 ├────────────┬───────────────────────────────────────────────────────────┬─────────────┤
 │ LIBRARY    │ main: Timeline (lane grid · link channel · resources)     │ INSPECTOR   │
-│ Events     │       or Table (slots in four time bands)                 │ Details     │
+│ Arrivals   │       or Table (slots in four time bands)                 │ Details     │
 │ Resources  │       or, below 480px of main, explicit-action cards      │ Issues      │
 ├────────────┴───────────────────────────────────────────────────────────┴─────────────┤
 │ footer: the layout's legend                                                          │
@@ -597,7 +394,7 @@ loading from confirmed absent; Roster moves onto it); **`shared/func/`**
 |---|---|---|---|---|
 | `allocation.navigation` | start | `HOST_RANK + 4` / `+ 6` | TimeNavigator full · compact · inside the combined View | Steps a day; Today in the picker; marks Published · Draft · Not started for the open month |
 | `allocation.layout` | start | `HOST_RANK + 1` | Seg Table · Timeline (icons `table`, `chart-gantt`) · inside View | Order as the mock: Table, then Timeline |
-| `allocation.status` | start | `HOST_RANK` | Not started · Draft · Publishing · Published · hidden | The day's stored status; absent with `publish={false}` |
+| `allocation.status` | start | `HOST_RANK` | Not started · Draft · Publishing · Published · hidden | The day's stored status; absent without `periods` |
 | `allocation.focus` | start | `HOST_RANK + 2` / `+ 6` | the focus chip · its icon · inside View | Timeline only, while a focus is set; its Show all in the View in the narrowest frame |
 | the rail | start | the rail's own, folding first | a chip per source's field, in source order, then the presets · Filters › Narrowing | Both layouts (§9.15) |
 | the rail's count | end | the rail's | `3 of 3 lanes · 21 of 33 resources` | One count per source; both layouts |
@@ -750,12 +547,12 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
 - **A3.** The status chip is the day's stored status. A day with no entry is Not
   started, under the banner `Day not started`; its first gesture makes its entry.
   *Ruled.*
-- **A4.** Publish records `published { at }` with the drafts and applies them as
-  one patch; a published day is read-only under `Published day · Read-only view
+- **A4.** Publish saves the day's drafts, then records the published case in the
+  day's row and saves it (builder-interfaces spec §4.3, rule 4); a published day is read-only under `Published day · Read-only view
   of the published plan.`; a failed or unknown Publish stays unsaved with the
   shared Retry. *Ruled.*
 - **A5.** Each day keeps its own drafts and history while the viewer moves
-  between days (`useEditHistory` keyed `day.<key>`).
+  between days (one `useEditHistory` over the bins' and the days' sessions, kept per day).
 - **A6.** Keys, never while typing: ⌘Z, ⇧⌘Z, ⌘Y. Esc cancels a drag, else
   closes the narrowing popover, else closes the Chooser, else clears the pick,
   else clears the selection. Delete or Backspace unlinks the selected link,
@@ -1089,14 +886,14 @@ Rules marked *ruled* follow a decision of §2; *product* rules are not in the mo
 
 ### 9.11 Editing and Save (owner: editing)
 
-- **A75.** One shared EditSession per day over the record, one transaction per
+- **A75.** One history over the bins' and the days' sessions, one step per
   gesture: a drop, a Chooser choice, a lane or time step, a quantity, a split, a
   fix, a Back to Events, a Revert.
 - **A76.** Revert puts a committed bin back as the day holds it, or returns a new
   bin's event to Events. Removing a committed bin keeps it under Removed from plan
   until Save; removing a new one drops it.
-- **A77.** Discard drops the day's drafts at once; Save applies the day as one
-  checked patch. Conflicts, refusals, stale drafts and unknown outcomes are
+- **A77.** Discard drops the day's drafts at once; Save applies each record's
+  changes as its own checked patch. Conflicts, refusals, stale drafts and unknown outcomes are
   SessionBanners with Retry under the same write identity. There is no banner per
   action: a change shows on the board as a draft, in the inspector's status, and in
   the history item.
@@ -1184,8 +981,8 @@ controls) are the shared part's.
 
 ### 9.15 The narrowing (owner: narrowing, #1336) — *ruled*
 
-- **A91.** `slice` is one `Slice.bindRecords` whose sources are named after what
-  they narrow, `lanes` and `resources`, each a record bound through its indexes.
+- **A91.** `slice` is one `Slice.bindRecords` whose sources are named after the
+  kinds they narrow, the lanes' and the resources' slots, each a record bound through its indexes.
   The board reads each source's narrowed keys itself, by the lane's and the
   resource's key; a source with nothing chosen hides nothing and reads no key.
 - **A92.** The Timeline: a lane narrowing hides lane columns, with their cards and
@@ -1214,14 +1011,14 @@ controls) are the shared part's.
   When the narrowing leaves nothing: `No rows match the filters`, with Clear
   filters.
 - **A98.** The Library follows the rail: the Resources tab lists the resources the
-  `resources` source shows, its count `10 of 33`; with an `events` source, the
-  Events tab lists the events it shows (`6 of 27`). A tab the narrowing empties
+  resources' source shows, its count `10 of 33`; with an `arrivals` source, the
+  Arrivals tab lists the arrivals it shows (`6 of 27`). A tab the narrowing empties
   says `No resources match the filters`, with Clear filters. A tab's search finds
   among what the rail shows; the tab has no filter of its own. Find a fit's result
   (A74) is the tab's, not a filter: it leaves the rail and the board as they are.
   *Ruled 18 Oct.*
-- **A99.** An optional `events` source over the events' record narrows every place
-  an event shows: the Events tab, and on the board the bins of the events it hides
+- **A99.** An optional `arrivals` source over the arrivals' record narrows every place
+  an arrival shows: the Arrivals tab, and on the board the bins of the arrivals it hides
   (the Timeline's cards, the Table's rows; a reservation, which has no event,
   stays); the event Chooser offers the shown events and Current. Fits, loads,
   checks and totals read every event. *Ruled 18 Oct.*
@@ -1298,14 +1095,14 @@ selected link with its caption's × (A68), and the link-drag preview (A69).
 ### 12.1 The contract
 
 `fit` is a `Func.bind` handle over the app's `e3.function` from
-`Allocation.Types.FitRequest(V)` to `Allocation.Types.FitResult`. One call
+`Allocation.Types.FitRequest(R)` to `Allocation.Types.FitResult`. One call
 answers one question about the drafted plan:
 
 - **place** a subject (a bin, or an event) with a quantity: a verdict for every
   resource (`resources`);
 - **take** a resource (a dragged resource card, a Table row's event Chooser, a
   reservation's Book list): a verdict for every bin (`bins`), one for booking
-  each event the plan has not booked onto it (`events`), and one for reserving
+  each arrival the plan has not booked onto it (`arrivals`), and one for reserving
   an empty slot on it (`reserve`). Asked of the day without a row's bin, its
   event is one to book: the Chooser's `Replace with`. *(Ruled 17 Oct.)*
 
@@ -1433,10 +1230,10 @@ Only the rulings of §2 change the mock's behaviour.
 | No Find fix | Find a fit (A74) | *Ruled.* |
 | A link to a far lane detours to the hour's edge round the cards between | It crosses them, cased (§11) | *Ruled.* |
 | Links out of view end in a cap at the pane's edge | Plan's stub (§11) | *Ruled.* |
-| Spec and grade, booked and measured, are built into the bin | The app's bin values `V`, shown through `columns`, flagged through `check` (§3.3) | *Ruled.* The mock's views are kept. |
+| Spec and grade, booked and measured, are built into the bin | The app's own fields on its bin row, shown through `columns`, flagged through `check` (§3.1) | *Ruled.* The mock's views are kept. |
 | Its own toolbar row, popover and history buttons, drawn to look like e3's | The shared Toolbar, Slice rail, history item and BuilderFrame | The shared parts. Nothing is lost. |
 | No narrow form | Explicit-action cards below 480px of main (A78) | Every builder has one. |
-| Spec booked / measured: `S1`…, grades `A3`…; the hold from a grade code | The app's values; the hold an event accessor | The board names no domain. |
+| Spec booked / measured: `S1`…, grades `A3`…; the hold from a grade code | The app's fields; the hold an arrival accessor | The board names no domain. |
 | The library always lists everything | The Library follows the rail: each source narrows its tab as it narrows the board (A98, A99); a tab has its search and groups, no filter of its own | *Ruled 18 Oct.* A filter that narrows some places and not others confuses. |
 | The Library's own cards, search band and rail: the code mono 13 / 600, the rail's label the open tab's name | The shared Library's compact card, search and DockPane rail — their type, a Group menu over the day's states and no Filter menu (A98), the rail's label `Library`; the board adds each card's figure, ready line, look, tooltip and ×, the search's and the empty search's words, the Overdue mark (#1330) | The shared parts (§6): a mock is evidence for layout and workflow, not for a shared part's type. Every part of the mock's card stays. |
 
@@ -1445,9 +1242,9 @@ Only the rulings of §2 change the mock's behaviour.
 - **UI.** A new carrier, `Allocation`, as `Roster` and `StudioBuilder` are; no
   existing wire changes. The Roster's payload gains an optional `fit` binding.
   Packages are re-exported (`WIRE_MIGRATION.md`).
-- **Stored state.** A new record type, `Allocation.Types.Days(V)`; no existing
-  stored form changes, so no repository upgrade step. Once released, a change to it
-  ships one.
+- **Stored state.** None of its own: the bins and the days are the app's records
+  (builder-interfaces spec §10), so no existing stored form changes and no
+  repository upgrade step ships.
 
 ## 16. The sub-issues, in landing order
 
@@ -1477,3 +1274,6 @@ Only the rulings of §2 change the mock's behaviour.
 17. The Roster's fit (R1–R5).
 18. The kiln yard in the showcase on e3-web, its responsive specs, the e3-ui skill
     and the plugin indexes.
+
+Then the builder-interfaces epic (#1365) moves the board onto the app's own
+records (`Builder Interfaces Spec.md` §11).
