@@ -6,7 +6,8 @@
  *
  * `<Sheet>`'s drag and drop (#1187, #1216, `Sheet Builder Spec.md` §9.8,
  * §10: SB38–SB40, SB44, SB45, SB61), through the page's drag layer and its
- * test utilities, over the in-memory stand-in records (`harness.test-utils`):
+ * test utilities, over the Sheet's records on e3 itself (`harness.test-utils`,
+ * #1376):
  * a template dropped on a seam, a group's start or end, or the blank tail; a
  * group template between the groups, and on a keyed record where its key
  * sorts; an author's card setting its cells on a row or a band; a row, a line
@@ -18,16 +19,15 @@
 
 import { test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import { East, StringType, decodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, StringType, equalFor, none, some } from "@elaraai/east";
 import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { WORKSPACE, act, sheetHarness, mount, mountPayload, settle, slot } from "./harness.test-utils.js";
+import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 import { templateCardKey } from "./library.js";
 
-const harness = sheetHarness();
+const h = sheetHarness();
 stubScrollIntoView();
 const stringEqual = equalFor(StringType);
 
@@ -80,7 +80,7 @@ const batchesAddingNothing = { fn: East.function([], UIComponentType, (_$) => Re
 }))) };
 
 /** The day's batches, where the sheet's `edits` move a line only within its batch. */
-const batchesMovingWithin = East.compile(East.function([], SheetPayloadType, ($) => {
+const batchesMovingWithin = East.function([], SheetPayloadType, ($) => {
     const days = $.let(Record.bind(ex.sheetBatchDays, [ex.sheetBatchDaysPatch]));
     return Sheet.Payload({
         record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" }, name: "moving-within",
@@ -89,23 +89,13 @@ const batchesMovingWithin = East.compile(East.function([], SheetPayloadType, ($)
         library: [Sheet.library.rows()],
         edits: { moveRows: "within" },
     });
-}), getRegisteredPlatformImplementations());
+});
 
-type Days = ValueTypeOf<typeof ex.sheetBatchDays.type>;
-type Plans = ValueTypeOf<typeof ex.sheetWeekPlans.type>;
-type Jobs = ValueTypeOf<typeof ex.sheetJobs.type>;
-type Orders = ValueTypeOf<typeof ex.sheetWorkshopOrders.type>;
-
-/** A record as it stands — what its patch door last wrote. */
-function readRecord<T>(name: string, decode: (bytes: Uint8Array) => T): T {
-    const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", name)]);
-    if (bytes === undefined) throw new Error(`the record ${name} has not loaded`);
-    return decode(bytes);
-}
-const readDays = (): Days => readRecord(ex.sheetBatchDays.name, decodeBeast2For(ex.sheetBatchDays.type));
-const readPlans = (): Plans => readRecord(ex.sheetWeekPlans.name, decodeBeast2For(ex.sheetWeekPlans.type));
-const readJobs = (): Jobs => readRecord(ex.sheetJobs.name, decodeBeast2For(ex.sheetJobs.type));
-const readOrders = (): Orders => readRecord(ex.sheetWorkshopOrders.name, decodeBeast2For(ex.sheetWorkshopOrders.type));
+/** A record as e3 holds it now — what its patch door last committed. */
+const readDays = () => h.read(ex.sheetBatchDays);
+const readPlans = () => h.read(ex.sheetWeekPlans);
+const readJobs = () => h.read(ex.sheetJobs);
+const readOrders = () => h.read(ex.sheetWorkshopOrders);
 
 // ── Reading the sheet ─────────────────────────────────────────────────────
 
@@ -193,8 +183,7 @@ const caption = () => {
 // ── Templates (SB38, SB39, SB40) ──────────────────────────────────────────
 
 test("a row template dropped on a seam inserts its row there, selected, as one transaction: the ghost says where, the seam it lands on lights, and one Undo takes it back (SB38, SB39)", async () => {
-    const { container } = mount(weekSheet, { drag: true });
-    await settle();
+    const { container } = await h.mount(weekSheet, { drag: true });
     const before = ["Cut the kitchen carcasses", "Band the carcass edges", "Route the door panels"];
     expect(sheetText(container)).toEqual(before);
     pickUp(templateOf(container, "rowTemplates", "seal"));
@@ -225,15 +214,14 @@ test("a row template dropped on a seam inserts its row there, selected, as one t
     expect(main(container).querySelector("[data-drop-seam], [data-drop-at]")).toBeNull();
     // A draft — the record holds none of it — and one transaction: one Undo takes it back whole.
     expect(drafted(container)).toBe(1);
-    expect(readPlans().get("2026-W42")!.rows.map((row) => row.task)).toEqual(before);
+    expect((await readPlans()).get("2026-W42")!.rows.map((row) => row.task)).toEqual(before);
     await history(container, "Undo");
     expect(sheetText(container)).toEqual(before);
     expect(drafted(container)).toBe(0);
 });
 
 test("on a grouped sheet a row template lands as a line of the group under the pointer — beside a line, at a band's start, at a group's end — and a group template between the groups; one Save commits them (SB39, SB40)", async () => {
-    const { container } = mount(ex.sheetBatches, { drag: true });
-    await settle();
+    const { container } = await h.mount(ex.sheetBatches, { drag: true });
     const before = [
         "# Doors, oak", "Cut doors", "Band doors", "Spray doors",
         "# Carcasses, birch", "Cut carcasses", "Drill carcasses",
@@ -281,7 +269,7 @@ test("on a grouped sheet a row template lands as a line of the group under the p
     for (let i = 0; i < 4; i++) await history(container, "Redo");
     // One Save commits them all: the day as the drops left it.
     await history(container, "Save");
-    expect(readDays().get("2026-10-12")!.batches.map((batch) => [batch.name, batch.steps.map((step) => step.task)])).toEqual([
+    expect((await readDays()).get("2026-10-12")!.batches.map((batch) => [batch.name, batch.steps.map((step) => step.task)])).toEqual([
         ["Doors, oak", ["Cut doors", "Sand", "Band doors", "Spray doors"]],
         ["Finishing", ["Sand", "Seal", "Spray"]],
         ["Carcasses, birch", ["Seal", "Cut carcasses", "Drill carcasses"]],
@@ -291,8 +279,7 @@ test("on a grouped sheet a row template lands as a line of the group under the p
 });
 
 test("on a keyed record a new group sits where its key sorts — the ghost says so — while a line still lands where it is dropped (SB14, SB39, SB40)", async () => {
-    const { container } = mount(ex.sheetWorkshop, { drag: true });
-    await settle();
+    const { container } = await h.mount(ex.sheetWorkshop, { drag: true });
     // A line lands beside the line it is dropped on, in its group.
     pickUp(templateOf(container, "rowTemplates", "edge"));
     restOn(linesOf(container, "WO-2201")[1]!, "top");
@@ -314,8 +301,7 @@ test("on a keyed record a new group sits where its key sorts — the ghost says 
 });
 
 test("a template is refused, red, where the sheet's edits add no row or no group — and dropping there changes nothing (SB39, SB40)", async () => {
-    const { container } = mount(batchesAddingNothing, { drag: true });
-    await settle();
+    const { container } = await h.mount(batchesAddingNothing, { drag: true });
     const before = sheetText(container);
     pickUp(templateOf(container, "rowTemplates", "sand"));
     const line = linesOf(container, "B-101")[0]!;
@@ -337,8 +323,7 @@ test("a template is refused, red, where the sheet's edits add no row or no group
 // ── An author's cards (SB61) ──────────────────────────────────────────────
 
 test("an author's card sets the fields its drop patch sets on the row it lands on, as one transaction, the row selected on the field; anywhere but a row it is refused (SB61)", async () => {
-    const { container } = mount(ex.sheetLibrary, { drag: true });
-    await settle();
+    const { container } = await h.mount(ex.sheetLibrary, { drag: true });
     await openTab(container, "Tasks");
     pickUp(cardOf(container, "Sanding"));
     const third = rowById(container, "J-0003");
@@ -356,7 +341,7 @@ test("an author's card sets the fields its drop patch sets on the row it lands o
     const ring = main(container).querySelector('[data-slot="ring"]')!.closest<HTMLElement>('[data-slot="cell"]')!;
     expect([ring.closest('[data-slot="row"]')!.getAttribute("data-row-id"), ring.getAttribute("data-key")]).toEqual(["J-0003", "task"]);
     expect(drafted(container)).toBe(1);
-    expect(readJobs().get("J-0003")!.task).toBe("CNC routing");
+    expect((await readJobs()).get("J-0003")!.task).toBe("CNC routing");
     await history(container, "Undo");
     expect(sheetText(container)).toEqual(["Panel cutting", "Edge banding", "CNC routing", "Spray finish"]);
     // Dropped on the tail, nothing.
@@ -368,8 +353,7 @@ test("an author's card sets the fields its drop patch sets on the row it lands o
 });
 
 test("a card whose patch is over the group type lands on a band, setting the group's field as one transaction; on a line it is refused (SB61)", async () => {
-    const { container } = mount(ex.sheetWorkshop, { drag: true });
-    await settle();
+    const { container } = await h.mount(ex.sheetWorkshop, { drag: true });
     await openTab(container, "Statuses");
     pickUp(cardOf(container, "RELEASED"));
     restOn(linesOf(container, "WO-2202")[0]!, "bottom");
@@ -382,14 +366,13 @@ test("a card whose patch is over the group type lands on a band, setting the gro
     expect(bandOf(container, "WO-2202").hasAttribute("data-draft")).toBe(true);
     // Its Save commits the order's status.
     await history(container, "Save");
-    expect(readOrders().get("WO-2202")!.status).toBe("RELEASED");
+    expect((await readOrders()).get("WO-2202")!.status).toBe("RELEASED");
 });
 
 // ── Moves (SB44) ──────────────────────────────────────────────────────────
 
 test("a grip moves a step within its batch or into another, and a whole batch to another seam — each one transaction — and one Save commits them all (SB44)", async () => {
-    const { container } = mount(ex.sheetBatches, { drag: true });
-    await settle();
+    const { container } = await h.mount(ex.sheetBatches, { drag: true });
     const before = sheetText(container);
     // Every line and every band carries a grip; a blank line does not.
     expect(gripOf(linesOf(container, "B-101")[0]!)).not.toBeNull();
@@ -433,7 +416,7 @@ test("a grip moves a step within its batch or into another, and a whole batch to
     for (let i = 0; i < 3; i++) await history(container, "Redo");
     // Save carries every placement in one commit: the day as the moves left it.
     await history(container, "Save");
-    const day = readDays().get("2026-10-12")!;
+    const day = (await readDays()).get("2026-10-12")!;
     expect(day.batches.map((batch) => [batch.id, batch.steps.map((step) => step.task)])).toEqual([
         ["B-103", ["Drill carcasses", "Cut shelves", "Sand shelves"]],
         ["B-101", ["Spray doors", "Cut doors", "Band doors"]],
@@ -443,8 +426,7 @@ test("a grip moves a step within its batch or into another, and a whole batch to
 });
 
 test("a flat row moves by its grip to another seam, or the end, in the planner's order (SB44)", async () => {
-    const { container } = mount(weekSheet, { drag: true });
-    await settle();
+    const { container } = await h.mount(weekSheet, { drag: true });
     pickUp(gripOf(rowById(container, "w42-1"))!);
     restOn(tailOf(container), "top");
     expect(caption()).toEqual({ text: "at the end", refused: false });
@@ -456,12 +438,11 @@ test("a flat row moves by its grip to another seam, or the end, in the planner's
     await release("top");
     expect(sheetText(container)).toEqual(["Route the door panels", "Band the carcass edges", "Cut the kitchen carcasses"]);
     await history(container, "Save");
-    expect(readPlans().get("2026-W42")!.rows.map((row) => row.id)).toEqual(["w42-3", "w42-2", "w42-1"]);
+    expect((await readPlans()).get("2026-W42")!.rows.map((row) => row.id)).toEqual(["w42-3", "w42-2", "w42-1"]);
 });
 
 test("a move is refused, red, where the sheet's edits keep the lines in their groups; a keyed record's rows and groups have no grip (SB44)", async () => {
-    const narrowed = mountPayload(batchesMovingWithin(), { drag: true });
-    await settle();
+    const narrowed = await h.mountPayload(batchesMovingWithin, { drag: true });
     const c = narrowed.container;
     const before = sheetText(c);
     pickUp(gripOf(linesOf(c, "B-101")[0]!)!);
@@ -471,13 +452,11 @@ test("a move is refused, red, where the sheet's edits keep the lines in their gr
     expect(sheetText(c)).toEqual(before);
     narrowed.unmount();
     // Jobs in key order: no row moves.
-    const jobs = mount(ex.sheetBasic, { drag: true });
-    await settle();
+    const jobs = await h.mount(ex.sheetBasic, { drag: true });
     expect(main(jobs.container).querySelector('[data-slot="rowGrip"]')).toBeNull();
     jobs.unmount();
     // Orders in key order: lines move, orders do not.
-    const workshop = mount(ex.sheetWorkshop, { drag: true });
-    await settle();
+    const workshop = await h.mount(ex.sheetWorkshop, { drag: true });
     expect(gripOf(linesOf(workshop.container, "WO-2201")[0]!)).not.toBeNull();
     expect(gripOf(bandOf(workshop.container, "WO-2201"))).toBeNull();
 });
@@ -485,8 +464,7 @@ test("a move is refused, red, where the sheet's edits keep the lines in their gr
 // ── ⏎ on a card (SB45) ────────────────────────────────────────────────────
 
 test("⏎ on a template inserts it below the ring's row, as a drop there would; on an author's card it sets its fields on the ring's row; refused, the footer says why (SB45)", async () => {
-    const week = mount(weekSheet, { drag: true });
-    await settle();
+    const week = await h.mount(weekSheet, { drag: true });
     // The ring on the first row; ⏎ on the template's card.
     fireEvent.mouseDown(rowById(week.container, "w42-1").querySelector('[data-key="task"]')!, { button: 0 });
     await settle();
@@ -500,8 +478,7 @@ test("⏎ on a template inserts it below the ring's row, as a drop there would; 
     expect(seal.hasAttribute("data-dragging")).toBe(false);
     week.unmount();
     // An author's card: its fields on the ring's row.
-    const library = mount(ex.sheetLibrary, { drag: true });
-    await settle();
+    const library = await h.mount(ex.sheetLibrary, { drag: true });
     fireEvent.mouseDown(rowById(library.container, "J-0002").querySelector('[data-key="qty"]')!, { button: 0 });
     await settle();
     await openTab(library.container, "Tasks");
@@ -510,8 +487,7 @@ test("⏎ on a template inserts it below the ring's row, as a drop there would; 
     expect(sheetText(library.container)).toEqual(["Panel cutting", "Sanding", "CNC routing", "Spray finish"]);
     library.unmount();
     // A status on a line: refused, and the footer says why.
-    const workshop = mount(ex.sheetWorkshop, { drag: true });
-    await settle();
+    const workshop = await h.mount(ex.sheetWorkshop, { drag: true });
     fireEvent.mouseDown(linesOf(workshop.container, "WO-2202")[0]!.querySelector('[data-key="notes"]')!, { button: 0 });
     await settle();
     await openTab(workshop.container, "Statuses");

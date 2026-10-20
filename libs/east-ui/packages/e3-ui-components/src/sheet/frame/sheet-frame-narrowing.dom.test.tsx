@@ -5,36 +5,38 @@
  * @vitest-environment jsdom
  *
  * The Sheet's narrowing (#1345): one rail over its `Slice.bindRecords`, each
- * source filtering every place its records appear — the `rows` source the
- * grid, which pages what it narrows to; each templates list's source the Rows
- * tab's cards of that list; an author's tab the source it names — each tab
- * counting what it shows and saying so when its sources empty it, with their
- * Clear filters; a saved view holding every source's narrowing and restoring
- * it; a draft the narrowing hides kept and saved by its original key; the
- * folds a view keeps (#857), over a record's rows; and the lens switched off
- * until #1349. Over the workshop's records in memory and their paging service
- * (`harness.test-utils.tsx`), the sheet in a Reactive root as a ui task draws
- * it, the rail written as its chips write it. That no function holds the whole
- * slice is e3-ui's one guard over every builder's examples (#1356). A filter
- * change builds nothing again: the sheet's body runs no more, and no payload is
- * decoded (#1354).
+ * source filtering every place its records appear — the `rows` source the grid,
+ * which pages what it narrows to; each templates list's source the Rows tab's
+ * cards of that list; an author's tab the source it names — each tab counting
+ * what it shows and saying so when its sources empty it, with their Clear
+ * filters; a saved view holding every source's narrowing and restoring it; a
+ * draft the narrowing hides kept and saved by its original key; the folds a
+ * view keeps (#857), over a record's rows; and the lens switched off until
+ * #1349. Over the workshop's records on e3 itself (`harness.test-utils.tsx`,
+ * #1376), the sheet in a Reactive root as a ui task draws it, the rail written
+ * as its chips write it. That no function holds the whole slice is e3-ui's one
+ * guard over every builder's examples (#1356). A filter change builds nothing
+ * again: the sheet's body runs no more, and no payload is decoded (#1354).
  */
 
 import { expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { ArrayType, East, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Data, Record, Sheet } from "@elaraai/e3-ui/internal";
 import { Reactive, RecordSlicesChromeType, Slice, State, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { initializePagedApi } from "../../platform/index.js";
-import { WORKSPACE, act, mount, programOf, settle, sheetHarness, slot, tabs } from "./harness.test-utils.js";
+import { act, programOf, settle, sheetHarness, slot, tabs } from "./harness.test-utils.js";
 import { countBuilds } from "../../shared/builds.test-utils.js";
 
-const harness = sheetHarness();
+const h = sheetHarness();
 
 /** The rail's key: the sheet's and the test's writes share it. */
 const KEY = "sheet_narrowing_dom";
+/** The orders' record, as its dataset's requests name it. */
+const ORDERS = `records.${ex.sheetWorkshopOrders.name}`;
+/** The orders' commits, newest first, by the mutation that made each. */
+const commits = async () => (await h.history(ex.sheetWorkshopOrders)).commits.map((c) => c.mutation);
 const print = printFor(StringType);
 const stringEqual = equalFor(StringType);
 type View = ValueTypeOf<typeof Sheet.Types.RecordView>;
@@ -122,7 +124,7 @@ async function openTab(container: HTMLElement, name: string) {
 const viewTab = (container: HTMLElement, id: string) => container.querySelector<HTMLElement>(`[data-slot="tab"][data-tab="${id}"]`)!;
 
 test("a record-bound Sheet narrowed by its `rows` source shows no lens controls and lists only the rows it narrows to (#1345, #1349)", async () => {
-    const { container } = mount(sheet());
+    const { container } = await h.mount(sheet());
     const part = railParts();
     await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
     await act(async () => { part("rows").choose("status", [print("ON HOLD")]); });
@@ -137,7 +139,7 @@ test("a record-bound Sheet narrowed by its `rows` source shows no lens controls 
 });
 
 test("each source filters only its own places: the templates' sources the Rows tab's cards of their lists and the tab that names one, the `rows` source the grid (#1345)", async () => {
-    const { container } = mount(sheet());
+    const { container } = await h.mount(sheet());
     const part = railParts();
     await waitFor(() => expect(libraryTabs(container)).toEqual(["Rows 11", "Operations 8"]));
     await act(async () => { part("rowTemplates").choose("group", [print("Dispatch")]); });
@@ -156,7 +158,7 @@ test("each source filters only its own places: the templates' sources the Rows t
 });
 
 test("a tab its sources empty says so, with Clear filters for those sources alone; one that empties some of its lists says so above the rest (#1345)", async () => {
-    const { container } = mount(sheet());
+    const { container } = await h.mount(sheet());
     const part = railParts();
     await waitFor(() => expect(libraryTabs(container)).toEqual(["Rows 11", "Operations 8"]));
     await openTab(container, "Rows");
@@ -182,7 +184,7 @@ test("a tab its sources empty says so, with Clear filters for those sources alon
 });
 
 test("a saved view holds every source's narrowing, and restores it: the rows the grid shows, and the Rows tab's cards; the narrowing moved off it, its tab is dirty (#1345)", async () => {
-    const { container } = mount(sheet());
+    const { container } = await h.mount(sheet());
     const part = railParts();
     await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
     await act(async () => {
@@ -214,8 +216,9 @@ test("a saved view holds every source's narrowing, and restores it: the rows the
 });
 
 test("a draft the narrowing hides is kept, and saved by its original key (#1345)", async () => {
-    const { container, getByRole } = mount(sheet());
+    const { container, getByRole } = await h.mount(sheet());
     const part = railParts();
+    const deployed = await commits();
     await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
     // WO-2201's first line: its notes typed.
     fireEvent.doubleClick(slot(container, "main")!.querySelector('[data-slot="row"][data-group-id="WO-2201"][data-line="0"] [data-key="notes"]')!);
@@ -235,10 +238,9 @@ test("a draft the narrowing hides is kept, and saved by its original key (#1345)
     await waitFor(() => expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true));
     await settle();
     // Saved by its key: one patch, the hidden order's line as it was typed.
-    const stored = decodeBeast2For(ex.sheetWorkshopOrders.type)(harness.cache.read(WORKSPACE, ex.sheetWorkshopOrders.path)!);
+    const stored = await h.read(ex.sheetWorkshopOrders);
     expect(stored.get("WO-2201")!.ops[0]!.notes).toBe("Rush");
-    const { commits } = await harness.memory.history(WORKSPACE, ex.sheetWorkshopOrders.name, undefined);
-    expect(commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
+    expect(await commits()).toEqual(["patch", ...deployed]);
 });
 
 test("folds left on a view come back when the sheet opens on it again (#857)", async () => {
@@ -246,7 +248,7 @@ test("folds left on a view come back when the sheet opens on it again (#857)", a
         id: "planned", name: "PLANNED", context: 0n, reveals: [], folds: new Map(),
         narrowing: new SortedMap([["rows", { where: new Map([["status", variant("values", [print("PLANNED")])]]), preset: none, resolution: none }]], compareFor(StringType)),
     };
-    let ui = mount(sheet({ views: [planned], activeView: "planned" }));
+    let ui = await h.mount(sheet({ views: [planned], activeView: "planned" }));
     const view = () => ui.container.querySelector("[data-sheet]")!.getAttribute("data-view");
     await waitFor(() => expect(view()).toBe("planned"));
     await waitFor(() => expect(band(ui.container, "WO-2202")).not.toBeNull());
@@ -255,7 +257,7 @@ test("folds left on a view come back when the sheet opens on it again (#857)", a
     fireEvent.mouseDown(band(ui.container, "WO-2202")!.querySelector('[data-slot="fold"]')!, { button: 0 });
     expect(band(ui.container, "WO-2202")!.hasAttribute("data-folded")).toBe(true);
     ui.unmount();
-    ui = mount(sheet({ views: [planned], activeView: "planned" }));
+    ui = await h.mount(sheet({ views: [planned], activeView: "planned" }));
     await waitFor(() => expect(view()).toBe("planned"));
     await waitFor(() => expect(band(ui.container, "WO-2202")?.hasAttribute("data-folded")).toBe(true));
 });
@@ -263,7 +265,7 @@ test("folds left on a view come back when the sheet opens on it again (#857)", a
 test("a choice on the rail builds the sheet no more: the grid's rows and the Rows tab's cards follow it over the payload it mounted with (#1354)", async () => {
     const builds = countBuilds("Sheet", programOf(sheet()));
     try {
-        const { container } = mount(builds.program);
+        const { container } = await h.mount(sheet(), { program: builds.program });
         const part = railParts();
         await waitFor(() => expect(libraryTabs(container)).toEqual(["Rows 11", "Operations 8"]));
         await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
@@ -282,25 +284,20 @@ test("a choice on the rail builds the sheet no more: the grid's rows and the Row
 });
 
 test("a choice keeps the rows on screen, the grid busy, until the new narrowing's first window lands; then its rows (#1354)", async () => {
-    // Every window the paging service serves, held while `held` says so, until let land.
-    const gate = { held: false, waiting: [] as (() => void)[] };
-    initializePagedApi({ ...harness.api, getPage: (workspace, path, window) => gate.held
-        ? new Promise((resolve) => { gate.waiting.push(() => resolve(harness.api.getPage(workspace, path, window))); })
-        : harness.api.getPage(workspace, path, window) }, WORKSPACE);
-    const { container } = mount(sheet());
+    const { container } = await h.mount(sheet());
     const part = railParts();
     await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
     const card = () => slot(container, "main")!.querySelector<HTMLElement>("[data-sheet-card]")!;
     const shown = bands(container);
-    gate.held = true;
+    // Every window of the orders held on its way to e3 from now, until let land.
+    const windows = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS);
     await act(async () => { part("rows").choose("status", [print("ON HOLD")]); });
     await settle();
     // The narrowing's rows are on the wire: the last rows stand in, and the grid says it is busy.
-    expect(gate.waiting.length).toBeGreaterThan(0);
+    expect(windows.held).toBeGreaterThan(0);
     expect(bands(container)).toEqual(shown);
     expect(card().getAttribute("aria-busy")).toBe("true");
-    gate.held = false;
-    await act(async () => { for (const land of gate.waiting.splice(0)) land(); });
+    await act(async () => { windows.release(); });
     await waitFor(() => expect(bands(container)).toEqual(["WO-2204"]));
     expect(card().hasAttribute("aria-busy")).toBe(false);
 });

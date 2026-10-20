@@ -16,10 +16,10 @@ import { afterEach, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import { layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { act, sheetHarness, mount, settle, slot } from "./harness.test-utils.js";
+import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 import { touchFrame } from "../frame.test-utils.js";
 
-sheetHarness();
+const h = sheetHarness();
 stubScrollIntoView();
 
 // A touch screen's frame. The batches' first column, Step, is 240 px: beside
@@ -99,8 +99,7 @@ const caption = () => {
 
 test("on a coarse pointer a frame one pixel short of the touch gutter beside the first column folds it — one row-actions button a row, named as its grip is, no actions column and no seam; exactly enough room, or a fine pointer, keeps today's gutter", async () => {
     onTouch(493);
-    const narrow = mount(ex.sheetBatches, { drag: true });
-    await settle();
+    const narrow = await h.mount(ex.sheetBatches, { drag: true });
     let c = narrow.container;
     expect(card(c).getAttribute("data-gutter")).toBe("folded");
     expect(card(c).style.getPropertyValue("--sheet-gutter")).toBe("108px");
@@ -115,8 +114,7 @@ test("on a coarse pointer a frame one pixel short of the touch gutter beside the
     offTouch();
 
     onTouch(494);
-    const wide = mount(ex.sheetBatches, { drag: true });
-    await settle();
+    const wide = await h.mount(ex.sheetBatches, { drag: true });
     c = wide.container;
     expect(card(c).hasAttribute("data-gutter")).toBe(false);
     expect(card(c).style.getPropertyValue("--sheet-gutter")).toBe("254px");
@@ -125,8 +123,7 @@ test("on a coarse pointer a frame one pixel short of the touch gutter beside the
     wide.unmount();
     offTouch();
 
-    const fine = mount(ex.sheetBatches, { drag: true });
-    await settle();
+    const fine = await h.mount(ex.sheetBatches, { drag: true });
     c = fine.container;
     expect(card(c).hasAttribute("data-gutter")).toBe(false);
     expect(card(c).style.getPropertyValue("--sheet-gutter")).toBe("128px");
@@ -135,8 +132,7 @@ test("on a coarse pointer a frame one pixel short of the touch gutter beside the
 
 test("a line's menu inserts a line above or below it and a band's a new batch after its group — each one transaction Undo takes back; a new row's and a new batch's menus discard them, as their × does", async () => {
     onTouch(400);
-    const { container } = mount(ex.sheetBatches, { drag: true });
-    await settle();
+    const { container } = await h.mount(ex.sheetBatches, { drag: true });
     const before = sheetText(container);
     // A line: its inserts, in the insertion strip's words.
     await openActions(linesOf(container, "B-101")[0]!);
@@ -178,8 +174,7 @@ test("a line's menu inserts a line above or below it and a band's a new batch af
 
 test("a drag on a line's row-actions button moves the line, as its grip does — one transaction, and no menu opens", async () => {
     onTouch(400);
-    const { container } = mount(ex.sheetBatches, { drag: true });
-    await settle();
+    const { container } = await h.mount(ex.sheetBatches, { drag: true });
     const before = sheetText(container);
     pickUp(actionsOf(linesOf(container, "B-101")[2]!)!);
     restOn(linesOf(container, "B-101")[0]!, "top");

@@ -4,33 +4,32 @@
  *
  * @vitest-environment jsdom
  *
- * `<Sheet>`'s inspector pane (#1188, #1216, `Sheet Builder Spec.md` §5.3,
- * §9.9, SB46–SB53, SB58), over the Sheet's examples and their seeded records
- * (`harness.test-utils.tsx`) — a sheet given the pane: its two tabs, Issues
- * counted, and its rail;
- * nothing selected — the counts, the last commit and who made it, the hints;
- * one row — its number and id, each field by its column's kind, an edit one
- * transaction through its cell, tinted and Pending; a line — a field with no
- * column read only by its hint, a link's cell with Edit in sheet, and the
- * copilot asked again; a band — its own fields, its lines, its issue, Add line
- * and Delete; several rows — a column set across them as one step; the batch's
- * issues, each going to its cell; and the author's own Details for a complete
- * row — the form while the row is missing a field, and its update one step:
- * a column's field through its cell, a read-only column's left as it is, a
- * field with no column on the draft.
+ * `<Sheet>`'s inspector pane (#1188, #1216, `Sheet Builder Spec.md` §5.3, §9.9,
+ * SB46–SB53, SB58), over the Sheet's examples and their records on e3 itself
+ * (`harness.test-utils.tsx`, #1376) — a sheet given the pane: its two tabs,
+ * Issues counted, and its rail; nothing selected — the counts, the last commit
+ * and who made it, the hints; one row — its number and id, each field by its
+ * column's kind, an edit one transaction through its cell, tinted and Pending;
+ * a line — a field with no column read only by its hint, a link's cell with
+ * Edit in sheet, and the copilot asked again; a band — its own fields, its
+ * lines, its issue, Add line and Delete; several rows — a column set across
+ * them as one step; the batch's issues, each going to its cell; and the
+ * author's own Details for a complete row — the form while the row is missing a
+ * field, and its update one step: a column's field through its cell, a
+ * read-only column's left as it is, a field with no column on the draft.
  */
 
-import { test, expect } from "vitest";
+import { test, expect, vi } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ArrayType, East, FloatType, FunctionType, NullType, OptionType, StringType, decodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
+import { ArrayType, East, FloatType, FunctionType, NullType, OptionType, SortedMap, StringType, compareFor, equalFor, none, some } from "@elaraai/east";
 import { Button, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
-import { formatters, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { formatters } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { WORKSPACE, act, sheetHarness, mount, mountPayload, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
 
-const harness = sheetHarness();
+const h = sheetHarness();
 const WORDS = formatters("en-US");
 const JOBS = ex.sheetJobs;
 const stringEqual = equalFor(StringType);
@@ -38,14 +37,14 @@ const stringEqual = equalFor(StringType);
 Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
 
 /** The jobs as `sheetBasic` declares them, given the inspector pane. */
-const jobsPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+const jobsPayload = East.function([], SheetPayloadType, ($) => {
     const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
     return Sheet.Payload({ record: jobs, name: "jobs", inspector: true, columns: {
         task:  Sheet.column.text(ex.SheetJob, { header: "Task", width: "240px" }),
         start: Sheet.column.date(ex.SheetJob, { header: "Start", width: "96px" }),
         qty:   Sheet.column.quantity(ex.SheetJob, { header: "Qty", width: "96px" }),
     } });
-}), getRegisteredPlatformImplementations());
+});
 
 /**
  * The jobs with an author's inspector of one button: pressed, the row
@@ -53,7 +52,7 @@ const jobsPayload = East.compile(East.function([], SheetPayloadType, ($) => {
  * through its column, the start under a read-only column, the quantity with
  * no column at all.
  */
-const doublingPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+const doublingPayload = East.function([], SheetPayloadType, ($) => {
     const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
     const inspector = $.const(East.function([ex.SheetJob, FunctionType([ex.SheetJob], NullType)], UIComponentType, ($2, row, update) => {
         const double = $2.const(East.function([], NullType, ($3) => {
@@ -67,14 +66,14 @@ const doublingPayload = East.compile(East.function([], SheetPayloadType, ($) => 
         task:  Sheet.column.text(ex.SheetJob, { header: "Task" }),
         start: Sheet.column.date(ex.SheetJob, { header: "Start", editable: false }),
     } });
-}), getRegisteredPlatformImplementations());
+});
 
 /**
  * The orders, their operations' activity and notes each picked from one
  * register of words — the activity narrowed by its options rule to two of
  * them, the notes offered every one.
  */
-const selectsPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+const selectsPayload = East.function([], SheetPayloadType, ($) => {
     const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
     const words = $.let(["Panel cutting", "Edge banding", "Assembly", "Oak veneered board"], ArrayType(StringType));
     const firstTwo = $.const(East.function([Sheet.Types.DraftContext(ex.WorkshopOrder, "ops")], OptionType(ArrayType(StringType)), ($2, _ctx) => {
@@ -88,14 +87,14 @@ const selectsPayload = East.compile(East.function([], SheetPayloadType, ($) => {
             activity: Sheet.column.enum(ex.WorkshopOperation, "words", { header: "Activity", options: firstTwo }),
             notes:    Sheet.column.enum(ex.WorkshopOperation, "words", { header: "Notes" }),
         } });
-}), getRegisteredPlatformImplementations());
+});
 
 /**
  * The jobs with a task read through a custom column, whose parse marks what
  * it reads with a `!`, and the quantity under a `value` projection showing it
  * doubled — the field read only, the cell what it shows.
  */
-const customPayload = East.compile(East.function([], SheetPayloadType, ($) => {
+const customPayload = East.function([], SheetPayloadType, ($) => {
     const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
     const parse = $.const(East.function([StringType, Sheet.Types.DraftContext(ex.SheetJob)], OptionType(StringType), (_$2, text, _ctx) => some(East.str`${text.trim()}!`)));
     const print = $.const(East.function([StringType], StringType, (_$2, task) => task));
@@ -106,16 +105,10 @@ const customPayload = East.compile(East.function([], SheetPayloadType, ($) => {
             some: (_$2, q) => East.value(some(q.multiply(2.0)), OptionType(FloatType)),
         }) }),
     } });
-}), getRegisteredPlatformImplementations());
+});
 
-/** A record as it stands — what its patch door last wrote. */
-function readRecord<T extends typeof JOBS | typeof ex.sheetWorkshopOrders>(record: T) {
-    const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", record.name)]);
-    if (bytes === undefined) throw new Error("the record has not loaded");
-    return decodeBeast2For(record.type)(bytes) as ReturnType<ReturnType<typeof decodeBeast2For<T["type"]>>>;
-}
-/** The jobs record as it stands. */
-const readJobs = () => readRecord(JOBS);
+/** The jobs as e3 holds them now — what their patch door last committed. */
+const readJobs = () => h.read(JOBS);
 
 /** A select field's choices, as its open listbox offers them; then closed again. */
 async function choices(c: HTMLElement, key: string): Promise<string[]> {
@@ -193,8 +186,7 @@ async function retype(c: HTMLElement, key: string, text: string) {
 }
 
 test("the inspector has two tabs, Details and Issues, Issues with its count; collapsed, a rail with its icon, the issue count and the selected row (SB46)", async () => {
-    const { container } = mountPayload(jobsPayload());
-    await settle();
+    const { container } = await h.mountPayload(jobsPayload);
     expect(tabs(pane(container))).toEqual(["Details", "Issues 0"]);
     await select(cell(container, 0, "task"));
     // A required field emptied: one issue in the batch.
@@ -211,30 +203,38 @@ test("the inspector has two tabs, Details and Issues, Issues with its count; col
 });
 
 test("with nothing selected, Details counts the rows, the pending drafts and the issues, says the last commit and who made it, and gives three hints (SB51)", async () => {
-    const { container } = mountPayload(jobsPayload());
-    await settle();
-    // The blank row after the last job: no row to show.
-    await select(cell(container, 4, "task"));
-    expect(showing(container)).toBe("none");
-    const counts = [...panel(container).querySelectorAll("[data-count]")].map((el) => [el.getAttribute("data-count"), el.textContent]);
-    expect(counts).toEqual([["rows", "4rows"], ["pending", "0pending"], ["issues", "0issues"]]);
-    // The stand-in records commit at the epoch, as "memory".
-    expect(panel(container).querySelector("[data-inspector-commit]")!.textContent).toBe(`saved ${WORDS.dateTime(new Date(0))} by memory`);
-    expect([...panel(container).querySelectorAll("li")].map((li) => li.textContent)).toEqual([
-        "Click a cell to see its row's every field here",
-        "Click a row number to select it — shift-click to select several",
-        "Changes stay drafts until Save; the history item undoes each one",
-    ]);
-    // A draft counts as pending.
-    await select(cell(container, 1, "task"));
-    await retype(container, "task", "Edge banding, both edges");
-    await select(cell(container, 4, "task"));
-    expect([...panel(container).querySelectorAll("[data-count]")].map((el) => el.textContent)).toEqual(["4rows", "1pending", "0issues"]);
+    // A clock from 14:02 of one day, running, so e3 stamps another session's save on the day the sheet calls today.
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-10-06T14:02:00Z"));
+    try {
+        const jobs = new SortedMap([...(await readJobs())], compareFor(StringType));
+        jobs.set("J-0004", { ...jobs.get("J-0004")!, task: "Spray finish, matt" });
+        await h.patch(JOBS, jobs);
+        const { container } = await h.mountPayload(jobsPayload);
+        // The blank row after the last job: no row to show.
+        await select(cell(container, 4, "task"));
+        expect(showing(container)).toBe("none");
+        const counts = [...panel(container).querySelectorAll("[data-count]")].map((el) => [el.getAttribute("data-count"), el.textContent]);
+        expect(counts).toEqual([["rows", "4rows"], ["pending", "0pending"], ["issues", "0issues"]]);
+        // The record's last commit, today's: its time, and the session that made it.
+        expect(panel(container).querySelector("[data-inspector-commit]")!.textContent).toBe("saved 14:02 by another session");
+        expect([...panel(container).querySelectorAll("li")].map((li) => li.textContent)).toEqual([
+            "Click a cell to see its row's every field here",
+            "Click a row number to select it — shift-click to select several",
+            "Changes stay drafts until Save; the history item undoes each one",
+        ]);
+        // A draft counts as pending.
+        await select(cell(container, 1, "task"));
+        await retype(container, "task", "Edge banding, both edges");
+        await select(cell(container, 4, "task"));
+        expect([...panel(container).querySelectorAll("[data-count]")].map((el) => el.textContent)).toEqual(["4rows", "1pending", "0issues"]);
+    } finally {
+        vi.useRealTimers();
+    }
 });
 
 test("one row: its number and id, each field by its column's kind; an edit is one transaction through its cell, tinted and Pending, and Undo takes it back (SB47, SB52)", async () => {
-    const { container } = mountPayload(jobsPayload());
-    await settle();
+    const { container } = await h.mountPayload(jobsPayload);
     await select(cell(container, 0, "task"));
     expect(showing(container)).toBe("row");
     expect(head(container)).toEqual(["row 1", "J-0001"]);
@@ -265,8 +265,7 @@ test("one row: its number and id, each field by its column's kind; an edit is on
 });
 
 test("each selection its own form: what was typed for one line and not yet committed never lands on the next, though both hold the same value", async () => {
-    const { container } = mount(ex.sheetWorkshop);
-    await settle();
+    const { container } = await h.mount(ex.sheetWorkshop);
     // Two operations with no notes: neither a blank line.
     const empty = rows(container).flatMap((row, i) => (!row.hasAttribute("data-blank") && reads(cell(container, i, "notes")) === "" ? [i] : []));
     const [one, other] = [empty[0]!, empty[1]!];
@@ -286,8 +285,7 @@ test("each selection its own form: what was typed for one line and not yet commi
 });
 
 test("a custom column's text is read by its own parse, as typing in its cell is; a `value` projection's field shows the cell, read only (§5.3)", async () => {
-    const { container } = mountPayload(customPayload());
-    await settle();
+    const { container } = await h.mountPayload(customPayload);
     await select(cell(container, 0, "task"));
     expect(editors(container)).toEqual(["task:text", "start:datetime", "qty:readonly"]);
     expect(box(container, "task").value).toBe("Panel cutting");
@@ -299,8 +297,7 @@ test("a custom column's text is read by its own parse, as typing in its cell is;
 });
 
 test("a line: a field with no column read only by its hint, a quantity in its activity's unit, a select's members with their meta, a link's cell with Edit in sheet (SB47, SB48)", async () => {
-    const { container } = mount(ex.sheetWorkshop);
-    await settle();
+    const { container } = await h.mount(ex.sheetWorkshop);
     await select(cell(container, 0, "notes"));
     expect(showing(container)).toBe("line");
     expect(head(container)).toEqual(["line 1 of WO-2201 · Kitchen, oak", "WO-2201"]);
@@ -326,8 +323,7 @@ test("a line: a field with no column read only by its hint, a quantity in its ac
 });
 
 test("an edit asks the copilot again when its column is a trigger: a start set in the inspector, the end's fill shows (SB52)", async () => {
-    const { container } = mount(ex.sheetWorkshop);
-    await settle();
+    const { container } = await h.mount(ex.sheetWorkshop);
     // The ash wardrobes' edge banding: no start, no end.
     const line = column(container, "activity").map((text, i) => [text, i] as const).filter(([text]) => text === "Edge banding")[1]![1];
     expect(head(container)).not.toEqual(["line 2 of WO-2202 · Wardrobes, ash", "WO-2202"]);
@@ -343,8 +339,7 @@ test("an edit asks the copilot again when its column is a trigger: a start set i
 });
 
 test("a band: the group's own fields, its line count and its issues, then Add line, Duplicate and Delete with its lines (SB49)", async () => {
-    const { container } = mount(ex.sheetWorkshop);
-    await settle();
+    const { container } = await h.mount(ex.sheetWorkshop);
     await select(bandCell(container, 0, "end"));
     expect(showing(container)).toBe("band");
     expect(head(container)).toEqual(["order 1", "WO-2201"]);
@@ -383,12 +378,11 @@ test("a band: the group's own fields, its line count and its issues, then Add li
 });
 
 test("a band's Duplicate copies the order with its lines, under a key of its own, as one step Save commits (SB49)", async () => {
-    const { container, getByRole } = mount(ex.sheetWorkshop);
-    await settle();
+    const { container, getByRole } = await h.mount(ex.sheetWorkshop);
     await select(bandCell(container, 0, "end"));
     await press(within(panel(container)).getByRole("button", { name: "Duplicate with its lines" }));
     await press(getByRole("button", { name: "Save" }));
-    const orders = readRecord(ex.sheetWorkshopOrders);
+    const orders = await h.read(ex.sheetWorkshopOrders);
     expect(orders.size).toBe(7);
     const kitchen = orders.get("WO-2201")!;
     const copies = [...orders].filter(([key, order]) => !stringEqual(key, "WO-2201") && equalFor(ex.WorkshopOrder)(order, kitchen));
@@ -396,8 +390,7 @@ test("a band's Duplicate copies the order with its lines, under a key of its own
 });
 
 test("a select offers its register's members as its column's options rule offers them at the row — each field its own (§5.3)", async () => {
-    const { container } = mountPayload(selectsPayload());
-    await settle();
+    const { container } = await h.mountPayload(selectsPayload);
     await select(cell(container, 0, "notes"));
     expect(head(container)[0]).toBe("line 1 of WO-2201 · Kitchen, oak");
     // The fields with no column by their type — a link's two halves, member lists, read only.
@@ -409,8 +402,7 @@ test("a select offers its register's members as its column's options rule offers
 });
 
 test("several rows: their count, a column set across them as one step, cleared, and deleted (SB50)", async () => {
-    const { container } = mountPayload(jobsPayload());
-    await settle();
+    const { container } = await h.mountPayload(jobsPayload);
     const gutters = () => live(slot(container, "main")!.querySelectorAll<HTMLElement>('[data-slot="row"] [data-slot="gutter"]'));
     fireEvent.mouseDown(gutters()[0]!, { button: 0 });
     fireEvent.mouseDown(gutters()[2]!, { button: 0, shiftKey: true });
@@ -434,8 +426,7 @@ test("several rows: their count, a column set across them as one step, cleared, 
 });
 
 test("Issues lists every issue of the batch by row, and a click puts the ring on its cell (SB53)", async () => {
-    const { container } = mountPayload(jobsPayload());
-    await settle();
+    const { container } = await h.mountPayload(jobsPayload);
     // No issues yet: the empty state.
     fireEvent.click(within(pane(container)).getByRole("tab", { name: /Issues/ }));
     await settle();
@@ -473,8 +464,7 @@ test("Issues lists every issue of the batch by row, and a click puts the ring on
 });
 
 test("the author's inspector: a complete row shows it in place of the form; a row missing a field shows the form until it is complete (SB58)", async () => {
-    const { container } = mount(ex.sheetWeeks);
-    await settle();
+    const { container } = await h.mount(ex.sheetWeeks);
     await select(cell(container, 0, "task"));
     const fields = () => panel(container).querySelector<HTMLElement>("[data-inspector-fields]")!;
     expect(fields().getAttribute("data-inspector-fields")).toBe("custom");
@@ -498,8 +488,7 @@ test("the author's inspector: a complete row shows it in place of the form; a ro
 });
 
 test("the author's update is one transaction: a column's field through its cell, a read-only column's left as it is, a field with no column on the draft (SB58)", async () => {
-    const { container, getByRole } = mountPayload(doublingPayload());
-    await settle();
+    const { container, getByRole } = await h.mountPayload(doublingPayload);
     await select(cell(container, 0, "task"));
     const double = within(panel(container)).getByRole("button", { name: "Double it" });
     await press(double);
@@ -514,7 +503,7 @@ test("the author's update is one transaction: a column's field through its cell,
 
     await press(within(panel(container)).getByRole("button", { name: "Double it" }));
     await press(getByRole("button", { name: "Save" }));
-    const job = readJobs().get("J-0001")!;
+    const job = (await readJobs()).get("J-0001")!;
     expect(job.task).toBe("Panel cutting, twice");
     expect(equalFor(ex.SheetJob.fields.qty)(job.qty, some(96.0))).toBe(true);
     expect(equalFor(ex.SheetJob.fields.start)(job.start, some(new Date("2026-10-12T00:00:00Z")))).toBe(true);

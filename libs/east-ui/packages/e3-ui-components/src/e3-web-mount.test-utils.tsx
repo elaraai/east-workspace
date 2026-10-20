@@ -95,12 +95,20 @@ export const programOf = (example: Example): UIProgram => irOf(example).compile(
 export interface MountOptions {
     /** The program to render in place of the example's own: a counted one (`builds.test-utils.ts`). Its reads are the example's. */
     readonly program?: UIProgram;
+    /**
+     * What renders in place of the example's program, under its providers once what it reads whole has loaded:
+     * a component a test renders itself — a payload through its renderer, say — the example then naming what it
+     * reads (`{ fn }`, the function that builds the payload).
+     */
+    readonly view?: ReactNode;
     /** Where its view and sessions are kept; `builder-test` unless given. */
     readonly storageKey?: string;
     /** The workspace it reads; the test's own unless given. */
     readonly workspace?: string;
     /** Whether the page holds a drag layer around it, as a surface whose cards drag does: `true` unless given. */
     readonly drag?: boolean;
+    /** What the page holds the surface in, inside the theme: a locale (`I18nProvider`), say. Nothing unless given. */
+    readonly wrap?: (surface: ReactNode) => ReactNode;
 }
 
 /** How {@link e3Harness} lays out what jsdom cannot. */
@@ -314,12 +322,13 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
                 <E3Provider config={{ apiUrl: e3().apiUrl, fetch: e3().fetch, repo: e3().repo, workspace: ws, token: null }}>
                     <ReactiveDatasetProvider>
                         <ExampleReads example={example} workspace={ws}>
-                            <Program example={example} program={mountOptions.program} storageKey={mountOptions.storageKey ?? "builder-test"} />
+                            {mountOptions.view ?? <Program example={example} program={mountOptions.program} storageKey={mountOptions.storageKey ?? "builder-test"} />}
                         </ExampleReads>
                     </ReactiveDatasetProvider>
                 </E3Provider>
             );
-            const mounted = render(<ChakraProvider value={system}>{mountOptions.drag === false ? surface : <DragLayerProvider>{surface}</DragLayerProvider>}</ChakraProvider>);
+            const page = mountOptions.drag === false ? surface : <DragLayerProvider>{surface}</DragLayerProvider>;
+            const mounted = render(<ChakraProvider value={system}>{mountOptions.wrap === undefined ? page : mountOptions.wrap(page)}</ChakraProvider>);
             await waitFor(() => {
                 if (mounted.container.querySelector("[data-e3-reads=loading]") !== null) throw new Error("what the example reads has not loaded");
                 if (mounted.container.querySelector("[data-e3-reads=failed]") !== null) throw new Error(`what the example reads did not load: ${mounted.container.textContent ?? ""}`);

@@ -4,21 +4,21 @@
  *
  * @vitest-environment jsdom
  *
- * The localizable Sheet (#861): every word the Sheet says itself comes from
- * ONE message table — the toolbar and the view tabs, the header, the rows,
- * bands, the strip, the footer and the history bar, the insertion chips, and
- * the message each gesture leaves — its numbers in the locale react-aria's
+ * The localizable Sheet (#861): every word the Sheet says itself comes from ONE
+ * message table — the toolbar and the view tabs, the header, the rows, bands,
+ * the strip, the footer and the history bar, the insertion chips, and the
+ * message each gesture leaves — its numbers in the locale react-aria's
  * `I18nProvider` sets, and `SheetMessagesProvider` overrides the words for a
  * subtree. The Plan's #820 test, for the Sheet. Every sheet is built by
- * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216); the
- * view tabs over the workshop's orders, through the rail's `rows` source and
- * the harness's records (#1345). (The lens's words — its count line, its
- * context switch and its gap pills — went with the lens, #1345; #1349
+ * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216); the view
+ * tabs over the workshop's orders, through the rail's `rows` source and the
+ * harness's records on e3 itself (#1345, #1376). (The lens's words — its count
+ * line, its context switch and its gap pills — went with the lens, #1345; #1349
  * restores them over records.)
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { render, fireEvent, waitFor } from "@testing-library/react";
+import { render, fireEvent, waitFor, type RenderResult } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
@@ -33,10 +33,10 @@ import { act, sheetHarness } from "./frame/harness.test-utils.js";
 import { SheetBandRow, SheetFailedBandRow, SheetRowBoundary } from "./Rows.js";
 import { SheetMessagesProvider, sheetMessages, type SheetMessages } from "./messages.js";
 
-// The harness's 400px frame, its store, and the examples' records and their
-// paging service (#1345): the flat and grouped sheets fit the frame whole; of
-// the paged thousand, the first windows land and the rest wait.
-sheetHarness();
+// The harness's 400px frame, its store, and the examples' records on e3
+// (#1345, #1376): the flat and grouped sheets fit the frame whole; of the
+// paged thousand, the first windows land and the rest wait.
+const h = sheetHarness();
 
 // ── Fixtures, at module scope: East bodies never call host helpers ─────────
 const RowType = StructType({ id: StringType, task: StringType, start: OptionType(DateTimeType), qty: IntegerType });
@@ -99,7 +99,7 @@ const TABS = East.function([], SheetPayloadType, ($) => {
         columns: { activity: Sheet.column.text(ex.WorkshopOperation, { header: "Activity" }) },
         views, activeView: some("planned"), onApply: Record.onApply(orders, { keyed: true }),
     });
-}).toIR().compile(getRegisteredPlatformImplementations());
+});
 
 /** A grouped sheet whose declaration names no noun: the Sheet's own word says what a group is. */
 const GROUPED = East.function([], SheetPayloadType, ($) => {
@@ -125,11 +125,16 @@ function mount(value: SheetValue, key: string, wrap: (sheet: ReactNode) => React
         <ChakraProvider value={system}>{w(<EastChakraSheet value={value} storageKey={key} />)}</ChakraProvider>
     );
     const utils = render(tree(wrap));
+    return { ...partsOf(utils), rewrap: (next: (sheet: ReactNode) => ReactNode) => utils.rerender(tree(next)) };
+}
+
+/** A render's sheet: its elements by selector, its card, its footer's message, and a flush of what it scheduled. */
+function partsOf(utils: RenderResult) {
     const q = (selector: string) => utils.container.querySelector<HTMLElement>(selector);
     const card = () => q("[data-sheet-card]")!;
     const flush = () => act(async () => { await Promise.resolve(); await new Promise<void>((r) => requestAnimationFrame(() => r())); });
     const message = () => q('[data-slot="footerMessage"]')!.textContent;
-    return { ...utils, q, card, flush, message, rewrap: (next: (sheet: ReactNode) => ReactNode) => utils.rerender(tree(next)) };
+    return { ...utils, q, card, flush, message };
 }
 
 /** Every text node under `root` that says something — a separator or the whitespace between words is structure. */
@@ -162,7 +167,7 @@ function Thrower(): never {
 // ── Every word the Sheet says is the table's ───────────────────────────────
 describe("one message table (#861)", () => {
     test("the toolbar's view tabs over the rail's `rows` source, and a tab's message (#1345)", async () => {
-        const { q, flush, message } = mount(TABS(), "sheet-861-tabs", marked);
+        const { q, flush, message } = partsOf(await h.mountPayload(TABS, { storageKey: "sheet-861-tabs", wrap: marked }));
         await waitFor(() => expect(q("[data-sheet]")!.getAttribute("data-view")).toBe("planned"));
         // The tabs: the list's name, the whole-sheet tab and its count, a view's title, the close control, + TAB.
         expect(q('[role="tablist"]')!.getAttribute("aria-label")).toBe("⟦Views");

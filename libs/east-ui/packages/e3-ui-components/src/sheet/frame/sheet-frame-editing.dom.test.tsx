@@ -5,36 +5,33 @@
  * @vitest-environment jsdom
  *
  * `<Sheet>`'s editing, undo and Save (#1185, #1216, `Sheet Builder Spec.md`
- * SB25–SB31), over the in-memory stand-in records (`harness.test-utils.tsx`):
- * each gesture one transaction, undone and redone from the history item and
- * from the keys anywhere in the frame, never while typing in a field; Save
- * one commit through the record's patch door, the history item naming each
- * state on the way; a conflict and a refusal keeping the drafts; a write with
- * no answer retried under its own request id; the drafts retiring once the
- * rows read back — whatever another write did beside them — and going out of
- * date when the record moves under them; each week its own drafts; and auto
- * mode.
+ * SB25–SB31), over the Sheet's records on e3 itself (`harness.test-utils.tsx`,
+ * #1376): each gesture one transaction, undone and redone from the history
+ * item and from the keys anywhere in the frame, never while typing in a field;
+ * Save one commit through the record's patch door, the history item naming
+ * each state on the way; a conflict and a refusal keeping the drafts; a write
+ * with no answer retried under its own request id; the drafts retiring once
+ * the rows read back — whatever another write did beside them — and going out
+ * of date when the record moves under them; each week its own drafts; and
+ * auto mode.
  */
 
 import { test, expect } from "vitest";
-import { fireEvent, within } from "@testing-library/react";
-import {
-    East, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, some, variant, type ValueTypeOf,
-} from "@elaraai/east";
+import { fireEvent, waitFor, within } from "@testing-library/react";
+import { East, SortedMap, StringType, compareFor, some, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { initializeRecordApi, type RecordApi } from "../../platform/index.js";
-import { WORKSPACE, act, sheetHarness, mount, settle, slot } from "./harness.test-utils.js";
+import { patchRecord } from "../../e3-web.test-utils.js";
+import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 
-const harness = sheetHarness();
+const h = sheetHarness();
 const JOBS = ex.sheetJobs;
 const PLANS = ex.sheetWeekPlans;
+/** The jobs' record, as its dataset's requests name it. */
+const JOBS_DATASET = `records.${JOBS.name}`;
 type Jobs = ValueTypeOf<typeof JOBS.type>;
 type Job = ValueTypeOf<typeof ex.SheetJob>;
-type Plans = ValueTypeOf<typeof PLANS.type>;
-const encodeJobsPatch = encodeBeast2For(PatchType(JOBS.type));
-const diffJobs = diffFor(JOBS.type);
 
 /** The jobs, saved as each gesture lands (SB31). */
 const autoJobs = {
@@ -53,26 +50,34 @@ const panedJobs = {
     }))),
 };
 
-/** A record as it stands — what its patch door last wrote. */
-function readRecord<T>(name: string, decode: (bytes: Uint8Array) => T): T {
-    const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", name)]);
-    if (bytes === undefined) throw new Error(`the record ${name} has not loaded`);
-    return decode(bytes);
-}
-const readJobs = (): Jobs => readRecord(JOBS.name, decodeBeast2For(JOBS.type));
-const readPlans = (): Plans => readRecord(PLANS.name, decodeBeast2For(PLANS.type));
+/** The edge bander's jobs, whose patch door refuses jobs that band both edges: the bander is booked that week. */
+const bookedJobs = {
+    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const jobs = $.let(Record.bind(ex.sheetBookedJobs, [ex.sheetBookedJobsPatch]));
+        return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) }, name: "booked" });
+    }))),
+};
 
-/** The record's commits, newest first, by the mutation that made each. */
-async function commits(name: string): Promise<string[]> {
-    return (await harness.memory.history(WORKSPACE, name, undefined)).commits.map((c) => c.mutation);
+/** The jobs as e3 holds them now. */
+const readJobs = () => h.read(JOBS);
+/** The plans as e3 holds them now. */
+const readPlans = () => h.read(PLANS);
+
+/** A record's commits, newest first, by the mutation that made each. */
+async function commits(record: { readonly name: string }): Promise<string[]> {
+    return (await h.history(record)).commits.map((c) => c.mutation);
 }
 
-/** Another planner's write to the jobs: a job's fields changed through the record's patch door, as the record has them now. */
-function writeJob(api: RecordApi, key: string, change: Partial<Job>) {
-    const now = readJobs();
-    const next = new SortedMap([...now], compareFor(StringType));
-    next.set(key, { ...now.get(key)!, ...change });
-    return api.mutate(WORKSPACE, JOBS.name, "patch", { args: [encodeJobsPatch(diffJobs(now, next))] });
+/** The jobs given, with a job's fields changed: what another planner's write commits. */
+function jobWith(jobs: Jobs, key: string, change: Partial<Job>): Jobs {
+    const next = new SortedMap([...jobs], compareFor(StringType));
+    next.set(key, { ...jobs.get(key)!, ...change });
+    return next;
+}
+
+/** Another planner's write to the jobs: a job's fields changed through the record's patch door, as e3 holds them now. */
+async function writeJob(key: string, change: Partial<Job>) {
+    await h.patch(JOBS, jobWith(await readJobs(), key, change));
 }
 
 /** The rows' cells under a column — the rows the record holds and the new ones, never the blank tail. */
@@ -119,8 +124,7 @@ async function command(el: Element, key: string, shift = false) {
 }
 
 test("each gesture is one transaction — typing, a paste across rows, an insert, a removal — undone and redone a step at a time from the history item (SB25)", async () => {
-    const { container } = mount(ex.sheetBasic);
-    await settle();
+    const { container } = await h.mount(ex.sheetBasic);
     const before = ["Panel cutting", "Edge banding", "CNC routing", "Spray finish"];
     expect(tasks(container)).toEqual(before);
     // Typing one cell.
@@ -153,12 +157,11 @@ test("each gesture is one transaction — typing, a paste across rows, an insert
     for (let i = 0; i < 4; i++) await press(redo);
     expect(tasks(container)).toEqual(after);
     expect(disabled(redo)).toBe(true);
-    expect([...readJobs().values()].map((job) => job.task)).toEqual(before);
+    expect([...(await readJobs()).values()].map((job) => job.task)).toEqual(before);
 });
 
 test("⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the frame — the grid a step at a time, a pane's tab — never while typing in the library's search (SB26)", async () => {
-    const { container } = mount(panedJobs);
-    await settle();
+    const { container } = await h.mount(panedJobs);
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
     await typeInto(cells(container, "task")[1]!, "Edge banding, oak");
     // In the grid: its own keys, one step — the frame does not take the same key again.
@@ -183,32 +186,29 @@ test("⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the frame — the 
 });
 
 test("Save is one commit through the record's patch door: the history item says saving, then confirming, and the drafts retire once the rows read back as it left them (SB26, SB27, SB29)", async () => {
-    const { container } = mount(ex.sheetBasic);
-    await settle();
+    const { container } = await h.mount(ex.sheetBasic);
+    const deployed = await commits(JOBS);
     const save = toolbar(container).getByRole("button", { name: "Save" });
     // Nothing to save yet.
     expect(disabled(save)).toBe(true);
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
     expect(disabled(save)).toBe(false);
     expect(drafted(container)).toBe(1);
-    // The write held: Saving.
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => { release = resolve; });
-    initializeRecordApi({ ...harness.memory, mutate: async (ws, record, mutation, req) => { await held; return harness.memory.mutate(ws, record, mutation, req); } }, harness.cache, WORKSPACE);
+    // The write held on its way to e3: Saving.
+    const writing = h.e3.hold((request) => request.kind === "mutate" && request.record === JOBS.name);
     await press(save);
     expect(statusLine(container)).toBe("Saving…");
-    // It commits, the read-back held back: Saved, confirming — the draft stays until the row reads back.
-    const notices: (() => void)[] = [];
-    harness.cache.setScheduler((notify) => { notices.push(notify); });
-    await act(async () => { release(); });
+    // It commits, the record's read back held on its way: Saved, confirming — the draft stays until the row reads back.
+    const readBack = h.e3.hold((request) => request.kind === "read" && request.dataset === JOBS_DATASET);
+    await act(async () => { writing.release(); });
+    await readBack.holding;
     await settle();
-    expect(readJobs().get("J-0001")!.task).toBe("Panel cutting, oak");
-    expect(await commits(JOBS.name)).toEqual(["patch", "$init"]);
+    expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, oak");
+    expect(await commits(JOBS)).toEqual(["patch", ...deployed]);
     expect(statusLine(container)).toBe("Saved — loading the confirmed revision…");
     expect(drafted(container)).toBe(1);
     // The rows read back: the drafts retire, and the history item says nothing.
-    harness.cache.setScheduler((notify) => queueMicrotask(notify));
-    await act(async () => { for (const notify of notices) notify(); });
+    await act(async () => { readBack.release(); });
     await settle();
     expect(statusLine(container)).toBeUndefined();
     expect(drafted(container)).toBe(0);
@@ -217,84 +217,73 @@ test("Save is one commit through the record's patch door: the history item says 
 });
 
 test("a conflict keeps every draft, with its banner and the out-of-date notice; Save is off, and nothing is rebased (SB28, SB29)", async () => {
-    const { container } = mount(ex.sheetBasic);
-    await settle();
+    const { container } = await h.mount(ex.sheetBasic);
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
-    // Another write moves the same job just as Save goes.
-    await act(async () => {
-        void writeJob(harness.memory, "J-0001", { task: "Panel cutting, walnut" });
-        click(toolbar(container).getByRole("button", { name: "Save" }));
-    });
-    await settle();
+    // Another write moves the same job just as Save goes: the Save's patch reaches e3 after it.
+    await h.race(JOBS, () => click(toolbar(container).getByRole("button", { name: "Save" })),
+        (jobs) => jobWith(jobs, "J-0001", { task: "Panel cutting, walnut" }));
     expect(banners(container)).toEqual(["conflict", "stale"]);
     expect(statusLine(container)).toBe("Source changed — review or discard these drafts");
     // The draft stands, unrebased, over the record's new value.
     expect(tasks(container)[0]).toBe("Panel cutting, oak");
     expect(drafted(container)).toBe(1);
     expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
-    expect(readJobs().get("J-0001")!.task).toBe("Panel cutting, walnut");
+    expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, walnut");
 });
 
 test("a refusal keeps every draft, with its banner and the reason; a revised draft may be saved again (SB28)", async () => {
-    const { container } = mount(ex.sheetBasic);
-    await settle();
+    // The edge bander is booked that week: its jobs' patch door refuses a job that bands both edges.
+    const { container } = await h.mount(bookedJobs);
     await typeInto(cells(container, "task")[1]!, "Edge banding, both edges");
-    initializeRecordApi({ ...harness.memory, mutate: async () => ({ outcome: variant("failed", { exitCode: 1n, stderr: "the edge bander is booked that week" }) }) }, harness.cache, WORKSPACE);
     await press(toolbar(container).getByRole("button", { name: "Save" }));
     expect(banners(container)).toEqual(["rejected"]);
     const refused = slot(container, "banners")!.querySelector('[data-session-banner="rejected"]')!;
     expect(refused.textContent).toContain("The source refused these changes");
-    expect(refused.textContent).toContain("The write failed: the edge bander is booked that week");
+    expect(refused.textContent).toContain("The write failed: ");
+    expect(refused.textContent).toContain("the edge bander is booked that week");
     expect(statusLine(container)).toBe("Changes rejected — revise the draft before saving");
     expect(tasks(container)[1]).toBe("Edge banding, both edges");
     expect(drafted(container)).toBe(1);
     // The same request is never sent again: Save waits for a revision.
     expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
-    initializeRecordApi(harness.memory, harness.cache, WORKSPACE);
     await typeInto(cells(container, "task")[1]!, "Edge banding, one edge");
     expect(banners(container)).toEqual([]);
     await press(toolbar(container).getByRole("button", { name: "Save" }));
-    expect(readJobs().get("J-0002")!.task).toBe("Edge banding, one edge");
+    expect((await h.read(ex.sheetBookedJobs)).get("J-0002")!.task).toBe("Edge banding, one edge");
     expect(drafted(container)).toBe(0);
 });
 
 test("a write with no answer leaves the session unknown: Save turns into Retry, which sends the same request — its id unchanged — and never writes twice (SB28)", async () => {
-    const { container } = mount(ex.sheetBasic);
-    await settle();
+    const { container } = await h.mount(ex.sheetBasic);
     await typeInto(cells(container, "task")[2]!, "CNC routing, both faces");
-    // The write lands, and its answer is lost.
-    const keys: (string | undefined)[] = [];
-    let lost = true;
-    initializeRecordApi({ ...harness.memory, mutate: async (ws, record, mutation, req) => {
-        keys.push(req.idempotencyKey);
-        const result = await harness.memory.mutate(ws, record, mutation, req);
-        if (lost) { lost = false; throw new Error("The connection closed"); }
-        return result;
-    } }, harness.cache, WORKSPACE);
-    await press(toolbar(container).getByRole("button", { name: "Save" }));
-    expect(banners(container)).toEqual(["unknown"]);
+    const deployed = await commits(JOBS);
+    // The write reaches e3, and every answer to it is lost on its way back: the client tries again under the same
+    // id until it gives up, which leaves the session unknown.
+    const losing = h.e3.fail((request) => request.kind === "mutate" && request.record === JOBS.name, "lost");
+    await act(async () => { click(toolbar(container).getByRole("button", { name: "Save" })); });
+    await waitFor(() => expect(banners(container)).toEqual(["unknown"]), { timeout: 15_000 });
     expect(statusLine(container)).toBe("Awaiting confirmation — retry the same request");
     expect(toolbar(container).queryByRole("button", { name: "Save" })).toBeNull();
     // No gesture while the request is unresolved.
     expect(disabled(toolbar(container).getByRole("button", { name: "Undo" }))).toBe(true);
+    losing();
     await press(toolbar(container).getByRole("button", { name: "Retry request" }));
-    expect(keys).toHaveLength(2);
+    const keys = h.requests("mutate", JOBS.name).map((request) => request.idempotencyKey);
+    expect(keys.length).toBeGreaterThan(1);
     expect(keys[0]).toBeDefined();
-    expect(keys[1]).toBe(keys[0]);
-    expect(await commits(JOBS.name)).toEqual(["patch", "$init"]);
+    expect(new Set(keys).size).toBe(1);
+    expect(await commits(JOBS)).toEqual(["patch", ...deployed]);
     expect(banners(container)).toEqual([]);
     expect(statusLine(container)).toBeUndefined();
     expect(drafted(container)).toBe(0);
-    expect(readJobs().get("J-0003")!.task).toBe("CNC routing, both faces");
+    expect((await readJobs()).get("J-0003")!.task).toBe("CNC routing, both faces");
 });
 
 test("the record moving under pending drafts makes the session out of date: Save is off, a banner offers Discard, and nothing is rebased (SB29)", async () => {
-    const { container } = mount(ex.sheetBasic);
-    await settle();
+    const { container } = await h.mount(ex.sheetBasic);
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
     // Another write, to another job.
-    await act(async () => { await writeJob(harness.memory, "J-0003", { task: "CNC routing, ash" }); });
-    await settle();
+    await writeJob("J-0003", { task: "CNC routing, ash" });
     expect(banners(container)).toEqual(["stale"]);
     expect(statusLine(container)).toBe("Source changed — review or discard these drafts");
     expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
@@ -307,36 +296,34 @@ test("the record moving under pending drafts makes the session out of date: Save
 });
 
 test("a commit to a record read whole confirms once its own rows read back, whatever another write did meanwhile — to another row, or to another field of its own (#1185, SB29)", async () => {
-    const { container } = mount(ex.sheetBasic);
-    await settle();
+    const { container } = await h.mount(ex.sheetBasic);
+    const deployed = await commits(JOBS);
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
     // Right after this commit, before the sheet reads it back, another planner writes J-0003's task and J-0001's quantity.
-    initializeRecordApi({ ...harness.memory, mutate: async (ws, record, mutation, req) => {
-        const result = await harness.memory.mutate(ws, record, mutation, req);
-        await writeJob(harness.memory, "J-0003", { task: "CNC routing, ash" });
-        await writeJob(harness.memory, "J-0001", { qty: some(52.0) });
-        return result;
-    } }, harness.cache, WORKSPACE);
-    await press(toolbar(container).getByRole("button", { name: "Save" }));
+    const readBack = h.e3.hold((request) => request.kind === "read" && request.dataset === JOBS_DATASET);
+    await act(async () => { click(toolbar(container).getByRole("button", { name: "Save" })); });
+    await readBack.holding;
+    await patchRecord(h.e3, h.workspace, JOBS, jobWith(await readJobs(), "J-0003", { task: "CNC routing, ash" }));
+    await patchRecord(h.e3, h.workspace, JOBS, jobWith(await readJobs(), "J-0001", { qty: some(52.0) }));
+    await act(async () => { readBack.release(); });
+    await settle();
     // Confirmed: no status line, no draft, the record as the three writes left it.
     expect(statusLine(container)).toBeUndefined();
     expect(banners(container)).toEqual([]);
     expect(drafted(container)).toBe(0);
     expect(tasks(container)).toEqual(["Panel cutting, oak", "Edge banding", "CNC routing, ash", "Spray finish"]);
     expect(cells(container, "qty")[0]!.textContent).toBe("52");
-    expect(await commits(JOBS.name)).toEqual(["patch", "patch", "patch", "$init"]);
+    expect(await commits(JOBS)).toEqual(["patch", "patch", "patch", ...deployed]);
     // The next edit of J-0001 begins from the record's version: its Save commits, keeping the other planner's quantity.
-    initializeRecordApi(harness.memory, harness.cache, WORKSPACE);
     await typeInto(cells(container, "task")[0]!, "Panel cutting, oak veneer");
     await press(toolbar(container).getByRole("button", { name: "Save" }));
     expect(banners(container)).toEqual([]);
-    expect(readJobs().get("J-0001")).toEqual({ task: "Panel cutting, oak veneer", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(52.0) });
+    expect((await readJobs()).get("J-0001")).toEqual({ task: "Panel cutting, oak veneer", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(52.0) });
     expect(drafted(container)).toBe(0);
 });
 
 test("each week keeps its own drafts across a switch of the entry, and a remount finds them, until Save or Discard (SB17, SB30)", async () => {
-    const view = mount(ex.sheetWeeks);
-    await settle();
+    const view = await h.mount(ex.sheetWeeks);
     expect(tasks(view.container)).toEqual(["Cut the kitchen carcasses", "Band the carcass edges", "Route the door panels"]);
     await typeInto(cells(view.container, "task")[0]!, "Cut the oak carcasses");
     // Another week: its own rows, no draft of the first's.
@@ -352,14 +339,13 @@ test("each week keeps its own drafts across a switch of the entry, and a remount
     expect(drafted(view.container)).toBe(1);
     // Its Save commits its own rows alone.
     await press(toolbar(view.container).getByRole("button", { name: "Save" }));
-    expect(readPlans().get("2026-W42")!.rows[0]!.task).toBe("Cut the oak carcasses");
-    expect(readPlans().get("2026-W43")!.rows[0]!.task).toBe("Assemble the wardrobes");
+    expect((await readPlans()).get("2026-W42")!.rows[0]!.task).toBe("Cut the oak carcasses");
+    expect((await readPlans()).get("2026-W43")!.rows[0]!.task).toBe("Assemble the wardrobes");
     // The other week's draft outlives the switch and a remount.
     fireEvent.click(view.getByText("2026-W43"));
     await settle();
     view.unmount();
-    const again = mount(ex.sheetWeeks);
-    await settle();
+    const again = await h.mount(ex.sheetWeeks);
     expect(tasks(again.container)[0]).toBe("Assemble the ash wardrobes");
     expect(drafted(again.container)).toBe(1);
     await press(toolbar(again.container).getByRole("button", { name: "Discard" }));
@@ -368,13 +354,13 @@ test("each week keeps its own drafts across a switch of the entry, and a remount
 });
 
 test("auto mode sends each ready gesture as it lands, through the same protocol; Undo then commits the inverse (SB31)", async () => {
-    const { container } = mount(autoJobs);
-    await settle();
+    const { container } = await h.mount(autoJobs);
+    const deployed = await commits(JOBS);
     await typeInto(cells(container, "task")[3]!, "Spray finish, matt");
-    expect(readJobs().get("J-0004")!.task).toBe("Spray finish, matt");
+    expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish, matt");
     expect(drafted(container)).toBe(0);
     await press(toolbar(container).getByRole("button", { name: "Undo" }));
-    expect(readJobs().get("J-0004")!.task).toBe("Spray finish");
-    expect(await commits(JOBS.name)).toEqual(["patch", "patch", "$init"]);
+    expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish");
+    expect(await commits(JOBS)).toEqual(["patch", "patch", ...deployed]);
     expect(tasks(container)[3]).toBe("Spray finish");
 });

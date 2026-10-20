@@ -11,24 +11,24 @@
  * grid — the rows the rail's `rows` source narrows the record to (#1345) —
  * the history item's Undo undoes the grid's typed cell, the footer's message
  * follows a paste, and ⌘F and ⌘/ in the grid find the key search in the
- * toolbar. Every value built by `<Sheet>`'s factory and COMPILED, over the
- * harness's records and their paging service.
+ * toolbar. Every value is built by `<Sheet>`'s factory and COMPILED, the
+ * narrowed sheet over its records on e3 itself (#1376).
  */
 
 import type { ReactNode } from "react";
 import { expect, test } from "vitest";
-import { fireEvent, render, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, IntegerType, StringType, StructType, none, variant } from "@elaraai/east";
 import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui/internal";
-import { EastChakraComponent, system, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { system, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
 
-// The harness's frame, its store, and the examples' records and their paging service.
-sheetHarness();
+// The harness's frame, its store, and the examples' records on e3.
+const h = sheetHarness();
 
 const Row = StructType({ id: StringType, activity: StringType, qty: IntegerType });
 
@@ -59,7 +59,7 @@ const editable = East.compile(East.function([], SheetPayloadType, ($) => {
  * sheet — in a Reactive root, as a ui task draws it: a narrowing written to the rail builds the sheet again over the
  * rows its `rows` source pages now.
  */
-const narrowed = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const narrowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
     const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet-parts-views", VIEWS));
     const slice = $.let(Slice.bindRecords("sheet_parts_dom", {
@@ -70,15 +70,17 @@ const narrowed = East.compile(East.function([], UIComponentType, (_$) => Reactiv
         columns: { activity: Sheet.column.text(ex.WorkshopOperation, { header: "Activity" }) },
         views, onApply: Record.onApply(orders, { keyed: true }),
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 /** The editable sheet's payload, mounted as the Sheet's renderer takes it. */
 const sheetOf = (value: SheetValue): ReactNode => <EastChakraSheet value={value} storageKey="sheet-parts-test" />;
-/** The narrowed sheet, mounted as a surface mounts a ui task's component. */
-const uiOf = (value: ReturnType<typeof narrowed>): ReactNode => <EastChakraComponent value={value} storageKey="sheet-parts-test" />;
+/** The narrowed sheet, mounted as a surface mounts a ui task's component, over its records on e3. */
+const mountNarrowed = async () => partsOf(await h.mount(narrowed, { storageKey: "sheet-parts-test" }));
+/** A sheet's payload, mounted as given. */
+const mount = (node: ReactNode) => partsOf(render(<ChakraProvider value={system}>{node}</ChakraProvider>));
 
-function mount(node: ReactNode) {
-    const utils = render(<ChakraProvider value={system}>{node}</ChakraProvider>);
+/** A render's regions of the frame, its parts in them, and what drives them. */
+function partsOf(utils: RenderResult) {
     const region = (name: "toolbar" | "main" | "footer") => utils.container.querySelector(`[data-builder-frame] [data-frame-slot="${name}"]`) as HTMLElement;
     const root = () => region("main").querySelector("[data-sheet]") as HTMLElement;
     const card = () => region("main").querySelector("[data-sheet-card]") as HTMLElement;
@@ -97,7 +99,7 @@ function mount(node: ReactNode) {
 }
 
 test("each part draws in its region of the frame, and a tab switched in the toolbar narrows the grid to the rows its view's narrowing pages (SB4, SB5, #1345)", async () => {
-    const ui = mount(uiOf(narrowed()));
+    const ui = await mountNarrowed();
     await waitFor(() => expect(ui.bands()[0]).toBe("WO-2201"));
     expect(ui.region("main").querySelector('[data-slot="tab"]')).toBeNull();
     expect(ui.region("main").querySelector('[data-slot="footer"]')).toBeNull();
@@ -135,7 +137,7 @@ test("the footer's message, in the frame's footer, follows a paste in the grid",
 });
 
 test("⌘F and ⌘/ in the grid put the focus on the key search in the frame's toolbar", async () => {
-    const ui = mount(uiOf(narrowed()));
+    const ui = await mountNarrowed();
     await waitFor(() => expect(ui.bands()[0]).toBe("WO-2201"));
     const search = within(ui.region("toolbar")).getByPlaceholderText("Search Records");
     for (const key of ["f", "/"]) {

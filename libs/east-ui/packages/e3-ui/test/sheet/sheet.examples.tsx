@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,
+    East, ArrayType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,
     example, none, some, variant,
 } from "@elaraai/east";
 import {
@@ -71,6 +71,23 @@ export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob),
 ]));
 /** The jobs' patch door — every Save commits through it. */
 export const sheetJobsPatch = e3.mutation.patch(sheetJobs);
+
+/** The jobs again, as the edge bander's week holds them: a Save over them is refused for a reason the record gives. */
+export const sheetBookedJobs = e3.record("sheet_booked_jobs", DictType(StringType, SheetJob), new Map([
+    ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
+    ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
+    ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
+    ["J-0004", { task: "Spray finish", start: none, qty: none }],
+]));
+/** The booked jobs' patch door: it commits a patch unless a job it leaves bands both edges — the edge bander is booked that week. */
+export const sheetBookedJobsPatch = e3.mutation.reduce("patch", sheetBookedJobs, East.function(
+    [DictType(StringType, SheetJob), PatchType(DictType(StringType, SheetJob))], DictType(StringType, SheetJob), ($, jobs, patch) => {
+        const next = $.let(East.applyPatch(jobs, patch));
+        $.for(next, ($2, job) => {
+            $2.if(job.task.endsWith("both edges"), ($3) => { $3.error("the edge bander is booked that week"); });
+        });
+        return next;
+    }));
 
 /**
  * The smallest sheet (§3.1) — the jobs an e3 record holds, in its frame: one
