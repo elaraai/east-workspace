@@ -4,9 +4,10 @@
  */
 
 import {
-    ArrayType, DictType, East, FloatType, OptionType, StringType, StructType, none, some, variant,
+    ArrayType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant,
     type EastType, type ExprType, type FunctionType,
 } from "@elaraai/east";
+import { scheduleNumberText } from "../schedule/words.js";
 import { rosterCoverage } from "./coverage.js";
 import { RosterAssignmentTypeFor, RosterContextType, RosterFixType, RosterIssueType, RosterSlotType, RosterWeekTypeFor } from "./types.js";
 
@@ -47,7 +48,7 @@ export function rosterRest<R extends EastType>(row: R) {
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
  * @returns An East function `(week, context) → Array<Issue>`: issues in day, group and shift order, with actionable fixes
- * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`).
+ * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`.
  */
 export function rosterCheck<R extends EastType>(row: R) {
     const Row = row as EastType;
@@ -57,6 +58,9 @@ export function rosterCheck<R extends EastType>(row: R) {
     return East.function([RosterWeekTypeFor(Row), RosterContextType], ArrayType(RosterIssueType), ($, week, context) => {
         const coverageOf = $.const(coverageFn);
         const restOf = $.const(restFn);
+        const hoursText = $.const(scheduleNumberText);
+        // "position", or "positions" for any count but one.
+        const positionsText = $.const(East.function([IntegerType], StringType, (_$2, n) => East.equal(n, 1n).ifElse(() => "position", () => "positions")));
         // The built-in checks read no costs: the app's own check reads its pay's.
         const coverage = $.const(coverageOf(week, context, East.value(new Map(), DictType(StringType, DictType(StringType, FloatType)))));
         const issues = $.let([], ArrayType(RosterIssueType));
@@ -110,11 +114,11 @@ export function rosterCheck<R extends EastType>(row: R) {
                                         });
                                     });
                                     $(issues.pushLast({ kind: variant("breach", null), tone: variant("danger", null),
-                                        title: East.str`${person.name} · ${rest.minimum} h rest`,
+                                        title: East.str`${person.name} · ${hoursText(rest.minimum)} h rest`,
                                         detail: East.lessEqual(rest.before, rest.after).ifElse(
-                                            () => East.str`${location} · minimum ${context.rules.rest} h since the previous shift`,
-                                            () => East.str`${location} · minimum ${context.rules.rest} h before the next shift`),
-                                        slot: some(slot), assignment: some(id), flag: some(East.str`${rest.minimum}h rest`), fix }));
+                                            () => East.str`${location} · minimum ${hoursText(context.rules.rest)} h since the previous shift`,
+                                            () => East.str`${location} · minimum ${hoursText(context.rules.rest)} h before the next shift`),
+                                        slot: some(slot), assignment: some(id), flag: some(East.str`${hoursText(rest.minimum)}h rest`), fix }));
                                 });
                                 $.if(context.rules.trainer.and(() => person.trainee).and(() => c.trainer.not()), $ => {
                                     $(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
@@ -144,8 +148,8 @@ export function rosterCheck<R extends EastType>(row: R) {
                         const fix = $.let(none, OptionType(RosterFixType));
                         $.if(East.greater(context.agencies.size(), 0n), $ => { $.assign(fix, some(variant("request", context.agencies.get(0n).key))); });
                         $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
-                            title: East.str`${c.open} open positions · ${location}`,
-                            detail: East.str`${c.open.toFloat().multiply(shift.hours)} h unfilled · ${c.filled} of ${c.positions} positions`,
+                            title: East.str`${c.open} open ${positionsText(c.open)} · ${location}`,
+                            detail: East.str`${hoursText(c.open.toFloat().multiply(shift.hours))} h unfilled · ${c.filled} of ${c.positions} ${positionsText(c.positions)}`,
                             slot: some(slot), assignment: none, flag: some(East.str`${c.open} open`), fix }));
                     });
                     $.if(context.rules.skill.and(() => East.greater(c.filled, 0n)), $ => {
@@ -154,8 +158,8 @@ export function rosterCheck<R extends EastType>(row: R) {
                                 $.for(skills, ($, skill) => {
                                     $.if(East.equal(skill.key, line.skill), $ => {
                                         $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
-                                            title: East.str`${skill.label} · ${line.gap} h short`,
-                                            detail: East.str`${location} · ${line.capacity.unwrap("some")} h capacity of ${line.needed} h`,
+                                            title: East.str`${skill.label} · ${hoursText(line.gap)} h short`,
+                                            detail: East.str`${location} · ${hoursText(line.capacity.unwrap("some"))} h capacity of ${hoursText(line.needed)} h`,
                                             slot: some(slot), assignment: none, flag: some("skill gap"), fix: some(variant("find", variant("skill", skill.key))) }));
                                     });
                                 });

@@ -226,7 +226,7 @@ describe("a find on its way, and failed (R4)", () => {
         await waitFor(() => expect(found(c)).toEqual([["jquartz", "Dispatch · 14 h spare"]]));
         expect([h.fits.requests().length, failure(c)]).toEqual([4, undefined]);
         // A failure's banner stands only while its find does.
-        await press(fix(c, "Unloading · 8.0 h short"));
+        await press(fix(c, "Unloading · 8 h short"));
         await waitFor(() => expect(failure(c)).toBeTruthy());
         await press(chip(c));
         expect(failure(c)).toBeUndefined();

@@ -110,7 +110,7 @@ test("R1 — Roster.fit: the need held, not rostered that day, rest kept — eac
 });
 
 test("R1 — Roster.fit: a skill's holders and a trainee's trainers — the skill held, every trainer rostered on Thursday", () => {
-    const unload = builtIn(ask(findOf("Unloading · 8.0 h short", 4n)));
+    const unload = builtIn(ask(findOf("Unloading · 8 h short", 4n)));
     assert.deepEqual(ranked(unload), [["nochre", 182, "Inbound · 14 h spare"]]);
     assert.deepEqual(refused(unload), { "Not skilled": 47, Rostered: 21 });
     assert.deepEqual(unload.people.get("aosier"), refusal("Not skilled", "doesn't hold Unloading"));

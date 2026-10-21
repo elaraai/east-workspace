@@ -204,7 +204,7 @@ for (const theme of ['light', 'dark'] as const) {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme); await size(page, entry, 1440);
         const frame = entry.locator('[data-roster-frame]').first();
-        await expect(frame.locator('[data-roster-assignment="s37"]')).toContainText('6.0h rest');
+        await expect(frame.locator('[data-roster-assignment="s37"]')).toContainText('6h rest');
         await expect(frame.locator('[data-roster-main] [data-roster-proposal]')).toHaveCount(2);
         await frame.locator('[data-roster-assignment="s37"]').click();
         await closeInspector(frame); await size(page, entry, 390);

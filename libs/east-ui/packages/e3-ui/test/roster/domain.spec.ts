@@ -46,6 +46,25 @@ test("a slot's cost is the app's pay for its duties, every code summed; without 
     assert.equal(coverage(fresh(), context, pay).get(ex.slot)!.cost, 1278);
     assert.equal(coverage(fresh(), context, noPay()).get(ex.slot)!.cost, 0);
 });
+test("the check's words print its hours as the fit's do: a whole number without a decimal point, any other as East prints it", () => {
+    const issues = check(fresh(), context);
+    const of = (flag: string) => issues.find(i => i.flag.type === "some" && i.flag.value === flag)!;
+    // Sunday's early shift asks four positions and fills three: one open, its eight hours unfilled.
+    assert.deepEqual([of("1 open").title, of("1 open").detail], ["1 open position · Goods · Early", "8 h unfilled · 3 of 4 positions"]);
+    // Reach truck needs 24 hours, and its one holder brings the shift's eight.
+    assert.deepEqual([of("skill gap").title, of("skill gap").detail], ["Reach truck · 16 h short", "Goods · Early · 8 h capacity of 24 h"]);
+    // A fraction prints as East prints it: a shift of 7.5 hours leaves 7.5 unfilled.
+    const half = { ...context, shifts: context.shifts.map(shift => shift.key === "early" ? { ...shift, hours: 7.5 } : shift) };
+    assert.equal(check(fresh(), half).find(i => i.flag.type === "some" && i.flag.value === "1 open")!.detail, "7.5 h unfilled · 3 of 4 positions");
+    // Two open of two: the plural, and one asked of none filled, the singular.
+    const empty = fresh(); empty.assignments.clear();
+    empty.requirements.set(ex.slot, { positions: 2n, hours: new Map() });
+    const two = check(empty, context).find(i => i.kind.type === "gap")!;
+    assert.deepEqual([two.title, two.detail], ["2 open positions · Goods · Early", "16 h unfilled · 0 of 2 positions"]);
+    empty.requirements.set(ex.slot, { positions: 1n, hours: new Map() });
+    const one = check(empty, context).find(i => i.kind.type === "gap")!;
+    assert.deepEqual([one.title, one.detail], ["1 open position · Goods · Early", "8 h unfilled · 0 of 1 position"]);
+});
 test("empty targets produce open-position fixes only when an agency is configured", () => {
     const week = fresh(); week.assignments.clear();
     const gap = check(week, context).find(i => i.kind.type === "gap")!;
@@ -85,7 +104,10 @@ test("the rest fix moves a duty to another shift of its day that keeps the rest,
     week.assignments.set("monday", duty({ day: 1n, group: "goods", shift: "late" }, "2028-03-06T14:00:00Z", "2028-03-06T22:00:00Z", 8));
     const restOf = (issues: ReturnType<typeof check>) => issues.find(i => i.assignment.type === "some" && i.assignment.value === "monday" && i.title.endsWith("h rest"))!;
     const rest = restOf(check(week, context));
-    assert.equal(rest.title, "Lead · 6.0 h rest");
+    // Its words print whole hours as the fit's do (`6 h rest · minimum 10 h`): no decimal point.
+    assert.equal(rest.title, "Lead · 6 h rest");
+    assert.equal(rest.detail, "Goods · Late · minimum 10 h since the previous shift");
+    assert.deepEqual(rest.flag, some("6h rest"));
     // Monday's night, its times kept against its shift's start, leaves fourteen hours: the fix moves it there.
     assert.deepEqual(rest.fix, some(variant("move", "night")));
     // With no night shift, no other shift of the day keeps ten hours, so the fix is a later start: four hours on, at 18:00.
