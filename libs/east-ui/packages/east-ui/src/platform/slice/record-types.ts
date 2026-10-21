@@ -148,6 +148,7 @@ export type RecordSliceDomainType = typeof RecordSliceDomainType;
  * @property retry - Retry failed reads against the current record revision.
  * @property sourceId - Stable record identity for a shared editing session.
  * @property contains - Exact indexed membership of a primary identity in a captured narrowing; internal editing integration.
+ * @property containsRow - Exact indexed membership of an entry whose row the caller holds at the record's current revision — a Save's: the row its request began from, or the one its confirmation read back — its maintained keys sought without reading the row again; internal editing integration.
  * @property readEntry - Confirm an entry by primary identity: outer none is pending, inner none is confirmed absent. Internal editing integration.
  */
 export const RecordSliceBindType = StructType({
@@ -173,6 +174,7 @@ export const RecordSliceBindType = StructType({
     sourceId: StringType,
     readEntry: FunctionType([StringType], OptionType(OptionType(BlobType))),
     contains: FunctionType([RecordSliceWhereType, StringType], OptionType(BooleanType)),
+    containsRow: FunctionType([RecordSliceWhereType, StringType, BlobType], OptionType(BooleanType)),
 });
 export type RecordSliceBindType = typeof RecordSliceBindType;
 
@@ -284,6 +286,7 @@ export const RecordSlicePrimitives = {
     retry: op("retry", [], NullType),
     readEntry: op("read_entry", [StringType], OptionType(OptionType(BlobType))),
     contains: op("contains", [RecordSliceWhereType, StringType], OptionType(BooleanType)),
+    containsRow: op("contains_row", [RecordSliceWhereType, StringType, BlobType], OptionType(BooleanType)),
 };
 
 /**

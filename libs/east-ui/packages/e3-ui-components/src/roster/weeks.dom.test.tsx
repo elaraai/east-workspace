@@ -66,7 +66,14 @@ describe("Roster week lifecycle", () => {
         expect(assignment(again.container, "s37").hasAttribute("data-removed")).toBe(true);
         await weekKey(again.container, "]");
         expect(again.container.querySelectorAll('[data-roster-assignment][data-drafted]').length).toBeGreaterThan(0);
+        // The Save confirms what the week's own window holds from it, every duty it copied into the week among them, and the
+        // view's notice checks those by the rows the Save confirmed: only the removed duty of another week, which the
+        // window does not hold, is sought by its key.
+        const before = h.requests("find", DUTIES).length;
         await press(history(again.container, editingMessages.apply()));
+        const byKey = h.requests("find", DUTIES).slice(before).filter(request => request.query.get("index") === null && request.query.has("key"));
+        expect(byKey).toHaveLength(1);
+        expect(searched(byKey[0]!, undefined, '"s37"')).toBe(true);
         const duties = await h.read(ex.rosterDuties);
         expect(duties.has("s37")).toBe(false);
         expect(weekDuties(duties, NEXT).size).toBe(316);

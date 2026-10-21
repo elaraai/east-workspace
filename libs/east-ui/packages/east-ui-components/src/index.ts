@@ -623,6 +623,7 @@ export {
     type EditSessionOptions,
     type EntryUpdate,
     type EntryVersion,
+    type HeldRows,
     type HistoryAction,
     type HistoryBarProps,
     type Origin,

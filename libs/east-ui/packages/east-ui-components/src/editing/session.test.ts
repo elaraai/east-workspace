@@ -11,11 +11,11 @@
  */
 
 import { expect, test } from "vitest";
-import { ArrayType, IntegerType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, IntegerType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
 import { editingMessages } from "./messages.js";
-import { EditSession, type EditSessionBinding, type EntryVersion, type Origin, type Placement } from "./session.js";
+import { EditSession, type EditSessionBinding, type EntryVersion, type HeldRows, type Origin, type Placement } from "./session.js";
 
 const Run = StructType({ id: StringType, start: IntegerType, end: IntegerType });
 const Draft = Editing.Types.Draft(Run);
@@ -322,6 +322,49 @@ test("view preparation precedes submission; only changed primary entries reach i
     expect(session.reconcile(variant("snapshot", [{ ...a, end: 5n }]), () => undefined)).toBe(true);
     await Promise.resolve();
     expect(confirmed).toBe(1);
+});
+
+test("a view preparation is handed the rows its request began from, at its base, and its observer those its confirmation read back exactly, at the revision committed", async () => {
+    const encode = encodeBeast2For(Job);
+    let began: HeldRows | undefined;
+    let confirmed: HeldRows | undefined;
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: some("r2") }), patch: undefined, refresh: undefined,
+        prepare: async (_targets, held) => { began = held; return (read) => { confirmed = read; }; },
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J2", before: job(band), after: job({ ...band, qty: 8n }) },
+        { id: "J4", before: absentJob, after: job(spray) },
+        { id: "J3", before: job(route), after: absentJob },
+    ], "typed", "Edit jobs");
+    await session.apply();
+    // Each entry as the request began from it at r1, encoded — J4 was absent there.
+    expect(began?.revision).toBe("r1");
+    expect(new Set(began!.rows.keys())).toEqual(new Set(["J1", "J2", "J3"]));
+    expect(began!.rows.get("J1")).toEqual(encode(cut));
+    expect(began!.rows.get("J3")).toEqual(encode(route));
+    // At r2: J1 and J4 read back as the request left them, J2 beside another write's field, J3 gone.
+    expect(session.reconcile(variant("revision", "r2"), id => id === "J1" ? some({ ...cut, qty: 5n })
+        : id === "J2" ? some({ task: "Edge banding, rework", qty: 8n }) : id === "J4" ? some(spray) : none)).toBe(true);
+    await Promise.resolve();
+    // Only what the confirmation read back exactly is held: a row another write changed beside the request's is read again.
+    expect(confirmed?.revision).toBe("r2");
+    expect(new Set(confirmed!.rows.keys())).toEqual(new Set(["J1", "J4"]));
+    expect(confirmed!.rows.get("J1")).toEqual(encode({ ...cut, qty: 5n }));
+    expect(confirmed!.rows.get("J4")).toEqual(encode(spray));
+
+    // A snapshot names no revision: neither holds a row.
+    let snapshotBegan: HeldRows | undefined = { revision: "", rows: new Map() };
+    let snapshotConfirmed: HeldRows | undefined = { revision: "", rows: new Map() };
+    const whole = create({ prepare: async (_targets, held) => { snapshotBegan = held; return (read) => { snapshotConfirmed = read; }; } });
+    whole.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    await whole.apply();
+    expect(whole.reconcile(variant("snapshot", [{ ...a, end: 5n }]), () => undefined)).toBe(true);
+    await Promise.resolve();
+    expect([snapshotBegan, snapshotConfirmed]).toEqual([undefined, undefined]);
 });
 
 test("failed preparation sends no mutation, retains every draft and permits a fresh Save", async () => {

@@ -150,6 +150,7 @@ const operations: Record<keyof typeof RecordSlicePrimitives, Operation> = {
     retry: c => c.source.refresh(none),
     readEntry: (c, id) => c.readEntry(id as string),
     contains: (c, where, id) => c.contains(where as Where, id as string),
+    containsRow: (c, where, id, row) => c.containsRow(where as Where, id as string, row as Uint8Array),
 };
 
 const primitives: PlatformFunction[] = Object.entries(RecordSlicePrimitives).map(([name, primitive]) => primitive.implement(

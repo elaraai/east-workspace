@@ -117,7 +117,7 @@ function flowsPart(): Bind {
         count: () => some(read().where.size === 0 ? 20n : 7n), countWhere: () => some(7n), total: () => some(20n), domain: () => none, suggest: () => none,
         values: (id) => config.fields.find((f) => f.fieldId === id)!.values.map((value) => ({ ...value, selected: false, count: some(3n), error: none })),
         replaces: () => [], togglePreset: () => null, setResolution: (resolution) => write({ ...read(), resolution }), retry: () => null,
-        readEntry: () => some(none), contains: () => some(false),
+        readEntry: () => some(none), contains: () => some(false), containsRow: () => some(false),
     };
 }
 

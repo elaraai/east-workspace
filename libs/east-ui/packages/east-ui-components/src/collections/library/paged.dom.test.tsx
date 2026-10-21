@@ -160,7 +160,7 @@ function flowsPart(): Bind & { countWhere: ReturnType<typeof vi.fn<Bind["countWh
         count: () => some(BigInt(served(read().where).length)), countWhere, total: () => some(BigInt(FLOWS.length)),
         domain: () => none, values: () => [], suggest: () => none, replaces: () => [], togglePreset: () => null,
         setResolution: resolution => write({ ...read(), resolution }), retry: () => null,
-        readEntry: () => some(none), contains: () => some(false),
+        readEntry: () => some(none), contains: () => some(false), containsRow: () => some(false),
     };
 }
 

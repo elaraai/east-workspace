@@ -78,7 +78,7 @@ function part(key: string, fields: Field[], presets: { id: string; name: string;
         },
         setResolution: resolution => write({ ...read(), resolution }),
         retry,
-        readEntry: () => some(none), contains: () => some(false),
+        readEntry: () => some(none), contains: () => some(false), containsRow: () => some(false),
     };
     return slice;
 }

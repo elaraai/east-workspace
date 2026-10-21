@@ -271,8 +271,13 @@ Use the shared session `prepare` seam with `prepareRecordSliceSave`, then render
 `RecordSliceSaveNotice` in the host's existing footer. Capture exact membership
 before sending the checked mutation and recheck after primary-key confirmation.
 Use SDK-maintained keys and bounded index seeks, never local predicates or page
-membership. Count only entries leaving this query and new entries saved outside
-it; an already-hidden edit is not an exit. Query changes clear feedback. A failed
+membership. Each check takes the rows the session holds at the revision it
+checks — what the request began from, at its base, and what its confirmation
+read back exactly, at the revision committed — and seeks their maintained keys
+(`containsRow`), reading by its key only an entry they do not hold: a Save of a
+copied week's 316 duties reads none of them again. Count only entries
+leaving this query and new entries saved outside it; an already-hidden edit is
+not an exit. Query changes clear feedback. A failed
 preparation sends no mutation and preserves drafts; a failed feedback read offers
 a read retry, never another Save. An indexed source's `recordId` names the primary
 record across all index lists and must back the shared editing identity.
