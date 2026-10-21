@@ -476,7 +476,7 @@ export * from './schedule/types.js';
 export {
     scheduleEvents,
     type ScheduleAtField, type ScheduleBacklog, type ScheduleCaseOf, type ScheduleDictFloatField, type ScheduleEventKind, type ScheduleEventsBase,
-    type ScheduleEventsConfig, type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
+    type ScheduleEventsConfig, type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleIntegerField, type ScheduleInstantField, type ScheduleInstantTemplate,
     type ScheduleOptionStringField, type ScheduleOverlapsLiteral, type ScheduleParts, type ScheduleQuantity, type ScheduleRecordHandle,
     type ScheduleResourceField, type ScheduleResourceOf, type ScheduleSetStringField, type ScheduleStateField, type ScheduleStatusCasesOf,
     type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField, type ScheduleTemplate, type ScheduleTimeStepField,
@@ -585,6 +585,9 @@ export * from "./roster/library.js";
 export * from "./roster/coverage.js";
 export * from "./roster/rules.js";
 export * from "./roster/fit.js";
+export * from "./roster/times.js";
+export * from "./roster/lists.js";
+export * from "./roster/targets.js";
 
 // The Allocation's renderer contracts and its pure functions, which the
 // renderer compiles over the plans' bin values.

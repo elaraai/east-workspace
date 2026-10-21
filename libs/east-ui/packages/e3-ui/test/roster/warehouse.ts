@@ -2,32 +2,90 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-/** Warehouse fixture transcribed from docs/proposals/Roster Spec.html. */
-import { ArrayType, BooleanType, DictType, FloatType, IntegerType, OptionType, SetType, StringType, StructType, SortedMap, SortedSet, DateTimeType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Roster } from "@elaraai/e3-ui";
+/**
+ * The warehouse, transcribed from docs/proposals/Roster Spec.html into records
+ * of its own (#1368, `Builder Interfaces Spec.md` §5.7): its duties, the weeks
+ * of its rota, its cover targets and suggestions, its pay rates, its staff and
+ * agencies, and its shift times, teams, positions and activities. Every name
+ * and figure is generated. Beside them, the Roster's reading of the two seeded
+ * weeks (`Roster.Types.Week(WarehouseDuty)`), which the Roster's own reading
+ * of the duties is held to on e3 (e3-ui-components' `test/roster-payload.spec.ts`).
+ */
+import {
+    BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
+    VariantType, compareFor, none, some, variant, type ValueTypeOf,
+} from "@elaraai/east";
+import { Roster, Schedule } from "@elaraai/e3-ui";
+
+/** One of the warehouse's staff. */
 export const WarehousePerson = StructType({ name: StringType, team: StringType, position: StringType, skills: SetType(StringType), contract: FloatType, agency: BooleanType, trainer: BooleanType, trainee: BooleanType, usual: OptionType(StringType) });
-export const WarehouseConfig = StructType({ groups: ArrayType(Roster.Types.Group), shifts: ArrayType(Roster.Types.Shift), positions: DictType(StringType, Roster.Types.Position), agencies: ArrayType(Roster.Types.Agency), rules: Roster.Types.Rules, costs: Roster.Types.Costs });
 /** A warehouse activity: Roster.Types.Activity's label, code and group, and where it shows among the activities. */
 export const WarehouseActivity = StructType({ label: StringType, code: StringType, group: OptionType(StringType), order: IntegerType });
+/**
+ * A duty, the warehouse's own: who — one of its staff, or an agency asked to
+ * send someone — its own times, worth what its pay rules say, its shift and
+ * team, its role and task, and the warehouse's fields beside them, which its
+ * pay, its check and its inspector read.
+ */
+export const WarehouseDuty = StructType({
+    who: VariantType({ staff: StringType, agency: StringType }),
+    start: DateTimeType, end: DateTimeType,
+    shift: StringType, team: StringType, role: StringType, task: OptionType(StringType),
+    unpaidBreak: FloatType, agreed: OptionType(BooleanType),
+    costCentre: StringType, note: StringType,
+});
+/** A week of the rota: open, or issued and when; the suggestions it dismissed; who approved it. */
+export const WarehouseWeek = StructType({
+    state: VariantType({ open: NullType, issued: StructType({ at: DateTimeType }) }),
+    dismissed: SetType(StringType), approver: OptionType(StringType),
+});
+/** A cover target: a day's team and shift, the heads it needs and the hours each activity needs, and what it rests on — the forecast's run, or a planner. */
+export const WarehouseCover = StructType({ day: DateTimeType, team: StringType, shift: StringType, heads: IntegerType, hours: DictType(StringType, FloatType), basis: StringType });
+/** A suggestion: someone for a day's team and shift, and why. */
+export const WarehouseSuggestion = StructType({ person: StringType, day: DateTimeType, team: StringType, shift: StringType, why: StringType });
+/** An agency the warehouse asks for staff. */
+export const WarehouseAgency = StructType({ name: StringType });
+/** A shift: its name, its code, when it starts and its hours, and where it shows. */
+export const WarehouseShift = StructType({ label: StringType, code: StringType, start: Schedule.Types.Clock, hours: FloatType, order: IntegerType });
+/** A team, and where it shows. */
+export const WarehouseTeam = StructType({ label: StringType, order: IntegerType });
+/** A position: its name, its badge, whether it leads, and where it shows. */
+export const WarehousePosition = StructType({ label: StringType, code: StringType, lead: BooleanType, order: IntegerType });
+/** The Roster's reading of a week of the warehouse's duties. */
+export const WarehouseRosterWeek = Roster.Types.Week(WarehouseDuty);
+
+/** This week: Sunday 5 March 2028. */
 export const warehouseStart = new Date("2028-03-05T00:00:00Z");
+/** The week before, published. */
+export const warehousePreviousStart = new Date("2028-02-27T00:00:00Z");
+/** The week after, its targets the forecast's alone. */
+export const warehouseNextStart = new Date("2028-03-12T00:00:00Z");
+/** When the week before was issued. */
+export const warehouseIssuedAt = new Date("2028-03-04T12:00:00Z");
 const stringOrder = compareFor(StringType);
-export const warehouseConfig: ValueTypeOf<typeof WarehouseConfig> = {
-    groups: [{ key: "inbound", label: "Inbound" }, { key: "picking", label: "Picking" }, { key: "dispatch", label: "Dispatch" }],
-    shifts: [
-        { key: "early", label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8 },
-        { key: "late", label: "Late", code: "L", start: { hour: 14n, minute: 0n }, hours: 8 },
-        { key: "night", label: "Night", code: "N", start: { hour: 22n, minute: 0n }, hours: 8 },
-    ],
-    positions: new SortedMap([
-        ["crew", { key: "crew", label: "Associate", code: "", lead: false }],
-        ["lead", { key: "lead", label: "Supervisor", code: "SV", lead: true }],
-        ["deputy", { key: "deputy", label: "Deputy supervisor", code: "DS", lead: true }],
-        ["acting", { key: "acting", label: "Acting supervisor", code: "ACT", lead: true }],
-    ], stringOrder),
-    agencies: [{ key: "northside", name: "Northside Staffing" }],
-    rules: { rest: 10, lead: true, trainer: true, skill: true, agree: true },
-    costs: { currency: "AUD", rates: { permanent: 42, overtime: 63, agency: 51 }, budget: some(24800) },
-};
+/** The shifts: early, late and night, eight hours each. */
+export const warehouseShifts: SortedMap<string, ValueTypeOf<typeof WarehouseShift>> = new SortedMap<string, ValueTypeOf<typeof WarehouseShift>>([
+    ["early", { label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8, order: 1n }],
+    ["late", { label: "Late", code: "L", start: { hour: 14n, minute: 0n }, hours: 8, order: 2n }],
+    ["night", { label: "Night", code: "N", start: { hour: 22n, minute: 0n }, hours: 8, order: 3n }],
+], stringOrder);
+/** The teams, each a group of the roster. */
+export const warehouseTeams: SortedMap<string, ValueTypeOf<typeof WarehouseTeam>> = new SortedMap<string, ValueTypeOf<typeof WarehouseTeam>>([
+    ["inbound", { label: "Inbound", order: 1n }], ["picking", { label: "Picking", order: 2n }], ["dispatch", { label: "Dispatch", order: 3n }],
+], stringOrder);
+/** The positions, in the mock's order; the supervisors lead. */
+export const warehousePositions: SortedMap<string, ValueTypeOf<typeof WarehousePosition>> = new SortedMap<string, ValueTypeOf<typeof WarehousePosition>>([
+    ["acting", { label: "Acting supervisor", code: "ACT", lead: true, order: 1n }],
+    ["crew", { label: "Associate", code: "", lead: false, order: 2n }],
+    ["deputy", { label: "Deputy supervisor", code: "DS", lead: true, order: 3n }],
+    ["lead", { label: "Supervisor", code: "SV", lead: true, order: 4n }],
+], stringOrder);
+/** The agency the warehouse asks for staff. */
+export const warehouseAgencies: SortedMap<string, ValueTypeOf<typeof WarehouseAgency>> = new SortedMap<string, ValueTypeOf<typeof WarehouseAgency>>([
+    ["northside", { name: "Northside Staffing" }],
+], stringOrder);
+/** The warehouse's pay rates by its own pay codes, an hour each: ordinary time, the first overtime, and an agency's. */
+export const warehousePayRates: SortedMap<string, number> = new SortedMap<string, number>([["AGENCY", 51], ["ORD", 42], ["OT1", 63]], stringOrder);
 /** Every activity by its key: each group's skills, and the one duty of none, General duties, each in the mock's order (#1342). */
 export const warehouseActivities: SortedMap<string, ValueTypeOf<typeof WarehouseActivity>> = new SortedMap<string, ValueTypeOf<typeof WarehouseActivity>>([
     ["unload", { label: "Unloading", code: "UL", group: some("inbound"), order: 1n }],
@@ -48,6 +106,7 @@ export const warehouseActivities: SortedMap<string, ValueTypeOf<typeof Warehouse
     ["hazmat", { label: "Hazmat · licence", code: "HZ", group: some("dispatch"), order: 16n }],
     ["general", { label: "General duties", code: "GD", group: none, order: 17n }],
 ], stringOrder);
+/** The staff, by key. */
 export const warehousePeople: SortedMap<string, ValueTypeOf<typeof WarehousePerson>> = new SortedMap<string, ValueTypeOf<typeof WarehousePerson>>([
     ["aalder", { name: "A. Alder", team: "inbound", position: "lead", skills: new SortedSet(["unload","reach","xdock","rcvqa","yard"], stringOrder), contract: 38, agency: false, trainer: false, trainee: false, usual: some("early") }],
     ["haspen", { name: "H. Aspen", team: "inbound", position: "crew", skills: new SortedSet(["unload","putaway"], stringOrder), contract: 38, agency: false, trainer: true, trainee: false, usual: some("early") }],
@@ -119,6 +178,11 @@ export const warehousePeople: SortedMap<string, ValueTypeOf<typeof WarehousePers
     ["bpumice", { name: "B. Pumice", team: "picking", position: "crew", skills: new SortedSet(["pick","voice"], stringOrder), contract: 38, agency: false, trainer: false, trainee: false, usual: some("night") }],
     ["jquartz", { name: "J. Quartz", team: "dispatch", position: "deputy", skills: new SortedSet(["pack","label","returns","admin"], stringOrder), contract: 38, agency: false, trainer: false, trainee: false, usual: some("early") }],
 ], stringOrder);
+/**
+ * A seeded duty: its key, its day of the week, its team and shift, its person, whether one of the staff, an agency's
+ * worker or a request (`perm`, `ag`, `request`), its role and task, a later start and a later finish in hours, and
+ * whether those were agreed.
+ */
 type SeedRow = readonly [string, number, string, string, string | null, string, string, string | null, number, number, boolean | null];
 const previousRows: readonly SeedRow[] = [
     ["p1-1",0,"inbound","early","aalder","perm","lead","unload",0,0,null],
@@ -436,7 +500,9 @@ const previousRows: readonly SeedRow[] = [
     ["p1-313",6,"dispatch","early","jquartz","perm","deputy",null,0,0,null],
     ["p1-314",0,"dispatch","early","jquartz","perm","deputy",null,0,0,null],
 ];
-const previousTargets: readonly (readonly [number, string, string, number, Readonly<Record<string, number>>])[] = [
+/** A seeded target: its day of the week, its team and shift, the heads it needs and the hours each activity needs. */
+type Target = readonly [number, string, string, number, Readonly<Record<string, number>>];
+const previousTargets: readonly Target[] = [
     [0,"inbound","early",12,{"unload":21,"putaway":15,"reach":14,"xdock":21,"rcvqa":14,"yard":7}],
     [1,"inbound","early",12,{"unload":21,"putaway":15,"reach":14,"xdock":21,"rcvqa":14,"yard":7}],
     [2,"inbound","early",14,{"unload":25,"putaway":17,"reach":16,"xdock":25,"rcvqa":16,"yard":8}],
@@ -819,7 +885,7 @@ const currentRows: readonly SeedRow[] = [
     ["s315",5,"dispatch","early","jquartz","perm","deputy",null,0,0,null],
     ["s316",6,"dispatch","early","jquartz","perm","deputy",null,0,0,null],
 ];
-const currentTargets: readonly (readonly [number, string, string, number, Readonly<Record<string, number>>])[] = [
+const currentTargets: readonly Target[] = [
     [0,"inbound","early",11,{"unload":20,"putaway":13,"reach":13,"xdock":20,"rcvqa":13,"yard":6}],
     [1,"inbound","early",13,{"unload":23,"putaway":16,"reach":15,"xdock":23,"rcvqa":15,"yard":8}],
     [2,"inbound","early",14,{"unload":25,"putaway":17,"reach":16,"xdock":25,"rcvqa":16,"yard":8}],
@@ -884,21 +950,80 @@ const currentTargets: readonly (readonly [number, string, string, number, Readon
     [5,"dispatch","night",0,{}],
     [6,"dispatch","night",0,{}],
 ];
-function seededWeek(rows: readonly SeedRow[], targets: typeof currentTargets, published: boolean): ValueTypeOf<typeof Roster.Types.Week> {
-    return { status: published ? variant("published", { at: new Date("2028-03-04T12:00:00Z") }) : variant("draft", null),
-        assignments: new SortedMap(rows.map(([id, day, group, shift, person, kind, position, activity, offset, overtime, agreed]) => [id, {
-            slot: { day: BigInt(day), group, shift }, who: kind === "request" ? variant("request", "northside") : variant("person", person!), position,
-            activity: activity === null ? none : some(activity), offset, overtime, agreed: agreed === null ? none : some(agreed),
-        }] as const), stringOrder),
-        requirements: new SortedMap(targets.map(([day, group, shift, positions, hours]) => [{ day: BigInt(day), group, shift }, { positions: BigInt(positions), hours: new SortedMap(Object.entries(hours), stringOrder) }] as const), compareFor(Roster.Types.Slot)),
+const HOUR = 3_600_000;
+const DAY = 86_400_000;
+/** Each team's cost centre, which every one of its seeded duties is booked to. */
+const centres: Readonly<Record<string, string>> = { inbound: "CC-IN", picking: "CC-PK", dispatch: "CC-DS" };
+/** Where a seeded duty's shift starts on its day of the week: the shift's own start, in UTC. */
+function shiftStartOn(weekStart: Date, day: number, shift: string): Date {
+    const clock = warehouseShifts.get(shift)!.start;
+    return new Date(weekStart.getTime() + day * DAY + Number(clock.hour) * HOUR + Number(clock.minute) * 60_000);
+}
+/**
+ * A seeded row's duty, the warehouse's own: who, its own times — its shift's,
+ * or a later start or a later finish where the mock has one — its shift and
+ * team, its role and task, and the warehouse's fields.
+ */
+function dutyOf(weekStart: Date, [id, day, group, shift, person, kind, position, activity, later, longer, agreed]: SeedRow): [string, ValueTypeOf<typeof WarehouseDuty>] {
+    const start = new Date(shiftStartOn(weekStart, day, shift).getTime() + later * HOUR);
+    const end = new Date(start.getTime() + (warehouseShifts.get(shift)!.hours + longer) * HOUR);
+    return [id, {
+        who: kind === "request" ? variant("agency", "northside") : variant("staff", person!), start, end, shift, team: group, role: position,
+        task: activity === null ? none : some(activity), unpaidBreak: 0, agreed: agreed === null ? none : some(agreed),
+        costCentre: centres[group]!, note: "",
+    }];
+}
+/** Both weeks' duties, by key: the week before's, and this week's. */
+export const warehouseDuties: SortedMap<string, ValueTypeOf<typeof WarehouseDuty>> = new SortedMap<string, ValueTypeOf<typeof WarehouseDuty>>([
+    ...previousRows.map((row) => dutyOf(warehousePreviousStart, row)), ...currentRows.map((row) => dutyOf(warehouseStart, row)),
+], stringOrder);
+/** The rota's weeks: the week before issued, this week open. */
+export const warehouseWeeks: SortedMap<Date, ValueTypeOf<typeof WarehouseWeek>> = new SortedMap<Date, ValueTypeOf<typeof WarehouseWeek>>([
+    [warehousePreviousStart, { state: variant("issued", { at: warehouseIssuedAt }), dismissed: new SortedSet([], stringOrder), approver: some("Ops") }],
+    [warehouseStart, { state: variant("open", null), dismissed: new SortedSet([], stringOrder), approver: none }],
+], compareFor(DateTimeType));
+/** A seeded target's row: its day, its team and shift, the heads it needs and the hours each activity needs, keyed by its week, slot and day. */
+function coverOf(weekStart: Date, [day, group, shift, heads, hours]: Target): [string, ValueTypeOf<typeof WarehouseCover>] {
+    const at = new Date(weekStart.getTime() + day * DAY);
+    return [`${at.toISOString().slice(0, 10)}-${group}-${shift}`, {
+        day: at, team: group, shift, heads: BigInt(heads), hours: new SortedMap(Object.entries(hours), stringOrder), basis: "forecast",
+    }];
+}
+/** The cover targets: the week before's, this week's, and the week after's — the forecast's, this week's again. */
+export const warehouseCover: SortedMap<string, ValueTypeOf<typeof WarehouseCover>> = new SortedMap<string, ValueTypeOf<typeof WarehouseCover>>([
+    ...previousTargets.map((target) => coverOf(warehousePreviousStart, target)),
+    ...currentTargets.map((target) => coverOf(warehouseStart, target)),
+    ...currentTargets.map((target) => coverOf(warehouseNextStart, target)),
+], stringOrder);
+/** The suggestions: two people off on Thursday, for the open night positions. */
+export const warehouseSuggestions: SortedMap<string, ValueTypeOf<typeof WarehouseSuggestion>> = new SortedMap<string, ValueTypeOf<typeof WarehouseSuggestion>>([
+    ["s317", { person: "nochre", day: new Date("2028-03-09T00:00:00Z"), team: "inbound", shift: "night", why: "Off Thursday · cover the open night position" }],
+    ["s318", { person: "bpumice", day: new Date("2028-03-09T00:00:00Z"), team: "picking", shift: "night", why: "Off Thursday · cover the open night position" }],
+], stringOrder);
+/**
+ * A seeded week as the Roster reads it from the duties and the targets: each
+ * duty by its key, in its slot, with its hours — its length — and its row; each
+ * target by its slot.
+ */
+function rosterWeekOf(weekStart: Date, rows: readonly SeedRow[], targets: readonly Target[], status: ValueTypeOf<typeof Roster.Types.Status>): ValueTypeOf<typeof WarehouseRosterWeek> {
+    return {
+        status,
+        assignments: new SortedMap(rows.map((seed) => {
+            const [key, duty] = dutyOf(weekStart, seed);
+            const [, day, group, shift, person, kind, position, activity, , longer] = seed;
+            return [key, {
+                slot: { day: BigInt(day), group, shift }, who: kind === "request" ? variant("request", "northside") : variant("person", person!), position,
+                activity: activity === null ? none : some(activity), start: duty.start, end: duty.end,
+                hours: warehouseShifts.get(shift)!.hours + longer, row: duty,
+            }] as const;
+        }), stringOrder),
+        requirements: new SortedMap(targets.map(([day, group, shift, positions, hours]) => [{ day: BigInt(day), group, shift },
+            { positions: BigInt(positions), hours: new SortedMap(Object.entries(hours), stringOrder) }] as const), compareFor(Roster.Types.Slot)),
         dismissed: new SortedSet([], stringOrder),
     };
 }
-export const warehouseWeek: ValueTypeOf<typeof Roster.Types.Week> = seededWeek(currentRows, currentTargets, false);
-export const warehousePrevious: ValueTypeOf<typeof Roster.Types.Week> = seededWeek(previousRows, previousTargets, true);
-export const warehouseWeeks: ValueTypeOf<typeof Roster.Types.Weeks> = new SortedMap([[new Date("2028-02-27T00:00:00Z"), warehousePrevious], [warehouseStart, warehouseWeek]], compareFor(DateTimeType));
-export const warehouseForecast: Map<Date, ValueTypeOf<typeof Roster.Types.Requirements>> = new SortedMap([[new Date("2028-03-12T00:00:00Z"), warehouseWeek.requirements]], compareFor(DateTimeType));
-export const warehouseProposals: ValueTypeOf<typeof Roster.Types.Proposal>[] = [
-    { key: "s317", week: warehouseStart, slot: { day: 4n, group: "inbound", shift: "night" }, person: "nochre", reason: "Off Thursday · cover the open night position" },
-    { key: "s318", week: warehouseStart, slot: { day: 4n, group: "picking", shift: "night" }, person: "bpumice", reason: "Off Thursday · cover the open night position" },
-];
+/** This week, as the Roster reads it: a draft. */
+export const warehouseWeek: ValueTypeOf<typeof WarehouseRosterWeek> = rosterWeekOf(warehouseStart, currentRows, currentTargets, variant("draft", null));
+/** The week before, as the Roster reads it: published. */
+export const warehousePrevious: ValueTypeOf<typeof WarehouseRosterWeek> = rosterWeekOf(warehousePreviousStart, previousRows, previousTargets,
+    variant("published", { at: some(warehouseIssuedAt) }));

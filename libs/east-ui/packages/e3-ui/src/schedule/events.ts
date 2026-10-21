@@ -158,6 +158,9 @@ export type ScheduleAtField<R extends StructType> = FieldsOf<R, DateTimeType>;
 /** A Float field of the row: an event's quantity. */
 export type ScheduleFloatField<R extends StructType> = FieldsOf<R, FloatType>;
 
+/** An Integer field of the row: a Roster target's positions. */
+export type ScheduleIntegerField<R extends StructType> = FieldsOf<R, IntegerType>;
+
 /** An `EventStateType` field of the row: the lifecycle an event wears on a Plan. */
 export type ScheduleStateField<R extends StructType> = FieldsOf<R, EventStateType>;
 
@@ -464,6 +467,13 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * templates list is a record of its own, naming its source of the slice.
      */
     readonly templatesList: "none" | "code" | "record";
+    /**
+     * The Roster's and the Allocation's roles it maps, by their options' names
+     * (`shift`, `position`, `arrival`, …): what a builder checks its own props
+     * against at build (#1368) — the Roster refuses `positions` beside a kind
+     * with no `position`.
+     */
+    readonly roles: readonly string[];
     /**
      * The kind on the wire, under its slot: the Calendar's, which takes no
      * notice of Plan's options.
@@ -1453,6 +1463,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         draw: draw as PlanDrawLiteral,
         templatesSource,
         templatesList: config.templates === undefined ? "none" : SCHEDULE_TEMPLATES in config.templates ? "record" : "code",
+        roles: [...rosterGiven, ...allocationGiven],
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
             return East.value(kindParts(slot, part, formSpecs).fields as never, ScheduleKindType);
         },

@@ -56,7 +56,7 @@ export { scheduleTemplates, type ScheduleTemplates, type ScheduleTemplatesConfig
 export {
     scheduleEvents,
     type ScheduleAtField, type ScheduleBacklog, type ScheduleCaseOf, type ScheduleDictFloatField, type ScheduleEventKind, type ScheduleEventsBase,
-    type ScheduleEventsConfig, type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
+    type ScheduleEventsConfig, type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleIntegerField, type ScheduleInstantField, type ScheduleInstantTemplate,
     type ScheduleOptionStringField, type ScheduleOverlapsLiteral, type ScheduleParts, type ScheduleQuantity, type ScheduleRecordHandle,
     type ScheduleResourceField, type ScheduleResourceOf, type ScheduleSetStringField, type ScheduleStateField, type ScheduleStatusCasesOf,
     type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField, type ScheduleTemplate, type ScheduleTimeStepField,

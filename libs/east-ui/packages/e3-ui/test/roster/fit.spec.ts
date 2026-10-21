@@ -4,50 +4,66 @@
  */
 /**
  * The Roster's fit (#1334, `Allocation Spec.md` §13): the ready-made rule
- * (`Roster.fit`), `Roster.answer`, and the warehouse's greedy fit, held to the
- * warehouse's own week. Each find is one `Roster.check` reports; every figure
- * and word is the functions' answer over the seeded staff — the mock's 69, and
- * the indexed example's 500.
+ * (`Roster.fit(R)`), `Roster.answer(R)`, and the warehouse's greedy fit, held to
+ * the warehouse's own week — its duties, as the Roster reads them
+ * (`Roster.Types.Week(WarehouseDuty)`). Each find is one `Roster.check(R)`
+ * reports; every figure and word is the functions' answer over the seeded
+ * staff — the mock's 69, and the indexed example's 500 — through the Roster's
+ * own adapters of the warehouse's rows.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DictType, East, FloatType, StringType, compareFor, decodeBeast2For, encodeBeast2For, isTypeEqual, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { Allocation, Roster, Schedule } from "@elaraai/e3-ui";
-import { rosterPersonHours } from "@elaraai/e3-ui/internal";
-import { WarehouseActivity, WarehouseConfig, WarehousePerson, warehouseActivities, warehouseConfig, warehousePeople, warehouseStart, warehouseWeek } from "./warehouse.js";
+import { Allocation, Roster } from "@elaraai/e3-ui";
+import { Schedule, rosterAgenciesOf, rosterPeopleOf, rosterPersonHours } from "@elaraai/e3-ui/internal";
+import {
+    WarehouseActivity, WarehouseAgency, WarehouseDuty, WarehousePerson, WarehousePosition, WarehouseRosterWeek, WarehouseShift, WarehouseTeam,
+    warehouseActivities, warehouseAgencies, warehousePeople, warehousePositions, warehouseShifts, warehouseStart, warehouseTeams, warehouseWeek,
+} from "./warehouse.js";
 import { indexedRosterStaff } from "./roster-records.examples.js";
 import { rosterContractFitBody, rosterStaffFitBody } from "./roster.examples.js";
 
-type Week = ValueTypeOf<typeof Roster.Types.Week>;
+const FitRequest = Roster.Types.FitRequest(WarehouseDuty);
+type Week = ValueTypeOf<typeof WarehouseRosterWeek>;
 type Context = ValueTypeOf<typeof Roster.Types.Context>;
-type Request = ValueTypeOf<typeof Roster.Types.FitRequest>;
+type Request = ValueTypeOf<typeof FitRequest>;
 type Result = ValueTypeOf<typeof Roster.Types.FitResult>;
 type Fit = ValueTypeOf<typeof Roster.Types.Fit>;
 type Find = Pick<Request, "need" | "slot">;
 
-// The context the Roster sends: the warehouse's staff and activities through the Roster's own adapters, as the examples bind them.
-const contextOf = East.compile(East.function([DictType(StringType, WarehousePerson), DictType(StringType, WarehouseActivity), WarehouseConfig], Roster.Types.Context,
-    ($, staff, activities, cfg) => {
-        const people = $.const(Roster.people(staff, { name: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
-            contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }));
+// The context the Roster sends: the warehouse's rows through the Roster's own adapters, as the examples bind them.
+const contextOf = East.compile(East.function(
+    [DictType(StringType, WarehousePerson), DictType(StringType, WarehouseActivity), DictType(StringType, WarehouseShift), DictType(StringType, WarehouseTeam),
+        DictType(StringType, WarehousePosition), DictType(StringType, WarehouseAgency)],
+    Roster.Types.Context, ($, staff, activities, shifts, teams, positions, agencies) => {
+        const people = $.const(rosterPeopleOf(Schedule.resources(staff, {
+            name: "People", icon: "user", label: p => p.name, group: p => p.team, position: p => p.position, skills: p => p.skills,
+            contract: p => p.contract, agency: p => p.agency, trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual,
+        })));
         return {
-            people: people.toDict((_$2, p) => p.key, (_$2, p) => p), groups: cfg.groups,
+            people: people.toDict((_$2, p) => p.key, (_$2, p) => p),
+            groups: Roster.groups(teams, { label: t => t.label, order: t => t.order }).rows,
             activities: Roster.activities(activities, { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order }),
-            shifts: cfg.shifts, positions: cfg.positions.toArray((_$2, p) => p), agencies: cfg.agencies, rules: cfg.rules, costs: some(cfg.costs),
+            shifts: Roster.shifts(shifts, { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order }).rows,
+            positions: Roster.positions(positions, { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order }).rows,
+            agencies: rosterAgenciesOf(Schedule.resources(agencies, { name: "Agencies", icon: "building", label: a => a.name })),
+            rules: { rest: 10, lead: true, trainer: true, skill: true },
         };
     }), []);
 const indexedStaff = indexedRosterStaff.default;
 if (indexedStaff === undefined) throw new Error("the indexed example seeds its 500 staff");
-const context = contextOf(warehousePeople, warehouseActivities, warehouseConfig);
-const indexed = contextOf(indexedStaff, warehouseActivities, warehouseConfig);
+const context = contextOf(warehousePeople, warehouseActivities, warehouseShifts, warehouseTeams, warehousePositions, warehouseAgencies);
+const indexed = contextOf(indexedStaff, warehouseActivities, warehouseShifts, warehouseTeams, warehousePositions, warehouseAgencies);
 // The warehouse's week as a fresh decoded value, so a test may change it.
-const fresh = (): Week => decodeBeast2For(Roster.Types.Week)(encodeBeast2For(Roster.Types.Week)(warehouseWeek));
+const fresh = (): Week => decodeBeast2For(WarehouseRosterWeek)(encodeBeast2For(WarehouseRosterWeek)(warehouseWeek));
+const noPay = (): ValueTypeOf<typeof Roster.Types.Pay> => new Map();
 
-const coverage = East.compile(Roster.coverage, []), check = East.compile(Roster.check, []), weekHours = East.compile(Roster.weekHours, []);
-const personHours = East.compile(rosterPersonHours, []);
-const builtIn = East.compile(East.function([Roster.Types.FitRequest], Roster.Types.FitResult, ($, req) => {
-    const answer = $.const(Roster.answer);
-    const rule = $.const(Roster.fit);
+const coverage = East.compile(Roster.coverage(WarehouseDuty), []), check = East.compile(Roster.check(WarehouseDuty), []);
+const weekHours = East.compile(Roster.weekHours(WarehouseDuty), []);
+const personHours = East.compile(rosterPersonHours(WarehouseDuty), []);
+const builtIn = East.compile(East.function([FitRequest], Roster.Types.FitResult, ($, req) => {
+    const answer = $.const(Roster.answer(WarehouseDuty));
+    const rule = $.const(Roster.fit(WarehouseDuty));
     return answer(req, rule);
 }), []);
 const greedy = East.compile(rosterStaffFitBody, []);
@@ -60,7 +76,7 @@ function findOf(title: string, day: bigint, week: Week = fresh(), ctx: Context =
     return { need: issue.fix.value.value, slot: issue.slot.value };
 }
 /** The question the Roster asks for a find, over the drafted week and its coverage. */
-const ask = (find: Find, week: Week = fresh(), ctx: Context = context): Request => ({ ...find, start: warehouseStart, week, context: ctx, coverage: coverage(week, ctx) });
+const ask = (find: Find, week: Week = fresh(), ctx: Context = context): Request => ({ ...find, start: warehouseStart, week, context: ctx, coverage: coverage(week, ctx, noPay()) });
 const byScore = compareFor(FloatType);
 /** An answer's fits, best first — ties in staff-key order, as the People tab lists them: key, score, reason. */
 const ranked = (result: Result) => [...result.people].flatMap(([key, fit]) => fit.type === "fits" ? [{ key, score: fit.value.score, why: fit.value.why }] : [])
@@ -81,10 +97,12 @@ test("R1 — Roster.fit: the need held, not rostered that day, rest kept — eac
     assert.deepEqual(refused(result), { "Not a lead": 57, Rostered: 11 });
     assert.deepEqual(result.people.get("wcopse"), refusal("Not a lead", "Associate · not a lead"));
     assert.deepEqual(result.people.get("aalder"), refusal("Rostered", "rostered on Inbound · Early"));
-    // A night on Dispatch the day before leaves no rest before the early shift: refused, its measure the rest.
+    // A night on Dispatch the day before, to 06:00 Thursday, leaves no rest before the early shift: refused, its measure the rest.
     const week = fresh();
+    const start = new Date("2028-03-08T22:00:00Z"), end = new Date("2028-03-09T06:00:00Z");
     week.assignments.set("x-night", { slot: { day: 3n, group: "dispatch", shift: "night" }, who: variant("person", "jquartz"), position: "deputy",
-        activity: none, offset: 0, overtime: 0, agreed: none });
+        activity: none, start, end, hours: 8, row: { who: variant("staff", "jquartz"), start, end, shift: "night", team: "dispatch", role: "deputy",
+            task: none, unpaidBreak: 0, agreed: none, costCentre: "CC-DS", note: "" } });
     assert.deepEqual(builtIn(ask(LEAD(), week)).people.get("jquartz"),
         variant("refused", { group: "Rest too short", reason: "0 h rest · minimum 10 h", measure: variant("amount", { lead: "rest", value: 0 }) }));
     // With no minimum rest, the night refuses nothing.

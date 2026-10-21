@@ -283,10 +283,13 @@ export { type DecisionJournalOptions } from './decision/journal.js';
 export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calendar/index.js";
 
 // Record-backed staffing roster.
-export { Roster, type RosterProps, type RosterNamespace, type RosterWeeksHandle } from "./roster/index.js";
-export type { RosterPeopleConfig } from "./roster/people.js";
-export type { RosterActivitiesConfig } from "./roster/activities.js";
-export type { RosterPatchOptions, RosterLibraryTabConfig, RosterLibraryTab } from "./roster/library.js";
+export { Roster, type RosterProps, type RosterNamespace } from "./roster/index.js";
+export type {
+    RosterActivitiesConfig, RosterGroups, RosterGroupsConfig, RosterPositions, RosterPositionsConfig, RosterProposals, RosterProposalsConfig,
+    RosterShifts, RosterShiftsConfig,
+} from "./roster/lists.js";
+export type { RosterTargets, RosterTargetsConfig } from "./roster/targets.js";
+export type { RosterLibraryTab } from "./roster/library.js";
 
 // The Allocation: a day's events booked into lane slots and allocated to
 // resources, over one plans record, with the app's fit on e3.

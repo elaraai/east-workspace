@@ -3,130 +3,56 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import {
-    ArrayType, BooleanType, East, Expr, FloatType, OptionType, StringType, StructType, none, some,
-    type DictType, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
-} from "@elaraai/east";
-import { tabSource } from "../utils/record-sources.js";
-
-/** A card's permitted assignment changes. An absent field leaves it untouched. */
-export const RosterPatchType = StructType({
-    position: OptionType(StringType), activity: OptionType(OptionType(StringType)),
-    offset: OptionType(FloatType), overtime: OptionType(FloatType), agreed: OptionType(OptionType(BooleanType)),
-});
-/** One resolved author card; its original key is retained as East text. */
-export const RosterCardType = StructType({
-    key: StringType, label: StringType, meta: OptionType(StringType), group: OptionType(StringType), patch: OptionType(RosterPatchType),
-});
 /**
- * An author-defined tab, resolved without UI or editing programs.
- * @property source - The slice's source whose shown keys filter its cards, each card's key that record's key; none, its cards whole (#1342)
+ * The Roster's library (#1368): its People and Activities tabs, and the app's
+ * own tabs over keyed rows — each card dropped on a duty sets the duty's
+ * fields that the card's `drop` names, a `Schedule.patch` over the duty kind's
+ * row type, as Plan's and the Calendar's tabs do (`schedule/library.ts`).
+ *
+ * @packageDocumentation
  */
-export const RosterAuthorTabType = StructType({ name: StringType, icon: OptionType(StringType), cards: ArrayType(RosterCardType), source: OptionType(StringType) });
 
-/** Fields a library card can set on a named assignment. */
-export interface RosterPatchOptions {
-    /** Position key. */
-    position?: SubtypeExprOrValue<StringType>;
-    /** Activity key, or none to clear it. */
-    activity?: SubtypeExprOrValue<OptionType<StringType>>;
-    /** Start offset in hours. */
-    offset?: SubtypeExprOrValue<FloatType>;
-    /** Additional hours. */
-    overtime?: SubtypeExprOrValue<FloatType>;
-    /** Explicit agreement, or none to clear it. */
-    agreed?: SubtypeExprOrValue<OptionType<BooleanType>>;
-}
-/**
- * Describes an author card's assignment changes, retaining every unlisted field.
- * @param fields - Position, activity or changed hours and agreement
- * @returns A typed patch for Roster.library.tab's drop accessor
- * @remarks Slot and person identity cannot be changed by a card patch.
- */
-export function rosterPatch(fields: RosterPatchOptions): ExprType<typeof RosterPatchType> {
-    for (const key of Object.keys(fields)) {
-        if (!["position", "activity", "offset", "overtime", "agreed"].includes(key)) throw new Error(`Roster.patch: ${key} cannot be changed by a library card`);
-    }
-    return East.value({
-        position: fields.position === undefined ? none : some(fields.position),
-        activity: fields.activity === undefined ? none : some(fields.activity),
-        offset: fields.offset === undefined ? none : some(fields.offset),
-        overtime: fields.overtime === undefined ? none : some(fields.overtime),
-        agreed: fields.agreed === undefined ? none : some(fields.agreed),
-    }, RosterPatchType);
-}
-/** Typed accessors for cards over an author's keyed data. */
-export interface RosterLibraryTabConfig<K extends EastType, R extends EastType> {
-    /** Tab label. */
-    name: string;
-    /** Font Awesome solid icon name. */
-    icon?: string;
-    /** Card label. */
-    label: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
-    /** Optional second line. */
-    meta?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** Group heading. */
-    group?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
-    /** Restricted assignment patch produced when the card is placed. */
-    drop?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof RosterPatchType>;
-    /**
-     * The slice's source whose shown keys filter this tab's cards (`people`), its rows that record's rows by key; omitted, the tab
-     * lists its rows whole. It counts what it shows, and says so when the rail leaves it none (#1342).
-     */
-    source?: string;
-}
+import type { DictType, EastType, SubtypeExprOrValue } from "@elaraai/east";
+import type { ScheduleLibraryTabConfig, ScheduleTabDeclaration } from "../schedule/library.js";
+
 /** One library declaration. Omit the library to omit its pane. */
-export type RosterLibraryTab = { readonly kind: "people" | "activities" } | {
-    readonly kind: "tab"; readonly rows: unknown; readonly config: RosterLibraryTabConfig<EastType, EastType>;
-};
-/** Declares the shared staff library, the slice's `people` source filtering it, and configured agency requests. */
+export type RosterLibraryTab = { readonly kind: "people" | "activities" } | ScheduleTabDeclaration;
+
+/**
+ * Declares the staff library, the slice's `people` source filtering it, with the agencies' requests.
+ *
+ * @returns The tab, for the Roster's `library`
+ */
 export function rosterPeopleTab(): RosterLibraryTab { return { kind: "people" }; }
-/** Declares the activities library: each group's skills and the duties, the slice's `activities` source filtering it. */
+
+/**
+ * Declares the activities library — each group's skills and the duties — the slice's `activities` source filtering it.
+ *
+ * @returns The tab, for the Roster's `library`
+ */
 export function rosterActivitiesTab(): RosterLibraryTab { return { kind: "activities" }; }
+
 /**
- * Declares an author tab over keyed data, including bound records.
- * @typeParam K - Original key type
- * @typeParam R - Card row type
- * @param rows - Keyed cards
- * @param config - Card accessors and optional assignment patch
- * @returns A tab declaration for Roster's library prop
+ * Declares an app's tab over keyed rows, usually a bound record's `read()`:
+ * a card per row, which, dropped on a duty, sets the fields its `drop` names.
+ *
+ * @typeParam K - The rows' key type
+ * @typeParam R - The rows' row type
+ * @typeParam P - The patch its `drop` returns: `Schedule.Types.Patch` of the duty kind's row type
+ * @param rows - The keyed rows
+ * @param config - The tab's name and icon, each card's label, second line and group, its `drop` — `Schedule.patch(DutyRowType, { … })` — and the slice's source that filters it
+ * @returns The tab, for the Roster's `library`
+ * @example
+ * ```tsx
+ * // Inside the Roster's Reactive body: a card per position, which sets the duty it is dropped on.
+ * const positionsTab = Roster.library.tab(roles.read(), {
+ *     name: "Positions", icon: "id-badge", label: (p) => p.label, meta: (p) => some(p.code),
+ *     drop: (_p, key) => Schedule.patch(Duty, { role: key }),
+ * });
+ * ```
  */
-export function rosterLibraryTab<K extends EastType, R extends EastType>(
-    rows: SubtypeExprOrValue<DictType<K, R>>, config: RosterLibraryTabConfig<K, R>,
+export function rosterLibraryTab<K extends EastType, R extends EastType, P extends EastType = EastType>(
+    rows: SubtypeExprOrValue<DictType<K, R>>, config: ScheduleLibraryTabConfig<K, R, P>,
 ): RosterLibraryTab {
-    return { kind: "tab", rows, config: config as unknown as RosterLibraryTabConfig<EastType, EastType> };
-}
-/**
- * Reifies each author's accessors once, then resolves the keyed cards.
- * @param tab - The tab's declaration
- * @param sources - The slice's sources, which its `source` must be one of
- * @returns The resolved tab
- * @throws {Error} When the rows are not keyed, or the tab names a source the slice lacks
- * @internal
- */
-export function buildRosterTab(tab: Extract<RosterLibraryTab, { kind: "tab" }>, sources: readonly string[]): ExprType<typeof RosterAuthorTabType> {
-    const source = tabSource("Roster", tab.config.name, tab.config.source, sources);
-    const rows = East.value(tab.rows as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-    const type = Expr.type(rows as Expr) as EastType;
-    if (type.type !== "Dict") throw new Error(`Roster: library tab "${tab.config.name}" requires keyed rows`);
-    const keyType = type.key as EastType;
-    const rowType = type.value as EastType;
-    const text = keyType.type === "String" ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key));
-    const card = East.function([rowType, keyType], RosterCardType, ($, row, key) => {
-        const keyText = $.const(text as ExprType<FunctionType<[EastType], StringType>>);
-        return {
-            key: keyText(key), label: tab.config.label(row, key),
-            meta: tab.config.meta?.(row, key) ?? none,
-            group: tab.config.group === undefined ? none : some(tab.config.group(row, key)),
-            patch: tab.config.drop === undefined ? none : some(tab.config.drop(row, key)),
-        };
-    });
-    return East.value({
-        name: tab.config.name, icon: tab.config.icon === undefined ? none : some(tab.config.icon),
-        cards: (rows as ExprType<DictType<EastType, EastType>>).toArray(($, row, key) => {
-            const describe = $.const(card); return describe(row, key);
-        }),
-        source,
-    }, RosterAuthorTabType);
+    return { kind: "tab", rows, config: config as unknown as ScheduleLibraryTabConfig<EastType, EastType> };
 }
