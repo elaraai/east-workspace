@@ -44,7 +44,7 @@ for (const theme of ["light", "dark"] as const) {
             expect(aligned.gap).toBe(6);
             expect(new Set(aligned.lineHeights).size).toBe(1);
             expect(aligned.overflow).toBeLessThanOrEqual(1);
-            const strip = inspector.getByRole('radiogroup', { name: 'Assignment shift', exact: true });
+            const strip = inspector.getByRole('radiogroup', { name: 'Duty shift', exact: true });
             const fit = await strip.evaluate(el => {
                 const outer = el.getBoundingClientRect(), css = getComputedStyle(el);
                 const cells = [...el.querySelectorAll('[role="radio"]')].map(child => child.getBoundingClientRect());

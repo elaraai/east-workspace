@@ -56,6 +56,9 @@ async function remount(page: Page, name: string) {
     await entry.scrollIntoViewIfNeeded(); await expect(entry.locator('[data-roster-frame]').first()).toBeVisible();
     return entry.locator('[data-roster-frame]').first();
 }
+/** Each source a summary names, and what it says of it, by source name: `people: 22 of 69 people`. */
+const namedSources = (summary: Locator) => summary.locator('[data-record-slice-source]').evaluateAll(els => els
+    .map(el => `${el.getAttribute('data-record-slice-source')}: ${(el.textContent ?? '').replace(/\s+/g, ' ').trim()}`).sort());
 /** The warehouse's Thursday issue that a Find a lead fixes (#1334). */
 const LEAD_ISSUE = 'No lead on Dispatch · Early';
 /** Presses a fix under an issue: the inspector opened from its rail when it is collapsed, on its Issues tab, and the fix under the issue's title. */
@@ -169,16 +172,17 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(dialog).toBeVisible();
         const b = (await dialog.boundingBox())!;
         expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x + b.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
-        const overtime = dialog.locator('[data-field="overtime"] input');
-        await overtime.fill('1.5'); await overtime.press('Tab');
+        // C. Clover's duty moves from Putaway to Unloading, another of Inbound's skills.
+        const activity = dialog.locator('[data-field="activity"] [data-scope="select"][data-part="trigger"]');
+        await activity.click();
+        await page.getByRole('option', { name: 'Unloading', exact: true }).click();
         await dialog.getByRole('button', { name: 'Update', exact: true }).click();
         await expect(card).toHaveAttribute('data-drafted', '');
-        await card.getByRole('button', { name: 'Mark agreed' }).click();
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(card).not.toHaveAttribute('data-drafted', '');
         const again = await remount(page, 'rosterMobile');
         await again.locator('[data-roster-card="s37"]').getByRole('button', { name: 'Edit', exact: true }).click();
-        await expect(page.getByRole('dialog').locator('[data-field="overtime"] input')).toHaveValue('1.5');
+        await expect(page.getByRole('dialog').locator('[data-field="activity"] [data-scope="select"][data-part="trigger"]')).toContainText('Unloading');
     });
     test(`mobile People and Shifts preserve drafts and selection (${theme}) @narrow`, async ({ page }) => {
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
@@ -296,7 +300,14 @@ for (const theme of ['light', 'dark'] as const) {
         const assignment = frame.locator('[data-roster-assignment="s37"]');
         await assignment.scrollIntoViewIfNeeded(); await drag(activity, assignment);
         await expect(assignment.getByTitle('Unloading', { exact: true })).toBeVisible();
-        await frame.getByRole('button', { name: 'Save', exact: true }).click();
+        // The warehouse's check holds Save until N. Ochre's new duty has a cost centre: given in the inspector, it saves.
+        const save = frame.getByRole('button', { name: 'Save', exact: true });
+        await expect(save).toBeDisabled();
+        await frame.locator('[data-roster-assignment][data-drafted]').filter({ hasText: 'N. Ochre' }).click();
+        const centre = frame.locator('[data-frame-slot="end"] [data-field="costCentre"]').getByRole('textbox');
+        await centre.fill('CC-IN'); await centre.press('Enter');
+        await expect(save).toBeEnabled();
+        await save.click();
         await expect(frame.locator('[data-roster-assignment][data-drafted]')).toHaveCount(0, { timeout: 15_000 });
         const again = await remount(page, 'rosterWarehouse');
         await expect(again.locator('[data-roster-assignment]').filter({ hasText: 'N. Ochre' })).toHaveCount(1);
@@ -371,14 +382,14 @@ for (const theme of ['light', 'dark'] as const) {
         const entry = await open(page, 'rosterCustomInspector', theme); await size(page, entry, 1920);
         const frame = entry.locator('[data-roster-frame]').first();
         await frame.locator('[data-roster-assignment="s37"]').click();
-        const overtime = frame.getByRole('spinbutton', { name: 'Custom overtime' });
-        await overtime.fill(''); await overtime.pressSequentially('1.5');
-        await expect(overtime).toHaveValue('1.5'); await overtime.press('Tab');
+        const unpaid = frame.getByRole('spinbutton', { name: 'Custom unpaid break' });
+        await unpaid.fill(''); await unpaid.pressSequentially('22.5');
+        await expect(unpaid).toHaveValue('22.5'); await unpaid.press('Tab');
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(frame.locator('[data-roster-assignment="s37"]')).not.toHaveAttribute('data-drafted', '');
         const again = await remount(page, 'rosterCustomInspector');
         await again.locator('[data-roster-assignment="s37"]').click();
-        await expect(again.getByRole('spinbutton', { name: 'Custom overtime' })).toHaveValue('1.5');
+        await expect(again.getByRole('spinbutton', { name: 'Custom unpaid break' })).toHaveValue('22.5');
     });
     test(`group folding is shared by Shifts, People and phone cards (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
@@ -434,7 +445,8 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(proposal.getByRole('button', { name: 'Accept proposal for N. Ochre' })).toHaveCount(1);
         await expect(proposal.getByRole('button', { name: 'Reject proposal for N. Ochre' })).toHaveCount(1);
         const footer = frame.locator('[data-roster-footer]');
-        await expect(footer.locator(':scope > [data-roster-legend]')).toHaveCount(6);
+        // Permanent, agency staff, requested, open and hours needed: overtime is the app's pay's to say.
+        await expect(footer.locator(':scope > [data-roster-legend]')).toHaveCount(5);
         await expect(footer.locator(':scope > :not([data-roster-legend])')).toHaveCount(0);
         const actual = await railStyle(footer); expect(actual.height).toBe(28);
         const groupBands = () => frame.locator('[data-roster-group]').evaluateAll(groups => groups.map(el => {
@@ -510,9 +522,10 @@ for (const theme of ['light', 'dark'] as const) {
         await size(page, entry, WIDE);
         const summary = frame.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]');
         const start = frame.locator('[data-frame-slot="start"]');
-        // Nothing narrowed: the summary names no source (#1358).
+        // Nothing of the staff or the activities narrowed: the summary names the duties alone, of which the week's window
+        // holds 368 of the record's 630 (#1358, D9).
         await expect(frame.locator(RAIL).first()).toBeVisible();
-        await expect(summary).toHaveCount(0);
+        await expect.poll(() => namedSources(summary)).toEqual(['duty: 368 of 630 duty events']);
         // Skill offers its search: typing finds the skill among the staff's, and choosing it narrows the people.
         await frame.locator(`${RAIL} [data-record-slice-source="people"][data-record-slice-field="skills"]`).first().click();
         const search = page.locator('[data-record-slice-editor="skills"]:visible').getByRole('combobox');
@@ -521,7 +534,7 @@ for (const theme of ['light', 'dark'] as const) {
         await page.keyboard.press('Escape');
         await settled(page);
         // 22 of the staff hold Unloading; the activities, which nothing narrows, go unnamed.
-        await expect(summary).toHaveText('22 of 69 people');
+        await expect.poll(() => namedSources(summary)).toEqual(['duty: 368 of 630 duty events', 'people: 22 of 69 people']);
         // The People tab counts what the rail leaves it. The 272px pane folds its third tab, Positions, into the row's menu, which keeps its count.
         await expect(start.locator('[role="tab"]')).toHaveText(['People 22 of 69', 'Activities 17']);
         await start.getByRole('button', { name: '1 more tab', exact: true }).click();
@@ -623,8 +636,9 @@ for (const theme of ['light', 'dark'] as const) {
         const editor = page.getByRole('dialog');
         expect(await editor.locator('[data-slice-section] [data-record-slice-source]').evaluateAll(els => els.map(el => `${el.getAttribute('data-record-slice-source')}.${el.getAttribute('data-record-slice-field')}`)))
             .toEqual(ROSTER_FIELDS);
-        // Both sources are headed with their counts, so no line under the fields repeats one (#1358).
-        await expect(editor.locator('[data-record-slices-summary]')).toHaveCount(0);
+        // The staff and the activities are headed with their counts; the duties, which no field heads, are counted on the
+        // line under the fields: the week's window (#1358, D9).
+        expect(await namedSources(editor.locator('[data-record-slices-summary]'))).toEqual(['duty: 368 of 630 duty events']);
         const heads = await editor.evaluate(root => [...root.querySelectorAll<HTMLElement>('[data-slice-group]')].map(head => ({
             key: head.dataset.sliceGroup, text: head.querySelector('[data-rail-group-label]')!.textContent, icon: head.querySelector('svg')?.getAttribute('data-icon') ?? null,
             count: head.querySelector('[data-rail-group-count]')?.textContent ?? null, heads: (head.nextElementSibling as HTMLElement | null)?.dataset.sliceSection })));
