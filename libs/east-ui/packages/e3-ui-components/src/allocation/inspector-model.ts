@@ -59,14 +59,14 @@ const counted = (n: number, noun: Noun) => `${n} ${n === 1 ? one(noun) : other(n
 const HOLD_UNIT = { minutes: "minute", hours: "hour", days: "day", weeks: "week", months: "month" } as const;
 const STEP_UNIT = { minutes: "min", hours: "h", days: "d", weeks: "wk", months: "mo" } as const;
 
-/** An event's code: its label, else its key. */
-export function codeOf(context: Context, event: string): string {
-    return context.events.get(event)?.label ?? event;
+/** An arrival's code: its label, else its key. */
+export function codeOf(context: Context, arrival: string): string {
+    return context.arrivals.get(arrival)?.label ?? arrival;
 }
 
-/** A bin's code: its event's, or `Reserved` for a reservation (A16). */
+/** A bin's code: its arrival's, or `Reserved` for a reservation (A16). */
 export function binCode(context: Context, bin: Bin): string {
-    return bin.event.type === "some" ? codeOf(context, bin.event.value) : "Reserved";
+    return bin.arrival.type === "some" ? codeOf(context, bin.arrival.value) : "Reserved";
 }
 
 /** A resource's name. */
@@ -81,7 +81,7 @@ function sameResources(a: Bin["parts"], b: Bin["parts"]): boolean {
 /**
  * A bin's status (A56): what its draft changed — `Added`, `Moved`,
  * `Allocated` (its resources), `Edited · unsaved` (anything else: its
- * quantity, its values), and with no resource `Not linked · unsaved`, as the
+ * quantity, its row's own fields), and with no resource `Not linked · unsaved`, as the
  * mock's — else `Not linked`, `Check` (a resource of it over max or held into
  * its next job) or `Committed`.
  *
@@ -164,7 +164,7 @@ export function bannersOf(args: { issues: readonly Issue[]; bin?: { id: string; 
                         text: `${row.label} holds ${words.quantity(fill)} against a ${words.quantity(row.max)} max · ${words.quantity(fill - row.max)} over.` });
                 } else if (kind === "under") {
                     out.push({ status: status(issue), title: "Under min",
-                        text: `${row.label} holds ${words.quantity(fill)} against a ${words.quantity(row.min)} minimum · ${words.quantity(row.min - fill)} short. Another ${one(nouns.event)} can top it up; Save still works.` });
+                        text: `${row.label} holds ${words.quantity(fill)} against a ${words.quantity(row.min)} minimum · ${words.quantity(row.min - fill)} short. Another ${one(nouns.arrival)} can top it up; Save still works.` });
                 } else if (hold !== undefined && line.next.type === "some") {
                     const next = line.next.value;
                     const days = (hold.to.getTime() - day.getTime()) / DAY_MS, into = (hold.to.getTime() - next.start.getTime()) / DAY_MS;
@@ -243,7 +243,7 @@ export interface Mate { id: string; time: string; lane: string; code: string; qu
  * @param plan - The day as drafted
  * @param held - The day as the record holds it
  * @param resource - The resource
- * @param context - Every event and resource
+ * @param context - Every arrival and resource
  * @param words - The words
  * @returns Its bins
  */
@@ -251,10 +251,10 @@ export function matesOf(plan: Day, held: Day | undefined, resource: string, cont
     return [...plan.bins].filter(([, bin]) => bin.parts.has(resource))
         .sort(([x, a], [y, b]) => compareDate(a.at, b.at) || compareString(x, y))
         .map(([id, bin]) => {
-            const meta = bin.event.type === "some" ? context.events.get(bin.event.value)?.meta : undefined;
+            const meta = bin.arrival.type === "some" ? context.arrivals.get(bin.arrival.value)?.meta : undefined;
             return {
                 id, time: timeText(bin.at), lane: words.lane(bin.lane), code: binCode(context, bin),
-                quantity: bin.event.type === "none" ? "reserved" : words.quantity(bin.parts.get(resource)!),
+                quantity: bin.arrival.type === "none" ? "reserved" : words.quantity(bin.parts.get(resource)!),
                 tip: `Bin ${held?.bins.has(id) === true ? id : "new"}${meta?.type === "some" ? ` · ${meta.value}` : ""}`,
             };
         });
@@ -294,10 +294,10 @@ export function stepHelp(slots: readonly Slot[], lane: string, every: TimeStep, 
         + `${formatDatePattern("HH", first)}–${formatDatePattern("HH", last)} on ${dayText(day)}`;
 }
 
-/** One booking a free slot or a reservation offers (A60, A61): an event to book, or a committed bin the drafts removed. */
+/** One booking a free slot or a reservation offers (A60, A61): an arrival to book, or a committed bin the drafts removed. */
 export interface BookOption {
     key: string;
-    grip: Extract<LibraryGrip, { kind: "event" | "removed" }>;
+    grip: Extract<LibraryGrip, { kind: "arrival" | "removed" }>;
     code: string;
     quantity: string;
     /** Its line: its meta, and `overdue` (in warn) or `removed from plan`. */
@@ -307,33 +307,33 @@ export interface BookOption {
 
 /**
  * What a free slot or a reservation can book (A60, A61), as the Library lists
- * them (A51): the events still to book, overdue first, then the committed bins
- * the drafts removed — of the events the narrowing shows (A99).
+ * them (A51): the arrivals still to book, overdue first, then the committed
+ * bins the drafts removed — of the arrivals the narrowing shows (A99).
  *
- * @param args - The day as drafted and as the record holds it, every event, the plan day, the events shown and the words
+ * @param args - The day as drafted and as the record holds it, every arrival, the plan day, the arrivals shown and the words
  * @returns The bookings, in order
  */
 export function bookOptions(args: { plan: Day; held: Day | undefined; context: Context; day: Date; shown: option<ReadonlySet<string>>; words: InspectorWords }): BookOption[] {
     const { plan, held, context, day, shown, words } = args;
     const shows = (key: string) => shown.type === "none" || shown.value.has(key);
     const booked = new Set<string>();
-    for (const [, bin] of plan.bins) if (bin.event.type === "some") booked.add(bin.event.value);
-    const removed = [...(held?.bins ?? [])].filter(([id, bin]) => bin.event.type === "some" && !plan.bins.has(id));
-    const removedEvents = new Set(removed.map(([, bin]) => bin.event.type === "some" ? bin.event.value : ""));
-    const overdue = (key: string) => { const due = context.events.get(key)?.due; return due?.type === "some" && compareDate(due.value, day) < 0; };
-    const toBook = [...context.events.keys()].filter(key => !booked.has(key) && !removedEvents.has(key) && shows(key));
+    for (const [, bin] of plan.bins) if (bin.arrival.type === "some") booked.add(bin.arrival.value);
+    const removed = [...(held?.bins ?? [])].filter(([id, bin]) => bin.arrival.type === "some" && !plan.bins.has(id));
+    const removedArrivals = new Set(removed.map(([, bin]) => bin.arrival.type === "some" ? bin.arrival.value : ""));
+    const overdue = (key: string) => { const due = context.arrivals.get(key)?.due; return due?.type === "some" && compareDate(due.value, day) < 0; };
+    const toBook = [...context.arrivals.keys()].filter(key => !booked.has(key) && !removedArrivals.has(key) && shows(key));
     const out: BookOption[] = [];
     for (const late of [true, false]) {
         for (const key of toBook.filter(k => overdue(k) === late)) {
-            const event = context.events.get(key)!;
-            out.push({ key: `event:${key}`, grip: { kind: "event", event: key }, code: event.label, quantity: words.quantity(event.quantity),
-                line: [event.meta.type === "some" ? event.meta.value : "", late ? "overdue" : ""].filter(p => p !== "").join(" · "), warn: late });
+            const arrival = context.arrivals.get(key)!;
+            out.push({ key: `arrival:${key}`, grip: { kind: "arrival", arrival: key }, code: arrival.label, quantity: words.quantity(arrival.quantity),
+                line: [arrival.meta.type === "some" ? arrival.meta.value : "", late ? "overdue" : ""].filter(p => p !== "").join(" · "), warn: late });
         }
     }
     for (const [id, bin] of removed) {
-        const key = bin.event.type === "some" ? bin.event.value : "";
+        const key = bin.arrival.type === "some" ? bin.arrival.value : "";
         if (!shows(key)) continue;
-        const meta = context.events.get(key)?.meta;
+        const meta = context.arrivals.get(key)?.meta;
         out.push({ key: `removed:${id}`, grip: { kind: "removed", bin: id }, code: codeOf(context, key), quantity: words.quantity(bin.quantity),
             line: [meta?.type === "some" ? meta.value : "", "removed from plan"].filter(p => p !== "").join(" · "), warn: false });
     }
@@ -411,7 +411,7 @@ export interface SummaryStat { label: string; value: string; sub: string; tone: 
 export function summaryStats(args: { plan: Day; held: Day | undefined; sameBin: (a: Bin, b: Bin) => boolean; loads: SortedMap<string, Load>; issues: readonly Issue[]; words: InspectorWords }): SummaryStat[] {
     const { plan, held, sameBin, loads, issues, words } = args;
     const bins = [...plan.bins.values()];
-    const booked = bins.filter(bin => bin.event.type === "some");
+    const booked = bins.filter(bin => bin.arrival.type === "some");
     const states = [...loads.values()].map(load => load.state.type);
     const count = (state: Load["state"]["type"]) => states.filter(s => s === state).length;
     const issueCount = countedIssues(issues).length;
@@ -449,7 +449,7 @@ export function narrowingNote(sources: readonly { shown: number; total: number; 
 export function summaryHints(nouns: Nouns): string[] {
     return [
         `Select a bin or ${a(nouns.resource)} to inspect it.`,
-        `Use the Library to book ${other(nouns.event)} and reserve ${other(nouns.resource)}.`,
+        `Use the Library to book ${other(nouns.arrival)} and reserve ${other(nouns.resource)}.`,
         "Every change is a draft until Save. Undo and Redo are in the toolbar.",
     ];
 }
@@ -509,14 +509,14 @@ export interface DropHead {
     title: string;
     meta: string;
     hint: string;
-    /** Whether it lists the fits: an event's, a removed bin's, a connector's or a link's drag, or a pick. */
+    /** Whether it lists the fits: an arrival's, a removed bin's, a connector's or a link's drag, or a pick. */
     fits: boolean;
 }
 
 /**
  * The drop list's head (A34, A86): for a resource card, `Resource · K-203 ·
  * Hall B · …`; for a card body, `Move bin · LD-2210 · 32 m³ · between lanes and
- * hours · its resource stays K-108`; for an event, a removed bin, a connector
+ * hours · its resource stays K-108`; for an arrival, a removed bin, a connector
  * or a link, `Gaps that fit · LD-2231 · 21 m³ · 8-day hold from Tue 11 · ` and
  * the answer's `basis` — and the layout's hint, a pick's naming the day's
  * first free slot.
@@ -530,7 +530,7 @@ export function dropHeadOf(args: {
     firstFree: { lane: string; at: Date } | undefined; words: InspectorWords;
 }): DropHead {
     const { subject, dragging, layout, day, plan, held, context, words } = args;
-    const { lane, event, resource } = words.nouns;
+    const { lane, arrival, resource } = words.nouns;
     const table = layout === "table";
     if (subject.kind === "resource") {
         const row = context.resources.get(subject.resource);
@@ -549,24 +549,24 @@ export function dropHeadOf(args: {
         const code = bin === undefined ? subject.bin : binCode(context, bin);
         const current = bin === undefined ? undefined : partsOf(bin)[0]?.key;
         return {
-            eyebrow: "Move bin", title: bin === undefined || bin.event.type === "none" ? code : `${code} · ${words.quantity(bin.quantity)}`, fits: false,
+            eyebrow: "Move bin", title: bin === undefined || bin.arrival.type === "none" ? code : `${code} · ${words.quantity(bin.quantity)}`, fits: false,
             meta: `${table ? "To a free row" : `Between ${other(lane)} and hours`} · its ${one(resource)} stays ${current === undefined ? "none" : nameOf(context, current)}`,
-            hint: table ? `Drop on a free row’s ${one(event)} cell. To change its ${one(resource)}, use the chevron on its row.`
+            hint: table ? `Drop on a free row’s ${one(arrival)} cell. To change its ${one(resource)}, use the chevron on its row.`
                 : `Drop on ${a(lane)} hour. To change its ${one(resource)}, drag its connector instead.`,
         };
     }
-    // An event, a removed bin, a connector or a link: its fits.
-    const bin = subject.kind === "event" ? undefined : subject.kind === "removed" ? held?.bins.get(subject.bin) : plan.bins.get(subject.bin);
-    const code = subject.kind === "event" ? codeOf(context, subject.event) : bin === undefined ? subject.bin : binCode(context, bin);
-    const reserved = bin !== undefined && bin.event.type === "none";
-    const hold: TimeStep | undefined = subject.kind === "event" ? context.events.get(subject.event)?.hold : reserved ? undefined : bin?.hold;
+    // An arrival, a removed bin, a connector or a link: its fits.
+    const bin = subject.kind === "arrival" ? undefined : subject.kind === "removed" ? held?.bins.get(subject.bin) : plan.bins.get(subject.bin);
+    const code = subject.kind === "arrival" ? codeOf(context, subject.arrival) : bin === undefined ? subject.bin : binCode(context, bin);
+    const reserved = bin !== undefined && bin.arrival.type === "none";
+    const hold: TimeStep | undefined = subject.kind === "arrival" ? context.arrivals.get(subject.arrival)?.hold : reserved ? undefined : bin?.hold;
     const from = hold === undefined ? "" : `${words.number(hold.value)}-${HOLD_UNIT[hold.type]} hold from ${dayText(day)}`;
     const landing = args.firstFree === undefined ? "no free slot" : `${words.lane(args.firstFree.lane)} ${timeText(args.firstFree.at)}`;
     const linking = subject.kind === "port" || subject.kind === "link";
     const hint = !dragging
-        ? `Book puts it in the day’s first free ${one(lane)} slot (${landing}). ${table ? `Or click a highlighted ${one(event)} cell, or drag it onto a free row.`
+        ? `Book puts it in the day’s first free ${one(lane)} slot (${landing}). ${table ? `Or click a highlighted ${one(arrival)} cell, or drag it onto a free row.`
             : `Or click a free ${one(lane)} hour or a ranked ${one(resource)}, or drag it there.`} Esc clears.`
-        : table ? `Drop on a free row’s ${one(event)} cell, or on ${a(resource)} here to book its next free bin.`
+        : table ? `Drop on a free row’s ${one(arrival)} cell, or on ${a(resource)} here to book its next free bin.`
             : linking ? `Drop on ${a(resource)} row, or on ${a(resource)} here.` : `Drop on ${a(resource)} row or ${a(lane)} hour, or on ${a(resource)} here.`;
     return {
         eyebrow: "Gaps that fit", title: reserved || args.quantity === undefined ? code : `${code} · ${words.quantity(args.quantity)}`, fits: true, hint,

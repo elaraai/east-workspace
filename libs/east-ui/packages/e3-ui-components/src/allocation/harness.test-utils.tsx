@@ -4,15 +4,17 @@
  */
 
 /**
- * The Allocation's examples on e3 itself (#1376): the kiln yard's module
- * deployed to e3-web (`allocation/allocation`), each test a workspace of its
- * own. The bays, the kilns and the loads are read a window at a time through
- * their indexes as e3 serves them, the windowed example's history a day at a
- * time, and every Save and Publish is a real commit through the plans' patch
- * door. Another session's edit of the plans or the kilns goes in through their
- * doors (`h.patch`), and a record whose reads fail is a fault at the harness's
- * fetch ({@link AllocationHarness.unavailable}). The yard's fits are the
- * examples' own `e3.function`s, called by name on e3
+ * The Allocation's examples on e3 itself (#1376, #1372): the kiln yard's
+ * module deployed to e3-web (`allocation/allocation`), each test a workspace
+ * of its own. The board reads the yard's own records — its bins a day at a
+ * time through the slice's bin source, an interval index over their times, or
+ * the smallest board's whole; its days whole, or by key; its bays, its kilns
+ * and its loads a window at a time through their indexes, as e3 serves them —
+ * and every Save and Publish is a real commit through each record's patch
+ * door, a request a record. Another session's edit of a record goes in
+ * through its own door (`h.patch`), and a record whose reads fail is a fault
+ * at the harness's fetch ({@link AllocationHarness.unavailable}). The yard's
+ * fits are the examples' own `e3.function`s, called by name on e3
  * (`shared/func/fit-calls.test-utils.ts`). What a test counts it reads from the
  * request log (`h.requests`).
  *
@@ -22,22 +24,27 @@
  * @packageDocumentation
  */
 import { vi } from "vitest";
-import type { ValueTypeOf } from "@elaraai/east";
-import { Allocation } from "@elaraai/e3-ui";
+import { East, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import type { E3Dataset } from "../e3-web.test-utils.js";
-import { e3Harness, type E3Harness } from "../e3-web-mount.test-utils.js";
+import { e3Harness, type E3Harness, type Example } from "../e3-web-mount.test-utils.js";
 import { fitCalls, type FitCalls } from "../shared/func/fit-calls.test-utils.js";
 import "./index.js";
 export { act, programOf, settle, slot, width, type Example, type MountOptions } from "../e3-web-mount.test-utils.js";
-/** The mock's plan day, Tue 11 May 2027; Tue 4 is published, Wed 12 holds split loads, Thu 13 has no entry. */
+// A new bin's key, as a test offers it (B15).
+export { offering } from "../shared/schedule/keys.test-utils.js";
+/** The mock's plan day, Tue 11 May 2027; Tue 4 is published, Wed 12 holds split loads, Thu 13 has no row. */
 export const TUE = new Date("2027-05-11T00:00:00Z");
 export const TUE_4 = new Date("2027-05-04T00:00:00Z");
 export const WED = new Date("2027-05-12T00:00:00Z");
 export const THU = new Date("2027-05-13T00:00:00Z");
 
-/** A question to the yard's fit, over the plans' bin values as the plans record's type holds them. */
-const FIT_REQUEST = Allocation.Types.FitRequest(ex.kilnPlans.type.value.fields.bins.value.fields.values);
+/** One of the yard's bins, as its record holds it: the board's roles and the yard's own fields. */
+export type KilnBin = ValueTypeOf<typeof ex.kilnBins.type.value>;
+/** A question to the yard's fit, over the yard's own bin rows. */
+const FIT_REQUEST = Allocation.Types.FitRequest(ex.kilnBins.type.value);
 /** A question to the yard's fit, and its answer, decoded. */
 export type FitRequest = ValueTypeOf<typeof FIT_REQUEST>;
 export type FitResult = ValueTypeOf<typeof Allocation.Types.FitResult>;
@@ -73,6 +80,87 @@ export function allocationHarness(): AllocationHarness {
                 { status: 500, type: "internal", message: `${dataset} is unavailable` });
         },
     });
+}
+
+/**
+ * The kiln yard's board as `allocationKilnYard` mounts it — its bins read a
+ * day at a time through the slice's bin source, its days, its bays, kilns and
+ * loads, the yard's fit, the library and the inspector — over the records a
+ * test needs: the yard's own, or its locked bins or its locked days, whose
+ * door refuses every change.
+ *
+ * @param options - Which of its records is locked, if either
+ * @returns The example
+ */
+export function kilnYard(options: { readonly locked?: "bins" | "days" } = {}): Example {
+    const lockedBins = options.locked === "bins", lockedDays = options.locked === "days";
+    return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        // The bins a test needs, the yard's own or its locked ones, each read a day at a time through its interval index.
+        const bins = $.let(lockedBins ? Record.bind(ex.kilnLockedBins, [ex.kilnLockedBinsPatch]) : Record.bind(ex.kilnBins, [ex.kilnBinsPatch]));
+        const entries = $.let(lockedBins ? Data.bindPaged(ex.kilnLockedBins) : Data.bindPaged(ex.kilnBins));
+        const days = $.let(lockedDays ? Record.bind(ex.yardLockedDays, [ex.yardLockedDaysPatch]) : Record.bind(ex.yardDays, [ex.yardDaysPatch]));
+        const yard = $.let(Data.bind(ex.kilns));
+        const loads = $.let(Data.bind(ex.arrivals));
+        const bays = $.let(Data.bind(ex.yardBays));
+        // The day's bins through the slice's bin source: their interval index, its range the board's own navigation.
+        const slice = $.let(lockedBins
+            ? Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnLockedBins, { indexes: [ex.kilnLockedBinsByTime] }), range: "at" } })
+            : Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnBins, { indexes: [ex.kilnBinsByTime] }), range: "at" } }));
+        const fit = $.let(Func.bind(ex.yardFit));
+        return Allocation({
+            id: "kilnYard", title: "Kiln loading", fit, slice: { slice }, inspector: true,
+            library: [Allocation.library.arrivals(), Allocation.library.resources()], view: { layout: "timeline", date: TUE },
+            events: { bin: Schedule.events(bins, {
+                name: "Bin", icon: "box", entries,
+                at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+            }) },
+            resources: {
+                bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group,
+                    min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges }),
+            },
+            arrivals: Allocation.arrivals(loads.read(), {
+                label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
+                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
+            }),
+            periods: Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } }),
+        });
+    }))) };
+}
+
+/**
+ * The smallest board over the yard's own bins, as the drag and Timeline tests
+ * mount it: the bins read whole, each one's spec its kind; the bays, the
+ * kilns and the loads, which book with their values and no kind of their own;
+ * the yard's fit; no library, no inspector and no days.
+ *
+ * @returns The example
+ */
+export function smallestYard(): Example {
+    return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const bins = $.let(Record.bind(ex.kilnBins, [ex.kilnBinsPatch]));
+        const yard = $.let(Data.bind(ex.kilns));
+        const loads = $.let(Data.bind(ex.arrivals));
+        const bays = $.let(Data.bind(ex.yardBays));
+        const fit = $.let(Func.bind(ex.yardFit));
+        return Allocation({
+            id: "smallestYard", fit, view: { date: TUE },
+            events: { bin: Schedule.events(bins, {
+                name: "Bin", icon: "box",
+                at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+            }) },
+            resources: {
+                bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges }),
+            },
+            arrivals: Allocation.arrivals(loads.read(), {
+                label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
+                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
+            }),
+        });
+    }))) };
 }
 
 /**

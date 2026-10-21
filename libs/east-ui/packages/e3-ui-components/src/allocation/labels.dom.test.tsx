@@ -4,7 +4,7 @@
  * @vitest-environment jsdom
  *
  * The board's nouns (#1338) over the kiln yard in its own words —
- * `labels={{ lane: "Bay", event: { one: "Delivery", other: "Deliveries" },
+ * `labels={{ lane: "Bay", arrival: { one: "Delivery", other: "Deliveries" },
  * resource: "Kiln", quantity: "Vol" }}` — in every place the board writes
  * one: the Table's heads, its placeholders, chips and Chooser, the Timeline's
  * heads and tooltips, the drag captions, the banners, the narrowing's summary
@@ -39,9 +39,9 @@ describe("the board's nouns (#1338)", () => {
         expect([...c.querySelector("[data-allocation-table-head]")!.children].map(e => e.textContent))
             .toEqual(["Time", "Bay", "Delivery", "Vol", "Spec", "Kiln", "Load", "Status"]);
         const free = row(c, FREE);
-        expect(free.querySelector("[data-allocation-placeholder=event] [data-say=idle]")!.textContent).toBe("no delivery");
+        expect(free.querySelector("[data-allocation-placeholder=arrival] [data-say=idle]")!.textContent).toBe("no delivery");
         expect(free.querySelector("[data-allocation-placeholder=resource] [data-say=idle]")!.textContent).toBe("no kiln");
-        expect(free.querySelector<HTMLElement>("[data-allocation-placeholder=event]")!.title).toBe("Choose a delivery, or drag one here from Deliveries");
+        expect(free.querySelector<HTMLElement>("[data-allocation-placeholder=arrival]")!.title).toBe("Choose a delivery, or drag one here from Deliveries");
         expect(free.querySelector<HTMLElement>("[data-allocation-placeholder=resource]")!.title).toBe("Choose a kiln, or drag one here from Kilns");
         const bin = row(c, "bin:3101");
         expect(within(bin).getByRole("button", { name: "Replace LD-2201 with another delivery" })).toBeTruthy();
@@ -53,15 +53,16 @@ describe("the board's nouns (#1338)", () => {
         expect(chooser.querySelector("input")!.getAttribute("placeholder")).toBe("Find a kiln");
         expect(within(document.body).getByText("Kiln · B-3 01:55")).toBeTruthy();
         expect(slot(c, "footer").querySelector("[data-allocation-legend=bin]")!.textContent).toBe("Delivery or kiln");
-        // The narrowing's summary, in the yard's nouns: each source a narrowing hides rows of (#1358).
-        for (const [source, field, value] of [["lanes", "area", "North"], ["resources", "group", "Hall A"]] as const) {
+        // The narrowing's summary, in the yard's nouns: each source a narrowing hides rows of (#1358) — the day's bins, then the bays
+        // and the kilns.
+        for (const [source, field, value] of [["bays", "area", "North"], ["kilns", "group", "Hall A"]] as const) {
             const at = `ex.allocationLabels.${source}`;
             const state = decodeBeast2For(RecordSliceStateType)(store.read(at)!);
             await act(async () => { store.write(at, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none,
                 where: new Map([[field, variant("values", [printFor(StringType)(value)])]]) })); });
             await settle();
         }
-        await waitFor(() => expect(slot(c, "toolbar").querySelector("[data-record-slices-summary]")?.textContent).toBe("2 of 3 bays·10 of 33 kilns"));
+        await waitFor(() => expect(slot(c, "toolbar").querySelector("[data-record-slices-summary]")?.textContent).toBe("26 of 33 bin events·2 of 3 bays·10 of 33 kilns"));
     });
 
     test("the Timeline's heads and tooltips, and a refused drag's caption", async () => {
@@ -92,7 +93,7 @@ describe("the board's nouns (#1338)", () => {
         expect(slot(c, "banners").textContent).toContain("Book a delivery or reserve a slot to start this day's plan.");
         await key(c, "["); await key(c, "[");
         h.unavailable(ex.yardBays);
-        const key_ = "ex.allocationLabels.lanes";
+        const key_ = "ex.allocationLabels.bays";
         const state = decodeBeast2For(RecordSliceStateType)(store.read(key_)!);
         await act(async () => { store.write(key_, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none,
             where: new Map([["area", variant("values", [printFor(StringType)("North")])]]) })); });

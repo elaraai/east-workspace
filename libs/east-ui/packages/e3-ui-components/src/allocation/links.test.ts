@@ -14,9 +14,9 @@ import type { Bin, Day } from "./model.js";
 
 const byString = compareFor(StringType);
 const at = (h: number, m: number) => new Date(Date.UTC(2027, 4, 11, h, m));
-const bin = (lane: string, when: Date, event: string | undefined, quantity: number, parts: [string, number][]): Bin => ({
-    lane, at: when, event: event === undefined ? none : some(event), quantity, kind: none, hold: variant("days", 8),
-    parts: new SortedMap(parts, byString), values: null,
+const bin = (lane: string, when: Date, arrival: string | undefined, quantity: number, parts: [string, number][]): Bin => ({
+    lane, at: when, arrival: arrival === undefined ? none : some(arrival), quantity, kind: none, hold: variant("days", 8),
+    parts: new SortedMap(parts, byString), row: null,
 }) as unknown as Bin;
 const day = (bins: [string, Bin][]): Day => ({ status: variant("draft", null), bins: new SortedMap(bins, byString) }) as unknown as Day;
 

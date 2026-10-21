@@ -15,9 +15,10 @@ import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, no
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, settle, slot, stubLinkGeometry, TUE, TUE_4 } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, stubLinkGeometry, TUE_4 } from "./harness.test-utils.js";
 
 const h = allocationHarness();
+const byString = compareFor(StringType);
 const card = (c: HTMLElement, id: string) => c.querySelector<HTMLElement>(`[data-allocation-card="${id}"]`);
 const row = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-allocation-resource="${key}"]`);
 const cssVar = (el: Element | null, name: string) => (el as HTMLElement | null)?.style.getPropertyValue(name);
@@ -55,7 +56,7 @@ describe("the lane grid", () => {
         ]);
     });
 
-    test("A16 — a card's lines: its code and quantity, `→ K-209`; its tooltip names its event, its slot and its resource", async () => {
+    test("A16 — a card's lines: its code and quantity, `→ K-209`; its tooltip names its arrival, its slot and its resource", async () => {
         const c = await open();
         const ld2201 = card(c, "3101")!;
         expect(ld2201.querySelector("[data-allocation-code]")!.textContent).toBe("LD-2201");
@@ -80,31 +81,27 @@ describe("the lane grid", () => {
 
     test("A16 — a card under its resource's minimum carries ↓, its tooltip the load it leaves", async () => {
         const c = await open(ex.allocationMinimal);
-        const plans = await h.read(ex.kilnPlans);
-        const day = plans.get(TUE)!;
-        day.bins.get("3113")!.quantity = 10;
-        day.bins.get("3113")!.parts.set("K-108", 10);
-        await h.patch(ex.kilnPlans, plans);
+        const bins = await h.read(ex.minimalBins);
+        bins.set("3113", { ...bins.get("3113")!, m3: 10, kilns: new SortedMap([["K-108", 10]], byString) });
+        await h.patch(ex.minimalBins, bins);
         const under = card(c, "3113")!.querySelector<HTMLElement>("[data-mark=under]")!;
         expect(under.title).toBe("K-108 is under its minimum: 10 m³ · min 16 · 6 short");
     });
 
     test("A16 — a reservation: dashed, `Reserved`, no quantity, and its own tooltip; an unlinked bin reads `not linked`", async () => {
         const c = await open(ex.allocationMinimal);
-        const plans = await h.read(ex.kilnPlans);
-        const day = plans.get(TUE)!;
-        day.bins.set("R1", { lane: "B-1", at: new Date(Date.UTC(2027, 4, 11, 0, 15)), event: none, quantity: 0, kind: none, hold: variant("days", 0),
-            parts: new SortedMap([["K-601", 0]], compareFor(StringType)), values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
-        day.bins.get("3101")!.parts.clear();
-        await h.patch(ex.kilnPlans, plans);
+        const bins = await h.read(ex.minimalBins);
+        bins.set("R1", { bay: "B-1", at: new Date(Date.UTC(2027, 4, 11, 0, 15)), load: none, m3: 0, kilns: new SortedMap([["K-601", 0]], byString), dryFor: variant("days", 0) });
+        bins.set("3101", { ...bins.get("3101")!, kilns: new SortedMap([], byString) });
+        await h.patch(ex.minimalBins, bins);
         const reserved = card(c, "R1")!;
         expect(reserved.hasAttribute("data-reserved")).toBe(true);
         expect(reserved.querySelector("[data-allocation-code]")!.textContent).toBe("Reserved");
         expect(reserved.textContent).not.toContain("m³");
-        expect(reserved.title).toBe("Reserved · B-1 00:15 on K-601 · no event yet · drag to another lane hour to move it");
+        expect(reserved.title).toBe("Reserved · B-1 00:15 on K-601 · no arrival yet · drag to another lane hour to move it");
         const unlinked = card(c, "3101")!;
         expect(unlinked.querySelector("[data-unlinked]")!.textContent).toBe("not linked");
-        // The smallest board's events carry no meta.
+        // The smallest board's arrivals carry no meta.
         expect(unlinked.title).toBe("LD-2201 · 35 m³ · B-3 01:55 · not linked · drag to another lane hour to move it");
     });
 
@@ -121,9 +118,9 @@ describe("the lane grid", () => {
         expect(connector("3101").getAttribute("aria-label")).toBe("Allocated to K-209 · drag the connector onto a resource to move it · click to choose another");
         await press(connector("3101"));
         expect(card(c, "3101")!.getAttribute("aria-pressed")).toBe("true");
-        const plans = await h.read(ex.kilnPlans);
-        plans.get(TUE)!.bins.get("3102")!.parts.clear();
-        await h.patch(ex.kilnPlans, plans);
+        const bins = await h.read(ex.kilnBins);
+        bins.set("3102", { ...bins.get("3102")!, kilns: new SortedMap([], byString) });
+        await h.patch(ex.kilnBins, bins);
         expect(connector("3102").getAttribute("aria-label")).toBe("Drag the connector onto a resource to allocate LD-2202 · click to choose one");
         expect(card(c, "3102")!.querySelector("[data-allocation-connector] [data-state]")!.getAttribute("data-state")).toBe("unlinked");
         await key(c, "["); for (let i = 0; i < 6; i++) await key(c, "[");
@@ -153,7 +150,7 @@ describe("the resource rows", () => {
         await press(card(c, "3101")!);
         const chip = () => toolbar(c).getByTitle("The focus: its links are drawn · Esc returns to all").textContent;
         expect(chip()).toBe("K-2091 bin · 35 m³");
-        const key = "ex.allocationKilnYard.resources";
+        const key = "ex.allocationKilnYard.kilns";
         const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
         await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, where: new Map([["group", variant("values", [printFor(StringType)("Hall A")])]]), preset: none })); });
         await waitFor(() => expect(order()).toEqual(["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"]));
@@ -235,11 +232,12 @@ describe("selection and the focus", () => {
 
 describe("the day's sessions, through the Timeline (#1325)", () => {
     test("A5 — each day keeps its own drafts and history while the viewer moves between days", async () => {
-        const c = await open(ex.allocationMinimal);
+        // The kiln yard's bins: Wed 12 holds bins of its own, as the smallest board's record — the plan day's alone — does not.
+        const c = await open(ex.allocationKilnYard);
         await press(card(c, "3101")!); await key(c, "Delete");
         expect(card(c, "3101")).toBeNull();
         await key(c, "]");
-        expect(c.querySelector("[data-allocation-card]")).not.toBeNull();
+        expect(card(c, "3201")).not.toBeNull();
         await key(c, "[");
         expect(card(c, "3101")).toBeNull();
         expect(toolbar(c).getByRole("button", { name: editingMessages.undo() })).toHaveProperty("disabled", false);
@@ -290,9 +288,9 @@ describe("the day's sessions, through the Timeline (#1325)", () => {
         await press(card(c, "3101")!); await key(c, "Delete");
         await press(card(c, "3102")!); await key(c, "Delete");
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const saved = (await h.read(ex.kilnPlans)).get(TUE)!;
-        expect(saved.bins.size).toBe(24);
-        expect([saved.bins.has("3101"), saved.bins.has("3102")]).toEqual([false, false]);
+        const saved = await h.read(ex.minimalBins);
+        expect(saved.size).toBe(24);
+        expect([saved.has("3101"), saved.has("3102")]).toEqual([false, false]);
     });
 });
 
@@ -368,10 +366,9 @@ describe("the focus's links (#1327)", () => {
     test("A68 — a reservation's link has no caption: selected by its line, Delete unlinks it", async () => {
         stubLinkGeometry();
         const c = await open(ex.allocationMinimal);
-        const plans = await h.read(ex.kilnPlans);
-        plans.get(TUE)!.bins.set("R1", { lane: "B-1", at: new Date(Date.UTC(2027, 4, 11, 0, 15)), event: none, quantity: 0, kind: none, hold: variant("days", 0),
-            parts: new SortedMap([["K-202", 0]], compareFor(StringType)), values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
-        await h.patch(ex.kilnPlans, plans);
+        const bins = await h.read(ex.minimalBins);
+        bins.set("R1", { bay: "B-1", at: new Date(Date.UTC(2027, 4, 11, 0, 15)), load: none, m3: 0, kilns: new SortedMap([["K-202", 0]], byString), dryFor: variant("days", 0) });
+        await h.patch(ex.minimalBins, bins);
         await press(row(c, "K-202")!);
         expect(links(c)).toHaveLength(3);
         expect(captionOf(c, "R1", "K-202")).toBeNull();

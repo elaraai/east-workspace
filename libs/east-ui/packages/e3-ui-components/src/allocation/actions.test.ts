@@ -13,9 +13,9 @@ import { splitOf } from "./actions.js";
 import type { Bin } from "./model.js";
 
 const byString = compareFor(StringType);
-const bin = (event: string | undefined, quantity: number, parts: [string, number][]): Bin => ({
-    lane: "B-1", at: new Date(Date.UTC(2027, 4, 11, 6, 15)), event: event === undefined ? none : some(event), quantity, kind: none, hold: variant("days", 8),
-    parts: new SortedMap(parts, byString), values: null,
+const bin = (arrival: string | undefined, quantity: number, parts: [string, number][]): Bin => ({
+    lane: "B-1", at: new Date(Date.UTC(2027, 4, 11, 6, 15)), arrival: arrival === undefined ? none : some(arrival), quantity, kind: none, hold: variant("days", 8),
+    parts: new SortedMap(parts, byString), row: null,
 }) as unknown as Bin;
 
 describe("what Split… takes (A71, #1362)", () => {

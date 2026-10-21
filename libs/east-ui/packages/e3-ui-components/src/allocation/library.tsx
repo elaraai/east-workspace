@@ -4,10 +4,10 @@
  */
 
 /**
- * The Library (`Allocation Spec.md` §8, A50–A54, A83, A87, #1330): the start
- * pane's two shared Library tabs, Events and Resources, each with its count and
- * its search. Events are grouped Overdue · Ready around now · Removed from plan
- * · Allocated; Resources by the day's states, Free · Loading · Busy today, the
+ * The Library (`Allocation Spec.md` §8, A50–A54, A83, A87, #1330, #1372): the
+ * start pane's two shared Library tabs, Arrivals and Resources, each with its
+ * count and its search. Arrivals are grouped Overdue · Ready around now ·
+ * Removed from plan · Allocated; Resources by the day's states, Free · Loading · Busy today, the
  * shared Library's groups. Each tab follows the rail (A98, A99, #1339): its
  * source's narrowing shows its cards as it shows the board's rows, its count
  * `10 of 33`; every filter is the rail's, and a tab has none of its own. Each card is the shared compact card with the
@@ -35,7 +35,7 @@ import { SliceFieldChip, formatDatePattern, narrowedCount } from "@elaraai/east-
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { sourceTab, type SourceShown } from "../shared/schedule/source-tab.js";
 import type { AllocationCommands } from "./actions.js";
-import { eventCardKey, libraryGripOf, type AllocationDrag, type LibraryGrip, type Target, type Verdict } from "./drag.js";
+import { arrivalCardKey, libraryGripOf, type AllocationDrag, type LibraryGrip, type Target, type Verdict } from "./drag.js";
 import {
     allocationWords, compareDate, compareFloat, compareString, partsOf, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitResult,
     type Load, type ResourceLine, type Selection, type TimeStep,
@@ -45,11 +45,11 @@ import { a, one, other, type Nouns } from "./nouns.js";
 /** A day, in milliseconds. */
 const DAY_MS = 86_400_000;
 
-/** What the viewer picked in the Library (A9, A10): a card to book or reserve, or an event whose bins it highlights. */
-export type Pick = LibraryGrip | { kind: "bins"; event: string };
+/** What the viewer picked in the Library (A9, A10): a card to book or reserve, or an arrival whose bins it highlights. */
+export type Pick = LibraryGrip | { kind: "bins"; arrival: string };
 
-/** The Events groups, in order (A51). */
-export const EVENT_GROUPS = ["Overdue", "Ready around now", "Removed from plan", "Allocated"] as const;
+/** The Arrivals groups, in order (A51). */
+export const ARRIVAL_GROUPS = ["Overdue", "Ready around now", "Removed from plan", "Allocated"] as const;
 /** The Resources groups: the day's states, in order (A52). */
 export const RESOURCE_GROUPS = { free: "Free today", loading: "Loading today", busy: "Busy today" } as const;
 
@@ -66,15 +66,15 @@ export function holdText(step: TimeStep): string {
     return allocationWords().quantity(step.value, UNIT[step.type]);
 }
 
-/** One Events card (A51): what it shows, and what a click or a drag does with it. */
-export interface EventCard {
-    /** Its key in the Events list: `event:LD-2231`, or `removed:3113`. */
+/** One Arrivals card (A51): what it shows, and what a click or a drag does with it. */
+export interface ArrivalCard {
+    /** Its key in the Arrivals list: `arrival:LD-2231`, or `removed:3113`. */
     key: string;
-    group: (typeof EVENT_GROUPS)[number];
-    /** The event's key. */
-    event: string;
-    /** A card that drags: an event to book, or a removed bin to book again. */
-    grip: Extract<LibraryGrip, { kind: "event" | "removed" }> | undefined;
+    group: (typeof ARRIVAL_GROUPS)[number];
+    /** The arrival's key. */
+    arrival: string;
+    /** A card that drags: an arrival to book, or a removed bin to book again. */
+    grip: Extract<LibraryGrip, { kind: "arrival" | "removed" }> | undefined;
     /** An Allocated card's bins, in time order. */
     bins: string[];
     /** An Allocated card whose every bin is a draft: its × returns it (A51). */
@@ -111,74 +111,74 @@ function whereOf(context: Context, words: LibraryWords, bin: Bin): string {
 }
 
 /** A card's second line: its meta, then its hold. */
-const subOf = (meta: AllocationValue["events"][number]["meta"] | undefined, hold: TimeStep) =>
+const subOf = (meta: AllocationValue["arrivals"][number]["meta"] | undefined, hold: TimeStep) =>
     [meta?.type === "some" ? meta.value : "", holdText(hold)].filter(part => part !== "").join(" · ");
 
 /**
- * The Events cards (A51), in their groups' order: the events still to book —
- * Overdue (due before the plan day), then Ready around now — each with its
- * ready line; the day's committed bins the drafts removed (Removed from plan,
- * `was B-1 06:15 on K-203`); and the events the day books (Allocated, `in B-1
- * 06:15 on K-203` or `2 bins · …`), the draft bookings first, then by their
- * first bin's time.
+ * The Arrivals cards (A51), in their groups' order: the arrivals still to
+ * book — Overdue (due before the plan day), then Ready around now — each with
+ * its ready line; the day's committed bins the drafts removed (Removed from
+ * plan, `was B-1 06:15 on K-203`); and the arrivals the day books (Allocated,
+ * `in B-1 06:15 on K-203` or `2 bins · …`), the draft bookings first, then by
+ * their first bin's time.
  *
  * @param args - The day as drafted and as the record holds it, and the words
  * @returns The cards, in order
  */
-export function eventCards(args: { context: Context; day: Date; plan: Day; held: Day | undefined; words: LibraryWords }): EventCard[] {
+export function arrivalCards(args: { context: Context; day: Date; plan: Day; held: Day | undefined; words: LibraryWords }): ArrivalCard[] {
     const { context, day, plan, held, words } = args;
     const { lane, resource } = words.nouns;
     const onto = words.layout === "table" ? "a free row" : `${a(lane)} hour or ${a(resource)}`;
     const booked = new Map<string, string[]>();
     for (const [id, bin] of plan.bins) {
-        if (bin.event.type !== "some") continue;
-        booked.set(bin.event.value, [...(booked.get(bin.event.value) ?? []), id]);
+        if (bin.arrival.type !== "some") continue;
+        booked.set(bin.arrival.value, [...(booked.get(bin.arrival.value) ?? []), id]);
     }
-    // The day's committed bins with an event that the drafts removed.
-    const removed = [...(held?.bins ?? [])].filter(([id, bin]) => bin.event.type === "some" && !plan.bins.has(id));
-    const removedEvents = new Set(removed.map(([, bin]) => bin.event.type === "some" ? bin.event.value : ""));
-    const overdue = (key: string) => { const due = context.events.get(key)?.due; return due?.type === "some" && compareDate(due.value, day) < 0; };
-    const readyOf = (key: string): EventCard["ready"] => {
-        const event = context.events.get(key)!;
-        const due = event.due.type === "some" ? event.due.value : undefined;
+    // The day's committed bins with an arrival that the drafts removed.
+    const removed = [...(held?.bins ?? [])].filter(([id, bin]) => bin.arrival.type === "some" && !plan.bins.has(id));
+    const removedArrivals = new Set(removed.map(([, bin]) => bin.arrival.type === "some" ? bin.arrival.value : ""));
+    const overdue = (key: string) => { const due = context.arrivals.get(key)?.due; return due?.type === "some" && compareDate(due.value, day) < 0; };
+    const readyOf = (key: string): ArrivalCard["ready"] => {
+        const arrival = context.arrivals.get(key)!;
+        const due = arrival.due.type === "some" ? arrival.due.value : undefined;
         if (due !== undefined && compareDate(due, day) < 0) return { text: `was due ${formatDatePattern("ddd D", due)} · overdue`, tone: "warning" };
-        const window = event.window.type === "some" ? event.window.value : undefined;
+        const window = arrival.window.type === "some" ? arrival.window.value : undefined;
         const parts = [due === undefined ? "" : `due ${formatDatePattern("ddd D", due)}`,
             window === undefined ? "" : `window ${formatDatePattern("ddd", window.from)}–${formatDatePattern("ddd", new Date(window.to.getTime() - 1))}`].filter(p => p !== "");
         return parts.length === 0 ? undefined : { text: parts.join(" · ") };
     };
-    const toBook = [...context.events.keys()].filter(key => !booked.has(key) && !removedEvents.has(key));
-    const cards: EventCard[] = [];
+    const toBook = [...context.arrivals.keys()].filter(key => !booked.has(key) && !removedArrivals.has(key));
+    const cards: ArrivalCard[] = [];
     for (const late of [true, false]) {
         for (const key of toBook.filter(k => overdue(k) === late)) {
-            const event = context.events.get(key)!;
-            cards.push({ key: eventCardKey({ kind: "event", event: key }), group: late ? "Overdue" : "Ready around now", event: key, grip: { kind: "event", event: key },
-                bins: [], draft: false, label: event.label, figure: words.quantity(event.quantity), sub: subOf(event.meta, event.hold), ready: readyOf(key),
-                tip: `Click to see where ${event.label} fits · drag it onto ${onto}`, search: `${event.label} ${event.meta.type === "some" ? event.meta.value : ""}` });
+            const arrival = context.arrivals.get(key)!;
+            cards.push({ key: arrivalCardKey({ kind: "arrival", arrival: key }), group: late ? "Overdue" : "Ready around now", arrival: key, grip: { kind: "arrival", arrival: key },
+                bins: [], draft: false, label: arrival.label, figure: words.quantity(arrival.quantity), sub: subOf(arrival.meta, arrival.hold), ready: readyOf(key),
+                tip: `Click to see where ${arrival.label} fits · drag it onto ${onto}`, search: `${arrival.label} ${arrival.meta.type === "some" ? arrival.meta.value : ""}` });
         }
     }
     for (const [id, bin] of removed) {
-        const key = bin.event.type === "some" ? bin.event.value : "";
-        const event = context.events.get(key);
-        const label = event?.label ?? key;
-        cards.push({ key: eventCardKey({ kind: "removed", bin: id }), group: "Removed from plan", event: key, grip: { kind: "removed", bin: id }, bins: [id], draft: false,
-            label, figure: words.quantity(bin.quantity), sub: subOf(event?.meta, bin.hold), ready: { text: `was ${whereOf(context, words, bin)}` },
-            tip: `Click to see where it fits · drag ${label} back onto ${a(lane)} hour or ${a(resource)}`, search: `${label} ${event?.meta.type === "some" ? event.meta.value : ""}` });
+        const key = bin.arrival.type === "some" ? bin.arrival.value : "";
+        const arrival = context.arrivals.get(key);
+        const label = arrival?.label ?? key;
+        cards.push({ key: arrivalCardKey({ kind: "removed", bin: id }), group: "Removed from plan", arrival: key, grip: { kind: "removed", bin: id }, bins: [id], draft: false,
+            label, figure: words.quantity(bin.quantity), sub: subOf(arrival?.meta, bin.hold), ready: { text: `was ${whereOf(context, words, bin)}` },
+            tip: `Click to see where it fits · drag ${label} back onto ${a(lane)} hour or ${a(resource)}`, search: `${label} ${arrival?.meta.type === "some" ? arrival.meta.value : ""}` });
     }
     const allocated = [...booked].map(([key, ids]) => {
         const bins = ids.map(id => ({ id, bin: plan.bins.get(id)! })).sort((x, y) => compareDate(x.bin.at, y.bin.at) || compareString(x.id, y.id));
         return { key, bins, draft: bins.every(b => held?.bins.has(b.id) !== true) };
     }).sort((x, y) => Number(y.draft) - Number(x.draft) || (x.draft ? 0 : compareDate(x.bins[0]!.bin.at, y.bins[0]!.bin.at)) || compareString(x.key, y.key));
     for (const { key, bins, draft } of allocated) {
-        const event = context.events.get(key);
-        const label = event?.label ?? key;
+        const arrival = context.arrivals.get(key);
+        const label = arrival?.label ?? key;
         const where = bins.map(b => whereOf(context, words, b.bin));
         const unlinked = bins.some(b => b.bin.parts.size === 0);
-        cards.push({ key: eventCardKey({ kind: "event", event: key }), group: "Allocated", event: key, grip: undefined, bins: bins.map(b => b.id), draft,
-            label, figure: words.quantity(bins.reduce((n, b) => n + b.bin.quantity, 0)), sub: subOf(event?.meta, bins[0]!.bin.hold),
+        cards.push({ key: arrivalCardKey({ kind: "arrival", arrival: key }), group: "Allocated", arrival: key, grip: undefined, bins: bins.map(b => b.id), draft,
+            label, figure: words.quantity(bins.reduce((n, b) => n + b.bin.quantity, 0)), sub: subOf(arrival?.meta, bins[0]!.bin.hold),
             ready: { text: bins.length > 1 ? `${bins.length} bins · ${where.join(" · ")}` : `in ${where[0]}`, ...(unlinked ? { tone: "warning" as const } : {}) },
             tip: draft ? "Allocated · click to show its bin" : `In the plan · click to highlight ${bins.length > 1 ? `its ${bins.length} bins` : "its bin"}`,
-            search: `${label} ${event?.meta.type === "some" ? event.meta.value : ""}` });
+            search: `${label} ${arrival?.meta.type === "some" ? arrival.meta.value : ""}` });
     }
     return cards;
 }
@@ -292,18 +292,18 @@ export interface LibraryArgs {
     selection: Selection | undefined;
     pick: Pick | undefined;
     /** A click on a card to book (A9): it picks it, or unpicks it. */
-    onEvent: (grip: Extract<LibraryGrip, { kind: "event" | "removed" }>) => void;
+    onArrival: (grip: Extract<LibraryGrip, { kind: "arrival" | "removed" }>) => void;
     /** A click on a resource's card (A9): it picks it for the selected free slot, or selects it. */
     onResource: (resource: string) => void;
     /** A click on an Allocated card (A10): its first bin selected, every bin of it highlighted. */
-    onAllocated: (event: string, bins: readonly string[]) => void;
+    onAllocated: (arrival: string, bins: readonly string[]) => void;
     /** The picked card's action ran its verdict: what it refused, if anything. */
     onVerdict: (verdict: Verdict) => void;
     /** The open tab, the host's: Find a fit opens Resources (A74). */
     tab: string;
     onTab: (tab: string) => void;
-    /** What the rail shows of each tab's source: the events' and the resources'. */
-    shown: { events: SourceShown; resources: SourceShown };
+    /** What the rail shows of each tab's source: the arrivals' and the resources'. */
+    shown: { arrivals: SourceShown; resources: SourceShown };
     /** A Find a fit's result, shown in the Resources tab until its chip clears it (A74). */
     find?: ResourceFind | undefined;
     onClearFind?: (() => void) | undefined;
@@ -325,17 +325,17 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const words = useMemo((): LibraryWords => ({
         nouns, layout, lane: key => value.lanes.find(l => l.key === key)?.label ?? key, quantity: v => board.quantity(v, unit), number: v => board.quantity(v, ""),
     }), [nouns, layout, value.lanes, board, unit]);
-    const events = useMemo(() => eventCards({ context, day, plan, held, words }), [context, day, plan, held, words]);
+    const arrivals = useMemo(() => arrivalCards({ context, day, plan, held, words }), [context, day, plan, held, words]);
     const resources = useMemo(() => resourceCards({ resources: value.resources, plan, loads, lines, words }), [value.resources, plan, loads, lines, words]);
-    // What each tab's source shows (A98, A99): an event's cards in every group while its source shows it, a resource's while its source does;
+    // What each tab's source shows (A98, A99): an arrival's cards in every group while its source shows it, a resource's while its source does;
     // each tab's count, what it says when its source empties it, with that source's Clear filters, and its busy pane.
     const { shown } = args;
     const format = useFormatters();
-    const eventTab = useMemo(() => sourceTab({ cards: events, keyOf: card => card.event, shown: shown.events, noun: other(nouns.event), words: format }),
-        [events, shown.events, nouns.event, format]);
+    const arrivalTab = useMemo(() => sourceTab({ cards: arrivals, keyOf: card => card.arrival, shown: shown.arrivals, noun: other(nouns.arrival), words: format }),
+        [arrivals, shown.arrivals, nouns.arrival, format]);
     const resourceTab = useMemo(() => sourceTab({ cards: resources, keyOf: card => card.key, shown: shown.resources, noun: other(nouns.resource), words: format }),
         [resources, shown.resources, nouns.resource, format]);
-    const shownEvents = eventTab.cards, shownResources = resourceTab.cards;
+    const shownArrivals = arrivalTab.cards, shownResources = resourceTab.cards;
     // A Find a fit's result (A74): the fits among what the rail shows, best first. Until its answer for the drafts as they are
     // lands, the tab shows what the rail shows, busy, and no verdict (F2).
     const find = args.find, answer = find?.shown;
@@ -343,30 +343,30 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const listedResources = found ?? shownResources;
     const editable = commands.canEdit();
     const draggable = drag.enabled && !narrow;
-    const selectedEvent = selection?.type === "bin" ? plan.bins.get(selection.id)?.event : undefined;
+    const selectedArrival = selection?.type === "bin" ? plan.bins.get(selection.id)?.arrival : undefined;
 
     // The cards: the shared face, with the board's figure, ready line, look, tooltip and × beside it.
-    const eventItems = useMemo(() => shownEvents.map((card): LibraryItemValue => {
+    const arrivalItems = useMemo(() => shownArrivals.map((card): LibraryItemValue => {
         const placed = card.grip !== undefined
-            ? pick !== undefined && pick.kind === card.grip.kind && eventCardKey(card.grip) === (pick.kind === "event" || pick.kind === "removed" ? eventCardKey(pick) : "")
-            : (pick?.kind === "bins" && pick.event === card.event) || (selectedEvent?.type === "some" && selectedEvent.value === card.event);
+            ? pick !== undefined && pick.kind === card.grip.kind && arrivalCardKey(card.grip) === (pick.kind === "arrival" || pick.kind === "removed" ? arrivalCardKey(pick) : "")
+            : (pick?.kind === "bins" && pick.arrival === card.arrival) || (selectedArrival?.type === "some" && selectedArrival.value === card.arrival);
         return scheduleLibraryCard({ key: card.key, label: card.label, sublabel: card.sub === "" ? none : some(card.sub), icon: none, status: none, trailing: none,
             draggable: draggable && card.grip !== undefined, filtered: false, placed, search: some(card.search), groups: new Map([["group", card.group]]) });
-    }), [shownEvents, pick, selectedEvent, draggable]);
+    }), [shownArrivals, pick, selectedArrival, draggable]);
     const resourceItems = useMemo(() => listedResources.map((card): LibraryItemValue => scheduleLibraryCard({
         key: card.key, label: card.label, sublabel: card.sub === "" ? none : some(card.sub), icon: none, status: none, trailing: none, draggable, filtered: false,
         placed: (selection?.type === "resource" && selection.key === card.key) || (pick?.kind === "resource" && pick.resource === card.key),
         search: some(card.search), groups: new Map([["group", card.group]]),
     })), [listedResources, selection, pick, draggable]);
     const unbook = commands.unbook;
-    const eventExtras = useMemo(() => {
-        const byKey = new Map(events.map((card): [string, LibraryCardExtras] => [card.key, {
+    const arrivalExtras = useMemo(() => {
+        const byKey = new Map(arrivals.map((card): [string, LibraryCardExtras] => [card.key, {
             title: card.tip, figure: card.figure, ...(card.ready === undefined ? {} : { note: card.ready }),
             ...(card.group === "Removed from plan" ? { look: "dashed" as const } : card.group === "Allocated" ? { look: "sunken" as const } : {}),
-            ...(card.draft && editable ? { remove: { label: `Return ${card.label} to the list`, onRemove: () => unbook(card.event) } } : {}),
+            ...(card.draft && editable ? { remove: { label: `Return ${card.label} to the list`, onRemove: () => unbook(card.arrival) } } : {}),
         }]));
         return (item: LibraryItemValue) => byKey.get(item.key);
-    }, [events, editable, unbook]);
+    }, [arrivals, editable, unbook]);
     // A found card's line is the fit's reason (A74); every other card's, its line today.
     const resourceExtras = useMemo(() => {
         const byKey = new Map(resources.map((card): [string, LibraryCardExtras] => [card.key,
@@ -376,13 +376,13 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const overdueMark = useCallback((label: string): LibraryGroupMark | undefined => label === "Overdue" ? { icon: "triangle-exclamation", label: "Overdue", tone: "warning" } : undefined, []);
 
     // A card's click (A9, A10).
-    const { onEvent, onResource, onAllocated } = args;
-    const eventClick = useCallback((key: string): null => {
-        const card = events.find(c => c.key === key);
+    const { onArrival, onResource, onAllocated } = args;
+    const arrivalClick = useCallback((key: string): null => {
+        const card = arrivals.find(c => c.key === key);
         if (card === undefined) return null;
-        if (card.grip !== undefined) onEvent(card.grip); else onAllocated(card.event, card.bins);
+        if (card.grip !== undefined) onArrival(card.grip); else onAllocated(card.arrival, card.bins);
         return null;
-    }, [events, onEvent, onAllocated]);
+    }, [arrivals, onArrival, onAllocated]);
     const resourceClick = useCallback((key: string): null => { onResource(key); return null; }, [onResource]);
 
     // A card's pointer-down or its pick-up key arms its grip: the fit is asked before the drag needs it (A23).
@@ -397,8 +397,8 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const action = useMemo((): Action | undefined => {
         if (!editable) return undefined;
         const slot = (laneKey: string, at: Date) => `${words.lane(laneKey)} ${formatDatePattern("HH:mm", at)}`;
-        if (pick?.kind === "event" || pick?.kind === "removed") {
-            const card = events.find(c => c.grip !== undefined && eventCardKey(c.grip) === eventCardKey(pick));
+        if (pick?.kind === "arrival" || pick?.kind === "removed") {
+            const card = arrivals.find(c => c.grip !== undefined && arrivalCardKey(c.grip) === arrivalCardKey(pick));
             if (card === undefined) return undefined;
             if (selection?.type === "slot") {
                 const at = new Date(selection.at);
@@ -406,7 +406,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
                     button: { label: `Book into ${slot(selection.lane, at)}`, disabled: false, grip: pick, target: { kind: "lane", lane: selection.lane, at, card: undefined } } };
             }
             const reservation = selection?.type === "bin" ? plan.bins.get(selection.id) : undefined;
-            if (selection?.type === "bin" && reservation !== undefined && reservation.event.type === "none") {
+            if (selection?.type === "bin" && reservation !== undefined && reservation.arrival.type === "none") {
                 const target: Target = { kind: "lane", lane: reservation.lane, at: reservation.at, card: selection.id };
                 const resource = [...reservation.parts.keys()][0];
                 const name = resource === undefined ? "" : context.resources.get(resource)?.label ?? resource;
@@ -416,7 +416,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
                 if (!verdict.allowed) return { note: `Doesn’t fit ${name}: ${verdict.reason ?? verdict.caption}`, tone: "warning", button: { ...button, disabled: true } };
                 return { note: resource === undefined ? `${card.label} · ${card.figure}` : `Reserved on ${name}${verdict.reason === undefined ? "" : ` · ${verdict.reason}`}`, button: { ...button, disabled: false } };
             }
-            return { note: layout === "table" ? `Click a highlighted ${one(nouns.event)} cell to book ${card.label} there, or select a free slot first.`
+            return { note: layout === "table" ? `Click a highlighted ${one(nouns.arrival)} cell to book ${card.label} there, or select a free slot first.`
                 : `Click a free ${one(nouns.lane)} hour or a ranked ${one(nouns.resource)} to book ${card.label} there, or select a free slot first.` };
         }
         if (pick?.kind === "resource" && selection?.type === "slot") {
@@ -432,8 +432,8 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         return undefined;
         // The verdict stands for the pick, the selection, these drafts and the fit's answers.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editable, pick, selection, events, plan, layout, nouns, words, context, drag.peek]);
-    // Its question, asked once the pane has rendered, and again when the drafts change or the events and resources it reads (F1).
+    }, [editable, pick, selection, arrivals, plan, layout, nouns, words, context, drag.peek]);
+    // Its question, asked once the pane has rendered, and again when the drafts change or the arrivals and resources it reads (F1).
     const asking = action?.button;
     const { verdict } = drag;
     useEffect(() => { if (asking !== undefined) verdict(asking.grip, asking.target); },
@@ -444,10 +444,10 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
 
     if (value.library.length === 0) return undefined;
     // The foot's hint, the tab's and the layout's (A53).
-    const hint = (tab: "events" | "resources") => narrow ? `Select ${a(nouns.event)}, then Book`
-        : tab === "events" ? (layout === "table" ? `Drag onto a row’s ${one(nouns.event)} cell` : `Drag onto ${a(nouns.lane)} hour or ${a(nouns.resource)}`)
+    const hint = (tab: "arrivals" | "resources") => narrow ? `Select ${a(nouns.arrival)}, then Book`
+        : tab === "arrivals" ? (layout === "table" ? `Drag onto a row’s ${one(nouns.arrival)} cell` : `Drag onto ${a(nouns.lane)} hour or ${a(nouns.resource)}`)
             : (layout === "table" ? `Drag onto a row’s ${one(nouns.resource)} cell` : `Drag onto a bin or an empty ${one(nouns.lane)} hour`);
-    const feet = (tab: "events" | "resources") => <>
+    const feet = (tab: "arrivals" | "resources") => <>
         <Box css={[styles.paneFoot, styles.paneHint]} data-allocation-library-hint="">{hint(tab)}</Box>
         {action !== undefined && <Box css={[styles.paneFoot, styles.paneAction]} data-allocation-library-action="">
             <Box as="span" css={styles.paneHint} data-tone={action.tone}>{action.note}</Box>
@@ -457,16 +457,16 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         </Box>}
     </>;
     const tabs = value.library.map(tab => {
-        if (tab.type === "events") {
-            const library = scheduleLibrary({ id: drag.libraries.events, items: eventItems, groupOptions: [{ key: "group", label: "Group" }],
-                noun: some({ singular: one(nouns.event), plural: other(nouns.event) }), onCardClick: some(eventClick) }, true);
-            return { key: "events", label: nouns.event.other, count: eventTab.count,
-                body: <Box css={styles.pane} data-allocation-library="events" {...eventTab.pane}
-                onPointerDownCapture={arm(drag.libraries.events)} onKeyDownCapture={arm(drag.libraries.events)}>
-                <EastChakraLibrary value={library} storageKey={drag.libraries.events} extras={eventExtras} groupMark={overdueMark}
-                    search={`Find ${a(nouns.event)} or site`} empty={eventTab.empty} narrowing={eventTab.narrowing}
-                    noMatch={{ title: `No ${other(nouns.event)} match`, description: `Clear the search to see all ${shownEvents.length} ${other(nouns.event)}.` }} />
-                {feet("events")}
+        if (tab.type === "arrivals") {
+            const library = scheduleLibrary({ id: drag.libraries.arrivals, items: arrivalItems, groupOptions: [{ key: "group", label: "Group" }],
+                noun: some({ singular: one(nouns.arrival), plural: other(nouns.arrival) }), onCardClick: some(arrivalClick) }, true);
+            return { key: "arrivals", label: nouns.arrival.other, count: arrivalTab.count,
+                body: <Box css={styles.pane} data-allocation-library="arrivals" {...arrivalTab.pane}
+                onPointerDownCapture={arm(drag.libraries.arrivals)} onKeyDownCapture={arm(drag.libraries.arrivals)}>
+                <EastChakraLibrary value={library} storageKey={drag.libraries.arrivals} extras={arrivalExtras} groupMark={overdueMark}
+                    search={`Find ${a(nouns.arrival)} or site`} empty={arrivalTab.empty} narrowing={arrivalTab.narrowing}
+                    noMatch={{ title: `No ${other(nouns.arrival)} match`, description: `Clear the search to see all ${shownArrivals.length} ${other(nouns.arrival)}.` }} />
+                {feet("arrivals")}
             </Box> };
         }
         const library = scheduleLibrary({ id: drag.libraries.resources, items: resourceItems, groupOptions: [{ key: "group", label: "Group" }],
@@ -492,10 +492,10 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         </Box> };
     });
     const open = args.tab === "resources" && tabs.some(t => t.key === "resources") ? "resources" : tabs[0]!.key;
-    const late = shownEvents.some(card => card.group === "Overdue");
+    const late = shownArrivals.some(card => card.group === "Overdue");
     return {
         label: "Library", icon: "layer-group", size: "264px", tabs, tab: open, onTabChange: args.onTab, persist: "local",
-        badge: open === "resources" ? listedResources.length : shownEvents.length,
-        ...(open === "events" && late ? { mark: { icon: "triangle-exclamation", label: `Overdue ${one(nouns.event)}`, tone: "warning" as const } } : {}),
+        badge: open === "resources" ? listedResources.length : shownArrivals.length,
+        ...(open === "arrivals" && late ? { mark: { icon: "triangle-exclamation", label: `Overdue ${one(nouns.arrival)}`, tone: "warning" as const } } : {}),
     };
 }

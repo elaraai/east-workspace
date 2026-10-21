@@ -12,9 +12,11 @@
  * parts (A70–A74, #1332): each part's quantity a field, the remainder in
  * warn, `Split…` to put the remainder — or, with none, some of a part — on
  * another resource (`split.tsx`, #1362), and Find a fit.
- * Every edit is one of the board's commands, a draft of the day's session
- * until Save; every fit is the app's answer; every figure and word is e3-ui's
- * or `inspector-model.ts`'s. The parts are the shared inspector's — its head,
+ * The bin's own fields — those no role maps — are the bin kind's: its form
+ * over its `fields` (`FieldForm`), or its own `inspector` over the row, in
+ * place of the quantity and the rows (#1372). Every edit is one of the
+ * board's commands, a draft of the bins' session until Save; every fit is the
+ * app's answer; every figure and word is e3-ui's or `inspector-model.ts`'s. The parts are the shared inspector's — its head,
  * its sections, its counts — with FieldForm, the Chooser, the anchored
  * popover, the banner, the segments, the stepper and the meter; the
  * `allocationInspector` recipe owns every style.
@@ -29,8 +31,8 @@ import {
     faArrowRight, faArrowsSplitUpAndLeft, faChevronDown, faChevronUp, faCircleCheck, faCircleExclamation, faLinkSlash, faMagnifyingGlass, faMinus, faPlus,
     faRotateLeft, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
-import { DateTimeType, FloatType, OptionType, StringType, StructType, none, some, variant, type SortedMap, type ValueTypeOf, type option } from "@elaraai/east";
-import { Fields, UIComponentType, type FieldSpecValue } from "@elaraai/east-ui";
+import { DateTimeType, FloatType, OptionType, StringType, StructType, none, some, variant, type SortedMap, type option } from "@elaraai/east";
+import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import {
     BannerView, EastChakraComponent, FieldForm, fieldFormMessages, useDropCell, useFormatters, useTrackedEvaluation, type BuilderFrameDock,
     type FieldFormWords,
@@ -92,14 +94,14 @@ export interface InspectorArgs {
     without: (bin: string) => Day;
     reserving: (lane: string, at: Date) => Day;
     /** What the narrowing shows of each source; `none`, every row. */
-    shown: { lanes: option<Set<string>>; resources: option<Set<string>>; events: option<Set<string>> };
+    shown: { lanes: option<Set<string>>; resources: option<Set<string>>; arrivals: option<Set<string>> };
     /** A refused drop's reason (A40), and its dismissal. */
     refusal: Refusal | undefined;
     dismissRefusal: () => void;
     /** The bin whose resource Chooser is open in the pane (A8, A21, A64), and opening or closing it. */
     chooser: string | undefined;
     setChooser: (bin: string | undefined) => void;
-    /** Books the picked event onto a resource, as a click on a ranked resource does (A11, A36). */
+    /** Books the picked arrival onto a resource, as a click on a ranked resource does (A11, A36). */
     book: (target: Target) => void;
     /** The day's first free slot, of the lanes that show (A36). */
     firstFree: () => { lane: string; at: Date } | undefined;
@@ -140,7 +142,7 @@ export function useAllocationInspector(args: InspectorArgs): BuilderFrameDock | 
     // The Timeline's resource axis's end: what `none planned to` names (A58, A85).
     const horizon = value.settings.horizon;
     const horizonEnd = useMemo(() => resourceAxis(args.day, Number(board.ms(horizon.before)), Number(board.ms(horizon.after))).to, [args.day, board, horizon]);
-    if (value.inspector.type === "none") return undefined;
+    if (!value.inspector) return undefined;
     const count = countedIssues(args.issues).length;
     // A drag shows Details, where its drop list is (A22, A34); the viewer's tab comes back as it ends.
     const dragging = args.drag.grip !== undefined;
@@ -180,7 +182,7 @@ function selected(part: Part): ReactNode | undefined {
     if (selection.type === "bin") {
         const bin = plan.bins.get(selection.id);
         if (bin === undefined) return undefined;
-        return bin.event.type === "none" ? <ReservationDetails key={selection.id} {...part} id={selection.id} bin={bin} />
+        return bin.arrival.type === "none" ? <ReservationDetails key={selection.id} {...part} id={selection.id} bin={bin} />
             : <BinDetails key={selection.id} {...part} id={selection.id} bin={bin} />;
     }
     if (selection.type === "slot") return <SlotDetails key={`${selection.lane}|${selection.at}`} {...part} lane={selection.lane} at={new Date(selection.at)} />;
@@ -252,7 +254,7 @@ function DropRow({ args, styles, target, rank, name, why, book }: Part & { targe
     </Box>;
 }
 
-/** A bin (A56–A59): its head and actions, its banners, the Bin section, Assigned to, the other gaps that fit, its event's details and its `was` line. */
+/** A bin (A56–A59): its head and actions, its banners, the Bin section, Assigned to, the other gaps that fit, its arrival's details and its `was` line. */
 function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     const { args, styles, words } = part;
     const { context, held, domain, commands, issues, day, plan, fit } = args;
@@ -265,7 +267,7 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     const at = resourcesAt(args, parts.map(p => p.key));
     const status = binStatus(bin, committed, domain.sameBin, at.map(r => r.line));
     const code = binCode(context, bin);
-    const event = bin.event.type === "some" ? context.events.get(bin.event.value) : undefined;
+    const arrival = bin.arrival.type === "some" ? context.arrivals.get(bin.arrival.value) : undefined;
     const banners = bannersOf({ issues, bin: { id, code }, resources: at, day, words });
     // Its connector's question (A23, F1): asked as the bin was selected; its answer ranks the other gaps (A59).
     const asked = placeAsk(plan, { kind: "port", bin: id });
@@ -275,11 +277,11 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     const find = args.onFind !== undefined && compareFloat(remainderOf(bin), 0) > 0 ? args.onFind : undefined;
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? "New bin" : `Bin ${id}`, icon: "box" }} title={`${code} · ${words.quantity(bin.quantity)}`}
-            when={event?.meta.type === "some" ? event.meta.value : undefined} status={statusOf(status)} pending={status.pending}>
+            when={arrival?.meta.type === "some" ? arrival.meta.value : undefined} status={statusOf(status)} pending={status.pending}>
             {(editable || find !== undefined) && <Box css={styles.headActions} data-allocation-bin-actions="">
                 {editable && bin.parts.size > 0 && <Button size="xs" variant="outline" onClick={() => commands.unlink(id)}><FontAwesomeIcon icon={faLinkSlash} />Unlink</Button>}
                 {editable && committed !== undefined && draft && <Button size="xs" variant="outline" onClick={() => commands.revert(id)}><FontAwesomeIcon icon={faRotateLeft} />Revert</Button>}
-                {editable && <Button size="xs" variant="outline" onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Back to {nouns.event.other}</Button>}
+                {editable && <Button size="xs" variant="outline" onClick={() => commands.remove(id)}><FontAwesomeIcon icon={faXmark} />Back to {nouns.arrival.other}</Button>}
                 {find !== undefined && <Button size="xs" variant="outline" data-allocation-find="" onClick={() => find(id)}>
                     <FontAwesomeIcon icon={faMagnifyingGlass} />{args.finding?.(id) === true ? "Finding…" : "Find a fit"}
                 </Button>}
@@ -298,8 +300,8 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
                         {editable ? <Button size="xs" variant="outline" onClick={() => commands.link(id, o.key, undefined)}>{moves ? "Move" : "Link"}</Button> : <span />}
                     </Box>)}
         </Box>
-        {event !== undefined && event.details.length > 0 && <Box css={styles.section} data-allocation-details="">
-            <Box as="dl" css={styles.rows}>{event.details.map((detail, i) => <Fragment key={i}>
+        {arrival !== undefined && arrival.details.length > 0 && <Box css={styles.section} data-allocation-details="">
+            <Box as="dl" css={styles.rows}>{arrival.details.map((detail, i) => <Fragment key={i}>
                 <Box as="dt" css={styles.rowLabel}>{detail.label}</Box><Box as="dd" css={styles.rowValue} data-text="">{detail.value}</Box>
             </Fragment>)}</Box>
         </Box>}
@@ -310,16 +312,17 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
 /**
  * The Bin section (A57): its lane — the shared segments, a change its lane's
  * slot in the same hour — its time — the shared stepper, a slot at a time —
- * and its quantity, each a field of the shared form; then the app's values as
- * rows, or, with `inspector={{ bin }}`, the app's own bin form in place of the
- * quantity and the rows.
+ * and its quantity, each a field of the shared form; then the row's own
+ * fields, the bin kind's form over its `fields`, and the app's columns as
+ * rows — or, with the bin kind's own `inspector`, that form over the row in
+ * place of the quantity, the fields and the rows.
  */
 function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: Bin; committed: Bin | undefined }) {
     const { args, styles, words } = part;
     const { value, slots, plan, commands, day, context, shown } = args;
     const nouns = words.nouns;
     const editable = commands.canEdit();
-    const form = value.inspector.type === "some" && value.inspector.value.bin.type === "some" ? value.inspector.value.bin.value : undefined;
+    const form = value.bin.kind.inspector.type === "some" ? value.bin.kind.inspector.value : undefined;
     // Its lane's slots, in time order, and the one it is in.
     const laneSlots = useCallback((lane: string) => slots.filter(s => s.lane === lane), [slots]);
     const own = laneSlots(bin.lane);
@@ -369,20 +372,32 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
     return <Box css={styles.fields} data-allocation-bin-section="">
         <Box css={styles.sectionHead}>Bin</Box>
         <FieldForm specs={specs} value={shownValue} baseline={baseline} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
-        {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <ValueRows {...part} bin={bin} />}
+        {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
+            <RowFields {...part} id={id} bin={bin} committed={committed} />
+            <ValueRows {...part} bin={bin} />
+        </>}
     </Box>;
 }
 
-/** The app's values as rows (A57): each column's text, in warn-text 600 when its tone warns; read through the app's callbacks. */
+/** The row's own fields (`Builder Interfaces Spec.md` §1, rule 2): the bin kind's form over its `fields`, each edit one command, a draft until Save. */
+function RowFields({ args, id, bin, committed }: Part & { id: string; bin: Bin; committed: Bin | undefined }) {
+    const { value, commands } = args;
+    const { field } = commands;
+    const onChange = useCallback((path: readonly string[], next: unknown) => { field(id, path, next); }, [field, id]);
+    if (value.bin.kind.fields.length === 0) return null;
+    return <FieldForm specs={value.bin.kind.fields} value={bin.row} baseline={committed?.row ?? {}} onChange={onChange} readOnly={!commands.canEdit()} />;
+}
+
+/** The app's columns as rows (A57): each column's text, in warn-text 600 when its tone warns; read through the app's callbacks over the bin's row. */
 function ValueRows({ args, styles, bin }: Part & { bin: Bin }) {
     const { value, domain } = args;
     const read = useCallback(() => {
-        const bytes = domain.encodeValues(bin.values);
+        const bytes = domain.encodeRow(bin.row);
         return value.columns.map(column => {
             const tone = column.tone.type === "some" ? column.tone.value(bytes) : undefined;
             return { key: column.key, label: column.label, text: column.text(bytes), warn: tone?.type === "some" && (tone.value.type === "warning" || tone.value.type === "danger") };
         });
-    }, [value.columns, domain, bin.values]);
+    }, [value.columns, domain, bin.row]);
     const { result } = useTrackedEvaluation(read);
     // A column that fails shows nothing, as the Table's does.
     if (!result.ok || result.value.length === 0) return null;
@@ -392,14 +407,14 @@ function ValueRows({ args, styles, bin }: Part & { bin: Bin }) {
     </Fragment>)}</Box>;
 }
 
-/** The app's bin form (`inspector={{ bin }}`): over the bin, its writer one command of the day's session — a draft until Save, never a write of the record. */
-function CustomBin({ args, styles, id, bin, form }: Part & { id: string; bin: Bin; form: (bytes: Uint8Array, write: (bytes: Uint8Array) => null) => ValueTypeOf<typeof UIComponentType> }) {
+/** The bin kind's own form (`Schedule.events(record, { …, inspector })`): over the bin's row, its writer one command of the bins' session — a draft until Save, never a write of the record. */
+function CustomBin({ args, styles, id, bin, form }: Part & { id: string; bin: Bin; form: Extract<InspectorArgs["value"]["bin"]["kind"]["inspector"], { type: "some" }>["value"] }) {
     const { domain, commands, storageKey } = args;
     // The writer stays the same function while the bin does: the latest commands run it.
     const live = useRef(commands);
     live.current = commands;
-    const bytes = useMemo(() => domain.encodeBin(bin), [domain, bin]);
-    const write = useCallback((edited: Uint8Array): null => { live.current.edit(id, domain.decodeBin(edited)); return null; }, [domain, id]);
+    const bytes = useMemo(() => domain.encodeRow(bin.row), [domain, bin.row]);
+    const write = useCallback((edited: Uint8Array): null => { live.current.row(id, edited); return null; }, [id]);
     const read = useCallback(() => form(bytes, write), [form, bytes, write]);
     const { result } = useTrackedEvaluation(read);
     if (!result.ok) return <Box role="alert" css={styles.error}>The bin form could not be rendered.</Box>;
@@ -563,7 +578,7 @@ function ListOption({ styles, name, quantity, line, warn, children, testid }: { 
     </Box>;
 }
 
-/** A free slot (A60): what it is, every event it can book, the five best resources to reserve it on, and the hint. */
+/** A free slot (A60): what it is, every arrival it can book, the five best resources to reserve it on, and the hint. */
 function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
     const { args, styles, words } = part;
     const { commands, fit, plan, held, context, day, slots, loads, shown } = args;
@@ -575,15 +590,15 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
     const { ask: asking } = fit;
     useEffect(() => { asking(ask, of); }, [ask, of, asking]);
     const reserve = reserveOptions(fit.answer(ask, of), loads, context, shown.resources, words);
-    const books = bookOptions({ plan, held, context, day, shown: shown.events, words });
+    const books = bookOptions({ plan, held, context, day, shown: shown.arrivals, words });
     const where = landing(slots, plan, lane, at, undefined);
-    const run = (option: BookOption) => option.grip.kind === "event" ? commands.book(option.grip.event, lane, where, undefined) : commands.restore(option.grip.bin, lane, where, undefined);
+    const run = (option: BookOption) => option.grip.kind === "arrival" ? commands.book(option.grip.arrival, lane, where, undefined) : commands.restore(option.grip.bin, lane, where, undefined);
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: "Slot", icon: "clock" }} title={`${words.lane(lane)} · ${timeText(at)}`}
-            when={`${dayLong(day)} · no ${one(nouns.event)} · no ${one(nouns.resource)}`} status={{ label: "Free", tone: { type: "neutral" }, ring: false }} />
+            when={`${dayLong(day)} · no ${one(nouns.arrival)} · no ${one(nouns.resource)}`} status={{ label: "Free", tone: { type: "neutral" }, ring: false }} />
         <Box css={styles.section} data-allocation-book="">
-            <Box css={styles.sectionHead}>Book {a(nouns.event)}</Box>
-            {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.event)} to book</Box>
+            <Box css={styles.sectionHead}>Book {a(nouns.arrival)}</Box>
+            {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>
                 : books.map(o => <ListOption key={o.key} styles={styles} name={o.code} quantity={o.quantity} line={o.line} warn={o.warn} testid={o.key}>
                     {editable ? <Button size="xs" variant="outline" onClick={() => run(o)}>Book</Button> : <span />}
                 </ListOption>)}
@@ -595,14 +610,14 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
                     : reserve.map(o => <ListOption key={o.key} styles={styles} name={o.name} quantity={o.range} line={o.line} warn={false} testid={o.key}>
                         {editable ? <Button size="xs" variant="outline" onClick={() => commands.reserve(lane, where, o.key)}>Reserve</Button> : <span />}
                     </ListOption>)}
-            <Box css={styles.line}>Or drag {a(nouns.event)} or {a(nouns.resource)} from the library onto this row.</Box>
+            <Box css={styles.line}>Or drag {a(nouns.arrival)} or {a(nouns.resource)} from the library onto this row.</Box>
         </Box>
     </>;
 }
 
 /**
  * A reservation (A61): what it is, the resource it holds with Remove and
- * `Open resource →`, its fill and meter, every event checked against the
+ * `Open resource →`, its fill and meter, every arrival checked against the
  * resource — one take of it, asked of the day without the reservation — its
  * `was` line and Revert.
  */
@@ -622,7 +637,7 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
     const { ask: asking } = fit;
     useEffect(() => { if (ask !== undefined) asking(ask, of); }, [ask, of, asking]);
     const answer = ask === undefined ? undefined : fit.answer(ask, of);
-    const books = bookOptions({ plan, held, context, day, shown: shown.events, words });
+    const books = bookOptions({ plan, held, context, day, shown: shown.arrivals, words });
     // A committed bin the drafts removed is checked as its own drag into the reservation is: its own question, asked once the pane has rendered.
     const target: Target = { kind: "lane", lane: bin.lane, at: bin.at, card: id };
     const { verdict } = drag;
@@ -632,15 +647,15 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
         [plan, id]);
     const lineOf = (o: BookOption) => {
         if (resource === undefined) return { line: o.line, warn: o.warn, enabled: true };
-        if (o.grip.kind === "event") return verdictLine(answer?.events.get(o.grip.event));
+        if (o.grip.kind === "arrival") return verdictLine(answer?.arrivals.get(o.grip.arrival));
         const v = drag.peek(o.grip, target);
         return v.pending ? verdictLine(undefined) : v.allowed ? { line: v.reason ?? o.line, warn: false, enabled: true } : { line: `doesn’t fit · ${v.reason ?? v.caption}`, warn: true, enabled: false };
     };
-    const run = (o: BookOption) => o.grip.kind === "event" ? commands.fillWith(id, o.grip.event) : commands.restoreInto(o.grip.bin, id);
+    const run = (o: BookOption) => o.grip.kind === "arrival" ? commands.fillWith(id, o.grip.arrival) : commands.restoreInto(o.grip.bin, id);
     const draft = committed !== undefined && !domain.sameBin(committed, bin);
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? "New reservation" : "Reserved slot", icon: "bookmark" }}
-            title={`${words.lane(bin.lane)} · ${timeText(bin.at)}`} when={name === undefined ? `Reserved · no ${one(nouns.event)} yet` : `Reserved on ${name} · no ${one(nouns.event)} yet`}
+            title={`${words.lane(bin.lane)} · ${timeText(bin.at)}`} when={name === undefined ? `Reserved · no ${one(nouns.arrival)} yet` : `Reserved on ${name} · no ${one(nouns.arrival)} yet`}
             status={statusOf(status)} pending={status.pending} />
         <Box css={styles.section} data-allocation-assigned="">
             <Box css={styles.sectionRow}>
@@ -660,12 +675,12 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
             </>}
         </Box>
         <Box css={styles.section} data-allocation-book="">
-            <Box css={styles.sectionHead}>Book {a(nouns.event)}</Box>
-            {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.event)} to book</Box>
+            <Box css={styles.sectionHead}>Book {a(nouns.arrival)}</Box>
+            {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>
                 : books.map(o => { const said = lineOf(o); return <ListOption key={o.key} styles={styles} name={o.code} quantity={o.quantity} line={said.line} warn={said.warn} testid={o.key}>
                     {editable ? <Button size="xs" variant="outline" disabled={!said.enabled} onClick={() => run(o)}>Book</Button> : <span />}
                 </ListOption>; })}
-            {name !== undefined && <Box css={styles.line}>Each {one(nouns.event)} is checked against {name}. Book is off when it doesn’t fit.</Box>}
+            {name !== undefined && <Box css={styles.line}>Each {one(nouns.arrival)} is checked against {name}. Book is off when it doesn’t fit.</Box>}
         </Box>
         {draft && <Box css={styles.was} data-allocation-was="">
             <span>{wasLine(committed, context, words)}</span>
@@ -685,7 +700,7 @@ function ResourceDetails({ resource, ...part }: Part & { resource: string }) {
     const idle = Number(at.load.bins) === 0;
     const hint = at.load.state.type === "busy" && idle ? `Busy ${other(nouns.resource)} take no load until their current job is released.`
         : args.layout === "table" ? `Choose it with the ${one(nouns.resource)} chevron on a row, or drag it from the Library onto a row.`
-            : `Drag a bin’s connector or ${a(nouns.event)} onto this row to load it.`;
+            : `Drag a bin’s connector or ${a(nouns.arrival)} onto this row to load it.`;
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: nouns.resource.one, icon: "cube" }} title={at.row.label} when={groupLine(at.row, words)} status={statusOf(status)} />
         <Banners styles={styles} banners={banners} />
@@ -714,7 +729,7 @@ function Summary({ args, styles, words }: Part) {
     const note = narrowingNote([
         { shown: count(shown.lanes, value.lanes.length), total: value.lanes.length, noun: nouns.lane },
         { shown: count(shown.resources, value.resources.length), total: value.resources.length, noun: nouns.resource },
-        { shown: count(shown.events, value.events.length), total: value.events.length, noun: nouns.event },
+        { shown: count(shown.arrivals, value.arrivals.length), total: value.arrivals.length, noun: nouns.arrival },
     ]);
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: `Plan · ${dayLong(args.day)}`, icon: "calendar-day" }} title={value.settings.title}
@@ -741,7 +756,7 @@ function IssuesTab(part: Part) {
         return <Box css={styles.empty} data-allocation-issues-empty="">
             <Box as="span" css={styles.emptyIcon} aria-hidden="true"><FontAwesomeIcon icon={faCircleCheck} /></Box>
             <Box css={styles.emptyTitle}>No issues</Box>
-            <Box css={styles.emptyHint}>Every {one(words.nouns.event)} sits within its gap and its max.</Box>
+            <Box css={styles.emptyHint}>Every {one(words.nouns.arrival)} sits within its gap and its max.</Box>
         </Box>;
     }
     return <Box css={styles.issues} data-allocation-issues="">{groups.map(group => <Box key={group.key} css={styles.issueGroup} data-allocation-issue-group={group.key}>

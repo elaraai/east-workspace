@@ -6,11 +6,12 @@
 /**
  * The narrow layout (`Allocation Spec.md` §9.12, A78, #1333): below 480px of
  * main, the Timeline is a card per resource the narrowing shows — its load
- * line, its bins today with Unlink, Move, `Split…` and Back to Events, and
- * `Book an event…` — and the Table a card per row in its time bands, with
+ * line, its bins today with Unlink, Move, `Split…` and Back to Arrivals, and
+ * `Book an arrival…` — and the Table a card per row in its time bands, with
  * `Book…`, `Reserve…`, `Allocate…`, a whole bin's `Split…`, `Unlink` and `Back
- * to Events`. A choice is the Table's Chooser in its anchored popover, asking
- * the fit what its cell asks; Unlink and Back to Events act at once, each a
+ * to Arrivals`, in the board's nouns. A choice is the Table's Chooser in its
+ * anchored popover, asking the fit what its cell asks; Unlink and Back to
+ * Arrivals act at once, each a
  * draft the history undoes, and Move takes a bin's part to another resource
  * (ruled 19 Oct). `Split…` is the Inspector's popover (`split.tsx`, #1362).
  * Every action is one of the board's commands. Nothing here registers a drag source, a drop
@@ -26,7 +27,7 @@ import { variant, type SortedMap, type option } from "@elaraai/east";
 import { VirtualRows, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { remainderOf, splitOf } from "./actions.js";
-import { eventChoices, type ChoiceWords } from "./choices.js";
+import { arrivalChoices, type ChoiceWords } from "./choices.js";
 import { binCode, matesOf, type InspectorWords, type Mate } from "./inspector-model.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { SplitPopover } from "./split.js";
@@ -64,11 +65,11 @@ export interface CardsProps extends ChoiceScene {
     visibleLanes: option<Set<string>>;
     /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
     clearFilters: (() => void) | undefined;
-    /** Books an event onto a resource at the day's first free slot (A36), as a drop on its row does. */
-    bookOnto: (event: string, resource: string) => void;
+    /** Books an arrival onto a resource at the day's first free slot (A36), as a drop on its row does. */
+    bookOnto: (arrival: string, resource: string) => void;
 }
 
-/** What a card's Chooser has open: its row's cell (`Open`), or a resource card's `Book an event…`. */
+/** What a card's Chooser has open: its row's cell (`Open`), or a resource card's `Book an arrival…`. */
 type CardsOpen = Open | undefined;
 
 /** The cards' words: a Chooser's and the inspector's, from the board's figures. */
@@ -115,7 +116,7 @@ function ResourceCards({ props, words }: { props: CardsProps; words: CardWords }
     </Box>;
 }
 
-/** A resource's card: its name and its load line, one button that selects it; its bins today; and `Book an event…`. */
+/** A resource's card: its name and its load line, one button that selects it; its bins today; and `Book an arrival…`. */
 function ResourceCard({ props, words, resource, rows, open, setOpen }: {
     props: CardsProps; words: CardWords; resource: string; rows: ReadonlyMap<string, TableRow>; open: CardsOpen; setOpen: (open: CardsOpen) => void;
 }) {
@@ -139,7 +140,7 @@ function ResourceCard({ props, words, resource, rows, open, setOpen }: {
  * A bin on a resource's card: its time, lane, code and what it puts there, one
  * button that selects it; then Unlink (its part there), Move (that part, to
  * another resource), `Split…` (what is left unallocated, or with nothing left
- * some of its part there, onto another resource) and Back to Events — a
+ * some of its part there, onto another resource) and Back to Arrivals — a
  * reservation's Move and Remove.
  */
 function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
@@ -151,7 +152,7 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
     const committed = held?.bins.get(mate.id);
     const draft = committed === undefined || !props.sameBin(committed, bin);
     const selected = props.selection?.type === "bin" && props.selection.id === mate.id;
-    const reserved = bin.event.type === "none";
+    const reserved = bin.arrival.type === "none";
     const name = context.resources.get(resource)?.label ?? resource;
     const move = row === undefined ? null : <ChoiceCell props={props} row={row} side="resource" part={resource} words={words.choice}
         open={open?.row === row.key && openKey(open.side, open.part) === openKey("resource", resource)} setOpen={setOpen}
@@ -171,8 +172,8 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
                 {move}
                 {split}
                 <Button size="xs" variant="outline" onClick={() => commands.remove(mate.id)}
-                    title={committed !== undefined ? `Remove ${mate.code} from the plan · it moves to ${nouns.event.other}` : `Return ${mate.code} to ${nouns.event.other}`}>
-                    Back to {nouns.event.other}
+                    title={committed !== undefined ? `Remove ${mate.code} from the plan · it moves to ${nouns.arrival.other}` : `Return ${mate.code} to ${nouns.arrival.other}`}>
+                    Back to {nouns.arrival.other}
                 </Button>
             </>}
         </Box>}
@@ -180,9 +181,9 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
 }
 
 /**
- * A resource card's `Book an event…` (A78): the events the plan has not
+ * A resource card's `Book an arrival…` (A78): the arrivals the plan has not
  * booked, each as the fit takes it on the resource — its fits, then those
- * that don't fit, then the events already on the board — and a choice books
+ * that don't fit, then the arrivals already on the board — and a choice books
  * it there at the day's first free slot, as a drop on its row does (A36).
  */
 function BookOnto({ props, words, resource, open, setOpen }: { props: CardsProps; words: CardWords; resource: string; open: CardsOpen; setOpen: (open: CardsOpen) => void }) {
@@ -190,15 +191,15 @@ function BookOnto({ props, words, resource, open, setOpen }: { props: CardsProps
     const nouns = useNouns();
     const id = `resource:${resource}`;
     const isOpen = open?.row === id;
-    // The question (F1): the resource taken, of the day as drafted — a verdict for each event not booked.
+    // The question (F1): the resource taken, of the day as drafted — a verdict for each arrival not booked.
     const ask = useMemo((): FitAsk => variant("take", { resource }), [resource]);
     const { ask: asking } = fit;
     useEffect(() => { if (isOpen) asking(ask); }, [isOpen, ask, asking]);
     const answer = fit.answer(ask);
-    const sections = !isOpen ? [] : eventChoices({ plan: props.plan, context, day: props.day, words: words.choice, bin: undefined, resource, answer, shown: props.visibleEvents });
+    const sections = !isOpen ? [] : arrivalChoices({ plan: props.plan, context, day: props.day, words: words.choice, bin: undefined, resource, answer, shown: props.visibleArrivals });
     const name = context.resources.get(resource)?.label ?? resource;
-    return <ChooserPopover id={`${id}|book`} label={`Book ${a(nouns.event)} · ${name}`} open={isOpen} onOpenChange={next => setOpen(next ? { row: id, side: "event" } : undefined)}
-        trigger={<Button size="xs" variant="outline">Book {a(nouns.event)}…</Button>} sections={sections} placeholder={`Find ${a(nouns.event)}`}
+    return <ChooserPopover id={`${id}|book`} label={`Book ${a(nouns.arrival)} · ${name}`} open={isOpen} onOpenChange={next => setOpen(next ? { row: id, side: "arrival" } : undefined)}
+        trigger={<Button size="xs" variant="outline">Book {a(nouns.arrival)}…</Button>} sections={sections} placeholder={`Find ${a(nouns.arrival)}`}
         onChoose={key => { setOpen(undefined); props.bookOnto(key, resource); }} />;
 }
 
@@ -208,9 +209,9 @@ type Line = { kind: "band"; band: TableBand } | { kind: "row"; row: TableRow };
 /** The Table's cards (A78): a card per row the narrowing shows, in the Table's bands, folded as the Table's are. */
 function RowCards({ props, words }: { props: CardsProps; words: CardWords }) {
     const { value, plan, styles, context } = props;
-    const { visibleLanes, visibleResources, visibleEvents } = props;
-    const bands = useMemo(() => narrowBands(tableBands(tableRows(props.slots, plan), plan, props.day, value.table.bands), plan, visibleLanes, visibleResources, visibleEvents),
-        [props.slots, plan, props.day, value.table.bands, visibleLanes, visibleResources, visibleEvents]);
+    const { visibleLanes, visibleResources, visibleArrivals } = props;
+    const bands = useMemo(() => narrowBands(tableBands(tableRows(props.slots, plan), plan, props.day, value.table.bands), plan, visibleLanes, visibleResources, visibleArrivals),
+        [props.slots, plan, props.day, value.table.bands, visibleLanes, visibleResources, visibleArrivals]);
     const { collapsed, toggle } = useGroupCollapse(`${props.surface}.table`);
     const lines = useMemo((): Line[] => bands.flatMap(band => [{ kind: "band" as const, band },
         ...(collapsed.includes(band.key) ? [] : band.rows.map(row => ({ kind: "row" as const, row })))]), [bands, collapsed]);
@@ -248,7 +249,7 @@ function ownRow(selection: Selection, row: TableRow): boolean {
  * A row's card: its lane and time, what it holds and its status, one button
  * that selects it; and its actions — a free slot's `Book…` and `Reserve…`, a
  * bin's `Allocate…`, `Split…` while it is wholly on its resources (with some
- * of it unallocated, `Allocate…` places that), `Unlink` and `Back to Events`,
+ * of it unallocated, `Allocate…` places that), `Unlink` and `Back to Arrivals`,
  * a reservation's `Book…`, `Reserve…` and `Remove` — each its cell's command.
  */
 function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; words: CardWords; row: TableRow; open: CardsOpen; setOpen: (open: CardsOpen) => void }) {
@@ -269,13 +270,13 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
     const lane = words.choice.lane(row.lane), time = formatDatePattern("HH:mm", row.at);
     const nameOf = (key: string) => context.resources.get(key)?.label ?? key;
     const code = bin === undefined ? undefined : binCode(context, bin);
-    // What it holds: a bin's event and quantity, and where its parts are and what they leave (A70); a reservation's resource; nothing.
-    const holds = bin === undefined ? `no ${one(nouns.event)} · no ${one(nouns.resource)}`
-        : bin.event.type === "none" ? `Reserved on ${parts[0] === undefined ? "nothing" : nameOf(parts[0].key)} · no ${one(nouns.event)} yet`
+    // What it holds: a bin's arrival and quantity, and where its parts are and what they leave (A70); a reservation's resource; nothing.
+    const holds = bin === undefined ? `no ${one(nouns.arrival)} · no ${one(nouns.resource)}`
+        : bin.arrival.type === "none" ? `Reserved on ${parts[0] === undefined ? "nothing" : nameOf(parts[0].key)} · no ${one(nouns.arrival)} yet`
             : `${code} · ${board.quantity(bin.quantity, unit)}`;
-    const where = bin === undefined || bin.event.type === "none" ? undefined
+    const where = bin === undefined || bin.arrival.type === "none" ? undefined
         : parts.length === 0 ? "not linked" : parts.map(part => `${nameOf(part.key)} ${board.quantity(part.quantity, unit)}`).join(" · ");
-    const chooser = (side: "event" | "resource", label: string, part?: string | null, title?: string) => <ChoiceCell props={props} row={row} side={side} part={part} words={words.choice}
+    const chooser = (side: "arrival" | "resource", label: string, part?: string | null, title?: string) => <ChoiceCell props={props} row={row} side={side} part={part} words={words.choice}
         open={open?.row === row.key && openKey(open.side, open.part) === openKey(side, part)} setOpen={setOpen}
         trigger={() => <Button size="xs" variant="outline" title={title}>{label}</Button>} />;
     return <Box css={styles.agendaCard} data-allocation-row-card={row.key} data-kind={row.kind} data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined}>
@@ -288,7 +289,7 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
             <Box as="span" css={styles.agendaStatus} data-status={status}><Box as="span" css={styles.tableStatusDot} />{status}</Box>
         </chakra.button>
         {props.editable && <Box css={styles.agendaActions}>
-            {row.kind !== "bin" && chooser("event", "Book…", undefined, row.kind === "reserved" ? `Book ${a(nouns.event)} into the reservation` : `Book ${a(nouns.event)} into ${lane} ${time}`)}
+            {row.kind !== "bin" && chooser("arrival", "Book…", undefined, row.kind === "reserved" ? `Book ${a(nouns.arrival)} into the reservation` : `Book ${a(nouns.arrival)} into ${lane} ${time}`)}
             {row.kind !== "bin" && chooser("resource", "Reserve…", undefined, row.kind === "reserved" ? `Move the reservation to another ${one(nouns.resource)}` : `Reserve ${a(nouns.resource)}`)}
             {row.kind === "reserved" && row.bin !== undefined
                 && <Button size="xs" variant="outline" title="Remove the reservation · the slot becomes free" onClick={() => commands.remove(row.bin!)}>Remove</Button>}
@@ -301,8 +302,8 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
                 {parts.length > 0 && <Button size="xs" variant="outline" title={`Unlink ${code} from ${parts.map(part => nameOf(part.key)).join(" and ")}`}
                     onClick={() => commands.unlink(row.bin!)}>Unlink</Button>}
                 <Button size="xs" variant="outline" onClick={() => commands.remove(row.bin!)}
-                    title={committed !== undefined ? `Remove ${code} from the plan · it moves to ${nouns.event.other}` : `Return ${code} to ${nouns.event.other}`}>
-                    Back to {nouns.event.other}
+                    title={committed !== undefined ? `Remove ${code} from the plan · it moves to ${nouns.arrival.other}` : `Return ${code} to ${nouns.arrival.other}`}>
+                    Back to {nouns.arrival.other}
                 </Button>
             </>}
         </Box>}

@@ -5,28 +5,26 @@
  *
  * The Library (#1330) over the kiln yard, through the dispatcher, the shared
  * drag layer and the yard's fit served by name: its tabs and their counts and
- * searches (A50), the Events groups and cards (A51), the Resources by the
+ * searches (A50), the Arrivals groups and cards (A51), the Resources by the
  * day's states (A52), the foot's hint and the picked card's action (A53, A87),
  * the rail and the empty search (A54), the cards' words (A83), the picks (A9–
  * A11) and every Library row of §10's drag table, with A32's marks and A36's
  * landing slot, and what a Library card's drag draws over the board: the
- * lines to an event's best fits (A30) and the target's links (A65). Every word
+ * lines to an arrival's best fits (A30) and the target's links (A65). Every word
  * and figure is the mock's for the same day.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import { FloatType, SortedMap, StringType, compareFor, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
+import { FloatType, SortedMap, StringType, compareFor, none, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, settle, slot, stubLinkGeometry, TUE } from "./harness.test-utils.js";
+import { act, allocationHarness, offering, settle, slot, stubLinkGeometry, type FitResult } from "./harness.test-utils.js";
 
 const h = allocationHarness();
-type FitResult = ValueTypeOf<typeof AllocationFitResultType>;
 const byScore = compareFor(FloatType);
-type Tab = "events" | "resources";
-const SEARCH = { events: "Find an event or site", resources: "Find a resource or group" } as const;
+type Tab = "arrivals" | "resources";
+const SEARCH = { arrivals: "Find an arrival or site", resources: "Find a resource or group" } as const;
 const pane = (c: HTMLElement, tab: Tab) => c.querySelector<HTMLElement>(`[data-allocation-library="${tab}"]`)!;
 const card = (c: HTMLElement, tab: Tab, key: string) => pane(c, tab).querySelector<HTMLElement>(`[data-library-item="${key}"]`)!;
 const heads = (c: HTMLElement, tab: Tab) => [...pane(c, tab).querySelectorAll("[data-library-head]")].map(head => head.textContent);
@@ -47,7 +45,7 @@ const undo = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingM
 const save = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.apply() });
 async function press(node: Element) { expect(node).not.toBeNull(); await act(async () => { fireEvent.click(node); }); await settle(); }
 async function open(example: { fn: { toIR(): unknown } }) { const r = await h.mount(example); return r.container; }
-async function tab(c: HTMLElement, name: "Events" | "Resources") {
+async function tab(c: HTMLElement, name: "Arrivals" | "Resources") {
     const tabs = within(slot(c, "start")).getAllByRole("tab");
     await press(tabs.find(t => t.textContent!.startsWith(name))!);
 }
@@ -106,19 +104,19 @@ const guides = (c: HTMLElement) => [...c.querySelectorAll("[data-allocation-link
 /** The links the layer draws: each one's bin and resource, its tone, and whether it is a `was` line. */
 const drawn = (c: HTMLElement) => [...c.querySelectorAll("[data-allocation-links] [data-plan-link]")]
     .map(g => [g.querySelector("[data-link]")!.getAttribute("data-allocation-link"), g.getAttribute("data-tone"), g.hasAttribute("data-was")] as const);
-/** The fit's answer to placing an event, and its three best. */
-const answerFor = (event: string) => [...h.fits.answers()].reverse().find(a => {
+/** The fit's answer to placing an arrival, and its three best. */
+const answerFor = (arrival: string) => [...h.fits.answers()].reverse().find(a => {
     const ask = (a as FitResult).ask;
-    return ask.type === "place" && ask.value.subject.type === "event" && ask.value.subject.value === event;
+    return ask.type === "place" && ask.value.subject.type === "arrival" && ask.value.subject.value === arrival;
 }) as FitResult;
 const bestOf = (a: FitResult) => [...a.resources].flatMap(([k, f]) => f.type === "fits" ? [{ k, score: f.value.score }] : [])
     .sort((x, y) => byScore(y.score, x.score)).slice(0, 3).map(f => f.k);
 
 describe("the tabs and their words (A50, A54)", () => {
-    test("A50 — Events and Resources, each with its count — every event the day shows, every resource — and its own search", async () => {
+    test("A50 — Arrivals and Resources, each with its count — every arrival the day shows, every resource — and its own search", async () => {
         const c = await open(ex.allocationKilnYard);
-        expect(within(slot(c, "start")).getAllByRole("tab").map(t => t.textContent)).toEqual(["Events 27", "Resources 33"]);
-        expect(within(pane(c, "events")).getByRole("textbox", { name: SEARCH.events }).getAttribute("placeholder")).toBe(SEARCH.events);
+        expect(within(slot(c, "start")).getAllByRole("tab").map(t => t.textContent)).toEqual(["Arrivals 27", "Resources 33"]);
+        expect(within(pane(c, "arrivals")).getByRole("textbox", { name: SEARCH.arrivals }).getAttribute("placeholder")).toBe(SEARCH.arrivals);
         await tab(c, "Resources");
         expect(within(pane(c, "resources")).getByRole("textbox", { name: SEARCH.resources }).getAttribute("placeholder")).toBe(SEARCH.resources);
     });
@@ -128,7 +126,7 @@ describe("the tabs and their words (A50, A54)", () => {
         await press(within(slot(c, "start")).getByRole("button", { name: "Collapse Library" }));
         const rail = slot(c, "start");
         expect(rail.querySelector("[data-dock-badge]")!.textContent).toBe("27");
-        expect(rail.querySelector("[data-dock-mark]")!.getAttribute("aria-label")).toBe("Overdue event");
+        expect(rail.querySelector("[data-dock-mark]")!.getAttribute("aria-label")).toBe("Overdue arrival");
         expect(rail.querySelector("[data-dock-mark] svg[data-icon='triangle-exclamation']")).not.toBeNull();
         await press(within(rail).getByRole("button", { name: "Expand Library" }));
         await tab(c, "Resources");
@@ -137,12 +135,12 @@ describe("the tabs and their words (A50, A54)", () => {
         expect(slot(c, "start").querySelector("[data-dock-mark]")).toBeNull();
     });
 
-    test("A54, A83 — a search that hides every card: `No events match · Clear the search to see all 27 events.`, and the resources' own", async () => {
+    test("A54, A83 — a search that hides every card: `No arrivals match · Clear the search to see all 27 arrivals.`, and the resources' own", async () => {
         const c = await open(ex.allocationKilnYard);
-        await search(c, "events", "no such load");
-        const empty = pane(c, "events").querySelector("[data-library-empty]")!;
-        expect(within(empty as HTMLElement).getByText("No events match")).toBeTruthy();
-        expect(within(empty as HTMLElement).getByText("Clear the search to see all 27 events.")).toBeTruthy();
+        await search(c, "arrivals", "no such load");
+        const empty = pane(c, "arrivals").querySelector("[data-library-empty]")!;
+        expect(within(empty as HTMLElement).getByText("No arrivals match")).toBeTruthy();
+        expect(within(empty as HTMLElement).getByText("Clear the search to see all 27 arrivals.")).toBeTruthy();
         await tab(c, "Resources");
         await search(c, "resources", "no such kiln");
         expect(within(pane(c, "resources").querySelector<HTMLElement>("[data-library-empty]")!).getByText("Clear the search to see all 33 resources.")).toBeTruthy();
@@ -150,58 +148,59 @@ describe("the tabs and their words (A50, A54)", () => {
     });
 });
 
-describe("the Events (A51, A83)", () => {
+describe("the Arrivals (A51, A83)", () => {
     test("A51 — Overdue (warn, its triangle), Ready around now, then Allocated, each counted; a search finds a load by its meta", async () => {
         const c = await open(ex.allocationKilnYard);
-        expect(heads(c, "events")).toEqual(["Overdue1", "Ready around now5", "Allocated21"]);
-        const overdue = pane(c, "events").querySelector<HTMLElement>("[data-library-head]")!;
+        expect(heads(c, "arrivals")).toEqual(["Overdue1", "Ready around now5", "Allocated21"]);
+        const overdue = pane(c, "arrivals").querySelector<HTMLElement>("[data-library-head]")!;
         expect([overdue.getAttribute("data-tone"), overdue.querySelector("[data-library-group-mark]")!.getAttribute("aria-label")]).toEqual(["warning", "Overdue"]);
-        expect(keys(c, "events").slice(0, 7)).toEqual(["event:LD-2231", "event:LD-2232", "event:LD-2233", "event:LD-2234", "event:LD-2235", "event:LD-2236", "event:LD-2201"]);
-        await search(c, "events", "RDG");
-        expect(keys(c, "events")).toEqual(["event:LD-2232", "event:LD-2233", "event:LD-2208", "event:LD-2212", "event:LD-2215", "event:LD-2220"]);
+        expect(keys(c, "arrivals").slice(0, 7)).toEqual(["arrival:LD-2231", "arrival:LD-2232", "arrival:LD-2233", "arrival:LD-2234", "arrival:LD-2235", "arrival:LD-2236", "arrival:LD-2201"]);
+        await search(c, "arrivals", "RDG");
+        expect(keys(c, "arrivals")).toEqual(["arrival:LD-2232", "arrival:LD-2233", "arrival:LD-2208", "arrival:LD-2212", "arrival:LD-2215", "arrival:LD-2220"]);
     });
 
     test("A51 — a card: grip, code, quantity, its meta and hold, its ready line (`was due Sun 9 · overdue` in warn; `due Wed 12 · window Tue–Fri`)", async () => {
         const c = await open(ex.allocationKilnYard);
-        const late = card(c, "events", "event:LD-2231");
+        const late = card(c, "arrivals", "arrival:LD-2231");
         expect([late.querySelector("[data-drag-grip]") !== null, figure(late), sub(late), ...note(late)]).toEqual([true, "21 m³", "BRK · R2 · spec MC12 · 8 d", "was due Sun 9 · overdue", "warning"]);
-        expect(note(card(c, "events", "event:LD-2233"))).toEqual(["due Wed 12 · window Tue–Fri", null]);
-        expect(note(card(c, "events", "event:LD-2236"))).toEqual(["due Thu 13 · window Wed–Sat", null]);
+        expect(note(card(c, "arrivals", "arrival:LD-2233"))).toEqual(["due Wed 12 · window Tue–Fri", null]);
+        expect(note(card(c, "arrivals", "arrival:LD-2236"))).toEqual(["due Thu 13 · window Wed–Sat", null]);
     });
 
-    test("A51, A83 — Allocated: the day's events where they are, `in B-3 01:55 on K-209`, `2 bins · …`; sunken, no grip; `In the plan · click to highlight its 2 bins`", async () => {
+    test("A51, A83 — Allocated: the day's arrivals where they are, `in B-3 01:55 on K-209`, `2 bins · …`; sunken, no grip; `In the plan · click to highlight its 2 bins`", async () => {
         const c = await open(ex.allocationKilnYard);
-        const one = card(c, "events", "event:LD-2201");
+        const one = card(c, "arrivals", "arrival:LD-2201");
         expect([figure(one), sub(one), ...note(one), one.getAttribute("data-look"), one.querySelector("[data-drag-grip]"), one.title])
             .toEqual(["35 m³", "BRK · R1 · spec MC14 · 7 d", "in B-3 01:55 on K-209", null, "sunken", null, "In the plan · click to highlight its bin"]);
-        await search(c, "events", "LD-2206");
-        const two = card(c, "events", "event:LD-2206");
+        await search(c, "arrivals", "LD-2206");
+        const two = card(c, "arrivals", "arrival:LD-2206");
         expect([figure(two), note(two)[0], two.title]).toEqual(["36 m³", "2 bins · B-2 05:35 on K-304 · B-2 05:36 on K-201", "In the plan · click to highlight its 2 bins"]);
     });
 
-    test("A83 — an event's tooltip names where it drags, on the Timeline and in the Table", async () => {
+    test("A83 — an arrival's tooltip names where it drags, on the Timeline and in the Table", async () => {
         const timeline = await open(ex.allocationKilnYard);
-        expect(card(timeline, "events", "event:LD-2231").title).toBe("Click to see where LD-2231 fits · drag it onto a lane hour or a resource");
+        expect(card(timeline, "arrivals", "arrival:LD-2231").title).toBe("Click to see where LD-2231 fits · drag it onto a lane hour or a resource");
         const table = await open(ex.allocationTable);
-        expect(card(table, "events", "event:LD-2231").title).toBe("Click to see where LD-2231 fits · drag it onto a free row");
+        expect(card(table, "arrivals", "arrival:LD-2231").title).toBe("Click to see where LD-2231 fits · drag it onto a free row");
     });
 
     test("A51, A76 — a committed bin the drafts remove moves to Removed from plan, dashed, `was B-2 10:35 on K-108`; dragged back it books again with its own bin", async () => {
         const c = await open(ex.allocationKilnYard);
         await press(boardCard(c, "3113"));
         await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "Delete" }); }); await settle();
-        expect(heads(c, "events")).toEqual(["Overdue1", "Ready around now5", "Removed from plan1", "Allocated20"]);
-        const removed = card(c, "events", "removed:3113");
+        expect(heads(c, "arrivals")).toEqual(["Overdue1", "Ready around now5", "Removed from plan1", "Allocated20"]);
+        const removed = card(c, "arrivals", "removed:3113");
         expect([removed.getAttribute("data-look"), figure(removed), sub(removed), note(removed)[0], removed.title]).toEqual([
             "dashed", "32 m³", "FRN · R2 · spec MC08 · 7 d", "was B-2 10:35 on K-108", "Click to see where it fits · drag LD-2210 back onto a lane hour or a resource"]);
         await hover(removed, cell(c, "B-1", hour(0, 15)));
         expect(caption()!.textContent).toBe("to B-1 00:15");
         await release();
         expect(boardCard(c, "3113").querySelector("[data-allocation-to]")!.textContent).toBe("not linked");
-        expect(pane(c, "events").querySelector("[data-library-item='removed:3113']")).toBeNull();
+        expect(pane(c, "arrivals").querySelector("[data-library-item='removed:3113']")).toBeNull();
         await press(save(c));
-        const back = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!;
-        expect([back.lane, back.at, back.parts.size, back.values.specMeasured]).toEqual(["B-1", hour(0, 15), 0, "MC22"]);
+        // Its own row back, its key and its yard's fields as they were.
+        const back = (await h.read(ex.kilnBins)).get("3113")!;
+        expect([back.bay, back.at, back.kilns.size, back.specMeasured]).toEqual(["B-1", hour(0, 15), 0, "MC22"]);
     });
 });
 
@@ -237,7 +236,7 @@ describe("the Resources (A52, A83)", () => {
         await tab(c, "Resources");
         expect(within(pane(c, "resources")).queryByRole("button", { name: /^Filter/ })).toBeNull();
         expect(within(pane(c, "resources")).getByRole("textbox", { name: SEARCH.resources })).toBeTruthy();
-        expect(within(pane(c, "events")).queryByRole("button", { name: /^Filter/ })).toBeNull();
+        expect(within(pane(c, "arrivals")).queryByRole("button", { name: /^Filter/ })).toBeNull();
     });
 
     test("A83 — a resource's tooltip names where it drags, on the Timeline and in the Table", async () => {
@@ -255,41 +254,42 @@ describe("the Resources (A52, A83)", () => {
 describe("the foot's hint and the picked card's action (A53, A87)", () => {
     test("A53 — the hint is the tab's and the layout's", async () => {
         const timeline = await open(ex.allocationKilnYard);
-        expect(hint(timeline, "events")).toBe("Drag onto a lane hour or a resource");
+        expect(hint(timeline, "arrivals")).toBe("Drag onto a lane hour or a resource");
         expect(hint(timeline, "resources")).toBe("Drag onto a bin or an empty lane hour");
         const table = await open(ex.allocationTable);
-        expect(hint(table, "events")).toBe("Drag onto a row’s event cell");
+        expect(hint(table, "arrivals")).toBe("Drag onto a row’s arrival cell");
         expect(hint(table, "resources")).toBe("Drag onto a row’s resource cell");
     });
 
-    test("A53 — a picked event with nothing selected says where a click books it; A87 — the Table's words", async () => {
+    test("A53 — a picked arrival with nothing selected says where a click books it; A87 — the Table's words", async () => {
         const timeline = await open(ex.allocationKilnYard);
-        expect(action(timeline, "events")).toBeNull();
-        await press(card(timeline, "events", "event:LD-2235"));
-        expect(action(timeline, "events")!.textContent).toBe("Click a free lane hour or a ranked resource to book LD-2235 there, or select a free slot first.");
-        expect(within(action(timeline, "events")!).queryByRole("button")).toBeNull();
+        expect(action(timeline, "arrivals")).toBeNull();
+        await press(card(timeline, "arrivals", "arrival:LD-2235"));
+        expect(action(timeline, "arrivals")!.textContent).toBe("Click a free lane hour or a ranked resource to book LD-2235 there, or select a free slot first.");
+        expect(within(action(timeline, "arrivals")!).queryByRole("button")).toBeNull();
         const table = await open(ex.allocationTable);
-        await press(card(table, "events", "event:LD-2235"));
-        expect(action(table, "events")!.textContent).toBe("Click a highlighted event cell to book LD-2235 there, or select a free slot first.");
+        await press(card(table, "arrivals", "arrival:LD-2235"));
+        expect(action(table, "arrivals")!.textContent).toBe("Click a highlighted arrival cell to book LD-2235 there, or select a free slot first.");
     });
 
-    test("A53 — with a free slot selected: `Book into B-1 00:15`, `LD-2235 · 8 m³ · then choose its resource`; it books the event there, not linked", async () => {
+    test("A53 — with a free slot selected: `Book into B-1 00:15`, `LD-2235 · 8 m³ · then choose its resource`; it books the arrival there, not linked", async () => {
         const c = await open(ex.allocationTable);
         await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector("span")!);
-        await press(card(c, "events", "event:LD-2235"));
-        const box = action(c, "events")!;
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        const box = action(c, "arrivals")!;
         expect(box.firstElementChild!.textContent).toBe("LD-2235 · 8 m³ · then choose its resource");
+        offering(["N1"]);
         await press(within(box).getByRole("button", { name: "Book into B-1 00:15" }));
         const booked = tableRow(c, "bin:N1");
-        expect(booked.querySelector("[data-allocation-chip=event]")!.textContent).toContain("LD-2235");
+        expect(booked.querySelector("[data-allocation-chip=arrival]")!.textContent).toContain("LD-2235");
         expect(booked.querySelector("[data-allocation-placeholder=resource]")).not.toBeNull();
         // A draft booking is Allocated, first, with its ×; the × returns it (A51).
-        const allocated = card(c, "events", "event:LD-2235");
+        const allocated = card(c, "arrivals", "arrival:LD-2235");
         expect([allocated.title, ...note(allocated)]).toEqual(["Allocated · click to show its bin", "in B-1 00:15 · not linked", "warning"]);
-        expect(keys(c, "events").indexOf("event:LD-2235")).toBe(keys(c, "events").indexOf("event:LD-2201") - 1);
+        expect(keys(c, "arrivals").indexOf("arrival:LD-2235")).toBe(keys(c, "arrivals").indexOf("arrival:LD-2201") - 1);
         await press(within(allocated).getByRole("button", { name: "Return LD-2235 to the list" }));
         expect(c.querySelector("[data-allocation-row='bin:N1']")).toBeNull();
-        expect(heads(c, "events")).toEqual(["Overdue1", "Ready around now5", "Allocated21"]);
+        expect(heads(c, "arrivals")).toEqual(["Overdue1", "Ready around now5", "Allocated21"]);
     });
 
     test("A53 — a resource picked for a free slot: `Reserve B-1 01:15 on K-305`; then a reservation selected: `Book into B-1 01:15`, checked against its resource", async () => {
@@ -299,19 +299,21 @@ describe("the foot's hint and the picked card's action (A53, A87)", () => {
         await press(card(c, "resources", "K-305"));
         expect(card(c, "resources", "K-305").hasAttribute("data-placed")).toBe(true);
         const reserve = action(c, "resources")!;
+        offering(["V1"]);
         await press(within(reserve).getByRole("button", { name: "Reserve B-1 01:15 on K-305" }));
         const reserved = tableRow(c, "bin:V1");
         expect([reserved.getAttribute("data-kind"), reserved.querySelector("[data-allocation-chip=resource]")!.textContent]).toEqual(["reserved", "K-305"]);
-        await tab(c, "Events");
+        await tab(c, "Arrivals");
         // Too big for K-305: refused, in warn, the button off.
-        await press(card(c, "events", "event:LD-2232"));
-        let box = action(c, "events")!;
+        await press(card(c, "arrivals", "arrival:LD-2232"));
+        let box = action(c, "arrivals")!;
         expect([box.firstElementChild!.textContent, box.firstElementChild!.getAttribute("data-tone")]).toEqual(["Doesn’t fit K-305: over max by 20 m³", "warning"]);
         expect(within(box).getByRole("button", { name: "Book into B-1 01:15" })).toHaveProperty("disabled", true);
         // LD-2235 fits it: the fit's reason, and Book fills the reservation.
-        await press(card(c, "events", "event:LD-2235"));
-        box = action(c, "events")!;
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        box = action(c, "arrivals")!;
         expect(box.firstElementChild!.textContent!.startsWith("Reserved on K-305 · ")).toBe(true);
+        offering(["N1"]);
         await press(within(box).getByRole("button", { name: "Book into B-1 01:15" }));
         expect(c.querySelector("[data-allocation-row='bin:V1']")).toBeNull();
         expect(tableRow(c, "bin:N1").querySelector("[data-allocation-chip=resource]")!.textContent).toBe("K-305");
@@ -322,11 +324,13 @@ describe("the foot's hint and the picked card's action (A53, A87)", () => {
         const c = await open(ex.allocationKilnYard);
         await tab(c, "Resources");
         // A reservation is a draft: the day as drafted is the session's, whatever the record under it does.
-        await drop(card(c, "resources", "K-305"), cell(c, "B-1", hour(0, 15)));
+        await hover(card(c, "resources", "K-305"), cell(c, "B-1", hour(0, 15)));
+        offering(["V1"]);
+        await release();
         expect(boardCard(c, "V1").hasAttribute("data-selected")).toBe(true);
-        await tab(c, "Events");
-        await press(card(c, "events", "event:LD-2235"));
-        const note = () => action(c, "events")!.firstElementChild!.textContent;
+        await tab(c, "Arrivals");
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        const note = () => action(c, "arrivals")!.firstElementChild!.textContent;
         expect(note()).toContain("leaves 8 m³ · takes 4–10");
         // Another session raises K-305's minimum past LD-2235's 8 m³.
         const kilns = await h.read(ex.kilns);
@@ -340,13 +344,13 @@ describe("the foot's hint and the picked card's action (A53, A87)", () => {
 });
 
 describe("picks (A9–A11)", () => {
-    test("A9 — a click on an event card picks it, again unpicks it; a resource card with no free slot selected selects the resource, again unselects it", async () => {
+    test("A9 — a click on an arrival card picks it, again unpicks it; a resource card with no free slot selected selects the resource, again unselects it", async () => {
         const c = await open(ex.allocationKilnYard);
-        await press(card(c, "events", "event:LD-2235"));
-        expect(card(c, "events", "event:LD-2235").hasAttribute("data-placed")).toBe(true);
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        expect(card(c, "arrivals", "arrival:LD-2235").hasAttribute("data-placed")).toBe(true);
         expect(c.querySelector("[data-allocation-timeline]")!.hasAttribute("data-allocation-pick")).toBe(true);
-        await press(card(c, "events", "event:LD-2235"));
-        expect(card(c, "events", "event:LD-2235").hasAttribute("data-placed")).toBe(false);
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        expect(card(c, "arrivals", "arrival:LD-2235").hasAttribute("data-placed")).toBe(false);
         expect(c.querySelector("[data-allocation-timeline]")!.hasAttribute("data-allocation-pick")).toBe(false);
         await tab(c, "Resources");
         await press(card(c, "resources", "K-209"));
@@ -355,106 +359,111 @@ describe("picks (A9–A11)", () => {
         expect(row(c, "K-209")!.hasAttribute("data-selected")).toBe(false);
     });
 
-    test("A9 — in the Table a selected free slot stays selected when an event is picked; Esc clears the pick, then the selection", async () => {
+    test("A9 — in the Table a selected free slot stays selected when an arrival is picked; Esc clears the pick, then the selection", async () => {
         const c = await open(ex.allocationTable);
         const slotRow = () => tableRow(c, "slot:B-1|2027-05-11T00:15:00.000");
         await press(slotRow().querySelector("span")!);
-        await press(card(c, "events", "event:LD-2235"));
-        expect([slotRow().hasAttribute("data-selected"), card(c, "events", "event:LD-2235").hasAttribute("data-placed")]).toEqual([true, true]);
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        expect([slotRow().hasAttribute("data-selected"), card(c, "arrivals", "arrival:LD-2235").hasAttribute("data-placed")]).toEqual([true, true]);
         await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "Escape" }); }); await settle();
-        expect([slotRow().hasAttribute("data-selected"), card(c, "events", "event:LD-2235").hasAttribute("data-placed")]).toEqual([true, false]);
+        expect([slotRow().hasAttribute("data-selected"), card(c, "arrivals", "arrival:LD-2235").hasAttribute("data-placed")]).toEqual([true, false]);
         await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "Escape" }); }); await settle();
         expect(slotRow().hasAttribute("data-selected")).toBe(false);
     });
 
-    test("A10 — an Allocated card selects its event's first bin and highlights every bin of it; again, it clears", async () => {
+    test("A10 — an Allocated card selects its arrival's first bin and highlights every bin of it; again, it clears", async () => {
         const c = await open(ex.allocationKilnYard);
-        await search(c, "events", "LD-2206");
-        await press(card(c, "events", "event:LD-2206"));
+        await search(c, "arrivals", "LD-2206");
+        await press(card(c, "arrivals", "arrival:LD-2206"));
         expect([boardCard(c, "3106").hasAttribute("data-selected"), boardCard(c, "3107").hasAttribute("data-selected"), boardCard(c, "3101").hasAttribute("data-selected")]).toEqual([true, true, false]);
-        expect(card(c, "events", "event:LD-2206").hasAttribute("data-placed")).toBe(true);
-        await press(card(c, "events", "event:LD-2206"));
+        expect(card(c, "arrivals", "arrival:LD-2206").hasAttribute("data-placed")).toBe(true);
+        await press(card(c, "arrivals", "arrival:LD-2206"));
         expect([boardCard(c, "3106").hasAttribute("data-selected"), boardCard(c, "3107").hasAttribute("data-selected")]).toEqual([false, false]);
         // In the Table every row of it is marked.
         const t = await open(ex.allocationTable);
-        await search(t, "events", "LD-2207");
-        await press(card(t, "events", "event:LD-2207"));
+        await search(t, "arrivals", "LD-2207");
+        await press(card(t, "arrivals", "arrival:LD-2207"));
         expect([(await revealRow(t, "bin:3108")).hasAttribute("data-selected"), (await revealRow(t, "bin:3109")).hasAttribute("data-selected")]).toEqual([true, true]);
     });
 
-    test("A11 — a picked event ranks the resources as its drag would, and a click on a ranked resource books it there, at the day's first free slot (A36)", async () => {
+    test("A11 — a picked arrival ranks the resources as its drag would, and a click on a ranked resource books it there, at the day's first free slot (A36)", async () => {
         const c = await open(ex.allocationKilnYard);
-        await press(card(c, "events", "event:LD-2235"));
+        await press(card(c, "arrivals", "arrival:LD-2235"));
         const best = bestOf(answerFor("LD-2235"));
         expect(best.length).toBeGreaterThan(0);
         const first = await reveal(c, best[0]!);
         expect(first.querySelector("[data-allocation-rank]")!.textContent).toBe("1");
+        offering(["N1"]);
         await press(first);
         const booked = boardCard(c, "N1");
         expect([booked.querySelector("[data-allocation-code]")!.textContent, booked.querySelector("[data-allocation-to]")!.textContent]).toEqual(["LD-2235", best[0]]);
         expect(cell(c, "B-1", hour(0, 15)).hasAttribute("data-free")).toBe(false);
     });
 
-    test("A11 — a picked event marks the free lane hours, and a click on one books it there, not linked; a click on an occupied hour clears", async () => {
+    test("A11 — a picked arrival marks the free lane hours, and a click on one books it there, not linked; a click on an occupied hour clears", async () => {
         const c = await open(ex.allocationKilnYard);
-        await press(card(c, "events", "event:LD-2236"));
+        await press(card(c, "arrivals", "arrival:LD-2236"));
         expect(cell(c, "B-2", hour(0, 35)).querySelector("[data-allocation-placeholder]")).not.toBeNull();
+        offering(["N1"]);
         await press(cell(c, "B-2", hour(0, 35)));
         expect([boardCard(c, "N1").querySelector("[data-allocation-code]")!.textContent, boardCard(c, "N1").querySelector("[data-allocation-to]")!.textContent]).toEqual(["LD-2236", "not linked"]);
         expect(c.querySelector("[data-allocation-timeline]")!.hasAttribute("data-allocation-pick")).toBe(false);
     });
 
-    test("A11, A45 — in the Table a picked event's free rows read `click to book LD-2235 here`; a click books it; a row's time selects and books nothing", async () => {
+    test("A11, A45 — in the Table a picked arrival's free rows read `click to book LD-2235 here`; a click books it; a row's time selects and books nothing", async () => {
         const c = await open(ex.allocationTable);
-        await press(card(c, "events", "event:LD-2235"));
-        const placeholder = () => tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector<HTMLElement>("[data-allocation-placeholder=event]")!;
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        const placeholder = () => tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector<HTMLElement>("[data-allocation-placeholder=arrival]")!;
         expect([placeholder().getAttribute("data-verdict"), placeholder().querySelector("[data-say=pick]")!.textContent]).toEqual(["pick", "click to book LD-2235 here"]);
         await press(tableRow(c, "slot:B-2|2027-05-11T00:35:00.000").querySelector("span")!);
         expect(undo(c)).toHaveProperty("disabled", true);
-        await press(card(c, "events", "event:LD-2235"));
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        offering(["N1"]);
         await press(placeholder());
-        expect(tableRow(c, "bin:N1").querySelector("[data-allocation-chip=event]")!.textContent).toContain("LD-2235");
+        expect(tableRow(c, "bin:N1").querySelector("[data-allocation-chip=arrival]")!.textContent).toContain("LD-2235");
     });
 });
 
 describe("Library drags (§10, A32, A33, A36)", () => {
-    test("§10, A33, A36 — an event onto a resource books it there at the day's first free slot: `to K-… · #1 · B-1 00:15`", async () => {
+    test("§10, A33, A36 — an arrival onto a resource books it there at the day's first free slot: `to K-… · #1 · B-1 00:15`", async () => {
         const c = await open(ex.allocationKilnYard);
         // Picked and unpicked: the fit's answer for it, to read the expected rank from.
-        await press(card(c, "events", "event:LD-2235"));
-        await press(card(c, "events", "event:LD-2235"));
+        await press(card(c, "arrivals", "arrival:LD-2235"));
+        await press(card(c, "arrivals", "arrival:LD-2235"));
         const best = bestOf(answerFor("LD-2235"))[0]!;
         const fit = answerFor("LD-2235").resources.get(best)!;
         const warn = fit.type === "fits" && fit.value.warn.type === "some" ? ` · ${fit.value.warn.value}` : "";
         const target = await reveal(c, best);
-        await hover(card(c, "events", "event:LD-2235"), target);
+        await hover(card(c, "arrivals", "arrival:LD-2235"), target);
         expect(caption()!.textContent).toBe(`to ${best} · #1${warn} · B-1 00:15`);
+        offering(["N1"]);
         await release();
         expect(boardCard(c, "N1").querySelector("[data-allocation-to]")!.textContent).toBe(best);
         await press(save(c));
-        const saved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("N1")!;
-        expect([saved.lane, saved.at, [...saved.parts]]).toEqual(["B-1", hour(0, 15), [[best, 8]]]);
+        const saved = (await h.read(ex.kilnBins)).get("N1")!;
+        expect([saved.bay, saved.at, [...saved.kilns]]).toEqual(["B-1", hour(0, 15), [[best, 8]]]);
     });
 
     test("A36 — with no free slot left in the day, a drop onto a resource books nothing, under `Not booked · No free bin is left on Tue 11 for LD-2235.`", async () => {
         const c = await open(ex.allocationKilnYard);
         // Every free slot of the day reserved, on no resource: no slot is free.
-        const plans = await h.read(ex.kilnPlans);
-        const day = plans.get(TUE)!;
+        const bins = await h.read(ex.kilnBins);
+        const held = [...bins.values()];
         const offsets = { "B-1": 15, "B-2": 35, "B-3": 55 } as const;
         for (const [lane, offset] of Object.entries(offsets)) {
             for (let n = 0; n < 24; n++) {
                 const at = hour(n, offset);
-                const taken = [...day.bins.values()].some(bin => bin.lane === lane && bin.at.getTime() >= at.getTime() - 600_000 && bin.at.getTime() < at.getTime() + 3_000_000);
-                if (!taken) day.bins.set(`R${lane}${n}`, { lane, at, event: none, quantity: 0, kind: none, hold: variant("days", 0), parts: new SortedMap([], compareFor(StringType)),
-                    values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
+                const taken = held.some(bin => bin.bay === lane && bin.at.getTime() >= at.getTime() - 600_000 && bin.at.getTime() < at.getTime() + 3_000_000);
+                if (!taken) bins.set(`R${lane}${n}`, { bay: lane, at, load: none, m3: 0, spec: none, dryFor: variant("days", 0), kilns: new SortedMap([], compareFor(StringType)),
+                    specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none });
             }
         }
-        await h.patch(ex.kilnPlans, plans);
+        await h.patch(ex.kilnBins, bins);
         expect(c.querySelector("[data-allocation-cell][data-free]")).toBeNull();
         const target = await reveal(c, "K-305");
-        await hover(card(c, "events", "event:LD-2235"), target);
+        await hover(card(c, "arrivals", "arrival:LD-2235"), target);
         expect(caption()!.textContent).toBe("to K-305 · #1");
+        offering(["N1"]);
         await release();
         expect(c.querySelector("[data-allocation-card='N1']")).toBeNull();
         const banner = within(slot(c, "banners"));
@@ -463,33 +472,37 @@ describe("Library drags (§10, A32, A33, A36)", () => {
         expect(undo(c)).toHaveProperty("disabled", true);
     });
 
-    test("§10 — an event onto a lane hour books it there; onto a Table resource cell it is refused `drop on the event cell`", async () => {
+    test("§10 — an arrival onto a lane hour books it there; onto a Table resource cell it is refused `drop on the arrival cell`", async () => {
         const c = await open(ex.allocationKilnYard);
-        await hover(card(c, "events", "event:LD-2236"), cell(c, "B-3", hour(0, 55)));
+        await hover(card(c, "arrivals", "arrival:LD-2236"), cell(c, "B-3", hour(0, 55)));
         expect(caption()!.textContent).toBe("to B-3 00:55");
+        offering(["N1"]);
         await release();
         expect(boardCard(c, "N1").querySelector("[data-allocation-to]")!.textContent).toBe("not linked");
         const t = await open(ex.allocationTable);
-        await hover(card(t, "events", "event:LD-2236"), tableRow(t, "bin:3101").querySelector("[data-allocation-cell-side=resource]")!);
-        expect([caption()!.textContent, caption()!.hasAttribute("data-refused")]).toEqual(["drop on the event cell", true]);
+        await hover(card(t, "arrivals", "arrival:LD-2236"), tableRow(t, "bin:3101").querySelector("[data-allocation-cell-side=resource]")!);
+        expect([caption()!.textContent, caption()!.hasAttribute("data-refused")]).toEqual(["drop on the arrival cell", true]);
         await release();
         expect(undo(t)).toHaveProperty("disabled", true);
     });
 
-    test("§10, A33, A38 — a resource onto a free lane hour reserves it; an event into the reservation fills it, or is refused by the fit", async () => {
+    test("§10, A33, A38 — a resource onto a free lane hour reserves it; an arrival into the reservation fills it, or is refused by the fit", async () => {
         const c = await open(ex.allocationKilnYard);
         await tab(c, "Resources");
         await hover(card(c, "resources", "K-305"), cell(c, "B-1", hour(0, 15)));
         expect(caption()!.textContent).toBe("reserve B-1 00:15");
+        offering(["V1"]);
         await release();
         expect(boardCard(c, "V1").hasAttribute("data-reserved")).toBe(true);
-        await tab(c, "Events");
-        await hover(card(c, "events", "event:LD-2232"), boardCard(c, "V1"));
+        await tab(c, "Arrivals");
+        await hover(card(c, "arrivals", "arrival:LD-2232"), boardCard(c, "V1"));
         expect([caption()!.textContent, caption()!.hasAttribute("data-refused")]).toEqual(["over max by 20 m³", true]);
+        offering(["N1"]);
         await release();
         expect(c.querySelector("[data-allocation-card='N1']")).toBeNull();
-        await hover(card(c, "events", "event:LD-2235"), boardCard(c, "V1"));
+        await hover(card(c, "arrivals", "arrival:LD-2235"), boardCard(c, "V1"));
         expect(caption()!.textContent).toBe("into the reservation on K-305");
+        offering(["N1"]);
         await release();
         expect(c.querySelector("[data-allocation-card='V1']")).toBeNull();
         expect(boardCard(c, "N1").querySelector("[data-allocation-to]")!.textContent).toBe("K-305");
@@ -539,21 +552,22 @@ describe("Library drags (§10, A32, A33, A36)", () => {
         await search(c, "resources", "K-305");
         await hover(card(c, "resources", "K-305"), free());
         expect([free().getAttribute("data-verdict"), free().querySelector("[data-say=drop]")!.textContent, caption()!.textContent]).toEqual(["fits", "drop to reserve", "reserve B-1 00:15"]);
+        offering(["V1"]);
         await release();
         expect(tableRow(c, "bin:V1").getAttribute("data-kind")).toBe("reserved");
     });
 });
 
 describe("what a Library card's drag draws over the board (A30, A65)", () => {
-    test("A30 — while an event is dragged over the lane grid, a thin line runs from the pointer into each of its three best fits' rows; over the rows, none", async () => {
+    test("A30 — while an arrival is dragged over the lane grid, a thin line runs from the pointer into each of its three best fits' rows; over the rows, none", async () => {
         stubLinkGeometry();
         const c = await open(ex.allocationKilnYard);
         // Picked and unpicked: the fit's answer for LD-2236, and its three best — the mock's three, in the yard's fit's order.
-        await press(card(c, "events", "event:LD-2236")); await press(card(c, "events", "event:LD-2236"));
+        await press(card(c, "arrivals", "arrival:LD-2236")); await press(card(c, "arrivals", "arrival:LD-2236"));
         const best = bestOf(answerFor("LD-2236"));
         expect([best.length, best]).toEqual([3, expect.arrayContaining(["K-103", "K-107", "K-601"])]);
         // The pointer at (36, 353) in the layer, as the mock measures LD-2236's: a line into each, best first.
-        await carry(card(c, "events", "event:LD-2236"), cell(c, "B-1", hour(4, 15)), 36, 401);
+        await carry(card(c, "arrivals", "arrival:LD-2236"), cell(c, "B-1", hour(4, 15)), 36, 401);
         const into: Record<string, string[]> = {
             // K-107, the seventh row, and K-103, the third: out of the drag point, through the riser, into each row's leading edge.
             "K-107": ["M 36.0 353.0 L 360.0 353.0 A 8.0 8.0 0 0 0 368.0 345.0 L 368.0 242.0 A 8.0 8.0 0 0 1 376.0 234.0 L 387.0 234.0", "M 387.0 230.0 L 395.0 234.0 L 387.0 238.0 Z"],
@@ -573,10 +587,10 @@ describe("what a Library card's drag draws over the board (A30, A65)", () => {
         expect(c.querySelector("[data-allocation-link-lines]")).toBeNull();
     });
 
-    test("A65 — a Library card's drag has no family of its own: over a row, that row's links in the drop's verdict — an event's refusal, and a resource card's, warn", async () => {
+    test("A65 — a Library card's drag has no family of its own: over a row, that row's links in the drop's verdict — an arrival's refusal, and a resource card's, warn", async () => {
         stubLinkGeometry();
         const c = await open(ex.allocationKilnYard);
-        await carry(card(c, "events", "event:LD-2236"), cell(c, "B-1", hour(4, 15)), 36, 401);
+        await carry(card(c, "arrivals", "arrival:LD-2236"), cell(c, "B-1", hour(4, 15)), 36, 401);
         expect(c.querySelector("[data-allocation-links]")).toBeNull();
         // K-106 refuses LD-2236, `over max by 7 m³`, as the mock's drag of it does: its link warn.
         await moveTo(row(c, "K-106")!, 695, 246);

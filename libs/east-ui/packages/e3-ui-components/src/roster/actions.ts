@@ -14,21 +14,22 @@
  * unique among every key the Roster has read and drafted
  * (`crypto.randomUUID()`, retried): a record read whole holds every key, and a
  * key a record read a window at a time holds unread is its Save's own
- * conflict, never an overwrite. A find edits nothing: it asks the app's fit
- * (#1334). Publish runs Save, then writes the week's status once every record
- * reads back as saved ({@link publishWeek}).
+ * conflict, never an overwrite (`shared/schedule/records.ts`). A find edits
+ * nothing: it asks the app's fit (#1334). Publish runs Save, then writes the
+ * week's status once every record reads back as saved (`publishPeriod`).
  *
  * @packageDocumentation
  */
 
-import { BlobType, OptionType, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type EastType, type StructType, type option } from "@elaraai/east";
+import { BlobType, OptionType, equalFor, none, some, variant, type option } from "@elaraai/east";
 import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
-import type { EditHistory, Origin } from "@elaraai/east-ui-components";
-import type { ScheduleChange, ScheduleEntryRef } from "../shared/schedule/editing.js";
+import type { Origin } from "@elaraai/east-ui-components";
+import type { ScheduleChange } from "../shared/schedule/editing.js";
+import { fieldChange, mintKey, periodPublishChange } from "../shared/schedule/records.js";
 import { PERIODS, TARGETS, type RosterEditing } from "./editing.js";
 import type { RosterFind } from "./fit.js";
 import {
-    activityOf, availableProposals, compareDate, dayOfSlot, editableStatus, positionFor, rosterTimes, rowCodec, sameSlot, shiftTimes, startReach,
+    activityOf, availableProposals, compareDate, dayOfSlot, editableStatus, positionFor, rosterTimes, sameSlot, shiftTimes, startReach,
     startingAt, weekKey, type Assignment, type Context, type Issue, type PlacedDuties, type PlacedPeriod, type PlacedTargets, type Requirement,
     type Roles, type RosterPayload, type RosterValue, type Selection, type Slot, type StoredDuty, type Week, type Who,
 } from "./model.js";
@@ -93,19 +94,6 @@ export interface RosterCommands {
 
 const sameBytes = equalFor(BlobType);
 const sameResource: (a: Roles["resource"], b: Roles["resource"]) => boolean = equalFor(OptionType(ScheduleResourceRefType));
-
-/**
- * A new key, minted unique among the keys given (`crypto.randomUUID()`, retried).
- *
- * @param taken - Whether a key is held already
- * @returns The key
- */
-export function mintKey(taken: (key: string) => boolean): string {
-    for (;;) {
-        const key = crypto.randomUUID();
-        if (!taken(key)) return key;
-    }
-}
 
 /**
  * The Roster's commands over the week (see the module docs).
@@ -275,11 +263,9 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         field(id, path, next) {
             const refused = blocked(); if (refused !== undefined) return refused;
             const row = rowOf(id); if (row === undefined) return "This duty is no longer present.";
-            const spec = value.duty.kind.fields.find(field => field.path.length === path.length && field.path.every((part, i) => part === path[i]));
-            const rowType = fromEastTypeValue(value.duty.kind.editing.entryType) as StructType;
-            const type = (spec?.type ?? (path.length === 1 ? rowType.fields[path[0]!] : undefined)) as EastType | undefined;
-            if (type === undefined) return "This field cannot be edited.";
-            record([{ kind: duty, id, gesture: variant("field", { path: [...path], value: encodeBeast2For(type)(next as never) }) }], "typed", "Edit duty");
+            const change = fieldChange(value.duty.kind, id, path, next);
+            if (change === undefined) return "This field cannot be edited.";
+            record([change], "typed", "Edit duty");
             return undefined;
         },
         row(id, bytes) {
@@ -372,8 +358,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
 
 /**
  * The week's row as Publish writes it: its status the published case, at the
- * time given — over the row as the weeks' session last saw it saved, else as
- * the Roster read it, else a new one.
+ * time given (`periodPublishChange`).
  *
  * @param value - The payload: its periods
  * @param editing - The editing
@@ -384,51 +369,5 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
  */
 export function publishChange(value: RosterPayload, editing: RosterEditing, start: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
     if (value.periods.type !== "some") return undefined;
-    const periods = value.periods.value;
-    const id = weekKey(start);
-    const saved = editing.schedule.held(PERIODS, id);
-    const row = saved !== undefined ? rowCodec(periods.rowType).encode(saved) : stored;
-    return { kind: PERIODS, id, row: periods.publish(row === undefined ? none : some(row), at) };
-}
-
-/**
- * Waits until no record's request is in flight or confirming.
- *
- * @param history - The history over the records
- * @returns The history's status then: idle once every record reads back as saved
- */
-export function settled(history: EditHistory<ScheduleEntryRef>): Promise<EditHistory<ScheduleEntryRef>["status"]> {
-    return new Promise(resolve => {
-        let off: (() => void) | undefined;
-        const check = () => {
-            const status = history.status;
-            if (status === "applying" || status === "reconciling") return;
-            off?.();
-            resolve(status);
-        };
-        off = history.subscribe(check);
-        check();
-    });
-}
-
-/**
- * Publishes a week (§4.3 rule 4, B7): Save first; once every record's session
- * reads back as saved, the week's status the published case, and the weeks
- * saved. A Save that fails, or drafts that cannot be saved yet, leave the week
- * a draft with its drafts kept, so a published week never sits over unsaved
- * rows.
- *
- * @param history - The history over the records
- * @param change - The week's row as Publish writes it, worked out once the Save has settled
- * @param record - Records it, as one step
- * @returns Whether the week's status was written and saved
- */
-export async function publishWeek(history: EditHistory<ScheduleEntryRef>, change: () => ScheduleChange | undefined,
-    record: (changes: readonly ScheduleChange[]) => boolean): Promise<boolean> {
-    await history.apply();
-    if (await settled(history) !== "idle" || history.pending > 0) return false;
-    const published = change();
-    if (published === undefined || !record([published])) return false;
-    await history.apply();
-    return await settled(history) === "idle" && history.pending === 0;
+    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, weekKey(start), stored, at);
 }

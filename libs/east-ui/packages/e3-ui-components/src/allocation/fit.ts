@@ -8,7 +8,7 @@
  * `e3.function`, asked through the shared fit (`shared/func/use-fit.ts`), as
  * the Roster's Find fixes ask theirs. The board asks about its active
  * subjects — the selected bin, the grip under a pointer-down, an open
- * Chooser's cell — and asks again when the drafts change, or the events,
+ * Chooser's cell — and asks again when the drafts change, or the arrivals,
  * lanes and resources it reads. Answers are kept by what they were asked of
  * and by question, matched to their question by the `ask` each echoes. One
  * question is in flight at a time; the others wait, the latest asked first,
@@ -39,10 +39,10 @@ export type AllocationFit = FitAnswers<FitAsk, Day, FitResult>;
  * The board's fit (see the module docs).
  *
  * @param value - The payload: the fit's name
- * @param domain - The plans at their bin values: the request's type
+ * @param domain - The bin row type's domain: the request's type
  * @param day - The plan day
  * @param plan - The day as drafted
- * @param context - Every event and resource
+ * @param context - Every arrival and resource
  * @returns The fit
  */
 export function useAllocationFit(value: AllocationValue, domain: AllocationDomain, day: Date, plan: Day, context: Context): AllocationFit {

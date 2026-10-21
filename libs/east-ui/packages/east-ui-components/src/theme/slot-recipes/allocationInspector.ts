@@ -56,7 +56,7 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
         ...plan,
         // A count in its tone (A63): the issues' in warn-text, the drafts' in the brand's.
         statValue: { ...plan?.statValue, "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=brand]": { color: "brandPressed" } },
-        // A bin's actions under its head (A56): Unlink, Revert, Back to Events.
+        // A bin's actions under its head (A56): Unlink, Revert, Back to Arrivals.
         headActions: { display: "flex", flexWrap: "wrap", gap: "8px", paddingTop: "4px", minWidth: 0 },
         refusal: { margin: "12px 16px 0", minWidth: 0 },
         banner: { ...INSPECTOR_SECTION, paddingY: "12px" },
@@ -102,7 +102,7 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
         remainder: { ...mono, fontSize: "label.lg", fontWeight: "semibold", color: "fg.warning", overflowWrap: "anywhere" },
         // `Split…`'s popover (A71): its quantity over the Chooser, 12px apart, as the popover's body spaces its parts.
         split: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
-        // Rows on `88px 1fr` (A57–A59): the app's values, Before · Hold · Next fill, the event's details — a mono caps label, a mono value.
+        // Rows on `88px 1fr` (A57–A59): the app's columns, Before · Hold · Next fill, the arrival's details — a mono caps label, a mono value.
         rows: { display: "grid", gridTemplateColumns: "88px minmax(0, 1fr)", alignItems: "baseline", rowGap: "8px", columnGap: "12px", margin: 0, minWidth: 0 },
         rowLabel: {
             ...mono, fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "widest", textTransform: "uppercase", color: "fg.subtle",
@@ -112,7 +112,7 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             margin: 0, minWidth: 0, ...mono, fontSize: "label.lg", fontWeight: "medium", color: "fg", overflowWrap: "anywhere", textWrap: "pretty",
             "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
             "&[data-absent]": { fontStyle: "italic", fontWeight: "normal", color: "fg.subtle" },
-            // A detail of the event's (`Settings`): running text.
+            // A detail of the arrival's (`Settings`): running text.
             "&[data-text]": { fontFamily: "body", textStyle: "body.sm", fontWeight: "normal" },
         },
         mates: { display: "flex", flexDirection: "column", minWidth: 0 },

@@ -35,14 +35,14 @@
  *   look, a draft's in the brand, the selected one in the ink, its captions taking the pointer; during a drag, the drag's
  *   families, a link into the target ink-2 where the drop fits and warn where it refuses, and nothing of them taking the
  *   pointer, A65, A69), each link's line and caption a grip (`data-allocation-grip`); and what follows the pointer during
- *   a drag, `linkLines` (a link drag's new line over the cards, A69; an event's lines into its best fits, A30).
+ *   a drag, `linkLines` (a link drag's new line over the cards, A69; an arrival's lines into its best fits, A30).
  * - The drags (A24–A35, #1328): a free lane hour's target during a body's drag, `lanePlaceholder`; a ranked fit's
  *   badge, `rank`; a row's reason, `reason`; a refusing run's label, `runLabel`, `runMeta`; the fits marker,
  *   `fitsMarker`; and the shared move ghost's `moveGhost`, `moveGhostLabel`, `moveGhostSpan`. The board draws its
  *   own drop stages, as the mock does: the shared frames and washes are off on its targets.
  * - The Table (A41–A49, #1329): `table`, its scroll pane `tablePane`, its column heads `tableHead`; a band, the shared
  *   group band's `group`, `groupContent`, `groupLabel`, `groupMeta`, with its row count `bandCount`; a row,
- *   `tableRow`, its `tableTime`, `tableLane`, `tableCell` (a placeholder spanning the event's columns `tableSpan`, or
+ *   `tableRow`, its `tableTime`, `tableLane`, `tableCell` (a placeholder spanning the arrival's columns `tableSpan`, or
  *   the resource's and its load's `tableResourceSpan`), `tableUnits`, `tableValue`, `tableLoad`, `tableStatus` and its
  *   `tableStatusDot`; a chip, `tableChip`, `tableChipIcon`, `tableChipCode`, `tableChipMeta`, `tableChipButton`; and a
  *   dashed placeholder, `tablePlaceholder`, `tablePlaceholderText`; during a drag or a pick a cell says what a drop does
@@ -51,7 +51,7 @@
  *   resource and its quantity `tableChipQty`, one button, `tablePartFace` — and its ×, then `+ resource` for its
  *   remainder, the dashed placeholder taking what is left (A71).
  * - The Library (A50–A54, #1330): the shared pane part's `pane`, `paneFoot`, `paneHint` and `paneAction`; its cards are the
- *   shared Library's. A picked event marks the Timeline's free lane hours (`data-allocation-pick`, A11); a resource card's drag
+ *   shared Library's. A picked arrival marks the Timeline's free lane hours (`data-allocation-pick`, A11); a resource card's drag
  *   marks the bins that refuse it (`data-refuses`) and, when it would not take a reservation, the free lane hours (A32).
  * - The narrow layout (A78, #1333), the shared agenda part the Roster and the Calendar take too: main's box, `cards`; the list,
  *   `agenda`, each of its rows `agendaItem`; a card, `agendaCard`, its head `agendaCardHead`, title `agendaCardTitle` and lines
@@ -94,7 +94,7 @@ const ownStages = {
 const warnWash = "color-mix(in oklch, {colors.status.warn} 6%, {colors.bg.surface})";
 /** A row that refuses the drag recedes, unless the pointer is on it (A27). */
 const receded = "[data-refused]:not([data-drop-invalid]) &";
-/** The Table's columns: Time · Lane · Event · Quantity · the app's columns (72px each) · Resource · Load · Status (A43). */
+/** The Table's columns: Time · Lane · Arrival · Quantity · the app's columns (72px each) · Resource · Load · Status (A43). */
 const tableColumns = {
     display: "grid", gridTemplateColumns: "84px 64px minmax(200px, 1.3fr) 64px repeat(var(--allocation-columns), 72px) minmax(176px, 1fr) 144px 128px",
     "&[data-columns=none]": { gridTemplateColumns: "84px 64px minmax(200px, 1.3fr) 64px minmax(176px, 1fr) 144px 128px" },
@@ -214,11 +214,11 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             ...ownStages, "&[data-drag-cell][data-drop-active]": { background: "transparent" },
         },
         // During a body's, a Library card's or a resource card's drag every free lane hour is a dashed target, 4px in; the one under the
-        // pointer brand-tint (A24, A32); a picked event's in the brand (A11); a resource that would not take a reservation's in warn (A32).
+        // pointer brand-tint (A24, A32); a picked arrival's in the brand (A11); a resource that would not take a reservation's in warn (A32).
         lanePlaceholder: {
             display: "none", position: "absolute", inset: "4px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "dashed",
             borderColor: "border.strong", borderRadius: "sm", pointerEvents: "none",
-            "[data-allocation-drag=body] &, [data-allocation-drag=event] &, [data-allocation-drag=removed] &, [data-allocation-drag=resource] &": { display: "block" },
+            "[data-allocation-drag=body] &, [data-allocation-drag=arrival] &, [data-allocation-drag=removed] &, [data-allocation-drag=resource] &": { display: "block" },
             "[data-allocation-pick] &": { display: "block", borderColor: "brand.solid" },
             "[data-allocation-drag=resource][data-reserve=refused] &": { borderColor: "status.warn", background: warnWash },
             "[data-drop-active] > &": { borderColor: "brand.solid", background: "brandTint" },
@@ -457,7 +457,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             // During a drag nothing of a link takes the pointer: what lies under it is the drop's target (A26).
             "[data-allocation-drag] > &": { "& [data-link], & [data-plan-ribbon-label]": { pointerEvents: "none" } },
         },
-        // What follows the pointer during a drag (A69, A30), over the links: an event's lines into its best fits among them, as the
+        // What follows the pointer during a drag (A69, A30), over the links: an arrival's lines into its best fits among them, as the
         // mock draws them, a link's or a connector's new line over the cards too, as the mock's own layer does.
         linkLines: {
             ...linkRibbons, position: "absolute", left: 0, right: 0, top: "48px", zIndex: 5, overflow: "hidden", pointerEvents: "none",
@@ -529,7 +529,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         tableLane: { ...tableText, padding: "0 12px", fontSize: "label.md", fontWeight: "medium", color: "fg.muted" },
         tableCell: { minWidth: 0, height: "28px", padding: "0 12px", display: "flex", alignItems: "center", ...ownStages,
             "&[data-drag-cell][data-drop-active]": { background: "transparent" }, "&[data-drag-cell][data-drop-invalid]": { background: "transparent" } },
-        tableSpan: { gridColumn: "span var(--allocation-event-span)" },
+        tableSpan: { gridColumn: "span var(--allocation-arrival-span)" },
         tableResourceSpan: { gridColumn: "span 2" },
         tableUnits: { ...tableText, padding: "0 12px", textAlign: "right", fontSize: "label.lg", fontWeight: "medium", color: "fg" },
         // The app's column: its tone in warn-text 600 (A43).
@@ -602,7 +602,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&:hover": { background: "bg.canvas" },
             ...planElementFocus,
         },
-        // A dashed placeholder (A45): `no event`, `no resource`, italic ink-4; during a body's drag a free row's says what a drop does.
+        // A dashed placeholder (A45): `no arrival`, `no resource`, italic ink-4; during a body's drag a free row's says what a drop does.
         tablePlaceholder: {
             flex: 1, minWidth: 0, height: "28px", boxSizing: "border-box", display: "flex", alignItems: "center", gap: "8px", padding: "0 4px 0 8px",
             borderWidth: "1px", borderStyle: "dashed", borderColor: "border.strong", borderRadius: "sm", background: "transparent", textAlign: "left",

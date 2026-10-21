@@ -4,10 +4,12 @@
  */
 
 /**
- * What the narrowing shows (#1336, #1339): the board reads each source of its
- * `Slice.bindRecords` itself — the lanes, the resources and the events —
- * through the shared source visibility, and a source with nothing chosen
- * reads no page and hides nothing. Fits, checks and totals never see it.
+ * What the narrowing shows (#1336, #1339, #1372): the board reads each source
+ * of its `Slice.bindRecords` itself — the lanes, the resources and the
+ * arrivals, each under the slot the app names it by (the bin kind's
+ * `resource.of`, its `parts.of`, and `arrivals`) — through the shared source
+ * visibility, and a source with nothing chosen reads no page and hides
+ * nothing. Fits, checks and totals never see it.
  *
  * @packageDocumentation
  */
@@ -20,21 +22,33 @@ import { sourcePart, useSourceVisibility, type KeyVisibility } from "../shared/s
 import type { AllocationStyles, AllocationValue } from "./model.js";
 import { one } from "./nouns.js";
 
-/** A narrowed source's name: what its rows are on the board. */
-export type NarrowedSource = "lanes" | "resources" | "events";
+/** A narrowed source's role: what its rows are on the board. */
+export type NarrowedSource = "lanes" | "resources" | "arrivals";
 
 /** The noun a source's rows are. */
-const NOUN = { lanes: "lane", resources: "resource", events: "event" } as const;
+const NOUN = { lanes: "lane", resources: "resource", arrivals: "arrival" } as const;
+
+/**
+ * The slot the slice names a source by: the lanes' and the resources' the bin
+ * kind's own (`resource.of`, `parts.of`), the arrivals' `arrivals`.
+ *
+ * @param value - The payload
+ * @param source - The source's role
+ * @returns Its name in the slice
+ */
+export function narrowingSlot(value: AllocationValue, source: NarrowedSource): string {
+    return source === "lanes" ? value.bin.lanes : source === "resources" ? value.bin.parts : "arrivals";
+}
 
 /**
  * A source's part of the board's narrowing, if the slice has one.
  *
  * @param value - The payload
- * @param source - The source
+ * @param source - The source's role
  * @returns Its record Slice's controls
  */
 export function narrowingPart(value: AllocationValue, source: NarrowedSource): ValueTypeOf<RecordSliceBindType> | undefined {
-    return sourcePart(value.slice.type === "some" ? value.slice.value : undefined, source);
+    return sourcePart(value.slice.type === "some" ? value.slice.value : undefined, narrowingSlot(value, source));
 }
 
 /**
@@ -42,13 +56,13 @@ export function narrowingPart(value: AllocationValue, source: NarrowedSource): V
  * every row — and no read — while none does.
  *
  * @param value - The payload
- * @param source - The source
+ * @param source - The source's role
  * @param rows - Every row of it, in order
  * @returns The keys to show, and the narrowing's state
  */
 export function useNarrowed(value: AllocationValue, source: NarrowedSource, rows: readonly { key: string }[]): KeyVisibility {
     const noun = value.labels[NOUN[source]];
-    return useSourceVisibility(value.slice.type === "some" ? value.slice.value : undefined, source, value.narrowed[source], rows,
+    return useSourceVisibility(value.slice.type === "some" ? value.slice.value : undefined, narrowingSlot(value, source), value.narrowed[source], rows,
         { changed: `${noun.one} results changed; retry the narrowing.`, failed: `Could not load ${one(noun)} results` });
 }
 

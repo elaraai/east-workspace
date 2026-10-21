@@ -17,15 +17,13 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { FloatType, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
-import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
+import { FloatType, StringType, compareFor } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, settle, slot, stubLinkGeometry, WED } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, stubLinkGeometry, type FitResult } from "./harness.test-utils.js";
 
 const h = allocationHarness();
-type FitResult = ValueTypeOf<typeof AllocationFitResultType>;
 const byScore = compareFor(FloatType);
 const byKey = compareFor(StringType);
 const details = (c: HTMLElement) => slot(c, "end").querySelector<HTMLElement>('[data-allocation-inspector="details"]')!;
@@ -69,8 +67,8 @@ const placedOf = (bin: string) => h.fits.answers().flatMap(a => {
 const fitsOf = (a: FitResult, except: readonly string[] = []) => [...a.resources].flatMap(([k, f]) => f.type === "fits" && !except.includes(k) ? [{ k, score: f.value.score }] : [])
     .sort((x, y) => byScore(y.score, x.score)).map(f => f.k);
 const whyOf = (a: FitResult, key: string) => { const f = a.resources.get(key)!; return f.type === "fits" ? `${f.value.why}${f.value.warn.type === "some" ? ` · ${f.value.warn.value}` : ""}` : f.value.reason; };
-/** The day's bin as the record holds it. */
-const saved = async (bin: string) => (await h.read(ex.kilnPlans)).get(WED)!.bins.get(bin)!;
+/** A bin as the yard's bins record holds it. */
+const saved = async (bin: string) => (await h.read(ex.kilnBins)).get(bin)!;
 /** A bin's parts as Assigned to lists them: each field's resource — its key, and its label the resource's name — and its quantity. */
 const partsShown = (c: HTMLElement) => [...details(c).querySelectorAll<HTMLElement>("[data-allocation-parts] [data-field]")].map(f => {
     expect(f.querySelector("label")?.textContent).toBe(`${f.getAttribute("data-field")}${f.getAttribute("data-field")}`);
@@ -106,7 +104,7 @@ describe("a split bin on its card and in Issues (A70)", () => {
         await press(button(details(c), "One hour later"));
         await press(save(c));
         expect((await saved("3202")).at).toEqual(new Date("2027-05-12T08:35:00Z"));
-        expect([...(await saved("3201")).parts]).toEqual([["K-208", 6], ["K-601", 20]]);
+        expect([...(await saved("3201")).kilns]).toEqual([["K-208", 6], ["K-601", 20]]);
     });
 });
 
@@ -141,7 +139,7 @@ describe("splitting (A71, A73)", () => {
         expect([partsShown(c).map(([k]) => k), remainder(c)]).toEqual([[...["K-208", "K-601", offered[0]!].sort()], null]);
         expect(text(card(c, "3201").querySelector("[data-allocation-to]"))).toBe("K-601 + 2");
         await press(save(c));
-        expect((await saved("3201")).parts.get(offered[0]!)).toBe(4);
+        expect((await saved("3201")).kilns.get(offered[0]!)).toBe(4);
         await tab(c, "end", "Issues");
         expect(issuesTab(c).querySelector('[data-allocation-issue-group="unallocated"]')).toBeNull();
     });
@@ -172,7 +170,7 @@ describe("splitting (A71, A73)", () => {
         await press(redo(c)); await frames();
         expect(partsShown(c)).toEqual(split);
         await press(save(c));
-        expect([...(await saved("3202")).parts]).toEqual(split);
+        expect([...(await saved("3202")).kilns]).toEqual(split);
     });
 
     test("A71, A73 — a part's field sets what it holds, no more than it and the remainder: 20 → 16 leaves 8; its Clear, or nothing, unlinks it", async () => {
@@ -199,7 +197,7 @@ describe("splitting (A71, A73)", () => {
         await press(undo(c));
         expect(partsShown(c)).toEqual([["K-208", 6], ["K-601", 24]]);
         await press(save(c));
-        expect([...(await saved("3201")).parts]).toEqual([["K-208", 6], ["K-601", 24]]);
+        expect([...(await saved("3201")).kilns]).toEqual([["K-208", 6], ["K-601", 24]]);
     });
 
     test("A71, A73 — the connector links the remainder: the fit asked for 4 m³, a drop on a fit puts 4 m³ there", async () => {
@@ -213,7 +211,7 @@ describe("splitting (A71, A73)", () => {
         const held = best === "K-208" ? 10 : 4;
         expect([partsShown(c).find(([k]) => k === best), remainder(c)]).toEqual([[best, held], null]);
         await press(save(c));
-        expect((await saved("3201")).parts.get(best)).toBe(held);
+        expect((await saved("3201")).kilns.get(best)).toBe(held);
         expect(placedOf("3201")).toContain(4);
     });
 });
@@ -290,7 +288,7 @@ describe("links (A72, A71)", () => {
         await release();
         await press(save(c));
         // Its 6 m³ moves alone: onto K-601, it joins the part there.
-        const parts = Object.fromEntries((await saved("3201")).parts);
+        const parts = Object.fromEntries((await saved("3201")).kilns);
         expect(parts).toEqual(to === "K-601" ? { "K-601": 26 } : { "K-601": 20, [to]: 6 });
     });
 });
@@ -351,7 +349,7 @@ describe("Find a fit (A74, A73)", () => {
         // The bin's own action: Find a fit, with its head's.
         await tab(c, "end", "Details");
         await press(card(c, "3201"));
-        expect([...details(c).querySelectorAll("[data-allocation-bin-actions] button")].map(b => b.textContent)).toEqual(["Revert", "Back to Events", "Find a fit"]);
+        expect([...details(c).querySelectorAll("[data-allocation-bin-actions] button")].map(b => b.textContent)).toEqual(["Revert", "Back to Arrivals", "Find a fit"]);
     });
 
     test("A74 — a find whose bin is placed whole is done: its chip goes, and does not come back when some of the bin is left again", async () => {

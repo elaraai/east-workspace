@@ -3,29 +3,29 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * The Library's cards (#1330), pure, over a small day of their own: the Events
- * groups and their order, each card's ready line and place (A51), and the
+ * The Library's cards (#1330, #1372), pure, over a small day of their own: the
+ * Arrivals groups and their order, each card's ready line and place (A51), and the
  * Resources by the day's states, each its line (A52) — the loads e3-ui's
  * own, compiled.
  */
 import { describe, expect, test } from "vitest";
 import { NullType, SortedMap, StringType, compareFor, none, some, toEastTypeValue, variant } from "@elaraai/east";
-import { eventCards, resourceCards, type LibraryWords } from "./library.js";
+import { arrivalCards, resourceCards, type LibraryWords } from "./library.js";
 import { DEFAULT_NOUNS } from "./nouns.js";
-import { allocationDomain, allocationWords, type Bin, type Context, type Day, type EventRow, type ResourceRow } from "./model.js";
+import { allocationDomain, allocationWords, type ArrivalRow, type Bin, type Context, type Day, type ResourceRow } from "./model.js";
 
 const byString = compareFor(StringType);
 const DAY = new Date(Date.UTC(2027, 4, 11));
 const on = (n: number, h = 0, m = 0) => new Date(Date.UTC(2027, 4, 11 + n, h, m));
-const event = (key: string, quantity: number, due: Date | undefined, window: [Date, Date] | undefined): EventRow => ({
+const arrival = (key: string, quantity: number, due: Date | undefined, window: [Date, Date] | undefined): ArrivalRow => ({
     key, label: key, meta: some(`${key} meta`), quantity, hold: variant("days", 8), kind: none,
     due: due === undefined ? none : some(due), window: window === undefined ? none : some({ from: window[0], to: window[1] }), details: [],
-}) as unknown as EventRow;
+}) as unknown as ArrivalRow;
 const resource = (key: string, min: number, max: number, jobs: { label: string; start: Date; end: Date }[]): ResourceRow => ({
     key, label: key, group: some("Hall"), meta: none, note: none, min, max, hold: variant("days", 8), jobs,
 }) as unknown as ResourceRow;
-const bin = (lane: string, when: Date, ev: string | undefined, quantity: number, parts: [string, number][]): Bin => ({
-    lane, at: when, event: ev === undefined ? none : some(ev), quantity, kind: none, hold: variant("days", 7), parts: new SortedMap(parts, byString), values: null,
+const bin = (lane: string, when: Date, of: string | undefined, quantity: number, parts: [string, number][]): Bin => ({
+    lane, at: when, arrival: of === undefined ? none : some(of), quantity, kind: none, hold: variant("days", 7), parts: new SortedMap(parts, byString), row: null,
 }) as unknown as Bin;
 const day = (bins: [string, Bin][]): Day => ({ status: variant("draft", null), bins: new SortedMap(bins, byString) }) as unknown as Day;
 const RESOURCES = [
@@ -39,10 +39,10 @@ const RESOURCES = [
 const CONTEXT = {
     lanes: [{ key: "L-1", label: "L-1", offset: variant("minutes", 15) }, { key: "L-2", label: "L-2", offset: variant("minutes", 35) }],
     every: variant("hours", 1),
-    events: new SortedMap([
-        ["E-1", event("E-1", 10, on(-2), [on(-3), on(1)])], ["E-2", event("E-2", 12, on(1), undefined)], ["E-3", event("E-3", 8, undefined, [on(0), on(3)])],
-        ["E-4", event("E-4", 6, undefined, undefined)], ["E-5", event("E-5", 20, on(0), undefined)], ["E-6", event("E-6", 30, on(0), undefined)],
-        ["E-7", event("E-7", 4, on(0), undefined)],
+    arrivals: new SortedMap([
+        ["E-1", arrival("E-1", 10, on(-2), [on(-3), on(1)])], ["E-2", arrival("E-2", 12, on(1), undefined)], ["E-3", arrival("E-3", 8, undefined, [on(0), on(3)])],
+        ["E-4", arrival("E-4", 6, undefined, undefined)], ["E-5", arrival("E-5", 20, on(0), undefined)], ["E-6", arrival("E-6", 30, on(0), undefined)],
+        ["E-7", arrival("E-7", 4, on(0), undefined)],
     ], byString),
     resources: new SortedMap(RESOURCES.map(r => [r.key, r] as const), byString),
     rules: { under: true }, unit: "m³",
@@ -64,45 +64,45 @@ const PLAN = day([
     ["v1", bin("L-2", on(0, 0, 35), undefined, 0, [["R-2", 0]])],
 ]);
 
-describe("eventCards (A51)", () => {
-    const cards = eventCards({ context: CONTEXT, day: DAY, plan: PLAN, held: HELD, words: WORDS });
+describe("arrivalCards (A51)", () => {
+    const cards = arrivalCards({ context: CONTEXT, day: DAY, plan: PLAN, held: HELD, words: WORDS });
     test("the groups in order: Overdue, Ready around now, Removed from plan, Allocated — draft bookings first, then by their first bin's time", () => {
         expect(cards.map(c => [c.group, c.key])).toEqual([
-            ["Overdue", "event:E-1"],
-            ["Ready around now", "event:E-2"], ["Ready around now", "event:E-3"], ["Ready around now", "event:E-4"],
+            ["Overdue", "arrival:E-1"],
+            ["Ready around now", "arrival:E-2"], ["Ready around now", "arrival:E-3"], ["Ready around now", "arrival:E-4"],
             ["Removed from plan", "removed:c2"],
-            ["Allocated", "event:E-7"], ["Allocated", "event:E-5"], ["Allocated", "event:E-6"],
+            ["Allocated", "arrival:E-7"], ["Allocated", "arrival:E-5"], ["Allocated", "arrival:E-6"],
         ]);
     });
 
-    test("an event still to book: its ready line from its due date and its window, or none; overdue in warn", () => {
+    test("an arrival still to book: its ready line from its due date and its window, or none; overdue in warn", () => {
         const ready = (key: string) => cards.find(c => c.key === key)!.ready;
-        expect(ready("event:E-1")).toEqual({ text: "was due Sun 9 · overdue", tone: "warning" });
-        expect(ready("event:E-2")).toEqual({ text: "due Wed 12" });
-        expect(ready("event:E-3")).toEqual({ text: "window Tue–Thu" });
-        expect(ready("event:E-4")).toBeUndefined();
-        expect(cards.find(c => c.key === "event:E-1")!.sub).toBe("E-1 meta · 8 d");
+        expect(ready("arrival:E-1")).toEqual({ text: "was due Sun 9 · overdue", tone: "warning" });
+        expect(ready("arrival:E-2")).toEqual({ text: "due Wed 12" });
+        expect(ready("arrival:E-3")).toEqual({ text: "window Tue–Thu" });
+        expect(ready("arrival:E-4")).toBeUndefined();
+        expect(cards.find(c => c.key === "arrival:E-1")!.sub).toBe("E-1 meta · 8 d");
     });
 
-    test("a removed bin is booked again with its own bin; its event, with another bin the day holds, is Allocated too", () => {
+    test("a removed bin is booked again with its own bin; its arrival, with another bin the day holds, is Allocated too", () => {
         const removed = cards.find(c => c.key === "removed:c2")!;
         expect([removed.grip, removed.figure, removed.ready, removed.sub]).toEqual([{ kind: "removed", bin: "c2" }, "8 m³", { text: "was L-2 01:35 on R-1" }, "E-5 meta · 7 d"]);
-        const allocated = cards.find(c => c.key === "event:E-5")!;
+        const allocated = cards.find(c => c.key === "arrival:E-5")!;
         expect([allocated.grip, allocated.bins, allocated.ready, allocated.draft]).toEqual([undefined, ["c1"], { text: "in L-1 02:15 on R-1" }, false]);
     });
 
-    test("a draft booking's bins by time, not linked in warn; an event with a committed bin is no draft; a split bin's place names its largest part `+ 1`", () => {
-        const draft = cards.find(c => c.key === "event:E-7")!;
+    test("a draft booking's bins by time, not linked in warn; an arrival with a committed bin is no draft; a split bin's place names its largest part `+ 1`", () => {
+        const draft = cards.find(c => c.key === "arrival:E-7")!;
         expect([draft.draft, draft.bins, draft.figure, draft.ready, draft.tip]).toEqual([true, ["n2", "n1"], "4 m³",
             { text: "2 bins · L-1 08:15 on R-1 · L-2 09:35 · not linked", tone: "warning" }, "Allocated · click to show its bin"]);
-        const mixed = cards.find(c => c.key === "event:E-6")!;
+        const mixed = cards.find(c => c.key === "arrival:E-6")!;
         expect([mixed.draft, mixed.bins, mixed.ready!.text, mixed.tip]).toEqual([false, ["n3", "c3"], "2 bins · L-2 04:35 · not linked · L-1 05:15 on R-4 + 1",
             "In the plan · click to highlight its 2 bins"]);
     });
 
-    test("the Table's words: an event drags onto a free row", () => {
-        const table = eventCards({ context: CONTEXT, day: DAY, plan: PLAN, held: HELD, words: { ...WORDS, layout: "table" } });
-        expect(table.find(c => c.key === "event:E-2")!.tip).toBe("Click to see where E-2 fits · drag it onto a free row");
+    test("the Table's words: an arrival drags onto a free row", () => {
+        const table = arrivalCards({ context: CONTEXT, day: DAY, plan: PLAN, held: HELD, words: { ...WORDS, layout: "table" } });
+        expect(table.find(c => c.key === "arrival:E-2")!.tip).toBe("Click to see where E-2 fits · drag it onto a free row");
     });
 });
 

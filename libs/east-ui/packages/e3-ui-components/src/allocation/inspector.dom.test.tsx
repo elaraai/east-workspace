@@ -8,19 +8,19 @@
  * A59), a free slot (A60), a reservation (A61), a resource (A62), the summary
  * (A63, A89), the Issues tab (A64), the drop list (A34, A86), the refusal's
  * note (A40), the connector's Chooser (A8, A21), the words and the marks (A85,
- * A90), the app's bin form, a published day and pointer motion (A35). Every
+ * A90), the bin kind's own form, a published day and pointer motion (A35). Every
  * word and figure the mock draws for the same day is the mock's; every fit is
  * the yard's answer.
  */
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { FloatType, SortedMap, StringType, compareFor, none, some, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, FloatType, SortedMap, StringType, compareFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, settle, slot, TUE } from "./harness.test-utils.js";
+import { act, allocationHarness, offering, settle, slot, TUE } from "./harness.test-utils.js";
 import { allocationWords } from "./model.js";
 import { RESERVE_PROBE } from "./table.js";
 
@@ -95,6 +95,9 @@ const bestOf = (a: FitResult, current?: string) => [...a.resources].flatMap(([k,
     .sort((x, y) => byScore(y.score, x.score)).slice(0, 3).map(f => f.k);
 const whyOf = (a: FitResult, key: string) => { const f = a.resources.get(key)!; return f.type === "fits" ? f.value.why : f.value.reason; };
 const hour = (h: number, m: number) => new Date(Date.UTC(2027, 4, 11, h, m));
+const byDate = compareFor(DateTimeType);
+/** The yard's bins of Tue 11, as its record holds them. */
+const tuesday = async () => [...(await h.read(ex.kilnBins)).values()].filter(bin => byDate(bin.at, TUE) >= 0 && byDate(bin.at, hour(24, 0)) < 0);
 
 describe("the pane and its tabs (A55)", () => {
     test("A55 — two tabs, Details and Issues with its count; collapsed, the rail's badge is the count", async () => {
@@ -139,11 +142,11 @@ describe("the pane and its tabs (A55)", () => {
 });
 
 describe("a bin (A56–A59)", () => {
-    test("A56 — its eyebrow `Bin 3113` and status Committed, its title `LD-2210 · 32 m³`, its meta, and Unlink and Back to Events", async () => {
+    test("A56 — its eyebrow `Bin 3113` and status Committed, its title `LD-2210 · 32 m³`, its meta, and Unlink and Back to Arrivals", async () => {
         const c = await open();
         await press(card(c, "3113"));
         expect(headOf(c)).toEqual({ kind: "Bin 3113", title: "LD-2210 · 32 m³", when: "FRN · R2 · spec MC08", status: "Committed", tone: "success", chip: null });
-        expect(actions(c)).toEqual(["Unlink", "Back to Events"]);
+        expect(actions(c)).toEqual(["Unlink", "Back to Arrivals"]);
         expect(banners(c)).toEqual([]);
     });
 
@@ -159,7 +162,7 @@ describe("a bin (A56–A59)", () => {
         expect(banners(c)).toEqual([]);
     });
 
-    test("A56 — not linked: `Not linked · LD-2210 has no resource. Link it to a gap that fits, or it stays unplaced.`; under min: `… Another event can top it up; Save still works.`", async () => {
+    test("A56 — not linked: `Not linked · LD-2210 has no resource. Link it to a gap that fits, or it stays unplaced.`; under min: `… Another arrival can top it up; Save still works.`", async () => {
         const c = await open();
         await press(card(c, "3113"));
         await press(button(details(c), "Unlink"));
@@ -168,7 +171,7 @@ describe("a bin (A56–A59)", () => {
         // Linked to the bulk kiln through the field's Chooser: under its 40 m³ minimum.
         await press(details(c).querySelector("[data-allocation-resource-field]"));
         await press(within(details(c).querySelector<HTMLElement>("[data-chooser]")!).getByRole("option", { name: /K-601/ }));
-        expect(banners(c)).toEqual([["Under min", "Under minK-601 holds 32 m³ against a 40 m³ minimum · 8 m³ short. Another event can top it up; Save still works."]]);
+        expect(banners(c)).toEqual([["Under min", "Under minK-601 holds 32 m³ against a 40 m³ minimum · 8 m³ short. Another arrival can top it up; Save still works."]]);
         expect(headOf(c).status).toBe("Allocated · unsaved");
     });
 
@@ -178,7 +181,7 @@ describe("a bin (A56–A59)", () => {
         await press(button(details(c), "One hour later"));
         expect([headOf(c).status, headOf(c).chip, headOf(c).tone]).toEqual(["Moved · unsaved", "Pending", "neutral"]);
         expect(details(c).querySelector("[data-allocation-time]")!.textContent).toBe("11:35");
-        expect(actions(c)).toEqual(["Unlink", "Revert", "Back to Events"]);
+        expect(actions(c)).toEqual(["Unlink", "Revert", "Back to Arrivals"]);
         expect(text(details(c).querySelector("[data-allocation-was]"))).toBe("was K-108 · B-2 10:35");
         await press(button(details(c), "Revert"));
         expect([headOf(c).status, details(c).querySelector("[data-allocation-time]")!.textContent]).toEqual(["Committed", "10:35"]);
@@ -186,15 +189,16 @@ describe("a bin (A56–A59)", () => {
         expect(undo(c)).toHaveProperty("disabled", false);
     });
 
-    test("A56, A59, A74 — a new bin: `New bin`, `Added · unsaved` and New, `new booking · not in the plan yet`; not linked, it offers Find a fit; Back to Events returns its event", async () => {
+    test("A56, A59, A74 — a new bin: `New bin`, `Added · unsaved` and New, `new booking · not in the plan yet`; not linked, it offers Find a fit; Back to Arrivals returns its arrival", async () => {
         const c = await open(ex.allocationTable);
         await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector("span"));
-        const book = details(c).querySelector<HTMLElement>('[data-allocation-option="event:LD-2235"]')!;
+        const book = details(c).querySelector<HTMLElement>('[data-allocation-option="arrival:LD-2235"]')!;
+        offering(["N1"]);
         await press(button(book, "Book"));
         expect(headOf(c)).toMatchObject({ kind: "New bin", title: "LD-2235 · 8 m³", status: "Not linked · unsaved", chip: "New" });
         expect(text(details(c).querySelector("[data-allocation-was]"))).toBe("new booking · not in the plan yet");
-        expect(actions(c)).toEqual(["Back to Events", "Find a fit"]);
-        await press(button(details(c), "Back to Events"));
+        expect(actions(c)).toEqual(["Back to Arrivals", "Find a fit"]);
+        await press(button(details(c), "Back to Arrivals"));
         expect(c.querySelector("[data-allocation-row='bin:N1']")).toBeNull();
         expect(headOf(c).kind).toBe("Plan · Tue 11 May");
     });
@@ -211,14 +215,14 @@ describe("a bin (A56–A59)", () => {
         await press(lanes[2]!);
         await press(button(details(c), "One hour earlier"));
         await press(save(c));
-        const moved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!;
-        expect([moved.lane, moved.at, [...moved.parts]]).toEqual(["B-3", hour(9, 55), [["K-108", 32]]]);
+        const moved = (await h.read(ex.kilnBins)).get("3113")!;
+        expect([moved.bay, moved.at, [...moved.kilns]]).toEqual(["B-3", hour(9, 55), [["K-108", 32]]]);
         expect(details(c).querySelector('[data-field="at"]')!.textContent).toContain("B-3 bins at :55 · ± 1 h, 00–23 on Tue 11");
         await press(card(c, "3126"));
         expect([button(details(c), "One hour later").hasAttribute("disabled"), button(details(c), "One hour earlier").hasAttribute("disabled")]).toEqual([true, false]);
     });
 
-    test("A57 — the app's values as rows, a warning one in warn-text: `Spec · booked MC08 · measured MC22`", async () => {
+    test("A57 — the app's columns as rows over the bin's row, a warning one in warn-text: `Spec · booked MC08 · measured MC22`", async () => {
         const c = await open();
         await press(card(c, "3113"));
         expect(rowsOf(details(c).querySelector("[data-allocation-values]"))).toEqual([
@@ -238,8 +242,8 @@ describe("a bin (A56–A59)", () => {
         expect(headOf(c).title).toBe("LD-2210 · 30 m³");
         expect(headOf(c).status).toBe("Edited · unsaved");
         await press(save(c));
-        const saved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!;
-        expect([saved.quantity, [...saved.parts]]).toEqual([30, [["K-108", 30]]]);
+        const saved = (await h.read(ex.kilnBins)).get("3113")!;
+        expect([saved.m3, [...saved.kilns]]).toEqual([30, [["K-108", 30]]]);
     });
 
     test("A58 — Assigned to: the field, the fill and its meter with the min tick, the group line, Before · Hold · Next fill, its bins today and the batch line", async () => {
@@ -328,7 +332,7 @@ describe("a bin (A56–A59)", () => {
         expect(text(details(c).querySelector("[data-allocation-alternatives]"))).toBe("Other gaps that fitno other free gap is long enough");
     });
 
-    test("A59 — the event's details (`Settings`)", async () => {
+    test("A59 — the arrival's details (`Settings`)", async () => {
         const c = await open();
         await press(card(c, "3113"));
         expect(rowsOf(details(c).querySelector("[data-allocation-details] dl"))).toEqual([["Settings", "Schedule KS-7 · 80 °C · equalise 12 h · direct", null]]);
@@ -336,16 +340,17 @@ describe("a bin (A56–A59)", () => {
 });
 
 describe("a free slot (A60)", () => {
-    test("A60 — `Slot · Free`, `B-1 · 00:15`, `Tue 11 May · no event · no resource`; every event it can book, overdue first in warn, a Book each", async () => {
+    test("A60 — `Slot · Free`, `B-1 · 00:15`, `Tue 11 May · no arrival · no resource`; every arrival it can book, overdue first in warn, a Book each", async () => {
         const c = await open(ex.allocationTable);
         await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector("span"));
-        expect(headOf(c)).toEqual({ kind: "Slot", title: "B-1 · 00:15", when: "Tue 11 May · no event · no resource", status: "Free", tone: "neutral", chip: null });
+        expect(headOf(c)).toEqual({ kind: "Slot", title: "B-1 · 00:15", when: "Tue 11 May · no arrival · no resource", status: "Free", tone: "neutral", chip: null });
         const books = [...details(c).querySelectorAll<HTMLElement>("[data-allocation-book] [data-allocation-option]")];
-        expect(books.map(o => o.getAttribute("data-allocation-option"))).toEqual(["event:LD-2231", "event:LD-2232", "event:LD-2233", "event:LD-2234", "event:LD-2235", "event:LD-2236"]);
+        expect(books.map(o => o.getAttribute("data-allocation-option"))).toEqual(["arrival:LD-2231", "arrival:LD-2232", "arrival:LD-2233", "arrival:LD-2234", "arrival:LD-2235", "arrival:LD-2236"]);
         const late = books[0]!.querySelector<HTMLElement>("[title]")!;
         expect([books[0]!.textContent!.startsWith("LD-223121 m³"), late.textContent, late.getAttribute("data-tone")]).toEqual([true, "BRK · R2 · spec MC12 · overdue", "warning"]);
+        offering(["N1"]);
         await press(button(books[0]!, "Book"));
-        expect(tableRow(c, "bin:N1").querySelector("[data-allocation-chip=event]")!.textContent).toContain("LD-2231");
+        expect(tableRow(c, "bin:N1").querySelector("[data-allocation-chip=arrival]")!.textContent).toContain("LD-2231");
     });
 
     test("A60 — Reserve a resource: the five best for a reservation, free ones first, each the fit's reason; Reserve reserves the slot on it", async () => {
@@ -357,47 +362,50 @@ describe("a free slot (A60)", () => {
         const fits = [...answer.resources].filter(([, f]) => f.type === "fits");
         for (const [key, line] of lines) expect(line.replace(/^(free|loading) · /, "")).toBe(whyOf(answer, key));
         // Free first, each best first: a resource is loading when a bin of the day is on it (the probe in the slot holds none).
-        const loading = new Set([...(await h.read(ex.kilnPlans)).get(TUE)!.bins.values()].flatMap(bin => [...bin.parts.keys()]));
+        const loading = new Set((await tuesday()).flatMap(bin => [...bin.kilns.keys()]));
         const ranked = fits.map(([key, f]) => ({ key, score: f.type === "fits" ? f.value.score : 0, loading: loading.has(key) }))
             .sort((x, y) => Number(x.loading) - Number(y.loading) || byScore(y.score, x.score) || byKey(x.key, y.key));
         expect(lines.map(([key, line]) => [key, line.split(" · ")[0]])).toEqual(ranked.slice(0, 5).map(f => [f.key, f.loading ? "loading" : "free"]));
         // Both kinds are among the fits, so the order is the rule's, not the scores'.
         expect([ranked.some(f => f.loading), ranked.some(f => !f.loading)]).toEqual([true, true]);
-        expect(details(c).querySelector("[data-allocation-reserve]")!.textContent).toContain("Or drag an event or a resource from the library onto this row.");
+        expect(details(c).querySelector("[data-allocation-reserve]")!.textContent).toContain("Or drag an arrival or a resource from the library onto this row.");
+        offering(["V1"]);
         await press(button(offered[0]!, "Reserve"));
         expect([tableRow(c, "bin:V1").getAttribute("data-kind"), text(tableRow(c, "bin:V1").querySelector("[data-allocation-chip=resource]"))]).toEqual(["reserved", lines[0]![0]]);
     });
 });
 
 describe("a reservation (A61)", () => {
-    /** A new reservation of B-1 00:15 on K-305, selected. */
+    /** A new reservation of B-1 00:15 on K-305, V1, selected. */
     async function reserved() {
         const c = await open(ex.allocationTable);
         await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector("span"));
+        offering(["V1"]);
         await press(button(details(c).querySelector<HTMLElement>('[data-allocation-reserve] [data-allocation-option="K-305"]')!, "Reserve"));
         return c;
     }
 
-    test("A61 — `New reservation`, `Added · unsaved`, `B-1 · 00:15`, `Reserved on K-305 · no event yet`; Assigned to with Remove and Open resource, its fill and meter", async () => {
+    test("A61 — `New reservation`, `Added · unsaved`, `B-1 · 00:15`, `Reserved on K-305 · no arrival yet`; Assigned to with Remove and Open resource, its fill and meter", async () => {
         const c = await reserved();
-        expect(headOf(c)).toEqual({ kind: "New reservation", title: "B-1 · 00:15", when: "Reserved on K-305 · no event yet", status: "Added · unsaved", tone: "neutral", chip: "New" });
+        expect(headOf(c)).toEqual({ kind: "New reservation", title: "B-1 · 00:15", when: "Reserved on K-305 · no arrival yet", status: "Added · unsaved", tone: "neutral", chip: "New" });
         const assigned = details(c).querySelector<HTMLElement>("[data-allocation-assigned]")!;
         expect(button(assigned, "Remove").getAttribute("title")).toBe("Remove the reservation · the slot becomes free");
         expect(within(assigned).getByRole("button", { name: "Open resource" })).toBeTruthy();
         expect([text(assigned.querySelector("[data-allocation-fill]")), assigned.querySelector("[data-allocation-meter]") !== null]).toEqual(["0 m³ · takes 4–10", true]);
     });
 
-    test("A61 — Book an event: each checked against the resource, one take of it — Book off and `doesn’t fit · …` in warn when refused; a fit fills the reservation", async () => {
+    test("A61 — Book an arrival: each checked against the resource, one take of it — Book off and `doesn’t fit · …` in warn when refused; a fit fills the reservation", async () => {
         const c = await reserved();
         const take = () => answerTo(ask => ask.type === "take" && ask.value.resource === "K-305");
         const option = (key: string) => details(c).querySelector<HTMLElement>(`[data-allocation-book] [data-allocation-option="${key}"]`)!;
         const said = (key: string) => [option(key).querySelector("[title]")!.textContent, option(key).querySelector("[title]")!.getAttribute("data-tone"), button(option(key), "Book").hasAttribute("disabled")];
-        const refusal = take().events.get("LD-2232")!;
-        expect(said("event:LD-2232")).toEqual([`doesn’t fit · ${refusal.type === "refused" ? refusal.value.reason : ""}`, "warning", true]);
-        const fit = take().events.get("LD-2235")!;
-        expect(said("event:LD-2235")).toEqual([fit.type === "fits" ? fit.value.why : "", null, false]);
-        expect(details(c).querySelector("[data-allocation-book]")!.textContent).toContain("Each event is checked against K-305. Book is off when it doesn’t fit.");
-        await press(button(option("event:LD-2235"), "Book"));
+        const refusal = take().arrivals.get("LD-2232")!;
+        expect(said("arrival:LD-2232")).toEqual([`doesn’t fit · ${refusal.type === "refused" ? refusal.value.reason : ""}`, "warning", true]);
+        const fit = take().arrivals.get("LD-2235")!;
+        expect(said("arrival:LD-2235")).toEqual([fit.type === "fits" ? fit.value.why : "", null, false]);
+        expect(details(c).querySelector("[data-allocation-book]")!.textContent).toContain("Each arrival is checked against K-305. Book is off when it doesn’t fit.");
+        offering(["N1"]);
+        await press(button(option("arrival:LD-2235"), "Book"));
         expect(c.querySelector("[data-allocation-row='bin:V1']")).toBeNull();
         expect(text(tableRow(c, "bin:N1").querySelector("[data-allocation-chip=resource]"))).toBe("K-305");
     });
@@ -431,7 +439,7 @@ describe("a resource (A62)", () => {
             ["Before", "job C-3148 · released Fri 7", null], ["Hold", "Tue 11 to Wed 19 · 9 d", null], ["Next fill", "Thu 20 · 0 d spare", null],
         ]);
         expect(mates(c)).toEqual([["06:36", "B-2", "LD-2207", "44 m³"]]);
-        expect(details(c).querySelector("[data-allocation-bins]")!.textContent).toContain("Drag a bin’s connector or an event onto this row to load it.");
+        expect(details(c).querySelector("[data-allocation-bins]")!.textContent).toContain("Drag a bin’s connector or an arrival onto this row to load it.");
     });
 
     test("A62, A85 — busy: `busy until Fri 14`, `no bins today` and its hint; free: `not started` and `none planned to Thu 20`; held into its next fill in warn", async () => {
@@ -465,7 +473,7 @@ describe("the summary (A63, A89)", () => {
             ["Issues", "3", "2 overlaps · 1 over max", "warning"], ["Drafts", "0", "all saved", ""],
         ]);
         expect([...details(c).querySelectorAll("[data-allocation-hints] li")].map(li => li.textContent)).toEqual([
-            "Select a bin or a resource to inspect it.", "Use the Library to book events and reserve resources.", "Every change is a draft until Save. Undo and Redo are in the toolbar.",
+            "Select a bin or a resource to inspect it.", "Use the Library to book arrivals and reserve resources.", "Every change is a draft until Save. Undo and Redo are in the toolbar.",
         ]);
         expect(details(c).querySelector("[data-allocation-scope]")).toBeNull();
         // A draft is counted, and Save is named.
@@ -515,7 +523,7 @@ describe("Issues (A64)", () => {
         expect(headOf(c).kind).toBe("Bin 3102");
     });
 
-    test("A64 — not linked: its fix `Choose a resource` opens the bin's Chooser; with none: `No issues · Every event sits within its gap and its max.`", async () => {
+    test("A64 — not linked: its fix `Choose a resource` opens the bin's Chooser; with none: `No issues · Every arrival sits within its gap and its max.`", async () => {
         const c = await open();
         await press(card(c, "3113"));
         await press(button(details(c), "Unlink"));
@@ -524,10 +532,10 @@ describe("Issues (A64)", () => {
         expect(unlinked.firstElementChild!.textContent).toBe("Not linked1");
         await press(button(unlinked, "Choose a resource"));
         expect(details(c).querySelector("[data-allocation-assigned] [data-chooser]")).not.toBeNull();
-        // Thu 13 has no entry and no issue.
+        // Thu 13 has no row and no bin, and no issue.
         await key(c, "]"); await key(c, "]");
         await tab(c, "Issues");
-        expect(issuesTab(c).querySelector("[data-allocation-issues-empty]")!.textContent).toBe("No issuesEvery event sits within its gap and its max.");
+        expect(issuesTab(c).querySelector("[data-allocation-issues-empty]")!.textContent).toBe("No issuesEvery arrival sits within its gap and its max.");
     });
 });
 
@@ -564,34 +572,35 @@ describe("the drop list (A34, A86)", () => {
         await cancel();
     });
 
-    test("A86 — an event's drag says where it drops, on the Timeline and in the Table", async () => {
+    test("A86 — an arrival's drag says where it drops, on the Timeline and in the Table", async () => {
         const c = await open();
-        await hover(libraryCard(c, "event:LD-2231"), row(c, "K-101"));
+        await hover(libraryCard(c, "arrival:LD-2231"), row(c, "K-101"));
         expect(text(details(c).querySelector("[data-allocation-drop-hint]"))).toBe("Drop on a resource row or a lane hour, or on a resource here.");
         expect(details(c).querySelector<HTMLElement>("[data-allocation-drop-head]")!.children[2]!.textContent!.startsWith("8-day hold from Tue 11 · ")).toBe(true);
         await cancel();
         const t = await open(ex.allocationTable);
-        await hover(libraryCard(t, "event:LD-2231"), tableRow(t, "slot:B-1|2027-05-11T00:15:00.000"));
-        expect(text(details(t).querySelector("[data-allocation-drop-hint]"))).toBe("Drop on a free row’s event cell, or on a resource here to book its next free bin.");
+        await hover(libraryCard(t, "arrival:LD-2231"), tableRow(t, "slot:B-1|2027-05-11T00:15:00.000"));
+        expect(text(details(t).querySelector("[data-allocation-drop-hint]"))).toBe("Drop on a free row’s arrival cell, or on a resource here to book its next free bin.");
         await cancel();
-        await hover(tableRow(t, "bin:3103").querySelector("[data-allocation-chip=event]")!, tableRow(t, "slot:B-1|2027-05-11T00:15:00.000"));
-        expect(text(details(t).querySelector("[data-allocation-drop-hint]"))).toBe("Drop on a free row’s event cell. To change its resource, use the chevron on its row.");
+        await hover(tableRow(t, "bin:3103").querySelector("[data-allocation-chip=arrival]")!, tableRow(t, "slot:B-1|2027-05-11T00:15:00.000"));
+        expect(text(details(t).querySelector("[data-allocation-drop-hint]"))).toBe("Drop on a free row’s arrival cell. To change its resource, use the chevron on its row.");
         await cancel();
     });
 
     test("A34 — a pick, no drag: the same list with a Book each, and `Book puts it in the day’s first free lane slot (B-1 00:15)…`; Book books it onto that resource there", async () => {
         const c = await open();
-        await press(libraryCard(c, "event:LD-2235"));
-        const answer = answerTo(ask => ask.type === "place" && ask.value.subject.type === "event" && ask.value.subject.value === "LD-2235");
+        await press(libraryCard(c, "arrival:LD-2235"));
+        const answer = answerTo(ask => ask.type === "place" && ask.value.subject.type === "arrival" && ask.value.subject.value === "LD-2235");
         const rows = [...details(c).querySelectorAll<HTMLElement>("[data-allocation-drop-row]")];
         expect(rows.map(r => r.getAttribute("data-allocation-drop-row"))).toEqual(bestOf(answer));
         expect(text(details(c).querySelector("[data-allocation-drop-hint]"))).toBe(
             "Book puts it in the day’s first free lane slot (B-1 00:15). Or click a free lane hour or a ranked resource, or drag it there. Esc clears.");
+        offering(["N1"]);
         await press(button(rows[0]!, "Book"));
         expect([text(card(c, "N1").querySelector("[data-allocation-code]")), text(card(c, "N1").querySelector("[data-allocation-to]"))]).toEqual(["LD-2235", bestOf(answer)[0]]);
         await press(save(c));
-        const booked = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("N1")!;
-        expect([booked.lane, booked.at]).toEqual(["B-1", hour(0, 15)]);
+        const booked = (await h.read(ex.kilnBins)).get("N1")!;
+        expect([booked.bay, booked.at]).toEqual(["B-1", hour(0, 15)]);
     });
 });
 
@@ -626,10 +635,10 @@ describe("the refusal's note (A40)", () => {
         await hover(card(c, "3103"), row(c, "K-101"));
         await release();
         expect(note()).toBe("Not movedLD-2203 moves between lane hours only. To change its resource, drag its connector.");
-        // A Library event onto a resource that refuses it.
-        await hover(libraryCard(c, "event:LD-2232"), row(c, "K-101"));
+        // A Library arrival onto a resource that refuses it.
+        await hover(libraryCard(c, "arrival:LD-2232"), row(c, "K-101"));
         await release();
-        const booking = answerTo(ask => ask.type === "place" && ask.value.subject.type === "event" && ask.value.subject.value === "LD-2232");
+        const booking = answerTo(ask => ask.type === "place" && ask.value.subject.type === "arrival" && ask.value.subject.value === "LD-2232");
         expect(note()).toBe(`Not bookedLD-2232 can’t go into K-101: ${whyOf(booking, "K-101")}.`);
         // A Library resource onto a lane hour it takes no reservation in: K-207, over its max already.
         await press(within(slot(c, "start")).getAllByRole("tab").find(t => t.textContent!.startsWith("Resources")));
@@ -660,8 +669,8 @@ describe("the connector (A8, A21)", () => {
     });
 });
 
-describe("the app's bin form (`inspector={{ bin }}`)", () => {
-    test("its own form in place of the quantity field and the values rows; its writes are drafts of the day, saved as one patch", async () => {
+describe("the bin kind's own form (`Schedule.events(record, { …, inspector })`)", () => {
+    test("its own form in place of the quantity field and the column rows; its writes are drafts of the bins, saved in one request", async () => {
         const c = await open(ex.allocationCustomBin);
         await press(card(c, "3113"));
         const form = details(c).querySelector<HTMLElement>("[data-allocation-bin-form]")!;
@@ -671,9 +680,10 @@ describe("the app's bin form (`inspector={{ bin }}`)", () => {
         await act(async () => { fireEvent.change(instruction, { target: { value: "Stack under cover" } }); });
         await settle();
         expect(headOf(c).status).toBe("Edited · unsaved");
-        expect((await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!.values.instruction).toEqual(none);
+        expect((await h.read(ex.kilnBins)).get("3113")!.instruction).toEqual(none);
         await press(save(c));
-        expect((await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3113")!.values.instruction).toEqual(some("Stack under cover"));
+        expect(h.requests("mutate").map(r => r.record)).toEqual([ex.kilnBins.name]);
+        expect((await h.read(ex.kilnBins)).get("3113")!.instruction).toEqual(some("Stack under cover"));
     });
 });
 

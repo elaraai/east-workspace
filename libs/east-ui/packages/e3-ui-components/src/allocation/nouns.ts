@@ -4,8 +4,8 @@
  */
 
 /**
- * The board's nouns (#1338): the app's words for a lane, an event, a resource
- * and the quantity, resolved by the tag, and how running text writes them —
+ * The board's nouns (#1338, D12): the app's words for a lane, what it books (an
+ * arrival), a resource and the quantity, resolved by the tag, and how running text writes them —
  * in lower case, unless written in capitals (`SKU` stays `SKU`).
  *
  * @packageDocumentation
@@ -33,12 +33,12 @@ export function lower(word: string): string {
 export const one = (noun: Noun): string => lower(noun.one);
 /** The plural in running text: `kilns`. */
 export const other = (noun: Noun): string => lower(noun.other);
-/** The singular after its article: `a kiln`, `an event`. */
+/** The singular after its article: `a kiln`, `an arrival`. */
 export const a = (noun: Noun): string => `${noun.article} ${lower(noun.one)}`;
 
 /** The nouns with no labels given, as the tag resolves them. */
 export const DEFAULT_NOUNS: Nouns = {
-    lane: { one: "Lane", other: "Lanes", article: "a" }, event: { one: "Event", other: "Events", article: "an" },
+    lane: { one: "Lane", other: "Lanes", article: "a" }, arrival: { one: "Arrival", other: "Arrivals", article: "an" },
     resource: { one: "Resource", other: "Resources", article: "a" }, quantity: "QTY",
 };
 

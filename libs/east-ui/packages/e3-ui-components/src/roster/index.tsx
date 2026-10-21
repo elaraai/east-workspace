@@ -15,17 +15,18 @@
  *
  * @packageDocumentation
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusDisplay } from "../components/StatusDisplay.js";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useDataStable, useFormatters,
-    usePersistedState, useSlicesReactivity, useTrackedEvaluation, type HistoryAction,
+    usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
-import { publishChange, publishWeek, rosterCommands } from "./actions.js";
+import { publishPeriod } from "../shared/schedule/records.js";
+import { useSourceWindow } from "../shared/schedule/source-window.js";
+import { publishChange, rosterCommands } from "./actions.js";
 import { RosterDataReader, initialRosterData, type RosterData } from "./data.js";
 import { useRosterDrag } from "./drag.js";
 import { PERIODS, TARGETS, useRosterEditing, type RosterEditing } from "./editing.js";
@@ -64,32 +65,6 @@ interface FrameProps {
     /** Why the week's window could not be written to the duties' source. */
     rangeError: string | undefined;
     editing: RosterEditing | undefined;
-}
-
-/**
- * The duties' source of the slice holds the week's window — the week and the twelve hours either side its duties may
- * start from their shifts' — which the Roster's own navigation writes (D9), so the rail's count and a Save's notice
- * read the window the Roster reads. A range written elsewhere is written back.
- *
- * @param source - The payload
- * @param start - The week's first day
- * @returns Why the window could not be written, if it could not
- */
-function useRosterRange(source: RosterPayload, start: Date): string | undefined {
-    const part = sourcePart(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key);
-    const version = useSlicesReactivity(part === undefined ? [] : [part.key]);
-    const [error, setError] = useState<string>();
-    const window = weekWindow(start);
-    const min = window.from.getTime(), max = window.to.getTime();
-    useLayoutEffect(() => {
-        if (part === undefined || part.config.range.type !== "some") return;
-        const held = recordSliceWindow(part);
-        if (held?.kind === "datetime" && held.min === min && held.max === max) return;
-        try { setRecordSliceWindow(part, min, max); setError(undefined); }
-        catch (reason) { setError(reason instanceof Error ? reason.message : "The week could not be applied"); }
-        // `version` moves with the source's state: a range written there is written back.
-    }, [part, min, max, version]);
-    return error;
 }
 
 /** The week's own row, read: its status and what it dismissed. */
@@ -188,7 +163,7 @@ function RosterFrame(props: FrameProps) {
     const publish = useCallback(() => {
         if (editing === undefined || publishingNow.current) return;
         publishingNow.current = true; setPublishing(true);
-        void publishWeek(editing.history, () => latest.current.change(), changes => editing.schedule.record(changes, "typed", "Publish week"))
+        void publishPeriod(editing.history, () => latest.current.change(), changes => editing.schedule.record(changes, "typed", "Publish week"))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
     }, [editing]);
     // Commands update the selected item without changing the user's pane/tab.
@@ -272,7 +247,11 @@ function RosterRoot({ value: source, storageKey }: EastChakraRosterProps) {
     const activitiesShown = useSourceShown(activities, rosterPart(source, "activities"));
     const shown = useMemo(() => ({ people: peopleShown, activities: activitiesShown }), [peopleShown, activitiesShown]);
     const window = useRosterWindow(value, key);
-    const rangeError = useRosterRange(source, window.start);
+    // The duties' source of the slice holds the week's window — the week and the twelve hours either side its duties may start from
+    // their shifts' — which the Roster's own navigation writes (D9), so the rail's count and a Save's notice read the window it reads.
+    const span = weekWindow(window.start);
+    const rangeError = useSourceWindow(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key, span.from, span.to,
+        "The week could not be applied");
     const frame = { source, value, storageKey: key, window, visibility, activities, shown, display, setDisplay, rangeError };
     return source.settings.readOnly ? <RosterFrame {...frame} editing={undefined} /> : <EditableRoster {...frame} />;
 }

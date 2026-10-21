@@ -14,7 +14,7 @@
  * is minted unique in its record (B15); and pay is asked a person at a time
  * (B17).
  */
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { DateTimeType, equalFor, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -23,6 +23,7 @@ import {
     START, act, assignment, at, cell, drop, history, libraryCard, narrow, open, press, rosterHarness, settle, slot, warehouseRoster, weekDuties, width, type Choice,
 } from "./harness.test-utils.js";
 import { setRosterPayProbe } from "./model.js";
+import { offering } from "../shared/schedule/keys.test-utils.js";
 
 const h = rosterHarness();
 const sameDate = equalFor(DateTimeType);
@@ -42,16 +43,6 @@ const marks = (c: HTMLElement) => [...slot(c, "main").querySelectorAll('[role="i
 const issueCount = (c: HTMLElement) => within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }).textContent;
 /** The issues of a title the inspector's Issues tab lists. */
 const titled = (c: HTMLElement, title: string) => [...slot(c, "end").querySelectorAll("[data-roster-issue]")].filter(el => el.querySelector("button")?.textContent === title);
-/**
- * Stubs `crypto.randomUUID` to offer these keys first: each call takes the next, and once they are all taken the real
- * one answers — e3's client mints its requests' idempotency keys with it too.
- */
-function offering(keys: readonly string[]) {
-    const real = crypto.randomUUID.bind(crypto);
-    const offered = [...keys];
-    vi.spyOn(crypto, "randomUUID").mockImplementation(() => (offered.shift() ?? real()) as ReturnType<typeof crypto.randomUUID>);
-}
-
 afterEach(() => { setRosterPayProbe(undefined); });
 
 describe("one history over the Roster's records (#1369)", () => {

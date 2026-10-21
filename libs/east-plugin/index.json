@@ -39718,7 +39718,7 @@
         "Save"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39754,7 +39754,7 @@
         "narrowing"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39785,7 +39785,7 @@
         "Slice.bindRecords"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39815,7 +39815,7 @@
         "Func.bind"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39842,7 +39842,7 @@
         "Record.bind"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39869,7 +39869,7 @@
         "Record.bind"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39897,7 +39897,7 @@
         "Schedule.events"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39930,7 +39930,7 @@
         "Publish"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39957,7 +39957,7 @@
         "Record.bind"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -39984,7 +39984,7 @@
         "typed form"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",
@@ -40012,7 +40012,7 @@
         "rule"
       ],
       "imports": [
-        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from \"@elaraai/east\";",
         "import e3 from \"@elaraai/e3\";",
         "import { Box, Field, Reactive, Slice, UIComponentType, VStack } from \"@elaraai/east-ui\";",
         "import { Allocation, Data, Func, Record, Schedule } from \"@elaraai/e3-ui\";",

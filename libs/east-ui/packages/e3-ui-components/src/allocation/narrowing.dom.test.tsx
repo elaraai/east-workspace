@@ -4,7 +4,8 @@
  * @vitest-environment jsdom
  *
  * The board's narrowing (#1336) over the kiln yard's records: one
- * `Slice.bindRecords` over the bays and the kilns, read by the board itself —
+ * `Slice.bindRecords` over the bays, the kilns and the loads, each source named
+ * after the slot it narrows, read by the board itself —
  * one rail in both layouts, the Timeline's lane columns and resource rows, the
  * Table's rows, the Chooser's resources — while fits, loads and issues read
  * every lane and resource. A source with nothing chosen reads no key. Rows
@@ -31,8 +32,8 @@ async function open(example: Example, options: MountOptions = {}) {
     const r = await h.mount(example, options);
     return { c: r.container, store };
 }
-/** A source's narrowing written as the rail writes it: one field's values. */
-async function narrow(store: UIStore, example: string, source: "lanes" | "resources" | "events", field: string, values: readonly string[]) {
+/** A source's narrowing written as the rail writes it, under the slot the slice names it by: one field's values. */
+async function narrow(store: UIStore, example: string, source: "bays" | "kilns" | "arrivals", field: string, values: readonly string[]) {
     const key = `ex.${example}.${source}`;
     const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
     await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none,
@@ -68,17 +69,18 @@ const bayPages = () => h.requests("page", "records.yard_bays").filter(r => r.que
 const kilnPages = () => h.requests("page", "records.kilns").filter(r => r.query.get("index")?.startsWith("kilns_by_") === true);
 afterEach(() => { vi.restoreAllMocks(); });
 
-describe("one rail over the lanes, the resources and the events", () => {
+describe("one rail over the lanes, the resources and the arrivals", () => {
     test("the rail stands in both layouts: each source's fields in source order — Area, Cover; Kiln group, Max m³, Name; Spec — then the presets, and a summary naming only the sources a narrowing hides rows of (#1358)", async () => {
         const { c } = await open(ex.allocationKilnYard);
         const chips = () => [...slot(c, "toolbar").querySelectorAll<HTMLElement>("[data-record-slice-field]")].map(el => `${el.dataset.recordSliceSource}.${el.dataset.recordSliceField}`);
-        await waitFor(() => expect(chips()).toEqual(["lanes.area", "lanes.cover", "resources.group", "resources.max", "resources.name", "events.spec"]));
-        // Nothing is narrowed: the summary names no source.
-        expect(summary(c)).toBeUndefined();
+        await waitFor(() => expect(chips()).toEqual(["bays.area", "bays.cover", "kilns.group", "kilns.max", "kilns.name", "arrivals.spec"]));
+        // Nothing of the bays, the kilns or the arrivals is narrowed: the summary names the bins alone, the 26 of the record's 33
+        // the day's window holds (#1358).
+        expect(summary(c)).toBe("26 of 33 bin events");
         expect(toolbar(c).getByRole("button", { name: "North bays, halls" })).not.toBeNull();
         await press(toolbar(c).getByRole("radio", { name: "Table" }));
-        expect(chips()).toEqual(["lanes.area", "lanes.cover", "resources.group", "resources.max", "resources.name", "events.spec"]);
-        expect(summary(c)).toBeUndefined();
+        expect(chips()).toEqual(["bays.area", "bays.cover", "kilns.group", "kilns.max", "kilns.name", "arrivals.spec"]);
+        expect(summary(c)).toBe("26 of 33 bin events");
     });
 
     test("an Area choice through the rail narrows the Timeline's lanes; until a choice, the board reads no bay's key", async () => {
@@ -86,10 +88,10 @@ describe("one rail over the lanes, the resources and the events", () => {
         await waitFor(() => expect(cards(c)).toHaveLength(26));
         expect(bayPages()).toEqual([]);
         expect(kilnPages()).toEqual([]);
-        await press(slot(c, "toolbar").querySelector('[data-record-slice-source="lanes"][data-record-slice-field="area"]')!);
+        await press(slot(c, "toolbar").querySelector('[data-record-slice-source="bays"][data-record-slice-field="area"]')!);
         await press(await within(document.body).findByRole("button", { name: "North 2" }));
-        expect([...where(store, "allocationKilnYard", "lanes").keys()]).toEqual(["area"]);
-        expect(where(store, "allocationKilnYard", "resources").size).toBe(0);
+        expect([...where(store, "allocationKilnYard", "bays").keys()]).toEqual(["area"]);
+        expect(where(store, "allocationKilnYard", "kilns").size).toBe(0);
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
         // B-3's eight bins go with its column, and its 24 lane hours.
         expect(cards(c)).toHaveLength(18);
@@ -100,20 +102,20 @@ describe("one rail over the lanes, the resources and the events", () => {
         // The kilns are not narrowed: none of their keys is read, and every row stays.
         expect(kilnPages()).toEqual([]);
         expect(resourceCount(c)).toBe(33);
-        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes"));
+        await waitFor(() => expect(summary(c)).toBe("26 of 33 bin events·2 of 3 lanes"));
     });
 
     test("a preset over both sources narrows each in one gesture; selected again, it clears both", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         const preset = () => toolbar(c).getByRole("button", { name: "North bays, halls" });
         await press(preset());
-        expect(where(store, "allocationKilnYard", "lanes").get("area")).toEqual(variant("values", ['"North"']));
-        expect(where(store, "allocationKilnYard", "resources").get("group")).toEqual(variant("values", ['"Hall A"', '"Hall B"']));
+        expect(where(store, "allocationKilnYard", "bays").get("area")).toEqual(variant("values", ['"North"']));
+        expect(where(store, "allocationKilnYard", "kilns").get("group")).toEqual(variant("values", ['"Hall A"', '"Hall B"']));
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
         await waitFor(() => expect(resourceCount(c)).toBe(19));
         expect(preset().getAttribute("aria-pressed")).toBe("true");
         await press(preset());
-        expect([where(store, "allocationKilnYard", "lanes").size, where(store, "allocationKilnYard", "resources").size]).toEqual([0, 0]);
+        expect([where(store, "allocationKilnYard", "bays").size, where(store, "allocationKilnYard", "kilns").size]).toEqual([0, 0]);
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2", "B-3"]));
         await waitFor(() => expect(resourceCount(c)).toBe(33));
     });
@@ -127,7 +129,7 @@ describe("the Table, narrowed", () => {
 
     test("a lane narrowing hides that lane's rows, free and booked; each band counts what it shows", async () => {
         const { c, store } = await open(ex.allocationTable);
-        await narrow(store, "allocationTable", "lanes", "area", ["North"]);
+        await narrow(store, "allocationTable", "bays", "area", ["North"]);
         await waitFor(() => expect(tableRow(c, "bin:3101")).toBeNull());
         for (const row of c.querySelectorAll<HTMLElement>("[data-allocation-row]")) expect(["B-1", "B-2"]).toContain(row.children[1]!.textContent);
         const bands = await folded(c);
@@ -139,7 +141,7 @@ describe("the Table, narrowed", () => {
     test("a resource narrowing hides a row whose resources it hides; a free row and a row not yet allocated stay", async () => {
         const { c, store } = await open(ex.allocationTable);
         await press(within(tableRow(c, "bin:3101")!).getByRole("button", { name: "Unlink LD-2201 from K-209" }));
-        await narrow(store, "allocationTable", "resources", "group", ["Hall A"]);
+        await narrow(store, "allocationTable", "kilns", "group", ["Hall A"]);
         // LD-2202 is on K-102, in Hall A; LD-2201 is now on no kiln.
         await waitFor(() => expect(tableRow(c, "bin:3102")).not.toBeNull());
         expect(tableRow(c, "bin:3101")!.querySelector("[data-status]")!.getAttribute("data-status")).toBe("Not linked");
@@ -152,9 +154,9 @@ describe("the Table, narrowed", () => {
 
     test("both together: a row shows when its lane and one of its resources show", async () => {
         const { c, store } = await open(ex.allocationTable);
-        await narrow(store, "allocationTable", "lanes", "area", ["North"]);
-        await narrow(store, "allocationTable", "resources", "group", ["Hall A"]);
-        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes·10 of 33 resources"));
+        await narrow(store, "allocationTable", "bays", "area", ["North"]);
+        await narrow(store, "allocationTable", "kilns", "group", ["Hall A"]);
+        await waitFor(() => expect(summary(c)).toBe("26 of 33 bin events·2 of 3 lanes·10 of 33 resources"));
         // LD-2203 (B-1, K-109) shows; LD-2202 (B-3, K-102) is in a hidden lane; LD-2204 (B-1, K-501) on a hidden kiln.
         expect(tableRow(c, "bin:3103")).not.toBeNull();
         expect([tableRow(c, "bin:3102"), tableRow(c, "bin:3104")]).toEqual([null, null]);
@@ -165,18 +167,18 @@ describe("the Table, narrowed", () => {
     test("a split bin shows while any of its resources shows", async () => {
         const { c, store } = await open(ex.allocationSplit);
         await press(toolbar(c).getByRole("radio", { name: "Table" }));
-        await narrow(store, "allocationSplit", "resources", "group", ["Bulk"]);
-        // 3201's parts are on K-601 (Bulk) and K-208; 3202's and 3203's are none of them Bulk.
-        await waitFor(() => expect(summary(c)).toBe("2 of 33 resources"));
+        await narrow(store, "allocationSplit", "kilns", "group", ["Bulk"]);
+        // 3201's parts are on K-601 (Bulk) and K-208; 3202's and 3203's are none of them Bulk. Wed 12's window holds three bins.
+        await waitFor(() => expect(summary(c)).toBe("3 of 33 bin events·2 of 33 resources"));
         expect(total(await folded(c))).toEqual({ rows: 70, bins: 1, free: 69 });
-        await narrow(store, "allocationSplit", "resources", "group", ["Hall A"]);
+        await narrow(store, "allocationSplit", "kilns", "group", ["Hall A"]);
         // 3202 is on K-107 and K-110, 3203 on K-305 and K-110: each has a part in Hall A; 3201 has none.
         expect(total(await folded(c))).toEqual({ rows: 71, bins: 2, free: 69 });
     });
 
     test("the resource Chooser offers the resources the narrowing shows, and the current one; the fit still answers for every one", async () => {
         const { c, store } = await open(ex.allocationTable);
-        await narrow(store, "allocationTable", "resources", "group", ["Hall A"]);
+        await narrow(store, "allocationTable", "kilns", "group", ["Hall A"]);
         await waitFor(() => expect(tableRow(c, "bin:3102")).not.toBeNull());
         await press(tableRow(c, "bin:3102")!.querySelector("[data-allocation-cell-side=resource] [aria-haspopup=listbox]")!);
         await settle();
@@ -194,26 +196,26 @@ describe("the Table, narrowed", () => {
         const load = () => tableRow(c, "bin:3102")!.children[7]!.textContent;
         await waitFor(() => expect(issues()).toBeDefined());
         const before = [issues(), load()];
-        await narrow(store, "allocationTable", "lanes", "area", ["South"]);
-        await narrow(store, "allocationTable", "resources", "group", ["Hall A"]);
+        await narrow(store, "allocationTable", "bays", "area", ["South"]);
+        await narrow(store, "allocationTable", "kilns", "group", ["Hall A"]);
         await waitFor(() => expect(tableRow(c, "bin:3103")).toBeNull());
         expect([issues(), load()]).toEqual(before);
     });
 
     test("a narrowing that leaves nothing says so, in either layout, and Clear filters brings every row back", async () => {
         const { c, store } = await open(ex.allocationTable);
-        await narrow(store, "allocationTable", "lanes", "area", ["East"]);
-        await narrow(store, "allocationTable", "resources", "group", ["Bulk"]);
+        await narrow(store, "allocationTable", "bays", "area", ["East"]);
+        await narrow(store, "allocationTable", "kilns", "group", ["Bulk"]);
         await waitFor(() => expect(c.querySelector("[data-allocation-narrowed-empty]")).not.toBeNull());
         expect(c.querySelectorAll("[data-allocation-row], [data-allocation-band]")).toHaveLength(0);
         expect(c.querySelector("[data-allocation-table-head]")).not.toBeNull();
         expect(c.querySelector("[data-allocation-narrowed-empty]")!.textContent).toContain("No rows match the filters");
         await press(within(c.querySelector<HTMLElement>("[data-allocation-narrowed-empty]")!).getByRole("button", { name: "Clear filters" }));
-        expect([where(store, "allocationTable", "lanes").size, where(store, "allocationTable", "resources").size]).toEqual([0, 0]);
+        expect([where(store, "allocationTable", "bays").size, where(store, "allocationTable", "kilns").size]).toEqual([0, 0]);
         await waitFor(() => expect(c.querySelector("[data-allocation-narrowed-empty]")).toBeNull());
         expect(total(await folded(c))).toEqual({ rows: 80, bins: 26, free: 54 });
         await press(toolbar(c).getByRole("radio", { name: "Timeline" }));
-        await narrow(store, "allocationTable", "lanes", "area", ["East"]);
+        await narrow(store, "allocationTable", "bays", "area", ["East"]);
         await waitFor(() => expect(c.querySelector("[data-allocation-narrowed-empty]")).not.toBeNull());
         expect(c.querySelector("[data-allocation-timeline]")).toBeNull();
     });
@@ -222,14 +224,14 @@ describe("the Table, narrowed", () => {
 describe("the Timeline, narrowed", () => {
     test("a lane narrowing keeps every resource row; a resource narrowing every lane column", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
-        await narrow(store, "allocationKilnYard", "lanes", "area", ["South"]);
+        await narrow(store, "allocationKilnYard", "bays", "area", ["South"]);
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-3"]));
         expect(resourceCount(c)).toBe(33);
         expect(cards(c)).toEqual(["3101", "3102", "3116", "3118", "3119", "3120", "3123", "3124"]);
         // A card stands in its lane's column among those shown.
         expect(c.querySelector<HTMLElement>('[data-allocation-card="3101"]')!.style.getPropertyValue("--card-lane")).toBe("0");
-        await narrow(store, "allocationKilnYard", "lanes", "area", ["North", "South"]);
-        await narrow(store, "allocationKilnYard", "resources", "group", ["Bulk"]);
+        await narrow(store, "allocationKilnYard", "bays", "area", ["North", "South"]);
+        await narrow(store, "allocationKilnYard", "kilns", "group", ["Bulk"]);
         await waitFor(() => expect(mountedResources(c)).toEqual(["K-601", "K-602"]));
         expect(resourceCount(c)).toBe(2);
         expect(laneHeads(c)).toEqual(["B-1", "B-2", "B-3"]);
@@ -251,7 +253,7 @@ describe("the Timeline, narrowed", () => {
         const links = () => [...c.querySelectorAll("[data-allocation-links] [data-link]")].map(l => l.getAttribute("data-allocation-link")).sort();
         // K-202 holds LD-2219 in B-3 and LD-2221 in B-2.
         expect(links()).toEqual(["3123|K-202", "3126|K-202"]);
-        await narrow(store, "allocationKilnYard", "lanes", "area", ["North"]);
+        await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
         await waitFor(() => expect(links()).toEqual(["3126|K-202"]));
         expect(c.querySelector('[data-allocation-resource="K-202"]')!.getAttribute("aria-pressed")).toBe("true");
     });
@@ -260,7 +262,7 @@ describe("the Timeline, narrowed", () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await waitFor(() => expect(cards(c)).toHaveLength(26));
         const failing = h.unavailable(ex.yardBays);
-        await narrow(store, "allocationKilnYard", "lanes", "area", ["North"]);
+        await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
         const banner = () => within(slot(c, "banners")).queryByText("Lane results unavailable");
         await waitFor(() => expect(banner()).not.toBeNull());
         expect(within(slot(c, "banners")).queryByText("Resource results unavailable")).toBeNull();
@@ -282,11 +284,11 @@ describe("a filter change rebuilds no builder (#1354)", () => {
         await waitFor(() => expect(cards(c)).toHaveLength(26));
         const mounted = [builds.runs, builds.decodes];
         expect(Math.min(...mounted)).toBeGreaterThan(0);
-        await narrow(store, "allocationKilnYard", "lanes", "area", ["North"]);
+        await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
-        await narrow(store, "allocationKilnYard", "resources", "group", ["Bulk"]);
+        await narrow(store, "allocationKilnYard", "kilns", "group", ["Bulk"]);
         await waitFor(() => expect(resourceCount(c)).toBe(2));
-        await waitFor(() => expect(summary(c)).toBe("2 of 3 lanes·2 of 33 resources"));
+        await waitFor(() => expect(summary(c)).toBe("26 of 33 bin events·2 of 3 lanes·2 of 33 resources"));
         expect([builds.runs, builds.decodes], "no choice runs the body again or decodes a payload").toEqual(mounted);
     });
 });

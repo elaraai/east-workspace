@@ -71,7 +71,7 @@ export interface LaneGrid {
     cards: LaneCard[];
     /** Every grid row. */
     rows: number;
-    /** Each lane's bins with an event, and their quantity (A15). */
+    /** Each lane's bins with an arrival, and their quantity (A15). */
     heads: { bins: number; quantity: number; first: Date | undefined }[];
 }
 
@@ -112,7 +112,7 @@ export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan:
             shown(slot).forEach((id, place) => cards.push({ id, bin: plan.bins.get(id)!, lane, slot: k, slotAt: slot.at, row: bands[k]!.row + place }));
             for (const id of slot.bins) {
                 const bin = plan.bins.get(id);
-                if (bin?.event.type === "some") { heads[lane]!.bins += 1; heads[lane]!.quantity += bin.quantity; }
+                if (bin?.arrival.type === "some") { heads[lane]!.bins += 1; heads[lane]!.quantity += bin.quantity; }
             }
         });
     });

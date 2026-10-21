@@ -19,11 +19,12 @@
  */
 
 import { useMemo, useRef } from "react";
-import { StringType, equalFor, isVariant, none, some, type ValueTypeOf, type option } from "@elaraai/east";
+import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditHistory, EditSession, EntryVersion } from "@elaraai/east-ui-components";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead } from "../shared/schedule/editing.js";
-import { rosterDomain, rowCodec, weekKey, weekSpan, weekWindow, type DraftedDuty, type RosterValue, type StoredTarget } from "./model.js";
+import { draftedRow, heldInWindow, keptAtRevision, periodRowRead, rowCodec } from "../shared/schedule/records.js";
+import { rosterDomain, weekKey, weekSpan, weekWindow, type DraftedDuty, type RosterValue, type StoredTarget } from "./model.js";
 
 /** What a change names the weeks' record by in the history: no duty kind's slot. */
 export const PERIODS = "roster.periods";
@@ -47,46 +48,6 @@ export interface RosterEditing {
 }
 
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
-const stringEqual = equalFor(StringType);
-
-/** An entry's drafted row, when its draft holds one; `undefined` for an entry its draft removes. */
-function draftedRow(entry: EntryVersion<ScheduleEntryRef> | undefined): { row: unknown } | undefined {
-    const draft = entry?.draft;
-    return isVariant(draft) && draft.type === "value" ? { row: draft.value } : undefined;
-}
-
-/**
- * A window of a record as the Roster reads it, kept at the revision it was
- * read at: every read of a record is pinned to one revision, whose rows stay
- * as they are however often they are read, so a Save's confirmation, which
- * reads its entries a batch at a time, reads the window once. Tracked where it
- * is called: the record moving, or the window's read landing, runs it again.
- *
- * @param entries - The record read by key, whose revision the window is kept at; `none` for one read whole, read each time
- * @param read - The window's read: `none` while it is in flight
- * @returns The window's read, kept
- */
-function keptAtRevision<R>(entries: ScheduleEditingRecord["entries"], read: () => option<R>): () => option<R> {
-    let kept: { readonly revision: string; readonly rows: R } | undefined;
-    return () => {
-        const at = entries.type === "some" ? entries.value.revision() : none;
-        if (at.type === "some" && kept !== undefined && stringEqual(kept.revision, at.value)) return some(kept.rows);
-        const rows = read();
-        if (rows.type === "some" && at.type === "some") kept = { revision: at.value, rows: rows.value };
-        return rows;
-    };
-}
-
-/**
- * A row of a window read by key: its bytes where the window holds it; `none`
- * while the window is read; `undefined` for one it does not hold, which is
- * read by its key — the record may hold it outside the window.
- */
-function heldIn(rows: option<ReadonlyMap<string, { readonly row: Uint8Array }>>, key: string): ReturnType<ScheduleRowRead> {
-    if (rows.type !== "some") return none;
-    const row = rows.value.get(key);
-    return row === undefined ? undefined : some(some(row.row));
-}
 
 /**
  * The Roster's sessions over its records, and their drafts (see the module docs).
@@ -113,23 +74,13 @@ export function useRosterEditing(value: RosterValue, storageKey: string, start: 
     const reads = useMemo((): Record<string, ScheduleRowRead> => {
         const window = weekWindow(start), week = weekSpan(start), id = weekKey(start);
         const duties = keptAtRevision(value.duty.kind.entries, () => value.duty.rows(window.from, window.to));
-        const out: Record<string, ScheduleRowRead> = { [value.duty.kind.key]: key => heldIn(duties(), key) };
-        if (value.periods.type === "some") {
-            const periods = value.periods.value;
-            const weeks = keptAtRevision(periods.entries, () => periods.rows(week.from, week.to));
-            // The week's own row, by its start: the week's read holds none of another week's.
-            out[PERIODS] = key => {
-                if (!stringEqual(key, id)) return undefined;
-                const rows = weeks();
-                if (rows.type !== "some") return none;
-                const row = rows.value.get(start);
-                return some(row === undefined ? none : some(row));
-            };
-        }
+        const out: Record<string, ScheduleRowRead> = { [value.duty.kind.key]: key => heldInWindow(duties(), key) };
+        // The week's own row, by its start: the week's read holds none of another week's.
+        if (value.periods.type === "some") out[PERIODS] = periodRowRead(value.periods.value, week.from, week.to, id);
         if (value.targets.type === "some") {
             const targets = value.targets.value;
             const read = keptAtRevision(targets.entries, () => targets.rows(week.from, week.to));
-            out[TARGETS] = key => heldIn(read(), key);
+            out[TARGETS] = key => heldInWindow(read(), key);
         }
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps

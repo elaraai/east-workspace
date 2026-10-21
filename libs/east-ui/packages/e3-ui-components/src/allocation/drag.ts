@@ -6,7 +6,7 @@
 /**
  * The board's drags on the shared drag grammar (`Allocation Spec.md` §9.4,
  * §9.5, §10; A22–A40): what is dragged — a bin's body, its connector or one of
- * its links, or a Library card: an event, a bin the drafts removed, a
+ * its links, or a Library card: an arrival, a bin the drafts removed, a
  * resource (#1330) — and onto what — a lane hour, a card, a resource row, the
  * fits marker, a Table cell — each as a `CellCoord` of the board's one
  * surface, and the one verdict a drop gets: its caption, its refusal, and the
@@ -34,14 +34,14 @@ import { rowOfKey } from "./table-rows.js";
 
 /** What a drag of something on the board carries: a bin's body (A24), its connector, or one of its links. */
 export type BoardGrip = { kind: "body"; bin: string } | { kind: "port"; bin: string } | { kind: "link"; bin: string; resource: string };
-/** What a Library card carries (#1330): an event to book, a committed bin the drafts removed, or a resource. */
-export type LibraryGrip = { kind: "event"; event: string } | { kind: "removed"; bin: string } | { kind: "resource"; resource: string };
+/** What a Library card carries (#1330): an arrival to book, a committed bin the drafts removed, or a resource. */
+export type LibraryGrip = { kind: "arrival"; arrival: string } | { kind: "removed"; bin: string } | { kind: "resource"; resource: string };
 /** What a drag carries. */
 export type Grip = BoardGrip | LibraryGrip;
 
 /**
  * Where a drag rests (A26): a lane hour (a card in it names the card; a Table
- * row's event cell is its slot's, `table`), a resource — its row, the fits
+ * row's arrival cell is its slot's, `table`), a resource — its row, the fits
  * marker over the rows (its #1's), or a fit in the inspector's drop list, each
  * dropping as the resource's row does, at `rowCoord` — or a Table row's
  * resource cell.
@@ -105,7 +105,7 @@ export function gripCoord(surface: string, grip: BoardGrip): Required<CellCoord>
     return { surface, row: grip.kind, slot: grip.kind === "link" ? grip.resource : "", event: grip.bin };
 }
 
-/** A lane hour's coordinate, or a card's in it; a Table row's event cell names its slot's (`table`). */
+/** A lane hour's coordinate, or a card's in it; a Table row's arrival cell names its slot's (`table`). */
 export function laneCoord(surface: string, lane: string, at: Date, card?: string, table = false): CellCoord {
     return { surface, row: `${table ? "table-lane" : "lane"}:${lane}`, slot: dayKey(at), ...(card === undefined ? {} : { event: card }) };
 }
@@ -121,21 +121,21 @@ export function rowCoord(surface: string, resource: string): CellCoord {
 }
 
 /** The Library's two lists, by the board's surface: the drag grammar's sources (#1330). */
-export interface AllocationLibraries { events: string; resources: string }
+export interface AllocationLibraries { arrivals: string; resources: string }
 
 /**
  * The Library's ids for a board.
  *
  * @param surface - The board's drag surface
- * @returns Its Events and its Resources lists' ids
+ * @returns Its Arrivals and its Resources lists' ids
  */
 export function libraryIds(surface: string): AllocationLibraries {
-    return { events: `${surface}.library.events`, resources: `${surface}.library.resources` };
+    return { arrivals: `${surface}.library.arrivals`, resources: `${surface}.library.resources` };
 }
 
-/** An Events card's key: an event's, or a removed bin's. */
-export function eventCardKey(grip: Extract<LibraryGrip, { kind: "event" | "removed" }>): string {
-    return grip.kind === "event" ? `event:${grip.event}` : `removed:${grip.bin}`;
+/** An Arrivals card's key: an arrival's, or a removed bin's. */
+export function arrivalCardKey(grip: Extract<LibraryGrip, { kind: "arrival" | "removed" }>): string {
+    return grip.kind === "arrival" ? `arrival:${grip.arrival}` : `removed:${grip.bin}`;
 }
 
 /**
@@ -147,8 +147,8 @@ export function eventCardKey(grip: Extract<LibraryGrip, { kind: "event" | "remov
  */
 export function libraryGripOf(libraries: AllocationLibraries, ref: { library: string; key: string }): LibraryGrip | undefined {
     if (ref.library === libraries.resources) return { kind: "resource", resource: ref.key };
-    if (ref.library !== libraries.events) return undefined;
-    if (ref.key.startsWith("event:")) return { kind: "event", event: ref.key.slice("event:".length) };
+    if (ref.library !== libraries.arrivals) return undefined;
+    if (ref.key.startsWith("arrival:")) return { kind: "arrival", arrival: ref.key.slice("arrival:".length) };
     if (ref.key.startsWith("removed:")) return { kind: "removed", bin: ref.key.slice("removed:".length) };
     return undefined;
 }
@@ -177,7 +177,7 @@ export function targetOf(ref: { row: string; slot: string; event: option<string>
 export function gripKey(grip: Grip): string {
     switch (grip.kind) {
         case "link": return `link|${grip.bin}|${grip.resource}`;
-        case "event": return `event|${grip.event}`;
+        case "arrival": return `arrival|${grip.arrival}`;
         case "resource": return `resource|${grip.resource}`;
         default: return `${grip.kind}|${grip.bin}`;
     }
@@ -275,9 +275,9 @@ export interface DropScene {
 /** A grip's question of the fit, of the drafts or of a day the board derives from them (`of`, a fill's or a restore's). */
 export function askOf(scene: Pick<DropScene, "plan" | "context" | "restoring">, grip: Grip, of?: Day): Asked | undefined {
     switch (grip.kind) {
-        case "event": {
-            const event = scene.context.events.get(grip.event);
-            return event === undefined ? undefined : { ask: variant("place", { subject: variant("event", grip.event), quantity: event.quantity }), of, quantity: event.quantity };
+        case "arrival": {
+            const arrival = scene.context.arrivals.get(grip.arrival);
+            return arrival === undefined ? undefined : { ask: variant("place", { subject: variant("arrival", grip.arrival), quantity: arrival.quantity }), of, quantity: arrival.quantity };
         }
         case "removed": {
             const day = of ?? scene.restoring(grip.bin);
@@ -292,21 +292,21 @@ export function askOf(scene: Pick<DropScene, "plan" | "context" | "restoring">, 
     }
 }
 
-/** An event's code. */
-function eventLabel(scene: Pick<DropScene, "context">, event: string): string {
-    return scene.context.events.get(event)?.label ?? event;
+/** An arrival's code. */
+function arrivalLabel(scene: Pick<DropScene, "context">, arrival: string): string {
+    return scene.context.arrivals.get(arrival)?.label ?? arrival;
 }
 
-/** A bin's event's code: the drafts', or the record's for a bin the drafts removed. */
+/** A bin's arrival's code: the drafts', or the record's for a bin the drafts removed. */
 function codeOfBin(scene: Pick<DropScene, "context" | "plan" | "held">, bin: string): string {
-    const event = (scene.plan.bins.get(bin) ?? scene.held?.bins.get(bin))?.event;
-    return event?.type === "some" ? eventLabel(scene, event.value) : "The reservation";
+    const arrival = (scene.plan.bins.get(bin) ?? scene.held?.bins.get(bin))?.arrival;
+    return arrival?.type === "some" ? arrivalLabel(scene, arrival.value) : "The reservation";
 }
 
 /** What a grip's caption and refusal call what it carries. */
 function codeOf(scene: Pick<DropScene, "context" | "plan" | "held">, grip: Grip): string {
     switch (grip.kind) {
-        case "event": return eventLabel(scene, grip.event);
+        case "arrival": return arrivalLabel(scene, grip.arrival);
         case "resource": return nameOf(scene, grip.resource);
         default: return codeOfBin(scene, grip.bin);
     }
@@ -330,7 +330,7 @@ export function landing(slots: readonly Slot[], plan: Day, lane: string, at: Dat
 const refused = (caption: string, refusal: Refusal, reason?: string): Verdict => ({ allowed: false, caption, warn: false, refusal, reason, pending: false, run: undefined });
 const waiting: Verdict = { allowed: true, caption: "checking fits…", warn: false, refusal: undefined, pending: true, run: undefined };
 const taken = (caption: string, run: () => boolean): Verdict => ({ allowed: true, caption, warn: false, refusal: undefined, pending: false, run });
-/** No drop here, and nothing to say: a resource's card over a resource row, or a Table event cell. */
+/** No drop here, and nothing to say: a resource's card over a resource row, or a Table arrival cell. */
 const nowhere: Verdict = { allowed: false, caption: "", warn: false, refusal: undefined, pending: false, run: undefined };
 
 /**
@@ -363,22 +363,22 @@ function onResource(scene: DropScene, asked: Asked | undefined, code: string, re
 }
 
 /**
- * A Library event's or a removed bin's verdict (§10): booked into a lane hour,
+ * A Library arrival's or a removed bin's verdict (§10): booked into a lane hour,
  * after any bins in it (A37); into a reservation, which the fit checks on its
  * resource (A38); onto a resource, at the day's first free slot (A36).
  */
-function bookVerdict(scene: DropScene, grip: Extract<LibraryGrip, { kind: "event" | "removed" }>, target: Exclude<Target, { kind: "cell" }>, ranks: readonly string[], asking: boolean): Verdict {
+function bookVerdict(scene: DropScene, grip: Extract<LibraryGrip, { kind: "arrival" | "removed" }>, target: Exclude<Target, { kind: "cell" }>, ranks: readonly string[], asking: boolean): Verdict {
     const code = codeOf(scene, grip);
-    const book = (lane: string, at: Date, resource: string | undefined) => grip.kind === "event"
-        ? scene.commands.book(grip.event, lane, at, resource) : scene.commands.restore(grip.bin, lane, at, resource);
+    const book = (lane: string, at: Date, resource: string | undefined) => grip.kind === "arrival"
+        ? scene.commands.book(grip.arrival, lane, at, resource) : scene.commands.restore(grip.bin, lane, at, resource);
     if (target.kind === "lane") {
         const card = target.card === undefined ? undefined : scene.plan.bins.get(target.card);
-        if (card !== undefined && card.event.type === "none") {
+        if (card !== undefined && card.arrival.type === "none") {
             const reservation = target.card!;
-            const into = () => grip.kind === "event" ? scene.commands.fillWith(reservation, grip.event) : scene.commands.restoreInto(grip.bin, reservation);
+            const into = () => grip.kind === "arrival" ? scene.commands.fillWith(reservation, grip.arrival) : scene.commands.restoreInto(grip.bin, reservation);
             const resource = [...card.parts.keys()][0];
             if (resource === undefined) return taken(`to ${slotText(scene, card.lane, card.at)}`, into);
-            const of = grip.kind === "event" ? scene.without(reservation) : scene.restoring(grip.bin, reservation);
+            const of = grip.kind === "arrival" ? scene.without(reservation) : scene.restoring(grip.bin, reservation);
             // The Table names the reserved row's slot, as its row reads (A33).
             const verb = target.table === true ? `to ${slotText(scene, card.lane, card.at)} on ` : "into the reservation on ";
             return onResource(scene, askOf(scene, grip, of), code, resource, "Not booked", verb, into, [], "", asking);
@@ -393,21 +393,21 @@ function bookVerdict(scene: DropScene, grip: Extract<LibraryGrip, { kind: "event
 }
 
 /**
- * Books a Library event, or a committed bin the drafts removed, onto a
+ * Books a Library arrival, or a committed bin the drafts removed, onto a
  * resource at the day's first free slot of the lanes that show (A36): what a
- * drop on the resource runs, and a narrow card's `Book an event…` (A78). With
- * no slot left, nothing is booked and the banner says so.
+ * drop on the resource runs, and a narrow card's `Book an arrival…` (A78).
+ * With no slot left, nothing is booked and the banner says so.
  *
  * @param scene - What the board knows
- * @param grip - The event, or the removed bin
+ * @param grip - The arrival, or the removed bin
  * @param resource - The resource
  * @returns Whether it was booked
  */
 export function bookOnto(scene: Pick<DropScene, "context" | "plan" | "held" | "day" | "commands" | "firstFree" | "notice">,
-    grip: Extract<LibraryGrip, { kind: "event" | "removed" }>, resource: string): boolean {
+    grip: Extract<LibraryGrip, { kind: "arrival" | "removed" }>, resource: string): boolean {
     const land = scene.firstFree();
     if (land !== undefined) {
-        return grip.kind === "event" ? scene.commands.book(grip.event, land.lane, land.at, resource) : scene.commands.restore(grip.bin, land.lane, land.at, resource);
+        return grip.kind === "arrival" ? scene.commands.book(grip.arrival, land.lane, land.at, resource) : scene.commands.restore(grip.bin, land.lane, land.at, resource);
     }
     scene.notice({ word: "Not booked", text: `No free bin is left on ${formatDatePattern("ddd D", scene.day)} for ${codeOf(scene, grip)}.` });
     return false;
@@ -432,7 +432,7 @@ function resourceVerdict(scene: DropScene, resource: string, target: Target, ask
         const bin = scene.plan.bins.get(id);
         if (bin === undefined) return refused("not on the board", { word: "Not allocated", text: "The bin is no longer on the board." });
         if (bin.parts.has(resource)) return taken("already on it", () => false);
-        const reserved = bin.event.type === "none";
+        const reserved = bin.arrival.type === "none";
         const code = codeOfBin(scene, id);
         return judged(answer => answer.bins.get(id), "Not allocated", reason => `${reserved ? "The reservation" : code} can’t go onto ${name}: ${reason}.`,
             reserved ? "move the reservation here" : `link ${code}`, () => scene.commands.link(id, resource, undefined));
@@ -445,7 +445,7 @@ function resourceVerdict(scene: DropScene, resource: string, target: Target, ask
         if (row === undefined) return nowhere;
         return "bin" in row ? onBin(row.bin) : onSlot(row.lane, row.at);
     }
-    // A Table row's event cell takes no resource (A32).
+    // A Table row's arrival cell takes no resource (A32).
     if (target.table === true) return nowhere;
     if (target.card !== undefined) return onBin(target.card);
     return onSlot(target.lane, landing(scene.slots, scene.plan, target.lane, target.at, undefined));
@@ -464,10 +464,10 @@ function resourceVerdict(scene: DropScene, resource: string, target: Target, ask
 export function verdictOf(scene: DropScene, grip: Grip, target: Target, ranks: readonly string[], asking = true): Verdict {
     if (grip.kind === "resource") return resourceVerdict(scene, grip.resource, target, asking);
     const code = codeOf(scene, grip);
-    const { lane, event, resource: noun } = scene.nouns;
+    const { lane, arrival, resource: noun } = scene.nouns;
     // A Table row's resource cell takes a resource's drag only (A33).
-    if (target.kind === "cell") return refused(`drop on the ${one(event)} cell`, { word: "Not booked", text: `Drop ${code} on a row’s ${one(event)} cell to book it.` });
-    if (grip.kind === "event" || grip.kind === "removed") return bookVerdict(scene, grip, target, ranks, asking);
+    if (target.kind === "cell") return refused(`drop on the ${one(arrival)} cell`, { word: "Not booked", text: `Drop ${code} on a row’s ${one(arrival)} cell to book it.` });
+    if (grip.kind === "arrival" || grip.kind === "removed") return bookVerdict(scene, grip, target, ranks, asking);
     if (grip.kind === "body") {
         if (target.kind === "resource") {
             return refused(`${one(lane)} hours only · drag its connector to change the ${one(noun)}`,
@@ -475,7 +475,7 @@ export function verdictOf(scene: DropScene, grip: Grip, target: Target, ranks: r
         }
         const card = target.card === undefined ? undefined : scene.plan.bins.get(target.card);
         // A reservation: the bin fills it, if the fit takes the bin on the reservation's resource (A38).
-        if (card !== undefined && target.card !== grip.bin && card.event.type === "none") {
+        if (card !== undefined && target.card !== grip.bin && card.arrival.type === "none") {
             const resource = [...card.parts.keys()][0];
             const reservation = target.card!;
             if (resource === undefined) return taken(`to ${slotText(scene, card.lane, card.at)}`, () => scene.commands.fill(grip.bin, reservation));
@@ -635,7 +635,7 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
     const config = useMemo((): DragTargetConfig => {
         const targetOfEvent = (event: DragEventValue) => event.type === "move" ? targetOf(event.value.to) : event.type === "add" ? targetOf(event.value.into) : undefined;
         return {
-            id: surface, sources: [libraries.events, libraries.resources], kinds: { add: true, move: true, remove: false, resize: false, trash: false },
+            id: surface, sources: [libraries.arrivals, libraries.resources], kinds: { add: true, move: true, remove: false, resize: false, trash: false },
             onDrag: (event: DragEventValue) => {
                 const g = gripOfEvent(event), target = targetOfEvent(event);
                 if (g === undefined || target === undefined) return false;

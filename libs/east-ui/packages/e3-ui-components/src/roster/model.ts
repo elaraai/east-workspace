@@ -222,25 +222,6 @@ export function rosterDomain(rowType: EastTypeValue): RosterDomain {
     return domain;
 }
 
-/** A record's rows, as bytes and back: the weeks' and the targets' rows, by their row type. */
-export interface RowCodec { readonly encode: (row: unknown) => Uint8Array; readonly decode: (bytes: Uint8Array) => unknown }
-const codecs: { type: EastTypeValue; codec: RowCodec }[] = [];
-
-/**
- * A record's row codec, made the first time its row type is seen.
- *
- * @param rowType - The row type
- * @returns Its codec
- */
-export function rowCodec(rowType: EastTypeValue): RowCodec {
-    const known = codecs.find(c => sameTypeValue(c.type, rowType));
-    if (known !== undefined) return known.codec;
-    const type = fromEastTypeValue(rowType) as EastType;
-    const codec: RowCodec = { encode: encodeBeast2For(type) as (row: unknown) => Uint8Array, decode: decodeBeast2For(type) as (bytes: Uint8Array) => unknown };
-    codecs.push({ type: rowType, codec });
-    return codec;
-}
-
 /** The time arithmetic every row type shares (§5.5), compiled once. */
 let times: {
     dayOf: (start: Date, clock: Shift["start"]) => Date;

@@ -8,8 +8,8 @@
  * three panes — the lane grid with a card per bin, the link channel, and the
  * resources in their fixed order, each row's plot on the resource axis — and
  * the focus; during a drag, the drag's links in the focus's place — its
- * families, a link drag's new line to the pointer, an event's lines into its
- * best rows (A65, A69, A30). Every figure and word is e3-ui's (the slots, the
+ * families, a link drag's new line to the pointer, an arrival's lines into
+ * its best rows (A65, A69, A30). Every figure and word is e3-ui's (the slots, the
  * loads, each resource's line); the layout's indices are `timeline-layout.ts`'s,
  * and every size is the `allocationBuilder` recipe's.
  *
@@ -77,18 +77,18 @@ export interface TimelineProps {
     visible: option<Set<string>>;
     /** The lanes the narrowing shows, by key; `none` for every one (#1336). */
     visibleLanes: option<Set<string>>;
-    /** The events the narrowing shows, by key; `none` for every one: a bin of a hidden event has no card (#1339). */
-    visibleEvents: option<Set<string>>;
+    /** The arrivals the narrowing shows, by key; `none` for every one: a bin of a hidden arrival has no card (#1339). */
+    visibleArrivals: option<Set<string>>;
     /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
     clearFilters: (() => void) | undefined;
     selection: Selection | undefined;
     /** The focus (A13). */
     focus: string | undefined;
-    /** The event whose every bin the Library's Allocated card highlights (A10). */
+    /** The arrival whose every bin the Library's Allocated card highlights (A10). */
     highlight: string | undefined;
-    /** Whether a Library event is picked (A11): its free lane hours show, and a click there or on a ranked resource books it. */
+    /** Whether a Library arrival is picked (A11): its free lane hours show, and a click there or on a ranked resource books it. */
     picked: boolean;
-    /** Books the picked event where a click lands, as its drop would (A11). */
+    /** Books the picked arrival where a click lands, as its drop would (A11). */
     book: (target: Target) => void;
     /** Whether the day takes edits. */
     editable: boolean;
@@ -219,10 +219,10 @@ export function AllocationTimeline(props: TimelineProps) {
     const unit = context.unit;
     // The lanes the narrowing shows, in their order: a hidden lane's column goes, with its cards and its slots (#1336).
     const lanes = useMemo(() => value.lanes.filter(lane => props.visibleLanes.type === "none" || props.visibleLanes.value.has(lane.key)), [value.lanes, props.visibleLanes]);
-    // A bin of an event the narrowing hides has no card; a reservation, which has no event, stays (#1339).
-    const { visibleEvents } = props;
+    // A bin of an arrival the narrowing hides has no card; a reservation, which has no arrival, stays (#1339).
+    const { visibleArrivals } = props;
     const grid = useMemo(() => laneGrid(lanes.map(lane => lane.key), slots, plan,
-        bin => visibleEvents.type === "none" || bin.event.type === "none" || visibleEvents.value.has(bin.event.value)), [lanes, slots, plan, visibleEvents]);
+        bin => visibleArrivals.type === "none" || bin.arrival.type === "none" || visibleArrivals.value.has(bin.arrival.value)), [lanes, slots, plan, visibleArrivals]);
     const axis = useMemo(() => resourceAxis(day, Number(words.ms(value.settings.horizon.before)), Number(words.ms(value.settings.horizon.after))),
         [day, value.settings.horizon, words]);
     const lines = useMemo(() => new Map(value.resources.map(r => [r.key, words.line(day, r, loads.get(r.key)!, unit)] as const)), [value.resources, loads, day, unit, words]);
@@ -252,7 +252,7 @@ export function AllocationTimeline(props: TimelineProps) {
     // A drag near a pane's top or bottom scrolls it a row at a time, on the rows' grid (A25): the shared edge scroller's row step.
     useLayoutEffect(() => { rscPane.current?.setAttribute("data-edge-scroll-row", String(ROW_H)); });
 
-    // A drag (#1328, #1330): what is dragged; for a connector's, a link's, a Library event's or a removed bin's — or the pick's,
+    // A drag (#1328, #1330): what is dragged; for a connector's, a link's, a Library arrival's or a removed bin's — or the pick's,
     // with no drag under way (A11) — every resource's verdict, the fit's (A27–A29).
     const { drag } = props;
     const grip = drag.grip, subject = drag.subject;
@@ -333,11 +333,11 @@ export function AllocationTimeline(props: TimelineProps) {
     const linkWords = useMemo(() => {
         const out = new Map<string, Map<string, LinkWords>>();
         for (const [id, bin] of plan.bins) {
-            const code = bin.event.type === "some" ? context.events.get(bin.event.value)?.label ?? bin.event.value : "";
-            out.set(id, new Map(partsOf(bin).map(part => [part.key, linkWordsOf(code, bin.event.type === "none" ? undefined : words.quantity(part.quantity, unit))] as const)));
+            const code = bin.arrival.type === "some" ? context.arrivals.get(bin.arrival.value)?.label ?? bin.arrival.value : "";
+            out.set(id, new Map(partsOf(bin).map(part => [part.key, linkWordsOf(code, bin.arrival.type === "none" ? undefined : words.quantity(part.quantity, unit))] as const)));
         }
         return out;
-    }, [plan, context.events, words, unit]);
+    }, [plan, context.arrivals, words, unit]);
     const wordsOf = useCallback((link: FamilyLink): LinkWords => linkWords.get(link.bin)?.get(link.resource) ?? linkWordsOf("", undefined), [linkWords]);
     // The link under the pointer (A67): its bin's card and its resource's load bar ring.
     const [lit, setLit] = useState<FamilyLink>();
@@ -580,8 +580,8 @@ const NO_HIT = () => ({});
 
 /**
  * What follows the pointer through a drag (A69, A30): a link's or a
- * connector's new line from its card to the pointer, or an event's lines from
- * the pointer into its three best fits' rows — the only part of the board
+ * connector's new line from its card to the pointer, or an arrival's lines
+ * from the pointer into its three best fits' rows — the only part of the board
  * drawn again as the pointer moves (A35). A keyboard's drag has no pointer to
  * follow, and draws neither.
  */
@@ -591,7 +591,7 @@ function PointerLines({ props, root, cards, rows, view }: {
     const { drag, styles } = props;
     const { grip } = drag;
     const card = grip !== undefined && (grip.kind === "link" || grip.kind === "port") ? cards.get(grip.bin) : undefined;
-    const ranking = grip !== undefined && (grip.kind === "event" || grip.kind === "removed");
+    const ranking = grip !== undefined && (grip.kind === "arrival" || grip.kind === "removed");
     const at = useDragPointer(root, card !== undefined || ranking);
     if (at === undefined) return null;
     const line = card === undefined ? undefined : dragLine(cardEnd(card, view), at.x, at.y, view);
@@ -640,8 +640,8 @@ function Card(args: CardProps) {
     const { styles, context, drag } = props;
     const { id, bin } = card;
     const words = allocationWords();
-    const event = bin.event.type === "some" ? context.events.get(bin.event.value) : undefined;
-    const code = bin.event.type === "none" ? undefined : event?.label ?? bin.event.value;
+    const arrival = bin.arrival.type === "some" ? context.arrivals.get(bin.arrival.value) : undefined;
+    const code = bin.arrival.type === "none" ? undefined : arrival?.label ?? bin.arrival.value;
     const label = useMemo(() => code === undefined ? "Reserved" : `${code} · ${words.quantity(bin.quantity, context.unit)}`, [code, words, bin.quantity, context.unit]);
     // The card body drags the bin between lane hours (A24); its connector drags what it carries onto a resource (A21).
     const ghost = useMemo(() => <MoveGhost styles={styles} label={label} />, [styles, label]);
@@ -663,9 +663,9 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
     const { id, bin } = card;
     const words = allocationWords();
     const nouns = useNouns();
-    const reserved = bin.event.type === "none";
-    const event = bin.event.type === "some" ? context.events.get(bin.event.value) : undefined;
-    const code = reserved ? "Reserved" : event?.label ?? (bin.event.type === "some" ? bin.event.value : "");
+    const reserved = bin.arrival.type === "none";
+    const arrival = bin.arrival.type === "some" ? context.arrivals.get(bin.arrival.value) : undefined;
+    const code = reserved ? "Reserved" : arrival?.label ?? (bin.arrival.type === "some" ? bin.arrival.value : "");
     const parts = partsOf(bin);
     const resource = parts[0] === undefined ? undefined : context.resources.get(parts[0].key);
     const line = resource === undefined ? undefined : lines.get(resource.key);
@@ -673,7 +673,7 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
     const draft = committed === undefined || !props.sameBin(committed, bin);
     const linkDraft = draft && (committed === undefined || !sameParts(committed.parts, bin.parts));
     // Selected, or one of the bins the Library's Allocated card highlights (A10).
-    const selected = (props.selection?.type === "bin" && props.selection.id === id) || (props.highlight !== undefined && bin.event.type === "some" && bin.event.value === props.highlight);
+    const selected = (props.selection?.type === "bin" && props.selection.id === id) || (props.highlight !== undefined && bin.arrival.type === "some" && bin.arrival.value === props.highlight);
     // Outside the focus, a card dims (A13): any but the selected one and the focus's own.
     const dimming = props.selection?.type === "bin" || props.selection?.type === "resource";
     const dim = dimming && !selected && (props.focus === undefined || !bin.parts.has(props.focus));
@@ -686,8 +686,8 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
     const left = resource !== undefined && compareFloat(remainder, 0) > 0 ? `${words.quantity(remainder, context.unit)} unallocated` : undefined;
     const moves = props.editable ? ` · drag to another ${one(nouns.lane)} hour to move it` : "";
     const tip = reserved
-        ? `Reserved · ${at}${resource === undefined ? "" : ` on ${resource.label}`} · no ${one(nouns.event)} yet${moves}`
-        : `${code}${event?.meta.type === "some" ? ` · ${event.meta.value}` : ""} · ${qty} · ${at}${resource === undefined ? " · not linked" : ` on ${to}`}${left === undefined ? "" : ` · ${left}`}${moves}`;
+        ? `Reserved · ${at}${resource === undefined ? "" : ` on ${resource.label}`} · no ${one(nouns.arrival)} yet${moves}`
+        : `${code}${arrival?.meta.type === "some" ? ` · ${arrival.meta.value}` : ""} · ${qty} · ${at}${resource === undefined ? " · not linked" : ` on ${to}`}${left === undefined ? "" : ` · ${left}`}${moves}`;
     const marks: ReactNode[] = [];
     for (const issue of flags) {
         if (issue.bin.type === "some" && issue.bin.value === id && issue.flag.type === "some") {
@@ -752,7 +752,7 @@ const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, ax
     const { styles, context, day } = props;
     const words = allocationWords();
     const focus = props.focus === resource.key;
-    // With an event picked, a click on a ranked resource books it onto it (A11, A36).
+    // With an arrival picked, a click on a ranked resource books it onto it (A11, A36).
     const select = () => { if (props.picked && rank !== undefined && props.editable) props.book({ kind: "resource", resource: resource.key }); else props.select({ type: "resource", key: resource.key }); };
     const shades = useMemo(() => shadeBands({ min: axis.from, max: axis.to }, {}), [axis]);
     const mondays = useMemo(() => axis.days.filter((d, i) => i > 0 && d.getUTCDay() === 1), [axis]);

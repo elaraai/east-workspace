@@ -22,7 +22,7 @@ export const legends = (nouns: Nouns) => ({
         { kind: "link", label: "Link" }, { kind: "draftLink", label: "Draft link" },
     ],
     table: [
-        { kind: "bin", label: `${nouns.event.one} or ${one(nouns.resource)}` }, { kind: "draft", label: "Draft" }, { kind: "empty", label: "Empty · drop here" },
+        { kind: "bin", label: `${nouns.arrival.one} or ${one(nouns.resource)}` }, { kind: "draft", label: "Draft" }, { kind: "empty", label: "Empty · drop here" },
         { kind: "reserved", label: "Reserved" }, { kind: "free", label: "Free" },
     ],
 });

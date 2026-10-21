@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, StringType, example, none, some, variant } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FunctionType, NullType, PatchType, StringType, example, none, some, variant } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
@@ -23,6 +23,21 @@ export const kilnBinsByTime = e3.recordIndex("kiln_bins_by_time", kilnBins, { in
 /** The days of the yard's plan, what the board publishes: Tue 4 May issued, Tue 11 and Wed 12 drafts. */
 export const yardDays = e3.record("yard_days", DictType(DateTimeType, YardDay), yardDayRows);
 export const yardDaysPatch = e3.mutation.patch(yardDays);
+/** The same bins, locked for the day: their door, a checked one, refuses every change, naming why — what a Save over it is answered. */
+export const kilnLockedBins = e3.record("kiln_locked_bins", DictType(StringType, KilnBin), yardBinRows);
+export const kilnLockedBinsByTime = e3.recordIndex("kiln_locked_bins_by_time", kilnLockedBins, { interval: { from: "at", to: "at" } });
+export const kilnLockedBinsPatch = e3.mutation.reduce("patch", kilnLockedBins,
+    East.function([DictType(StringType, KilnBin), PatchType(DictType(StringType, KilnBin))], DictType(StringType, KilnBin), ($, bins, _patch) => {
+        $.error("the yard's bins are locked for the day");
+        return bins;
+    }));
+/** The same days, locked: the site office issues them, and their door refuses every change, naming why. */
+export const yardLockedDays = e3.record("yard_locked_days", DictType(DateTimeType, YardDay), yardDayRows);
+export const yardLockedDaysPatch = e3.mutation.reduce("patch", yardLockedDays,
+    East.function([DictType(DateTimeType, YardDay), PatchType(DictType(DateTimeType, YardDay))], DictType(DateTimeType, YardDay), ($, days, _patch) => {
+        $.error("the site office issues the yard's days");
+        return days;
+    }));
 /** Two years of the yard's bins, for the board read a day at a time through its slice. */
 export const kilnBinHistory = e3.record("kiln_bin_history", DictType(StringType, KilnBin), yardBinHistoryRows);
 export const kilnBinHistoryPatch = e3.mutation.patch(kilnBinHistory);

@@ -7,7 +7,7 @@
  * bins — the rows a narrowing shows agree with an oracle built another way (an
  * inverted index of resources to rows, and set algebra), keep their order,
  * grow with what is shown, never hide a free or unallocated row for a
- * resource, never hide a free row or a reservation for an event, and the bands
+ * resource, never hide a free row or a reservation for an arrival, and the bands
  * count exactly what they show.
  */
 import { describe, expect, test } from "vitest";
@@ -53,8 +53,8 @@ function randomDay(seed: number): { slots: Slot[]; plan: Day } {
                 const reserved = r.chance(0.15);
                 // A bin is on no resource, one, or several (a split).
                 const on = r.chance(0.15) ? [] : r.chance(0.25) ? r.subset(RESOURCES) : [r.pick(RESOURCES)];
-                bins.set(key, { lane, at: new Date(at.getTime() + ids.length * 1000), event: reserved ? none : some(`E${id}`), quantity: reserved ? 0 : 1 + r.int(40),
-                    kind: none, hold: variant("days", 1), parts: new SortedMap(on.map(res => [res, 1]), byString), values: null } as unknown as Bin);
+                bins.set(key, { lane, at: new Date(at.getTime() + ids.length * 1000), arrival: reserved ? none : some(`E${id}`), quantity: reserved ? 0 : 1 + r.int(40),
+                    kind: none, hold: variant("days", 1), parts: new SortedMap(on.map(res => [res, 1]), byString), row: null } as unknown as Bin);
                 ids.push(key);
             }
             slots.push({ lane, at, status: ids.length === 0 ? variant("free", null) : variant("booked", null), bins: ids });
@@ -151,50 +151,50 @@ describe("narrowRows (#1336)", () => {
     });
 });
 
-describe("narrowRows by events (#1339)", () => {
-    /** The day's events: each bin's own. */
-    const eventsOf = (plan: Day) => [...plan.bins.values()].flatMap(bin => bin.event.type === "some" ? [bin.event.value] : []);
+describe("narrowRows by arrivals (#1339)", () => {
+    /** The day's arrivals: each bin's own. */
+    const arrivalsOf = (plan: Day) => [...plan.bins.values()].flatMap(bin => bin.arrival.type === "some" ? [bin.arrival.value] : []);
 
-    test("hides exactly the rows of the bins of the events it hides; a free row and a reservation stay", () => {
+    test("hides exactly the rows of the bins of the arrivals it hides; a free row and a reservation stay", () => {
         for (let seed = 1; seed <= 500; seed++) {
             const { slots, plan } = randomDay(seed);
             const rows = tableRows(slots, plan);
             const r = random(seed * 6700417);
-            const events = some(set(r.subset(eventsOf(plan))));
-            const kept = new Set(narrowRows(rows, plan, none, none, events).map(row => row.key));
-            // The oracle: a row is hidden iff its bin carries an event outside the set.
+            const arrivals = some(set(r.subset(arrivalsOf(plan))));
+            const kept = new Set(narrowRows(rows, plan, none, none, arrivals).map(row => row.key));
+            // The oracle: a row is hidden iff its bin carries an arrival outside the set.
             const hidden = new Set(rows.filter(row => {
-                const event = row.bin === undefined ? undefined : plan.bins.get(row.bin)!.event;
-                return event?.type === "some" && !events.value.has(event.value);
+                const arrival = row.bin === undefined ? undefined : plan.bins.get(row.bin)!.arrival;
+                return arrival?.type === "some" && !arrivals.value.has(arrival.value);
             }).map(row => row.key));
             expect(kept, `seed ${seed}`).toEqual(new Set(rows.map(row => row.key).filter(key => !hidden.has(key))));
             for (const row of rows) if (row.kind !== "bin") expect(kept.has(row.key), `seed ${seed} ${row.key}`).toBe(true);
         }
     });
 
-    test("with the lanes and the resources, it is their intersection; showing more events never hides a row", () => {
+    test("with the lanes and the resources, it is their intersection; showing more arrivals never hides a row", () => {
         for (let seed = 1; seed <= 500; seed++) {
             const { slots, plan } = randomDay(seed);
             const rows = tableRows(slots, plan);
             const r = random(seed * 3010349);
-            const lanes = shown(r, LANES), resources = shown(r, RESOURCES), all = eventsOf(plan), events = r.subset(all);
+            const lanes = shown(r, LANES), resources = shown(r, RESOURCES), all = arrivalsOf(plan), arrivals = r.subset(all);
             const keys = (e: readonly string[]) => new Set(narrowRows(rows, plan, lanes, resources, some(set(e))).map(row => row.key));
-            const byEvents = new Set(narrowRows(rows, plan, none, none, some(set(events))).map(row => row.key));
-            const both = new Set(narrowRows(rows, plan, lanes, resources).map(row => row.key).filter(key => byEvents.has(key)));
-            expect(keys(events), `seed ${seed}`).toEqual(both);
-            const more = [...new Set([...events, ...r.subset(all)])];
-            for (const key of keys(events)) expect(keys(more).has(key), `seed ${seed}`).toBe(true);
+            const byArrivals = new Set(narrowRows(rows, plan, none, none, some(set(arrivals))).map(row => row.key));
+            const both = new Set(narrowRows(rows, plan, lanes, resources).map(row => row.key).filter(key => byArrivals.has(key)));
+            expect(keys(arrivals), `seed ${seed}`).toEqual(both);
+            const more = [...new Set([...arrivals, ...r.subset(all)])];
+            for (const key of keys(arrivals)) expect(keys(more).has(key), `seed ${seed}`).toBe(true);
             expect(narrowRows(rows, plan, none, none, some(set(all)))).toEqual(rows);
         }
     });
 
-    test("narrowBands by events counts what it shows; a band it empties goes", () => {
+    test("narrowBands by arrivals counts what it shows; a band it empties goes", () => {
         for (let seed = 1; seed <= 300; seed++) {
             const { slots, plan } = randomDay(seed);
             const bands = tableBands(tableRows(slots, plan), plan, DAY);
-            const events = some(set(random(seed * 92821).subset(eventsOf(plan))));
-            const narrowed = narrowBands(bands, plan, none, none, events);
-            const expected = bands.map(band => ({ band, rows: narrowRows(band.rows, plan, none, none, events) }))
+            const arrivals = some(set(random(seed * 92821).subset(arrivalsOf(plan))));
+            const narrowed = narrowBands(bands, plan, none, none, arrivals);
+            const expected = bands.map(band => ({ band, rows: narrowRows(band.rows, plan, none, none, arrivals) }))
                 .filter(({ band, rows }) => rows.length > 0 || band.rows.length === 0);
             expect(narrowed.map(band => band.key), `seed ${seed}`).toEqual(expected.map(({ band }) => band.key));
             narrowed.forEach((band, i) => expect(band.rows).toEqual(expected[i]!.rows));

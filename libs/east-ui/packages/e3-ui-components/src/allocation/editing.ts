@@ -3,72 +3,114 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useMemo } from "react";
-import { DateTimeType, isVariant, none, some, toEastTypeValue, variant } from "@elaraai/east";
-import { Editing } from "@elaraai/east-ui";
-import { useEditHistory, type EditHistoryState, type EditHistorySource, type EditSession, type EditingValue, type EntryVersion, type Origin } from "@elaraai/east-ui-components";
-import { readWindowDay, type AllocationData } from "./data.js";
-import { dayKey, emptyDay, parseDay, type AllocationDomain, type AllocationValue, type Day } from "./model.js";
+/**
+ * The Allocation's editing (#1372, `Builder Interfaces Spec.md` §7): one
+ * history over a session per record it writes — the bins (the bin kind's
+ * session, read by key through its `entries` when it is given them) and the
+ * days (the periods') — through the shared Schedule editing, as the Roster's
+ * is: a gesture is one step, and Save sends each record's changes as its own
+ * request. Drafts of every day stay in their sessions: navigating, the rail and
+ * a remount keep them, and Save includes them. The day's own reads of each
+ * record serve a gesture's original and a Save's confirmation, at the revision
+ * the Save committed; a row they do not hold is read by its key.
+ *
+ * @packageDocumentation
+ */
 
-const PLACE = some(variant("keyOrder", null));
-const ABSENT: EntryVersion<Day> = { draft: undefined, wire: undefined, place: none };
-/** A whole-day draft; the shared session owns history, conflicts and request recovery. */
-function draftDay(entry: EntryVersion<Day> | undefined): Day | undefined {
-    return entry !== undefined && isVariant(entry.draft) && entry.draft.type === "value" ? entry.draft.value as Day : undefined;
+import { useMemo, useRef } from "react";
+import type { ValueTypeOf } from "@elaraai/east";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import type { EditHistory, EditSession, EntryVersion } from "@elaraai/east-ui-components";
+import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead } from "../shared/schedule/editing.js";
+import { draftedRow, heldInWindow, keptAtRevision, periodRowRead, rowCodec } from "../shared/schedule/records.js";
+import { DAY, allocationDomain, dayKey, type AllocationValue, type DraftedBin } from "./model.js";
+
+/** What a change names the days' record by in the history: no bin kind's slot. */
+export const PERIODS = "allocation.periods";
+
+/** The Allocation's editing: its history, and every draft of each record, decoded once. */
+export interface AllocationEditing {
+    /** The shared Schedule editing over the two records: how a gesture is recorded, and what each record holds. */
+    readonly schedule: ScheduleEditing;
+    /** The one history over them. */
+    readonly history: EditHistory<ScheduleEntryRef>;
+    /** The bin kind's slot: what a change names the bins by. */
+    readonly bin: string;
+    /** Every drafted bin of every day, by key: its bytes, its roles and its row, or `undefined` for one removed. */
+    readonly bins: ReadonlyMap<string, DraftedBin | undefined>;
+    /** Every drafted day's row, by its key's text: its bytes, or `undefined` for one removed. */
+    readonly periods: ReadonlyMap<string, Uint8Array | undefined>;
 }
 
-/** The active day's session, as the board edits through it. */
-export interface AllocationEditing extends Omit<EditHistoryState<Day>, "held" | "available"> {
-    key: string;
-    session: EditSession<Day> | undefined;
-    /** The day as drafted. */
-    plan: Day;
-    /** The day as the record holds it; `undefined` while it has no entry (Not started). */
-    held: Day | undefined;
-    /** Whether the day can be edited now. */
-    available: boolean;
-    /** One gesture, one transaction (A75): the day as it leaves it. */
-    record: (next: Day, origin: Origin, label: string) => boolean;
-}
+const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 
 /**
- * Each day keeps its own shared session under its view key (A5): the
- * record's write gate is shared across days, and Save sends only the active
- * day's batch, one checked patch (A77).
+ * The Allocation's sessions over its records, and their drafts (see the module docs).
+ *
+ * @param value - The payload
+ * @param storageKey - The board's key: its sessions and their history are kept under it
+ * @param day - The plan day: the window the board reads its records over
+ * @param recordSlices - The slice's part over the bins: its Save notice counts what leaves it
+ * @returns The editing
  */
-export function useAllocationEditing(value: AllocationValue, domain: AllocationDomain, day: Date, storageKey: string, data: AllocationData): AllocationEditing {
-    const id = dayKey(day);
-    const sources = useMemo((): EditHistorySource<Day>[] => {
-        const editing: EditingValue = {
-            sourceId: value.sourceId, entryType: toEastTypeValue(domain.dayType), draftType: toEastTypeValue(Editing.Types.DraftField(domain.dayType)),
-            keyType: some(toEastTypeValue(DateTimeType)), idField: none, children: none,
-            snapshot: data.snapshot === undefined ? none : some(domain.encodeDays(data.snapshot)),
-            readEntry: () => none, onPatch: none, mode: variant("batch", null),
-            // The batch crosses as bytes at ChangeSet(Day(V), DateTime), the payload's apply's own.
-            onApply: some(variant("async", async bytes => value.apply(bytes))),
-        };
-        if (data.snapshot !== undefined) return [{ editing }];
-        const window = value.window.type === "some" ? value.window.value : undefined;
-        return [{ editing, paged: {
-            revision: () => window?.revision() ?? none,
-            refresh: revision => window?.refresh(revision),
-            entry: entry => {
-                const date = parseDay(entry);
-                return window === undefined || !date.success ? none : readWindowDay(window, domain, date.value);
-            },
-        } }];
-    }, [value, domain, data.snapshot]);
-    const state = useEditHistory<Day>(sources, `${storageKey}.day.${id}`);
-    const key = state.keys[0]!;
-    const session = state.history.session(key);
-    const held = data.days.get(day);
-    const original = draftDay(session?.originals.get(id)) ?? held;
-    const plan = draftDay(session?.entries.get(id)) ?? held ?? emptyDay();
-    const available = !value.settings.readOnly && held?.status.type !== "published" && !data.loading && state.available(key);
-    const record = (next: Day, origin: Origin, label: string): boolean => {
-        if (!available || plan.status.type === "published") return false;
-        const before = session?.entries.get(id) ?? (held === undefined ? ABSENT : { draft: variant("value", held), wire: held, place: PLACE });
-        return state.history.record([{ key, updates: [{ id, before, after: { draft: variant("value", next), wire: next, place: PLACE } }] }], origin, label);
-    };
-    return { ...state, key, session, plan, held: original, available, record };
+export function useAllocationEditing(value: AllocationValue, storageKey: string, day: Date, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[]): AllocationEditing {
+    const domain = allocationDomain(value.bin.rowType);
+    const kinds = useMemo(() => [value.bin.kind], [value.bin.kind]);
+    const records = useMemo((): ScheduleEditingRecord[] => value.periods.type === "some"
+        ? [{ key: PERIODS, name: "Days", editing: value.periods.value.editing, entries: value.periods.value.entries }] : [], [value.periods]);
+    const epoch = day.getTime();
+    const range = useMemo(() => ({ from: new Date(epoch), to: new Date(epoch + DAY) }), [epoch]);
+    // Each record's rows where the day's own reads hold them — the bins' window and the day's own row: a gesture's original, and
+    // what a Save confirms its entries by at the revision it committed.
+    const reads = useMemo((): Record<string, ScheduleRowRead> => {
+        const from = new Date(epoch), to = new Date(epoch + DAY);
+        const bins = keptAtRevision(value.bin.kind.entries, () => value.bin.rows(from, to));
+        const out: Record<string, ScheduleRowRead> = { [value.bin.kind.key]: key => heldInWindow(bins(), key) };
+        // The day's own row, by its start: the day's read holds none of another day's.
+        if (value.periods.type === "some") out[PERIODS] = periodRowRead(value.periods.value, from, to, dayKey(from));
+        return out;
+    }, [value.bin, value.periods, epoch]);
+    const schedule = useScheduleEditing({ kinds, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, range, recordSlices });
+    const bin = value.bin.kind.key;
+    const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;
+    // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.
+    const binCache = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, DraftedBin>());
+    const periodCache = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, Uint8Array>());
+    const drafts = schedule.drafts;
+    const bins = useMemo(() => {
+        const session = sessionOf(bin);
+        const out = new Map<string, DraftedBin | undefined>();
+        for (const id of schedule.draftsOf(bin).keys()) {
+            const entry = session?.entries.get(id);
+            const drafted = draftedRow(entry);
+            if (entry === undefined || drafted === undefined) { out.set(id, undefined); continue; }
+            let held = binCache.current.get(entry);
+            if (held === undefined) {
+                const bytes = domain.encodeRow(drafted.row);
+                held = { bytes, roles: value.bin.read(bytes), row: drafted.row };
+                binCache.current.set(entry, held);
+            }
+            out.set(id, held);
+        }
+        return out;
+        // The drafts move with every gesture: their bytes say when.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [drafts, bin, domain, value.bin]);
+    const periods = useMemo(() => {
+        const out = new Map<string, Uint8Array | undefined>();
+        if (value.periods.type !== "some") return out;
+        const encode = rowCodec(value.periods.value.rowType).encode;
+        const session = sessionOf(PERIODS);
+        for (const id of schedule.draftsOf(PERIODS).keys()) {
+            const entry = session?.entries.get(id);
+            const drafted = draftedRow(entry);
+            if (entry === undefined || drafted === undefined) { out.set(id, undefined); continue; }
+            let held = periodCache.current.get(entry);
+            if (held === undefined) { held = encode(drafted.row); periodCache.current.set(entry, held); }
+            out.set(id, held);
+        }
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [drafts, value.periods]);
+    return useMemo(() => ({ schedule, history: schedule.history, bin, bins, periods }), [schedule, bin, bins, periods]);
 }

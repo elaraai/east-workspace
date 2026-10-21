@@ -12,8 +12,8 @@
  * channel. Nothing of a link leaves the lane grid's card columns or crosses
  * into the resource pane; an end out of its pane's view meets the view's edge
  * in Plan's stub. A link drag's new line runs from its card to the pointer, and
- * an event's drag over the lane grid draws thin lines from the pointer into its
- * three best fits' rows.
+ * an arrival's drag over the lane grid draws thin lines from the pointer into
+ * its three best fits' rows.
  *
  * @packageDocumentation
  */
@@ -84,7 +84,7 @@ export function familyOf(plan: Day, held: Day | undefined, focus: string, ids: L
             const was = committed?.parts.get(part.key);
             links.push({
                 id: ids.get(id)?.get(part.key) ?? -1, bin: id, resource: part.key,
-                quantity: bin.event.type === "none" ? undefined : part.quantity,
+                quantity: bin.arrival.type === "none" ? undefined : part.quantity,
                 draft: was === undefined || compareFloat(was, part.quantity) !== 0, family: focus,
             });
         }
@@ -204,7 +204,7 @@ export function layoutLinks(
 const LINE_CLEAR = 16;
 /** The least a new line runs out of its card before it turns (px). */
 const LINE_OUT = 12;
-/** How far short of the riser an event's drag still draws its guides (px). */
+/** How far short of the riser an arrival's drag still draws its guides (px). */
 const GUIDE_CLEAR = 12;
 const f = (n: number) => n.toFixed(1);
 
@@ -238,7 +238,7 @@ export function dragLine(from: RibbonEnd, x: number, y: number, view: Pick<LinkV
 
 /**
  * The thin lines from the pointer into the three best fits' rows while an
- * event is dragged over the lane grid (A30): each Plan's metro-S out of the
+ * arrival is dragged over the lane grid (A30): each Plan's metro-S out of the
  * pointer to its row's leading edge, 1.5 wide, or its stub toward a row out of
  * the rows' view; none once the pointer is within 12px of the riser or outside
  * the panes under their head, and none into a row the narrowing hides.

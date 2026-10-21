@@ -3,13 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * The board in its frame (#1325): the toolbar's items, the day's status and
- * its banners, the day stepping and the picker's marks, Publish, the footer's
- * legend and the loading cover — over the kiln yard's records.
+ * The board in its frame (#1325, #1372): the toolbar's items, the day's
+ * status and its banners, the day stepping and the picker's marks, Publish,
+ * the footer's legend and the loading cover — over the kiln yard's own
+ * records: its bins, and its days, whose row says a day's status.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import { DateTimeType, none, printFor, variant } from "@elaraai/east";
+import { DateTimeType, equalFor, none, printFor, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { issueSummary } from "./toolbar.js";
@@ -66,7 +67,7 @@ describe("the board's frame", () => {
         expect(marks()).toEqual([...Array(15).fill("published"), "draft", ...Array(26).fill("empty")]);
         // April's, Mon 29 Mar to Sun 2 May, every day published: 35 days, more than the runtime keeps windows of, read a window a day.
         const before = h.requests().length;
-        const history = () => h.requests().slice(before).filter(r => r.dataset === "records.kiln_plan_history");
+        const history = () => h.requests().slice(before).filter(r => r.dataset === "records.yard_day_history");
         fireEvent.click(within(picker).getByRole("button", { name: "Previous month" }));
         // Counted before anything waits on a timer: reads that evict each other never stop asking, and their landings starve every timer.
         for (let i = 0; i < 100; i++) await Promise.resolve();
@@ -78,7 +79,7 @@ describe("the board's frame", () => {
         expect(history().filter(r => r.kind === "page").map(r => r.query.get("limit"))).toEqual(["35"]);
     });
 
-    test("A3 — a day with no entry is Not started, under the banner `Day not started`", async () => {
+    test("A3 — a day with no row and no bins is Not started, under the banner `Day not started`", async () => {
         const { container } = await h.mount(ex.allocationKilnYard);
         expect(container.textContent).not.toContain("Day not started");
         await key(container, "]"); await key(container, "]");
@@ -87,12 +88,14 @@ describe("the board's frame", () => {
         expect(container.textContent).toContain("Day not started");
     });
 
-    test("A4 — Publish records the day published, in one patch; a published day is read-only under its banner", async () => {
+    test("A4 — Publish writes the day's row issued, its bins as they were; a published day is read-only under its banner", async () => {
         const { container } = await h.mount(ex.allocationKilnYard);
+        const bins = await h.read(ex.kilnBins);
         await press(toolbar(container).getByRole("button", { name: "Publish" }));
-        const saved = (await h.read(ex.kilnPlans)).get(TUE)!;
-        expect(saved.status.type).toBe("published");
-        expect(saved.bins.size).toBe(26);
+        // No draft to save: the day's row alone, issued, one patch of the days.
+        expect(h.requests("mutate").map(r => r.record)).toEqual([ex.yardDays.name]);
+        expect((await h.read(ex.yardDays)).get(TUE)!.state.type).toBe("issued");
+        expect(equalFor(ex.kilnBins.type)(await h.read(ex.kilnBins), bins)).toBe(true);
         expect(status(container)).toBe("Published");
         expect(container.textContent).toContain("Published day");
         expect(container.textContent).toContain("Read-only view of the published plan.");
@@ -108,7 +111,7 @@ describe("the board's frame", () => {
         expect(container.querySelector("[data-allocation-readonly]")).not.toBeNull();
     });
 
-    test("`publish={false}`: no status chip and no Publish", async () => {
+    test("without `periods`: no status chip and no Publish", async () => {
         const { container } = await h.mount(ex.allocationNoPublish);
         expect(container.querySelector("[data-allocation-status]")).toBeNull();
         expect(toolbar(container).queryByRole("button", { name: "Publish" })).toBeNull();
@@ -120,7 +123,7 @@ describe("the board's frame", () => {
         const items = () => [...slot(container, "footer").querySelectorAll("[data-allocation-legend]")].map(i => i.textContent);
         expect(items()).toEqual(["Bin", "Draft", "Today's load", "Prior job", "Next job", "Overlap", "Link", "Draft link"]);
         await press(toolbar(container).getByRole("radio", { name: "Table" }));
-        expect(items()).toEqual(["Event or resource", "Draft", "Empty · drop here", "Reserved", "Free"]);
+        expect(items()).toEqual(["Arrival or resource", "Draft", "Empty · drop here", "Reserved", "Free"]);
     });
 
     test("A80 — the frame is covered until the active day resolves, a day at a time through the window", async () => {

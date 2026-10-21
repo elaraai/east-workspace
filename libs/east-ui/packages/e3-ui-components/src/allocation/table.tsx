@@ -6,12 +6,12 @@
 /**
  * The Table (`Allocation Spec.md` §8, A41–A49, A84, #1329): one row per lane
  * slot of the day and one per extra bin of a batch, in foldable time bands
- * (the app's, four by default), narrowed by the lanes, the resources and the events the slice shows (#1336, #1339) and
- * never reordered by an allocation. Each row's event
- * and resource are a chip or a dashed placeholder; a chip's × removes or
- * unlinks, and a cell's chevron opens the shared Chooser, every section of it
- * the app's fit's answer. A bin's chip drags onto a free row's event cell
- * (A47). A split or partly allocated bin lists its parts as resource chips
+ * (the app's, four by default), narrowed by the lanes, the resources and the
+ * arrivals the slice shows (#1336, #1339) and never reordered by an
+ * allocation. Each row's arrival and resource are a chip or a dashed
+ * placeholder; a chip's × removes or unlinks, and a cell's chevron opens the
+ * shared Chooser, every section of it the app's fit's answer. A bin's chip
+ * drags onto a free row's arrival cell (A47). A split or partly allocated bin lists its parts as resource chips
  * with their quantities across the Resource and Load columns, each its own
  * chevron and ×, and `+ resource` for its remainder (A71, #1332). Every
  * figure and word is e3-ui's; every size the `allocationBuilder` recipe's.
@@ -31,7 +31,7 @@ import { Chooser, VirtualRows, formatDatePattern, type ChooserSection } from "@e
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
-import { eventChoices, resourceChoices, type ChoiceWords } from "./choices.js";
+import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
 import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
@@ -72,27 +72,27 @@ export interface TableProps {
     /** The day without a bin, and with a probe reservation in a free slot: what a cell's Chooser asks the fit of. */
     without: (bin: string) => Day;
     reserving: (lane: string, at: Date) => Day;
-    /** The lanes, the resources and the events the narrowing shows, by key; `none` for every one (#1336, #1339). */
+    /** The lanes, the resources and the arrivals the narrowing shows, by key; `none` for every one (#1336, #1339). */
     visibleLanes: option<Set<string>>;
     visibleResources: option<Set<string>>;
-    visibleEvents: option<Set<string>>;
+    visibleArrivals: option<Set<string>>;
     /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
     clearFilters: (() => void) | undefined;
-    /** The event whose every bin the Library's Allocated card highlights (A10). */
+    /** The arrival whose every bin the Library's Allocated card highlights (A10). */
     highlight: string | undefined;
-    /** Books the picked event where a click lands, as its drop would (A11). */
+    /** Books the picked arrival where a click lands, as its drop would (A11). */
     book: (target: Target) => void;
 }
 
 /**
- * A row's cell a Chooser is open on: its event, or its resource — the row's,
- * one part of a split bin's (`part`, its resource), or the remainder's
+ * A row's cell a Chooser is open on: its arrival, or its resource — the
+ * row's, one part of a split bin's (`part`, its resource), or the remainder's
  * (`part: null`, `+ resource`, A71). A narrow card's actions open the same
  * Choosers (A78).
  */
-export interface Open { row: string; side: "event" | "resource"; part?: string | null | undefined }
+export interface Open { row: string; side: "arrival" | "resource"; part?: string | null | undefined }
 
-/** A Chooser's identity in its row, as a row's memo compares it: `event`, `resource`, `resource:K-203`, `resource:+`. */
+/** A Chooser's identity in its row, as a row's memo compares it: `arrival`, `resource`, `resource:K-203`, `resource:+`. */
 export const openKey = (side: Open["side"], part: Open["part"]) => part === undefined ? side : `${side}:${part ?? "+"}`;
 
 /** One flattened line of the virtualised Table: a band's head, or a row. */
@@ -109,23 +109,23 @@ export function AllocationTable(props: TableProps) {
     const words = allocationWords();
     const nouns = useNouns();
     const unit = context.unit;
-    // A row a hidden lane holds, whose every resource is hidden, or whose event is, goes; a band the narrowing empties goes with it.
-    const { visibleLanes, visibleResources, visibleEvents } = props;
-    const bands = useMemo(() => narrowBands(tableBands(tableRows(slots, plan), plan, day, value.table.bands), plan, visibleLanes, visibleResources, visibleEvents),
-        [slots, plan, day, value.table.bands, visibleLanes, visibleResources, visibleEvents]);
+    // A row a hidden lane holds, whose every resource is hidden, or whose arrival is, goes; a band the narrowing empties goes with it.
+    const { visibleLanes, visibleResources, visibleArrivals } = props;
+    const bands = useMemo(() => narrowBands(tableBands(tableRows(slots, plan), plan, day, value.table.bands), plan, visibleLanes, visibleResources, visibleArrivals),
+        [slots, plan, day, value.table.bands, visibleLanes, visibleResources, visibleArrivals]);
     const rows = useMemo(() => bands.flatMap(band => band.rows), [bands]);
     const { collapsed, toggle } = useGroupCollapse(`${drag.surface}.table`);
     const lines = useMemo((): Line[] => bands.flatMap(band => [{ kind: "band" as const, band },
         ...(collapsed.includes(band.key) ? [] : band.rows.map(row => ({ kind: "row" as const, band, row })))]), [bands, collapsed]);
     const sizes = useMemo(() => lines.map(l => l.kind === "band" ? BAND_H : ROW_H), [lines]);
     const getItemKey = useCallback((index: number) => { const l = lines[index]!; return l.kind === "band" ? `band:${l.band.key}` : l.row.key; }, [lines]);
-    // The app's columns shown in the Table, each bin's text and tone, through its callbacks (§6).
+    // The app's columns shown in the Table, each bin's text and tone over its row, through its callbacks (§6).
     const shown = useMemo(() => value.columns.filter(c => c.table), [value.columns]);
     const readColumns = useCallback(() => {
         const out = new Map<string, { text: string; warn: boolean }[]>();
         for (const [id, bin] of plan.bins) {
-            if (bin.event.type !== "some") continue;
-            const bytes = domain.encodeValues(bin.values);
+            if (bin.arrival.type !== "some") continue;
+            const bytes = domain.encodeRow(bin.row);
             out.set(id, shown.map(c => {
                 const tone = c.tone.type === "some" ? c.tone.value(bytes) : undefined;
                 return { text: c.text(bytes), warn: tone?.type === "some" && (tone.value.type === "warning" || tone.value.type === "danger") };
@@ -139,7 +139,7 @@ export function AllocationTable(props: TableProps) {
     const [open, setOpen] = useState<Open>();
     // Another day, or the drafts' row gone: its Chooser closes.
     useEffect(() => { if (open !== undefined && !rows.some(r => r.key === open.row)) setOpen(undefined); }, [rows, open]);
-    const vars = { "--allocation-columns": shown.length, "--allocation-event-span": 2 + shown.length } as CSSProperties;
+    const vars = { "--allocation-columns": shown.length, "--allocation-arrival-span": 2 + shown.length } as CSSProperties;
 
     // Selecting follows the selection (A12): its row scrolls into view a third from the top.
     const pane = useRef<HTMLDivElement | null>(null);
@@ -156,13 +156,13 @@ export function AllocationTable(props: TableProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.follow.nonce]);
 
-    // A picked event's question of each reservation, asked once the Table has rendered: its event cell says whether it fits (A11, A45).
-    const pickKey = drag.grip === undefined && drag.subject !== undefined && (drag.subject.kind === "event" || drag.subject.kind === "removed") ? `${drag.subject.kind}|${drag.subject.kind === "event" ? drag.subject.event : drag.subject.bin}` : "";
+    // A picked arrival's question of each reservation, asked once the Table has rendered: its arrival cell says whether it fits (A11, A45).
+    const pickKey = drag.grip === undefined && drag.subject !== undefined && (drag.subject.kind === "arrival" || drag.subject.kind === "removed") ? `${drag.subject.kind}|${drag.subject.kind === "arrival" ? drag.subject.arrival : drag.subject.bin}` : "";
     const { verdict } = drag;
     useEffect(() => {
         const subject = drag.subject;
         if (pickKey === "" || subject === undefined) return;
-        for (const row of rows) if (row.kind === "reserved") verdict(subject, eventTarget(row));
+        for (const row of rows) if (row.kind === "reserved") verdict(subject, arrivalTarget(row));
         // The pick and the rows are the question.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pickKey, rows]);
@@ -171,7 +171,7 @@ export function AllocationTable(props: TableProps) {
         quantity: v => words.quantity(v, unit), number: v => words.quantity(v, ""), lane: key => value.lanes.find(l => l.key === key)?.label ?? key,
     }), [words, unit, value.lanes]);
     const head = <Box css={styles.tableHead} data-columns={shown.length === 0 ? "none" : undefined} data-allocation-table-head="">
-        <span>Time</span><span title={nouns.lane.one}>{nouns.lane.one}</span><span title={nouns.event.one}>{nouns.event.one}</span>
+        <span>Time</span><span title={nouns.lane.one}>{nouns.lane.one}</span><span title={nouns.arrival.one}>{nouns.arrival.one}</span>
         <Box as="span" data-align="end" title={nouns.quantity}>{nouns.quantity}</Box>
         {shown.map(c => <span key={c.key} title={c.label}>{c.label}</span>)}<span title={nouns.resource.one}>{nouns.resource.one}</span><span>Load</span><span>Status</span>
     </Box>;
@@ -193,13 +193,13 @@ export function AllocationTable(props: TableProps) {
     </Box>;
 }
 
-/** A row's event cell, as a drop or a pick names it: its slot, the reservation it holds, on the Table. */
-const eventTarget = (row: TableRow): Target => ({ kind: "lane", lane: row.lane, at: row.slotAt, card: row.kind === "reserved" ? row.bin : undefined, table: true });
+/** A row's arrival cell, as a drop or a pick names it: its slot, the reservation it holds, on the Table. */
+const arrivalTarget = (row: TableRow): Target => ({ kind: "lane", lane: row.lane, at: row.slotAt, card: row.kind === "reserved" ? row.bin : undefined, table: true });
 
 /** How a selection marks a row (A44): as its own, as one of the selected resource's, or as one of the bins the Library highlights (A10). */
 function selects(selection: Selection | undefined, row: TableRow, plan: Day, highlight?: string): "row" | "resource" | undefined {
     const shown = row.bin === undefined ? undefined : plan.bins.get(row.bin);
-    if (highlight !== undefined && shown?.event.type === "some" && shown.event.value === highlight) return "row";
+    if (highlight !== undefined && shown?.arrival.type === "some" && shown.arrival.value === highlight) return "row";
     if (selection === undefined) return undefined;
     if (selection.type === "bin") return row.bin === selection.id ? "row" : undefined;
     if (selection.type === "slot") return row.kind === "free" && row.lane === selection.lane && row.slotAt.getTime() === selection.at ? "row" : undefined;
@@ -231,8 +231,8 @@ function sayOf(verdict: { allowed: boolean; pending: boolean; caption: string; r
 }
 
 /**
- * A row (A43): the drag hooks here — its event chip's handle, its event and
- * resource cells' targets — outside its body, so pointer motion repaints
+ * A row (A43): the drag hooks here — its arrival chip's handle, its arrival
+ * and resource cells' targets — outside its body, so pointer motion repaints
  * nothing in it (A35).
  */
 function Row(args: RowProps) {
@@ -240,46 +240,46 @@ function Row(args: RowProps) {
     const { drag, plan, context, styles } = props;
     const bin = row.bin === undefined ? undefined : plan.bins.get(row.bin);
     const words = allocationWords();
-    const code = bin?.event.type === "some" ? context.events.get(bin.event.value)?.label ?? bin.event.value : undefined;
+    const code = bin?.arrival.type === "some" ? context.arrivals.get(bin.arrival.value)?.label ?? bin.arrival.value : undefined;
     const label = useMemo(() => code === undefined || bin === undefined ? "" : `${code} · ${words.quantity(bin.quantity, context.unit)}`, [code, bin, words, context.unit]);
     const ghost = useMemo(() => <MoveGhost styles={styles} label={label} />, [styles, label]);
     const chipAt = useMemo(() => drag.enabled && row.kind === "bin" && row.bin !== undefined ? gripCoord(drag.surface, { kind: "body", bin: row.bin }) : null, [drag.enabled, drag.surface, row.kind, row.bin]);
     const chip = useDragEventChip(chipAt, ghost, false, label);
-    // A free row's event cell takes a bin to its slot; a reserved row's, a bin into the reservation (A37, A38): each the board's one drop target (§10).
+    // A free row's arrival cell takes a bin to its slot; a reserved row's, a bin into the reservation (A37, A38): each the board's one drop target (§10).
     const takes = row.kind !== "bin";
-    const event = dropTarget(drag, { kind: "lane", lane: row.lane, at: row.slotAt, card: row.kind === "reserved" ? row.bin : undefined, table: true });
-    const eventDrop = useDropCell(drag.enabled && takes ? laneCoord(drag.surface, row.lane, row.slotAt, row.kind === "reserved" ? row.bin : undefined, true) : null, false, event.veto, undefined, event.options);
+    const arrival = dropTarget(drag, { kind: "lane", lane: row.lane, at: row.slotAt, card: row.kind === "reserved" ? row.bin : undefined, table: true });
+    const arrivalDrop = useDropCell(drag.enabled && takes ? laneCoord(drag.surface, row.lane, row.slotAt, row.kind === "reserved" ? row.bin : undefined, true) : null, false, arrival.veto, undefined, arrival.options);
     const resource = dropTarget(drag, { kind: "cell", row: row.key });
     const resourceDrop = useDropCell(drag.enabled ? resourceCellCoord(drag.surface, row.key) : null, false, resource.veto, undefined, resource.options);
-    // What the cells say while something is dragged, or an event picked (A11, A32, A45): the board's one verdict, asked nothing here.
+    // What the cells say while something is dragged, or an arrival picked (A11, A32, A45): the board's one verdict, asked nothing here.
     const subject = drag.subject, dragging = drag.grip !== undefined;
-    const pickedCode = !dragging && subject !== undefined && (subject.kind === "event" || subject.kind === "removed") ? libraryCode(props, subject) : undefined;
-    const eventVerdict = takes && subject !== undefined && subject.kind !== "resource" && (dragging ? subject.kind !== "port" && subject.kind !== "link" : pickedCode !== undefined)
-        ? drag.peek(subject, eventTarget(row)) : undefined;
+    const pickedCode = !dragging && subject !== undefined && (subject.kind === "arrival" || subject.kind === "removed") ? libraryCode(props, subject) : undefined;
+    const arrivalVerdict = takes && subject !== undefined && subject.kind !== "resource" && (dragging ? subject.kind !== "port" && subject.kind !== "link" : pickedCode !== undefined)
+        ? drag.peek(subject, arrivalTarget(row)) : undefined;
     const resourceVerdict = dragging && subject?.kind === "resource" ? drag.peek(subject, { kind: "cell", row: row.key }) : undefined;
-    const eventSay = eventVerdict === undefined ? undefined : sayOf(eventVerdict, subject?.kind === "body" ? "drop to move here" : "drop to book here",
+    const arrivalSay = arrivalVerdict === undefined ? undefined : sayOf(arrivalVerdict, subject?.kind === "body" ? "drop to move here" : "drop to book here",
         pickedCode === undefined ? undefined : `click to book ${pickedCode} here`);
     const resourceSay = resourceVerdict === undefined || resourceVerdict.caption === "already on it" ? undefined
         : sayOf(resourceVerdict, row.kind === "free" ? "drop to reserve" : "drop to link", undefined);
-    return <RowBody {...args} bin={bin} code={code} chip={chip} eventDrop={eventDrop} resourceDrop={resourceDrop}
-        eventState={eventSay?.state} eventWords={eventSay?.drop} eventReason={eventSay?.reason} eventPick={eventSay?.pick}
+    return <RowBody {...args} bin={bin} code={code} chip={chip} arrivalDrop={arrivalDrop} resourceDrop={resourceDrop}
+        arrivalState={arrivalSay?.state} arrivalWords={arrivalSay?.drop} arrivalReason={arrivalSay?.reason} arrivalPick={arrivalSay?.pick}
         resourceState={resourceSay?.state} resourceWords={resourceSay?.drop} resourceReason={resourceSay?.reason} />;
 }
 
 /** A Library card's code, as a cell's words name it. */
-function libraryCode(props: TableProps, grip: Extract<Grip, { kind: "event" | "removed" }>): string {
-    if (grip.kind === "event") return props.context.events.get(grip.event)?.label ?? grip.event;
-    const event = props.held?.bins.get(grip.bin)?.event;
-    return event?.type === "some" ? props.context.events.get(event.value)?.label ?? event.value : grip.bin;
+function libraryCode(props: TableProps, grip: Extract<Grip, { kind: "arrival" | "removed" }>): string {
+    if (grip.kind === "arrival") return props.context.arrivals.get(grip.arrival)?.label ?? grip.arrival;
+    const arrival = props.held?.bins.get(grip.bin)?.arrival;
+    return arrival?.type === "some" ? props.context.arrivals.get(arrival.value)?.label ?? arrival.value : grip.bin;
 }
 
 /** A row's body: its cells, from the drafts, the loads and the app's columns. */
-const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open, setOpen, words, bin, code, chip, eventDrop, resourceDrop,
-    eventState, eventWords, eventReason, eventPick, resourceState, resourceWords, resourceReason }: RowProps & {
+const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open, setOpen, words, bin, code, chip, arrivalDrop, resourceDrop,
+    arrivalState, arrivalWords, arrivalReason, arrivalPick, resourceState, resourceWords, resourceReason }: RowProps & {
     bin: Bin | undefined; code: string | undefined; chip: ReturnType<typeof useDragEventChip>;
-    eventDrop: (el: HTMLElement | null) => void; resourceDrop: (el: HTMLElement | null) => void;
-    /** What the event and the resource cells say during a drag or a pick, as primitives, so pointer motion repaints nothing (A35). */
-    eventState: Say["state"] | undefined; eventWords: string | undefined; eventReason: string | undefined; eventPick: string | undefined;
+    arrivalDrop: (el: HTMLElement | null) => void; resourceDrop: (el: HTMLElement | null) => void;
+    /** What the arrival and the resource cells say during a drag or a pick, as primitives, so pointer motion repaints nothing (A35). */
+    arrivalState: Say["state"] | undefined; arrivalWords: string | undefined; arrivalReason: string | undefined; arrivalPick: string | undefined;
     resourceState: Say["state"] | undefined; resourceWords: string | undefined; resourceReason: string | undefined;
 }) {
     const { styles, context, plan, held, commands, drag, editable } = props;
@@ -293,11 +293,11 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const committed = row.bin === undefined ? undefined : held?.bins.get(row.bin);
     const draft = bin !== undefined && (committed === undefined || !props.sameBin(committed, bin));
     const marked = selects(props.selection, row, plan, props.highlight);
-    const eventSay: Say | undefined = eventState === undefined ? undefined : { state: eventState, drop: eventWords ?? "", reason: eventReason, pick: eventPick };
+    const arrivalSay: Say | undefined = arrivalState === undefined ? undefined : { state: arrivalState, drop: arrivalWords ?? "", reason: arrivalReason, pick: arrivalPick };
     const resourceSay: Say | undefined = resourceState === undefined ? undefined : { state: resourceState, drop: resourceWords ?? "", reason: resourceReason, pick: undefined };
     const time = formatDatePattern("HH:mm", row.at);
     const lane = words.lane(row.lane);
-    const meta = bin?.event.type === "some" ? context.events.get(bin.event.value)?.meta : undefined;
+    const meta = bin?.arrival.type === "some" ? context.arrivals.get(bin.arrival.value)?.meta : undefined;
     // A split or partly allocated bin (A71): its parts' chips, and `+ resource` for what they leave, across the Resource and Load columns.
     const remainder = bin === undefined ? 0 : remainderOf(bin);
     const split = row.kind === "bin" && parts.length > 0 && (parts.length > 1 || compareFloat(remainder, 0) > 0);
@@ -311,11 +311,11 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     // A chip's chevron, and a placeholder whole, open its cell's Chooser.
     const chevron = (label: string) => (isOpen: boolean) => <chakra.button type="button" css={styles.tableChipButton} aria-label={label} title={label} aria-haspopup="listbox"
         onPointerDown={event => event.stopPropagation()}><FontAwesomeIcon icon={isOpen ? faChevronUp : faChevronDown} /></chakra.button>;
-    const placeholder = (side: "event" | "resource") => (isOpen: boolean) => <Placeholder props={props} side={side} reserved={row.kind === "reserved"} open={isOpen} button
-        say={side === "event" ? eventSay : resourceSay} />;
-    const chooser = (side: "event" | "resource", trigger: (isOpen: boolean) => ReactElement, part?: string | null) => editable
+    const placeholder = (side: "arrival" | "resource") => (isOpen: boolean) => <Placeholder props={props} side={side} reserved={row.kind === "reserved"} open={isOpen} button
+        say={side === "arrival" ? arrivalSay : resourceSay} />;
+    const chooser = (side: "arrival" | "resource", trigger: (isOpen: boolean) => ReactElement, part?: string | null) => editable
         ? <ChoiceCell props={props} row={row} side={side} part={part} open={open === openKey(side, part)} setOpen={setOpen} words={words} trigger={trigger} /> : null;
-    const eventLabel = row.kind === "bin" ? `Replace ${code} with another ${one(nouns.event)}` : `Choose ${a(nouns.event)}`;
+    const arrivalLabel = row.kind === "bin" ? `Replace ${code} with another ${one(nouns.arrival)}` : `Choose ${a(nouns.arrival)}`;
     const resourceLabel = resource !== undefined ? `Change the ${one(nouns.resource)}` : row.kind === "bin" ? `Choose ${a(nouns.resource)}` : `Reserve ${a(nouns.resource)}`;
     // A resource's marks (A43): ⚠ overlapping, ● over max, ↓ under min.
     const marksOf = (of: ResourceLine | undefined) => <>
@@ -358,17 +358,17 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
         <Box as="span" css={styles.tableTime} data-holds={bin !== undefined ? "" : undefined}>{time}</Box>
         <Box as="span" css={styles.tableLane}>{lane}</Box>
         {row.kind === "bin" && bin !== undefined ? <>
-            <Box css={styles.tableCell} data-allocation-cell-side="event">
-                <Box {...chip} css={styles.tableChip} data-scope="allocation" data-allocation-chip="event" data-draft={draft ? "" : undefined} data-draggable={chip !== undefined ? "" : undefined}
+            <Box css={styles.tableCell} data-allocation-cell-side="arrival">
+                <Box {...chip} css={styles.tableChip} data-scope="allocation" data-allocation-chip="arrival" data-draft={draft ? "" : undefined} data-draggable={chip !== undefined ? "" : undefined}
                     title={`${code}${meta?.type === "some" ? ` · ${meta.value}` : ""} · ${board.quantity(bin.quantity, unit)} · drag onto an empty row to move it`}
                     onPointerDown={event => { if (row.bin !== undefined) drag.arm({ kind: "body", bin: row.bin }); chip?.onPointerDown?.(event); }}>
                     {chip !== undefined && <Box as="span" css={styles.tableChipIcon} data-icon-role="grip"><FontAwesomeIcon icon={faGripVertical} /></Box>}
                     <Box as="span" css={styles.tableChipCode}>{code}</Box>
                     {meta?.type === "some" && <Box as="span" css={styles.tableChipMeta}>{meta.value}</Box>}
-                    {chooser("event", chevron(eventLabel))}
+                    {chooser("arrival", chevron(arrivalLabel))}
                     {editable && <chakra.button type="button" css={styles.tableChipButton} data-allocation-chip-remove=""
-                        aria-label={committed !== undefined ? `Remove ${code} from the plan · it moves to ${nouns.event.other}` : `Return ${code} to ${nouns.event.other}`}
-                        title={committed !== undefined ? `Remove ${code} from the plan · it moves to ${nouns.event.other}` : `Return ${code} to ${nouns.event.other}`}
+                        aria-label={committed !== undefined ? `Remove ${code} from the plan · it moves to ${nouns.arrival.other}` : `Return ${code} to ${nouns.arrival.other}`}
+                        title={committed !== undefined ? `Remove ${code} from the plan · it moves to ${nouns.arrival.other}` : `Return ${code} to ${nouns.arrival.other}`}
                         onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (row.bin !== undefined) commands.remove(row.bin); }}>
                         <FontAwesomeIcon icon={faXmark} />
                     </chakra.button>}
@@ -376,11 +376,11 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
             </Box>
             <Box as="span" css={styles.tableUnits}>{board.quantity(bin.quantity, unit)}</Box>
             {Array.from({ length: shown }, (_, i) => { const cell = columns?.[i]; return <Box as="span" key={i} css={styles.tableValue} data-tone={cell?.warn === true ? "warning" : undefined}>{cell?.text}</Box>; })}
-        </> : <Box ref={eventDrop} css={[styles.tableCell, styles.tableSpan]} data-allocation-cell-side="event">
-            {/* With an event picked, a cell that takes it books it there on a click (A11); its Chooser waits. */}
-            {eventSay?.state === "pick" && editable
-                ? <Placeholder props={props} side="event" reserved={row.kind === "reserved"} open={false} button say={eventSay} onBook={() => props.book(eventTarget(row))} />
-                : chooser("event", placeholder("event")) ?? <Placeholder props={props} side="event" reserved={row.kind === "reserved"} open={false} button={false} say={eventSay} />}
+        </> : <Box ref={arrivalDrop} css={[styles.tableCell, styles.tableSpan]} data-allocation-cell-side="arrival">
+            {/* With an arrival picked, a cell that takes it books it there on a click (A11); its Chooser waits. */}
+            {arrivalSay?.state === "pick" && editable
+                ? <Placeholder props={props} side="arrival" reserved={row.kind === "reserved"} open={false} button say={arrivalSay} onBook={() => props.book(arrivalTarget(row))} />
+                : chooser("arrival", placeholder("arrival")) ?? <Placeholder props={props} side="arrival" reserved={row.kind === "reserved"} open={false} button={false} say={arrivalSay} />}
         </Box>}
         {split && row.bin !== undefined ? <Box ref={resourceDrop} css={[styles.tableCell, styles.tableResourceSpan, styles.tableParts]} data-allocation-cell-side="resource"
             data-allocation-parts="">
@@ -416,25 +416,25 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
 });
 
 /**
- * A dashed placeholder (A45): `no event` (`no event · reserved`) or `no
- * resource`; editable, it is its cell's Chooser's button, the chevron at its
- * end. During a drag it says what a drop does.
+ * A dashed placeholder (A45): `no arrival` (`no arrival · reserved`) or `no
+ * resource`, in the board's nouns; editable, it is its cell's Chooser's
+ * button, the chevron at its end. During a drag it says what a drop does.
  */
 function Placeholder({ props, side, reserved, open, button, say, onBook, ...trigger }: {
-    props: TableProps; side: "event" | "resource"; reserved: boolean; open: boolean; button: boolean;
+    props: TableProps; side: "arrival" | "resource"; reserved: boolean; open: boolean; button: boolean;
     /** What it says during a drag or a pick (A45). */
     say?: Say | undefined;
-    /** With an event picked, its click books it here (A11). */
+    /** With an arrival picked, its click books it here (A11). */
     onBook?: (() => void) | undefined;
 }) {
     const { styles } = props;
     const nouns = useNouns();
-    const idle = side === "event" ? `no ${one(nouns.event)}${reserved ? " · reserved" : ""}` : `no ${one(nouns.resource)}`;
-    const choose = side === "event" ? `Choose ${a(nouns.event)}, or drag one here from ${nouns.event.other}` : `Choose ${a(nouns.resource)}, or drag one here from ${nouns.resource.other}`;
+    const idle = side === "arrival" ? `no ${one(nouns.arrival)}${reserved ? " · reserved" : ""}` : `no ${one(nouns.resource)}`;
+    const choose = side === "arrival" ? `Choose ${a(nouns.arrival)}, or drag one here from ${nouns.arrival.other}` : `Choose ${a(nouns.resource)}, or drag one here from ${nouns.resource.other}`;
     // Refused, its reason is its tooltip (A45).
     const title = say?.state === "refused" && say.reason !== undefined ? say.reason : say?.state === "pick" && say.pick !== undefined ? say.pick : choose;
     const inside = <>
-        <Box as="span" css={styles.tableChipIcon} data-icon-role="idle"><FontAwesomeIcon icon={side === "event" ? faInbox : faLinkSlash} /></Box>
+        <Box as="span" css={styles.tableChipIcon} data-icon-role="idle"><FontAwesomeIcon icon={side === "arrival" ? faInbox : faLinkSlash} /></Box>
         <Box as="span" css={styles.tableChipIcon} data-icon-role="refused"><FontAwesomeIcon icon={faXmark} /></Box>
         <Box as="span" css={styles.tablePlaceholderText} data-say="idle">{idle}</Box>
         <Box as="span" css={styles.tablePlaceholderText} data-say="drop">{say?.drop ?? "drop to move here"}</Box>
@@ -472,8 +472,8 @@ export function ChooserPopover({ id, label, trigger, open, onOpenChange, section
     </SliceEditPopover>;
 }
 
-/** What a cell's Chooser reads of the board: the day, every event and resource, the fit, the commands, the days it asks of, and what the narrowing shows. */
-export type ChoiceScene = Pick<TableProps, "plan" | "context" | "day" | "fit" | "commands" | "without" | "reserving" | "visibleEvents" | "visibleResources">;
+/** What a cell's Chooser reads of the board: the day, every arrival and resource, the fit, the commands, the days it asks of, and what the narrowing shows. */
+export type ChoiceScene = Pick<TableProps, "plan" | "context" | "day" | "fit" | "commands" | "without" | "reserving" | "visibleArrivals" | "visibleResources">;
 
 /**
  * A cell's chevron and its Chooser (A48, A49): the question the cell asks the
@@ -486,7 +486,7 @@ export type ChoiceScene = Pick<TableProps, "plan" | "context" | "day" | "fit" | 
  * @returns The Chooser's popover on its trigger
  */
 export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigger }: {
-    props: ChoiceScene; row: TableRow; side: "event" | "resource";
+    props: ChoiceScene; row: TableRow; side: "arrival" | "resource";
     /** A resource Chooser's part: the row's (`undefined`, its bin's first), a part's resource, or the remainder (`null`). */
     part?: string | null | undefined;
     open: boolean; setOpen: (open: Open | undefined) => void; words: ChoiceWords;
@@ -498,15 +498,15 @@ export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigg
     const current = bin === undefined ? undefined : partsOf(bin)[0]?.key;
     // The part a resource Chooser moves: the row's first, a chip's own, or none for the remainder, which it links.
     const from = part === undefined ? current : part ?? undefined;
-    // The question (F1): an event cell takes its row's resource, of the day without its bin; a resource cell places what it moves of
+    // The question (F1): an arrival cell takes its row's resource, of the day without its bin; a resource cell places what it moves of
     // its bin — the part, or the remainder (A73) — or a reservation in its free slot.
     const question = useMemo((): { ask: FitAsk; of: Day | undefined } | undefined => {
-        if (side === "event") {
+        if (side === "arrival") {
             if (current === undefined || row.bin === undefined) return undefined;
             return { ask: variant("take", { resource: current }), of: props.without(row.bin) };
         }
         if (row.bin === undefined) return { ask: variant("place", { subject: variant("bin", RESERVE_PROBE), quantity: 0 }), of: props.reserving(row.lane, row.slotAt) };
-        const quantity = bin === undefined ? 0 : bin.event.type === "none" ? 0 : linkedQuantity(bin, from)?.quantity ?? bin.quantity;
+        const quantity = bin === undefined ? 0 : bin.arrival.type === "none" ? 0 : linkedQuantity(bin, from)?.quantity ?? bin.quantity;
         return { ask: variant("place", { subject: variant("bin", row.bin), quantity }), of: undefined };
         // The question stands for the row's cell and the drafts.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -516,14 +516,14 @@ export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigg
     const answer = question === undefined ? undefined : fit.answer(question.ask, question.of);
     // `+ resource` offers the resources its bin is not on: each it is on is a part of its own (A71).
     const except = part === null && bin !== undefined ? new Set(bin.parts.keys()) : undefined;
-    const sections: ChooserSection[] = !open ? [] : side === "event"
-        ? eventChoices({ plan, context, day, words, bin: row.bin, resource: current, answer, shown: props.visibleEvents })
+    const sections: ChooserSection[] = !open ? [] : side === "arrival"
+        ? arrivalChoices({ plan, context, day, words, bin: row.bin, resource: current, answer, shown: props.visibleArrivals })
         : resourceChoices({ context, words, binRow: row.kind === "bin", current: from, answer, shown: props.visibleResources, except });
     const close = () => setOpen(undefined);
     const choose = (key: string) => {
         close();
-        if (side === "event") {
-            if (bin?.event.type === "some" && key === bin.event.value) return;
+        if (side === "arrival") {
+            if (bin?.arrival.type === "some" && key === bin.arrival.value) return;
             if (row.kind === "bin" && row.bin !== undefined) commands.replace(row.bin, key);
             else if (row.kind === "reserved" && row.bin !== undefined) commands.fillWith(row.bin, key);
             else commands.book(key, row.lane, row.slotAt, undefined);
@@ -534,6 +534,6 @@ export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigg
         else commands.reserve(row.lane, row.slotAt, key);
     };
     return <ChooserPopover id={`${row.key}|${openKey(side, part)}`} trigger={trigger(open)} open={open} onOpenChange={next => setOpen(next ? { row: row.key, side, part } : undefined)}
-        label={`${side === "event" ? nouns.event.one : nouns.resource.one} · ${words.lane(row.lane)} ${formatDatePattern("HH:mm", row.at)}`}
-        sections={sections} placeholder={`Find ${a(side === "event" ? nouns.event : nouns.resource)}`} onChoose={choose} />;
+        label={`${side === "arrival" ? nouns.arrival.one : nouns.resource.one} · ${words.lane(row.lane)} ${formatDatePattern("HH:mm", row.at)}`}
+        sections={sections} placeholder={`Find ${a(side === "arrival" ? nouns.arrival : nouns.resource)}`} onChoose={choose} />;
 }

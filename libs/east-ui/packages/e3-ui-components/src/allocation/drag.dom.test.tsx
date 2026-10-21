@@ -17,7 +17,7 @@ import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { pointAt, press as key, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, settle, slot, stubLinkGeometry, TUE } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, smallestYard, stubLinkGeometry } from "./harness.test-utils.js";
 import { allocationWords } from "./model.js";
 
 const h = allocationHarness();
@@ -31,7 +31,7 @@ const caption = () => document.querySelector<HTMLElement>("[data-drag-caption]")
 const toolbar = (c: HTMLElement) => within(slot(c, "toolbar"));
 const undo = (c: HTMLElement) => toolbar(c).getByRole("button", { name: editingMessages.undo() });
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
-async function open(example: { fn: { toIR(): unknown } } = ex.allocationMinimal) { const r = await h.mount(example); return r.container; }
+async function open(example: { fn: { toIR(): unknown } } = smallestYard()) { const r = await h.mount(example); return r.container; }
 /** Scrolls the resource pane so a row far down it is mounted. */
 async function reveal(c: HTMLElement, key: string) {
     const el = pane(c);
@@ -84,12 +84,12 @@ async function moveTo(into: Element | null, x: number, y: number) {
     await act(async () => { pointAt(into); fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: x, clientY: y }); });
     await settle();
 }
-/** A reservation of a lane hour on a resource, in the day as the record holds it. */
+/** A reservation of a lane hour on a resource, as the yard's bins record holds it: no load, no m³, no drying time, its own fields empty. */
 async function reserve(id: string, lane: string, at: Date, resource: string) {
-    const plans = await h.read(ex.kilnPlans);
-    plans.get(TUE)!.bins.set(id, { lane, at, event: none, quantity: 0, kind: none, hold: variant("days", 0),
-        parts: new SortedMap([[resource, 0]], compareFor(StringType)), values: { specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none } });
-    await h.patch(ex.kilnPlans, plans);
+    const bins = await h.read(ex.kilnBins);
+    bins.set(id, { bay: lane, at, load: none, m3: 0, spec: none, dryFor: variant("days", 0), kilns: new SortedMap([[resource, 0]], compareFor(StringType)),
+        specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none });
+    await h.patch(ex.kilnBins, bins);
 }
 /** A kiln's minimum changed in the record, as another session's commit lands under the board. */
 async function setMinimum(key: string, min: number) {
@@ -259,7 +259,7 @@ describe("a connector's drag over the resources", () => {
         expect(card(c, "3101").querySelector("[data-allocation-to]")!.textContent).toBe("K-209");
         await press(toolbar(c).getByRole("button", { name: editingMessages.redo() }));
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        expect([...(await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3101")!.parts]).toEqual([["K-601", 35]]);
+        expect([...(await h.read(ex.kilnBins)).get("3101")!.kilns]).toEqual([["K-601", 35]]);
     });
 
     test("A40 — a refused drop moves nothing and adds no banner; a connector onto a lane hour is refused `drop on a resource`", async () => {
@@ -351,8 +351,8 @@ describe("a card body's drag between lane hours", () => {
         expect(c.querySelectorAll("[data-allocation-rank], [data-refused], [data-run]")).toHaveLength(0);
         await release();
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const moved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3103")!;
-        expect([moved.lane, moved.at, [...moved.parts]]).toEqual(["B-2", hour(0, 35), [["K-109", 24]]]);
+        const moved = (await h.read(ex.kilnBins)).get("3103")!;
+        expect([moved.bay, moved.at, [...moved.kilns]]).toEqual(["B-2", hour(0, 35), [["K-109", 24]]]);
         await drop(card(c, "3103"), cell(c, "B-2", hour(0, 35)));
         expect(card(c, "3103").hasAttribute("data-draft")).toBe(false);
     });
@@ -363,8 +363,8 @@ describe("a card body's drag between lane hours", () => {
         expect(caption()!.textContent).toBe("to B-3 01:57");
         await release();
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const moved = (await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3103")!;
-        expect([moved.lane, moved.at]).toEqual(["B-3", hour(1, 57)]);
+        const moved = (await h.read(ex.kilnBins)).get("3103")!;
+        expect([moved.bay, moved.at]).toEqual(["B-3", hour(1, 57)]);
     });
 
     test("§10 — a body onto a resource row is refused: `lane hours only · drag its connector to change the resource`", async () => {
@@ -383,9 +383,9 @@ describe("a card body's drag between lane hours", () => {
         await release();
         expect(card(c, "R1")).toBeNull();
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        const day = (await h.read(ex.kilnPlans)).get(TUE)!;
-        const filled = day.bins.get("3103")!;
-        expect([filled.lane, filled.at, [...filled.parts], day.bins.has("R1")]).toEqual(["B-1", hour(0, 15), [["K-601", 24]], false]);
+        const bins = await h.read(ex.kilnBins);
+        const filled = bins.get("3103")!;
+        expect([filled.bay, filled.at, [...filled.kilns], bins.has("R1")]).toEqual(["B-1", hour(0, 15), [["K-601", 24]], false]);
     });
 
     test("A38 — a reservation whose resource refuses the bin says why, and takes nothing", async () => {
@@ -438,7 +438,7 @@ describe("the fit's answer on its way, failed, and the app's own (F2–F4)", () 
         expect(caption()!.textContent).toBe("bulk kilns take 20 m³ and more");
         await cancel();
         expect(h.fits.calls("yard_fit")).toBe(0);
-        const minimal = await open(ex.allocationMinimal);
+        const minimal = await open(smallestYard());
         await reveal(minimal, "K-601");
         await hover(connector(minimal, "3110"), row(minimal, "K-601"));
         expect(row(minimal, "K-601").hasAttribute("data-drop-active")).toBe(true);
@@ -527,7 +527,7 @@ describe("a link's drag (A69, A65)", () => {
         // The drop selects its bin: the focus its new resource, its link there a draft's.
         expect([card(c, "3123").getAttribute("aria-pressed"), drawn(c)]).toEqual(["true", [["3123|K-107", "draft", false]]]);
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
-        expect([...(await h.read(ex.kilnPlans)).get(TUE)!.bins.get("3123")!.parts]).toEqual([["K-107", 22]]);
+        expect([...(await h.read(ex.kilnBins)).get("3123")!.kilns]).toEqual([["K-107", 22]]);
     });
 
     test("A69 — a link dropped on the fits marker goes to the #1", async () => {

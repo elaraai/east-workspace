@@ -4,11 +4,16 @@
  */
 
 /**
- * The Allocation's renderer (`Allocation Spec.md`): the board in its
- * BuilderFrame — one toolbar, the banners, the panes, the footer's legend and
- * the loading cover — over the plans record, a day at a time, each day its own
- * shared editing session (#1325). Below 480px of main, the Timeline and the
- * Table are cards with explicit actions, and nothing takes a drag (#1333).
+ * The Allocation's renderer (`Allocation Spec.md`, #1372, `Builder Interfaces
+ * Spec.md` §6, §7, §9): the board in its BuilderFrame — one toolbar, the
+ * banners, the panes, the footer's legend and the loading cover — over the
+ * app's own records: its bins and its days, a session each of one history,
+ * read a day at a time and assembled into the day the Timeline, the Table, the
+ * cards, the Library and the Inspector draw, drafts in place; Publish saving
+ * the day, then writing its status. The bins' source of the slice holds the
+ * day, which the board's own navigation writes. Below 480px of main, the
+ * Timeline and the Table are cards with explicit actions, and nothing takes a
+ * drag (#1333).
  *
  * @packageDocumentation
  */
@@ -21,42 +26,85 @@ import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters,
     usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
+import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { StatusDisplay } from "../components/StatusDisplay.js";
-import { allocationCommands, remainderOf } from "./actions.js";
+import { publishPeriod } from "../shared/schedule/records.js";
+import { useSourceShown } from "../shared/schedule/source-tab.js";
+import { useSourceWindow } from "../shared/schedule/source-window.js";
+import { sourcePart } from "../shared/schedule/visibility.js";
+import { allocationCommands, publishChange, remainderOf } from "./actions.js";
 import { AllocationCards } from "./cards.js";
+import { AllocationDataReader, initialAllocationData, type AllocationData } from "./data.js";
 import { bookOnto, placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
+import { PERIODS, useAllocationEditing, type AllocationEditing } from "./editing.js";
+import { useAllocationFit } from "./fit.js";
+import { AllocationFooter } from "./footer.js";
 import { useAllocationInspector } from "./inspector.js";
 import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
-import { useAllocationFit } from "./fit.js";
-import { useAllocationData } from "./data.js";
-import { useAllocationEditing } from "./editing.js";
-import { AllocationFooter } from "./footer.js";
 import {
-    NARROW_WIDTH, allocationContext, allocationDomain, allocationWords, compareFloat, compareString, configError, dayKey, focusOf, type AllocationStyles, type AllocationValue,
-    type Bin, type Day, type Issue, type Selection,
+    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationWords, compareDate, compareFloat, compareString, configError, dayKey,
+    editableStatus, focusOf, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Day, type DraftedBin,
+    type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
+import { narrowingPart, useNarrowed } from "./narrowed.js";
+import { NounsContext, a } from "./nouns.js";
 import { AllocationTable, RESERVE_PROBE } from "./table.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
-import { useAllocationWindow } from "./window.js";
-import { narrowingPart, useNarrowed } from "./narrowed.js";
-import { useSourceShown } from "../shared/schedule/source-tab.js";
-import { NounsContext, a } from "./nouns.js";
+import { useAllocationWindow, type AllocationWindow } from "./window.js";
 export type { AllocationValue } from "./model.js";
 
 /** Props of the record-backed Allocation extension. */
 export interface EastChakraAllocationProps { value: AllocationValue; storageKey: string }
 const NO_DATES: readonly Date[] = [];
+const NO_STORED: ReadonlyMap<string, StoredBin> = new Map();
+const NO_BIN_DRAFTS: ReadonlyMap<string, DraftedBin | undefined> = new Map();
+const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 
-function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
-    const key = `${storageKey}.${value.id.type === "some" ? value.id.value : "allocation"}`;
-    const domain = useMemo(() => allocationDomain(value.valuesType), [value.valuesType]);
-    const window = useAllocationWindow(value, key);
+/** What the frame takes from the board around it: the payload, its key, the day, and the editing. */
+interface FrameProps {
+    value: AllocationValue; storageKey: string; window: AllocationWindow;
+    /** Why the day could not be written to the bins' source. */
+    rangeError: string | undefined;
+    editing: AllocationEditing | undefined;
+}
+
+/** The day's own row, read: its status. */
+function periodOf(value: AllocationValue, bytes: Uint8Array | undefined): PlacedPeriod {
+    if (bytes === undefined || value.periods.type !== "some") return NO_PERIOD;
+    return { bytes, status: value.periods.value.status(bytes) };
+}
+
+/** The sole editable wrapper: a read-only board never creates a record session. */
+function EditableAllocation(props: Omit<FrameProps, "editing">) {
+    const { value } = props;
+    // The bins' Save notice counts what leaves their own source's narrowing.
+    const recordSlices = useMemo(() => {
+        const part = sourcePart(value.slice.type === "some" ? value.slice.value : undefined, value.bin.kind.key);
+        return part === undefined ? [] : [part];
+    }, [value]);
+    const editing = useAllocationEditing(value, props.storageKey, props.window.day, recordSlices);
+    return <AllocationFrame {...props} editing={editing} />;
+}
+
+function AllocationFrame({ value, storageKey: key, window, rangeError, editing }: FrameProps) {
+    const domain = allocationDomain(value.bin.rowType);
+    const { day } = window;
     const [pickerWeeks, setPickerWeeks] = useState(NO_DATES);
     const picker = useMemo(() => pickerDays(pickerWeeks), [pickerWeeks]);
-    const data = useAllocationData(value, domain, window.day, picker);
-    const editing = useAllocationEditing(value, domain, window.day, key, data);
+    const [data, setData] = useState<AllocationData>(() => initialAllocationData(day));
+    const current = data.ready && compareDate(data.day, day) === 0;
+    // The day assembled from the records' rows (§9): the bins its window read, every day's drafts in place, and its own row.
+    const stored = current ? data.bins : NO_STORED;
+    const heldBins = useMemo(() => placeStored(domain, stored, day), [domain, stored, day]);
+    const planBins = useMemo(() => placeDrafted(domain, heldBins, editing?.bins ?? NO_BIN_DRAFTS, day), [domain, heldBins, editing?.bins, day]);
+    const dayId = dayKey(day);
+    const periodDrafts = editing?.periods ?? NO_PERIOD_DRAFTS;
+    const heldPeriod = useMemo(() => periodOf(value, current ? data.period : undefined), [value, current, data.period]);
+    const period = useMemo(() => periodDrafts.has(dayId) ? periodOf(value, periodDrafts.get(dayId)) : heldPeriod, [periodDrafts, dayId, value, heldPeriod]);
+    const plan = useMemo((): Day => ({ status: period.status, bins: planBins }), [period.status, planBins]);
+    const held = useMemo((): Day => ({ status: heldPeriod.status, bins: heldBins }), [heldPeriod.status, heldBins]);
     const [selection, setSelection] = useState<Selection>();
     // A selected link (A68) is its bin's part on a resource; any other selection lets it go.
     const [link, setLink] = useState<SelectedLink>();
@@ -90,13 +138,13 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     }, [select, setInspectorTab]);
     const selectLink = useCallback((next: SelectedLink) => { inspect({ type: "bin", id: next.bin }); setLink(next); }, [inspect]);
     const [error, setError] = useState<string>();
-    // The narrowing chooses which lanes, resources and events show, read from the slice itself (#1336, #1339); fits, checks and totals read every one.
+    // The narrowing chooses which lanes, resources and arrivals show, read from the slice itself (#1336, #1339); fits, checks and totals read every one.
     const lanesShown = useNarrowed(value, "lanes", value.lanes);
     const resourcesShown = useNarrowed(value, "resources", value.resources);
-    const eventsShown = useNarrowed(value, "events", value.events);
-    const narrowing = [lanesShown, resourcesShown, eventsShown];
+    const arrivalsShown = useNarrowed(value, "arrivals", value.arrivals);
+    const narrowing = [lanesShown, resourcesShown, arrivalsShown];
     // What the rail shows of each Library tab's source, and how that source alone clears (A98).
-    const eventsSource = useSourceShown(eventsShown, narrowingPart(value, "events"));
+    const arrivalsSource = useSourceShown(arrivalsShown, narrowingPart(value, "arrivals"));
     const resourcesSource = useSourceShown(resourcesShown, narrowingPart(value, "resources"));
     const narrowingLoading = narrowing.some(n => n.loading), narrowingFailed = narrowing.some(n => n.error !== undefined);
     const clearFilters = value.slice.type === "some" ? value.slice.value.slice.clearAll : undefined;
@@ -104,7 +152,7 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const narrow = useContainerBelow(main, NARROW_WIDTH);
     const revealPane = (label: string) => root.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${label}"]`)?.click();
     // Another day: its own selection, pick and refusal, and no find — a find is its bin's, on the day it was asked of.
-    const dayEpoch = window.day.getTime();
+    const dayEpoch = day.getTime();
     useEffect(() => {
         setSelection(undefined); setLink(undefined); setPick(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined); setChooser(undefined); setFind(undefined);
     }, [dayEpoch]);
@@ -114,20 +162,30 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     const styles = useMemo(() => recipe({}) as unknown as AllocationStyles, [recipe]);
     const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
     const context = useMemo(() => allocationContext(value), [value]);
-    const plan = editing.plan;
-    const loads = useMemo(() => domain.loads(window.day, plan, context), [domain, window.day, plan, context]);
-    const builtIn = useMemo(() => domain.check(window.day, plan, context), [domain, window.day, plan, context]);
-    const slots = useMemo(() => domain.slots(window.day, plan, context), [domain, window.day, plan, context]);
+    const loads = useMemo(() => domain.loads(day, plan, context), [domain, day, plan, context]);
+    const builtIn = useMemo(() => domain.check(day, plan, context), [domain, day, plan, context]);
+    const slots = useMemo(() => domain.slots(day, plan, context), [domain, day, plan, context]);
     const focus = focusOf(selection, plan);
     // The app's check, after the built-in ones wherever issues show; a check that fails leaves them shown.
     const readCheck = useCallback((): Issue[] => value.check.type === "some"
-        ? value.check.value(domain.encodeCheckContext({ day: window.day, plan, context, loads })) : [], [value.check, domain, window.day, plan, context, loads]);
+        ? value.check.value(domain.encodeCheckContext({ day, plan, context, loads })) : [], [value.check, domain, day, plan, context, loads]);
     const custom = useTrackedEvaluation(readCheck);
     const issues = useMemo(() => [...builtIn, ...(custom.result.ok ? custom.result.value : [])], [builtIn, custom.result]);
+    // Publish (B7): Save, then once every record reads back as saved, the day's status — over its row as last saved.
+    const [publishing, setPublishing] = useState(false);
+    const publishingNow = useRef(false);
+    const latest = useRef({ change: () => undefined as ReturnType<typeof publishChange> });
+    latest.current = { change: () => editing === undefined ? undefined : publishChange(value, editing, day, current ? data.period : undefined, new Date()) };
+    const publish = useCallback(() => {
+        if (editing === undefined || publishingNow.current) return;
+        publishingNow.current = true; setPublishing(true);
+        void publishPeriod(editing.history, () => latest.current.change(), changes => editing.schedule.record(changes, "typed", "Publish day"))
+            .finally(() => { publishingNow.current = false; setPublishing(false); });
+    }, [editing]);
     // Commands update what is selected without changing the panes or their tabs.
-    const commands = allocationCommands(value, domain, editing, select);
+    const commands = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing }, select, publish);
     // The app's fit (§12): every verdict a drag or a pick shows is its answer.
-    const fit = useAllocationFit(value, domain, window.day, plan, context);
+    const fit = useAllocationFit(value, domain, day, plan, context);
     const { ask: askFit } = fit;
     // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38).
     // The drafts are the cache's key: new drafts, a new cache.
@@ -138,33 +196,33 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         if (derived === undefined) { derived = domain.copyDay(plan); derived.bins.delete(bin); withouts.set(bin, derived); }
         return derived;
     };
-    // The day with a probe reservation in a free slot: what a free Table row's resource Chooser asks the fit of (A48).
+    // The day with a probe reservation in a free slot, its row made as a reservation's is (B13): what a free Table row's resource
+    // Chooser asks the fit of (A48). The drafts are the cache's key: new drafts, a new cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const reservings = useMemo(() => new Map<string, Day>(), [plan]);
     const reserving = (lane: string, at: Date) => {
-        const key = `${lane}|${dayKey(at)}`;
-        let derived = reservings.get(key);
+        const id = `${lane}|${dayKey(at)}`;
+        let derived = reservings.get(id);
         if (derived === undefined) {
             derived = domain.copyDay(plan);
-            derived.bins.set(RESERVE_PROBE, { lane, at, event: none, quantity: 0, kind: none, hold: variant("days", 0),
-                parts: new SortedMap([], compareString), values: domain.blankValues() } as Bin);
-            reservings.set(key, derived);
+            const bytes = value.bin.create({ at, lane, arrival: none, quantity: 0, kind: none, hold: variant("days", 0), parts: new SortedMap<string, number>([], compareString) }, none);
+            const probe = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
+            if (probe.type === "some") derived.bins.set(RESERVE_PROBE, probe.value);
+            reservings.set(id, derived);
         }
         return derived;
     };
     // The day with a committed bin the drafts removed back on it, unlinked (and without a reservation it fills): what booking it
     // again asks the fit of (A51). The drafts are the cache's key: new drafts, a new cache.
-    const held = editing.held;
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const restorings = useMemo(() => new Map<string, Day | undefined>(), [plan, held]);
     const restoring = (bin: string, reservation?: string) => {
         const at = `${bin}|${reservation ?? ""}`;
         if (restorings.has(at)) return restorings.get(at);
         let derived: Day | undefined;
-        const was = held?.bins.get(bin);
-        if (was !== undefined && !plan.bins.has(bin)) {
+        if (held.bins.has(bin) && !plan.bins.has(bin)) {
             derived = domain.copyDay(reservation === undefined ? plan : without(reservation));
-            const back = domain.copyDay(held!).bins.get(bin)!;
+            const back = domain.copyDay(held).bins.get(bin)!;
             back.parts.clear();
             derived.bins.set(bin, back);
         }
@@ -177,10 +235,10 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         return free === undefined ? undefined : { lane: free.lane, at: free.at };
     };
     const nouns = value.labels;
-    const scene: DropScene = { day: window.day, plan, held, context, slots, fit, commands, without, restoring, firstFree, notice: setNotice,
+    const scene: DropScene = { day, plan, held, context, slots, fit, commands, without, restoring, firstFree, notice: setNotice,
         laneLabel: lane => value.lanes.find(l => l.key === lane)?.label ?? lane, nouns };
     // The picked card's grip: its fits show as a drag's do, and its click books as its drop would (A11).
-    const pickGrip: LibraryGrip | undefined = pick?.kind === "event" || pick?.kind === "removed" ? pick : undefined;
+    const pickGrip: LibraryGrip | undefined = pick?.kind === "arrival" || pick?.kind === "removed" ? pick : undefined;
     const drag = useAllocationDrag(key, commands.canEdit() && !narrow, scene, setRefusal, pickGrip);
     // A verdict a click ran (A11, A53): its refusal shown as a drop's is, else its command.
     const runVerdict = useCallback((verdict: Verdict) => {
@@ -190,11 +248,11 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         verdict.run?.();
     }, []);
     const bookPicked = (target: Target) => { if (pickGrip !== undefined && commands.canEdit()) runVerdict(drag.verdict(pickGrip, target)); };
-    const highlight = pick?.kind === "bins" ? pick.event : undefined;
+    const highlight = pick?.kind === "bins" ? pick.arrival : undefined;
     // The Library (A50–A54): its open tab kept, as the pane keeps its own.
-    const { state: libraryTab, setState: setLibraryTab } = usePersistedState<{ tab: string }>(`${key}.library.tab`, { tab: "events" });
-    const lines = useMemo(() => new Map(value.resources.map(r => [r.key, allocationWords().line(window.day, r, loads.get(r.key)!, context.unit)] as const)),
-        [value.resources, loads, window.day, context.unit]);
+    const { state: libraryTab, setState: setLibraryTab } = usePersistedState<{ tab: string }>(`${key}.library.tab`, { tab: "arrivals" });
+    const lines = useMemo(() => new Map(value.resources.map(r => [r.key, allocationWords().line(day, r, loads.get(r.key)!, context.unit)] as const)),
+        [value.resources, loads, day, context.unit]);
     // A find's question (A73, A74): the bin's unallocated quantity placed, asked of the drafts as they are and again as they change (F1).
     // A find whose bin is gone, or wholly allocated, is done.
     const findBin = find === undefined ? undefined : plan.bins.get(find);
@@ -219,13 +277,13 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
         if (fit.error !== undefined) fit.retry();
     };
     const start = useAllocationLibrary({
-        value, context, day: window.day, plan, held, loads, lines, styles, layout: window.view.layout, narrow, drag, commands, selection, pick,
+        value, context, day, plan, held, loads, lines, styles, layout: window.view.layout, narrow, drag, commands, selection, pick,
         tab: libraryTab.tab, onTab: tab => setLibraryTab({ tab }), onVerdict: runVerdict,
-        shown: { events: eventsSource, resources: resourcesSource }, find: libraryFind, onClearFind: () => setFind(undefined),
-        // A9: an event card picks it, again unpicks it; a selected free slot or reservation stays selected. A pick's fits are Details' (A34).
-        onEvent: grip => {
-            const same = pick !== undefined && pick.kind === grip.kind && (grip.kind === "event" ? pick.kind === "event" && pick.event === grip.event : pick.kind === "removed" && pick.bin === grip.bin);
-            const keep = selection?.type === "slot" || (selection?.type === "bin" && plan.bins.get(selection.id)?.event.type === "none") ? selection : undefined;
+        shown: { arrivals: arrivalsSource, resources: resourcesSource }, find: libraryFind, onClearFind: () => setFind(undefined),
+        // A9: an arrival's card picks it, again unpicks it; a selected free slot or reservation stays selected. A pick's fits are Details' (A34).
+        onArrival: grip => {
+            const same = pick !== undefined && pick.kind === grip.kind && (grip.kind === "arrival" ? pick.kind === "arrival" && pick.arrival === grip.arrival : pick.kind === "removed" && pick.bin === grip.bin);
+            const keep = selection?.type === "slot" || (selection?.type === "bin" && plan.bins.get(selection.id)?.arrival.type === "none") ? selection : undefined;
             setSelection(keep); setLink(undefined); setNotice(undefined); setRefusal(undefined); setChooser(undefined);
             setPick(same ? undefined : grip);
             if (!same) setInspectorTab({ tab: "details" });
@@ -235,17 +293,17 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
             if (selection?.type === "slot") { setPick(pick?.kind === "resource" && pick.resource === resource ? undefined : { kind: "resource", resource }); return; }
             inspect(selection?.type === "resource" && selection.key === resource ? undefined : { type: "resource", key: resource });
         },
-        // A10: an Allocated card selects the event's first bin, and highlights every bin of it; again, it clears.
-        onAllocated: (event, bins) => {
-            if (pick?.kind === "bins" && pick.event === event) { select(undefined); return; }
+        // A10: an Allocated card selects the arrival's first bin, and highlights every bin of it; again, it clears.
+        onAllocated: (arrival, bins) => {
+            if (pick?.kind === "bins" && pick.arrival === arrival) { select(undefined); return; }
             inspect({ type: "bin", id: bins[0]! });
-            if (bins.length > 1) setPick({ kind: "bins", event });
+            if (bins.length > 1) setPick({ kind: "bins", arrival });
         },
     });
     // The Inspector (A55–A64): the end pane, its edits the same commands, its fits the same answers.
     const end = useAllocationInspector({
-        value, domain, context, day: window.day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
-        without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, events: eventsShown.keys },
+        value, domain, context, day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
+        without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, arrivals: arrivalsShown.keys },
         refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
         tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding,
     });
@@ -260,19 +318,30 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
     }, [selectedBin, plan, askFit]);
     // The issues chip opens Inspector › Issues (A64).
     const onIssues = () => { setInspectorTab({ tab: "issues" }); revealPane("Inspector"); };
-    const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); editing.history.act(action); }, [editing.history]);
-    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, words, days: data.days, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
+    const history = editing?.history;
+    const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); history?.act(action); }, [history]);
+    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
+        status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, publishing, picker: data.picker,
         focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },
         onClearFocus: () => { setSelection(undefined); setLink(undefined); setChooser(undefined); }, nouns });
-    const published = editing.held?.status.type === "published";
-    const notStarted = !data.loading && data.error === undefined && editing.held === undefined && plan.bins.size === 0;
-    return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={published || value.settings.readOnly ? "" : undefined}>
-        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={(data.loading && data.error === undefined) || narrowing.some(n => !n.ready && n.loading)} toolbar={toolbar}
+    const readOnly = value.settings.readOnly || (current && !editableStatus(heldPeriod.status));
+    const notStarted = current && plan.bins.size === 0 && (value.periods.type === "none" || !started(period));
+    /** A session's issue's place: a bin by its arrival and its slot, a day's row by its key. */
+    const where = (kind: string) => (issue: { entry: string }) => {
+        if (kind === PERIODS) return issue.entry;
+        const bin = plan.bins.get(issue.entry) ?? held.bins.get(issue.entry);
+        return bin === undefined ? issue.entry : `${binCode(context, bin)} · ${value.lanes.find(l => l.key === bin.lane)?.label ?? bin.lane} ${formatDatePattern("HH:mm", bin.at)}`;
+    };
+    const sessionName = (kind: string) => kind === PERIODS ? "Days" : value.bin.kind.name;
+    const loading = (!current && data.error === undefined) || narrowing.some(n => !n.ready && n.loading);
+    return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={readOnly ? "" : undefined}>
+        <AllocationDataReader value={value} day={day} pickerDays={picker} onData={setData} />
+        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={loading} toolbar={toolbar}
             start={start} end={end} onKeyDown={event => {
             // The keys, never while typing (A6).
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
-            if (action !== undefined && !value.settings.readOnly && !published) { event.preventDefault(); onAction(action); }
+            if (action !== undefined && history !== undefined && !value.settings.readOnly && (commands.canEdit() || history.pending > 0)) { event.preventDefault(); onAction(action); }
             else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.step(event.key === "[" ? -1 : 1); }
             // Esc closes the inspector's Chooser, else clears the pick, else the selection (A6).
             else if (event.key === "Escape" && chooser !== undefined) setChooser(undefined);
@@ -282,49 +351,64 @@ function AllocationFrame({ value, storageKey }: EastChakraAllocationProps) {
             else if ((event.key === "Delete" || event.key === "Backspace") && link !== undefined && commands.canEdit()) { event.preventDefault(); commands.unlink(link.bin, link.resource); }
             else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { event.preventDefault(); commands.remove(selection.id); }
         }} banners={<>
-            {editing.session !== undefined && <SessionBanners session={editing.session} words={words} onAction={action => editing.history.actOn(editing.key, action)} />}
-            {published && <BannerView status="info" title="Published day" description="Read-only view of the published plan." />}
-            {notStarted && <BannerView status="info" title="Day not started" description={`Book ${a(nouns.event)} or reserve a slot to start this day's plan.`} />}
+            {editing?.schedule.sessions.map(part => <SessionBanners key={part.key} session={part.session} words={words} name={sessionName(part.kind)} where={where(part.kind)}
+                onAction={action => editing.history.actOn(part.key, action)} />)}
+            {current && heldPeriod.status.type === "published" && <BannerView status="info" title="Published day" description="Read-only view of the published plan." />}
+            {current && heldPeriod.status.type === "other" && <BannerView status="info" title={`${heldPeriod.status.value} day`} description="This day is read-only." />}
+            {notStarted && <BannerView status="info" title="Day not started" description={`Book ${a(nouns.arrival)} or reserve a slot to start this day's plan.`} />}
             {/* A booking onto a resource with no free slot left (A36). */}
             {notice !== undefined && <BannerView status="warning" title={notice.word} description={notice.text} dismissible onDismiss={() => setNotice(undefined)} />}
             {!custom.result.ok && <BannerView status="warning" title="Additional checks unavailable" description="The plan's additional checks could not run. Built-in checks are still shown." />}
             {lanesShown.error !== undefined && <BannerView status="error" title={`${nouns.lane.one} results unavailable`} description={lanesShown.error} actions={<Button size="xs" variant="outline" onClick={lanesShown.retry}>Retry</Button>} />}
             {resourcesShown.error !== undefined && <BannerView status="error" title={`${nouns.resource.one} results unavailable`} description={resourcesShown.error} actions={<Button size="xs" variant="outline" onClick={resourcesShown.retry}>Retry</Button>} />}
-            {eventsShown.error !== undefined && <BannerView status="error" title={`${nouns.event.one} results unavailable`} description={eventsShown.error} actions={<Button size="xs" variant="outline" onClick={eventsShown.retry}>Retry</Button>} />}
+            {arrivalsShown.error !== undefined && <BannerView status="error" title={`${nouns.arrival.one} results unavailable`} description={arrivalsShown.error} actions={<Button size="xs" variant="outline" onClick={arrivalsShown.retry}>Retry</Button>} />}
             {/* A fit that failed (F3): its message, and Retry; a drop meanwhile is refused with `fits unavailable`. */}
             {fitError !== undefined && <BannerView status="error" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={fit.retry}>Retry</Button>} />}
+            {rangeError !== undefined && <BannerView status="error" title="Day unavailable" description={rangeError} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
         </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} narrow={narrow} />}>
             <Box ref={main} css={styles.main} data-allocation-main="" data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
-                aria-busy={(data.loading && data.error === undefined) || narrowingLoading} inert={narrowingLoading || narrowingFailed ? true : undefined}
+                aria-busy={(!current && data.error === undefined) || narrowingLoading} inert={narrowingLoading || narrowingFailed ? true : undefined}
                 data-allocation-narrow={narrow ? "" : undefined}>
-                {data.loading && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
+                {!current && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
                     // Below 480px of main, cards with explicit actions, each one of the board's commands (A78); resizing keeps the layout, the
                     // selection and the drafts, which are the frame's.
-                    : narrow ? <AllocationCards value={value} context={context} styles={styles} day={window.day} plan={plan} held={editing.held}
+                    : narrow ? <AllocationCards value={value} context={context} styles={styles} day={day} plan={plan} held={held}
                         sameBin={domain.sameBin} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
                         selection={selection} select={inspect} follow={follow} editable={commands.canEdit()} commands={commands} fit={fit}
                         without={without} reserving={reserving} visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys}
-                        visibleEvents={eventsShown.keys} clearFilters={clearFilters}
-                        bookOnto={(event, resource) => { setRefusal(undefined); bookOnto(scene, { kind: "event", event }, resource); }} />
-                    : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={window.day} plan={plan}
-                        held={editing.held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
-                        visibleEvents={eventsShown.keys}
+                        visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters}
+                        bookOnto={(arrival, resource) => { setRefusal(undefined); bookOnto(scene, { kind: "arrival", arrival }, resource); }} />
+                    : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={day} plan={plan}
+                        held={held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
+                        visibleArrivals={arrivalsShown.keys}
                         clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
                         editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); revealPane("Inspector"); }} follow={follow}
                         link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
-                    : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={window.day} plan={plan} held={editing.held}
+                    : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={day} plan={plan} held={held}
                         sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
                         drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked}
-                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleEvents={eventsShown.keys} clearFilters={clearFilters} />}
+                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters} />}
             </Box>
         </BuilderFrame>
     </Box></NounsContext.Provider>;
 }
 
+/** The board over the app's records: its key, its day — written into the bins' source — and its editing, around the frame. */
+function AllocationRoot({ value, storageKey }: EastChakraAllocationProps) {
+    const key = `${storageKey}.${value.id.type === "some" ? value.id.value : "allocation"}`;
+    const window = useAllocationWindow(value, key);
+    // The bins' source of the slice holds the day, which the board's own navigation writes (D9), so the rail's count and a Save's notice
+    // read the window it reads.
+    const rangeError = useSourceWindow(value.slice.type === "some" ? value.slice.value : undefined, value.bin.kind.key, window.day,
+        new Date(window.day.getTime() + DAY), "The day could not be applied");
+    const frame = { value, storageKey: key, window, rangeError };
+    return value.settings.readOnly ? <AllocationFrame {...frame} editing={undefined} /> : <EditableAllocation {...frame} />;
+}
+
 /** The e3 renderer owns the frame; callers author only the Allocation tag and its bound data. */
 export function EastChakraAllocation(props: EastChakraAllocationProps) {
     const error = configError(props.value);
-    return error === undefined ? <AllocationFrame {...props} /> : <BannerView status="error" title="Allocation configuration" description={error} />;
+    return error === undefined ? <AllocationRoot {...props} /> : <BannerView status="error" title="Allocation configuration" description={error} />;
 }
 implementUIComponent(AllocationComponent, EastChakraAllocation);
