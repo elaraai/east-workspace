@@ -21,7 +21,7 @@
  * makes of one.
  */
 
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { ChakraProvider, defaultSystem } from "@chakra-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -50,6 +50,12 @@ vi.mock("@elaraai/east-ui-components", async (importOriginal) => ({
 import { PagedDatasetPreview, pruneRetainedPages, servedPageSize } from "./PagedDatasetPreview.js";
 
 const h = e3Harness({ "bind/data/data": ex }, { measure: false });
+
+// Each test starts with no contract: what an earlier test's preview last handed the tree is never this test's, so a
+// wait for its own preview's paging waits until that preview hands it (#1377).
+beforeEach(() => {
+    mocks.paging = undefined;
+});
 
 function pagesOf(...keys: number[]): ReadonlyMap<number, string> {
     return new Map(keys.map((k) => [k, `page-${k}`]));
@@ -176,8 +182,14 @@ describe("PagedDatasetPreview — the served page size (#829)", () => {
 
     test("an untrimmed dataset keeps the requested size", async () => {
         await h.write(ex.previewRowsInput, Array.from({ length: 1_000 }, (_, i) => BigInt(i)));
+        // Its first page held on its way to e3, as a slow runner holds it: the tree is handed no paging until it lands.
+        const landing = h.e3.hold((request) => request.kind === "page" && request.dataset === ROWS);
         await renderPreview(ex.previewRowsInput, ROWS, ArrayType(IntegerType));
-        await waitFor(() => expect(mocks.paging).toBeDefined());
+        await landing.holding;
+        expect(mocks.paging).toBeUndefined();
+        await act(async () => { landing.release(); });
+        // This preview's first page: the paging it hands the tree with it, never a contract an earlier preview handed.
+        await waitFor(() => expect(mocks.paging?.pages.has(0)).toBe(true));
         expect(mocks.paging!.pageSize).toBe(500);
         expect(indicesOf(mocks.paging, 0)).toHaveLength(500);
         expect(asked(ROWS)).toEqual([[0, 500]]);
