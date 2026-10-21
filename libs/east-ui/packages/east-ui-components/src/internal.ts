@@ -65,6 +65,8 @@ export { SliceChoiceGroup, SliceClearButton, SliceFieldChip, type SliceChoice } 
 export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, useRecordSliceToolbarItems, useRecordSlicesToolbarItems } from "./slice/record/index.js";
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";
 export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
+// Whether a record Slice still holds its seed — its `initial`, written over by nothing — which a builder's restored view replaces.
+export { recordSliceSeeded } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";

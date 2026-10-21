@@ -9,13 +9,17 @@
  * source's range holds it, so its counts, its Save notice and the window agree.
  * The first event source holding a range leads; navigation writes every one,
  * and a range written to one — the range editor's — is written to the others.
- * With no slice, the view alone is the window.
+ * A source still holding its seed — the slice's `initial`, written over by
+ * nothing — leads nothing: the view decides the window, the viewer's own when
+ * a reload restores it, so a reload keeps the period and the date the viewer
+ * left rather than the slice's start. With no slice, the view alone is the
+ * window.
  */
 import { useLayoutEffect, useMemo, useState } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { usePersistedState, useSlicesReactivity } from "@elaraai/east-ui-components";
-import { recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { recordSliceSeeded, recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { calendarRange, DAY, dayStart, type CalendarKind, type CalendarRange, type CalendarValue, type CalendarView } from "./model.js";
 import { timelineRange } from "./timeline.js";
@@ -79,8 +83,9 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
         layout: value.settings.layout.type, period: value.settings.period.type,
         date: dayStart(value.settings.date.type === "some" ? value.settings.date.value : now).getTime(),
     });
-    // The first event source holding a range leads; the others follow it.
-    const lead = windowParts.map(({ part }) => recordSliceWindow(part)).find(window => window?.kind === "datetime");
+    // The first event source holding a range leads; the others follow it. One still holding its seed leads nothing:
+    // its window is the author's start, and the view — restored by a reload — writes its own over it.
+    const lead = windowParts.filter(({ part }) => !recordSliceSeeded(part)).map(({ part }) => recordSliceWindow(part)).find(window => window?.kind === "datetime");
     const from = lead?.min;
     const to = lead?.max;
     const view = useMemo(() => from === undefined || (state.date >= from && state.date < (to ?? from)) ? state : { ...state, date: from }, [state, from, to]);

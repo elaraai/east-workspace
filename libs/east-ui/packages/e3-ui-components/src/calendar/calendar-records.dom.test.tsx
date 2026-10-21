@@ -91,3 +91,54 @@ test("indexed Calendar preserves overlaps, replaces windows atomically, and save
     expect(card(container, "long")).not.toBeNull();
     expect(h.requests("read", EVENTS)).toEqual([]);
 });
+
+/** The job source's range, as its store holds it. */
+const held = (store: UIStore) => decodeBeast2For(RecordSliceStateType)(store.read(scope)!).where.get("start");
+/** What the frame says it shows — jsdom lays out no month cell to fit an event's chip in: the navigator's period, and the events the window counts. */
+const shown = (container: HTMLElement) => {
+    const trigger = container.querySelector("[data-time-navigation=calendar] [data-time-trigger]");
+    return { period: trigger?.getAttribute("title") ?? trigger?.textContent, count: slot(container, "toolbar").querySelector("[data-record-slices-summary]")?.textContent };
+};
+const when = printFor(OptionType(DateTimeType));
+/** October's month, as Month lays it out: the weeks from Monday 28 September to Sunday 1 November. */
+const OCTOBER = variant("range", { from: when(some(new Date("2026-09-28T00:00:00Z"))), to: when(some(new Date("2026-11-02T00:00:00Z"))) });
+
+test("a reload keeps the period the viewer left: Month, restored over a slice that starts again from its initial day, shows the month and writes it into its source", async () => {
+    const page = new UIStore(); StateRuntime.initializeStore(page);
+    const first = await h.mount(ex.calendarRecordIndexes, { storageKey: "calendar-record-reload" });
+    await waitFor(() => expect(event(first.container, "job")).not.toBeNull());
+    await act(async () => { fireEvent.click(within(slot(first.container, "toolbar")).getByRole("radio", { name: "Month" })); });
+    await settle();
+    expect(held(page)).toEqual(OCTOBER);
+    const month = shown(first.container);
+    expect(month.period).toBe("October 2026");
+    first.unmount();
+    // A reload: the page's store goes, and the slice is seeded again from its initial day; the view is kept in storage.
+    const reloaded = new UIStore(); StateRuntime.initializeStore(reloaded);
+    const second = await h.mount(ex.calendarRecordIndexes, { storageKey: "calendar-record-reload" });
+    await settle();
+    expect(within(slot(second.container, "toolbar")).getByRole("radio", { name: "Month" }).getAttribute("aria-checked")).toBe("true");
+    expect(held(reloaded)).toEqual(OCTOBER);
+    expect(shown(second.container)).toEqual(month);
+    expect(h.requests("read", EVENTS)).toEqual([]);
+});
+
+test("a window written into the source stands through a remount in the same page, whatever view is kept: the Range panel's is the reader's own", async () => {
+    const page = new UIStore(); StateRuntime.initializeStore(page);
+    const first = await h.mount(ex.calendarRecordIndexes, { storageKey: "calendar-record-remount" });
+    await waitFor(() => expect(event(first.container, "job")).not.toBeNull());
+    await act(async () => { fireEvent.click(within(slot(first.container, "toolbar")).getByRole("radio", { name: "Month" })); });
+    await settle();
+    // The reader's own window, as the Range panel writes it: the 3rd and the 4th.
+    const state = decodeBeast2For(RecordSliceStateType)(page.read(scope)!);
+    const mine = variant("range", { from: when(some(new Date("2026-10-03T00:00:00Z"))), to: when(some(new Date("2026-10-05T00:00:00Z"))) });
+    await act(async () => { page.write(scope, encodeBeast2For(RecordSliceStateType)({ ...state, where: new Map([...state.where, ["start", mine]]), preset: none })); });
+    await settle();
+    const two = shown(first.container);
+    expect(two.period).not.toBe("October 2026");
+    first.unmount();
+    const second = await h.mount(ex.calendarRecordIndexes, { storageKey: "calendar-record-remount" });
+    await settle();
+    expect(held(page)).toEqual(mine);
+    expect(shown(second.container)).toEqual(two);
+});

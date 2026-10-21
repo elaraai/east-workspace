@@ -185,7 +185,11 @@ window re-fires as it lands, so rows appear as they arrive. The Calendar reads
 one date window across its event sources (#1343): the first event source holding
 a range leads, its range editor the time navigator's Range panel and every event
 source's range out of the rail; navigation writes the window into each, and a
-range written to one is written to the others. A narrowed kind reads its window
+range written to one is written to the others. A source still holding its seed
+— the slice's `initial`, which nothing has written over (`recordSliceSeeded`) —
+leads nothing: the view decides the window, the viewer's own when a reload
+restores it, so a reload keeps the period the viewer left rather than the
+slice's start. A narrowed kind reads its window
 and its backlog as one, so a draft moves an event between them by its times
 alone. Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside
 the stored events their choices hide, and its Clear filters keeps each window

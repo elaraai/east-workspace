@@ -55,6 +55,12 @@ interface BindingEntry {
 // compiled handles or source caches. Serialization carries a complete descriptor
 // so a decoded handle also works without re-running its original bind.
 const bindings = new WeakMap<UIStoreInterface, Map<string, BindingEntry>>();
+/**
+ * What each store's record Slices were seeded with, by key: the bytes their first binding wrote from the slice's
+ * `initial`. The store keeps the bytes it holds until other bytes are written, so a source still holding these holds
+ * the author's start, which nothing has written over: not the reader, a host, a link or storage.
+ */
+const seeds = new WeakMap<UIStoreInterface, Map<string, Uint8Array>>();
 
 /** The descriptor's East type over a source of type `source`: what one binding's methods share, in a Ref. */
 function descriptorType(source: EastType) {
@@ -104,7 +110,12 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     const metadata = types[0]?.type === "Struct" ? types[0].fields.indexes : undefined;
     const controller = new RecordSliceController(source, config, row, read, write, collection.value.fields.key!,
         metadata?.type === "Struct" ? metadata : undefined);
-    if (!store.has(key)) controller.write(initial);
+    if (!store.has(key)) {
+        controller.write(initial);
+        let seeded = seeds.get(store);
+        if (seeded === undefined) { seeded = new Map(); seeds.set(store, seeded); }
+        seeded.set(key, store.read(key)!);
+    }
     entry = { controller, descriptor, shared: ref({ key, source, config, initial }), factories: new Map() };
     entries.set(identity, entry);
     if (entries.size > 64) entries.delete(entries.keys().next().value!);
@@ -227,6 +238,20 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
 export const RecordSliceImpl = createRecordSliceImplementation();
 
 registerPlatformImplementation(RecordSliceImpl);
+
+/**
+ * Whether a record Slice still holds what its binding seeded it with: its `initial`, which nothing has written over
+ * since — not the reader, a host, nor a narrowing a link or storage restored. A builder whose own view a reload keeps
+ * reads its window from such a source as the author's start, which the view it restores replaces.
+ *
+ * @param slice - The record Slice
+ * @returns Whether its state is still its seed
+ */
+export function recordSliceSeeded(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): boolean {
+    const store = getStore();
+    const seed = seeds.get(store)?.get(slice.key);
+    return seed !== undefined && store.read(slice.key) === seed;
+}
 
 /** Persist through the same store-key mechanism as local Slice, validating
  * the record's complete narrowing before replacing its seed. */

@@ -3,7 +3,7 @@
  * Licensed under AGPL-3.0. See LICENSE file for details.
  */
 /** The real e3 interval indexes and shared Slice controls, including touch. */
-import { expect, test } from "playwright/test";
+import { expect, test, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 import { containedRecordEditor, recordField } from "./record-slice";
 
@@ -63,3 +63,43 @@ for (const theme of ["light", "dark"] as const) {
         expect(errors).toEqual([]);
     });
 }
+
+/** Chooses a view: its radio in the toolbar, else through the folded View. */
+async function viewChoice(page: Page, frame: Locator, name: string) {
+    const radio = frame.getByRole("radio", { name, exact: true });
+    if (await radio.isVisible()) await radio.click();
+    else { await frame.getByRole("button", { name: "View", exact: true }).click(); const choice = page.getByRole("menuitem", { name, exact: true }); if (await choice.isVisible()) await choice.click(); else { await page.getByRole("dialog").getByRole("radio", { name, exact: true }).click(); await page.keyboard.press("Escape"); } }
+    await settled(page);
+}
+
+test(`a reload keeps the period the viewer left: Month shows its month and the month's events, not the day the slice's initial window holds @narrow`, async ({ page }, info) => {
+    const mobile = info.project.name !== "desktop";
+    const name = mobile ? "calendarRecordIndexesMobile" : "calendarRecordIndexes";
+    const route = `e3/calendar/calendar-records/${name}`;
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
+    const frame = entry.locator("[data-calendar-frame]").first();
+    const events = frame.locator(mobile ? "[data-calendar-card]" : "[data-calendar-event]");
+    // The navigator names the period it shows: in its words, or, folded to its icon on a phone, in its title.
+    const trigger = frame.locator("[data-time-navigation=calendar] [data-time-trigger]");
+    const shown = async () => ({ label: (await trigger.getAttribute("title")) ?? (await trigger.innerText()).trim(), events: await events.count() });
+    const open = async () => {
+        await entry.scrollIntoViewIfNeeded();
+        await expect(frame).toBeVisible({ timeout: 30_000 });
+        await settled(page);
+    };
+    await page.goto(`/?theme=light#${route}`);
+    await open();
+    // The author's day, and its three events, before the viewer chooses.
+    await expect(events).toHaveCount(3);
+    await viewChoice(page, frame, "Month");
+    const month = await shown();
+    expect(month.label).toBe("October 2026");
+    expect(month.events).toBeGreaterThan(3);
+    // A reload: the page's memory goes, and the slice starts again from its initial day; the view the viewer left is kept.
+    await page.reload();
+    await open();
+    expect(await shown()).toEqual(month);
+    expect(errors).toEqual([]);
+});
