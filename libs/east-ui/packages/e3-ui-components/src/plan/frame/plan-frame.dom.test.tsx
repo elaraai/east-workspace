@@ -27,11 +27,12 @@ import { PlanFooter } from "../shell/Footer.js";
 import { scheduleOverlaps } from "../../shared/schedule/overlaps.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
 import {
-    SEED, banner, dropJob, history, historyButton, jobsDrawn, mountCanvas, releaseCanvases, statusLine,
+    CANVAS_MODULES, SEED, banner, dropJob, history, historyButton, jobsDrawn, mountCanvas, releaseCanvases, statusLine,
 } from "../plan-editing.test-utils.js";
-import { act, mount, planHarness, settle, slot } from "./harness.test-utils.js";
+import { act, planHarness, settle, slot } from "./harness.test-utils.js";
 
-const h = planHarness();
+// The print works, and the paged canvases' presses, on e3.
+const h = planHarness({ "plan/plan-events": ex, ...CANVAS_MODULES });
 // The canvases the #880 tests mount go after the DOM they drew.
 afterEach(() => {
     cleanup();
@@ -75,7 +76,7 @@ const COUNTED = new Map<string, Job>([
 ]) as unknown as Jobs;
 
 /** A Plan of the presses and their jobs, with a backlog — given no `library` and no `inspector`, so no pane. */
-const bareJobs = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const bareJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -90,7 +91,7 @@ const bareJobs = East.compile(East.function([], UIComponentType, (_$) => Reactiv
             }),
         },
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 // ── A hand-built canvas ──────────────────────────────────────────────────────
 
@@ -135,7 +136,7 @@ describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
         const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
         jobs.set("J-1019", { ...jobs.get("J-1019")!, start: some(at("2026-10-20T13:00:00Z")), end: some(at("2026-10-20T16:00:00Z")) });
         await h.commit(ex.planPrintJobs, jobs);
-        const { container } = mount(bareJobs);
+        const { container } = await h.mount(bareJobs);
         await settle();
         const frame = container.querySelector("[data-builder-frame]");
         expect(frame).not.toBeNull();
@@ -205,24 +206,32 @@ describe("the Plan is its BuilderFrame (PB19, PB22)", () => {
 
 describe("the footer (PB23)", () => {
     test("it counts the event kinds' events in the window and their backlog, and says when a record was last saved; a commit moves the counts", async () => {
-        await h.commit(ex.planPrintJobs, COUNTED);
-        const { container } = mount(bareJobs);
-        await settle();
-        expect(count(container, "events")).toBe("2 events");
-        expect(count(container, "backlog")).toBe("1 in backlog");
-        // A Plan approves and rejects nothing (#1260): there is nothing to review.
-        expect(count(container, "review")).toBeNull();
-        // The records in memory commit at the epoch.
-        expect(count(container, "saved")).toBe(`saved ${WORDS.dateTime(new Date(0))}`);
-        // The event kinds edit (#1194): nothing pending yet.
-        expect(count(container, "pending")).toBe("0 pending");
-        // The posters come into the window; the labels are scheduled.
-        const next = new Map(COUNTED as unknown as Map<string, Job>);
-        next.set("J-3", job("Posters", { start: "2026-10-12T08:00:00Z", end: "2026-10-12T16:00:00Z", press: "a3" }));
-        next.set("J-4", job("Labels", { start: "2026-10-13T08:00:00Z", end: "2026-10-13T12:00:00Z", press: "a1" }));
-        await h.commit(ex.planPrintJobs, next);
-        expect(count(container, "events")).toBe("4 events");
-        expect(count(container, "backlog")).toBe("0 in backlog");
+        // A clock from noon of one day, running, so e3 stamps the commit on the day the footer calls today.
+        vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
+        try {
+            await h.commit(ex.planPrintJobs, COUNTED);
+            const { container } = await h.mount(bareJobs);
+            await settle();
+            expect(count(container, "events")).toBe("2 events");
+            expect(count(container, "backlog")).toBe("1 in backlog");
+            // A Plan approves and rejects nothing (#1260): there is nothing to review.
+            expect(count(container, "review")).toBeNull();
+            // The jobs' last commit, today's: the footer says its time.
+            const saved = (await h.history(ex.planPrintJobs)).commits[0]!.at;
+            expect(count(container, "saved")).toBe(`saved ${WORDS.time(saved)}`);
+            // The event kinds edit (#1194): nothing pending yet.
+            expect(count(container, "pending")).toBe("0 pending");
+            // The posters come into the window; the labels are scheduled.
+            const next = new Map(COUNTED as unknown as Map<string, Job>);
+            next.set("J-3", job("Posters", { start: "2026-10-12T08:00:00Z", end: "2026-10-12T16:00:00Z", press: "a3" }));
+            next.set("J-4", job("Labels", { start: "2026-10-13T08:00:00Z", end: "2026-10-13T12:00:00Z", press: "a1" }));
+            await h.commit(ex.planPrintJobs, next);
+            expect(count(container, "events")).toBe("4 events");
+            expect(count(container, "backlog")).toBe("0 in backlog");
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     test("the last save reads as its time when it was made today, and as its date and time before", () => {
@@ -232,7 +241,7 @@ describe("the footer (PB23)", () => {
         try {
             const footer = (saved: Date) => render(
                 <ChakraProvider value={system}>
-                    <PlanFooter styles={{}} items={[]} counts={{ events: 0, minutes: 0, backlog: undefined, saved, overlaps: scheduleOverlaps([]) }} />
+                    <PlanFooter styles={{}} items={[]} counts={{ events: 0, minutes: 0, backlog: undefined, saved, overlaps: scheduleOverlaps([]), unscheduled: [] }} />
                 </ChakraProvider>,
             ).container;
             const earlier = new Date("2026-10-06T09:15:00Z");
@@ -264,8 +273,9 @@ describe("the banners and the keys (PB20, PB24)", () => {
         const c = canvas.container;
         await dropJob(canvas, "job-1", "p1");
         expect(banner(c, "conflict")).toBeNull();
-        // Another writer puts a job on Press 1, and the canvas does not see it before Save.
-        canvas.race(new Map([...SEED, ["p1", { ...SEED.get("p1")!, jobs: [{ key: "job-9", at: variant("time", new Date("2026-07-06T00:00:00Z")) }] }]]));
+        // Another writer retires Press 1 while the Save is on its way, and the drop onto it collides. (A job they
+        // drop on Press 1 too would not: e3 checks what a patch touches, and two drops onto a press both land.)
+        canvas.race(new Map([...SEED].filter(([press]) => press !== "p1")));
         await history(canvas, "Save");
         expect(banner(c, "conflict")!.textContent).toContain("Save stopped — 1 conflict with the source");
         expect(slot(c, "toolbar")!.querySelector('[role="alert"]')).toBeNull();

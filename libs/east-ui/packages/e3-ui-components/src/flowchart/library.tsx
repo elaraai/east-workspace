@@ -24,7 +24,16 @@
  * - An empty tab says so in the shared empty state (FB28): the Flows tab `No
  *   flows`, a template tab `No templates`, an author's tab `Nothing in
  *   <name>`; a search that hides every card, the `Library`'s own `No matches`.
- *   Collapsed, the pane is a rail with the first tab's count (FB25).
+ *   Collapsed, the pane is a rail with the first tab's count (FB25) — of the
+ *   cards it shows.
+ * - **The narrowing** (#1346): each templates list follows the source of the
+ *   flowchart's `Slice.bindRecords` it names, and an author's tab the source
+ *   it names, by its cards' keys — the shared `sourceTab`: the tab shows the
+ *   cards its source shows, counts them (`2 of 5`), says so when the rail
+ *   leaves it none, with Clear filters for that source alone, and takes no
+ *   gesture while its source resolves. A tab that names none lists its rows
+ *   whole. The Flows tab's count is the frame's: what the rail narrows the
+ *   record to (`flows.tsx`).
  *
  * Each data tab's cards are a `Library`'s, drawn by the shared parts — every
  * icon Font Awesome's solid set, every style the `library` recipe's — and
@@ -39,11 +48,14 @@
  */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import type { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraLibrary, getSomeorUndefined, useCoarsePointer, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
 } from "@elaraai/east-ui-components";
+import type { FollowedSources } from "../shared/schedule/follow-sources.js";
+import { sourceTab, type SourceShown, type SourceTab } from "../shared/schedule/source-tab.js";
 import type { FlowchartMessages, FlowchartWords } from "./messages.js";
 import type { FlowchartValue } from "./model.js";
 
@@ -57,6 +69,9 @@ export type FlowchartDataTabValue = Exclude<FlowchartTabValue, { type: "flows" }
 type FlowchartCardValue = ValueTypeOf<typeof Flowchart.Types.Card>;
 
 const stringEqual = equalFor(StringType);
+
+/** What a tab that names no source shows: its cards whole. */
+const WHOLE: SourceShown = { keys: none, busy: false, ready: true, clear: undefined };
 
 /** The library open: the design system's 272px (§8). */
 const LIBRARY_SIZE = "272px";
@@ -104,6 +119,21 @@ function nameOf(tab: FlowchartDataTabValue, m: FlowchartMessages): string {
         case "states":
         case "transitions": return getSomeorUndefined(tab.value.name) ?? m.libraryTab({ tab: tab.type });
         case "tab": return tab.value.name;
+    }
+}
+
+/**
+ * The source of the rail a data tab follows (#1346): a templates list's,
+ * which it always names, or an author's tab's, when it names one.
+ *
+ * @param tab - The tab
+ * @returns The source's name; `undefined` for a tab that names none
+ */
+export function flowchartTabSource(tab: FlowchartDataTabValue): string | undefined {
+    switch (tab.type) {
+        case "states":
+        case "transitions": return tab.value.source;
+        case "tab": return getSomeorUndefined(tab.value.source);
     }
 }
 
@@ -163,14 +193,16 @@ function cardItem(card: FlowchartCardValue, icon: string | undefined, drags: boo
 export interface FlowchartLibraryProps {
     /** The tabs the payload lists, in order. */
     readonly library: FlowchartValue["library"];
-    /** The Flows tab's body and its count; `undefined` over one flow, which lists no flows. */
-    readonly flows: { readonly body: ReactNode; readonly count: number } | undefined;
+    /** The Flows tab's body, its count — `40 of 2,048` while the rail narrows it (#1346) — and how many flows it shows; `undefined` over one flow, which lists no flows. */
+    readonly flows: { readonly body: ReactNode; readonly count: number | string | undefined; readonly shown: number } | undefined;
     /** The names the flowchart keeps its viewer's state under. */
     readonly keys: FlowchartKeys;
     /** The flowchart's words. */
     readonly words: FlowchartWords;
     /** A card's ⏎ (#1249, FB34): the card, by its library and its key, dropped on the canvas's selection. */
     readonly enter?: ((library: string, key: string) => void) | undefined;
+    /** What each source the library's tabs follow shows (#1346), by the source's name. */
+    readonly followed: FollowedSources;
 }
 
 /**
@@ -179,8 +211,10 @@ export interface FlowchartLibraryProps {
  * @param props - The tabs listed, the Flows tab's body, the flowchart's keys, its words, and a card's ⏎
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
-export function useFlowchartLibrary({ library, flows, keys, words, enter }: FlowchartLibraryProps): BuilderFrameDock | undefined {
+export function useFlowchartLibrary({ library, flows, keys, words, enter, followed }: FlowchartLibraryProps): BuilderFrameDock | undefined {
     const m = words.m;
+    // A tab over a source's body: it fills the tab, busy and taking no gesture while its source resolves.
+    const styles = useSlotRecipe({ key: "flowchart" })() as Record<string, SystemStyleObject>;
     // A touch screen: a tap on the selected card drops it on the canvas's selection (FB34).
     const coarse = useCoarsePointer();
     // The card each data tab's click selected, by the tab's key (FB26): a click on another moves it, a click on it lets it go.
@@ -200,18 +234,28 @@ export function useFlowchartLibrary({ library, flows, keys, words, enter }: Flow
         const id = flowchartLibraryId(keys, flowchartTabKey(tab));
         return [[flowchartTabKey(tab), (key: string) => enter(id, key)]];
     })), [library, keys, enter]);
-    // Each data tab's Library: its own rows' cards, as its tab reads them.
+    // Each data tab over the source it follows (#1346), by its cards' keys: the cards it shows, its count, its narrowed and its
+    // own empty states, and its pane's attributes; a tab that names none, its cards whole.
+    const follows = useMemo(() => new Map(library.flatMap((tab): [string, SourceTab<FlowchartCardValue>][] => {
+        if (tab.type === "flows") return [];
+        const source = flowchartTabSource(tab);
+        const shown = source === undefined ? WHOLE : followed.get(source)?.shown ?? WHOLE;
+        const noun = nameOf(tab, m).toLocaleLowerCase(words.locale);
+        return [[flowchartTabKey(tab), sourceTab({ cards: cardsOf(tab).cards, keyOf: (card) => card.key, shown, noun, words })]];
+    })), [library, followed, m, words]);
+    // Each data tab's Library: its own rows' cards the rail shows, as its tab reads them.
     const libraries = useMemo(() => new Map(library.flatMap((tab): [string, LibraryValue][] => {
         if (tab.type === "flows") return [];
         const tabKey = flowchartTabKey(tab);
-        const { cards, drags, icon } = cardsOf(tab);
+        const { drags, icon } = cardsOf(tab);
+        const cards = follows.get(tabKey)?.cards ?? cardsOf(tab).cards;
         const chosen = picked.get(tabKey);
         const onEnter = enters.get(tabKey);
         return [[tabKey, {
             id: flowchartLibraryId(keys, tabKey),
             hint: none,
             items: cards.map((card) => cardItem(card, icon, drags, chosen !== undefined && stringEqual(chosen, card.key))),
-            groupOptions: cards.some((card) => card.group.type === "some") ? [{ key: "group", label: m.libraryGroupBy() }] : [],
+            groupOptions: cardsOf(tab).cards.some((card) => card.group.type === "some") ? [{ key: "group", label: m.libraryGroupBy() }] : [],
             groupSummaries: new Map(),
             dimOptions: [],
             defaultDimensions: [],
@@ -232,27 +276,36 @@ export function useFlowchartLibrary({ library, flows, keys, words, enter }: Flow
             layout: none,
             toolbar: true,
         }]];
-    })), [library, picked, keys, m, onCard, enters, coarse]);
+    })), [library, follows, picked, keys, m, onCard, enters, coarse]);
 
     return useMemo((): BuilderFrameDock | undefined => {
         // No tab listed: no pane (FB29).
         if (library.length === 0) return undefined;
         const tabs = library.map((tab) => {
-            if (tab.type === "flows") return { key: "flows", label: m.flowsTab(), count: flows?.count, body: flows?.body ?? null };
+            if (tab.type === "flows") return { key: "flows", label: m.flowsTab(), count: flows?.count, shown: flows?.shown ?? 0, body: flows?.body ?? null };
             const tabKey = flowchartTabKey(tab);
             const value = libraries.get(tabKey)!;
+            const follow = follows.get(tabKey)!;
             const name = nameOf(tab, m);
             return {
                 key: tabKey,
                 label: name,
-                count: value.items.length,
+                count: follow.count,
+                shown: follow.cards.length,
                 body: (
-                    <EastChakraLibrary value={value} storageKey={`${keys.library}.${tabKey}`} onCardEnter={enters.get(tabKey)}
-                        empty={{ title: m.libraryEmpty({ tab: tab.type, name }), description: m.libraryEmptyHint({ tab: tab.type, name }) }} />
+                    // Its source's cards, counted, and while its source narrows what it says when that leaves it none (#1346).
+                    <Box css={styles.pane} data-flowchart-library={tabKey} {...follow.pane}>
+                        <EastChakraLibrary value={value} storageKey={`${keys.library}.${tabKey}`} onCardEnter={enters.get(tabKey)}
+                            empty={follow.empty === undefined ? undefined : { title: m.libraryEmpty({ tab: tab.type, name }), description: m.libraryEmptyHint({ tab: tab.type, name }) }}
+                            narrowing={follow.narrowing} />
+                    </Box>
                 ),
             };
         });
-        // Collapsed, the rail counts the first tab's cards (FB25).
-        return { label: m.libraryPane(), icon: "layer-group", badge: tabs[0]!.count, size: LIBRARY_SIZE, persist: "local", tabs };
-    }, [library, flows, libraries, enters, keys, m]);
+        // Collapsed, the rail counts the cards the first tab shows (FB25).
+        return {
+            label: m.libraryPane(), icon: "layer-group", badge: tabs[0]!.shown, size: LIBRARY_SIZE, persist: "local",
+            tabs: tabs.map(({ shown: _shown, ...tab }) => tab),
+        };
+    }, [library, flows, libraries, follows, enters, keys, m, styles.pane]);
 }

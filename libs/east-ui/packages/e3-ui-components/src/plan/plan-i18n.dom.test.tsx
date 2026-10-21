@@ -24,7 +24,10 @@ import { blocksSource, itemSel, oneBlock, rowId, rowSel } from "./plan.test-util
 import { PlanMessagesProvider, planMessages, type PlanMessages } from "./messages.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import type { PlanInstantValue } from "./instant.js";
-import { mountCanvas, releaseCanvases } from "./plan-editing.test-utils.js";
+import { canvasHarness, mountCanvas, releaseCanvases } from "./plan-editing.test-utils.js";
+
+// The paged canvases' presses, on e3.
+canvasHarness();
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;

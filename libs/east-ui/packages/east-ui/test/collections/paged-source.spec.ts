@@ -6,7 +6,7 @@
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, East, IntegerType, NullType, OptionType, StringType, StructType, equalFor, some, none } from "@elaraai/east";
+import { ArrayType, East, IntegerType, NullType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, some, none } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Table } from "@elaraai/east-ui/internal";
 import { buildRowSource, resolveRowSource } from "../../src/contracts/source.js";
@@ -130,9 +130,13 @@ const PINNED_ROWS = {
     revision: SNAPSHOT_REVISION, refresh: SNAPSHOT_REFRESH,
 };
 const RELEASED_ROWS = { id: "released", page: TRIMMED_ROWS_PAGE, total: WIDE_ROWS_TOTAL, seek: none };
+/** A rail's narrowed source (#1354): a pinned one naming the narrowing it serves. */
+const NARROWING = East.function([], StringType, () => "status=open");
+const LIVE_ROWS = { ...PINNED_ROWS, id: "narrowed", query: NARROWING };
 
 const pageEqual = equalFor(OptionType(WideRows));
 const revisionEqual = equalFor(OptionType(StringType));
+const stringEqual = equalFor(StringType);
 
 describe("Paged sources and their snapshots — paged and pinned (#744, #821)", () => {
     hostTest("a pinned source builds the `pinned` arm, its id kept and its lifecycle forwarded with the handle's closures", () => {
@@ -153,6 +157,48 @@ describe("Paged sources and their snapshots — paged and pinned (#744, #821)", 
         assert.throws(() => value.value.refresh(some("other")), /no snapshot other: this source serves "snapshot" alone/);
         // The derived page serves whole windows over the trimmed handle.
         assert.ok(pageEqual(value.value.page(0n, 10n), some(WIDE_ROWS.slice(0, 10))));
+    });
+
+    hostTest("a live source builds the `live` arm, its id kept and its lifecycle and narrowing forwarded with the handle's closures (#1354)", () => {
+        const program = East.function([], Paged.Types.RowSource(WideRows), ($) => {
+            const source = $.let(LIVE_ROWS, Paged.Types.LiveSource(WideRows));
+            return buildRowSource(resolveRowSource(source, "fixture"), WideRows, r => r as never);
+        });
+        const value = East.compile(program, [])();
+        assert.equal(value.type, "live");
+        if (value.type !== "live") return;
+        assert.ok(stringEqual(value.value.id, "narrowed"));
+        // The handle's own revision, refresh and narrowing, carried through as they are.
+        assert.ok(revisionEqual(value.value.revision(), some("snapshot")));
+        assert.throws(() => value.value.refresh(some("other")), /no snapshot other: this source serves "snapshot" alone/);
+        assert.ok(stringEqual(value.value.query(), "status=open"));
+        // The derived page serves whole windows over the trimmed handle, as the pinned arm's does.
+        assert.ok(pageEqual(value.value.page(0n, 10n), some(WIDE_ROWS.slice(0, 10))));
+    });
+
+    hostTest("a pinned payload and a live one decode as they were built: the arm, the id and the reads survive beast2 (#1354)", () => {
+        const RowSource = Paged.Types.RowSource(WideRows);
+        const pinned = East.compile(East.function([], RowSource, ($) => {
+            const source = $.let(PINNED_ROWS, Paged.Types.PinnedSource(WideRows));
+            return buildRowSource(resolveRowSource(source, "fixture"), WideRows, r => r as never);
+        }), [])();
+        const live = East.compile(East.function([], RowSource, ($) => {
+            const source = $.let(LIVE_ROWS, Paged.Types.LiveSource(WideRows));
+            return buildRowSource(resolveRowSource(source, "fixture"), WideRows, r => r as never);
+        }), [])();
+        const roundTrip = (value: typeof pinned) => decodeBeast2For(RowSource, { platform: [] })(encodeBeast2For(RowSource)(value));
+        const decodedPinned = roundTrip(pinned);
+        assert.equal(decodedPinned.type, "pinned");
+        if (decodedPinned.type !== "pinned") return;
+        assert.ok(stringEqual(decodedPinned.value.id, "snapshot"));
+        assert.ok(revisionEqual(decodedPinned.value.revision(), some("snapshot")));
+        assert.ok(pageEqual(decodedPinned.value.page(0n, 10n), some(WIDE_ROWS.slice(0, 10))));
+        const decodedLive = roundTrip(live);
+        assert.equal(decodedLive.type, "live");
+        if (decodedLive.type !== "live") return;
+        assert.ok(stringEqual(decodedLive.value.id, "narrowed"));
+        assert.ok(stringEqual(decodedLive.value.query(), "status=open"));
+        assert.ok(pageEqual(decodedLive.value.page(0n, 10n), some(WIDE_ROWS.slice(0, 10))));
     });
 
     hostTest("a source that names no snapshot builds the `paged` arm — nothing invented for it", () => {

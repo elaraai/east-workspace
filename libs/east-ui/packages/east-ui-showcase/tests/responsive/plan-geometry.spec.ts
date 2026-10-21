@@ -1456,9 +1456,10 @@ test.describe("Plan row controls on touch (#1258)", { tag: "@mobile" }, () => {
 });
 
 /**
- * planMeasures' resolution is its toolbar's (#1258): a bound slice over the
- * weeks it shows declares the `resolution` affordance, so the toolbar's
- * segment switches MONTH and WEEK — nothing outside the Plan chooses it.
+ * planMeasures' resolution is its toolbar's (#1258): its rail's `weeks` source
+ * holds the window and the resolution (#1344), so the toolbar's segment
+ * switches MONTH and WEEK — nothing outside the Plan chooses it — and a
+ * record's resolution re-buckets the window it holds: the twelve weeks.
  */
 test.describe("planMeasures' resolution (#1258)", { tag: "@desktop" }, () => {
 
@@ -1475,7 +1476,8 @@ test.describe("planMeasures' resolution (#1258)", { tag: "@desktop" }, () => {
         await expect.poll(() => mismatches(entry), "MONTH").toEqual([]);
         await seg.getByRole("radio", { name: "WEEK" }).click();
         await expect(seg.getByRole("radio", { name: "WEEK" })).toBeChecked();
-        await expect(ticks).toHaveText(["W23", "W24", "W25"]);
+        // The window stands, W23 to W35, and is drawn by the week.
+        await expect(ticks).toHaveText(Array.from({ length: 12 }, (_x, i) => `W${23 + i}`));
         await expect.poll(() => mismatches(entry), "WEEK").toEqual([]);
     });
 });

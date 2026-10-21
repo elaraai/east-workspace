@@ -6,7 +6,7 @@
 /** Shared primary-identity adapter for builders over secondary index windows. */
 import { ArrayType, DictType, East, FunctionType, IntegerType, OptionType, StringType, StructType,
     type EastType, type ExprType, none, some } from "@elaraai/east";
-import { buildPagedWindow, PinnedSourceType, PagedSourceType, type IndexedEntryType, type PagedSource, type ResolvedRowSource } from "@elaraai/east-ui/internal";
+import { buildPagedWindow, LiveSourceType, PinnedSourceType, PagedSourceType, type IndexedEntryType, type PagedSource, type ResolvedRowSource } from "@elaraai/east-ui/internal";
 
 /** A window with primary identities in a separately declared index order. */
 export type OrderedRowSource<K extends EastType, R extends EastType, P extends EastType, IK extends EastType> =
@@ -37,15 +37,20 @@ export function orderedRowSource(source: Extract<ResolvedRowSource, { kind: "ord
     const rows = East.function([entries], collection, (_$, values) => values.toDict((_$2, value) => value.key!, (_$2, value) => valueOf(value)));
     const keys = East.function([entries], ArrayType(StringType), (_$, values) => values.map((_$2, value) => idOf(value.key!)));
     const window = buildPagedWindow(source) as ExprType<FunctionType<[IntegerType, IntegerType], OptionType<typeof entries>>>;
-    const handle = source.source as unknown as ExprType<ReturnType<typeof PinnedSourceType<EastType>>>;
+    const handle = source.source as unknown as ExprType<ReturnType<typeof LiveSourceType<EastType>>>;
     const page = East.function([IntegerType, IntegerType], OptionType(collection), ($, offset, limit) => {
         const read = $.const(window);
         const project = $.const(rows);
         return read(offset, limit).match({ some: (_$2, values) => East.value(some(project(values)), OptionType(collection)), none: () => East.value(none, OptionType(collection)) });
     });
+    // The keyed source names what the ordered one names: its snapshot when pinned, and its narrowing too when live
+    // — a rail's narrowed source (#1354).
     const keyed = East.value({ id: handle.id, page, total: handle.total, seek: handle.seek,
         ...(source.pinned ? { revision: handle.revision, refresh: handle.refresh } : {}),
-    }, source.pinned ? PinnedSourceType(collection) : PagedSourceType(collection));
-    const resolved: ResolvedRowSource = { kind: "paged", source: keyed as unknown as ExprType<StructType>, collectionType: collection, elementType: row, keyType: key, pinned: source.pinned };
+        ...(source.query ? { query: handle.query } : {}),
+    }, source.query ? LiveSourceType(collection) : source.pinned ? PinnedSourceType(collection) : PagedSourceType(collection));
+    const resolved: ResolvedRowSource = {
+        kind: "paged", source: keyed as unknown as ExprType<StructType>, collectionType: collection, elementType: row, keyType: key, pinned: source.pinned, query: source.query,
+    };
     return { resolved, entries, window, rows, keys, idOf, valueOf };
 }

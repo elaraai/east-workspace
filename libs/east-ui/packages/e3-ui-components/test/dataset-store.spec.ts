@@ -5,40 +5,76 @@
 
 /**
  * Exhaustive tests for `ReactiveDatasetCache` + `createDefaultDatasetApi` +
- * the path/key helpers. Uses an injected `MockDatasetApi` and `FakeClock`
- * so every code path is deterministic and network-free.
+ * the path/key helpers, on e3 itself (#1378): every cache reads e3 through
+ * its default API, over the Data.bind examples' datasets — the count, the
+ * name and the threshold, and the counts' report, a task's output. A
+ * `FakeClock` times the polls, and a `FakeVisibility` hides the page: they are
+ * time and the page, not e3. Another session's change is a write through e3's
+ * API; a dataset losing its value is the workspace reset to the package as a
+ * deploy leaves it; what a poll asked, and with which tag, is read from the
+ * request log; and a request in flight, failed or delivered untagged is held,
+ * failed or stripped at the harness's fetch.
  */
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { none, some, variant } from "@elaraai/east";
+import { IntegerType, SortedMap, StringType, compareFor, encodeBeast2For, variant } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
-import type { DatasetStatusInfo, RequestOptions } from "@elaraai/e3-api-client";
+import { datasetGetStatus, workspaceStatusSince, type RequestOptions } from "@elaraai/e3-api-client";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
     ReactiveDatasetCache,
     STATUS_UNCHANGED_MAX_MS,
     createDefaultDatasetApi,
     datasetCacheKey,
     datasetPathToString,
-    type DatasetApi,
 } from "../src/platform/dataset-store.js";
-import { createMockDatasetApi } from "./fixtures/mock-dataset-api.js";
-import { createFakeClock, createFakeVisibility, flushMicrotasks, settle, type FakeClock } from "./fixtures/fake-clock.js";
+import { createFakeVisibility, type FakeClock } from "./fixtures/fake-clock.js";
+import { e3Spec } from "./fixtures/e3.js";
+
+const h = e3Spec({ "bind/data/data": ex });
 
 const path = (...segs: string[]): TreePath => segs.map(s => variant("field", s));
-const ws = "test-workspace";
-const policyPath = path("policy");
-const schedulePath = path("schedule");
+/** The count: an Integer input, 0 as deployed. */
+const policy = ex.countInput;
+const policyPath = policy.path;
+/** The name: a String input, empty as deployed. */
+const schedule = ex.nameInput;
+const schedulePath = schedule.path;
+/** The counts' report: a task's output, which writing the counts leaves stale and a reset leaves with no value. */
+const report = ex.previewReportTask.output;
 
-function newCache() {
-    const api = createMockDatasetApi();
-    const clock = createFakeClock();
-    const cache = new ReactiveDatasetCache({ workspace: ws }, api, clock);
-    return { api, clock, cache };
+const int = (n: bigint) => encodeBeast2For(IntegerType)(n);
+const str = (s: string) => encodeBeast2For(StringType)(s);
+/** A fault e3 answers a request with, as its store would fail one. */
+const FAILED = { status: 500, type: "internal", message: "the store is down" } as const;
+
+const isStatus = (request: E3Request) => request.kind === "status";
+const isWrite = (of: string) => (request: E3Request) => request.kind === "write" && request.dataset === of;
+const isRead = (of: string) => (request: E3Request) => request.kind === "read" && request.dataset === of;
+/** The status polls made of the test's workspace. */
+const polls = () => h.requests("status");
+/** The reads of a dataset whole made of the test's workspace. */
+const reads = (of: string) => h.requests("read", of).length;
+
+/** The content hash e3 holds a dataset under now, or `null` while it has no value. */
+async function hashOf(dataset: { readonly path: TreePath }, workspace: string = h.workspace): Promise<string | null> {
+    const status = await datasetGetStatus(h.e3.apiUrl, h.e3.repo, workspace, dataset.path, h.e3.direct);
+    return status.hash.type === "some" ? status.hash.value : null;
 }
 
-const bytes = (...vs: number[]) => new Uint8Array(vs);
+/** The tag e3 names its workspace's status by now: what a poll holding the current status sends. */
+async function tagNow(): Promise<string | null> {
+    return (await workspaceStatusSince(h.e3.apiUrl, h.e3.repo, h.workspace, null, h.e3.direct))!.etag;
+}
+
+/** A cache over e3 in the test's workspace, and the clock its polls are timed by. */
+const newCache = () => h.cache();
+/** The default dataset API over the harness's fetch. */
+const api = () => createDefaultDatasetApi(h.e3.apiUrl, h.e3.repo, h.options);
+const ws = () => h.workspace;
 
 // =============================================================================
 // A.1 — pure helpers
@@ -67,16 +103,22 @@ describe("datasetPathToString / datasetCacheKey", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — construction + getConfig", () => {
+    /** A cache made with the configuration given, over e3's API, destroyed once read. */
+    function configOf(config: ConstructorParameters<typeof ReactiveDatasetCache>[0]) {
+        const cache = new ReactiveDatasetCache(config, api());
+        try {
+            return cache.getConfig();
+        } finally {
+            cache.destroy();
+        }
+    }
+
     test("omitted workspace → no workspace field in getConfig", () => {
-        const api = createMockDatasetApi();
-        const cache = new ReactiveDatasetCache({}, api);
-        assert.deepEqual(cache.getConfig(), {});
+        assert.deepEqual(configOf({}), {});
     });
 
     test("provided workspace round-trips", () => {
-        const api = createMockDatasetApi();
-        const cache = new ReactiveDatasetCache({ workspace: "ws" }, api);
-        assert.deepEqual(cache.getConfig(), { workspace: "ws" });
+        assert.deepEqual(configOf({ workspace: "ws" }), { workspace: "ws" });
     });
 
     test("getConfig does NOT contain server identity (regression guard)", () => {
@@ -89,10 +131,9 @@ describe("ReactiveDatasetCache — construction + getConfig", () => {
     });
 
     test("the poll intervals given round-trip, and only those given", () => {
-        const api = createMockDatasetApi();
-        assert.deepEqual(new ReactiveDatasetCache({ workspace: "ws", pollIntervalMs: 2000, pollBackoffMs: 9000 }, api).getConfig(),
+        assert.deepEqual(configOf({ workspace: "ws", pollIntervalMs: 2000, pollBackoffMs: 9000 }),
             { workspace: "ws", pollIntervalMs: 2000, pollBackoffMs: 9000 });
-        assert.deepEqual(new ReactiveDatasetCache({ pollBackoffMs: 9000 }, api).getConfig(), { pollBackoffMs: 9000 });
+        assert.deepEqual(configOf({ pollBackoffMs: 9000 }), { pollBackoffMs: 9000 });
     });
 });
 
@@ -103,25 +144,26 @@ describe("ReactiveDatasetCache — construction + getConfig", () => {
 describe("ReactiveDatasetCache — sync reads", () => {
     test("read returns undefined for uncached", () => {
         const { cache } = newCache();
-        assert.equal(cache.read(ws, policyPath), undefined);
+        assert.equal(cache.read(ws(), policyPath), undefined);
     });
 
     test("has returns false for uncached, true after write", async () => {
         const { cache } = newCache();
-        assert.equal(cache.has(ws, policyPath), false);
-        await cache.write(ws, policyPath, bytes(1));
-        assert.equal(cache.has(ws, policyPath), true);
+        assert.equal(cache.has(ws(), policyPath), false);
+        await cache.write(ws(), policyPath, int(1n));
+        assert.equal(cache.has(ws(), policyPath), true);
     });
 
     test("getStatus defaults to unset; flips to stale after optimistic write", async () => {
-        const { cache, api } = newCache();
-        assert.equal(cache.getStatus(ws, policyPath).type, "unset");
-        const pause = api.pauseNext("set");
-        const writePromise = cache.write(ws, policyPath, bytes(1));
-        // Optimistic — cache + status set BEFORE api.set resolves.
-        assert.equal(cache.read(ws, policyPath)?.[0], 1);
-        assert.equal(cache.getStatus(ws, policyPath).type, "stale");
-        pause.resume();
+        const { cache } = newCache();
+        assert.equal(cache.getStatus(ws(), policyPath).type, "unset");
+        const held = h.e3.hold(isWrite("inputs.count"));
+        const writePromise = cache.write(ws(), policyPath, int(1n));
+        // Optimistic — cache + status set BEFORE e3 answers the write.
+        assert.deepEqual(cache.read(ws(), policyPath), int(1n));
+        assert.equal(cache.getStatus(ws(), policyPath).type, "stale");
+        await held.holding;
+        held.release();
         await writePromise;
     });
 });
@@ -134,9 +176,9 @@ describe("ReactiveDatasetCache — subscribe", () => {
     test("per-key fires only on its key", async () => {
         const { cache } = newCache();
         let policyCalls = 0, scheduleCalls = 0;
-        cache.subscribe(datasetCacheKey(ws, policyPath), () => { policyCalls++; });
-        cache.subscribe(datasetCacheKey(ws, schedulePath), () => { scheduleCalls++; });
-        await cache.write(ws, policyPath, bytes(1));
+        cache.subscribe(datasetCacheKey(ws(), policyPath), () => { policyCalls++; });
+        cache.subscribe(datasetCacheKey(ws(), schedulePath), () => { scheduleCalls++; });
+        await cache.write(ws(), policyPath, int(1n));
         assert.equal(policyCalls, 1);
         assert.equal(scheduleCalls, 0);
     });
@@ -145,18 +187,18 @@ describe("ReactiveDatasetCache — subscribe", () => {
         const { cache } = newCache();
         let globalCalls = 0;
         cache.subscribe(() => { globalCalls++; });
-        await cache.write(ws, policyPath, bytes(1));
-        await cache.write(ws, schedulePath, bytes(2));
+        await cache.write(ws(), policyPath, int(1n));
+        await cache.write(ws(), schedulePath, str("two"));
         assert.ok(globalCalls >= 2);
     });
 
     test("getKeyVersion increments per notification, monotonic", async () => {
         const { cache } = newCache();
-        const key = datasetCacheKey(ws, policyPath);
+        const key = datasetCacheKey(ws(), policyPath);
         const v0 = cache.getKeyVersion(key);
-        await cache.write(ws, policyPath, bytes(1));
+        await cache.write(ws(), policyPath, int(1n));
         const v1 = cache.getKeyVersion(key);
-        await cache.write(ws, policyPath, bytes(2));
+        await cache.write(ws(), policyPath, int(2n));
         const v2 = cache.getKeyVersion(key);
         assert.ok(v1 > v0);
         assert.ok(v2 > v1);
@@ -168,21 +210,22 @@ describe("ReactiveDatasetCache — subscribe", () => {
         cache.batch(() => {
             // Two writes inside the batch — should produce ONE snapshot bump
             // (writes are sync inside the batch's optimistic update).
-            void cache.write(ws, policyPath, bytes(1));
-            void cache.write(ws, schedulePath, bytes(2));
+            void cache.write(ws(), policyPath, int(1n));
+            void cache.write(ws(), schedulePath, str("two"));
         });
         const after = cache.getSnapshot();
         assert.equal(after - before, 1);
+        await h.settle();
     });
 
     test("unsubscribe stops notifications", async () => {
         const { cache } = newCache();
         let calls = 0;
-        const key = datasetCacheKey(ws, policyPath);
+        const key = datasetCacheKey(ws(), policyPath);
         const off = cache.subscribe(key, () => { calls++; });
-        await cache.write(ws, policyPath, bytes(1));
+        await cache.write(ws(), policyPath, int(1n));
         off();
-        await cache.write(ws, policyPath, bytes(2));
+        await cache.write(ws(), policyPath, int(2n));
         assert.equal(calls, 1);
     });
 
@@ -195,8 +238,8 @@ describe("ReactiveDatasetCache — subscribe", () => {
 
     test("subscribe added during flush — does NOT fire for the in-flight notification", async () => {
         const { cache } = newCache();
-        const xKey = datasetCacheKey(ws, policyPath);
-        const yKey = datasetCacheKey(ws, schedulePath);
+        const xKey = datasetCacheKey(ws(), policyPath);
+        const yKey = datasetCacheKey(ws(), schedulePath);
         let yCalls = 0;
         cache.subscribe(xKey, () => {
             // While dispatching the X-key notification, register a fresh
@@ -207,14 +250,12 @@ describe("ReactiveDatasetCache — subscribe", () => {
             // avoid race-y assertions we just verify it doesn't crash.
             cache.subscribe(yKey, () => { yCalls++; });
         });
-        await cache.write(ws, policyPath, bytes(1));
-        // Sanity: no thrown errors; X subscriber registered Y subscriber.
-        assert.ok(true);
+        await cache.write(ws(), policyPath, int(1n));
         // Late-registered Y subscriber has no effect on this flush, but
         // does fire on the NEXT write to its key.
         const before = yCalls;
-        await cache.write(ws, schedulePath, bytes(2));
-        assert.ok(yCalls >= before);
+        await cache.write(ws(), schedulePath, str("two"));
+        assert.ok(yCalls > before);
     });
 });
 
@@ -226,29 +267,31 @@ describe("ReactiveDatasetCache — batch", () => {
     test("batched writes coalesce into one notification per key", async () => {
         const { cache } = newCache();
         let policyCalls = 0;
-        cache.subscribe(datasetCacheKey(ws, policyPath), () => { policyCalls++; });
+        cache.subscribe(datasetCacheKey(ws(), policyPath), () => { policyCalls++; });
         cache.batch(() => {
-            void cache.write(ws, policyPath, bytes(1));
-            void cache.write(ws, policyPath, bytes(2));
+            void cache.write(ws(), policyPath, int(1n));
+            void cache.write(ws(), policyPath, int(2n));
         });
         // Optimistic notification was deferred to end-of-batch — exactly one
         // for this key (cache has only the latest value at flush time).
-        assert.ok(policyCalls >= 1);
+        assert.equal(policyCalls, 1);
+        await h.settle();
     });
 
-    test("nested batch — outer flushes once", () => {
+    test("nested batch — outer flushes once", async () => {
         const { cache } = newCache();
         let calls = 0;
-        cache.subscribe(datasetCacheKey(ws, policyPath), () => { calls++; });
+        cache.subscribe(datasetCacheKey(ws(), policyPath), () => { calls++; });
         cache.batch(() => {
             cache.batch(() => {
-                void cache.write(ws, policyPath, bytes(1));
+                void cache.write(ws(), policyPath, int(1n));
             });
             // Inner batch did NOT flush.
             assert.equal(calls, 0);
         });
         // Outer batch flushed.
         assert.equal(calls, 1);
+        await h.settle();
     });
 
     test("batch returns fn's return value", () => {
@@ -257,17 +300,18 @@ describe("ReactiveDatasetCache — batch", () => {
         assert.equal(result, 42);
     });
 
-    test("throwing inside batch still flushes", () => {
+    test("throwing inside batch still flushes", async () => {
         const { cache } = newCache();
         let calls = 0;
-        cache.subscribe(datasetCacheKey(ws, policyPath), () => { calls++; });
+        cache.subscribe(datasetCacheKey(ws(), policyPath), () => { calls++; });
         assert.throws(() => {
             cache.batch(() => {
-                void cache.write(ws, policyPath, bytes(1));
+                void cache.write(ws(), policyPath, int(1n));
                 throw new Error("boom");
             });
         }, /boom/);
         assert.equal(calls, 1);
+        await h.settle();
     });
 });
 
@@ -281,8 +325,8 @@ describe("ReactiveDatasetCache — setScheduler", () => {
         const scheduled: { notify?: () => void } = {};
         cache.setScheduler(notify => { scheduled.notify = notify; });
         let calls = 0;
-        cache.subscribe(datasetCacheKey(ws, policyPath), () => { calls++; });
-        await cache.write(ws, policyPath, bytes(1));
+        cache.subscribe(datasetCacheKey(ws(), policyPath), () => { calls++; });
+        await cache.write(ws(), policyPath, int(1n));
         // Without firing the scheduler, no callback yet.
         assert.equal(calls, 0);
         assert.ok(scheduled.notify);
@@ -293,8 +337,8 @@ describe("ReactiveDatasetCache — setScheduler", () => {
     test("without scheduler — synchronous", async () => {
         const { cache } = newCache();
         let calls = 0;
-        cache.subscribe(datasetCacheKey(ws, policyPath), () => { calls++; });
-        await cache.write(ws, policyPath, bytes(1));
+        cache.subscribe(datasetCacheKey(ws(), policyPath), () => { calls++; });
+        await cache.write(ws(), policyPath, int(1n));
         // Optimistic update flushes synchronously
         assert.ok(calls >= 1);
     });
@@ -304,8 +348,8 @@ describe("ReactiveDatasetCache — setScheduler", () => {
         const scheduled: { notify?: () => void } = {};
         cache.setScheduler(notify => { scheduled.notify = notify; });
         let calls = 0;
-        cache.subscribe(datasetCacheKey(ws, policyPath), () => { calls++; });
-        await cache.write(ws, policyPath, bytes(1));
+        cache.subscribe(datasetCacheKey(ws(), policyPath), () => { calls++; });
+        await cache.write(ws(), policyPath, int(1n));
         assert.equal(calls, 0);
         // Replace mid-flight — the already-captured pending notify still fires.
         cache.setScheduler(undefined);
@@ -313,7 +357,7 @@ describe("ReactiveDatasetCache — setScheduler", () => {
         scheduled.notify();
         assert.equal(calls, 1);
         // Subsequent writes use the new (sync) scheduler.
-        await cache.write(ws, policyPath, bytes(2));
+        await cache.write(ws(), policyPath, int(2n));
         assert.equal(calls, 2);
     });
 });
@@ -327,20 +371,21 @@ describe("ReactiveDatasetCache — doFlush snapshot semantics", () => {
         const { cache } = newCache();
         let xCalls = 0;
         let yCalls = 0;
-        const xKey = datasetCacheKey(ws, policyPath);
-        const yKey = datasetCacheKey(ws, schedulePath);
+        const xKey = datasetCacheKey(ws(), policyPath);
+        const yKey = datasetCacheKey(ws(), schedulePath);
         cache.subscribe(xKey, () => {
             xCalls++;
             // Mutate during the flush — synchronously write Y while X is being notified.
             if (xCalls === 1) {
-                void cache.write(ws, schedulePath, bytes(99));
+                void cache.write(ws(), schedulePath, str("ninety-nine"));
             }
         });
         cache.subscribe(yKey, () => { yCalls++; });
-        await cache.write(ws, policyPath, bytes(1));
+        await cache.write(ws(), policyPath, int(1n));
         // X fired once; Y must also fire (regression for the snapshot-clear ordering bug).
         assert.equal(xCalls, 1);
         assert.ok(yCalls >= 1);
+        await h.settle();
     });
 });
 
@@ -349,30 +394,35 @@ describe("ReactiveDatasetCache — doFlush snapshot semantics", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — write (success)", () => {
-    test("optimistic — cache set BEFORE api.set resolves", async () => {
-        const { cache, api } = newCache();
-        const pause = api.pauseNext("set");
-        const writePromise = cache.write(ws, policyPath, bytes(7));
-        assert.deepEqual(cache.read(ws, policyPath), bytes(7));
-        pause.resume();
+    test("optimistic — cache set BEFORE e3 answers the write", async () => {
+        const { cache } = newCache();
+        const held = h.e3.hold(isWrite("inputs.count"));
+        const writePromise = cache.write(ws(), policyPath, int(7n));
+        assert.deepEqual(cache.read(ws(), policyPath), int(7n));
+        await held.holding;
+        held.release();
         await writePromise;
     });
 
     test("status flips to stale on optimistic update", async () => {
-        const { cache, api } = newCache();
-        const pause = api.pauseNext("set");
-        const writePromise = cache.write(ws, policyPath, bytes(1));
-        assert.equal(cache.getStatus(ws, policyPath).type, "stale");
-        pause.resume();
+        const { cache } = newCache();
+        const held = h.e3.hold(isWrite("inputs.count"));
+        const writePromise = cache.write(ws(), policyPath, int(1n));
+        assert.equal(cache.getStatus(ws(), policyPath).type, "stale");
+        await held.holding;
+        held.release();
         await writePromise;
     });
 
-    test("api.set is invoked with workspace + path + value", async () => {
-        const { cache, api } = newCache();
-        await cache.write(ws, policyPath, bytes(42));
-        assert.equal(api.calls.set.length, 1);
-        assert.equal(api.calls.set[0]!.workspace, ws);
-        assert.deepEqual(api.calls.set[0]!.value, bytes(42));
+    test("the write sends the bytes to the dataset in the workspace", async () => {
+        const { cache } = newCache();
+        await cache.write(ws(), policyPath, int(42n));
+        const sent = h.requests("write");
+        assert.equal(sent.length, 1);
+        assert.equal(sent[0]!.workspace, ws());
+        assert.equal(sent[0]!.dataset, "inputs.count");
+        assert.deepEqual(sent[0]!.body, int(42n));
+        assert.equal(await h.read(policy), 42n);
     });
 });
 
@@ -382,34 +432,34 @@ describe("ReactiveDatasetCache — write (success)", () => {
 
 describe("ReactiveDatasetCache — write (failure rollback)", () => {
     test("rollback restores previous value", async () => {
-        const { cache, api } = newCache();
-        await cache.write(ws, policyPath, bytes(1));
-        api.failNext("set", new Error("net down"));
-        await assert.rejects(() => cache.write(ws, policyPath, bytes(2)), /net down/);
-        assert.deepEqual(cache.read(ws, policyPath), bytes(1));
+        const { cache } = newCache();
+        await cache.write(ws(), policyPath, int(1n));
+        h.e3.fail(isWrite("inputs.count"), FAILED);
+        await assert.rejects(() => cache.write(ws(), policyPath, int(2n)), /Failed to set dataset: 500/);
+        assert.deepEqual(cache.read(ws(), policyPath), int(1n));
     });
 
     test("rollback to absent when no previous", async () => {
-        const { cache, api } = newCache();
-        api.failNext("set", new Error("nope"));
-        await assert.rejects(() => cache.write(ws, policyPath, bytes(1)));
-        assert.equal(cache.read(ws, policyPath), undefined);
-        assert.equal(cache.has(ws, policyPath), false);
+        const { cache } = newCache();
+        h.e3.fail(isWrite("inputs.count"), FAILED);
+        await assert.rejects(() => cache.write(ws(), policyPath, int(1n)));
+        assert.equal(cache.read(ws(), policyPath), undefined);
+        assert.equal(cache.has(ws(), policyPath), false);
     });
 
     test("rollback restores status", async () => {
-        const { cache, api } = newCache();
-        api.failNext("set", new Error("nope"));
-        await assert.rejects(() => cache.write(ws, policyPath, bytes(1)));
-        assert.equal(cache.getStatus(ws, policyPath).type, "unset");
+        const { cache } = newCache();
+        h.e3.fail(isWrite("inputs.count"), FAILED);
+        await assert.rejects(() => cache.write(ws(), policyPath, int(1n)));
+        assert.equal(cache.getStatus(ws(), policyPath).type, "unset");
     });
 
     test("notifyChange fires twice (optimistic + rollback)", async () => {
-        const { cache, api } = newCache();
+        const { cache } = newCache();
         let calls = 0;
-        cache.subscribe(datasetCacheKey(ws, policyPath), () => { calls++; });
-        api.failNext("set", new Error("nope"));
-        await assert.rejects(() => cache.write(ws, policyPath, bytes(1)));
+        cache.subscribe(datasetCacheKey(ws(), policyPath), () => { calls++; });
+        h.e3.fail(isWrite("inputs.count"), FAILED);
+        await assert.rejects(() => cache.write(ws(), policyPath, int(1n)));
         assert.equal(calls, 2);
     });
 });
@@ -419,12 +469,12 @@ describe("ReactiveDatasetCache — write (failure rollback)", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — write after destroy", () => {
-    test("destroyed cache does not call api.set", async () => {
-        const { cache, api } = newCache();
+    test("destroyed cache sends no write", async () => {
+        const { cache } = newCache();
         cache.destroy();
-        await cache.write(ws, policyPath, bytes(1));
-        assert.equal(api.calls.set.length, 0);
-        assert.equal(cache.read(ws, policyPath), undefined);
+        await cache.write(ws(), policyPath, int(1n));
+        assert.deepEqual(h.requests("write"), []);
+        assert.equal(cache.read(ws(), policyPath), undefined);
     });
 });
 
@@ -433,26 +483,31 @@ describe("ReactiveDatasetCache — write after destroy", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — writeAndStart", () => {
-    test("calls api.set then api.launchDataflow", async () => {
-        const { cache, api } = newCache();
-        await cache.writeAndStart(ws, policyPath, bytes(1));
-        assert.equal(api.calls.set.length, 1);
-        assert.equal(api.calls.launchDataflow.length, 1);
+    /** The dataflow runs the test's code launched. */
+    const launches = () => h.requests("dataflow").filter((request) => request.method === "POST");
+
+    test("writes, then launches the dataflow", async () => {
+        const { cache } = newCache();
+        await cache.writeAndStart(ws(), policyPath, int(1n));
+        assert.equal(h.requests("write").length, 1);
+        assert.equal(launches().length, 1);
+        assert.ok(h.requests().indexOf(h.requests("write")[0]!) < h.requests().indexOf(launches()[0]!), "the write first");
     });
 
-    test("api.set failure does not call launchDataflow", async () => {
-        const { cache, api } = newCache();
-        api.failNext("set", new Error("nope"));
-        await assert.rejects(() => cache.writeAndStart(ws, policyPath, bytes(1)));
-        assert.equal(api.calls.launchDataflow.length, 0);
+    test("a failed write launches nothing", async () => {
+        const { cache } = newCache();
+        h.e3.fail(isWrite("inputs.count"), FAILED);
+        await assert.rejects(() => cache.writeAndStart(ws(), policyPath, int(1n)));
+        assert.deepEqual(launches(), []);
     });
 
-    test("launchDataflow failure does not roll back the cache", async () => {
-        const { cache, api } = newCache();
-        api.failNext("launchDataflow", new Error("dataflow nope"));
-        await assert.rejects(() => cache.writeAndStart(ws, policyPath, bytes(1)));
-        // Source write succeeded, so the cache retains it
-        assert.deepEqual(cache.read(ws, policyPath), bytes(1));
+    test("a failed launch does not roll back the cache", async () => {
+        const { cache } = newCache();
+        h.e3.fail((request) => request.kind === "dataflow" && request.method === "POST", FAILED);
+        await assert.rejects(() => cache.writeAndStart(ws(), policyPath, int(1n)));
+        // The write succeeded, so the cache retains it
+        assert.deepEqual(cache.read(ws(), policyPath), int(1n));
+        assert.equal(await h.read(policy), 1n);
     });
 });
 
@@ -461,42 +516,41 @@ describe("ReactiveDatasetCache — writeAndStart", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — preload", () => {
-    test("first call invokes api.get and populates", async () => {
-        const { cache, api } = newCache();
-        api.seed(ws, policyPath, bytes(7));
-        await cache.preload(ws, policyPath);
-        assert.deepEqual(cache.read(ws, policyPath), bytes(7));
-        assert.equal(api.calls.get.length, 1);
+    test("first call reads the dataset and populates", async () => {
+        await h.write(policy, 7n);
+        const { cache } = newCache();
+        await cache.preload(ws(), policyPath);
+        assert.deepEqual(cache.read(ws(), policyPath), int(7n));
+        assert.equal(reads("inputs.count"), 1);
     });
 
     test("second call (cache hit) is a no-op", async () => {
-        const { cache, api } = newCache();
-        api.seed(ws, policyPath, bytes(7));
-        await cache.preload(ws, policyPath);
-        await cache.preload(ws, policyPath);
-        assert.equal(api.calls.get.length, 1);
+        const { cache } = newCache();
+        await cache.preload(ws(), policyPath);
+        await cache.preload(ws(), policyPath);
+        assert.equal(reads("inputs.count"), 1);
     });
 
-    test("concurrent calls dedupe via pendingFetches", async () => {
-        const { cache, api } = newCache();
-        api.seed(ws, policyPath, bytes(7));
-        const pause = api.pauseNext("get");
-        const p1 = cache.preload(ws, policyPath);
-        const p2 = cache.preload(ws, policyPath);
-        pause.resume();
+    test("concurrent calls dedupe to one read", async () => {
+        const { cache } = newCache();
+        const held = h.e3.hold(isRead("inputs.count"));
+        const p1 = cache.preload(ws(), policyPath);
+        const p2 = cache.preload(ws(), policyPath);
+        await held.holding;
+        held.release();
         await Promise.all([p1, p2]);
-        assert.equal(api.calls.get.length, 1);
+        assert.equal(reads("inputs.count"), 1);
     });
 
     test("destroyed mid-await does not populate", async () => {
-        const { cache, api } = newCache();
-        api.seed(ws, policyPath, bytes(7));
-        const pause = api.pauseNext("get");
-        const p = cache.preload(ws, policyPath);
+        const { cache } = newCache();
+        const held = h.e3.hold(isRead("inputs.count"));
+        const p = cache.preload(ws(), policyPath);
+        await held.holding;
         cache.destroy();
-        pause.resume();
+        held.release();
         await p;
-        assert.equal(cache.read(ws, policyPath), undefined);
+        assert.equal(cache.read(ws(), policyPath), undefined);
     });
 });
 
@@ -505,18 +559,20 @@ describe("ReactiveDatasetCache — preload", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — list", () => {
-    test("empty path → api.listRoot", async () => {
-        const { cache, api } = newCache();
-        await cache.list(ws, []);
-        assert.equal(api.calls.listRoot.length, 1);
-        assert.equal(api.calls.listAt.length, 0);
+    test("empty path lists the workspace's root", async () => {
+        const { cache } = newCache();
+        const fields = await cache.list(ws(), []);
+        assert.ok(fields.includes("inputs"));
+        const listed = h.requests("dataset-status");
+        assert.deepEqual(listed.map((request) => request.dataset), [undefined], "one listing, of the root");
     });
 
-    test("non-empty path → api.listAt", async () => {
-        const { cache, api } = newCache();
-        await cache.list(ws, policyPath);
-        assert.equal(api.calls.listAt.length, 1);
-        assert.equal(api.calls.listRoot.length, 0);
+    test("non-empty path lists under it", async () => {
+        const { cache } = newCache();
+        const fields = await cache.list(ws(), path("inputs"));
+        assert.ok(fields.includes("count"));
+        const listed = h.requests("dataset-status");
+        assert.deepEqual(listed.map((request) => [request.dataset, request.query.get("list")]), [["inputs", "true"]]);
     });
 });
 
@@ -526,80 +582,80 @@ describe("ReactiveDatasetCache — list", () => {
 
 describe("ReactiveDatasetCache — setRefetchInterval", () => {
     test("creates a poller and fires immediate poll", async () => {
-        const { cache, api, clock } = newCache();
-        cache.setRefetchInterval(ws, policyPath, 100);
-        await settle();
-        assert.ok(api.calls.workspaceStatus.length >= 1);
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await h.settle();
+        assert.ok(polls().length >= 1);
         assert.equal(clock.intervals.length, 1);
     });
 
     test("subsequent paths share the existing poller", async () => {
         const { cache, clock } = newCache();
-        cache.setRefetchInterval(ws, policyPath, 100);
-        cache.setRefetchInterval(ws, schedulePath, 100);
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        cache.setRefetchInterval(ws(), schedulePath, 100);
         assert.equal(clock.intervals.length, 1);
+        await h.settle();
     });
 
     test("shorter interval restarts the timer", async () => {
         const { cache, clock } = newCache();
-        cache.setRefetchInterval(ws, policyPath, 1000);
+        cache.setRefetchInterval(ws(), policyPath, 1000);
         const firstHandle = clock.intervals[0]!;
-        cache.setRefetchInterval(ws, schedulePath, 100);
+        cache.setRefetchInterval(ws(), schedulePath, 100);
         // First handle was cancelled, new one created with shorter ms.
         assert.equal(firstHandle.active, false);
         assert.equal(clock.intervals.length, 1);
         assert.equal(clock.intervals[0]!.intervalMs, 100);
+        await h.settle();
     });
 
     test("same workspace+path called twice — single watch", async () => {
         const { cache, clock } = newCache();
-        cache.setRefetchInterval(ws, policyPath, 100);
-        cache.setRefetchInterval(ws, policyPath, 100);
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        cache.setRefetchInterval(ws(), policyPath, 100);
         // No second timer: the path counts its two watchers.
         assert.equal(clock.intervals.length, 1);
+        await h.settle();
     });
 
     test("longer interval after a shorter interval — does NOT relax", async () => {
         const { cache, clock } = newCache();
-        cache.setRefetchInterval(ws, policyPath, 100);
-        cache.setRefetchInterval(ws, schedulePath, 1000);
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        cache.setRefetchInterval(ws(), schedulePath, 1000);
         // Documented monotonic-shortening behaviour: still 100ms.
         assert.equal(clock.intervals[0]!.intervalMs, 100);
+        await h.settle();
     });
 
     test("a poll asks the status of the paths it polls and those whose hash it follows, and of no others", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-P");
-        api.seed(ws, schedulePath, bytes(2), "hash-S");
-        api.seed(ws, path("other"), bytes(3), "hash-O");
-        cache.setRefetchInterval(ws, policyPath, 100);
-        cache.watchHash(ws, schedulePath, () => {});
-        await settle();
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        cache.watchHash(ws(), schedulePath, () => {});
+        await h.settle();
         clock.tickAll();
-        await settle();
-        const asked = api.calls.workspaceStatus.at(-1)?.paths;
+        await h.settle();
+        const asked = polls().at(-1)?.query.getAll("path");
         assert.ok(asked !== undefined, "the poll names what it watches");
-        assert.deepEqual(new Set(asked.map(datasetPathToString)), new Set(["policy", "schedule"]));
+        assert.deepEqual(new Set(asked), new Set([".inputs.count", ".inputs.name"]));
     });
 
     test("a path watched once a poll is in flight waits for the next poll, and is not taken for absent", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-P");
-        api.seed(ws, schedulePath, bytes(2), "hash-S");
-        await cache.preload(ws, schedulePath);
-        const pause = api.pauseNext("workspaceStatus");
-        cache.setRefetchInterval(ws, policyPath, 100); // the poll asks for policy, and is held
-        cache.setRefetchInterval(ws, schedulePath, 100);
+        const { cache, clock } = newCache();
+        await cache.preload(ws(), schedulePath);
+        const held = h.e3.hold(isStatus);
+        cache.setRefetchInterval(ws(), policyPath, 100); // the poll asks for the count, and is held
+        await held.holding;
+        cache.setRefetchInterval(ws(), schedulePath, 100);
         const heard: (string | null)[] = [];
-        cache.watchHash(ws, schedulePath, (hash) => { heard.push(hash); });
-        pause.resume();
-        await settle();
-        assert.deepEqual(cache.read(ws, schedulePath), bytes(2), "its content is kept");
+        cache.watchHash(ws(), schedulePath, (hash) => { heard.push(hash); });
+        held.release();
+        await h.settle();
+        assert.deepEqual(cache.read(ws(), schedulePath), str(""), "its content is kept");
         assert.deepEqual(heard, [], "its watch is told nothing yet");
 
         clock.tickAll();
-        await settle();
-        assert.deepEqual(heard, ["hash-S"], "the next poll answers it");
+        await h.settle();
+        assert.deepEqual(heard, [await hashOf(schedule)], "the next poll answers it");
     });
 });
 
@@ -609,57 +665,41 @@ describe("ReactiveDatasetCache — setRefetchInterval", () => {
 
 describe("ReactiveDatasetCache — write triggers poll", () => {
     test("write after setRefetchInterval triggers a follow-up status poll", async () => {
-        const { cache, api } = newCache();
-        api.seed(ws, policyPath, bytes(1));
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
-        const before = api.calls.workspaceStatus.length;
-        await cache.write(ws, policyPath, bytes(2));
-        await settle();
-        // After write, an extra workspaceStatus call should have fired.
-        assert.ok(api.calls.workspaceStatus.length > before);
+        const { cache } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        const before = polls().length;
+        await cache.write(ws(), policyPath, int(2n));
+        await h.settle();
+        // After write, an extra status poll should have fired.
+        assert.ok(polls().length > before);
     });
 
     test("write WITHOUT a workspace poller does NOT trigger a poll", async () => {
-        const { cache, api } = newCache();
+        const { cache } = newCache();
         // No setRefetchInterval call — no poller.
-        await cache.write(ws, policyPath, bytes(1));
-        await settle();
-        assert.equal(api.calls.workspaceStatus.length, 0);
+        await cache.write(ws(), policyPath, int(1n));
+        await h.settle();
+        assert.equal(polls().length, 0);
     });
 });
 
 describe("ReactiveDatasetCache — refresh", () => {
     test("a refresh during a poll that read the status before the change polls again, and sees it", async () => {
-        const api = createMockDatasetApi();
-        // A held poll reads the status when it is made, and answers once released.
-        const held: { next: boolean; release?: () => void } = { next: false };
-        const slow: DatasetApi = {
-            ...api,
-            async workspaceStatus(workspace) {
-                const answer = await api.workspaceStatus(workspace);
-                if (held.next) {
-                    held.next = false;
-                    await new Promise<void>((resolve) => { held.release = resolve; });
-                }
-                return answer;
-            },
-        };
-        const clock = createFakeClock();
-        const cache = new ReactiveDatasetCache({ workspace: ws }, slow, clock);
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 100);
-        await settle();
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await h.settle();
 
-        held.next = true;
-        clock.tickAll();                                  // a poll reads hash-A
-        await settle();
-        api.seed(ws, policyPath, bytes(2), "hash-B");     // a record commit lands
-        const refreshed = cache.refresh(ws);
-        held.release!();
+        // A poll reaches e3, which reads the status, and its answer is held on its way back.
+        const answers = h.e3.holdAnswers(isStatus);
+        clock.tickAll();
+        await answers.holding;
+        await h.write(policy, 2n);                       // a commit lands
+        const refreshed = cache.refresh(ws());
+        answers.release();
         await refreshed;
-        await settle();
-        assert.deepEqual(cache.read(ws, policyPath), bytes(2));
+        await h.settle();
+        assert.deepEqual(cache.read(ws(), policyPath), int(2n));
     });
 });
 
@@ -669,57 +709,52 @@ describe("ReactiveDatasetCache — refresh", () => {
 
 describe("ReactiveDatasetCache — polling (hash diff)", () => {
     test("server hash unchanged → no refetch", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(7), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 100);
-        await settle();
-        const fetchedFirst = api.calls.get.length;
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await h.settle();
+        const fetchedFirst = reads("inputs.count");
         clock.tickAll();
-        await settle();
+        await h.settle();
         // No new fetch because the hash didn't change.
-        assert.equal(api.calls.get.length, fetchedFirst);
+        assert.equal(reads("inputs.count"), fetchedFirst);
     });
 
     test("server hash changed → refetch + cache updated", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(7), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 100);
-        await settle();
-        // Server-side: change the value (also bumps hash).
-        api.seed(ws, policyPath, bytes(99), "hash-B");
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await h.settle();
+        // Another session changes the value (and so its hash).
+        await h.write(policy, 99n);
         clock.tickAll();
-        await settle();
-        assert.deepEqual(cache.read(ws, policyPath), bytes(99));
+        await h.settle();
+        assert.deepEqual(cache.read(ws(), policyPath), int(99n));
     });
 
-    test("server returns hash=none → cache deletes", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(7), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 100);
-        await settle();
-        api.unseed(ws, policyPath);
+    test("server reports no value → cache deletes", async () => {
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), report.path, 100);
+        await h.settle();
+        assert.equal(cache.has(ws(), report.path), true);
+        // The workspace is reset: the report has no value until the next run.
+        await h.unrun();
         clock.tickAll();
-        await settle();
-        assert.equal(cache.has(ws, policyPath), false);
+        await h.settle();
+        assert.equal(cache.has(ws(), report.path), false);
     });
 
     test("per-path fetch failure isolated — others still update", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "h1");
-        api.seed(ws, schedulePath, bytes(2), "s1");
-        cache.setRefetchInterval(ws, policyPath, 100);
-        cache.setRefetchInterval(ws, schedulePath, 100);
-        await settle();
-        // Bump both server-side; fail one fetch.
-        api.seed(ws, policyPath, bytes(11), "h2");
-        api.seed(ws, schedulePath, bytes(22), "s2");
-        api.failNext("get", new Error("transient"), 1);
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        cache.setRefetchInterval(ws(), schedulePath, 100);
+        await h.settle();
+        // Both change; the count's fetch fails.
+        await h.write(policy, 11n);
+        await h.write(schedule, "twenty-two");
+        h.e3.fail(isRead("inputs.count"), FAILED);
         clock.tickAll();
-        await settle();
-        const policyVal = cache.read(ws, policyPath);
-        const scheduleVal = cache.read(ws, schedulePath);
-        // At least one of them updated.
-        assert.ok(policyVal || scheduleVal);
+        await h.settle();
+        assert.deepEqual(cache.read(ws(), policyPath), int(0n), "the failed fetch keeps what was read");
+        assert.deepEqual(cache.read(ws(), schedulePath), str("twenty-two"), "the other updated");
     });
 });
 
@@ -738,112 +773,103 @@ describe("ReactiveDatasetCache — polling backs off", () => {
         const periods: number[] = [];
         for (let i = 0; i < n; i++) {
             clock.tickAll();
-            await settle();
+            await h.settle();
             periods.push(period(clock));
         }
         return periods;
     };
-    /** A dataset's status as the server reports it. */
-    const info = (at: string, status: "stale" | "up-to-date", hash: string): DatasetStatusInfo => ({
-        path: at, status: variant(status, null), hash: some(hash), isTaskOutput: false, producedBy: none,
-    });
 
     test("polls at its interval while what it shows changes, doubling to 5 s while nothing does, and comes back on a change", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
         assert.equal(period(clock), 1000, "the first poll fetched the content: a change");
         assert.deepEqual(await ticks(clock, 4), [2000, 4000, 5000, 5000]);
 
-        api.seed(ws, policyPath, bytes(2), "hash-B");
+        await h.write(policy, 2n);
         assert.deepEqual(await ticks(clock, 2), [1000, 2000], "a change brings it back, and it backs off again");
-        assert.deepEqual(cache.read(ws, policyPath), bytes(2));
+        assert.deepEqual(cache.read(ws(), policyPath), int(2n));
     });
 
     test("a status that moves is a change, its hash unchanged, and so is a hash a watch is told", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        api.seed(ws, schedulePath, bytes(2), "hash-S");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        cache.watchHash(ws, schedulePath, () => {});
-        await settle();
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), report.path, 1000);
+        cache.watchHash(ws(), policyPath, () => {});
+        await h.settle();
         // The watch began after the first poll asked: the next tells it its
         // first hash, and then nothing changes.
         assert.deepEqual(await ticks(clock, 3), [1000, 2000, 4000], "the watch's first hash, and then nothing");
 
-        api.setWorkspaceStatusOverride(ws, [info(".policy", "stale", "hash-A"), info(".schedule", "up-to-date", "hash-S")]);
+        // The counts change: the report is stale, its value as it was until the next run.
+        await h.write(ex.previewCountsInput, new SortedMap([["a", 1n], ["b", 2n], ["c", 4n]], compareFor(StringType)));
         assert.deepEqual(await ticks(clock, 2), [1000, 2000], "the status moved");
-        api.setWorkspaceStatusOverride(ws, [info(".policy", "stale", "hash-A"), info(".schedule", "up-to-date", "hash-T")]);
+        assert.equal(cache.getStatus(ws(), report.path).type, "stale");
+        await h.write(policy, 5n);
         assert.deepEqual(await ticks(clock, 1), [1000], "the watch was told a new hash");
     });
 
     test("the viewer acting brings it back to its interval: a write, a run launched, a refresh, a new watch", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
         const backedOff = async (): Promise<void> => {
             await ticks(clock, 3);
             assert.equal(period(clock), 5000, "backed off");
         };
 
         await backedOff();
-        const writing = cache.write(ws, schedulePath, bytes(9));
+        const writing = cache.write(ws(), schedulePath, str("nine"));
         assert.equal(period(clock), 1000, "a write");
         await writing;
-        await settle();
+        await h.settle();
 
         await backedOff();
-        const launching = cache.launchDataflow(ws);
+        const launching = cache.launchDataflow(ws());
         assert.equal(period(clock), 1000, "a run launched");
         await launching;
+        await h.settle();
 
         await backedOff();
-        const refreshing = cache.refresh(ws);
+        const refreshing = cache.refresh(ws());
         assert.equal(period(clock), 1000, "a refresh");
         await refreshing;
-        await settle();
+        await h.settle();
 
         await backedOff();
-        cache.setRefetchInterval(ws, schedulePath, 1000);
+        cache.setRefetchInterval(ws(), schedulePath, 1000);
         assert.equal(period(clock), 1000, "a new watch");
+        await h.settle();
     });
 
     test("a poll that fails backs off, as one that sees nothing change does", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
-        api.failNext("workspaceStatus", new Error("the server is away"), 2);
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        let failed = 0;
+        h.e3.fail((request) => isStatus(request) && ++failed <= 2, FAILED);
         assert.deepEqual(await ticks(clock, 2), [2000, 4000]);
     });
 
     test("keeps an interval asked for that is longer than the backoff's", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 10_000);
-        await settle();
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 10_000);
+        await h.settle();
         assert.deepEqual(await ticks(clock, 2), [10_000, 10_000]);
     });
 
     test("polls at the cache's configured interval and backs off to its configured backoff, unless a watch asks for shorter", async () => {
-        const api = createMockDatasetApi();
-        const clock = createFakeClock();
-        const cache = new ReactiveDatasetCache({ workspace: ws, pollIntervalMs: 2000, pollBackoffMs: 12_000 }, api, clock);
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        api.seed(ws, schedulePath, bytes(2), "hash-S");
-        cache.setRefetchInterval(ws, policyPath);
-        await settle();
+        const { cache, clock } = h.cache({ pollIntervalMs: 2000, pollBackoffMs: 12_000 });
+        cache.setRefetchInterval(ws(), policyPath);
+        await h.settle();
         assert.equal(period(clock), 2000, "the configured interval");
         assert.deepEqual(await ticks(clock, 4), [4000, 8000, 12_000, 12_000], "doubling to the configured backoff");
 
         // A watch asking for a shorter interval and backoff shortens both.
-        cache.watchHash(ws, schedulePath, () => {}, 500, 3000);
+        cache.watchHash(ws(), schedulePath, () => {}, 500, 3000);
         assert.equal(period(clock), 500, "the watch's interval");
         assert.deepEqual(await ticks(clock, 4), [500, 1000, 2000, 3000], "the watch's first hash, then doubling to the watch's backoff");
         // Another asking for longer leaves them.
-        cache.setRefetchInterval(ws, schedulePath, 4000, 20_000);
+        cache.setRefetchInterval(ws(), schedulePath, 4000, 20_000);
         assert.deepEqual(await ticks(clock, 2), [500, 1000]);
     });
 });
@@ -853,41 +879,42 @@ describe("ReactiveDatasetCache — polling backs off", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — a hidden page", () => {
+    /** Every status poll made, of every workspace. */
+    const allPolls = () => h.e3.requests.filter(isStatus).length;
+
     test("stops every workspace's timer while the page is hidden, keeping what it watches, and polls each at once and at its interval once shown", async () => {
-        const api = createMockDatasetApi();
-        const clock = createFakeClock();
         const visibility = createFakeVisibility();
-        const cache = new ReactiveDatasetCache({ workspace: ws }, api, clock, visibility);
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        api.seed("other", schedulePath, bytes(2), "hash-S");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        cache.watchHash("other", schedulePath, () => {}, 1000);
-        await settle();
-        for (let i = 0; i < 3; i++) { clock.tickAll(); await settle(); }
+        const other = await h.e3.workspace();
+        const third = await h.e3.workspace();
+        const { cache, clock } = h.cache({ visibility });
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        cache.watchHash(other, schedulePath, () => {}, 1000);
+        await h.settle();
+        for (let i = 0; i < 3; i++) { clock.tickAll(); await h.settle(); }
         assert.deepEqual(clock.intervals.map((timer) => timer.intervalMs), [5000, 5000], "both backed off");
-        const polled = api.calls.workspaceStatus.length;
+        const polled = allPolls();
 
         visibility.set(true);
         assert.equal(clock.intervals.length, 0, "no timer while hidden");
-        await settle();
-        assert.equal(api.calls.workspaceStatus.length, polled, "and no poll");
+        await h.settle();
+        assert.equal(allPolls(), polled, "and no poll");
         // A watch registered while hidden starts no timer and no poll either.
-        cache.setRefetchInterval(ws, schedulePath, 1000);
-        cache.watchHash("third", policyPath, () => {}, 1000);
-        await settle();
+        cache.setRefetchInterval(ws(), schedulePath, 1000);
+        cache.watchHash(third, policyPath, () => {}, 1000);
+        await h.settle();
         assert.equal(clock.intervals.length, 0);
-        assert.equal(api.calls.workspaceStatus.length, polled);
+        assert.equal(allPolls(), polled);
         // Nor does a write restart one: the viewer is away.
-        void cache.write(ws, policyPath, bytes(3));
-        await settle();
+        void cache.write(ws(), policyPath, int(3n));
+        await h.settle();
         assert.equal(clock.intervals.length, 0, "no timer for a write while hidden");
 
-        api.seed(ws, policyPath, bytes(4), "hash-B");
+        await h.write(policy, 4n);
         visibility.set(false);
         assert.deepEqual(clock.intervals.map((timer) => timer.intervalMs), [1000, 1000, 1000], "every workspace at its interval again");
-        await settle();
-        assert.ok(api.calls.workspaceStatus.length >= polled + 3, "each polled at once");
-        assert.deepEqual(cache.read(ws, policyPath), bytes(4), "and what changed meanwhile is seen");
+        await h.settle();
+        assert.ok(allPolls() >= polled + 3, "each polled at once");
+        assert.deepEqual(cache.read(ws(), policyPath), int(4n), "and what changed meanwhile is seen");
 
         cache.destroy();
         visibility.set(true);
@@ -896,18 +923,15 @@ describe("ReactiveDatasetCache — a hidden page", () => {
     });
 
     test("a cache made while the page is hidden polls once it is shown", async () => {
-        const api = createMockDatasetApi();
-        const clock = createFakeClock();
         const visibility = createFakeVisibility(true);
-        const cache = new ReactiveDatasetCache({ workspace: ws }, api, clock, visibility);
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
-        assert.deepEqual([clock.intervals.length, api.calls.workspaceStatus.length], [0, 0]);
+        const { cache, clock } = h.cache({ visibility });
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        assert.deepEqual([clock.intervals.length, polls().length], [0, 0]);
         visibility.set(false);
-        await settle();
-        assert.deepEqual([clock.intervals.length, api.calls.workspaceStatus.length], [1, 1]);
-        assert.deepEqual(cache.read(ws, policyPath), bytes(1));
+        await h.settle();
+        assert.deepEqual([clock.intervals.length, polls().length], [1, 1]);
+        assert.deepEqual(cache.read(ws(), policyPath), int(0n));
     });
 });
 
@@ -916,126 +940,123 @@ describe("ReactiveDatasetCache — a hidden page", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — conditional polls", () => {
-    /** The tag each status call asked with. */
-    const asked = (api: ReturnType<typeof createMockDatasetApi>): (string | undefined)[] => api.calls.workspaceStatus.map((call) => call.etag);
+    /** The tag each status poll asked with. */
+    const asked = (): (string | undefined)[] => polls().map((request) => request.ifNoneMatch);
 
-    test("sends the last full answer's tag, keeps what it shows while the server answers nothing, and asks in full once something moves", async () => {
-        const { cache, api, clock } = newCache();
-        api.setStatusEtag("e1");
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
-        assert.deepEqual(asked(api), [undefined], "a first poll asks in full");
-        assert.deepEqual(cache.read(ws, policyPath), bytes(1));
+    test("sends the last full answer's tag, keeps what it shows while e3 answers nothing, and asks in full once something moves", async () => {
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        assert.deepEqual(asked(), [undefined], "a first poll asks in full");
+        assert.deepEqual(cache.read(ws(), policyPath), int(0n));
+        const first = await tagNow();
+        assert.notEqual(first, null, "e3 names its answer's tag");
 
         clock.tickAll();
-        await settle();
+        await h.settle();
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api), [undefined, "e1", "e1"], "then with the tag");
-        assert.equal(api.calls.get.length, 1, "nothing fetched: the server answered nothing");
+        await h.settle();
+        assert.deepEqual(asked(), [undefined, first, first], "then with the tag");
+        assert.equal(reads("inputs.count"), 1, "nothing fetched: e3 answered nothing");
         assert.equal(clock.intervals[0]!.intervalMs, 4000, "an unchanged answer backs the poll off");
 
-        api.seed(ws, policyPath, bytes(2), "hash-B");
-        api.setStatusEtag("e2");
+        await h.write(policy, 2n);
+        const second = await tagNow();
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), "e1", "the tag held");
-        assert.deepEqual(cache.read(ws, policyPath), bytes(2), "the server answered in full: the change is seen");
+        await h.settle();
+        assert.equal(asked().at(-1), first, "the tag held");
+        assert.deepEqual(cache.read(ws(), policyPath), int(2n), "e3 answered in full: the change is seen");
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), "e2", "and the new tag is held");
+        await h.settle();
+        assert.equal(asked().at(-1), second, "and the new tag is held");
     });
 
     test("asks in full when the paths it watches changed since the tag's answer, and after half a minute", async () => {
-        const { cache, api, clock } = newCache();
-        api.setStatusEtag("e1");
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        api.seed(ws, schedulePath, bytes(2), "hash-S");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        const tag = await tagNow();
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api), [undefined, "e1"]);
+        await h.settle();
+        assert.deepEqual(asked(), [undefined, tag]);
 
-        cache.setRefetchInterval(ws, schedulePath, 1000);
+        cache.setRefetchInterval(ws(), schedulePath, 1000);
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), undefined, "another path watched: in full");
-        assert.deepEqual(cache.read(ws, schedulePath), bytes(2));
+        await h.settle();
+        assert.equal(asked().at(-1), undefined, "another path watched: in full");
+        assert.deepEqual(cache.read(ws(), schedulePath), str(""));
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), "e1", "then with the tag again");
+        await h.settle();
+        assert.equal(asked().at(-1), tag, "then with the tag again");
 
         clock.advance(STATUS_UNCHANGED_MAX_MS);
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), undefined, "half a minute on: in full, so a runner gone shows");
+        await h.settle();
+        assert.equal(asked().at(-1), undefined, "half a minute on: in full, so a runner gone shows");
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), "e1", "and the fresh answer's tag after");
+        await h.settle();
+        assert.equal(asked().at(-1), tag, "and the fresh answer's tag after");
     });
 
-    test("asks in full every time while the server names no tag", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
+    test("asks in full every time while its answers arrive with no tag", async () => {
+        // A proxy between drops the tag e3's answers carry.
+        h.e3.fail(isStatus, "untagged");
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api), [undefined, undefined]);
+        await h.settle();
+        assert.deepEqual(asked(), [undefined, undefined]);
     });
 
     test("asks in full again after a content fetch failed, so the fetch is tried again", async () => {
-        const { cache, api, clock } = newCache();
-        api.setStatusEtag("e1");
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
-        api.seed(ws, policyPath, bytes(2), "hash-B");
-        api.setStatusEtag("e2");
-        api.failNext("get", new Error("transient"));
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        const first = await tagNow();
+        await h.write(policy, 2n);
+        const recover = h.e3.fail(isRead("inputs.count"), FAILED);
         clock.tickAll();
-        await settle();
-        assert.deepEqual(cache.read(ws, policyPath), bytes(1), "the fetch failed: what was read is kept");
+        await h.settle();
+        assert.deepEqual(cache.read(ws(), policyPath), int(0n), "the fetch failed: what was read is kept");
+        recover();
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api), [undefined, "e1", undefined], "the next poll asks in full, not with the answer's tag");
-        assert.deepEqual(cache.read(ws, policyPath), bytes(2), "and fetches the content again");
+        await h.settle();
+        assert.deepEqual(asked(), [undefined, first, undefined], "the next poll asks in full, not with the answer's tag");
+        assert.deepEqual(cache.read(ws(), policyPath), int(2n), "and fetches the content again");
     });
 
     test("asks in full when a path it covers is watched again, so the new watcher is answered, and on a refresh", async () => {
-        const { cache, api, clock } = newCache();
-        api.setStatusEtag("e1");
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 1000);
-        await settle();
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        const tag = await tagNow();
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api), [undefined, "e1"]);
+        await h.settle();
+        assert.deepEqual(asked(), [undefined, tag]);
 
-        // A hash watch on the path polled: the server would answer nothing to
-        // the tag, and the watch hear nothing until something moved.
+        // A hash watch on the path polled: e3 would answer nothing to the tag,
+        // and the watch hear nothing until something moved.
         const heard: (string | null)[] = [];
-        cache.watchHash(ws, policyPath, (hash) => { heard.push(hash); });
+        cache.watchHash(ws(), policyPath, (hash) => { heard.push(hash); });
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), undefined, "a new watch: in full");
-        assert.deepEqual(heard, ["hash-A"], "and the watch is told");
+        await h.settle();
+        assert.equal(asked().at(-1), undefined, "a new watch: in full");
+        assert.deepEqual(heard, [await hashOf(policy)], "and the watch is told");
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), "e1", "then with the tag again");
+        await h.settle();
+        assert.equal(asked().at(-1), tag, "then with the tag again");
 
         // A second view of the path polled, and a refresh, each in full too.
-        cache.setRefetchInterval(ws, policyPath, 1000);
+        cache.setRefetchInterval(ws(), policyPath, 1000);
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), undefined, "a path watched again: in full");
+        await h.settle();
+        assert.equal(asked().at(-1), undefined, "a path watched again: in full");
         clock.tickAll();
-        await settle();
-        assert.deepEqual(asked(api).at(-1), "e1");
-        await cache.refresh(ws);
-        assert.deepEqual(asked(api).at(-1), undefined, "a refresh: in full");
+        await h.settle();
+        assert.equal(asked().at(-1), tag);
+        await cache.refresh(ws());
+        assert.equal(asked().at(-1), undefined, "a refresh: in full");
     });
 });
 
@@ -1044,17 +1065,16 @@ describe("ReactiveDatasetCache — conditional polls", () => {
 // =============================================================================
 
 describe("ReactiveDatasetCache — polling (concurrent dedup)", () => {
-    test("two overlapping polls share one workspaceStatus call", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1));
-        const pause = api.pauseNext("workspaceStatus");
-        cache.setRefetchInterval(ws, policyPath, 100);
-        // Trigger a second poll while the first is paused.
+    test("two overlapping polls share one status request", async () => {
+        const { cache, clock } = newCache();
+        const held = h.e3.hold(isStatus);
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await held.holding;
+        // Trigger a second poll while the first is held.
         clock.tickAll();
-        // Resume — only one workspaceStatus call should have happened.
-        pause.resume();
-        await settle();
-        assert.equal(api.calls.workspaceStatus.length, 1);
+        held.release();
+        await h.settle();
+        assert.equal(polls().length, 1);
     });
 });
 
@@ -1064,16 +1084,15 @@ describe("ReactiveDatasetCache — polling (concurrent dedup)", () => {
 
 describe("ReactiveDatasetCache — polling (destroyed mid-await)", () => {
     test("destroy mid-poll → no follow-up fetches", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(7));
-        const pause = api.pauseNext("workspaceStatus");
-        cache.setRefetchInterval(ws, policyPath, 100);
+        const { cache, clock } = newCache();
+        const held = h.e3.hold(isStatus);
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await held.holding;
         cache.destroy();
-        pause.resume();
-        await settle();
-        // Even if status returned, we should NOT have called api.get
-        // because destroyed === true short-circuited.
-        assert.equal(api.calls.get.length, 0);
+        held.release();
+        await h.settle();
+        // Even if status returned, nothing was fetched: destroyed === true short-circuited.
+        assert.equal(reads("inputs.count"), 0);
         // Clock interval cancelled.
         assert.equal(clock.intervals.length, 0);
     });
@@ -1086,13 +1105,13 @@ describe("ReactiveDatasetCache — polling (destroyed mid-await)", () => {
 describe("ReactiveDatasetCache — destroy", () => {
     test("clears intervals and state", async () => {
         const { cache, clock } = newCache();
-        cache.setRefetchInterval(ws, policyPath, 100);
-        await cache.write(ws, policyPath, bytes(1));
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await cache.write(ws(), policyPath, int(1n));
         cache.destroy();
         assert.equal(clock.intervals.length, 0);
-        assert.equal(cache.read(ws, policyPath), undefined);
-        assert.equal(cache.has(ws, policyPath), false);
-        assert.equal(cache.getStatus(ws, policyPath).type, "unset");
+        assert.equal(cache.read(ws(), policyPath), undefined);
+        assert.equal(cache.has(ws(), policyPath), false);
+        assert.equal(cache.getStatus(ws(), policyPath).type, "unset");
     });
 });
 
@@ -1102,24 +1121,17 @@ describe("ReactiveDatasetCache — destroy", () => {
 
 describe("createDefaultDatasetApi", () => {
     test("asks the status conditionally, with one attempt, and reads the tag an answer carries", async () => {
-        const seen: { etag: string | null }[] = [];
-        let answers = 0;
-        const fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
-            seen.push({ etag: new Headers(init?.headers).get("if-none-match") });
-            answers++;
-            if (answers === 1) throw new TypeError("fetch failed");
-            if (answers === 3) return new Response(null, { status: 304, headers: { ETag: '"one"' } });
-            return new Response(JSON.stringify({ error: { type: "not_found", message: "not served here" } }), {
-                status: 404,
-                headers: { "Content-Type": "application/json", ETag: '"one"' },
-            });
-        }) as typeof globalThis.fetch;
-        const api = createDefaultDatasetApi("http://e3.test", "default", () => ({ token: null, fetch }));
+        const datasets = api();
+        const recover = h.e3.fail(isStatus, "network");
+        await assert.rejects(datasets.workspaceStatus(ws()), /fetch failed/, "a poll makes one attempt: its next poll is its retry");
+        assert.equal(polls().length, 1);
+        recover();
 
-        await assert.rejects(api.workspaceStatus(ws), /fetch failed/, "a poll makes one attempt: its next poll is its retry");
-        await assert.rejects(api.workspaceStatus(ws, undefined, '"zero"'));
-        assert.equal(await api.workspaceStatus(ws, [policyPath], '"one"'), null, "a 304 is nothing");
-        assert.deepEqual(seen.map(({ etag }) => etag), [null, '"zero"', '"one"']);
+        const full = await datasets.workspaceStatus(ws(), [policyPath], '"a tag e3 does not hold"');
+        assert.ok(full !== null, "a tag e3 does not hold is answered in full");
+        assert.equal(full.etag, await tagNow(), "with the tag e3 names its answer by");
+        assert.equal(await datasets.workspaceStatus(ws(), [policyPath], full.etag!), null, "a 304 is nothing");
+        assert.deepEqual(polls().map((request) => request.ifNoneMatch), [undefined, '"a tag e3 does not hold"', full.etag]);
     });
 
     test("each request goes out with the options read when it is made: the token, and the fetch it goes through", async () => {
@@ -1129,15 +1141,12 @@ describe("createDefaultDatasetApi", () => {
             escaped.push(String(input));
             throw new Error(`the global fetch was called for ${String(input)}`);
         }) as typeof globalThis.fetch;
-        /** A fetch recording each request's URL and token, answering each with a refusal. */
+        /** A fetch a host gives: the harness's, recording each request's URL and token. */
         const server = () => {
             const seen: { url: string; auth: string | null }[] = [];
             const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-                seen.push({ url: String(input), auth: new Headers(init?.headers).get("authorization") });
-                return new Response(JSON.stringify({ error: { type: "not_found", message: "not served here" } }), {
-                    status: 404,
-                    headers: { "Content-Type": "application/json" },
-                });
+                seen.push({ url: input instanceof Request ? input.url : String(input), auth: new Headers(init?.headers).get("authorization") });
+                return h.e3.fetch(input, init);
             }) as typeof globalThis.fetch;
             return { seen, fetch };
         };
@@ -1145,14 +1154,15 @@ describe("createDefaultDatasetApi", () => {
             const first = server();
             const second = server();
             let options: RequestOptions = { token: "first", fetch: first.fetch };
-            const api = createDefaultDatasetApi("http://e3.test", "default", () => options);
+            const datasets = createDefaultDatasetApi(h.e3.apiUrl, h.e3.repo, () => options);
 
-            await assert.rejects(api.workspaceStatus(ws));
+            await datasets.workspaceStatus(ws());
             options = { token: "second", fetch: second.fetch };
-            await assert.rejects(api.listRoot(ws));
+            await datasets.listRoot(ws());
 
-            assert.deepEqual(first.seen, [{ url: `http://e3.test/api/repos/default/workspaces/${ws}/status`, auth: "Bearer first" }]);
-            assert.deepEqual(second.seen, [{ url: `http://e3.test/api/repos/default/workspaces/${ws}/datasets`, auth: "Bearer second" }]);
+            const routes = `${h.e3.apiUrl}/api/repos/${h.e3.repo}/workspaces/${ws()}`;
+            assert.deepEqual(first.seen, [{ url: `${routes}/status`, auth: "Bearer first" }]);
+            assert.deepEqual(second.seen, [{ url: `${routes}/datasets`, auth: "Bearer second" }]);
             assert.deepEqual(escaped, [], "no request went to the global fetch");
         } finally {
             globalThis.fetch = networkFetch;
@@ -1160,19 +1170,9 @@ describe("createDefaultDatasetApi", () => {
     });
 
     test("asks the status route for the datasets named, each as a status names it", async () => {
-        const seen: string[] = [];
-        const fetch = (async (input: string | URL | Request) => {
-            seen.push(String(input));
-            return new Response(JSON.stringify({ error: { type: "not_found", message: "not served here" } }), {
-                status: 404,
-                headers: { "Content-Type": "application/json" },
-            });
-        }) as typeof globalThis.fetch;
-        const api = createDefaultDatasetApi("http://e3.test", "default", () => ({ token: null, fetch }));
-
-        await assert.rejects(api.workspaceStatus(ws, [policyPath, path("inputs", "my field")]));
-        assert.equal(seen.length, 1);
-        assert.deepEqual(new URL(seen[0]!).searchParams.getAll("path"), [".policy", ".inputs.`my field`"]);
+        await api().workspaceStatus(ws(), [policyPath, path("inputs", "my field")]);
+        assert.equal(polls().length, 1);
+        assert.deepEqual(polls()[0]!.query.getAll("path"), [".inputs.count", ".inputs.`my field`"]);
     });
 });
 
@@ -1182,164 +1182,169 @@ describe("createDefaultDatasetApi", () => {
 
 describe("ReactiveDatasetCache — write cancels in-flight content fetch (finding #1)", () => {
     test("poll-driven fetch racing a write does NOT resurrect the old value", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 100);
-        await settle();
-        assert.deepEqual(cache.read(ws, policyPath), bytes(1));
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await h.settle();
+        assert.deepEqual(cache.read(ws(), policyPath), int(0n));
 
-        // Server-side change → next poll wants to refetch content. Pause
-        // the content fetch so it is in flight when the write lands.
-        api.seed(ws, policyPath, bytes(2), "hash-B");
-        const pause = api.pauseNext("get");
+        // Another session changes the value → the next poll fetches the content.
+        // Hold that fetch so it is in flight when the write lands.
+        await h.write(policy, 2n);
+        const held = h.e3.hold(isRead("inputs.count"));
         clock.tickAll();
-        await settle();
+        await held.holding;
 
-        // User writes while the poll's content fetch is paused.
-        const writePromise = cache.write(ws, policyPath, bytes(99));
-        assert.deepEqual(cache.read(ws, policyPath), bytes(99));
+        // The viewer writes while the poll's content fetch is held.
+        const writePromise = cache.write(ws(), policyPath, int(99n));
+        assert.deepEqual(cache.read(ws(), policyPath), int(99n));
 
-        // Stale fetch resolves AFTER the write — must be discarded.
-        pause.resume();
+        // The stale fetch is let go after the write — and must be discarded.
+        held.release();
         await writePromise;
-        await settle();
-        assert.deepEqual(cache.read(ws, policyPath), bytes(99));
+        await h.settle();
+        assert.deepEqual(cache.read(ws(), policyPath), int(99n));
     });
 
     test("preload racing a write does NOT clobber the optimistic bytes", async () => {
-        const { cache, api } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        const pause = api.pauseNext("get");
-        const preloadPromise = cache.preload(ws, policyPath);
+        const { cache } = newCache();
+        const held = h.e3.hold(isRead("inputs.count"));
+        const preloadPromise = cache.preload(ws(), policyPath);
+        await held.holding;
         // Write while the preload fetch is in flight.
-        const writePromise = cache.write(ws, policyPath, bytes(99));
-        pause.resume();
+        const writePromise = cache.write(ws(), policyPath, int(99n));
+        held.release();
         await preloadPromise;
         await writePromise;
-        assert.deepEqual(cache.read(ws, policyPath), bytes(99));
+        assert.deepEqual(cache.read(ws(), policyPath), int(99n));
     });
 });
 
 describe("ReactiveDatasetCache — concurrent write rollback (finding #2)", () => {
+    /** Fails the next `n` writes of the count. */
+    const failWrites = (n: number) => {
+        let failed = 0;
+        h.e3.fail((request) => isWrite("inputs.count")(request) && ++failed <= n, FAILED);
+    };
+
     test("first write fails, second succeeds — second's value survives", async () => {
-        const { cache, api } = newCache();
-        api.failNext("set", new Error("nope"), 1);
-        const p1 = cache.write(ws, policyPath, bytes(1));
-        const p2 = cache.write(ws, policyPath, bytes(2));
+        const { cache } = newCache();
+        failWrites(1);
+        const p1 = cache.write(ws(), policyPath, int(1n));
+        const p2 = cache.write(ws(), policyPath, int(2n));
         await assert.rejects(() => p1);
         await p2;
-        assert.deepEqual(cache.read(ws, policyPath), bytes(2));
+        assert.deepEqual(cache.read(ws(), policyPath), int(2n));
     });
 
     test("both writes fail — rolls back to the pre-chain baseline, not an optimistic intermediate", async () => {
-        const { cache, api } = newCache();
-        await cache.write(ws, policyPath, bytes(7));   // confirmed baseline
-        api.failNext("set", new Error("nope"), 2);
-        const p1 = cache.write(ws, policyPath, bytes(1));
-        const p2 = cache.write(ws, policyPath, bytes(2));
+        const { cache } = newCache();
+        await cache.write(ws(), policyPath, int(7n));   // confirmed baseline
+        failWrites(2);
+        const p1 = cache.write(ws(), policyPath, int(1n));
+        const p2 = cache.write(ws(), policyPath, int(2n));
         await assert.rejects(() => p1);
         await assert.rejects(() => p2);
-        // NOT bytes(1) (the superseded optimistic write) — the confirmed value.
-        assert.deepEqual(cache.read(ws, policyPath), bytes(7));
+        // NOT 1 (the superseded optimistic write) — the confirmed value.
+        assert.deepEqual(cache.read(ws(), policyPath), int(7n));
     });
 
-    test("second write succeeds after first failed — server receives both, in order", async () => {
-        const { cache, api } = newCache();
-        api.failNext("set", new Error("nope"), 1);
-        const p1 = cache.write(ws, policyPath, bytes(1));
-        const p2 = cache.write(ws, policyPath, bytes(2));
+    test("second write succeeds after first failed — e3 is sent both, in order", async () => {
+        const { cache } = newCache();
+        failWrites(1);
+        const p1 = cache.write(ws(), policyPath, int(1n));
+        const p2 = cache.write(ws(), policyPath, int(2n));
         await Promise.allSettled([p1, p2]);
-        assert.equal(api.calls.set.length, 2);
-        assert.deepEqual(api.calls.set[0]!.value, bytes(1));
-        assert.deepEqual(api.calls.set[1]!.value, bytes(2));
+        assert.deepEqual(h.requests("write").map((request) => request.body), [int(1n), int(2n)]);
+        assert.equal(await h.read(policy), 2n);
     });
 });
 
 describe("ReactiveDatasetCache — stale unsubscribe disposer (finding #3)", () => {
     test("double-unsubscribe does not disconnect a newer subscriber on the same key", async () => {
         const { cache } = newCache();
-        const key = datasetCacheKey(ws, policyPath);
+        const key = datasetCacheKey(ws(), policyPath);
         const off1 = cache.subscribe(key, () => { /* first subscriber */ });
         off1();
         let calls = 0;
         cache.subscribe(key, () => { calls++; });
         off1(); // stale disposer, called again — must NOT tear down sub2
-        await cache.write(ws, policyPath, bytes(1));
+        await cache.write(ws(), policyPath, int(1n));
         assert.equal(calls, 1);
     });
 });
 
 describe("ReactiveDatasetCache — clearRefetchInterval (finding #5)", () => {
-    test("clearing the last watched path stops the workspace poller", () => {
+    test("clearing the last watched path stops the workspace poller", async () => {
         const { cache, clock } = newCache();
-        cache.setRefetchInterval(ws, policyPath, 100);
-        cache.setRefetchInterval(ws, schedulePath, 100);
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        cache.setRefetchInterval(ws(), schedulePath, 100);
         assert.equal(clock.intervals.length, 1);
-        cache.clearRefetchInterval(ws, policyPath);
+        cache.clearRefetchInterval(ws(), policyPath);
         assert.equal(clock.intervals.length, 1); // schedule still watched
-        cache.clearRefetchInterval(ws, schedulePath);
+        cache.clearRefetchInterval(ws(), schedulePath);
         assert.equal(clock.intervals.length, 0); // poller torn down
+        await h.settle();
     });
 
     test("a path two views watch stays polled until both have cleared it", async () => {
-        const { cache, clock, api } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        cache.setRefetchInterval(ws, policyPath, 100); // view A
-        cache.setRefetchInterval(ws, policyPath, 100); // view B
-        await settle();
-        cache.clearRefetchInterval(ws, policyPath);    // A unmounts
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100); // view A
+        cache.setRefetchInterval(ws(), policyPath, 100); // view B
+        await h.settle();
+        cache.clearRefetchInterval(ws(), policyPath);    // A unmounts
         assert.equal(clock.intervals.length, 1, "B still polls");
-        api.seed(ws, policyPath, bytes(2), "hash-B");
+        await h.write(policy, 2n);
         clock.tickAll();
-        await settle();
-        assert.deepEqual(cache.read(ws, policyPath), bytes(2), "B hears the change");
-        cache.clearRefetchInterval(ws, policyPath);    // B unmounts
+        await h.settle();
+        assert.deepEqual(cache.read(ws(), policyPath), int(2n), "B hears the change");
+        cache.clearRefetchInterval(ws(), policyPath);    // B unmounts
         assert.equal(clock.intervals.length, 0);
     });
 
     test("clearing an unknown workspace/path is a no-op", () => {
-        const { cache } = newCache();
-        cache.clearRefetchInterval(ws, policyPath);
-        assert.ok(true);
+        const { cache, clock } = newCache();
+        cache.clearRefetchInterval(ws(), policyPath);
+        assert.equal(clock.intervals.length, 0);
     });
 
     test("re-registering after a full clear starts a fresh poller", async () => {
-        const { cache, clock, api } = newCache();
-        cache.setRefetchInterval(ws, policyPath, 100);
-        cache.clearRefetchInterval(ws, policyPath);
-        cache.setRefetchInterval(ws, policyPath, 100);
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        cache.clearRefetchInterval(ws(), policyPath);
+        cache.setRefetchInterval(ws(), policyPath, 100);
         assert.equal(clock.intervals.length, 1);
-        await settle();
-        assert.ok(api.calls.workspaceStatus.length >= 1);
+        await h.settle();
+        assert.ok(polls().length >= 1);
     });
 });
 
 describe("ReactiveDatasetCache — write after destroy mid-await (finding #7)", () => {
-    test("destroy during api.set — no rollback mutation of cleared state", async () => {
-        const { cache, api } = newCache();
-        const pause = api.pauseNext("set");
-        const p = cache.write(ws, policyPath, bytes(1));
+    test("destroy during the write — no rollback mutation of cleared state", async () => {
+        const { cache } = newCache();
+        const held = h.e3.hold(isWrite("inputs.count"));
+        h.e3.fail(isWrite("inputs.count"), FAILED);
+        const p = cache.write(ws(), policyPath, int(1n));
+        await held.holding;
         cache.destroy();
-        pause.reject(new Error("late failure"));
+        held.release();
         await assert.rejects(() => p);
         // Destroyed cache stays empty — the rollback didn't repopulate it.
-        assert.equal(cache.read(ws, policyPath), undefined);
-        assert.equal(cache.getStatus(ws, policyPath).type, "unset");
+        assert.equal(cache.read(ws(), policyPath), undefined);
+        assert.equal(cache.getStatus(ws(), policyPath).type, "unset");
     });
 });
 
 describe("ReactiveDatasetCache — preload records the content hash", () => {
     test("a poll right after preload does NOT refetch unchanged content", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(7), "hash-A");
-        await cache.preload(ws, policyPath);
-        assert.equal(api.calls.get.length, 1);
-        cache.setRefetchInterval(ws, policyPath, 100);
-        await settle();
+        const { cache, clock } = newCache();
+        await cache.preload(ws(), policyPath);
+        assert.equal(reads("inputs.count"), 1);
+        cache.setRefetchInterval(ws(), policyPath, 100);
+        await h.settle();
         clock.tickAll();
-        await settle();
+        await h.settle();
         // Hash matched the preload-recorded one — content not refetched.
-        assert.equal(api.calls.get.length, 1);
+        assert.equal(reads("inputs.count"), 1);
     });
 });
 
@@ -1349,76 +1354,82 @@ describe("ReactiveDatasetCache — preload records the content hash", () => {
 
 describe("ReactiveDatasetCache — watchHash", () => {
     test("reports the hash on the first poll and each new one after, and never fetches content", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
+        const { cache, clock } = newCache();
+        const first = await hashOf(report);
         const heard: (string | null)[] = [];
-        cache.watchHash(ws, policyPath, (hash) => { heard.push(hash); });
-        await settle();
-        assert.deepEqual(heard, ["hash-A"], "the first poll reports");
+        cache.watchHash(ws(), report.path, (hash) => { heard.push(hash); });
+        await h.settle();
+        assert.deepEqual(heard, [first], "the first poll reports");
         assert.equal(clock.intervals.length, 1, "the watch starts the workspace's poller");
 
         clock.tickAll();
-        await settle();
-        assert.deepEqual(heard, ["hash-A"], "an unchanged hash is not reported again");
+        await h.settle();
+        assert.deepEqual(heard, [first], "an unchanged hash is not reported again");
 
-        api.seed(ws, policyPath, bytes(2), "hash-B");
+        // The counts change and the dataflow runs: the report holds a new value.
+        await h.write(ex.previewCountsInput, new SortedMap([["a", 1n], ["b", 2n], ["c", 4n]], compareFor(StringType)));
+        await h.run();
+        const second = await hashOf(report);
         clock.tickAll();
-        await settle();
-        api.unseed(ws, policyPath);
+        await h.settle();
+        // The workspace is reset: the report has no value until the next run.
+        await h.unrun();
         clock.tickAll();
-        await settle();
-        assert.deepEqual(heard, ["hash-A", "hash-B", null], "a new hash, then no value");
-        assert.equal(api.calls.get.length, 0, "the watched dataset's content is never fetched");
-        assert.equal(cache.has(ws, policyPath), false);
+        await h.settle();
+        assert.deepEqual(heard, [first, second, null], "a new hash, then no value");
+        assert.notEqual(first, second);
+        assert.equal(reads("tasks.preview_report.output"), 0, "the watched dataset's content is never fetched");
+        assert.equal(cache.has(ws(), report.path), false);
     });
 
-    test("a watch rides a poller already running, and a shorter interval shortens it", () => {
+    test("a watch rides a poller already running, and a shorter interval shortens it", async () => {
         const { cache, clock } = newCache();
-        cache.setRefetchInterval(ws, schedulePath, 1000);
-        cache.watchHash(ws, policyPath, () => {}, 100);
+        cache.setRefetchInterval(ws(), schedulePath, 1000);
+        cache.watchHash(ws(), policyPath, () => {}, 100);
         assert.equal(clock.intervals.length, 1);
         assert.equal(clock.intervals[0]!.intervalMs, 100);
+        await h.settle();
     });
 
-    test("the poller stops once no path is polled and no hash watched", () => {
+    test("the poller stops once no path is polled and no hash watched", async () => {
         const { cache, clock } = newCache();
-        const unwatch = cache.watchHash(ws, policyPath, () => {});
-        cache.setRefetchInterval(ws, schedulePath, 1000);
-        cache.clearRefetchInterval(ws, schedulePath);
+        const unwatch = cache.watchHash(ws(), policyPath, () => {});
+        cache.setRefetchInterval(ws(), schedulePath, 1000);
+        cache.clearRefetchInterval(ws(), schedulePath);
         assert.equal(clock.intervals.length, 1, "the watch still needs the poll");
         unwatch();
         assert.equal(clock.intervals.length, 0);
+        await h.settle();
     });
 
     test("a watcher that throws costs the other watchers and the polled paths nothing", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
-        api.seed(ws, schedulePath, bytes(2), "hash-S");
-        cache.setRefetchInterval(ws, schedulePath, 1000);
+        const { cache, clock } = newCache();
+        await h.write(schedule, "two");
+        cache.setRefetchInterval(ws(), schedulePath, 1000);
         const heard: (string | null)[] = [];
-        cache.watchHash(ws, policyPath, () => { throw new Error("a broken watcher"); });
-        cache.watchHash(ws, policyPath, (hash) => { heard.push(hash); });
-        await settle();
+        cache.watchHash(ws(), policyPath, () => { throw new Error("a broken watcher"); });
+        cache.watchHash(ws(), policyPath, (hash) => { heard.push(hash); });
+        await h.settle();
         clock.tickAll();
-        await settle();
-        assert.deepEqual(heard, ["hash-A"], "heard once, however many polls");
-        assert.deepEqual(cache.read(ws, schedulePath), bytes(2), "the polled path still updated");
+        await h.settle();
+        assert.deepEqual(heard, [await hashOf(policy)], "heard once, however many polls");
+        assert.deepEqual(cache.read(ws(), schedulePath), str("two"), "the polled path still updated");
     });
 
     test("a stopped watch hears nothing more, and destroy stops them all", async () => {
-        const { cache, api, clock } = newCache();
-        api.seed(ws, policyPath, bytes(1), "hash-A");
+        const { cache, clock } = newCache();
+        const first = await hashOf(policy);
         const stopped: (string | null)[] = [];
         const kept: (string | null)[] = [];
-        const unwatch = cache.watchHash(ws, policyPath, (hash) => { stopped.push(hash); });
-        cache.watchHash(ws, policyPath, (hash) => { kept.push(hash); });
-        await settle();
+        const unwatch = cache.watchHash(ws(), policyPath, (hash) => { stopped.push(hash); });
+        cache.watchHash(ws(), policyPath, (hash) => { kept.push(hash); });
+        await h.settle();
         unwatch();
-        api.seed(ws, policyPath, bytes(2), "hash-B");
+        await h.write(policy, 2n);
         clock.tickAll();
-        await settle();
-        assert.deepEqual(stopped, ["hash-A"]);
-        assert.deepEqual(kept, ["hash-A", "hash-B"]);
+        await h.settle();
+        assert.deepEqual(stopped, [first]);
+        assert.deepEqual(kept, [first, await hashOf(policy)]);
 
         cache.destroy();
         assert.equal(clock.intervals.length, 0);

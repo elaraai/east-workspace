@@ -96,7 +96,7 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
+ * import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
  * import { Box, Format, Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
@@ -105,7 +105,6 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *     id: StringType, start: OptionType(DateTimeType), activity: StringType, notes: StringType,
  *     stations: Sheet.Types.Link, status: StringType, qty: OptionType(FloatType),
  * });
- * export const sheetStressJobCount = e3.input("sheet_stress_job_count", IntegerType, variant("value", 2000n));
  * export const generateStressJobs = East.function([IntegerType], ArrayType(StressJob), ($, count) => {
  *     const activities = $.const(["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"], ArrayType(StringType));
  *     const words = $.const(["PLANNED", "RELEASED", "COMPLETE"], ArrayType(StringType));
@@ -126,38 +125,47 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *         qty: i.remainder(11n).equal(0n).ifElse((_$2) => blank, (_$2) => East.value(some(i.multiply(7n).toFloat().add(50.0)), OptionType(FloatType))),
  *     }));
  * });
- * export const sheetStressJobs = e3.task("sheet_stress_jobs", [sheetStressJobCount], generateStressJobs);
+ * export const sheetStressJobs = e3.record("sheet_stress_jobs", DictType(StringType, StressJob),
+ *     East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
+ *         const generate = $.const(generateStressJobs);
+ *         return generate(count).toDict((_$, job) => job.id, (_$, job) => job);
+ *     }), [])(2000n));
+ * export const sheetStressByActivity = e3.recordIndex("sheet_stress_by_activity", sheetStressJobs, { on: ["activity"] });
+ * export const sheetStressByStatus = e3.recordIndex("sheet_stress_by_status", sheetStressJobs, { on: ["status"] });
+ * export const sheetStressByNotes = e3.recordIndex("sheet_stress_by_notes", sheetStressJobs, { on: ["notes"] });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const MachineType = StructType({ code: StringType, family: StringType });
- *         // Two thousand jobs an e3 task generates — made where data is made.
- *         const jobs = $.let(Data.bind(sheetStressJobs));
- *         const count = $.let(jobs.read().length());
  *         const machines = $.const([
  *             { code: "R2140", family: "CNC router" }, { code: "R2141", family: "CNC router" }, { code: "R2145", family: "CNC router" },
  *             { code: "P3210", family: "4-side planer" }, { code: "A7301", family: "assembly bench" },
  *         ], ArrayType(MachineType));
- *         // The work centres are searched through their display form — `3 x CNC router`, `A7301` — not their `.east` text.
- *         const slice = $.let(Slice.bind("sheet_stress_slice", jobs.read(), {
- *             fields: {
- *                 activity: { label: "Activity", hints: ["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"] },
- *                 notes:    { label: "Notes" },
- *                 stations: { label: "Work centres", text: r => Sheet.link.print(r.stations) },
- *                 status:   { label: "Status" },
+ *         // One rail over the jobs: the sheet's rows are what its `rows` source narrows them to, through the record's indexes.
+ *         const slice = $.let(Slice.bindRecords("sheet_stress", {
+ *             rows: {
+ *                 source: Data.bindPaged(sheetStressJobs, { indexes: [sheetStressByActivity, sheetStressByStatus, sheetStressByNotes] }),
+ *                 fields: {
+ *                     activity: { label: "Activity", hints: ["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"] },
+ *                     status:   { label: "Status", hints: ["PLANNED", "RELEASED", "COMPLETE"] },
+ *                     notes:    { label: "Notes" },
+ *                 },
+ *                 search: ["notes"],
  *             },
- *             search: ["activity", "notes", "stations"],
  *         }));
- *         const views = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet_stress_views", [
- *             { id: "spraying", name: "SPRAYING", narrowing: Slice.state({ search: some("spraying") }), context: 1n, reveals: [], folds: new Map() },
- *             { id: "routers", name: "ROUTERS", narrowing: Slice.state({ search: some("router") }), context: 0n, reveals: [], folds: new Map() },
- *             { id: "urgent", name: "URGENT", narrowing: Slice.state({ search: some("urgent") }), context: 0n, reveals: [], folds: new Map() },
+ *         // Each view keeps every source's narrowing, by name: an activity's value is its `.east` literal, a search its prefix.
+ *         const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet_stress_views", [
+ *             { id: "spraying", name: "SPRAYING", context: 1n, reveals: [], folds: new Map(),
+ *               narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Spraying\""])]]), preset: none, resolution: none }]]) },
+ *             { id: "routers", name: "ROUTERS", context: 0n, reveals: [], folds: new Map(),
+ *               narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Routing\""])]]), preset: none, resolution: none }]]) },
+ *             { id: "urgent", name: "URGENT", context: 0n, reveals: [], folds: new Map(),
+ *               narrowing: new Map([["rows", { where: new Map([["notes", variant("prefix", "urgent")]]), preset: none, resolution: none }]]) },
  *         ]));
  *         return (
  *             <Box height="480px">
  *                 <Sheet
- *                     data={jobs}
- *                     id="id"
+ *                     slice={{ slice }}
  *                     name="stress"
  *                     registers={{
  *                         stations: Sheet.register.concat([
@@ -174,10 +182,9 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *                         status:   Sheet.column.text(StressJob, { header: "Status", width: "120px" }),
  *                         qty:      Sheet.column.quantity(StressJob, { header: "Qty", width: "112px", format: Format.Number({ maximumFractionDigits: 0n }) }),
  *                     }}
- *                     slice={slice} affordances={["search", "filter"]}
  *                     views={views} activeView={some("spraying")}
  *                     readOnly
- *                     footer={[{ text: East.str`${count} rows · virtualised` }]}
+ *                     footer={[{ text: "virtualised" }]}
  *                 />
  *             </Box>
  *         );
@@ -404,6 +411,42 @@ export interface SheetDriverValue {
  *     ] }],
  * ]));
  * export const sheetWorkshopOrdersPatch = e3.mutation.patch(sheetWorkshopOrders);
+ * export const sheetWorkshopOrdersByStatus = e3.recordIndex("sheet_workshop_orders_by_status", sheetWorkshopOrders, { on: ["status"] });
+ * export const sheetWorkshopOrdersByCustomer = e3.recordIndex("sheet_workshop_orders_by_customer", sheetWorkshopOrders, { on: ["customer"] });
+ * export const WorkshopOperationTemplate = StructType({ name: StringType, group: StringType, activity: StringType, machines: Sheet.Types.Link });
+ * export const sheetWorkshopOperationTemplates = e3.record("sheet_workshop_operation_templates", DictType(StringType, WorkshopOperationTemplate), new Map([
+ *     ["assemble", { name: "Assembly", group: "Operations", activity: "Assembly", machines: { from: [], to: [] } }],
+ *     ["cut", { name: "Panel cutting", group: "Operations", activity: "Panel cutting", machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }],
+ *     ["deliver", { name: "Delivery", group: "Dispatch", activity: "Delivery", machines: { from: [], to: [] } }],
+ *     ["edge", { name: "Edge banding", group: "Operations", activity: "Edge banding", machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }],
+ *     ["route", { name: "CNC routing", group: "Operations", activity: "CNC routing", machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }],
+ *     ["sand", { name: "Sanding", group: "Operations", activity: "Sanding", machines: { from: [], to: [] } }],
+ *     ["spray", { name: "Spray finish", group: "Operations", activity: "Spray finish", machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }],
+ *     ["wrap", { name: "Wrapping", group: "Dispatch", activity: "Wrapping", machines: { from: [], to: [] } }],
+ * ]));
+ * export const sheetWorkshopOperationTemplatesByGroup = e3.recordIndex("sheet_workshop_operation_templates_by_group", sheetWorkshopOperationTemplates, { on: ["group"] });
+ * export const WorkshopOrderTemplate = StructType({ name: StringType, group: StringType, ops: ArrayType(WorkshopOperation) });
+ * export const sheetWorkshopOrderTemplates = e3.record("sheet_workshop_order_templates", DictType(StringType, WorkshopOrderTemplate), new Map([
+ *     ["kitchen", { name: "Kitchen order", group: "Orders", ops: [
+ *         { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *     ] }],
+ *     ["vanity", { name: "Vanity unit", group: "Orders", ops: [
+ *         { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "CNC routing",   start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *     ] }],
+ *     ["wardrobe", { name: "Wardrobe order", group: "Orders", ops: [
+ *         { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "Drilling",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *     ] }],
+ * ]));
+ * export const sheetWorkshopOrderTemplatesByGroup = e3.recordIndex("sheet_workshop_order_templates_by_group", sheetWorkshopOrderTemplates, { on: ["group"] });
  * const workshopRecommend = East.asyncPlatform(
  *     "sheet_workshop_recommend",
  *     [Sheet.Types.DraftContext(WorkshopOrder, "ops", WorkshopActivity)],
@@ -416,7 +459,12 @@ export interface SheetDriverValue {
  *         const orders     = $.let(Record.bind(sheetWorkshopOrders, [sheetWorkshopOrdersPatch]));
  *         const machines   = $.let(Record.bind(sheetWorkshopMachines, []));
  *         const activities = $.let(Data.bind(sheetWorkshopActivities));
- *         const views      = $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet.workshop.views", []));
+ *         const operationTemplates = $.let(Data.bind(sheetWorkshopOperationTemplates));
+ *         const orderTemplates     = $.let(Data.bind(sheetWorkshopOrderTemplates));
+ *         // The orders read whole, for the footer's count: the sheet pages its rows from the rail's `rows` source,
+ *         // so `orders` is the patch door its Save commits through, never read whole.
+ *         const allOrders  = $.let(Data.bind(sheetWorkshopOrders));
+ *         const views      = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.workshop.views", []));
  *         const statuses   = $.let([
  *             { word: "PLANNED",  tone: variant("neutral", null) },
  *             { word: "RELEASED", tone: variant("info", null) },
@@ -430,15 +478,26 @@ export interface SheetDriverValue {
  *             { name: "Bay 4", aliases: ["b4", "spray bay"] },
  *             { name: "Bay 7", aliases: ["b7", "assembly bay"] },
  *         ], ArrayType(BayType));
- *         // Every operation of every order: what the slice searches and filters — the work centres by their display text.
- *         const operations = $.let(orders.read().toArray((_$, o) => o.ops).flatMap((_$, ops) => ops));
- *         const slice = $.let(Slice.bind("sheet_workshop", operations, {
- *                 fields: {
- *                     activity: { label: "Activity", hints: ["Panel cutting", "Edge banding", "CNC routing", "Drilling", "Sanding", "Assembly", "Spray finish", "Wrapping", "Delivery"] },
- *                     notes:    { label: "Notes" },
- *                     machines: { label: "Work centres", text: o => Sheet.link.print(o.machines) },
- *                 },
- *                 search: ["activity", "notes", "machines"],
+ *         // Every operation of every order: what the footer counts, whatever the rail shows.
+ *         const operations = $.let(allOrders.read().toArray((_$, o) => o.ops).flatMap((_$, ops) => ops));
+ *         // One rail over three records: the orders — the sheet's rows — and each templates record, its own source.
+ *         const slice = $.let(Slice.bindRecords("sheet.workshop", {
+ *             rows: {
+ *                 source: Data.bindPaged(sheetWorkshopOrders, { indexes: [sheetWorkshopOrdersByStatus, sheetWorkshopOrdersByCustomer] }),
+ *                 label: "Orders",
+ *                 fields: { status: { label: "Status", hints: ["PLANNED", "RELEASED", "ON HOLD"] }, customer: { label: "Customer" } },
+ *                 search: ["customer"],
+ *             },
+ *             rowTemplates: {
+ *                 source: Data.bindPaged(sheetWorkshopOperationTemplates, { indexes: [sheetWorkshopOperationTemplatesByGroup] }),
+ *                 label: "Operation templates",
+ *                 fields: { group: { label: "Group", hints: ["Operations", "Dispatch"] } },
+ *             },
+ *             groupTemplates: {
+ *                 source: Data.bindPaged(sheetWorkshopOrderTemplates, { indexes: [sheetWorkshopOrderTemplatesByGroup] }),
+ *                 label: "Order templates",
+ *                 fields: { group: { label: "Group", hints: ["Orders"] } },
+ *             },
  *         }));
  *         const Ctx = Sheet.Types.DraftContext(WorkshopOrder, "ops", WorkshopActivity);
  *         const DateFill = OptionType(Sheet.Types.Fill(DateTimeType));
@@ -620,25 +679,6 @@ export interface SheetDriverValue {
  *             });
  *             return result;
  *         }));
- *         // The operations each kind of order starts with: the group templates' lines.
- *         const kitchen = $.let([
- *             { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         ], ArrayType(WorkshopOperation));
- *         const wardrobe = $.let([
- *             { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "Drilling",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         ], ArrayType(WorkshopOperation));
- *         const vanity = $.let([
- *             { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "CNC routing",   start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *             { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         ], ArrayType(WorkshopOperation));
  *         // A new operation's and a new order's defaults, and the check every order passes before Save.
  *         const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WorkshopOperation), () =>
  *             Sheet.patch(WorkshopOperation, { start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "planner" })));
@@ -653,7 +693,7 @@ export interface SheetDriverValue {
  *         return (
  *             <Box height="760px">
  *                 <Sheet
- *                     record={orders}
+ *                     slice={{ slice }}
  *                     group={Sheet.group(WorkshopOrder, "ops", {
  *                         title: "name", sub: o => o.customer, noun: { singular: "order", plural: "orders" },
  *                         cells: { activity: Sheet.group.cell.enum(WorkshopOrder, "statuses", "status"),
@@ -697,38 +737,13 @@ export interface SheetDriverValue {
  *                     // The inspector pane: every field of an operation; created_by, which no column shows, read only.
  *                     inspector
  *                     fields={{ created_by: Sheet.field.readonly() }}
- *                     templates={{
- *                         groups: [
- *                             { key: "kitchen", name: "Kitchen order", group: "Orders",
- *                               values: Sheet.patch(WorkshopOrder, { status: "PLANNED", due: none, ops: kitchen }) },
- *                             { key: "wardrobe", name: "Wardrobe order", group: "Orders",
- *                               values: Sheet.patch(WorkshopOrder, { status: "PLANNED", due: none, ops: wardrobe }) },
- *                             { key: "vanity", name: "Vanity unit", group: "Orders",
- *                               values: Sheet.patch(WorkshopOrder, { status: "PLANNED", due: none, ops: vanity }) },
- *                         ],
- *                         rows: [
- *                             { key: "cut", name: "Panel cutting", group: "Operations",
- *                               values: Sheet.patch(WorkshopOperation, { activity: "Panel cutting",
- *                                   machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }) },
- *                             { key: "edge", name: "Edge banding", group: "Operations",
- *                               values: Sheet.patch(WorkshopOperation, { activity: "Edge banding",
- *                                   machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }) },
- *                             { key: "route", name: "CNC routing", group: "Operations",
- *                               values: Sheet.patch(WorkshopOperation, { activity: "CNC routing",
- *                                   machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }) },
- *                             { key: "sand", name: "Sanding", group: "Operations",
- *                               values: Sheet.patch(WorkshopOperation, { activity: "Sanding" }) },
- *                             { key: "spray", name: "Spray finish", group: "Operations",
- *                               values: Sheet.patch(WorkshopOperation, { activity: "Spray finish",
- *                                   machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }) },
- *                             { key: "assemble", name: "Assembly", group: "Operations",
- *                               values: Sheet.patch(WorkshopOperation, { activity: "Assembly" }) },
- *                             { key: "wrap", name: "Wrapping", group: "Dispatch",
- *                               values: Sheet.patch(WorkshopOperation, { activity: "Wrapping" }) },
- *                             { key: "deliver", name: "Delivery", group: "Dispatch",
- *                               values: Sheet.patch(WorkshopOperation, { activity: "Delivery" }) },
- *                         ],
- *                     }}
+ *                     // The templates: two records, each list following its source of the rail.
+ *                     templates={[
+ *                         Sheet.templates(operationTemplates.read(), { name: t => t.name, group: t => some(t.group),
+ *                             values: t => Sheet.patch(WorkshopOperation, { activity: t.activity, machines: t.machines }), source: "rowTemplates" }),
+ *                         Sheet.templates(orderTemplates.read(), { name: t => t.name, group: t => some(t.group),
+ *                             values: t => Sheet.patch(WorkshopOrder, { status: "PLANNED", due: none, ops: t.ops }), source: "groupTemplates" }),
+ *                     ]}
  *                     library={[
  *                         Sheet.library.rows(),
  *                         // The statuses an order takes: a card dropped on an order's band sets its status.
@@ -739,8 +754,8 @@ export interface SheetDriverValue {
  *                     newRow={newRow}
  *                     newGroup={newGroup}
  *                     ready={{ group: readyOrder }}
- *                     slice={slice} affordances={["search", "filter"]}
  *                     views={views}
+ *                     onApply={Record.onApply(orders, { keyed: true })}
  *                     footer={[{ text: East.str`${operations.size()} operations` }]}
  *                     name="workshop"
  *                 />

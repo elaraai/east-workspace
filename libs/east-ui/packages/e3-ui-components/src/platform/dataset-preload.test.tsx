@@ -10,26 +10,26 @@
  * cache holds the dataset, whoever brought it in. So a preview showing
  * "Preload failed" after a transient error renders without a remount. A
  * record its view reads a window at a time is no preload of it (#1199): it
- * is never fetched whole.
+ * is never fetched whole. On e3 itself (#1377): the counts' reads fail at the
+ * harness's fetch while a test says so, its status poll is e3's, and the ui
+ * tasks are those its module deploys; the clock is fake.
  */
 
 import { useMemo } from "react";
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
-import { render, cleanup, screen, act } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { QueryClient } from "@tanstack/react-query";
-import { IntegerType, encodeBeast2For, none, some, toEastTypeValue, variant } from "@elaraai/east";
-import {
-    BEAST2_CONTENT_TYPE, DatasetStatusDetailType, ResponseType, TaskDetailsType, WorkspaceStatusResultType, type TreePath,
-} from "@elaraai/e3-types";
 import { system } from "@elaraai/east-ui-components";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import type { E3Request } from "../e3-web.test-utils.js";
+import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { E3Provider } from "./e3-config.js";
 import { ReactiveDatasetProvider, usePreloadReactiveDatasets } from "./dataset-hooks.js";
 import { getReactiveDatasetCache } from "./bind-runtime.js";
 import { UITaskPreview } from "../components/UITaskPreview.js";
 
-/** The real `setTimeout`, taken before the fake clock replaces it. */
-const realSetTimeout = globalThis.setTimeout;
+const h = e3Harness({ "bind/data/data": ex }, { measure: false });
 
 beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
@@ -38,79 +38,28 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    cleanup();
     vi.useRealTimers();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
 });
 
-const API = "http://e3.test";
-const X: TreePath = [variant("field", "inputs"), variant("field", "x")];
-const HASH = "4".repeat(64);
-const VALUE = encodeBeast2For(IntegerType)(42n);
-const FAILURE = () => new Response(JSON.stringify({ error: { type: "internal", message: "the server fell over" } }), { status: 500 });
+/** The counts, which the view preloads. */
+const X = ex.previewCountsInput.path;
+const COUNTS = "inputs.preview_counts";
 
-/** The workspace's status, naming `.inputs.x`'s value. */
-const WORKSPACE_STATUS = encodeBeast2For(ResponseType(WorkspaceStatusResultType))(variant("success", {
-    workspace: "w",
-    lock: none,
-    datasets: [{ path: ".inputs.x", status: variant("up-to-date", null), hash: some(HASH), isTaskOutput: false, producedBy: none }],
-    tasks: [],
-    summary: {
-        datasets: { total: 1n, unset: 0n, stale: 0n, upToDate: 1n },
-        tasks: { total: 0n, upToDate: 0n, ready: 0n, waiting: 0n, inProgress: 0n, failed: 0n, error: 0n, staleRunning: 0n },
-    },
-}));
-
-/** Answers the workspace's status route, whatever datasets it names. */
-const statusRoute = (url: string): Response | undefined =>
-    new URL(url).pathname.endsWith("/workspaces/w/status") ? new Response(WORKSPACE_STATUS.slice(), { status: 200 }) : undefined;
-
-type Outcome = "fail" | "read";
+/** Whether a request reads the counts whole. */
+const readsCounts = (request: E3Request) => request.kind === "read" && request.dataset === COUNTS;
+/** How many reads of the counts have been made, the one being made among them. */
+const reads = () => h.requests("read", COUNTS).length;
 
 /**
- * A server whose dataset `.inputs.x` answers its `n`th read as `outcome(n)`
- * says, once that settles, and whose other routes answer as `routes` says, or
- * fail.
+ * The counts' `n`th read failing as e3 answers a failure while `fails(n)` says
+ * so; a read `held(n)` names held on its way to e3 until the test lets it go.
  *
- * @returns The reads of `.inputs.x`, counted as they are made
+ * @returns The hold of the reads `held` names
  */
-function serve(
-    outcome: (n: number) => Outcome | Promise<Outcome>,
-    routes: (url: string, init?: RequestInit) => Response | undefined = () => undefined,
-): { reads: number } {
-    const counted = { reads: 0 };
-    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-        const answer = routes(url, init);
-        if (answer !== undefined) return answer;
-        if (url.includes("/datasets/inputs/x?segments=true")) {
-            counted.reads++;
-            if (await outcome(counted.reads) === "fail") return FAILURE();
-            return new Response(VALUE.slice(), { status: 200, headers: { "Content-Type": BEAST2_CONTENT_TYPE, "X-Content-SHA256": HASH } });
-        }
-        return FAILURE();
-    }));
-    return counted;
-}
-
-/** A read held until the test opens it. */
-function gate(): { opened: Promise<void>; open: () => void } {
-    let open!: () => void;
-    const opened = new Promise<void>((resolve) => {
-        open = resolve;
-    });
-    return { opened, open };
-}
-
-/** Lets what is in flight settle as real time passes, the fake clock standing
- *  still: a response's body is read on real ticks, and a retry is timed from
- *  when its failure lands. */
-async function settle(): Promise<void> {
-    for (let i = 0; i < 10; i++) {
-        await act(async () => {
-            await new Promise<void>((resolve) => realSetTimeout(resolve, 0));
-        });
-    }
+function serve(fails: (n: number) => boolean, held: (n: number) => boolean = () => false) {
+    const hold = h.e3.hold((request) => readsCounts(request) && held(reads()));
+    h.e3.fail((request) => readsCounts(request) && fails(reads()), { status: 500, type: "internal", message: "the server fell over" });
+    return hold;
 }
 
 /** Moves the fake clock on by `ms` once what is in flight has settled, and
@@ -123,16 +72,19 @@ async function advance(ms: number): Promise<void> {
     await settle();
 }
 
-/** Preloads `.inputs.x`, and says how it stands. */
+/** Preloads the counts, and says how it stands. */
 function Preloaded() {
-    const datasets = useMemo(() => [{ workspace: "w", path: X }], []);
+    const datasets = useMemo(() => [{ workspace: h.workspace, path: X }], []);
     const { loading, error } = usePreloadReactiveDatasets(datasets);
     return <div>{loading ? "loading" : error !== null ? `failed: ${error.message}` : "ready"}</div>;
 }
 
+/** The test's e3, as a host's provider names it. */
+const config = () => ({ apiUrl: h.e3.apiUrl, repo: h.e3.repo, workspace: h.workspace, fetch: h.e3.fetch });
+
 /** A provider, and the view preloading in it while `shown`. */
 const tree = (shown = true) => (
-    <E3Provider config={{ apiUrl: API, workspace: "w" }}>
+    <E3Provider config={config()}>
         <ReactiveDatasetProvider>{shown ? <Preloaded /> : null}</ReactiveDatasetProvider>
     </E3Provider>
 );
@@ -141,11 +93,11 @@ function renderPreloaded() {
     return render(tree());
 }
 
-/** Watches `.inputs.x` with the cache's status poll, which reads a watched
+/** Watches the counts with the cache's status poll, which reads a watched
  *  dataset the cache lacks. */
 async function poll(): Promise<void> {
     await act(async () => {
-        getReactiveDatasetCache().setRefetchInterval("w", X, 60_000);
+        getReactiveDatasetCache().setRefetchInterval(h.workspace, X, 60_000);
     });
     await settle();
 }
@@ -155,108 +107,81 @@ describe("a preload that fails", () => {
         // Each wait halfway through the second half of its own (recovery.test
         // draws each anew).
         vi.spyOn(Math, "random").mockReturnValue(0.5);
-        const server = serve((n) => (n <= 7 ? "fail" : "read"));
+        serve((n) => n <= 7);
         renderPreloaded();
         await advance(0);
-        expect(server.reads).toBe(1);
+        expect(reads()).toBe(1);
         expect(screen.getByText(/^failed: /)).toBeTruthy();
 
         // Three quarters of 1, 2, 4, 8, 16, 30 and 30 s.
         for (const wait of [750, 1_500, 3_000, 6_000, 12_000, 22_500, 22_500]) {
-            const reads = server.reads;
+            const before = reads();
             await advance(wait - 1);
-            expect(server.reads, `nothing is read before ${wait} ms have passed`).toBe(reads);
+            expect(reads(), `nothing is read before ${wait} ms have passed`).toBe(before);
             await advance(1);
-            expect(server.reads).toBe(reads + 1);
+            expect(reads()).toBe(before + 1);
         }
         expect(screen.getByText("ready")).toBeTruthy();
-        expect(server.reads).toBe(8);
+        expect(reads()).toBe(8);
     });
 
     test("shows the failure while a try is in flight, never going back to loading", async () => {
-        const second = gate();
-        serve((n) => (n === 2 ? second.opened.then(() => "read" as const) : "fail"));
+        const second = serve((n) => n === 1, (n) => n === 2);
         renderPreloaded();
         await advance(0);
         await advance(1_000);
         expect(screen.getByText(/^failed: /)).toBeTruthy();
         expect(screen.queryByText("loading")).toBe(null);
 
-        second.open();
+        await act(async () => { second.releaseOne(); });
         await settle();
         expect(screen.getByText("ready")).toBeTruthy();
     });
 
     test("ends as soon as the cache holds the dataset, whoever brought it in: a status poll, before the next try", async () => {
-        const server = serve((n) => (n === 1 ? "fail" : "read"), statusRoute);
+        serve((n) => n === 1);
         renderPreloaded();
         await advance(0);
         expect(screen.getByText(/^failed: /)).toBeTruthy();
 
         await poll();
         expect(screen.getByText("ready")).toBeTruthy();
-        expect(server.reads, "the poll's read, and no try of the preload's own").toBe(2);
+        expect(reads(), "the poll's read, and no try of the preload's own").toBe(2);
     });
 
     test("ends with the try that fails, when the dataset came in while that try was in flight", async () => {
-        const first = gate();
-        const server = serve((n) => (n === 1 ? first.opened.then(() => "fail" as const) : "read"), statusRoute);
+        const first = serve((n) => n === 1, (n) => n === 1);
         renderPreloaded();
         await settle();
         await poll();
-        expect(server.reads, "the preload's read, held, and the poll's").toBe(2);
+        expect(reads(), "the preload's read, held, and the poll's").toBe(2);
 
-        first.open();
+        await act(async () => { first.releaseOne(); });
         await settle();
         expect(screen.getByText("ready")).toBeTruthy();
-        expect(server.reads, "no try waits for its time").toBe(2);
+        expect(reads(), "no try waits for its time").toBe(2);
     });
 
     test("is tried no more once the view unmounts, its provider staying", async () => {
-        const server = serve(() => "fail");
+        serve(() => true);
         const { rerender } = renderPreloaded();
         await advance(0);
         rerender(tree(false));
         await advance(60_000);
-        expect(server.reads).toBe(1);
+        expect(reads()).toBe(1);
     });
 });
 
 describe("a UITaskPreview whose preload fails", () => {
-    /** A dataset holding an Integer value, as the status route answers it. */
-    const STATUS = encodeBeast2For(ResponseType(DatasetStatusDetailType))(variant("success", {
-        path: ".out",
-        type: toEastTypeValue(IntegerType),
-        refType: "value",
-        hash: some("1".repeat(64)),
-        size: some(9n),
-        segments: none,
-        rows: none,
-    }));
-
-    /** A ui task binding `.inputs.x`, whose output is `.out`. */
-    const TASK = encodeBeast2For(ResponseType(TaskDetailsType))(variant("success", {
-        name: "view",
-        hash: "2".repeat(64),
-        body: variant("east", { program: "3".repeat(64) }),
-        runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
-        inputs: [],
-        output: { path: [variant("field", "out")], kind: variant("value", null) },
-        role: variant("ui", { paths: [X], functions: [], records: [], pages: [] }),
-    }));
-
     test("goes on from \"Preload failed\" once the preload reads, without a remount", async () => {
-        // The output's value fails, so a preview that went on shows that.
-        serve((n) => (n === 1 ? "fail" : "read"), (url) => {
-            if (url.includes("/tasks/view")) return new Response(TASK.slice(), { status: 200 });
-            if (url.includes("/datasets/out?status=true")) return new Response(STATUS.slice(), { status: 200 });
-            return undefined;
-        });
+        // The ui task over the counts, which its preview preloads and its status poll follows: their first two reads
+        // fail, the preload's and the poll's that follows it, so it is the preload's own try that reads them.
+        serve((n) => n <= 2);
         const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
         render(
             <ChakraProvider value={system}>
-                <E3Provider config={{ apiUrl: API, workspace: "w" }} queryClient={client}>
-                    <ReactiveDatasetProvider><UITaskPreview task="view" pollInterval={60_000} /></ReactiveDatasetProvider>
+                <E3Provider config={config()} queryClient={client}>
+                    <ReactiveDatasetProvider><UITaskPreview task={ex.previewCountsView.name} pollInterval={60_000} /></ReactiveDatasetProvider>
                 </E3Provider>
             </ChakraProvider>,
         );
@@ -264,53 +189,32 @@ describe("a UITaskPreview whose preload fails", () => {
         expect(screen.getByText("Preload failed")).toBeTruthy();
 
         await advance(1_000);
-        for (let i = 0; i < 10 && screen.queryByText("Load failed") === null; i++) await advance(10);
+        for (let i = 0; i < 10 && screen.queryByText("3 counts") === null; i++) await advance(10);
         expect(screen.queryByText("Preload failed")).toBe(null);
-        expect(screen.getByText("Load failed")).toBeTruthy();
+        expect(screen.getByText("3 counts")).toBeTruthy();
     });
 });
 
 describe("a UITaskPreview over a record it also reads a window at a time (#1199)", () => {
-    /** The jobs record: bound with `Record.bind`, and read a window at a time with `Data.bindPaged`. */
-    const JOBS: TreePath = [variant("field", "records"), variant("field", "jobs")];
-    /** The output's status: an Integer value. */
-    const STATUS = encodeBeast2For(ResponseType(DatasetStatusDetailType))(variant("success", {
-        path: ".out", type: toEastTypeValue(IntegerType), refType: "value", hash: some("1".repeat(64)), size: some(9n), segments: none, rows: none,
-    }));
-    /** A ui task binding the record both ways: its manifest's `records` and `pages` name it, and its `paths` do not. */
-    const TASK = encodeBeast2For(ResponseType(TaskDetailsType))(variant("success", {
-        name: "view",
-        hash: "2".repeat(64),
-        body: variant("east", { program: "3".repeat(64) }),
-        runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
-        inputs: [],
-        output: { path: [variant("field", "out")], kind: variant("value", null) },
-        role: variant("ui", { paths: [], functions: [], records: ["jobs"], pages: [JOBS] }),
-    }));
-
     test("preloads none of it and polls none of it: the record's content is never fetched whole", async () => {
-        const fetched: string[] = [];
-        vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-            fetched.push(url);
-            if (url.includes("/tasks/view")) return new Response(TASK.slice(), { status: 200 });
-            if (url.includes("/datasets/out?status=true")) return new Response(STATUS.slice(), { status: 200 });
-            return statusRoute(url) ?? FAILURE();
-        }));
+        // The ui task over the work orders binds their record both ways: its manifest's `records` and `pages` name
+        // it, and its `paths` do not.
         const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
         render(
             <ChakraProvider value={system}>
-                <E3Provider config={{ apiUrl: API, workspace: "w" }} queryClient={client}>
-                    <ReactiveDatasetProvider><UITaskPreview task="view" pollInterval={60_000} /></ReactiveDatasetProvider>
+                <E3Provider config={config()} queryClient={client}>
+                    <ReactiveDatasetProvider><UITaskPreview task={ex.previewOrdersView.name} pollInterval={60_000} /></ReactiveDatasetProvider>
                 </E3Provider>
             </ChakraProvider>,
         );
-        // Nothing to preload: it goes on to its output, whose value fails here.
-        for (let i = 0; i < 10 && screen.queryByText("Load failed") === null; i++) await advance(10);
+        // Nothing to preload: it goes on to its view.
+        for (let i = 0; i < 10 && screen.queryByText(/COMMITS$/) === null; i++) await advance(10);
         expect(screen.queryByText("Preload failed")).toBe(null);
-        expect(screen.getByText("Load failed")).toBeTruthy();
-        // A poll goes by, and still nothing of the record is fetched.
+        expect(screen.getByText(/COMMITS$/)).toBeTruthy();
+        // A poll goes by, and still nothing of the record is read whole: its queue is read a window at a time.
         await advance(60_000);
-        expect(fetched.some((url) => url.includes("/tasks/view"))).toBe(true);
-        expect(fetched.filter((url) => url.includes("/datasets/records/jobs"))).toEqual([]);
+        expect(h.requests("task").some((request) => request.name === ex.previewOrdersView.name)).toBe(true);
+        expect(h.requests("read", `records.${ex.workOrders.name}`)).toEqual([]);
+        expect(h.requests("page", `records.${ex.workOrders.name}`).length).toBeGreaterThan(0);
     });
 });

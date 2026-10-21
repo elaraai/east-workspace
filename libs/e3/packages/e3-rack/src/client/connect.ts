@@ -41,9 +41,11 @@ export interface ConnectHubOptions {
 
 /**
  * Spawns a detached hub through this package's published entry point.
- * Several callers may spawn concurrently; the hub lock elects one winner.
+ * Several callers may spawn concurrently; the hub lock elects one winner,
+ * and each other one exits once it has lost.
  * @param home - Private state home and log destination
- * @returns After the child was spawned and its inherited log descriptor closed
+ * @returns After the child was spawned, its pid written to the log — every process holding the home's log as its
+ *   output, the losers of an election too, so named before this returns — and its inherited log descriptor closed
  */
 export async function spawnHub(home = rackHome()): Promise<void> {
   ensureRackHome(home);
@@ -54,6 +56,7 @@ export async function spawnHub(home = rackHome()): Promise<void> {
       stdio: ['ignore', file.fd, file.fd], env: { ...process.env, E3_RACK_HOME: home } });
     await new Promise<void>((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
     child.unref();
+    await file.write(`${new Date().toISOString()} rack hub spawned (pid ${child.pid}) by pid ${process.pid}\n`);
   } finally { await file.close(); }
 }
 

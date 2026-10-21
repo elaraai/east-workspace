@@ -63,6 +63,8 @@ export {
 } from './bind/record.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
+// A builder's narrowing (#1340): the one check of its `slice` every builder's tag makes, of a tab's `source`, and of a templates list's.
+export { recordSources, sliceSourceNames, tabSource, templatesSource, type RecordSources, type RecordSourcesSpec } from './utils/record-sources.js';
 
 // The Studio (#787): its components' factories and carriers, the payloads the
 // renderers take, and the East the renderers call. `Studio` here is the
@@ -260,10 +262,11 @@ export {
 } from './plan/index.js';
 // The resources' rows a Plan of event kinds draws over a window (#1192): the
 // `blocks` seam its payload carries, made inside the payload's assembly, and
-// the drafts it reads, by kind; and a paged resource kind's rows, a window of
-// its resources at a time, with the events placed on them (#1199).
+// the drafts it reads, by kind, and the resources the rail shows (#1344); and a
+// paged resource kind's rows, a window of its resources at a time, with the
+// events placed on them (#1199).
 export {
-    createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType,
+    createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventShownType,
 } from './plan/event-rows.js';
 // The Plan's library pane on the wire (#1195): its tabs, an author's tab's
 // cards, the Series tab's lines and what hiding each hides, and the ids a
@@ -354,12 +357,16 @@ export {
     type SheetEntriesField,
     type SheetCommon,
 } from './sheet/sheet.js';
-export { SheetTemplateWireType, buildTemplates, type SheetTemplate, type SheetTemplatesInput } from './sheet/templates.js';
+export {
+    SheetTemplateWireType, buildTemplates, isSheetTemplates, sheetTemplates,
+    type SheetTemplates, type SheetTemplatesConfig, type SheetTemplatesList, type SheetTemplatesProp,
+} from './sheet/templates.js';
 export {
     SheetLibraryCardType,
     SheetLibraryDropType,
     SheetLibraryTabType,
     buildLibrary,
+    librarySources,
     type SheetLibraryTab,
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
@@ -367,7 +374,9 @@ export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './she
 // The Flowchart (#1243–#1250): `<Flowchart>` with its namespace, the payload
 // the renderer takes through the `Flowchart` carrier — its canvas, its source
 // of flows with the editing session's Save over a record or the host's flows,
-// its library's wire, each data tab's cards read from its own rows, and its
+// a record's flows paged through its slice's `flows` source (#1346), its
+// library's wire, each data tab's cards read from its own rows and following
+// the source it names, its rail and each source's narrowed keys, and its
 // inspector's, each kind's own Details — its shared keys, its library's tabs,
 // and the types a flowchart is written with. `Flowchart` here is the internal
 // namespace — the public one, `Flowchart.Payload`, `Flowchart.Component` and
@@ -386,6 +395,7 @@ export {
     type FlowchartInspectorOptions,
     type FlowchartRowInspector,
     FlowchartLibraryFactories,
+    buildFlowchartLibrary,
     libraryFlows,
     libraryStates,
     libraryTransitions,
@@ -394,6 +404,7 @@ export {
     type FlowchartLibraryTab,
     type FlowchartOneFlowLibraryTab,
     type FlowchartLibraryRows,
+    type FlowchartTemplateRows,
     type FlowchartFlowsTab,
     type FlowchartStatesTab,
     type FlowchartTransitionsTab,
@@ -428,7 +439,6 @@ export {
     type FlowchartRecordHandle,
     type FlowchartBindHandle,
     type FlowchartCanvasOptions,
-    type FlowchartSliceOptions,
     type FlowchartFreshnessInput,
     type FlowchartOrientationLiteral,
     type RowElement,
@@ -458,20 +468,29 @@ export * from './flowchart/types.js';
 export {
     ScheduleInternal as Schedule,
     scheduleCheck,
+    scheduleTitled,
     type ScheduleNamespace,
     type ScheduleInternalNamespace,
 } from './schedule/index.js';
 export * from './schedule/types.js';
 export {
     scheduleEvents,
-    type ScheduleAtField, type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig,
-    type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
-    type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceField, type ScheduleResourceOf,
-    type ScheduleStateField, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField,
-    type ScheduleTemplate, type ScheduleValuesOf,
+    type ScheduleAtField, type ScheduleBacklog, type ScheduleCaseOf, type ScheduleDictFloatField, type ScheduleEventKind, type ScheduleEventsBase,
+    type ScheduleEventsConfig, type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleIntegerField, type ScheduleInstantField, type ScheduleInstantTemplate,
+    type ScheduleOptionStringField, type ScheduleOverlapsLiteral, type ScheduleParts, type ScheduleQuantity, type ScheduleRecordHandle,
+    type ScheduleResourceField, type ScheduleResourceOf, type ScheduleSetStringField, type ScheduleStateField, type ScheduleStatusCasesOf,
+    type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField, type ScheduleTemplate, type ScheduleTimeStepField,
+    type ScheduleValuesOf,
 } from './schedule/events.js';
-export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from './schedule/resources.js';
+// What a builder publishes (#1367): the app's record of periods, its status a field of the app's.
+export { schedulePeriods, type SchedulePeriods, type SchedulePeriodsConfig } from './schedule/periods.js';
+export {
+    SCHEDULE_DEF, scheduleResources, type ScheduleResourceAccessor, type ScheduleResourceAccessors, type ScheduleResourceKind,
+    type ScheduleResourcesConfig,
+} from './schedule/resources.js';
 export { scheduleDays, scheduleUnscheduled } from './schedule/days.js';
+// The number the Allocation's and the Roster's pure functions write, one printer for both.
+export { scheduleNumberText } from './schedule/words.js';
 // The window reader (#1199): an event kind's record read a window at a time,
 // through its day index and its backlog index — the Calendar's and Plan's —
 // and one entry of a record read by its key, through its own entries.
@@ -565,3 +584,14 @@ export * from "./roster/types.js";
 export * from "./roster/library.js";
 export * from "./roster/coverage.js";
 export * from "./roster/rules.js";
+export * from "./roster/fit.js";
+export * from "./roster/times.js";
+export * from "./roster/lists.js";
+export * from "./roster/targets.js";
+
+// The Allocation's renderer contracts, its adapters and its pure functions,
+// which the renderer compiles over the bins' row type (#1371).
+export * from "./allocation/index.js";
+export * from "./allocation/types.js";
+export * from "./allocation/functions.js";
+export * from "./allocation/adapters.js";

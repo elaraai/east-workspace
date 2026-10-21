@@ -44,8 +44,12 @@ export function initialPlacement(source: CalendarSource, day: Date): CalendarPla
     return { start, end: item?.end.type === "some" ? item.end.value : new Date(start.getTime() + Math.max(15, minutes) * 60_000), resource: item?.resource ?? none };
 }
 
-/** Commands write through the shared Schedule seams and one EditHistory. */
-export function calendarCommands(value: CalendarValue, editing: ScheduleEditing, select: (refs: CalendarRef[]) => void, scheduled: readonly CalendarItem[] = []): CalendarCommands {
+/**
+ * Commands write through the shared Schedule seams and one EditHistory. Their checks read every resource, whatever
+ * the rail hides; a creation with no resource lands on one the rail shows (`shown`, #1343).
+ */
+export function calendarCommands(value: CalendarValue, editing: ScheduleEditing, select: (refs: CalendarRef[]) => void, scheduled: readonly CalendarItem[] = [],
+    shown: CalendarValue["resources"] = value.resources): CalendarCommands {
     const kindOf = (item: CalendarItem) => value.events.find(kind => kind.key === item.kind);
     const validate = (source: CalendarSource, at: CalendarPlacement): string | undefined => {
         const { kind } = source;
@@ -77,7 +81,7 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
         editing,
         place(source, given, origin = "typed", checkOnly = false) {
             const at = given.resource.type === "none" && ("template" in source || source.item.start.type === "none")
-                ? { ...given, resource: firstResource(value, source.kind, given, scheduled) } : given;
+                ? { ...given, resource: firstResource({ ...value, resources: shown }, source.kind, given, scheduled) } : given;
             const refusal = validate(source, at); if (refusal !== undefined) return refusal;
             const creating = "template" in source;
             const id = creating ? editing.mint(source.kind.key, source.template.key, new Set()) : source.item.key;

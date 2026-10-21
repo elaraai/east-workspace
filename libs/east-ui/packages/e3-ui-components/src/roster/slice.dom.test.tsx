@@ -2,41 +2,46 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
+ *
+ * The Roster's narrowing from outside its rail (#1342): a write to its people
+ * source narrows the board by original keys through that source's own index,
+ * and leaves coverage complete; with nothing chosen of the staff or the
+ * activities, neither reads an index page — only the one-row primary page its
+ * revision and total come from. The week's duties are read through their
+ * own source, an interval index whose range the Roster's navigation writes
+ * (#1369). The pages are e3's (#1376), read from the request log.
  */
-import { afterEach, expect, test } from "vitest";
-import { fireEvent, within } from "@testing-library/react";
-import { DateTimeType, East, NullType, StringType, equalFor, some, variant } from "@elaraai/east";
-import { SliceBindPrimitives } from "@elaraai/east-ui/internal";
-import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { expect, test } from "vitest";
+import { DateTimeType, compareFor, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { clearPagedApi, initializePagedApi, initializeRecordApi } from "../platform/index.js";
-import { countWholeReads, recordPaging } from "../platform/record-paging.test-utils.js";
-import { act, assignment, mount, NEXT, rosterHarness, settle, slot, START, WORKSPACE } from "./harness.test-utils.js";
+import { assignment, at, narrow, open, rosterHarness, slot, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
-const platforms = getRegisteredPlatformImplementations();
-const search = East.compile(East.function([StringType], NullType, ($, text) => { $(SliceBindPrimitives.setSearch("ex.rosterWarehouse.scope", some(text))); }), platforms);
-const range = East.compile(East.function([DateTimeType, DateTimeType], NullType, ($, from, to) => { $(SliceBindPrimitives.setRange("ex.rosterWindowed.weeks", some(variant("datetime", { from, to })))); }), platforms);
-const readRange = East.compile(East.function([], DateTimeType, _$ => SliceBindPrimitives.read("ex.rosterWindowed.weeks").range.unwrap("some").unwrap("datetime").from), platforms);
-afterEach(() => clearPagedApi());
-test("external staff Slice and toolbar share the original keys without narrowing coverage", async () => {
-    const { container } = mount(ex.rosterWarehouse); await settle();
-    const total = [...slot(container, "main").querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute('aria-label'));
-    await act(async () => { search("Clover"); }); await settle();
-    expect(within(slot(container, "toolbar")).getByPlaceholderText("Search…")).toHaveProperty("value", "Clover");
+const byDate = compareFor(DateTimeType);
+/** Each page read through an index, by the index's name. */
+const indexPages = () => h.requests("page").flatMap(request => { const index = request.query.get("index"); return index === null ? [] : [index]; });
+/** The pages read through an index of the staff's or the activities'. */
+const narrowingPages = () => indexPages().filter(index => index !== ex.rosterDutiesByTime.name);
+
+test("an external write to the people source narrows the board by original keys without narrowing coverage, through the staff's own index", async () => {
+    const { container, store } = await open(ex.rosterWarehouse);
+    // Nothing chosen of the staff or the activities: neither reads an index page.
+    expect(narrowingPages()).toEqual([]);
+    expect(indexPages()).toContain(ex.rosterDutiesByTime.name);
+    const total = [...slot(container, "main").querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute("aria-label"));
+    await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["name", variant("prefix", "C. Clo")]]));
     expect(assignment(container, "s37")).not.toBeNull();
-    expect(container.querySelectorAll('[data-roster-assignment]:not([data-request])')).toHaveLength(1);
-    expect([...slot(container, "main").querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute('aria-label'))).toEqual(total);
-});
-test("the author-bound range and week navigation seek the same keys without whole-record reads", async () => {
-    const reads = countWholeReads(h.cache); initializeRecordApi(reads.serve(h.memory), h.cache, WORKSPACE);
-    const service = recordPaging(h.cache, reads.raw, [{ path: [variant("field", "records"), variant("field", ex.rosterWeeks.name)], type: ex.rosterWeeks.type }]);
-    initializePagedApi(service.api, WORKSPACE);
-    const { container } = mount(ex.rosterWindowed); await settle();
-    expect(service.requests.some(r => r.includes('seek 2028-03-12'))).toBe(true);
-    await act(async () => { range(START, new Date("2028-03-11T23:59:59.999Z")); }); await settle();
-    expect(service.requests.some(r => r.includes('seek 2028-03-05'))).toBe(true);
-    expect(container.querySelector('[data-roster-status]')?.textContent).toBe('Draft');
-    await act(async () => { fireEvent.keyDown(slot(container, 'main'), { key: ']' }); }); await settle();
-    expect(equalFor(DateTimeType)(readRange(), NEXT)).toBe(true);
-    expect(reads.paths.filter(p => p === 'records.roster_weeks')).toEqual([]);
+    expect(container.querySelectorAll("[data-roster-assignment]:not([data-request])")).toHaveLength(1);
+    expect([...slot(container, "main").querySelectorAll('[role="img"][aria-label]')].map(e => e.getAttribute("aria-label"))).toEqual(total);
+    // The summary names the sources a narrowing hides rows of (#1358): the people, and the duties the week's window holds of
+    // the record's; the activities' rows are all shown.
+    const summary = slot(container, "toolbar").querySelector("[data-record-slices-summary]")!;
+    expect(summary.querySelector('[data-record-slice-source="people"]')?.textContent).toBe("1 of 69 people");
+    expect(summary.querySelector('[data-record-slice-source="activities"]')).toBeNull();
+    // The window the Roster reads: the week, and the twelve hours either side its shifts' starts may stand from its days.
+    const from = at("2028-03-04T12:00:00"), to = at("2028-03-12T12:00:00");
+    const duties = [...(await h.read(ex.rosterDuties)).values()];
+    const held = duties.filter(duty => byDate(duty.start, to) < 0 && byDate(duty.end, from) > 0).length;
+    expect(summary.querySelector('[data-record-slice-source="duty"]')?.textContent).toBe(`${held} of ${duties.length} duty events`);
+    expect(narrowingPages().length).toBeGreaterThan(0);
+    expect(narrowingPages().every(index => index === ex.rosterStaffByName.name)).toBe(true);
 });

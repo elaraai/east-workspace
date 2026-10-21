@@ -25,16 +25,15 @@
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import { ArrayType, DateTimeType, DictType, East, OptionType, StringType, StructType, decodeBeast2For, equalFor, none, some, variant } from "@elaraai/east";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { ArrayType, DateTimeType, DictType, East, OptionType, StringType, StructType, equalFor, none, some, variant } from "@elaraai/east";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import { editingMessages } from "@elaraai/east-ui-components";
 import { announced, layOut } from "@elaraai/east-ui-components/testing";
-import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import { initializeRecordApi } from "../../platform/index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
-import { WORKSPACE, act, el, elementKey, entry, mount, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness();
 
@@ -161,14 +160,19 @@ const FIRST = new Date("2026-10-05T00:00:00Z");
 const LAST = new Date("2026-11-02T00:00:00Z");
 
 /**
- * The jobs on the presses, with their templates and backlog, and the stops as
- * tiles in each press's day — its `canDrop` refusing Press B3, which is down
- * for service, whatever is dropped there.
+ * The jobs on the presses, with their templates — a record of their own,
+ * following their source of the Plan's one rail (#1344) — and backlog, and the
+ * stops as tiles in each press's day — its `canDrop` refusing Press B3, which
+ * is down for service, whatever is dropped there.
  */
-const vetoed = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const vetoed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+    const jobTemplates = $.let(Data.bind(ex.planPrintJobTemplates));
+    const slice = $.let(Slice.bindRecords("plan.dnd.vetoed", {
+        jobTemplates: { source: Data.bindPaged(ex.planPrintJobTemplates, { indexes: [ex.planPrintJobTemplatesByGroup] }) },
+    }));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     const canDrop = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), ($2, candidate) => {
         const said = $2.let(none, OptionType(StringType));
@@ -187,10 +191,9 @@ const vetoed = East.compile(East.function([], UIComponentType, (_$) => Reactive.
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
                 resource: { field: "press", of: "presses" },
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
-                templates: [{
-                    key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
-                    values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "", stock: variant("coated", null), due: none },
-                }],
+                templates: Schedule.templates(jobTemplates.read(), {
+                    name: (t) => t.name, group: (t) => some(t.group), duration: (t) => variant("hours", t.hours), values: (t) => t.values, source: "jobTemplates",
+                }),
             }),
             stop: Schedule.events(stops, {
                 name: "Stop", icon: "screwdriver-wrench", draw: "buckets", title: "title", at: "at",
@@ -198,9 +201,10 @@ const vetoed = East.compile(East.function([], UIComponentType, (_$) => Reactive.
             }),
         },
         library: [Plan.library.events(), Plan.library.backlog()],
+        slice: { slice },
         canDrop,
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 /** A bindery line: its name and its runs. */
 const BinderyRun = StructType({ key: StringType, label: StringType, start: DateTimeType, end: DateTimeType });
@@ -212,7 +216,7 @@ const LINE_1 = entry("bindery", "l1");
  * The jobs on the presses beside `data`'s bindery line, a series that declares
  * its moves — and no editing session of its own, so its runs take no gesture.
  */
-const beside = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const beside = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const lines = $.const(new Map([["l1", {
@@ -237,14 +241,14 @@ const beside = East.compile(East.function([], UIComponentType, (_$) => Reactive.
             }),
         },
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 /**
  * The jobs on the presses drawn as tiles in each press's day — a kind with a
  * start and an end, its tile at its start — with the inspector, which says
  * when one runs.
  */
-const tiled = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const tiled = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     return Plan({
@@ -261,10 +265,10 @@ const tiled = East.compile(East.function([], UIComponentType, (_$) => Reactive.R
         },
         inspector: true,
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
 /** The jobs on the presses, and the customers: a card dropped on a job sets its customer and its stock. */
-const stocked = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const stocked = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const customers = $.let(Record.bind(ex.planPrintCustomers, []));
@@ -285,14 +289,10 @@ const stocked = East.compile(East.function([], UIComponentType, (_$) => Reactive
             drop: (cu) => Schedule.patch(ex.PrintJob, { customer: cu.name, stock: variant("board", null) }),
         })],
     });
-}))), getRegisteredPlatformImplementations());
+}))) };
 
-/** The jobs record as its patch door last left it. */
-function readJobs() {
-    const bytes = h.cache.read(WORKSPACE, [variant("field", "records"), variant("field", ex.planPrintJobs.name)]);
-    if (bytes === undefined) throw new Error("the jobs record has not loaded");
-    return decodeBeast2For(ex.planPrintJobs.type)(bytes);
-}
+/** The jobs record as e3 holds it now, read as another planner would. */
+const readJobs = () => h.read(ex.planPrintJobs);
 const sameJob = equalFor(ex.PrintJob);
 
 // ============================================================================
@@ -301,7 +301,7 @@ const sameJob = equalFor(ex.PrintJob);
 
 describe("a template card dropped on a resource's row (PB32)", () => {
     test("creates an event of its kind at the bucket under the pointer, for its duration, selected — the ghost saying what lands where, one step Undo takes back", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         const card = cardOf(c, elementKey("job", "brochure"))!;
         expect(card.hasAttribute("data-draggable")).toBe(true);
@@ -330,7 +330,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
     });
 
     test("templates highlight only matching sub-rows and refuse a different draw on the same resource", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         let y = layOutPlots(c, [A1, A1_MARKS, C1]);
         // The early shift starts at 06:00 for eight hours on the cards row.
@@ -357,7 +357,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
     });
 
     test("refused on a resource of a kind it is not placed on — the ghost says what it needs, in red, and the drop makes nothing", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         const y = layOutPlots(c, [A1, C1]);
         const letGo = await carry(cardOf(c, elementKey("job", "brochure"))!, OFF, { x: xAt(7), y: y(C1) });
@@ -371,7 +371,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
     });
 
     test("refused where the Plan's canDrop says so — its message on the ghost; taken a press away", async () => {
-        const { container: c } = mount(vetoed, DRAG);
+        const { container: c } = await h.mount(vetoed, DRAG);
         await settle();
         const y = layOutPlots(c, [B2, B3]);
         const card = cardOf(c, elementKey("job", "brochure"))!;
@@ -385,7 +385,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
     });
 
     test("dropped twice on one day it makes two events, each under a new key of its own", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         let y = layOutPlots(c, [A1]);
         await drop(cardOf(c, elementKey("job", "brochure"))!, OFF, { x: xAt(7), y: y(A1) });
@@ -397,23 +397,22 @@ describe("a template card dropped on a resource's row (PB32)", () => {
     });
 
     test("refused while its kind's save is out — the ghost says the kind can't change now — and taken once the save is back", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         let y = layOutPlots(c, [A1, A3]);
         // A draft to save: the spring catalogue a day on.
         await drop(bar(c, "J-1001")!, { x: xAt(0, 9), y: y(A1) }, { x: xAt(1, 9), y: y(A1) });
-        // The writes held: saving.
-        let release!: () => void;
-        const held = new Promise<void>((resolve) => { release = resolve; });
-        initializeRecordApi({ ...h.memory, mutate: async (ws, record, mutation, req) => { await held; return h.memory.mutate(ws, record, mutation, req); } }, h.cache, WORKSPACE);
+        // The writes held on their way to e3: saving.
+        const writes = h.e3.hold((request) => request.kind === "mutate");
         await press(historyButton(c, SAVE));
+        await writes.holding;
         y = layOutPlots(c, [A1, A3]);
         const letGo = await carry(cardOf(c, elementKey("job", "brochure"))!, OFF, { x: xAt(9), y: y(A3) });
         expect(plotOf(c, A3).hasAttribute("data-drop-invalid")).toBe(true);
         expect(caption()).toBe("refused: Print job can't change now");
         await letGo();
         expect(bar(c, "brochure-2", A3)).toBeNull();
-        await act(async () => { release(); });
+        await act(async () => { writes.release(); });
         await settle();
         y = layOutPlots(c, [A1, A3]);
         await drop(cardOf(c, elementKey("job", "brochure"))!, OFF, { x: xAt(9), y: y(A3) });
@@ -428,7 +427,7 @@ describe("a template card dropped on a resource's row (PB32)", () => {
 
 describe("a backlog card dropped on a resource's row (PB33)", () => {
     test("schedules its event — its start, its end from its duration and its resource; it leaves the Backlog tab at once, and Undo brings it back", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         await openTab(c, "Backlog");
         expect(tabs(pane(c))[1]).toBe("Backlog 8");
@@ -452,7 +451,7 @@ describe("a backlog card dropped on a resource's row (PB33)", () => {
     });
 
     test("refused on a crew, and where canDrop refuses it — the same refusals as a template's", async () => {
-        const works = mount(programOf(ex.planPrintWorks), DRAG);
+        const works = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         await openTab(works.container, "Backlog");
         let y = layOutPlots(works.container, [A3, C1]);
@@ -460,7 +459,7 @@ describe("a backlog card dropped on a resource's row (PB33)", () => {
         expect(caption()).toBe("refused: Needs presses");
         await letGo();
         works.unmount();
-        const { container: c } = mount(vetoed, DRAG);
+        const { container: c } = await h.mount(vetoed, DRAG);
         await settle();
         await openTab(c, "Backlog");
         y = layOutPlots(c, [B3]);
@@ -477,7 +476,7 @@ describe("a backlog card dropped on a resource's row (PB33)", () => {
 
 describe("an element moved along its row or onto another resource's (PB34)", () => {
     test("a bar moves by the days the pointer crossed; across presses it writes the press — each one step, the ghost saying where", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         const y = layOutPlots(c, [A1, B1, C1]);
         // The spring catalogue runs 06:00–14:00 on Monday: grabbed at 09:00, let go two days on.
@@ -502,7 +501,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     });
 
     test("refused onto a resource of a kind it is not placed on: a job over a crew says what it needs", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         const y = layOutPlots(c, [A1, A1_MARKS, C1]);
         for (const [target, reason] of [[A1_MARKS, "Drop on a Print job row"], [C1, "Needs presses"]] as const) {
@@ -518,7 +517,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     });
 
     test("a selected element moves the selection: the others by the same days, in one step", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         await select(bar(c, "J-1001")!);
         await select(bar(c, "J-1002")!, true);
@@ -537,7 +536,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     });
 
     test("carried onto another press, a selection takes the events on the grabbed one's press with it — one on a press of its own stays, undrafted", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         await select(bar(c, "J-1001")!);
         await select(bar(c, "J-1002")!, true);
@@ -559,7 +558,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     });
 
     test("one part refused refuses the whole selection: a job on a press canDrop refuses holds the others where they are", async () => {
-        const { container: c } = mount(vetoed, DRAG);
+        const { container: c } = await h.mount(vetoed, DRAG);
         await settle();
         await select(bar(c, "J-1018", B2)!);
         await select(bar(c, "J-1022", B3)!, true);
@@ -581,7 +580,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     });
 
     test("a mark moves along its press, by the days crossed", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         const y = layOutPlots(c, [A1_MARKS]);
         // The plate change at 12:00 on Wednesday, a day on.
@@ -591,7 +590,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     });
 
     test("a tile moves to another press's day — it has no ends to drag — and wears the drafted look until Undo", async () => {
-        const { container: c } = mount(vetoed, DRAG);
+        const { container: c } = await h.mount(vetoed, DRAG);
         await settle();
         const y = layOutPlots(c, [A1_TILES, A2_TILES]);
         const tile = c.querySelector<HTMLElement>(`${rowAt(A1_TILES)} ${el("data-event", "stop", "S-01")}`)!;
@@ -610,7 +609,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     });
 
     test("a tile of a kind with a start and an end moves its event's times by the days crossed — its length kept", async () => {
-        const { container: c } = mount(tiled, DRAG);
+        const { container: c } = await h.mount(tiled, DRAG);
         await settle();
         const y = layOutPlots(c, [A1_TILES]);
         const tile = () => c.querySelector<HTMLElement>(`${rowAt(A1_TILES)} ${el("data-event", "job", "J-1001")}`);
@@ -631,7 +630,7 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
 
 describe("a bar's or a chip's edge resizes it (PB35)", () => {
     test("its end moves by the days crossed, and never closer to its start than one snap — a day", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         let y = layOutPlots(c, [A1, C1]);
         const end = () => bar(c, "J-1001")!.querySelector<HTMLElement>('[data-plan-edge="end"]')!;
@@ -657,7 +656,7 @@ describe("a bar's or a chip's edge resizes it (PB35)", () => {
 
 describe("an event dropped on the Backlog tab (PB36)", () => {
     test("is unscheduled: it leaves its press and joins the tab at once — no trash zone on the way; Undo puts it back", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         await openTab(c, "Backlog");
         const sink = sinkOf(c);
@@ -678,7 +677,7 @@ describe("an event dropped on the Backlog tab (PB36)", () => {
     });
 
     test("refused for a kind whose times are no Options: a stop has no backlog", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         await openTab(c, "Backlog");
         const sink = sinkOf(c);
@@ -698,7 +697,7 @@ describe("an event dropped on the Backlog tab (PB36)", () => {
 
 describe("an author's card dropped on an event of its patch's kind (PB63)", () => {
     test("sets what its patch sets, in one step: the ghost names the card and the event", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         await openTab(c, "Customers");
         const card = cardOf(c, "harbour-arts")!;
@@ -720,7 +719,7 @@ describe("an author's card dropped on an event of its patch's kind (PB63)", () =
     });
 
     test("refused anywhere but an event of that kind: between events, and on a stop", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         await openTab(c, "Customers");
         const card = cardOf(c, "harbour-arts")!;
@@ -739,9 +738,9 @@ describe("an author's card dropped on an event of its patch's kind (PB63)", () =
     });
 
     test("a patch that sets two fields sets both on the event, as one step — and Save writes both", async () => {
-        const { container: c } = mount(stocked, DRAG);
+        const { container: c } = await h.mount(stocked, DRAG);
         await settle();
-        const before = readJobs().get("J-1001")!;
+        const before = (await readJobs()).get("J-1001")!;
         const job = bar(c, "J-1001")!;
         const y = layOutPlots(c, [A1], [[job, { left: xAt(0, 6), top: 4, width: 33, height: 24 }]]);
         await drop(cardOf(c, "harbour-arts")!, OFF, { x: xAt(0, 9), y: y(A1) });
@@ -753,7 +752,7 @@ describe("an author's card dropped on an event of its patch's kind (PB63)", () =
         await press(historyButton(c, REDO));
         expect(pending(c)).toBe("1 pending");
         await press(historyButton(c, SAVE));
-        expect(sameJob(readJobs().get("J-1001")!, { ...before, customer: "Harbour Arts Society", stock: variant("board", null) })).toBe(true);
+        expect(sameJob((await readJobs()).get("J-1001")!, { ...before, customer: "Harbour Arts Society", stock: variant("board", null) })).toBe(true);
     });
 });
 
@@ -763,7 +762,7 @@ describe("an author's card dropped on an event of its patch's kind (PB63)", () =
 
 describe("every gesture is one step of the Plan's one history", () => {
     test("a drop, a schedule, a move, a resize, an unschedule and a card's patch: six steps, Undo taking each back in turn", async () => {
-        const { container: c } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         let y = layOutPlots(c, [A1, A3]);
         await drop(cardOf(c, elementKey("job", "poster"))!, OFF, { x: xAt(9), y: y(A3) });
@@ -810,7 +809,7 @@ describe("every gesture is one step of the Plan's one history", () => {
     });
 
     test("the keyboard carries a job along its kind's rows — the next press's bars, past its marks — and says why canDrop refuses a press", async () => {
-        const { container: c } = mount(vetoed, DRAG);
+        const { container: c } = await h.mount(vetoed, DRAG);
         await settle();
         const posters = bar(c, "J-1018", B2)!;
         posters.focus();
@@ -836,7 +835,7 @@ describe("every gesture is one step of the Plan's one history", () => {
 
 describe("data's rows beside the event kinds", () => {
     test("take no move while data's own session takes none: the jobs drag, the bindery's runs never do", async () => {
-        const { container: c } = mount(beside, DRAG);
+        const { container: c } = await h.mount(beside, DRAG);
         await settle();
         expect(bar(c, "J-1001")!.hasAttribute("data-draggable")).toBe(true);
         const run = c.querySelector<HTMLElement>(`${rowAt(LINE_1)} [data-run="w1"]`)!;

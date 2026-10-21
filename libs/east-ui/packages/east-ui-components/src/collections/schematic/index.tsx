@@ -2268,13 +2268,17 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     useEffect(() => {
         if (!(effectActive && emphasis === "pulse")) return;
         let raf = 0;
+        // The card layer the frames breathe: read at each frame, as it mounts only once the canvas is measured, which can
+        // be after the pulse starts; the teardown rests the one they wrote.
+        let breathed: HTMLDivElement | null = null;
         const start = performance.now();
         const tick = (now: number) => {
             const phase = ((now - start) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
             pulsePhaseRef.current = phase;
             // Drive the DOM cards' pulse ring off the same clock (canvas markers
             // read `pulsePhaseRef` in paint; matched CARDS breathe via this var).
-            cardLayerRef.current?.style.setProperty("--pulse", String(Math.sin(phase * Math.PI * 2) * 0.5 + 0.5));
+            breathed = cardLayerRef.current;
+            breathed?.style.setProperty("--pulse", String(Math.sin(phase * Math.PI * 2) * 0.5 + 0.5));
             applyCamera();
             raf = requestAnimationFrame(tick);
         };
@@ -2282,7 +2286,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         return () => {
             cancelAnimationFrame(raf);
             pulsePhaseRef.current = 0;
-            cardLayerRef.current?.style.setProperty("--pulse", "0");
+            breathed?.style.setProperty("--pulse", "0");
             applyCamera();
         };
     }, [effectActive, emphasis, applyCamera]);

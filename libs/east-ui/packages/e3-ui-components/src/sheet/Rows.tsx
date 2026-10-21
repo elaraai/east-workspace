@@ -412,8 +412,9 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                 <Rail styles={styles} membership={rowBlank ? undefined : props.membership} picked={picked} mixed={false} selectable={!rowBlank}
                     label={m.selectRow({ number: String(number), group: groupName })}
                     onPick={(event) => props.onRowPick(r, event)} />
-                <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber" data-hit={hit ? "" : undefined} data-blank={rowBlank ? "" : undefined}>
-                    {/* A line with sub rows: the chevron before its number shows or hides them (⌥ every line of the group); open, the tree's stem starts just under it. */}
+                <Box as="span" css={styles.gutterNumber} data-slot="gutterNumber" data-hit={hit ? "" : undefined} data-blank={rowBlank ? "" : undefined}
+                    data-chevron={subRowCount !== undefined ? "" : undefined}>
+                    {/* A line with sub rows: the chevron before its number shows or hides them (⌥ every line of the group); open, the tree's stem starts just under it. The number keeps clear of it. */}
                     {subRowCount !== undefined && (
                         <chakra.button type="button" css={styles.subRowChevron} data-slot="subRowChevron" data-open={subRowsOpen ? "" : undefined} tabIndex={-1}
                             aria-expanded={subRowsOpen}

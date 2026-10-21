@@ -105,15 +105,24 @@
  * data reads the windows again and is no new snapshot, which is what a key
  * search's answer indexes.
  *
+ * # A new narrowing is a new result (#1344, #1354)
+ *
+ * A `live` source — the rail's `rows` source — keeps its id under every
+ * narrowing, and names the narrowing its windows belong to (`query`), read
+ * before the windows as the revision is. A new narrowing holds other rows at
+ * other positions, so it is a new result, as a new source of the same record
+ * is: the view the last one drew stands in, whole, until the new one's first
+ * window lands, and its geometry and its windows start again from its first.
+ *
  * @packageDocumentation
  */
 
-import { equivalentFor } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
     createTrackedRead, createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, elementsIn,
     slotHeight, type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY, advance, isEmpty, residentWindows, pin, unpinAll,
-    type Residency, type ResidencyOptions,
+    snapshotOf, type Residency, type ResidencyOptions,
 } from "@elaraai/east-ui-components/internal";
 import { keyAcrossBlocks, type PlanBand, type PlanRowValue, type PlanWindowFailure, type WindowSkeleton } from "../model.js";
 import type { RowKey } from "../plan-state.js";
@@ -131,6 +140,8 @@ import {
  *  functions — `page` wraps the series pipeline, so its captures are what the
  *  rows are derived WITH (#809). */
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
+/** Whether two narrowings, as a live source prints them, are the same one (#1354). */
+const sameNarrowing = equalFor(StringType);
 
 /** Settle steps before giving up — each block's demand moves one window per
  *  step, so a healthy settle takes a handful per block; only a source whose
@@ -443,6 +454,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     let revision: string | undefined;
     // The snapshot of the data the last read was of (#1199), kept through a read that failed.
     let dataSnapshot: string | undefined;
+    // The narrowing a live source's windows belong to (#1354): a new one is a new result.
+    let narrowing: string | undefined;
     let stale: WindowCache | undefined;
     let cache: WindowCache = new Map();
     let failures: WindowFailures = new Map();
@@ -560,41 +573,79 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         revision = next;
     }
 
+    /** Drop every window the cache holds, and what came with them: a source's
+     *  rows that another source, or another narrowing, does not serve. */
+    function dropWindows(): void {
+        cache = new Map();
+        failures = new Map();
+        stale = undefined;
+        revision = undefined;
+        // Its series may lay the blocks out otherwise, and its fixed rows
+        // may differ: both come with its first window again.
+        fixedRows = new Map();
+        fixedAt = undefined;
+    }
+
+    /** A new result of the same record (#1344, #1354): the view the last one drew
+     *  stands in, whole, until the new one's first window lands; its geometry
+     *  starts at zero, so no offset of the old result drives its requests. */
+    function startResult(): void {
+        transition = snapshot.rows.length > 0 ? snapshot : transition;
+        total = 0;
+        totalRevision = undefined;
+        shape = undefined;
+        lanes = new Map([[0, newLane()]]);
+        located.clear();
+        focusBlock = 0;
+        isScrolling = false;
+        unpinEvery();
+    }
+
     function readOnce(src: PlanPagedSourceValue): ReadOutcome {
         if (filledBy === undefined || !pagedSourceEquivalent(filledBy, src)) {
             filledBy = src;
-            cache = new Map();
-            failures = new Map();
-            stale = undefined;
-            revision = undefined;
-            // Its series may lay the blocks out otherwise, and its fixed rows
-            // may differ: both come with its first window again.
-            fixedRows = new Map();
-            fixedAt = undefined;
+            dropWindows();
+            narrowing = undefined;
         }
-        const wanted = wantedWindows();
         const out = tracked.run((): ReadOutcome => {
-            // The snapshot first: every window below is read at it, and its
+            let sourceError: string | undefined;
+            // A live source's narrowing first (#1354): its channel re-fires this
+            // read when a choice moves it, and a new one is a new result.
+            if (src.query !== undefined) {
+                try {
+                    const q = src.query();
+                    if (narrowing !== undefined && !sameNarrowing(q, narrowing)) {
+                        startResult();
+                        dropWindows();
+                    }
+                    narrowing = q;
+                } catch (err) {
+                    console.error("[Plan] paged source narrowing failed:", err);
+                    sourceError = readFailure(err);
+                }
+            }
+            const wanted = wantedWindows();
+            // The snapshot next: every window below is read at it, and its
             // channel re-fires this read when it moves. A source that cannot
             // say which snapshot it serves has failed as a whole (#811) — its
             // windows then say so each, where their rows would be. A `paged`
             // source names none.
             let current = revision;
-            let sourceError: string | undefined;
             try {
                 const r = src.revision?.();
                 current = r?.type === "some" ? r.value : undefined;
             } catch (err) {
                 console.error("[Plan] paged source revision failed:", err);
-                sourceError = readFailure(err);
+                sourceError ??= readFailure(err);
             }
             if (current !== revision) rotate(current);
-            // The snapshot of the data, when the source names it apart from its revision (#1199).
+            // The snapshot of the data: the source's own when it names it apart from its revision (#1199), else its
+            // revision — with a live source's narrowing, whose rows a key search's answer names (#1354).
             let data = current;
-            if (src.snapshot !== undefined && sourceError === undefined) {
+            if (sourceError === undefined) {
                 try {
-                    const own = src.snapshot();
-                    data = own.type === "some" ? own.value : undefined;
+                    const own = src.snapshot !== undefined ? src.snapshot() : snapshotOf(src);
+                    data = own !== undefined && own.type === "some" ? own.value : undefined;
                 } catch (err) {
                     console.error("[Plan] paged source snapshot failed:", err);
                     sourceError = readFailure(err);
@@ -1031,19 +1082,10 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         getSnapshot: () => snapshot,
         setSource(next, retainPrevious = false) {
             if (next === source) return;
-            if (retainPrevious && next !== undefined && source !== undefined && next.id !== source.id) {
-                transition = snapshot.rows.length > 0 ? snapshot : transition;
-                // The new result starts at zero; offsets from the old result
-                // must never drive its requests while those rows stand in.
-                total = 0;
-                totalRevision = undefined;
-                shape = undefined;
-                lanes = new Map([[0, newLane()]]);
-                located.clear();
-                focusBlock = 0;
-                isScrolling = false;
-                unpinEvery();
-            } else if (!retainPrevious) transition = undefined;
+            // The new result starts at zero; offsets from the old result
+            // must never drive its requests while those rows stand in.
+            if (retainPrevious && next !== undefined && source !== undefined && next.id !== source.id) startResult();
+            else if (!retainPrevious) transition = undefined;
             source = next;
             if (next === undefined) {
                 transition = undefined;

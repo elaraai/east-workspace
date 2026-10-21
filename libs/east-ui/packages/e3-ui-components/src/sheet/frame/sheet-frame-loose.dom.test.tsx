@@ -16,21 +16,19 @@
 
 import { test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
-import { East, decodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, equalFor, none, some, variant } from "@elaraai/east";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
-import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { announced, layOut, pointAt, stubScrollIntoView } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
-import { WORKSPACE, act, sheetHarness, mount, mountPayload, settle, slot } from "./harness.test-utils.js";
+import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 
-const harness = sheetHarness();
+const h = sheetHarness();
 stubScrollIntoView();
 
-type Work = ValueTypeOf<typeof ex.sheetLooseWork.type>;
 const entryEqual = equalFor(ex.LooseEntry);
 
 /** The week's work as `sheetLoose` declares it, given the inspector pane: Details for a loose task, and the batch's Issues. */
-const inspected = East.compile(East.function([], SheetPayloadType, ($) => {
+const inspected = East.function([], SheetPayloadType, ($) => {
     const work = $.let(Record.bind(ex.sheetLooseWork, [ex.sheetLooseWorkPatch]));
     const newTask = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(ex.LooseTask), () => Sheet.patch(ex.LooseTask, { qty: none, notes: "" })));
     const newPackage = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(ex.LoosePackage), () => Sheet.patch(ex.LoosePackage, { tasks: [] })));
@@ -48,16 +46,14 @@ const inspected = East.compile(East.function([], SheetPayloadType, ($) => {
         newGroup: newPackage,
         inspector: true,
     });
-}), getRegisteredPlatformImplementations());
+});
 
-/** The record as it stands — what its patch door last wrote. */
-function readWork(): Work {
-    const bytes = harness.cache.read(WORKSPACE, [variant("field", "records"), variant("field", ex.sheetLooseWork.name)]);
-    if (bytes === undefined) throw new Error("the record has not loaded");
-    return decodeBeast2For(ex.sheetLooseWork.type)(bytes);
-}
+/** The record as e3 holds it now — what its patch door last committed. */
+const readWork = () => h.read(ex.sheetLooseWork);
 /** The week's entries, each its id, as the record holds them. */
-const entryIds = () => readWork().get("2026-W42")!.entries.map((entry) => entry.value.id);
+const entryIds = async () => (await readWork()).get("2026-W42")!.entries.map((entry) => entry.value.id);
+/** The record's commits, newest first, by the mutation that made each. */
+const commits = async () => (await h.history(ex.sheetLooseWork)).commits.map((c) => c.mutation);
 
 const main = (c: HTMLElement) => slot(c, "main")!;
 /** The sheet as it reads: each band's title, `# …`, and each row's task, in order — never a blank row. */
@@ -105,8 +101,7 @@ const caption = () => {
 };
 
 test("the week's entries in the planner's order: a loose task a plain row numbered in the packages' sequence, a package its band and its tasks; Details on a loose task is its own row, under the entry's id", async () => {
-    const { container } = mountPayload(inspected());
-    await settle();
+    const { container } = await h.mountPayload(inspected);
     expect(numbered(container)).toEqual([
         "1 Check the drawings",
         "2 # Kitchen doors", "1 Cut door blanks", "2 Inspect the blanks",
@@ -125,8 +120,8 @@ test("the week's entries in the planner's order: a loose task a plain row number
 });
 
 test("Alt+Insert beside a loose task adds a loose task after it, its id minted; typed and saved, the record holds it as an entry in its place, in one commit", async () => {
-    const { container } = mount(ex.sheetLoose);
-    await settle();
+    const { container } = await h.mount(ex.sheetLoose);
+    const deployed = await commits();
     fireEvent.mouseDown(entryRow(container, "brief").querySelector('[data-key="task"]')!, { button: 0 });
     await settle();
     const grid = main(container).querySelector<HTMLElement>('[role="grid"]')!;
@@ -153,17 +148,15 @@ test("Alt+Insert beside a loose task adds a loose task after it, its id minted; 
     expect(within(slot(container, "toolbar")!).getByRole("button", { name: "0 issues" })).toBeTruthy();
     await history(container, "Save");
     // An entry of its own, between the first and the first package — `newRow`'s defaults under what was typed.
-    const entries = readWork().get("2026-W42")!.entries;
+    const entries = (await readWork()).get("2026-W42")!.entries;
     expect(entries.map((entry) => entry.value.id)).toEqual(["brief", minted, "doors", "handover", "finish"]);
     expect(entryEqual(entries[1]!, variant("row", { id: minted, task: "Measure the site", qty: none, notes: "" }))).toBe(true);
-    const { commits } = await harness.memory.history(WORKSPACE, ex.sheetLooseWork.name, undefined);
-    expect(commits.map((c) => c.mutation)).toEqual(["patch", "$init"]);
+    expect(await commits()).toEqual(["patch", ...deployed]);
     expect(main(container).querySelectorAll('[data-slot="row"][data-draft]').length).toBe(0);
 });
 
 test("Alt+Insert beside a package's task adds a task in the package, its id minted as a loose task's is — the field both are identified by; typed, it saves", async () => {
-    const { container } = mount(ex.sheetLoose);
-    await settle();
+    const { container } = await h.mount(ex.sheetLoose);
     fireEvent.mouseDown(linesOf(container, "doors")[0]!.querySelector('[data-key="task"]')!, { button: 0 });
     await settle();
     const grid = main(container).querySelector<HTMLElement>('[role="grid"]')!;
@@ -182,7 +175,7 @@ test("Alt+Insert beside a package's task adds a task in the package, its id mint
         .toEqual(["Cut door blanks", "Sand the blanks", "Inspect the blanks"]);
     // Complete — its id minted — so Save is free to commit it.
     await history(container, "Save");
-    const doors = readWork().get("2026-W42")!.entries[1]!;
+    const doors = (await readWork()).get("2026-W42")!.entries[1]!;
     if (doors.type !== "group") throw new Error(`expected the package, got a ${doors.type}`);
     const minted = doors.value.tasks[1]!.id;
     expect(["", "doors-1", "doors-2", "brief", "handover"]).not.toContain(minted);
@@ -194,8 +187,7 @@ test("Alt+Insert beside a package's task adds a task in the package, its id mint
 });
 
 test("a loose task's grip moves it between the entries — over a package, to the seam before it — and a package's moves it with its tasks; a line stays in its package; one Save commits the order", async () => {
-    const { container } = mount(ex.sheetLoose, { drag: true });
-    await settle();
+    const { container } = await h.mount(ex.sheetLoose, { drag: true });
     // The loose task before the last: over the first package's band, either half, or one of its lines — the seam before the package.
     pickUp(gripOf(entryRow(container, "handover")));
     restOn(entryRow(container, "doors"), "top");
@@ -232,8 +224,8 @@ test("a loose task's grip moves it between the entries — over a package, to th
     expect(linesOf(container, "doors")).toHaveLength(2);
     // Two moves, one Save: the entries in their new order, the package's tasks with it.
     await history(container, "Save");
-    expect(entryIds()).toEqual(["finish", "brief", "handover", "doors"]);
+    expect(await entryIds()).toEqual(["finish", "brief", "handover", "doors"]);
     // The package moved whole: as it was seeded, its task inside it.
     const seeded = ex.sheetLooseWork.default!.get("2026-W42")!.entries[3]!;
-    expect(entryEqual(readWork().get("2026-W42")!.entries[0]!, seeded)).toBe(true);
+    expect(entryEqual((await readWork()).get("2026-W42")!.entries[0]!, seeded)).toBe(true);
 });

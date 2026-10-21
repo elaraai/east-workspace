@@ -46,24 +46,101 @@ Bind editable records with their mutation doors inside `Reactive`. Resources,
 templates, backlog and configuration accept reactive records, inputs or tasks;
 backlog remains part of the authoritative event record.
 
-Choose the Slice arm from the source, not from the builder:
+A builder's tag checks its `slice` with `utils/record-sources.ts`'
+`recordSources`, a Library tab's `source` with `tabSource`, and a templates
+list's source with `templatesSource` (#1340): every builder takes only
+`Slice.bindRecords`, its sources named after what they narrow — the
+Allocation, the Roster, the Calendar, the Plan, the Sheet and the Flowchart.
+Templates are records: each list names its source of the one
+`Slice.bindRecords`, and a list written in the code is refused, naming the
+change to make.
 
-- Rows held whole: `Slice.bind(key, rows, { fields, range, search, initial,
-  presets })`, then `Slice.rows(slice)`. Keep `Slice.config` for pure
-  `Slice.apply` calls; do not use the removed positional binding form.
-- Indexed records: declare `e3.recordIndex(name, record, { on: [fields...] })`,
-  bind with `Data.bindPaged(record, { indexes })`, then
-  `Slice.bindRecord(key, binding, options)`. Pass `Slice.rows(slice)` as Plan/
-  Sheet data or Roster `visiblePeople`, and the same handle to `slice` chrome.
-  Never turn the loaded page into another local Slice or implement a browser
-  predicate. Typed controls and supported combinations come from declared indexes.
-- Calendar event records: declare an interval index, for example
-  `e3.recordIndex("by_status_time", events, { on: ["status"],
-  interval: { from: "start", to: "end" } })`. Bind it through record Slice
-  with `range: "start"`, pass that handle as the event kind's `slice`, and
-  pass `Data.bindPaged(events)` as its `entries`. The same Slice owns the
-  toolbar and navigation. Do not combine this with `filter`, `window` or
-  `backlogWindow`. Existing day-index consumers remain supported separately.
+A builder reads its sources only through `recordSources(…).bind($)` (#1356),
+the first thing its payload's block does: it binds each source's part, its
+narrowed data and its keys once. A function captures what it reads, so one
+reading a source through what `bind` returns holds that source alone; one that
+read through the slice would capture every source's methods, and beast2 writes
+a captured value wherever a function holding it is written (#1343: an
+eight-source Calendar once held 350 MB a mount). An event kind reads its
+part's members inside its own functions. `test/utils/record-sources-captures.spec.ts`
+holds every example to it: no function captures the whole slice.
+
+A source's narrowing is read where its rows are read, never where the builder
+is built (#1354). The bind reads no state and returns one handle per binding,
+whatever its narrowing: its narrowed data is a live source
+(`Paged.Types.LiveSource`), whose id names the source alone and whose reads
+read the narrowing when they run, `query()` naming it. A choice re-renders the
+readers of the source — its rows, counts, tabs and the rail — and builds no
+builder again: the payload is not encoded, decoded or compiled again. A
+builder's payload block never reads a source's state (`read()`): that read
+would build it again at every choice. Each builder's narrowing spec holds it
+(`a filter change rebuilds no builder`): a choice runs the builder's body no
+more and decodes no payload.
+
+A record a builder reads whole beside its pages — a templates list, the
+resources a check reads — binds with `Data.bind`. A UI task's manifest preloads
+a record `Data.bind` reads, but not one `Record.bind` reads beside
+`Data.bindPaged`: its `read()` fails on the real e3 ("record state not
+loaded"), though the in-memory test harness answers it (#1343). `Record.bind`
+stays the mutation door a Save commits through.
+
+The Sheet (#1345) takes `slice={{ slice: Slice.bindRecords(key, { rows, … })
+}}`. Its `rows` source gives the rows, paged from it, edited through
+`onApply={Record.onApply(record, { keyed: true })}`; a sheet over `record` or
+`data` takes a slice of templates sources alone. Each list is
+`Sheet.templates(templates.read(), { name, group?, values, source })`, its
+record bound with `Data.bind`, a grouped sheet's row templates and group
+templates two records and two sources. A saved view is a
+`Sheet.Types.RecordView`, every source's narrowing by name. The lens is off
+until #1349: the rail filters the rows.
+
+The Flowchart (#1346) takes `slice={{ slice: Slice.bindRecords(key, { flows, …
+}) }}`. Over `record`, its `flows` source — `Data.bindPaged(record, { indexes
+})` over the same record — narrows the Flows tab, which pages and counts it;
+without one the Flows tab lists the record read whole. `window` is refused.
+Over `data`, the host's flows or the flow `Flowchart.over` builds from the
+host's tables, nothing narrows the flows: the slice holds only the sources its
+templates lists and tabs name. Each list is `Flowchart.library.states(
+templates.read(), { …, source })` (or `transitions`) over a keyed record bound
+with `Data.bind`, each card keyed by the record's key, so a list takes no
+`key`; an app's tab that names a `source` follows it by the key its `key` gives.
+
+The Plan (#1344) takes `slice={{ slice: Slice.bindRecords(key, { … }) }}`. Its
+`rows` source gives the canvas its rows, paged from it in its index's order —
+`data` is left out — edited through `editing.onApply` (`Record.onApply(record,
+{ keyed: true })`). A source named after an event kind's slot reads that kind's
+events and its backlog through its interval index, as the Calendar's sources
+do; one named after a resource kind's slot narrows that kind's rows and the
+bulk edit's Chooser, over resources read whole and keyed by String. Every
+source holding a `range` of the axis's arm holds the window with the others:
+the date navigator, the horizon brush, the keys and the resolution write each
+of them. Each templates list is `Schedule.templates(templates.read(), { …,
+source })` over a record bound with `Data.bind`, an instant kind's giving no
+`duration`, and each tab that names a `source` follows it.
+
+A builder takes neither `Slice.bind` nor a single `Slice.bindRecord`; east-ui's
+own collections — a Table, a Library, a Deck, a Schematic — keep their own
+Slice (`Slice.bind(key, rows, { … })` over rows held whole, read through
+`Slice.rows(slice)`). An indexed record narrows a builder as a source of its
+one `Slice.bindRecords`: declare `e3.recordIndex(name, record, { on: [fields...]
+})` and bind `Data.bindPaged(record, { indexes })`. Never turn the loaded page
+into another local Slice or implement a browser predicate. Typed controls and
+supported combinations come from declared indexes.
+
+The Calendar's `slice` (#1343) is one `Slice.bindRecords`, a
+source named after each event kind's slot, each resource kind's slot, and each
+source a templates list or a tab names. An event kind's source reads its record
+through an interval index, for example `e3.recordIndex("by_status_time", events,
+{ on: ["status"], interval: { from: "start", to: "end" } })`, with `range:
+"start"`, and the kind gives `Data.bindPaged(events)` as its `entries`; a kind
+takes no `slice`, `filter`, `window` or `backlogWindow` beside its source. The
+Calendar's navigation writes its window into every event source's range, and
+the leading source's range is the time navigator's Range panel, never a chip of
+the rail. A resource kind's source narrows its columns, rows and Choosers; a
+templates list (`Calendar.templates(rows, { …, source })`) and an app's tab
+(`source`) each follow the source they name. Templates are records: a list
+written in the code is refused. Overlaps, checks and commands read every event.
+Existing day-index consumers remain supported separately.
 
 Calendar means overlap with `[from, to)`: preserve carry-in, whole-window,
 overnight and multi-day events once by original primary key. An instant at
@@ -108,13 +185,16 @@ which index declarations a view lists and is the shared editing identity.
 ### Flowchart records and indexed Flows lists
 
 One flow is one complete record entry. Bind the mutation door with
-`Record.bind`, and bind its browse source with `Data.bindPaged(record,
-{ indexes })` and `Slice.bindRecord`. Pass `window={Slice.rows(slice)}` and
-`slice={{ slice }}` to Flowchart. The Flows tab pages that ordered query through
-shared `PagedLibrary`/`VirtualRows`; never fetch every flow to render or search
-its cards. Record Slice owns indexed field choices, prefix search and counts.
-`Find state` searches the complete open graph by state key and label; it does
-not search all flow records. Keep those purposes clear in labels and examples.
+`Record.bind`, and narrow the flows through the `flows` source of the one
+`Slice.bindRecords`: `Data.bindPaged(record, { indexes })` over the same record.
+Pass `slice={{ slice }}` to Flowchart. The Flows tab pages that source through
+shared `PagedLibrary`/`VirtualRows` and counts what it shows (`Flows 683 of
+2,048`); never fetch every flow to render or search its cards. Record Slice owns
+indexed field choices, prefix search and counts; the Flows tab's own search
+finds within the narrowing by the source's `search` fields through its
+`pageWhere`, never writing the rail (#1340, ruling 11). `Find state` searches
+the complete open graph by state key and label; it does not search all flow
+records. Keep those purposes clear in labels and examples.
 
 Computed filters use the index's own key type, including values derived from
 nested graph data. Scalar keys use the index name; Struct keys expose their
@@ -190,53 +270,103 @@ dragging/resizing. The preview sizes to its content independently of the source
 bar or edge handle. Test a short timeline event: its title must not wrap into
 a few characters per line. Preserve the shared destination/refusal caption.
 
-### Weekly records: Roster's reference case
+### The app's own records: the Roster's reference case
 
-The examples declare staff, configuration, forecasts and proposals as
-`e3.record` definitions. `Data.bind(record)` provides reactive reads of a
-record, just as it reads inputs and task outputs. `Record.bind(record,
-mutations)` adds the mutation commands for a record the surface edits. The
-binding name does not change the source's storage kind. Keep these declarations
-visible alongside the examples so reference data is clearly record-backed.
+A builder stores nothing in a shape of its own (#1365, `Builder Interfaces
+Spec.md`). The Roster writes the app's duties, the weeks of its rota and its
+cover targets — each an `e3.record` of the app's, bound with
+`Record.bind(record, [e3.mutation.patch(record)])` — and reads its staff,
+agencies, shift times, teams, positions, activities and suggestions with
+`Data.bind(record)`, as it reads inputs and task outputs; the binding name does
+not change the source's storage kind. The tag declares them through Schedule's
+kinds and the Roster's own accessors: `Schedule.events` for the duties (the
+roles `start`, `end`, `resource`, `shift`, `group`, `position`, `activity` and
+`hours`), `Schedule.resources` for the people and the agencies,
+`Schedule.periods` for the weeks, `Roster.targets` for the cover, and
+`Roster.shifts`, `groups`, `positions`, `activities` and `proposals` for the
+lists. Keep these declarations visible alongside the examples so reference
+data is clearly record-backed. The Allocation is the same over its bins, its
+days, its lanes and resources and its arrivals.
 
-Keep the domain's aggregate boundary. Roster stores one complete week per UTC
-DateTime key. Each week owns a shared EditSession/history view; the record's
-write gate is shared across weeks. Save patches only the active week, and
-Publish patches its assignments, targets, dismissals and published status in
-one request. Unconfirmed writes retain the draft and the same retry identity.
-Switching weeks, filtering or resizing must not discard another week's draft.
+The week is assembled from the app's rows, never stored. The renderer reads
+the week's duties through the duty kind's `rows` — each stored duty's roles
+beside its bytes, in one pass — the week's own row through the periods' `rows`
+and its targets through theirs, and places each duty in its slot, its day the
+UTC day whose shift start is nearest its start, with the drafts in place. A
+duty whose shift or group isn't configured, or that names no one, is listed in
+Issues and kept as stored. Coverage, checks and the views read that week, and
+each assignment carries its duty's own row, untouched, for the app's
+functions.
+
+One history spans the records: each is a session of its own, and a gesture
+across them — accepting a proposal records the duty and the week's dismissal —
+is one step. Save sends each record's changes as its own request through its
+patch door; a conflict or a refusal keeps that record's drafts and leaves the
+others' commits standing, and an unconfirmed write keeps its draft and the
+same retry identity. Drafts of every week stay in their sessions: switching
+weeks, filtering or resizing discards none, and Save includes them. Publish
+saves first, and only once every record reads back as saved writes the week's
+status — the periods' published case, with the time when it holds one — and
+saves the periods, so a published week never sits over unsaved rows. A new
+duty's or target's key is minted unique among every key the Roster has read
+and drafted (`crypto.randomUUID()`).
+
+Pay is the app's, asked a person at a time (§5.6): the app's East function
+over one person's duties for the week, or one agency's requests, answers each
+duty's cost by its own pay codes. The renderer asks it again only for the
+people whose duties, or whose duties' rows, changed; totals the answers by
+duty, slot, day, week, person and code; and gives them to the app's check. A
+call that throws is a warning naming the person, whose duties show no cost.
+The Roster knows no pay code in advance and works out no cost of its own.
 
 Keep **visibility separate from calculation scope** when the domain requires
-it. Roster takes complete `people` for coverage, costs, rest and skill/lead/
-trainer checks. A record Slice over staff supplies
-`visiblePeople={Slice.rows(slice)}` and `slice={{ slice }}`; local Slice supplies
-a Set of original staff keys. Indexed visibility pages only the chosen result,
-retains the previous complete membership while pending and never changes the
-weekly editing session. Hidden assignment edits still Save the original week.
-The staff date fields are not the week-navigation state. Bounded complete staff
-may be read for domain arithmetic; never read all history or staff merely to
-make filter choices or pretend to implement an indexed predicate.
+it. Roster takes complete `people` and `activities` (`Roster.activities` over a
+keyed activities record, its optional `order` setting the order they show in)
+for coverage, pay, rest and skill/lead/trainer checks. `slice={{ slice }}`
+takes `Slice.bindRecords(key, { <duty slot>, targets, people, activities })`
+alone, and the Roster reads each source's keys itself (#1342); it refuses
+`visiblePeople`, `duties` and groups that carry their skills, naming the change.
+Indexed visibility pages only the chosen result, retains the previous complete
+membership while pending and never changes the editing sessions. Hidden duty
+edits still Save by their own keys. The staff date fields are not the
+week-navigation state. Bounded complete staff may be read for domain
+arithmetic; never read all history or staff merely to make filter choices or
+pretend to implement an indexed predicate.
 
-The windowed example binds a separate week-key Slice range and
-`Data.bindPaged` on the weeks record. The same range is read by the shared
-range control and written by roster navigation. Seek the active week, the
-previous Copy source and the open picker's month only; do not read the whole
-record to build the picker. Test an external Slice write and reverse navigation.
+The week is the Roster's own navigation and its picker, never a Slice chip
+(ruled 18 Oct, #1342): it writes the week's window into the duty kind's source
+of the slice — an interval index from `start` to `end`, `range: "start"` — so
+the rail's counts and a Save's notice read the window the Roster reads, and
+the weeks are read by key through the periods' `entries`. Read the week, with
+the twelve hours either side a duty's start may stand from its shift's; the
+week before only while the week holds no duty of its own, Copy's source; and
+the open picker's month. Do not read a whole record to build the picker. Test
+reverse navigation.
 
-Use the Library's facet engine for role/skill focus. A host may control those
-facets, but must not create a second search/filter implementation. Keep typed
-inspector callbacks on the same guarded commands as dragging and mobile
-forms; they cannot replace assignment identity or bypass published/read-only
-state. Pure coverage and rule functions live in e3-ui and are compiled for
-the renderer, so a task and the screen use the same arithmetic.
+The People tab has no filter of its own: leads, trainers, agency and skill are
+rail fields of the staff record (#1342). A Find fix asks the app's fit (#1334):
+`fit` is `Func.bind` of an `e3.function` from `Roster.Types.FitRequest(R)` to
+`Roster.Types.FitResult`, `R` the duty row type — the Allocation's contract —
+its issue's need and slot over the drafted week and the complete staff,
+whatever the rail shows. Its answer is a result in the People tab — the fits
+among what the rail shows, best first in the fit's order, each card with the
+fit's reason — with a chip that clears it; never a second search/filter
+implementation, and the renderer decides no one itself. Without `fit` no Find
+fix is offered. `Roster.fit(R)` (the need held, not rostered that day, rest
+kept; the slot's group, then spare contract hours) and `Roster.answer(R)` are
+the ready-made East parts. Keep the duty kind's own inspector and the targets'
+own form on the same guarded commands as dragging and mobile forms; they
+cannot replace a duty's person or bypass published/read-only state. Pure
+coverage and rule functions live in e3-ui and are compiled once per duty row
+type for the renderer, so a task and the screen use the same arithmetic.
 
 At main width below 480px, both Shifts and People become explicit-action cards;
 no drag source or target remains registered. Test both layouts, target editing,
 proposal acceptance, restore and Save/remount. Test the final toolbar forms at
 360px with every action present: date picking, view, history and Publish must
 all remain reachable. Bound each footer item separately so the shared rail can
-wrap on narrow screens. Use Font Awesome for agreement icons as for other
-icons; avoid text glyph substitutes.
+wrap on narrow screens. Use Font Awesome for every mark, as for other icons;
+avoid text glyph substitutes.
 
 Test the actual contained width as well as viewport width: a 360px showcase
 viewport leaves a 294px frame after padding. Combine week and view controls
@@ -244,8 +374,10 @@ in a final shared-toolbar fold before history, keeping date picking, navigation
 and Publish reachable. Desktop proposals use the mock's single-line dashed chip
 with quiet Font Awesome actions; mobile cards keep labelled Accept/Reject.
 
-Keep the footer to the legend. Roster explains its six coverage marks and
-Calendar its configured event kinds, using the existing marks/icons and the
+Keep the footer to the legend. Roster explains its five coverage marks —
+permanent, agency staff, requested, open and hours needed; overtime is the
+app's pay's to say — and Calendar its configured event kinds, using the
+existing marks/icons and the
 shared footer rail. Do not repeat status, pending edits, counts, costs or hours
 there: shared history/toolbar controls and the inspector already own them.
 Keep legend items individually wrappable and measure narrow overflow. The
@@ -365,8 +497,8 @@ clamp to a shorter month's final day. All boundaries use UTC and the declared
 Sunday/Monday week start.
 
 Pass date changes through the host's existing window/Slice owner. Preserve
-whole-week Roster reads and per-week drafts, and request status only for the
-open picker's month. Cancel and browsing must not write the Slice. Calendar's
+whole-week Roster reads and every week's drafts, and request status only for
+the open picker's month. Cancel and browsing must not write the Slice. Calendar's
 timeline labels the visible range and steps from its visible center; Today
 recenters even if the persisted date was already today. Do not duplicate the
 current date as detached toolbar text. Counts remain a separate folding item.
@@ -378,9 +510,10 @@ recentring. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and
-year), preserves the visible bucket count and writes the same Slice range as
-the horizon brush. Its Range panel embeds the shared `SliceRangeContent` or
-`RecordSliceFieldEditor`; never create another input or filter implementation.
+year), preserves the visible bucket count and writes the window into every
+source holding it, as the horizon brush does (#1344). Its Range panel embeds
+the leading source's `RecordSliceFieldEditor`; never create another input or
+filter implementation.
 Date inputs reuse the existing React Aria compound date field. Retain UTC,
 sub-day precision and validation of incomplete typed bounds. Numeric/ordinal
 Plan axes keep their own appropriate controls.
@@ -404,7 +537,7 @@ Their ResizeObserver updates commit before paint; a private asynchronous width
 hook can briefly render phone cards into a desktop main while BuilderFrame
 settles its panes. Verify the cold load as well as settled resize behavior.
 Show a loading state while the active record window is unresolved; do not
-render a forecast-only empty roster as though it were loaded data.
+render a targets-only empty roster as though it were loaded data.
 
 Calendar and Roster pass their actual window-loading state to the internal
 `BuilderFrame.loading` prop. The frame owns one Chakra Skeleton surface and
@@ -423,10 +556,11 @@ short hosts clip the placeholder list. Assert row height and placeholder-to-row
 height ratio at desktop and phone widths, not merely skeleton presence.
 
 Calendar waits for every requested event source and configured backlog; Roster
-waits for the active week's keyed result. An unresolved read is not an empty
-week. Keep these states distinct from a confirmed absent record and from
-background refreshes that still have usable data. Do not hide a missing read
-behind forecast-only content or a zero-event count. Test deliberately delayed
+waits for the week's reads — its duties, its own row and its targets — and the
+Allocation for the day's. An unresolved read is not an empty week. Keep these
+states distinct from a confirmed absent record and from background refreshes
+that still have usable data. Do not hide a missing read behind targets-only
+content or a zero-event count. Test deliberately delayed
 pages and fonts, retained canvas identity, equal loading/loaded frame dimensions,
 no accessible controls under the skeleton, and the first visible layout at
 both desktop and phone widths in both themes.

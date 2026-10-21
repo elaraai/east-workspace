@@ -1,0 +1,151 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * What a Table cell's Chooser offers (`Allocation Spec.md` A48), pure: an
+ * arrival cell's arrivals and a resource cell's resources, in sections, each
+ * option's line and its state the fit's answer (F4). The board's own words say
+ * only what the answer does not: the current choice, an arrival's meta, and
+ * where an arrival already on the board is.
+ *
+ * @packageDocumentation
+ */
+
+import type { ChooserOption, ChooserSection } from "@elaraai/east-ui-components/internal";
+import { formatDatePattern } from "@elaraai/east-ui-components/internal";
+import type { option } from "@elaraai/east";
+import { compareDate, compareFloat, compareString, partsOf, type Context, type Day, type Fit, type FitResult } from "./model.js";
+
+/** The words a Chooser's lines are written with: a quantity with its unit and without, and a lane's name. */
+export interface ChoiceWords {
+    quantity: (value: number) => string;
+    number: (value: number) => string;
+    lane: (key: string) => string;
+}
+
+/** A pending answer's line: the fit has not said yet (F2). */
+const CHECKING = "checking fits…";
+
+/** An option from a verdict: its line the fit's reason, refused when the fit refuses it. */
+function judged(base: Omit<ChooserOption, "state" | "line">, verdict: Fit): ChooserOption {
+    return verdict.type === "fits" ? { ...base, line: verdict.value.why, state: "enabled" } : { ...base, line: verdict.value.reason, state: "refused" };
+}
+
+/**
+ * An arrival cell's Chooser (A48): the row's own arrival (Current), the
+ * arrivals the plan has not booked — fitting the row's resource, or all of
+ * them where the row has none — those that don't fit, and the arrivals
+ * already on the board, which cannot be chosen; of the arrivals the narrowing
+ * shows (#1339), as the rest of the board shows them. The current one is
+ * offered whatever it hides.
+ *
+ * @param args - The row and what the board knows
+ * @returns The sections, in order
+ */
+export function arrivalChoices(args: {
+    plan: Day; context: Context; day: Date; words: ChoiceWords;
+    /** The row's bin, when it shows one (a bin or a reservation). */
+    bin: string | undefined;
+    /** The resource the row's bin is on, if any: what the arrivals are asked onto. */
+    resource: string | undefined;
+    /** The fit's answer to `take` the resource, asked of the day without the row's bin. */
+    answer: FitResult | undefined;
+    /** The arrivals the narrowing shows; `none`, every one. */
+    shown?: option<ReadonlySet<string>> | undefined;
+}): ChooserSection[] {
+    const { plan, context, day, words, bin, resource, answer } = args;
+    const shows = (key: string) => args.shown === undefined || args.shown.type === "none" || args.shown.value.has(key);
+    const own = bin === undefined ? undefined : plan.bins.get(bin);
+    const booked = new Set<string>();
+    for (const [, b] of plan.bins) if (b.arrival.type === "some") booked.add(b.arrival.value);
+    // The arrivals still to book, overdue first, each in the arrivals' key order.
+    const overdue = (key: string) => { const due = context.arrivals.get(key)?.due; return due?.type === "some" && compareDate(due.value, day) < 0; };
+    const free = [...context.arrivals.keys()].filter(key => !booked.has(key) && shows(key)).sort((a, b) => Number(overdue(b)) - Number(overdue(a)));
+    const name = resource === undefined ? undefined : context.resources.get(resource)?.label ?? resource;
+    const sections: ChooserSection[] = [];
+    if (own !== undefined && own.arrival.type === "some") {
+        const arrival = context.arrivals.get(own.arrival.value);
+        sections.push({ label: "Current", options: [{ key: own.arrival.value, label: arrival?.label ?? own.arrival.value, state: "current",
+            line: arrival?.meta.type === "some" ? arrival.meta.value : undefined, range: words.quantity(own.quantity) }] });
+    }
+    const options = free.map((key): ChooserOption => {
+        const arrival = context.arrivals.get(key)!;
+        const base = { key, label: arrival.label, range: words.quantity(arrival.quantity), warn: overdue(key) };
+        const meta = [arrival.meta.type === "some" ? arrival.meta.value : "", overdue(key) ? "overdue" : ""].filter(p => p !== "").join(" · ") || undefined;
+        if (resource === undefined) return { ...base, line: meta, state: "enabled" };
+        const verdict = answer?.arrivals.get(key);
+        return verdict === undefined ? { ...base, line: CHECKING, state: "disabled" } : judged(base, verdict);
+    });
+    const fits = options.filter(o => o.state !== "refused"), refused = options.filter(o => o.state === "refused");
+    if (fits.length > 0) sections.push({ label: name !== undefined ? `Fits ${name}` : own !== undefined && own.arrival.type === "some" ? "Replace with" : "Book here", options: fits });
+    if (refused.length > 0) sections.push({ label: `Doesn’t fit ${name}`, options: refused });
+    // The arrivals already on the board, where they are: not to be chosen.
+    const where = new Map<string, { id: string; at: Date; lane: string; resource: string | undefined; quantity: number; more: number }>();
+    for (const [id, b] of plan.bins) {
+        if (b.arrival.type !== "some" || id === bin || !shows(b.arrival.value)) continue;
+        const was = where.get(b.arrival.value);
+        if (was === undefined) where.set(b.arrival.value, { id, at: b.at, lane: b.lane, resource: partsOf(b)[0]?.key, quantity: b.quantity, more: 0 });
+        else {
+            const first = compareDate(b.at, was.at) < 0;
+            where.set(b.arrival.value, { ...(first ? { id, at: b.at, lane: b.lane, resource: partsOf(b)[0]?.key } : was), quantity: was.quantity + b.quantity, more: was.more + 1 });
+        }
+    }
+    const labelOf = (key: string) => context.arrivals.get(key)?.label ?? key;
+    const allocated = [...where].sort(([a], [b]) => compareString(labelOf(a), labelOf(b))).map(([key, w]): ChooserOption => ({
+        key: `allocated:${key}`, label: context.arrivals.get(key)?.label ?? key, range: words.quantity(w.quantity), state: "disabled",
+        line: `in ${words.lane(w.lane)} ${formatDatePattern("HH:mm", w.at)}${w.resource === undefined ? " · not linked" : ` on ${context.resources.get(w.resource)?.label ?? w.resource}`}${w.more > 0 ? ` · +${w.more} more` : ""}`,
+    }));
+    if (allocated.length > 0) sections.push({ label: "Allocated", options: allocated });
+    return sections;
+}
+
+/**
+ * A resource cell's Chooser (A48): the row's resource (Current), the
+ * resources that fit — `Gaps that fit` a bin, `Can be reserved` for a free row
+ * or a reservation — best first, and those that don't; of the resources the
+ * narrowing shows, as a drop lands only on a shown row (#1336). A split's
+ * (A71) leaves out the resources the bin is on already: each is a part of it.
+ *
+ * @param args - The row and what the board knows
+ * @returns The sections, in order
+ */
+export function resourceChoices(args: {
+    context: Context; words: ChoiceWords;
+    /** Whether the row is a bin with an arrival: its fits are gaps, a free row's or a reservation's reservations. */
+    binRow: boolean;
+    /** The resource the row's bin is on, if any. */
+    current: string | undefined;
+    /** The fit's answer to placing the row's bin, or a reservation in its slot. */
+    answer: FitResult | undefined;
+    /** The resources the narrowing shows; `none`, every one. The current one is offered whatever it hides. */
+    shown: option<ReadonlySet<string>>;
+    /** Resources not to offer: a split's bin's own (A71). */
+    except?: ReadonlySet<string> | undefined;
+}): ChooserSection[] {
+    const { context, words, binRow, current, answer, shown, except } = args;
+    const range = (key: string) => { const r = context.resources.get(key)!; return `${words.number(r.min)}–${words.quantity(r.max)}`; };
+    const sections: ChooserSection[] = [];
+    if (current !== undefined && context.resources.has(current)) {
+        sections.push({ label: "Current", options: [{ key: current, label: context.resources.get(current)!.label, line: "current", range: range(current), state: "current" }] });
+    }
+    const others = [...context.resources.keys()].filter(key => key !== current && except?.has(key) !== true && (shown.type === "none" || shown.value.has(key)));
+    const heading = binRow ? "Gaps that fit" : "Can be reserved";
+    if (answer === undefined) {
+        sections.push({ label: heading, options: others.map(key => ({ key, label: context.resources.get(key)!.label, line: CHECKING, range: range(key), state: "disabled" })) });
+        return sections;
+    }
+    const fits: { option: ChooserOption; score: number }[] = [];
+    const refused: ChooserOption[] = [];
+    for (const key of others) {
+        const verdict = answer.resources.get(key);
+        if (verdict === undefined) continue;
+        const option = judged({ key, label: context.resources.get(key)!.label, range: range(key) }, verdict);
+        if (verdict.type === "fits") fits.push({ option, score: verdict.value.score }); else refused.push(option);
+    }
+    fits.sort((a, b) => compareFloat(b.score, a.score));
+    if (fits.length > 0) sections.push({ label: heading, options: fits.map(f => f.option) });
+    if (refused.length > 0) sections.push({ label: "Doesn’t fit", options: refused });
+    return sections;
+}

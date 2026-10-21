@@ -22,17 +22,18 @@ import {
 } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { getRegisteredPlatformImplementations, registerPlatformImplementation } from "@elaraai/east-ui-components";
+import { registerPlatformImplementation } from "@elaraai/east-ui-components";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId, type PlanWireRow } from "./model.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 import { NO_EDITS } from "./plan.test-utils.js";
-import { dropJob, jobsDrawn, mountCanvas, pressRow, releaseCanvases, type PressValue } from "./plan-editing.test-utils.js";
+import { CANVAS_MODULES, dropJob, jobsDrawn, mountCanvas, pressRow, releaseCanvases, type PressValue } from "./plan-editing.test-utils.js";
 import type { PlanEventRows } from "./root/events.js";
-import { el, elementKey, entry, mount, planHarness, programOf, rowAt, settle } from "./frame/harness.test-utils.js";
+import { el, elementKey, entry, planHarness, rowAt, settle } from "./frame/harness.test-utils.js";
 
-const h = planHarness();
+// The print works, and the paged canvases' presses, on e3.
+const h = planHarness({ "plan/plan-events": ex, ...CANVAS_MODULES });
 
 /** The selector of a group strip, by its id. */
 const stripAt = (id: PlanRowId) => `[data-plan-group=${JSON.stringify(rowKeyOf(id))}]`;
@@ -61,7 +62,7 @@ function jobsWith(seed: Jobs, key: string, change: (job: ValueTypeOf<typeof ex.P
 
 describe("the print works' rows (PB12–PB16)", () => {
     test("each press its bars, its stops' marks and its utilisation, under its hall's strip; each crew its shifts' chips; every element its event, keyed by its kind and key", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         const presses = [["Hall A", ["a1", "a2", "a3"]], ["Hall B", ["b1", "b2", "b3"]]] as const;
         const crews = [["Hall A", ["c1", "c2"]], ["Hall B", ["c3", "c4"]]] as const;
@@ -93,7 +94,7 @@ describe("the print works' rows (PB12–PB16)", () => {
         // The smallest builder's spring catalogue, the day before the window opens, on Press A1.
         const early = jobsWith(EVENT_JOBS, "J-3001", (job) => ({ ...job, start: some(new Date("2026-10-04T06:00:00Z")), end: some(new Date("2026-10-04T08:00:00Z")) }));
         await h.commit(ex.planEventJobs, early);
-        const { container } = mount(programOf(ex.planEvents));
+        const { container } = await h.mount(ex.planEvents);
         await settle();
         // Drawn past the window's start, where a pan reveals it.
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-3001")}`)).toBeTruthy();
@@ -101,7 +102,7 @@ describe("the print works' rows (PB12–PB16)", () => {
 
     test("an event whose resource is none draws on its kind's Unassigned row, after every resource kind", async () => {
         // The smallest builder's ticket books are timed, and on no press.
-        const { container } = mount(programOf(ex.planEvents));
+        const { container } = await h.mount(ex.planEvents);
         await settle();
         const rows = drawn(container);
         expect(rows[rows.length - 1]).toBe(rowKeyOf(entry("job.unassigned", "span")));
@@ -119,7 +120,7 @@ describe("the print works' rows (PB12–PB16)", () => {
 
 describe("the rows follow the records", () => {
     test("a job moved to another press by a commit draws on that press's row", async () => {
-        const { container } = mount(programOf(ex.planEvents));
+        const { container } = await h.mount(ex.planEvents);
         await settle();
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-3001")}`)).toBeTruthy();
         await h.commit(ex.planEventJobs, jobsWith(EVENT_JOBS, "J-3001", (job) => ({ ...job, press: some("b3") })));
@@ -128,7 +129,7 @@ describe("the rows follow the records", () => {
     });
 
     test("a read that fails leaves the rows standing and says why; the next that reads clears it", async () => {
-        const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
             // Each press's load: a press with none fails the rows' read.
@@ -144,8 +145,8 @@ describe("the rows follow the records", () => {
                 },
                 events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
             });
-        }))), getRegisteredPlatformImplementations());
-        const { container } = mount(program);
+        }))) };
+        const { container } = await h.mount(program);
         await settle();
         const a1 = rowAt(entry("presses.span", "a1"));
         expect(container.querySelector(`${a1} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
@@ -189,7 +190,7 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 
 describe("nesting (PB14)", () => {
     test("a resource nests under the one its parent names, and a parent declared collapsed draws folded from the first frame", async () => {
-        const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
             const machines = $.const(MACHINES, DictType(StringType, Machine));
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -202,8 +203,8 @@ describe("nesting (PB14)", () => {
                 },
                 events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
             });
-        }))), getRegisteredPlatformImplementations());
-        const { container } = mount(program);
+        }))) };
+        const { container } = await h.mount(program);
         await settle();
         // Line A is folded: Press A2 and Press A3, under it, are not drawn.
         expect(drawn(container)).toEqual([
@@ -247,7 +248,7 @@ describe("a link's event ends", () => {
     test("each end is found where its event draws — a plate's mark, a job's bar, a bindery job's chip, a delivery's tile: every row a link touches takes the links control, and a row's family draws every link (#1258)", async () => {
         const restore = ribbonWidth();
         try {
-            const { container } = mount(programOf(ex.planEventLinks));
+            const { container } = await h.mount(ex.planEventLinks);
             await settle();
             const ps = entry("setters.marks", "ps");
             const a1 = entry("presses.span", "Hall A", "a1");
@@ -307,7 +308,7 @@ describe("a link's event ends", () => {
     test("a ribbon meets its event however it draws — at the edge of a stop's mark, not across its row (#1258)", async () => {
         const restore = ribbonWidth();
         try {
-            const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
                 const presses = $.let(Record.bind(ex.planPrintPresses, []));
                 const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
                 const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
@@ -321,8 +322,8 @@ describe("a link's event ends", () => {
                     },
                     links: [Plan.link({ key: "plates", from: Plan.eventRef("job", "J-1001"), to: Plan.eventRef("stop", "S-01") })],
                 });
-            }))), getRegisteredPlatformImplementations());
-            const { container } = mount(program);
+            }))) };
+            const { container } = await h.mount(program);
             await settle();
             fireEvent.click(container.querySelector(`${rowAt(entry("presses.span", "a1"))} [data-plan-control="links"]`)!);
             await settle();
@@ -375,7 +376,7 @@ const COUNTED_PAGE = East.function([IntegerType, IntegerType], OptionType(Units)
 const UNITS_SOURCE = { id: "units", page: COUNTED_PAGE, total: UNITS_TOTAL, seek: none };
 
 describe("paged data beside event kinds", () => {
-    const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
         const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
         const source = $.const(UNITS_SOURCE, Paged.Types.Source(Units));
@@ -391,12 +392,12 @@ describe("paged data beside event kinds", () => {
             resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
             events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
         });
-    }))), getRegisteredPlatformImplementations());
+    }))) };
     const presses = ["a1", "a2", "a3", "b1", "b2", "b3"].map((k) => entry("presses.span", k));
     const units = ["u00", "u01", "u02"].map((k) => entry("units", k));
 
     test("a commit that changes none of the event kinds' rows reads no window again; one that moves a job does", async () => {
-        const { container } = mount(program);
+        const { container } = await h.mount(program);
         await settle();
         expect(drawn(container)).toEqual([...presses, ...units].map(rowKeyOf));
         const served = pagesServed;
@@ -408,7 +409,7 @@ describe("paged data beside event kinds", () => {
     });
 
     test("the event kinds' rows lead every window, drawn once, and a commit draws them again in place — the units' rows after them", async () => {
-        const { container } = mount(program);
+        const { container } = await h.mount(program);
         await settle();
         expect(drawn(container)).toEqual([...presses, ...units].map(rowKeyOf));
         expect(container.querySelector('[data-slot="footerTransport"]')?.textContent).toBe("3 loaded of 3");

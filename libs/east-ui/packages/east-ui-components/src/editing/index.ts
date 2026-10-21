@@ -18,6 +18,7 @@
 export {
     EditSession,
     type EditSessionBinding,
+    type HeldRows,
     type EntryVersion,
     type EntryUpdate,
     type EditIssue,

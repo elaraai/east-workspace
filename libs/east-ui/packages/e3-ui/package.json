@@ -24,12 +24,18 @@
     "./examples/*": {
       "types": "./dist/test/*.examples.d.ts",
       "default": "./dist/test/*.examples.js"
+    },
+    "./examples-package": {
+      "types": "./dist/test/examples-package.d.ts",
+      "default": "./dist/test/examples-package.js"
     }
   },
   "files": [
     "dist/src",
     "dist/test/**/*.examples.*",
     "dist/test/roster/warehouse.*",
+    "dist/test/allocation/kiln-yard.*",
+    "dist/test/examples-package.*",
     "!dist/**/*.spec.*",
     "README.md",
     "CONTRIBUTING.md",
@@ -74,6 +80,7 @@
     "@elaraai/e3-core": "workspace:*",
     "@elaraai/east-node-std": "workspace:*",
     "@elaraai/east-py-datascience": "workspace:*",
+    "@elaraai/east-web-std": "workspace:*",
     "@elaraai/eslint-plugin-east": "workspace:*",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8",

@@ -10,27 +10,24 @@
  * and `onSearchChange`, which reach the output's preview. The log is given the
  * band's `toolbar` too, and the host's stream, search and matches, and the
  * host's handle reaches both the output and the log (#1209). TaskPreview passes
- * each to the data task's preview.
+ * each to the data task's preview. The data task is the report e3 itself
+ * deploys (#1377), its details read from it; the output's preview and the log
+ * stand in for what they are given.
  */
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, renderHook, cleanup, screen, fireEvent } from "@testing-library/react";
+import { describe, test, expect, afterEach, vi } from "vitest";
+import { render, renderHook, screen, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { variant, type ValueTypeOf } from "@elaraai/east";
-import { taskGet } from "@elaraai/e3-api-client";
-import type { TaskDetailsType } from "@elaraai/e3-types";
+import type { RequestOptions } from "@elaraai/e3-api-client";
 import { system } from "@elaraai/east-ui-components";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import { e3Harness } from "../e3-web-mount.test-utils.js";
 import { DataTaskPreview } from "./DataTaskPreview.js";
 import { TaskPreview, type TaskPreviewProps } from "./TaskPreview.js";
 import type { DatasetPreviewProps } from "./DatasetPreview.js";
 import type { TaskLogsProps } from "./TaskLogs.js";
 import { logControlsOf, usePreviewControls, type PreviewControls } from "./preview-controls.js";
-
-vi.mock("@elaraai/e3-api-client", async (importOriginal) => ({
-    ...await importOriginal<typeof import("@elaraai/e3-api-client")>(),
-    taskGet: vi.fn(),
-}));
 
 /** What the output's preview and the log were last given. */
 const seen = vi.hoisted(() => ({
@@ -43,27 +40,9 @@ vi.mock("./DatasetPreview.js", async (importOriginal) => ({
 }));
 vi.mock("./TaskLogs.js", () => ({ TaskLogs: (props: TaskLogsProps) => { seen.logs = props; return <div>the logs</div>; } }));
 
-// jsdom has no `CSS.escape`, and the switch's radio group finds its items
-// through it — every browser has one. A stand-in escaping whatever an id may
-// hold.
-const cssApi = ((globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {});
-cssApi.escape ??= (s: string) => s.replace(/[^\w-]/g, (c) => `\\${c}`);
-
-/** The switch's indicator observes sizes; jsdom has no ResizeObserver. */
-class ResizeObserverStub {
-    observe(): void { /* noop */ }
-    unobserve(): void { /* noop */ }
-    disconnect(): void { /* noop */ }
-}
-
-beforeEach(() => {
-    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
-});
+const h = e3Harness({ "bind/data/data": ex }, { measure: false });
 
 afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-    vi.mocked(taskGet).mockReset();
     seen.output = undefined;
     seen.logs = undefined;
 });
@@ -73,21 +52,12 @@ function makeControls(): PreviewControls {
     return renderHook(() => usePreviewControls()).result.current;
 }
 
-const API = "http://e3.test";
-
-/** A data task, `report`, whose output is `.tasks.report.output`. */
-const DETAILS: ValueTypeOf<typeof TaskDetailsType> = {
-    name: "report",
-    hash: "2".repeat(64),
-    body: variant("east", { program: "3".repeat(64) }),
-    runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
-    inputs: [],
-    output: { path: [variant("field", "tasks"), variant("field", "report"), variant("field", "output")], kind: variant("value", null) },
-    role: variant("data", null),
-};
+/** The data task the previews show, the report: its output is `.tasks.preview_report.output`. */
+const REPORT = ex.previewReportTask.name;
+/** The requests' options: their token, and the harness's fetch they go through. */
+const options = (): RequestOptions => ({ token: null, fetch: h.e3.fetch });
 
 function renderIn(children: React.ReactNode) {
-    vi.mocked(taskGet).mockResolvedValue(DETAILS as never);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const tree = (node: React.ReactNode) => (
         <ChakraProvider value={system}>
@@ -102,7 +72,7 @@ describe("DataTaskPreview's tab (#1120)", () => {
     test("shows the tab a host controls, and tells it of a switch rather than making it", async () => {
         const onViewChange = vi.fn();
         const preview = (view: "output" | "logs") =>
-            <DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" view={view} onViewChange={onViewChange} />;
+            <DataTaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} view={view} onViewChange={onViewChange} />;
         const { rerenderIn } = renderIn(preview("logs"));
         expect(await screen.findByText("the logs")).not.toBe(null);
 
@@ -117,7 +87,7 @@ describe("DataTaskPreview's tab (#1120)", () => {
 
     test("switches itself when the host does not control it, and tells the host", async () => {
         const onViewChange = vi.fn();
-        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" onViewChange={onViewChange} />);
+        renderIn(<DataTaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} onViewChange={onViewChange} />);
         expect(await screen.findByText("the output")).not.toBe(null);
 
         fireEvent.click(screen.getByTitle("Logs"));
@@ -128,7 +98,7 @@ describe("DataTaskPreview's tab (#1120)", () => {
 
 describe("DataTaskPreview's band (#1120)", () => {
     test("is drawn unless the host draws its controls", async () => {
-        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" />);
+        renderIn(<DataTaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} />);
         expect(await screen.findByText("the output")).not.toBe(null);
         expect(screen.getByTitle("Logs")).toBeTruthy();
         expect(seen.output?.toolbar).toBe(true);
@@ -136,7 +106,7 @@ describe("DataTaskPreview's band (#1120)", () => {
 
     test("toolbar={false} draws no switch, and the output's preview no band; the search reaches it", async () => {
         const onSearchChange = vi.fn();
-        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report"
+        renderIn(<DataTaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()}
             toolbar={false} search="k01" onSearchChange={onSearchChange} />);
         expect(await screen.findByText("the output")).not.toBe(null);
         expect(screen.queryByTitle("Logs")).toBe(null);
@@ -149,7 +119,7 @@ describe("DataTaskPreview's band (#1120)", () => {
 
 describe("DataTaskPreview's log (#1209)", () => {
     test("draws its band unless the host draws its controls", async () => {
-        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" view="logs" />);
+        renderIn(<DataTaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} view="logs" />);
         expect(await screen.findByText("the logs")).not.toBe(null);
         expect(seen.logs?.toolbar).toBe(true);
     });
@@ -159,7 +129,7 @@ describe("DataTaskPreview's log (#1209)", () => {
         const onLogStreamChange = vi.fn();
         const onLogSearchChange = vi.fn();
         const onLogMatchesChange = vi.fn();
-        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" view="logs" toolbar={false}
+        renderIn(<DataTaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} view="logs" toolbar={false}
             logStream="stderr" onLogStreamChange={onLogStreamChange} logSearch="err" onLogSearchChange={onLogSearchChange}
             onLogMatchesChange={onLogMatchesChange} controls={controls} />);
         expect(await screen.findByText("the logs")).not.toBe(null);
@@ -172,7 +142,7 @@ describe("DataTaskPreview's log (#1209)", () => {
 
     test("the output's preview is given the host's handle too", async () => {
         const controls = makeControls();
-        renderIn(<DataTaskPreview apiUrl={API} repo="default" workspace="w" task="report" controls={controls} />);
+        renderIn(<DataTaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} controls={controls} />);
         expect(await screen.findByText("the output")).not.toBe(null);
         expect(seen.output?.controls).toBe(controls);
     });
@@ -184,7 +154,7 @@ describe("TaskPreview (#1120)", () => {
         const first = vi.fn();
         const second = vi.fn();
         const preview = (controls: { view: "output" | "logs"; toolbar: boolean; search: string; onSearchChange: (s: string) => void }) => (
-            <TaskPreview apiUrl={API} repo="default" workspace="w" task="report" bare onViewChange={onViewChange} {...controls} />
+            <TaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} bare onViewChange={onViewChange} {...controls} />
         );
         const controls = { view: "output" as const, toolbar: false, search: "k01", onSearchChange: first };
         const { rerenderIn } = renderIn(preview(controls));
@@ -206,7 +176,7 @@ describe("TaskPreview (#1120)", () => {
 
     test("tells the host of a switch in a data task's preview", async () => {
         const onViewChange = vi.fn();
-        renderIn(<TaskPreview apiUrl={API} repo="default" workspace="w" task="report" view="logs" onViewChange={onViewChange} />);
+        renderIn(<TaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} view="logs" onViewChange={onViewChange} />);
         expect(await screen.findByText("the logs")).not.toBe(null);
         fireEvent.click(screen.getByTitle("Output"));
         await vi.waitFor(() => expect(onViewChange).toHaveBeenCalledWith("output"));
@@ -217,7 +187,7 @@ describe("TaskPreview (#1209)", () => {
     test("passes a data task's log controls and the host's handle to its preview, each change alone reaching it", async () => {
         type Log = Required<Pick<TaskPreviewProps, "logStream" | "onLogStreamChange" | "logSearch" | "onLogSearchChange" | "onLogMatchesChange" | "controls">>;
         const preview = (log: Log) => (
-            <TaskPreview apiUrl={API} repo="default" workspace="w" task="report" bare view="logs" toolbar={false} {...log} />
+            <TaskPreview apiUrl={h.e3.apiUrl} repo={h.e3.repo} workspace={h.workspace} task={REPORT} requestOptions={options()} bare view="logs" toolbar={false} {...log} />
         );
         const log: Log = {
             logStream: "stdout", onLogStreamChange: vi.fn(), logSearch: "a", onLogSearchChange: vi.fn(),

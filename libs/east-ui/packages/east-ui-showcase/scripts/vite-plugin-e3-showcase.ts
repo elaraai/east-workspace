@@ -2,10 +2,10 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Licensed under AGPL-3.0. See LICENSE file for details.
  *
- * Vite plugin that serves the showcase's e3 package (#849): the zip
- * `e3-showcase-package.ts` exports, of every e3-ui example module's e3
- * definitions, which the e3 the page runs imports as it starts
- * (`showcase-e3.ts`). The page imports where it is from the virtual module
+ * Vite plugin that serves the showcase's e3 package (#849): the zip e3-ui's
+ * examples' package step writes (`@elaraai/e3-ui/examples-package`, #1375), of
+ * every e3-ui example module's e3 definitions, which the e3 the page runs
+ * imports as it starts (`showcase-e3.ts`). The page imports where it is from the virtual module
  * `virtual:e3-showcase-package`. The dev server serves it at
  * `/e3-showcase.zip`, building it when it is first asked for; `vite build`
  * emits it as an asset named by its content (`assets/e3-showcase-<hash>.zip`),
@@ -39,10 +39,9 @@ const PACKAGE_MODULE = "virtual:e3-showcase-package";
 const RESOLVED_PACKAGE_MODULE = `\0${PACKAGE_MODULE}`;
 
 export interface E3ShowcaseOptions {
-    /** The showcase package's root, where the package step runs. */
-    rootDir: string;
-    /** e3-ui's root: the dev server builds the zip again and reloads the page
-     *  when anything under its `dist/` or `test/` changes. */
+    /** e3-ui's root: its examples' package step is compiled under its `dist/`,
+     *  and the dev server builds the zip again and reloads the page when
+     *  anything under its `dist/` or `test/` changes. */
     e3UiDir: string;
 }
 
@@ -52,20 +51,20 @@ function under(dir: string, file: string): boolean {
 }
 
 /**
- * Runs the package step in a node process of its own and reads the zip it
- * writes.
+ * Runs e3-ui's examples' package step in a node process of its own and reads
+ * the zip it writes.
  *
- * @param rootDir - The showcase package's root
+ * @param e3UiDir - e3-ui's root, built
  * @returns The zip's bytes
  * @throws {Error} When the step fails, with what it wrote to stderr
  */
-export async function buildE3ShowcaseZip(rootDir: string): Promise<Uint8Array> {
+export async function buildE3ShowcaseZip(e3UiDir: string): Promise<Uint8Array> {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "e3-showcase-"));
     try {
         const out = path.join(dir, E3_SHOWCASE_ZIP);
-        const step = path.join(rootDir, "scripts", "e3-showcase-package.ts");
+        const step = path.join(e3UiDir, "dist", "test", "examples-package.js");
         await new Promise<void>((resolve, reject) => {
-            execFile(process.execPath, ["--import", "tsx", step, out], { cwd: rootDir }, (error, _stdout, stderr) => {
+            execFile(process.execPath, [step, out], { cwd: e3UiDir }, (error, _stdout, stderr) => {
                 if (error === null) resolve();
                 else reject(new Error(`the showcase's e3 package step failed: ${stderr.trim() || error.message}`));
             });
@@ -108,7 +107,7 @@ export function e3ShowcasePlugin(opts: E3ShowcaseOptions): Plugin {
             if (serving) return `export default ${JSON.stringify(`${base}${E3_SHOWCASE_ZIP}`)};`;
             // Named by its content: Rollup gives the asset the hash of its
             // bytes, and writes its URL where the module reads it.
-            const ref = this.emitFile({ type: "asset", name: E3_SHOWCASE_ZIP, source: await buildE3ShowcaseZip(opts.rootDir) });
+            const ref = this.emitFile({ type: "asset", name: E3_SHOWCASE_ZIP, source: await buildE3ShowcaseZip(opts.e3UiDir) });
             return `export default import.meta.ROLLUP_FILE_URL_${ref};`;
         },
 
@@ -130,7 +129,7 @@ export function e3ShowcasePlugin(opts: E3ShowcaseOptions): Plugin {
                     next();
                     return;
                 }
-                const building = zip ??= buildE3ShowcaseZip(opts.rootDir);
+                const building = zip ??= buildE3ShowcaseZip(opts.e3UiDir);
                 building.then(
                     (bytes) => {
                         res.setHeader("Content-Type", "application/zip");

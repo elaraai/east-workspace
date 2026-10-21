@@ -4,7 +4,7 @@
  */
 
 /** Calendar's UTC windows and projected data; no UI or record writes. */
-import { DateTimeType, compareFor, equalFor, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { CalendarPayloadType, ScheduleEventRefType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import { shiftCalendar } from "../shared/time/calendar-math.js";
 import { type ScheduleItemValue } from "../shared/schedule/overlaps.js";
@@ -54,6 +54,7 @@ export const parseTimeKey = parseFor(DateTimeType);
 export const sameResource = equalFor(ScheduleResourceRefType);
 const compareDate = compareFor(DateTimeType);
 const compareRef = compareFor(ScheduleEventRefType);
+const compareString = compareFor(StringType);
 
 /** Calendar days including the surrounding weeks of a month. */
 export function calendarRange(view: CalendarView, settings: CalendarValue["settings"]): CalendarRange {
@@ -97,6 +98,25 @@ export function chronological(items: readonly CalendarItem[]): CalendarItem[] {
     return [...items].sort((a, b) => {
         const time = a.start.type === "some" && b.start.type === "some" ? compareDate(a.start.value, b.start.value) : 0;
         return time || compareRef(a, b);
+    });
+}
+/**
+ * What a resource Chooser offers (#1343): each kind's rows the rail shows and,
+ * whatever it hides, the rows `keep` names — an event's own resource stays
+ * choosable, in the kind's order.
+ *
+ * @param all - Every resource kind, every row
+ * @param shown - Each kind's rows the rail shows
+ * @param keep - The rows to offer whatever the rail shows
+ * @returns Each kind with the rows its Chooser offers
+ */
+export function resourceChoices(all: CalendarValue["resources"], shown: CalendarValue["resources"], keep: readonly CalendarResource[]): CalendarValue["resources"] {
+    return all.map((kind, i) => {
+        const offered = shown[i]?.rows ?? kind.rows;
+        if (offered.length === kind.rows.length) return kind;
+        const shows = new SortedSet(offered.map(row => row.key), compareString);
+        return { ...kind, rows: kind.rows.filter(row => shows.has(row.key)
+            || keep.some(ref => sameResource(ref, { kind: kind.key, key: row.key }))) };
     });
 }
 /** Whether an event is on a row, including the unassigned row. */

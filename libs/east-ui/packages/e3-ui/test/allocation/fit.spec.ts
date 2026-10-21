@@ -1,0 +1,294 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+/**
+ * The Allocation's pure functions and the yard's fit, held to the spec's worked
+ * facts (`Allocation Spec.md` §0, §12.4), over the board's reading of the
+ * yard's own bins (`Allocation.Types.Day(KilnBin)`, #1371). Every expected
+ * figure and word is the mock's own functions' answer over the same yard.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, isTypeEqual, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
+import { Allocation } from "@elaraai/e3-ui";
+import { allocationResourceLine } from "@elaraai/e3-ui/internal";
+import { KilnBin, YardBin, YardPlan, yardDay, yardPlanDay } from "./kiln-yard.js";
+import { yardContext as context } from "./yard-context.js";
+import { bulkFitBody, yardFitBody } from "./allocation.examples.js";
+import * as ex from "./fit.examples.js";
+
+describeEast("Allocation — pure functions", test => {
+    Assert.examples(test, {
+        allocationDayLoads: ex.allocationDayLoads, allocationRules: ex.allocationRules, allocationAnswerPlace: ex.allocationAnswerPlace,
+        allocationAnswerTake: ex.allocationAnswerTake, allocationLookahead: ex.allocationLookahead, allocationChecks: ex.allocationChecks,
+        allocationSlots: ex.allocationSlots,
+    });
+}, { platformFns: TestImpl });
+
+const Request = Allocation.Types.FitRequest(KilnBin);
+type Fit = ValueTypeOf<typeof Allocation.Types.Fit>;
+type Result = ValueTypeOf<typeof Allocation.Types.FitResult>;
+type Bin = ValueTypeOf<typeof YardBin>;
+const byString = compareFor(StringType);
+
+// The plan day as a fresh decoded value, so a test may change it.
+const fresh = () => decodeBeast2For(YardPlan)(encodeBeast2For(YardPlan)(yardPlanDay));
+
+const builtIn = East.compile(East.function([Request], Allocation.Types.FitResult, ($, req) => {
+    const answer = $.const(Allocation.answer(KilnBin));
+    const rule = $.const(Allocation.fit);
+    return answer(req, rule, "ranked by load, kind and spare days");
+}), []);
+const yard = East.compile(yardFitBody, []);
+const bulk = East.compile(bulkFitBody, []);
+const loads = East.compile(Allocation.loads(KilnBin), []);
+const check = East.compile(Allocation.check(KilnBin), []);
+const slots = East.compile(Allocation.slots(KilnBin), []);
+const candidates = East.compile(Allocation.candidates(KilnBin), []);
+
+const placeArrival = (code: string, plan = fresh()): ValueTypeOf<typeof Request> => ({
+    day: yardDay, plan, context, ask: variant("place", { subject: variant("arrival", code), quantity: context.arrivals.get(code)!.quantity }),
+});
+/** A reservation in a lane slot, on the kilns given: no arrival, no quantity, no kind and no hold; its row's own fields their type's default. */
+const reservation = (lane: string, at: Date, parts: SortedMap<string, number>): Bin => ({
+    lane, at, arrival: none, quantity: 0, kind: none, hold: variant("days", 0), parts,
+    row: { bay: lane, at, load: none, m3: 0, spec: none, dryFor: variant("days", 0), kilns: parts,
+        specBooked: "", specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none },
+});
+/** The fits of an answer's resources, best first: name, score, reason, warning. */
+const ranked = (result: Result) => [...result.resources]
+    .flatMap(([key, fit]) => fit.type === "fits" ? [{ key, ...fit.value }] : [])
+    .sort((a, b) => b.score - a.score)
+    .map(f => [f.key, f.score, f.why, f.warn.type === "some" ? f.warn.value : null]);
+const refusals = (result: Result) => Object.fromEntries([...result.resources]
+    .flatMap(([key, fit]) => fit.type === "refused" ? [[key, fit.value.reason]] : []));
+const refusal = (fit: Fit | undefined) => { assert.ok(fit?.type === "refused"); return fit.value; };
+
+test("§0 worked facts — each library load's fits, best first, with the mock's scores and reasons", () => {
+    assert.deepEqual(ranked(builtIn(placeArrival("LD-2231"))), [
+        ["K-107", 0.875, "0 d spare to Wed 19 · leaves 21 m³ · takes 12–24", null],
+        ["K-601", -0.39, "open gap · leaves 21 m³ · min 40 · 19 short", "under min"],
+    ]);
+    assert.deepEqual(ranked(builtIn(placeArrival("LD-2232"))), [["K-601", -0.24, "open gap · leaves 30 m³ · min 40 · 10 short", "under min"]]);
+    assert.deepEqual(ranked(builtIn(placeArrival("LD-2233"))), [["K-601", -0.30666666666666664, "open gap · leaves 26 m³ · min 40 · 14 short", "under min"]]);
+    assert.deepEqual(ranked(builtIn(placeArrival("LD-2234"))), [["K-601", -0.44, "open gap · leaves 18 m³ · min 40 · 22 short", "under min"]]);
+    assert.deepEqual(ranked(builtIn(placeArrival("LD-2235"))), [
+        ["K-305", 0.8, "0 d spare to Thu 20 · leaves 8 m³ · takes 4–10", null],
+        ["K-601", -0.6066666666666667, "open gap · leaves 8 m³ · min 40 · 32 short", "under min"],
+    ]);
+    assert.deepEqual(ranked(builtIn(placeArrival("LD-2236"))).map(f => [f[0], f[3]]), [["K-107", "under min"], ["K-103", "under min"], ["K-601", "under min"]]);
+});
+
+test("§0 worked facts — LD-2231's refusals, each group's reason, with K-503 and K-504 busy", () => {
+    const result = builtIn(placeArrival("LD-2231"));
+    const refused = refusals(result);
+    assert.equal(Object.keys(refused).length, 31);
+    assert.equal(refused["K-503"], "busy until Fri 14");
+    assert.equal(refused["K-504"], "busy until Sat 15");
+    assert.equal(refused["K-103"], "gap too short · next job Tue 18");
+    assert.equal(refused["K-105"], "gap too short · next job Mon 17");
+    assert.equal(refused["K-207"], "over max by 25 m³");
+    assert.equal(refused["K-305"], "over max by 11 m³");
+    // Each refusal's group and measure: what a run of refusals gathers into its label.
+    const busy = refusal(result.resources.get("K-503"));
+    assert.equal(busy.group, "Busy");
+    assert.ok(busy.measure.type === "day" && busy.measure.value.lead === "until");
+    assert.equal(busy.measure.value.at.getTime(), Date.UTC(2027, 4, 14));
+    const gap = refusal(result.resources.get("K-105"));
+    assert.equal(gap.group, "Gap too short");
+    assert.ok(gap.measure.type === "day" && gap.measure.value.lead === "next job");
+    assert.equal(gap.measure.value.at.getTime(), Date.UTC(2027, 4, 17));
+    const over = refusal(result.resources.get("K-207"));
+    assert.equal(over.group, "Over max");
+    assert.ok(over.measure.type === "amount" && over.measure.value.lead === "by" && over.measure.value.value === 25);
+});
+
+test("§0 worked facts — bin 3113 (LD-2210, 32 m³ on K-108) fits K-103 and K-601 besides its own; 30 kilns refuse it", () => {
+    const result = builtIn({ day: yardDay, plan: fresh(), context, ask: variant("place", { subject: variant("bin", "3113"), quantity: 32 }) });
+    assert.deepEqual(ranked(result), [
+        ["K-103", 1, "0 d spare to Tue 18 · leaves 32 m³ · takes 16–32", null],
+        ["K-108", 0.92, "2 d spare to Thu 20 · leaves 32 m³ · takes 16–32", null],
+        ["K-601", -0.20666666666666667, "open gap · leaves 32 m³ · min 40 · 8 short", "under min"],
+    ]);
+    assert.equal(Object.keys(refusals(result)).length, 30);
+});
+
+test("§12.4 the yard's greedy look-ahead — LD-2236 reorders: K-103, K-601, then K-107, which leaves two loads with no fit", () => {
+    const result = yard(placeArrival("LD-2236"));
+    assert.deepEqual(ranked(result).map(f => [f[0], f[2]]), [
+        ["K-103", "1 d spare to Tue 18 · leaves 11 m³ · min 16 · 5 short · leaves 1 load with no fit"],
+        ["K-601", "open gap · leaves 11 m³ · min 40 · 29 short · leaves 1 load with no fit"],
+        ["K-107", "2 d spare to Wed 19 · leaves 11 m³ · min 12 · 1 short · leaves 2 loads with no fit"],
+    ]);
+    assert.equal(result.basis, "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+});
+
+test("§12.4 the yard's greedy look-ahead — LD-2231 ranks K-107 first, because K-601 is the only fit for LD-2232, LD-2233 and LD-2234", () => {
+    assert.deepEqual(ranked(yard(placeArrival("LD-2231"))).map(f => [f[0], f[1], f[2]]), [
+        ["K-107", -0.125, "0 d spare to Wed 19 · leaves 21 m³ · takes 12–24 · leaves 1 load with no fit"],
+        ["K-601", -2.39, "open gap · leaves 21 m³ · min 40 · 19 short · leaves 2 loads with no fit"],
+    ]);
+    // A refusal passes through the look-ahead as the rules give it.
+    assert.equal(refusals(yard(placeArrival("LD-2231")))["K-503"], "busy until Fri 14");
+});
+
+test("the yard's rule over the ready-made fit refuses what the built-in rules accept", () => {
+    const fit = bulk(placeArrival("LD-2235")).resources.get("K-601");
+    assert.equal(refusal(fit).reason, "bulk kilns take 20 m³ and more");
+    assert.equal(builtIn(placeArrival("LD-2235")).resources.get("K-601")?.type, "fits");
+    assert.equal(bulk(placeArrival("LD-2231")).resources.get("K-601")?.type, "fits");
+});
+
+test("§0 worked facts — the day's loads: 26 bins, 556 m³; 21 kilns loading, 10 free, 2 busy", () => {
+    const all = loads(yardDay, fresh(), context);
+    const states = [...all.values()].reduce((m, l) => ({ ...m, [l.state.type]: (m[l.state.type] ?? 0) + 1 }), {} as Record<string, number>);
+    assert.deepEqual(states, { loading: 21, free: 10, busy: 2 });
+    assert.equal([...all.values()].reduce((sum, l) => sum + l.fill, 0), 556);
+    assert.equal([...all.values()].reduce((sum, l) => sum + Number(l.bins), 0), 26);
+    const k105 = all.get("K-105")!;
+    assert.ok(k105.hold.type === "some");
+    assert.equal(k105.hold.value.to.getTime(), Date.UTC(2027, 4, 19));
+});
+
+test("A19 — every resource row's line at open, word for word as the mock draws them, and its tone", () => {
+    const line = East.compile(allocationResourceLine, []);
+    const all = loads(yardDay, fresh(), context);
+    const lines = [...context.resources.values()].map(r => { const l = line(yardDay, r, all.get(r.key)!, "m³"); return [r.label, l.text, l.tone.type]; });
+    assert.deepEqual(lines, [
+        ["K-101", "31 m³ · takes 16–32", "neutral"], ["K-102", "27 m³ · takes 16–32", "neutral"],
+        ["K-103", "Hall A · 32 m³ · takes 16–32 m³", "neutral"], ["K-104", "Hall A · 32 m³ · takes 16–32 m³", "neutral"],
+        ["K-105", "32 m³ · takes 16–32 · 2 d into next job", "warning"], ["K-106", "20 m³ · takes 12–24", "neutral"],
+        ["K-107", "Hall A · 24 m³ · takes 12–24 m³", "neutral"], ["K-108", "32 m³ · takes 16–32", "neutral"],
+        ["K-109", "24 m³ · takes 12–24", "neutral"], ["K-110", "Hall A · 24 m³ · takes 12–24 m³", "neutral"],
+        ["K-201", "35 m³ · takes 20–40", "neutral"], ["K-202", "39 m³ · takes 20–40", "neutral"], ["K-203", "39 m³ · takes 20–40", "neutral"],
+        ["K-204", "Hall B · 40 m³ · takes 20–40 m³", "neutral"], ["K-205", "37 m³ · takes 20–40", "neutral"], ["K-206", "37 m³ · takes 20–40", "neutral"],
+        ["K-207", "44 m³ · max 40 · 4 over", "danger"], ["K-208", "Hall B · 40 m³ · takes 20–40 m³", "neutral"], ["K-209", "35 m³ · takes 20–40", "neutral"],
+        ["K-301", "5 m³ · takes 4–10 · 3 d into next job", "warning"], ["K-302", "5 m³ · takes 4–10", "neutral"], ["K-303", "10 m³ · takes 4–10", "neutral"],
+        ["K-304", "7 m³ · takes 4–10", "neutral"], ["K-305", "Compact · 10 m³ · takes 4–10 m³", "neutral"],
+        ["K-401", "15 m³ · takes 10–20", "neutral"], ["K-402", "19 m³ · takes 10–20", "neutral"], ["K-403", "16 m³ · takes 10–20", "neutral"],
+        ["K-501", "47 m³ · takes 24–48", "neutral"], ["K-502", "Large · 48 m³ · takes 24–48 m³", "neutral"],
+        ["K-503", "busy until Fri 14", "neutral"], ["K-504", "busy until Sat 15", "neutral"],
+        ["K-601", "Bulk · 60 m³ · takes 40–60 m³", "neutral"], ["K-602", "Bulk · 60 m³ · takes 40–60 m³", "neutral"],
+    ]);
+    const k207 = line(yardDay, context.resources.get("K-207")!, all.get("K-207")!, "m³");
+    assert.deepEqual([k207.over, k207.under, k207.overlap], [true, false, false]);
+    const k105 = line(yardDay, context.resources.get("K-105")!, all.get("K-105")!, "m³");
+    assert.deepEqual([k105.over, k105.under, k105.overlap], [false, false, true]);
+    // Under its minimum it warns; with only a reservation (on a kiln with an open gap) it reads `reserved`.
+    const plan = fresh();
+    plan.bins.get("3113")!.quantity = 10;
+    plan.bins.get("3113")!.parts.set("K-108", 10);
+    const under = line(yardDay, context.resources.get("K-108")!, loads(yardDay, plan, context).get("K-108")!, "m³");
+    assert.deepEqual([under.text, under.tone.type, under.under], ["10 m³ · min 16 · 6 short", "warning", true]);
+    plan.bins.set("R1", reservation("B-1", new Date(Date.UTC(2027, 4, 11, 0, 15)), new SortedMap([["K-601", 0]], byString)));
+    assert.equal(line(yardDay, context.resources.get("K-601")!, loads(yardDay, plan, context).get("K-601")!, "m³").text, "reserved · takes 40–60");
+});
+
+test("§0 worked facts — the checks: K-207 over max, K-105 and K-301 overlap their next jobs, nothing unlinked", () => {
+    const issues = check(yardDay, fresh(), context);
+    assert.deepEqual(issues.map(i => [i.kind.type, i.title, i.detail, i.tone.type]), [
+        ["overlap", "K-105", "8-day hold to Tue 18 · runs 2 d into the job planned Mon 17", "warning"],
+        ["overlap", "K-301", "8-day hold to Tue 18 · runs 3 d into the job planned Sun 16", "warning"],
+        ["over", "K-207", "44 m³ · max 40 · 4 over · over max", "danger"],
+    ]);
+    // Each resource's issue offers to move its latest bin.
+    const over = issues.find(i => i.kind.type === "over")!;
+    assert.ok(over.fix.type === "some" && over.fix.value.type === "move");
+    assert.equal(over.fix.value.value, "3109");
+});
+
+test("the checks: a bin not linked, a bin partly allocated, and a load under its minimum", () => {
+    const plan = fresh();
+    plan.bins.get("3101")!.parts.clear();
+    plan.bins.get("3113")!.parts.set("K-108", 10);
+    const issues = check(yardDay, plan, context);
+    const unlinked = issues.find(i => i.kind.type === "unlinked")!;
+    assert.deepEqual([unlinked.title, unlinked.detail], ["LD-2201 · 35 m³", "B-3 01:55 · no resource yet"]);
+    assert.ok(unlinked.fix.type === "some" && unlinked.fix.value.type === "choose");
+    const partly = issues.find(i => i.kind.type === "unallocated")!;
+    assert.deepEqual([partly.title, partly.detail], ["LD-2210 · 32 m³", "22 m³ unallocated · B-2 10:35"]);
+    assert.ok(partly.fix.type === "some" && partly.fix.value.type === "find");
+    const under = issues.find(i => i.kind.type === "under")!;
+    assert.deepEqual([under.title, under.detail], ["K-108", "10 m³ · min 16 · 6 short · a warning, Save still works"]);
+    assert.equal(check(yardDay, plan, { ...context, rules: { under: false } }).filter(i => i.kind.type === "under").length, 0);
+});
+
+test("A36 — booking takes the plan day's first free slot, by time then lane order, from 00:00, whatever the clock says", () => {
+    const first = (plan: ValueTypeOf<typeof YardPlan>) => slots(yardDay, plan, context).find(s => s.status.type === "free")!;
+    const plan = fresh();
+    const free = first(plan);
+    assert.deepEqual([free.lane, free.at.getTime()], ["B-1", Date.UTC(2027, 4, 11, 0, 15)]);
+    // Taken, the next is B-2 at 00:35: time first, then lane order.
+    const parts = new SortedMap([["K-107", 21]], byString);
+    plan.bins.set("N1", { lane: "B-1", at: free.at, arrival: some("LD-2231"), quantity: 21, kind: some("MC12"), hold: variant("days", 8), parts,
+        row: { bay: "B-1", at: free.at, load: some("LD-2231"), m3: 21, spec: some("MC12"), dryFor: variant("days", 8), kilns: parts,
+            specBooked: "MC12", specMeasured: "MC12", gradeBooked: "R", gradeMeasured: "R2", instruction: none } });
+    const next = first(plan);
+    assert.deepEqual([next.lane, next.at.getTime()], ["B-2", Date.UTC(2027, 4, 11, 0, 35)]);
+});
+
+test("§0 worked facts — the day's slots: 80 Table rows, 18 slots holding bins", () => {
+    const all = slots(yardDay, fresh(), context);
+    assert.equal(all.length, 72);
+    assert.equal(all.reduce((rows, s) => rows + Math.max(1, s.bins.length), 0), 80);
+    assert.equal(all.filter(s => s.bins.length > 0).length, 18);
+    assert.ok(all.every((s, i) => i === 0 || s.at.getTime() >= all[i - 1]!.at.getTime()));
+});
+
+test("a take: a verdict for every bin on the resource, and one for reserving — refused full at its maximum", () => {
+    const plan = fresh();
+    const ask = (resource: string): ValueTypeOf<typeof Request> => ({ day: yardDay, plan, context, ask: variant("take", { resource }) });
+    const k203 = builtIn(ask("K-203"));
+    assert.equal(k203.bins.size, 26);
+    assert.equal(k203.resources.size, 0);
+    assert.equal(k203.reserve.type === "some" && k203.reserve.value.type, "fits");
+    plan.bins.get("3105")!.quantity = 40;
+    plan.bins.get("3105")!.parts.set("K-203", 40);
+    const full = builtIn(ask("K-203"));
+    assert.ok(full.reserve.type === "some");
+    assert.equal(refusal(full.reserve.value).reason, "full · 40 m³ · takes 20–40");
+    assert.equal(candidates(ask("K-203")).at(-1)!.reserve, true);
+});
+
+test("A48, A61 — a take: a verdict for booking each arrival the plan has not booked onto the resource, the one a place of it gives there", () => {
+    const take = (resource: string, plan = fresh()) => builtIn({ day: yardDay, plan, context, ask: variant("take", { resource }) });
+    // The six loads still to book, and no other: every one fits K-601, under its minimum.
+    const k601 = take("K-601");
+    assert.deepEqual([...k601.arrivals.keys()], ["LD-2231", "LD-2232", "LD-2233", "LD-2234", "LD-2235", "LD-2236"]);
+    assert.ok([...k601.arrivals.values()].every(f => f.type === "fits" && f.value.warn.type === "some" && f.value.warn.value === "under min"));
+    // Each verdict is the one a place of the arrival gives on that resource.
+    for (const resource of ["K-601", "K-107", "K-101", "K-503"]) {
+        const answer = take(resource);
+        for (const [code, verdict] of answer.arrivals) assert.deepEqual(verdict, builtIn(placeArrival(code)).resources.get(resource), `${code} on ${resource}`);
+    }
+    assert.equal(refusal(take("K-101").arrivals.get("LD-2235")).reason, "over max by 7 m³");
+    // Asked of the day without a bin, that bin's arrival is one to book: what a row's Chooser offers in its place.
+    const without = fresh();
+    without.bins.delete("3101");
+    assert.ok(take("K-209", without).arrivals.has("LD-2201"));
+    assert.equal(take("K-209").arrivals.has("LD-2201"), false);
+    // A place answers no arrivals, as a take answers no resources.
+    assert.equal(builtIn(placeArrival("LD-2231")).arrivals.size, 0);
+});
+
+test("§12.3 rule 4 — a reservation placed is checked with no quantity and each resource's own hold, as a take reserves", () => {
+    const plan = fresh();
+    plan.bins.set("V1", reservation("B-1", new Date(Date.UTC(2027, 4, 11, 0, 15)), new SortedMap([], byString)));
+    const placed = builtIn({ day: yardDay, plan, context, ask: variant("place", { subject: variant("bin", "V1"), quantity: 0 }) });
+    // Each resource's verdict is the one its take gives for reserving.
+    for (const resource of ["K-101", "K-104", "K-207", "K-503", "K-601"]) {
+        const take = builtIn({ day: yardDay, plan, context, ask: variant("take", { resource }) });
+        assert.ok(take.reserve.type === "some");
+        assert.deepEqual(placed.resources.get(resource), take.reserve.value, resource);
+    }
+    // K-104's own 8-day hold runs past its next job, a 0-day hold would not: the resource's hold decides.
+    assert.equal(refusal(placed.resources.get("K-104")).reason, "gap too short · next job Fri 14");
+});
+
+test("a type constructor returns the same East type for the same bin row type", () => {
+    assert.ok(isTypeEqual(Allocation.Types.Day(KilnBin), Allocation.Types.Day(KilnBin)));
+    assert.ok(isTypeEqual(Allocation.Types.FitRequest(KilnBin).fields.plan, Allocation.Types.Day(KilnBin)));
+    assert.equal(isTypeEqual(Allocation.Types.Day(KilnBin), Allocation.Types.Day(StringType)), false);
+});

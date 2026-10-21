@@ -5,36 +5,37 @@
  * @vitest-environment jsdom
  *
  * Plan paged-source DOM tests (P-c) — the resident run, its bands, the
- * transport line and paging around the viewport.
+ * transport line and paging around the viewport. The rail narrows a record
+ * itself (#1344) — the Plan's dated rows on e3 itself (`rail.test-utils.ts`,
+ * #1376): its counts are the record's, exact, and nothing narrows the loaded
+ * prefix — so no scope badge — while a seekable source keeps its key search.
+ * The canvas's own sources here are built by the test. A canvas persists its
+ * toggles under its storageKey (#813), and the harness clears them after each
+ * test.
  *
- * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
+ * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
-import { describe, test, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
+import { describe, test, expect, vi } from "vitest";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
-import { system, buildSliceHandle, UIStore, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { StringType, printFor, variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui/internal";
+import { system, registerReactiveTracker, type ReactiveTracker } from "@elaraai/east-ui-components";
+import { Data } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { blocksSource, oneBlock, rowId, rowSel, sectionId, sectionSel } from "./plan.test-utils.js";
+import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 
-// A canvas persists its toggles under its storageKey (#813), and several tests
-// share one — nothing may carry from one test to the next.
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
+const h = e3Harness(RAIL_MODULES, { measure: false });
 
-// jsdom lacks ResizeObserver — the floating-ui positioner behind the
-// resolver popovers needs one; a no-op stub keeps positioning inert (the
-// slice / schematic dom-test convention).
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+/** A dated row, decoded. */
+type DatedRow = ValueTypeOf<typeof records.PlanDatedRow>;
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -344,20 +345,22 @@ describe("Plan paged source (P-c)", () => {
         expect(said(inline.container)).toEqual(pagedSaid);
     });
 
-    test("a narrowing affordance is SCOPE-BADGED and `summary` counts elements (#567 D9)", async () => {
-        // `filter` / `cohort` / `breakdown` narrow whatever the host fed, which
-        // on a paged source is the prefix that happened to land — so they keep
-        // working and say what they are working on. `summary` stops reporting
-        // slice results (`N of M matching`) and reports transport instead.
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
-        };
-        const handle = buildSliceHandle("plan.paged.chrome", cfg, initial as never, [] as never, none) as never;
+    test("the rail narrows the record itself, never the loaded prefix: no scope badge, its summary the record's exact count (#567 D9, #1344)", async () => {
+        // A record rail asks the record's indexes, whatever has landed of the
+        // canvas's windows: its counts are exact, and nothing it narrows is a
+        // prefix's — the footer's transport line alone says how much is loaded.
+        // Six hundred rows, another session's, every other one in Hall A.
+        await h.patch(records.planDatedRows, new Map(Array.from({ length: 600 }, (_x, i): [string, DatedRow] =>
+            [`r${String(i).padStart(3, "0")}`, { at: W27, owner: "Team A", hall: i % 2 === 0 ? "Hall A" : "Hall B" }])));
+        const rail = await bindRail(() => Slice.bindRecords("plan.paged.chrome", {
+            rows: {
+                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByHallAt] }),
+                fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } }, search: [],
+            },
+        }), ["fields", "summary"]);
+        const part = rail.part("rows");
+        // Hall A: every other row of the six hundred.
+        part.choose("hall", [printFor(StringType)("Hall A")]);
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
             page: (offset: bigint) => (offset === 0n ? some(w0) : none),
@@ -369,20 +372,21 @@ describe("Plan paged source (P-c)", () => {
         };
         const { container } = renderPlan(planRoot([], {
             source,
-            slice: some({ slice: handle, affordances: [variant("filter", null), variant("summary", null)] }),
+            slice: some(rail.chrome),
         }), "plan-d9-chrome");
         await screen.findByText("R1");
+        await settle();
 
-        expect(container.querySelector('[data-slot="scopeBadge"]')!.textContent).toBe("loaded rows only");
-        // The toolbar summary is the count WITHOUT the footer's loading suffix.
-        expect(screen.getByText("200 loaded of 600")).toBeTruthy();
+        expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
+        // The summary counts the record's rows — Hall A's three hundred of six hundred — whatever has landed of the canvas's windows.
+        expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent).toBe("300 of 600 rows");
+        // How much of the canvas has landed is the footer's transport line.
+        expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toContain("200 loaded of 600");
     });
 
-    test("`search` becomes a KEY SEARCH where the source declares seek (#574)", async () => {
-        // The affordance table's paged column: filtering the loaded prefix and
-        // seeking the whole source are different operations, so a seek-capable
-        // source REPLACES the slice search chip rather than sitting beside it.
-        initializeStore(new UIStore());
+    test("a seekable source mounts its KEY SEARCH (#574): the source's own seek, primary-key navigation", async () => {
+        // Seeking the whole source is the key search's, not a narrowing's: the
+        // rail's own search, when it has one, is the record's (#1344).
         const queries: { type: string; value: unknown }[] = [];
         const w0 = [
             planRow("h1p1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
@@ -405,21 +409,11 @@ describe("Plan paged source (P-c)", () => {
             revision: () => none,
             refresh: () => null,
         };
-        const cfg = sliceConfig({});
-        const initial = {
-            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
-        };
-        const handle = buildSliceHandle("plan.seek", cfg, initial as never, [] as never, none) as never;
-        const { container } = renderPlan(planRoot([], {
-            source,
-            slice: some({ slice: handle, affordances: [variant("search", null)] }),
-        }), "plan-seek");
+        const { container } = renderPlan(planRoot([], { source }), "plan-seek");
         await screen.findByText("R1");
 
         const control = container.querySelector('[data-part="dataset-key-search"]');
         expect(control).toBeTruthy();
-        // The slice's own search chip is gone — one word, one meaning.
         expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
 
         // Typing reaches the SOURCE's seek as one debounced prefix query.
@@ -437,8 +431,7 @@ describe("Plan paged source (P-c)", () => {
         await waitFor(() => expect(screen.getByRole("option", { name: "h2p9" })).toBeTruthy());
     });
 
-    test("a source WITHOUT seek keeps `search` as a scope-badged row filter", async () => {
-        initializeStore(new UIStore());
+    test("a source WITHOUT seek mounts no key search, and nothing narrows its loaded prefix", async () => {
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
             page: (offset: bigint) => (offset === 0n ? some(w0) : none),
@@ -448,22 +441,11 @@ describe("Plan paged source (P-c)", () => {
             revision: () => none,
             refresh: () => null,
         };
-        const cfg = sliceConfig({});
-        const initial = {
-            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
-        };
-        const handle = buildSliceHandle("plan.noseek", cfg, initial as never, [] as never, none) as never;
-        const { container } = renderPlan(planRoot([], {
-            source,
-            slice: some({ slice: handle, affordances: [variant("search", null)] }),
-        }), "plan-noseek");
+        const { container } = renderPlan(planRoot([], { source }), "plan-noseek");
         await screen.findByText("R1");
 
         expect(container.querySelector('[data-part="dataset-key-search"]')).toBeNull();
-        // An Array-backed source cannot be searched, so `search` still filters
-        // — of the loaded prefix, which is what the badge says.
-        expect(container.querySelector('[data-slot="scopeBadge"]')!.textContent).toBe("loaded rows only");
+        expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
     });
 
     test("a source far larger than the window cache STOPS at its budget instead of emptying (#581)", async () => {

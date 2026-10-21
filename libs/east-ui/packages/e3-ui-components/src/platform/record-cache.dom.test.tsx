@@ -19,7 +19,7 @@ import { StateRuntime, UIStore, registerReactiveTracker, useEditSession, useTrac
 import { RecordSliceImpl } from "@elaraai/east-ui-components/platform";
 import { createTrackedRead, prepareRecordSliceSave, RecordSliceSaveNotice, trackKey, type EditSource } from "@elaraai/east-ui-components/internal";
 import { PagedRuntime } from "./paged-runtime.js";
-import { useRosterVisibility } from "../roster/visibility.js";
+import { useKeyVisibility, type KeyVisibilityInput } from "../shared/schedule/visibility.js";
 
 const Row = StructType({ status: StringType, quantity: IntegerType });
 const Records = DictType(StringType, Row);
@@ -97,10 +97,15 @@ function fixture(count: number, shortPages = false) {
     const controller = new RecordSliceController(binding, config, Row, read, write);
     // The notice consumes just these controller methods; queries and pages run
     // through the same controller and PagedRuntime as the serialized handle.
+    // Each membership it asks is counted: one that reads its entry by its key,
+    // or one by a row the Save holds.
+    const asked = { byKey: [] as string[], byRow: [] as string[] };
     const slice = { key: stateKey, sourceId: "jobs", config, read, write,
-        contains: (where: Where, id: string) => controller.contains(where, id), retry: () => handle.refresh(none),
+        contains: (where: Where, id: string) => { asked.byKey.push(id); return controller.contains(where, id); },
+        containsRow: (where: Where, id: string, row: Uint8Array) => { asked.byRow.push(id); return controller.containsRow(where, id, row); },
+        retry: () => handle.refresh(none),
     } as ValueTypeOf<RecordSliceBindType>;
-    return { ids, handle, requests, controller, slice, rows: () => rows,
+    return { ids, handle, requests, controller, slice, asked, rows: () => rows,
         choose: (status: string) => controller.choose("status", variant("values", [printString(status)])),
         commit: (value: typeof rows) => { rows = value; hash = "b".repeat(64); return hash; },
     };
@@ -154,10 +159,10 @@ test("an indexed scan exceeds both page-cache caps, finishes linearly and still 
     expect(f.requests).toHaveLength(before + 1);
 });
 
-test("Roster visibility reads more than 32 pages and replaces its keys when the query changes", async () => {
+test("a source's visibility reads more than 32 pages and replaces its keys when the query changes", async () => {
     const f = fixture(12_800);
-    const visible = (start: number, count: number): Parameters<typeof useRosterVisibility>[0] => ({
-        people: [], visiblePeople: none, recordSlice: none,
+    const visible = (start: number, count: number): KeyVisibilityInput => ({
+        rows: [], visible: none, recordSlice: none,
         visibleSource: some(variant("pinned", {
             id: `jobs:${start}:${count}`, revision: f.handle.revision, refresh: f.handle.refresh, seek: none,
             total: () => some(BigInt(count)),
@@ -167,7 +172,8 @@ test("Roster visibility reads more than 32 pages and replaces its keys when the 
             },
         })),
     });
-    const hook = renderHook(({ value }) => useRosterVisibility(value), { initialProps: { value: visible(0, 12_800) } });
+    const words = { changed: "Results changed; retry the narrowing.", failed: "Could not load results" };
+    const hook = renderHook(({ value }) => useKeyVisibility(value, words), { initialProps: { value: visible(0, 12_800) } });
     await waitFor(() => expect(hook.result.current.loading).toBe(false));
     expect(hook.result.current.keys.type === "some" && [...hook.result.current.keys.value]).toEqual(f.ids);
     expect(f.requests).toHaveLength(50);
@@ -238,6 +244,12 @@ test("40 drafts survive paging, filters and remounts; Save confirms all original
     await act(async () => { await session.apply(); });
     await waitFor(() => expect(session.status).toBe("idle"));
     await waitFor(() => expect(notice.container.textContent).toBe("40 rows left this view"));
+    // The notice asked every saved job's membership in both its checks — before the Save by the row its draft began
+    // from, after it by the row its confirmation read back (a check asks again what was pending) — and read none of
+    // them by its key again.
+    expect(f.asked.byKey).toEqual([]);
+    expect(new Set(f.asked.byRow)).toEqual(new Set(f.ids.slice(0, 40)));
+    expect(f.ids.slice(0, 40).every(id => f.asked.byRow.filter(asked => asked === id).length >= 2)).toBe(true);
     expect(submitted).toEqual([f.ids.slice(0, 40)]);
     expect(session.pending).toBe(0);
     for (const id of f.ids.slice(0, 40)) expect(f.rows().get(id)).toEqual({ status: "Done", quantity: 2n });

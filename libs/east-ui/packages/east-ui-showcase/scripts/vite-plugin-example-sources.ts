@@ -169,7 +169,7 @@ function extractRaw(filePath: string, code: string): Record<string, RawExample> 
  * the example bodies reference but can't inline (the un-inlined `e3.input` /
  * `e3.function` / `e3.record` / `e3.mutation` defs and any supporting types),
  * since they must be module-scope exports for the showcase's e3 package to
- * carry them (`e3-showcase-package.ts`, #849).
+ * carry them (e3-ui's `test/examples-package.ts`, #849, #1375).
  *
  * Only declarations reachable from an `example({...})` body are kept — the
  * transitive reference closure over the example bodies, including named

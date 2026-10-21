@@ -6,7 +6,8 @@
 /**
  * `serveE3` in Node: the e3 worker's side at one end of a `MessageChannel`,
  * and the page's `createWebE3` at the other, over in-memory repositories and
- * units in this thread — how it boots, refuses to, closes with its page,
+ * units in this thread — how it boots, refuses to, cuts a split call's pieces
+ * at the size its host gives, closes with its page,
  * answers a caller it does not know with what a server's auth answers, and
  * serves e3's own platform functions to a unit, bound to itself. The shared
  * API suites run against it in `libs/e3/test/integration`'s
@@ -15,7 +16,10 @@
 
 import { after, afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { ArrayType, East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, none, variant } from '@elaraai/east';
+import {
+  ArrayType, East, FunctionType, IntegerType, NullType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, none, some, variant,
+} from '@elaraai/east';
+import { readTestPieceBytesFrom } from '@elaraai/e3-core/portable';
 import {
   ApiError,
   dataflowExecute,
@@ -25,12 +29,13 @@ import {
   packageImport,
   repoCreate,
   repoList,
+  splitCallExplain,
   workspaceCreate,
   workspaceDeploy,
   workspaceList,
   type RequestOptions,
 } from '@elaraai/e3-api-client';
-import type { OneShotRequest } from '@elaraai/e3-types';
+import type { OneShotRequest, SplitCallRequest } from '@elaraai/e3-types';
 import { assertDataflowSucceeded } from '@elaraai/e3-api-tests';
 import { createWebE3, inProcessUnits, type UnitWorker, type WebE3 } from './index.js';
 import { serveE3, type ServeE3Options } from './worker.js';
@@ -123,6 +128,44 @@ describe('serveE3, over a MessageChannel', () => {
         message: new RegExp(`^createWebE3: the e3 worker did not start: RangeError: a runner's whole-intake limit is a whole number of bytes, zero or more, not ${wholeIntakeLimit}$`),
       }, `a limit of ${wholeIntakeLimit}`);
     }
+  });
+
+  it('cuts a split call\'s pieces at the size its host gives, and refuses to boot with one it cannot use, naming it', async (t) => {
+    // The thread's piece size is the platform's again once the case has run.
+    t.after(() => readTestPieceBytesFrom(() => undefined));
+    const zip = (await buildE3Fixtures()).platform;
+    // Twenty thousand whole numbers, partitioned: a collection of about twenty segments of a few kilobytes each.
+    const request: SplitCallRequest = {
+      bodyIr: encodeEastIR(East.function([ArrayType(IntegerType), FunctionType([IntegerType], NullType)], NullType, ($, values, emit) => {
+        $.for(values, ($2, value) => { $2(emit(value)); });
+      }).toIR()),
+      args: [{ arg: variant('value', encodeBeast2For(ArrayType(IntegerType))(Array.from({ length: 20_000 }, (_, i) => BigInt(i)))), partition: some({ by: [] }) }],
+      output: variant('array', null),
+      then: none,
+      runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
+      limits: none,
+    };
+    /** The pieces an e3 cutting at a size plans the call into. */
+    const piecesAt = async (pieceBytes: number): Promise<bigint> => {
+      const e3 = await connect({ pieceBytes });
+      const opts: RequestOptions = { token: null, fetch: e3.fetch };
+      await repoCreate(e3.apiUrl, 'default', opts);
+      await packageImport(e3.apiUrl, 'default', zip, opts);
+      await workspaceCreate(e3.apiUrl, 'default', 'main', opts);
+      await workspaceDeploy(e3.apiUrl, 'default', 'main', `${PLATFORM_PACKAGE}@${FIXTURE_VERSION}`, opts);
+      return (await splitCallExplain(e3.apiUrl, 'default', 'main', request, opts)).pieces;
+    };
+    assert.equal(await piecesAt(64 * 2 ** 20), 1n, 'at the platform\'s 64 MiB, the call is one piece');
+    const small = await piecesAt(1024);
+    assert.ok(small > 1n, `at 1 KiB, the call is cut into many pieces: ${small}`);
+    for (const pieceBytes of [3, 1.5]) {
+      const { port1, port2 } = new MessageChannel();
+      serveE3({ units: inProcessUnits(), persist: false, pieceBytes }, port1);
+      await assert.rejects(createWebE3(port2), {
+        message: `createWebE3: the e3 worker did not start: RangeError: a piece size is a whole number of bytes, at least 4, not ${pieceBytes}`,
+      }, `a piece size of ${pieceBytes}`);
+    }
+    assert.equal(await piecesAt(1024), small, 'a size refused leaves the thread\'s as it was');
   });
 
   it('closes with its page: its unit workers end with the port', async () => {

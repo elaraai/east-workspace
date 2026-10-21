@@ -13,31 +13,28 @@
  *   adapter — the host renders again with its latest value, as a `Reactive`
  *   would ({@link EditingCanvas.confirm});
  * - paged, over a PINNED source — the only windowed kind a canvas edits —
- *   whose windows, total, revision and refresh are platform calls into a
- *   {@link PressStore}: its `onApply` commits a new revision, which the source
- *   serves once refreshed to it and the refreshed read has landed
- *   ({@link EditingCanvas.confirm}).
+ *   the presses' record on e3 itself (#1375), read with `Data.bindPaged` and
+ *   saved with `Record.onApply` through its patch door: e3 commits each Save
+ *   as a new revision, which the source reads once the test lets the reads
+ *   after it land ({@link EditingCanvas.confirm}). A file whose canvases are
+ *   paged calls {@link canvasHarness} once, at its top.
  *
  * The editing wire is PROBED, never replaced: every patch event is decoded
  * and kept, every apply request's bytes kept, and the real callback answers.
  */
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import {
-    ArrayType, BooleanType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType,
-    compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf, type option,
-} from "@elaraai/east";
-import { Paged } from "@elaraai/east-ui";
+import { BooleanType, East, StringType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { DragEventType, Editing, State } from "@elaraai/east-ui/internal";
-import { Plan } from "@elaraai/e3-ui/internal";
-import {
-    system, getRegisteredPlatformImplementations, registerReactiveTracker, type ReactiveTracker, DragLayerProvider,
-    useDragSourceItem,
-} from "@elaraai/east-ui-components";
+import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { system, getRegisteredPlatformImplementations, DragLayerProvider, useDragSourceItem } from "@elaraai/east-ui-components";
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { pointAt } from "@elaraai/east-ui-components/testing";
+import { patchRecord } from "../e3-web.test-utils.js";
+import { E3Surface, currentHarness, e3Harness, settle as settleE3, type E3Harness } from "../e3-web-mount.test-utils.js";
 import { act } from "../test-runs.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanEventRows } from "./root/events.js";
@@ -46,20 +43,16 @@ import { rowKey, rowSel } from "./plan.test-utils.js";
 // ── The canvas's data ───────────────────────────────────────────────────────
 
 /** A job dropped on a press — a decision at the bucket it landed in. */
-export const Job = StructType({ key: StringType, at: Plan.Types.Instant });
+export const Job = records.PlanPressJob;
 /** A press — its name, the crew that runs it (none yet), and the jobs dropped on it. */
-export const Press = StructType({ label: StringType, crew: OptionType(StringType), jobs: ArrayType(Job) });
-/** The canvas's source — presses by key. */
-export const Presses = DictType(StringType, Press);
+export const Press = records.PlanPress;
+/** The canvas's source — presses by key: the presses' record's type. */
+export const Presses = records.planPresses.type;
 /** One press, decoded. */
 export type PressValue = ValueTypeOf<typeof Press>;
 
-/** Three presses, no job on any: Press 2 has no crew yet. */
-export const SEED: ReadonlyMap<string, PressValue> = new Map([
-    ["p1", { label: "Press 1", crew: some("Crew A"), jobs: [] }],
-    ["p2", { label: "Press 2", crew: none, jobs: [] }],
-    ["p3", { label: "Press 3", crew: some("Crew C"), jobs: [] }],
-]);
+/** Three presses, no job on any: Press 2 has no crew yet — what the presses' record holds as it is deployed. */
+export const SEED: ReadonlyMap<string, PressValue> = records.planPresses.default as ReadonlyMap<string, PressValue>;
 
 /** The presses series' key — every press row's id is `entry { series, [key] }`. */
 export const PRESSES = "presses";
@@ -117,177 +110,31 @@ const ONLY_PRESS_1 = East.function([DragEventType], BooleanType, ($, event) => {
     return allowed;
 });
 
-// ── The platform the test holds ─────────────────────────────────────────────
-
-const Committed = StructType({ revision: StringType, presses: Presses });
-const Batch = Editing.Types.ChangeSet(Press, StringType);
-
-/** The paged source's store — platform calls the test answers. */
-const Host = {
-    page: East.platform("plan_880_page", [IntegerType, IntegerType], OptionType(Presses)),
-    total: East.platform("plan_880_total", [], OptionType(IntegerType)),
-    revision: East.platform("plan_880_revision", [], OptionType(StringType)),
-    refresh: East.platform("plan_880_refresh", [OptionType(StringType)], NullType),
-    committed: East.platform("plan_880_committed", [], Committed),
-    replay: East.platform("plan_880_replay", [StringType], OptionType(StringType)),
-    commit: East.platform("plan_880_commit", [StringType, Presses], StringType),
-};
-
-const PAGE = East.function([IntegerType, IntegerType], OptionType(Presses), (_$, offset, limit) => Host.page(offset, limit));
-const TOTAL = East.function([], OptionType(IntegerType), () => Host.total());
-const REVISION = East.function([], OptionType(StringType), () => Host.revision());
-const REFRESH = East.function([OptionType(StringType)], NullType, ($, target) => { $(Host.refresh(target)); });
-
-/**
- * The paged author's apply: a request it has answered before answers the same
- * (a retry after a lost acknowledgement writes nothing twice); a new one is
- * applied to the committed presses, against the revision it began from, and
- * committed as the next revision.
- */
-const APPLY = East.function([Batch], Editing.Types.ApplyResult, ($, batch) => {
-    const result = $.let(variant("conflict", []), Editing.Types.ApplyResult);
-    const answered = $.let(Host.replay(batch.requestId));
-    $.match(answered, {
-        some: ($2, revision) => { $2.assign(result, variant("applied", { revision: some(revision) })); },
-        none: ($2) => {
-            const apply = $2.const(Editing.apply(Presses));
-            const now = $2.let(Host.committed());
-            const applied = $2.let(apply(now.presses, batch, some(now.revision)));
-            $2.match(applied, {
-                conflict: ($3, issues) => { $3.assign(result, variant("conflict", issues)); },
-                applied: ($3, next) => {
-                    const revision = $3.let(Host.commit(batch.requestId, next));
-                    $3.assign(result, variant("applied", { revision: some(revision) }));
-                },
-            });
-        },
-    });
-    return result;
-});
+// ── The presses on e3 ───────────────────────────────────────────────────────
 
 const encodePresses = encodeBeast2For(Presses);
 const decodePresses = decodeBeast2For(Presses);
-const byKey = compareFor(StringType);
 
-/** A snapshot of the presses at a revision. */
-interface Snapshot { revision: string; presses: ReadonlyMap<string, PressValue> }
+/** The presses' record, as its dataset's requests name it. */
+const PRESSES_DATASET = `records.${records.planPresses.name}`;
+
+/** The e3-ui example module a paged canvas reads: a file's harness deploys it ({@link canvasHarness}, or among its own). */
+export const CANVAS_MODULES = { "plan/plan-records": records } as const;
+
+/** The file's e3, which deploys the presses' record. */
+const e3Of = (): E3Harness => currentHarness();
 
 /**
- * What a paged canvas's source holds: the revision it SERVES, and the one its
- * last batch COMMITTED — a refresh to the committed revision is asked, and
- * lands only when the test lets it ({@link PressStore.land}).
+ * Gives a file whose canvases are paged, and that mounts nothing else on e3,
+ * its e3: the presses' record deployed once, a workspace of its own for each
+ * test. Called once, at the file's top. A file with an e3 harness of its own
+ * deploys {@link CANVAS_MODULES} among its modules instead.
+ *
+ * @returns The harness
  */
-export class PressStore {
-    private served: Snapshot;
-    /** The revision the last write committed. */
-    committed: Snapshot;
-    /** Every write the source took. */
-    writes = 0;
-    /** Windows past this element stay in flight. */
-    heldFrom = Number.POSITIVE_INFINITY;
-    private asked: string | undefined;
-    private readonly answered = new Map<string, string>();
-    private version = 0;
-    private readonly listeners = new Set<() => void>();
-    private recording: string[] | null = null;
-
-    constructor(seed: ReadonlyMap<string, PressValue>) {
-        this.committed = { revision: "r1", presses: new Map(seed) };
-        this.served = this.committed;
-    }
-
-    page(offset: bigint, limit: bigint): option<Map<string, PressValue>> {
-        this.touch();
-        if (Number(offset) >= this.heldFrom) return none;
-        const all = [...this.served.presses].sort(([a], [b]) => byKey(a, b));
-        // A copy: nothing the canvas does to a window reaches the store.
-        return some(decodePresses(encodePresses(new Map(all.slice(Number(offset), Number(offset + limit))))));
-    }
-    total(): option<bigint> {
-        this.touch();
-        return some(BigInt(this.served.presses.size));
-    }
-    revision(): option<string> {
-        this.touch();
-        return some(this.served.revision);
-    }
-    refresh(target: option<string>): null {
-        if (target.type === "none") {
-            this.served = this.committed;
-            this.notify();
-        } else if (target.value !== this.committed.revision) {
-            throw new Error(`no revision ${target.value}`);
-        } else {
-            this.asked = target.value;
-        }
-        return null;
-    }
-    replay(requestId: string): option<string> {
-        const revision = this.answered.get(requestId);
-        return revision === undefined ? none : some(revision);
-    }
-    commit(requestId: string, next: ReadonlyMap<string, PressValue>): string {
-        const revision = `r${Number(this.committed.revision.slice(1)) + 1}`;
-        this.committed = { revision, presses: next };
-        this.answered.set(requestId, revision);
-        this.writes += 1;
-        return revision;
-    }
-    /** The refreshed revision's reads land. */
-    land(): void {
-        if (this.asked === undefined) return;
-        this.asked = undefined;
-        this.served = this.committed;
-        this.notify();
-    }
-    /** Another writer commits, and the source serves it at once. */
-    move(next: ReadonlyMap<string, PressValue>): void {
-        this.commit(`elsewhere-${this.version}`, next);
-        this.served = this.committed;
-        this.notify();
-    }
-    /** The source's channel, as the canvas's tracked reads subscribe to it. */
-    tracker(): ReactiveTracker {
-        return {
-            id: "plan-880",
-            enableTracking: () => { this.recording = []; },
-            disableTracking: () => {
-                const read = this.recording ?? [];
-                this.recording = null;
-                return read;
-            },
-            getStore: () => ({
-                subscribe: (_key, callback) => {
-                    this.listeners.add(callback);
-                    return () => { this.listeners.delete(callback); };
-                },
-                getKeyVersion: () => this.version,
-            }),
-        };
-    }
-    private touch(): void { this.recording?.push("presses"); }
-    private notify(): void {
-        this.version += 1;
-        for (const listener of [...this.listeners]) listener();
-    }
+export function canvasHarness(): E3Harness {
+    return e3Harness(CANVAS_MODULES, { measure: false });
 }
-
-/** The mounted canvas's store — what the platform calls answer from. */
-let store: PressStore | undefined;
-const held = (): PressStore => {
-    if (store === undefined) throw new Error("no paged canvas is mounted");
-    return store;
-};
-
-const HOST = [
-    Host.page.implement((offset, limit) => held().page(offset, limit)),
-    Host.total.implement(() => held().total()),
-    Host.revision.implement(() => held().revision()),
-    Host.refresh.implement((target) => held().refresh(target)),
-    Host.committed.implement(() => ({ revision: held().committed.revision, presses: new Map(held().committed.presses) })),
-    Host.replay.implement((requestId) => held().replay(requestId)),
-    Host.commit.implement((requestId, next) => held().commit(requestId, next)),
-];
 
 // ── The canvas ──────────────────────────────────────────────────────────────
 
@@ -316,8 +163,6 @@ export interface CanvasOptions {
     ready?: boolean;
     /** The presses (default {@link SEED}). */
     seed?: ReadonlyMap<string, PressValue>;
-    /** Paged: windows past this element stay in flight. */
-    heldFrom?: number;
     /** The canvas's storage key. */
     storageKey?: string;
     /** What the canvas renders inside — a message table, a locale. */
@@ -326,7 +171,7 @@ export interface CanvasOptions {
     events?: PlanEventRows;
 }
 
-type Resolved = Required<Omit<CanvasOptions, "heldFrom" | "seed" | "events">> & Pick<CanvasOptions, "heldFrom" | "events"> & { seed: Map<string, PressValue> };
+type Resolved = Required<Omit<CanvasOptions, "seed" | "events">> & Pick<CanvasOptions, "events"> & { seed: Map<string, PressValue> };
 
 /** The root's chrome besides its rows and editing. */
 function chromeOf(o: Resolved) {
@@ -352,16 +197,16 @@ function compileCanvas(o: Resolved): () => PlanRootValue {
             });
         })
         : East.function([], Plan.Types.Root, ($) => {
-            const source = $.const({
-                id: "plan-880-presses", page: PAGE, total: TOTAL, seek: none, revision: REVISION, refresh: REFRESH,
-            }, Paged.Types.PinnedSource(Presses));
-            const onApply = $.const(APPLY);
+            // The presses' record on e3: read a window at a time, pinned, and saved through its patch door.
+            const presses = $.const(Record.bind(records.planPresses, [records.planPressesPatch]));
+            const source = $.const(Data.bindPaged(records.planPresses));
+            const onApply = $.const(Record.onApply(presses, { keyed: true }));
             return Plan.Root({
                 axis, data: source, series, ...chrome,
                 ...(o.editing ? { editing: { onApply, ...ready } } : {}),
             });
         });
-    return East.compile(program, [...getRegisteredPlatformImplementations(), ...HOST]) as () => PlanRootValue;
+    return East.compile(program, getRegisteredPlatformImplementations()) as () => PlanRootValue;
 }
 
 /** One gesture's patch event, decoded. */
@@ -374,6 +219,8 @@ interface Probe {
     patches: PlanPatch[];
     applies: Uint8Array[];
     loseAck: boolean;
+    /** Told as each apply begins: what it writes is read back from here on. */
+    writing: () => void;
 }
 
 /** The root with its editing wire probed — every patch kept, every apply request kept, the real callback answering. */
@@ -393,6 +240,7 @@ function probed(root: PlanRootValue, probe: Probe): PlanRootValue {
             }),
             onApply: apply === undefined ? none : some(variant("async", async (bytes: Uint8Array) => {
                 probe.applies.push(bytes.slice());
+                probe.writing();
                 const result = apply.type === "sync" ? apply.value(bytes) : await apply.value(bytes);
                 // Persisted — and the answer lost on its way back.
                 if (probe.loseAck) {
@@ -419,15 +267,15 @@ export interface EditingCanvas extends RenderResult {
     patches: PlanPatch[];
     /** Every apply request's bytes, in order. */
     applies: Uint8Array[];
-    /** What the source holds now. */
-    stored: () => ReadonlyMap<string, PressValue>;
-    /** How many writes the source took. */
-    writes: () => number;
+    /** What the source holds now: paged, what e3 holds, read as another session would. */
+    stored: () => Promise<ReadonlyMap<string, PressValue>>;
+    /** How many writes the source took: paged, the commits through the record's patch door since the canvas mounted. */
+    writes: () => Promise<number>;
     /** The source reads back what it committed — inline, the host renders its latest value; paged, the refreshed revision lands. */
     confirm: () => Promise<void>;
     /** Another writer changes the source, and the canvas reads it. */
     move: (next: ReadonlyMap<string, PressValue>) => Promise<void>;
-    /** Paged: another writer commits, and the canvas does not read it — a Save then meets it. */
+    /** Paged: another writer commits while the canvas's next Save is on its way to e3 — the Save then meets it. */
     race: (next: ReadonlyMap<string, PressValue>) => void;
     /** The next apply persists, then loses its acknowledgement. */
     loseNextAck: () => void;
@@ -440,14 +288,19 @@ const cleanups: (() => void)[] = [];
 /** Unregister what a mounted canvas registered. Call after each test. */
 export function releaseCanvases(): void {
     while (cleanups.length > 0) cleanups.pop()!();
-    store = undefined;
 }
 
-/** Let everything in flight land — microtasks, and timers queued behind them. */
+/** The canvas, its program evaluated once the runtimes it reads through are installed. */
+function Canvas({ view, storageKey, wrap, events }: {
+    view: () => PlanRootValue; storageKey: string; wrap: (plan: ReactNode) => ReactNode; events: PlanEventRows | undefined;
+}) {
+    const value = useMemo(() => view(), [view]);
+    return <>{wrap(<EastChakraPlan value={value} storageKey={storageKey} events={events} />)}</>;
+}
+
+/** Let everything in flight land — microtasks, timers queued behind them, and every request to e3. */
 export async function settle(): Promise<void> {
-    await act(async () => {
-        for (let i = 0; i < 4; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
-    });
+    await settleE3();
 }
 
 /**
@@ -462,51 +315,56 @@ export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas
         onlyPress1: false, ready: false, storageKey: `plan-880-${options.arm}`, wrap: (plan) => plan, ...options,
         seed: new Map(options.seed ?? SEED),
     };
-    const probe: Probe = { patches: [], applies: [], loseAck: false };
+    // Paged: the windows read after a Save begins are held on their way to e3 until the test lets them land (`confirm`).
+    let afterWrite = false;
+    const probe: Probe = { patches: [], applies: [], loseAck: false, writing: () => { afterWrite = o.arm === "paged"; } };
     const program = compileCanvas(o);
-    let paged: PressStore | undefined;
-    if (o.arm === "paged") {
-        paged = new PressStore(o.seed);
-        if (o.heldFrom !== undefined) paged.heldFrom = o.heldFrom;
-        store = paged;
-        cleanups.push(registerReactiveTracker(paged.tracker()));
-    }
+    const h = o.arm === "paged" ? e3Of() : undefined;
+    const readsBack = h?.e3.hold((request) => afterWrite && request.dataset === PRESSES_DATASET && request.kind === "page");
+    const patchCommits = async () => (await e3Of().history(records.planPresses)).commits.filter((commit) => commit.mutation === "patch").length;
+    // Presses of the test's own: another session's write, before the canvas mounts.
+    if (h !== undefined && options.seed !== undefined) await h.patch(records.planPresses, new Map(options.seed));
+    const baseline = h === undefined ? 0 : await patchCommits();
     const view = (): PlanRootValue => probed(program(), probe);
-    const tree = (value: PlanRootValue) => (
+    const plan = (value: () => PlanRootValue) => <Canvas view={value} storageKey={o.storageKey} wrap={o.wrap} events={o.events} />;
+    const tree = (value: () => PlanRootValue) => (
         <ChakraProvider value={system}>
             <DragLayerProvider>
                 <JobCard job="job-1" />
                 <JobCard job="job-2" />
-                {o.wrap(<EastChakraPlan value={value} storageKey={o.storageKey} events={o.events} />)}
+                {o.arm === "paged" ? <E3Surface>{plan(value)}</E3Surface> : plan(value)}
             </DragLayerProvider>
         </ChakraProvider>
     );
-    const utils = render(tree(view()));
-    // The inline host renders again with its latest value, as a `Reactive` does.
-    const rerenderLatest = () => act(() => { utils.rerender(tree(view())); });
-    const baseline = getStore().getKeyVersion(STATE_KEY);
+    // The inline host renders again with its latest value, as a `Reactive` does: a new view, evaluated afresh.
+    let rendered = view;
+    const utils = render(tree(rendered));
+    const rerenderLatest = () => act(() => { rendered = () => view(); utils.rerender(tree(rendered)); });
+    const stateBaseline = getStore().getKeyVersion(STATE_KEY);
     // The first press drawn — a row on the canvas, a card in the narrow layout.
     const first = [...o.seed.keys()][0]!;
     await waitFor(() => {
         if (utils.container.querySelector(`${rowSel(first, "data-plan-row", PRESSES)}, ${rowSel(first, "data-plan-card", PRESSES)}`) === null) {
             throw new Error("the presses have not drawn yet");
         }
-    });
+    }, { timeout: 30_000 });
     await settle();
     return {
         ...utils,
         arm: o.arm,
         patches: probe.patches,
         applies: probe.applies,
-        stored: () => (paged !== undefined ? paged.committed.presses : decodePresses(getStore().read(STATE_KEY)!)),
-        writes: () => (paged !== undefined ? paged.writes : getStore().getKeyVersion(STATE_KEY) - baseline),
+        stored: async () => (h !== undefined ? await h.read(records.planPresses) : decodePresses(getStore().read(STATE_KEY)!)),
+        writes: async () => (h !== undefined ? await patchCommits() - baseline : getStore().getKeyVersion(STATE_KEY) - stateBaseline),
         confirm: async () => {
-            if (paged !== undefined) act(() => { paged.land(); });
-            else rerenderLatest();
+            if (readsBack !== undefined) {
+                afterWrite = false;
+                await act(async () => { while (readsBack.held > 0) readsBack.releaseOne(); });
+            } else rerenderLatest();
             await settle();
         },
         move: async (next) => {
-            if (paged !== undefined) act(() => { paged.move(next); });
+            if (h !== undefined) await h.patch(records.planPresses, new Map(next));
             else {
                 act(() => { getStore().write(STATE_KEY, encodePresses(new Map(next))); });
                 rerenderLatest();
@@ -514,8 +372,12 @@ export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas
             await settle();
         },
         race: (next) => {
-            if (paged === undefined) throw new Error("only a paged source commits unseen");
-            paged.commit("elsewhere-race", next);
+            if (h === undefined) throw new Error("only a paged source commits unseen");
+            const save = h.e3.hold((request) => request.kind === "mutate" && request.record === records.planPresses.name);
+            void save.holding.then(() => h.e3.background((async () => {
+                await patchRecord(h.e3, h.workspace, records.planPresses, new Map(next));
+                save.release();
+            })()));
         },
         loseNextAck: () => { probe.loseAck = true; },
         settle,

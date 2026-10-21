@@ -5,8 +5,8 @@
  * @vitest-environment jsdom
  *
  * The jq view (#937, `Query Editor Spec.md` §4.8, §7 J1–J4), through
- * `<Query.Builder>`'s carrier over a saved queries record in memory, with a
- * one-shot call that never reaches a server:
+ * `<Query.Builder>`'s carrier over the saved queries record on e3 (#1376),
+ * its runs refused at the harness's fetch where a test is of the view alone:
  *
  * - **J1**: highlighting — each token's kind from east's lexer; the gutter's
  *   numbers, and its dots by the worst problem on a line; marks under the
@@ -14,7 +14,7 @@
  * - **J2**: completions — the bound sources at the root, a variant's `type`
  *   and `value`, case names inside a string, builtins inserting `name(`, a
  *   closing quote not doubled; keys; and the data's values from a summary the
- *   builder holds, never fetched.
+ *   builder holds — a value slot's, read by its call to e3 — never fetched.
  * - **J3**: the problems panel — codes, positions and sentences, a note on a
  *   part that stays a jq step, going to a range, and each text-edit fix making
  *   a program that checks clean, one gesture of its own.
@@ -25,21 +25,12 @@
  *   the visual view of one that is — run as it opens, and no draft left on it.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { useState } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import { ArrayType, IntegerType, StringType, checkJq, decodeBeast2, equalFor, evaluateJq, none, some, variant } from "@elaraai/east";
+import { describe, test, expect, beforeEach } from "vitest";
+import { fireEvent, screen, within } from "@testing-library/react";
+import { ArrayType, IntegerType, StringType, decodeBeast2, equalFor, evaluateJq, none, some, variant } from "@elaraai/east";
 import type { ExecuteResult } from "@elaraai/e3-types";
-import { system } from "@elaraai/east-ui-components";
-import { JqEditor } from "./jq-editor.js";
-import { SummaryCache, summaryAt, type Summary } from "./model/summaries.js";
-import { usePartStyles } from "./parts.js";
-import {
-    act, FIXTURE_VALUE, FixtureType, ROOT, enabled, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
-} from "./query.test-utils.js";
-import { parseSteps } from "./steps/parse.js";
-import { useQueryWords } from "./words.js";
+import { FIXTURE_VALUE, FixtureType, savedQuery } from "./fixture.test-utils.js";
+import { act, enabled, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_PROGRAM = [
@@ -54,13 +45,17 @@ const DEFAULT_PROGRAM = [
 const TOP = savedQuery("Top shipped orders, 2026", DEFAULT_PROGRAM);
 const BIG = savedQuery("Big orders", ".orders\n| map(select(.total >= 1000))");
 
-beforeEach(() => {
-    recordHarness(savedRecord([TOP, BIG]));
+const h = queryHarness();
+
+beforeEach(async () => {
+    await h.seed([TOP, BIG]);
 });
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
+
+/** Mounts the builder with every run refused, so none gives a result: the jq view alone is under test. */
+async function mount() {
+    h.refuseRuns();
+    return h.mountBuilder();
+}
 
 // ─── What the jq view shows, and how it is worked ────────────────────────────
 
@@ -119,7 +114,7 @@ async function leave() {
 
 describe("the jq view (#937) — J1 highlighting", () => {
     test("the default query's tokens carry east's lexer's kinds; the gutter numbers each line", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(TOP.name);
         expect(area().value).toBe(DEFAULT_PROGRAM);
         const lines = highlightLines();
@@ -135,7 +130,7 @@ describe("the jq view (#937) — J1 highlighting", () => {
     });
 
     test("a problem on line 3: its dot in the gutter, its range marked wavy, and the jq step around it dotted", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         await type(".orders\n| sort_by(-.total)\n| map(.totl)");
         expect(gutter()).toEqual([["1", null], ["2", null], ["3", "error"]]);
@@ -152,7 +147,7 @@ describe("the jq view (#937) — J1 highlighting", () => {
 
 describe("the jq view (#937) — J2 completions", () => {
     test("`.` at the root lists the bound sources in plain words; a variant offers type and value; a string the case names", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         await type(".");
         expect(offered()).toEqual([
@@ -169,7 +164,7 @@ describe("the jq view (#937) — J2 completions", () => {
     });
 
     test("a word lists the builtins, and takes `select(`; inside quotes a case does not double its closing quote", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         await type(".orders | map(sel");
         expect(offered()).toEqual([["fn", "select", "select(f)"]]);
@@ -193,7 +188,7 @@ describe("the jq view (#937) — J2 completions", () => {
     });
 
     test("↓ ↑ wrap, Esc closes, and a click takes one", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         await type(".orders[0].status.");
         const active = () => completions()!.querySelector("[aria-selected=true] [data-label]")!.textContent;
@@ -211,38 +206,46 @@ describe("the jq view (#937) — J2 completions", () => {
     });
 });
 
-/** The jq editor alone, its text its own, over the root and a builder's summaries. */
-function Alone({ initial, summaries }: { initial: string; summaries: { cache: SummaryCache; hashes: ReadonlyMap<string, string> } }) {
-    const [text, setText] = useState(initial);
-    const ps = usePartStyles(useQueryWords());
-    return (
-        <JqEditor text={text} checked={checkJq(text, ROOT.type, { root: true })} root={ROOT} summaries={summaries} ps={ps}
-            onText={setText} onLeave={() => {}} onFix={setText} />
-    );
+/** Opens a slot of the visual view's first card by the words it shows, as a click does. */
+async function openSlot(text: string) {
+    const card = document.querySelector<HTMLElement>("[data-step-id]")!;
+    const slot = [...card.querySelectorAll<HTMLElement>("[aria-haspopup=listbox]")].find((el) => el.querySelector("span")!.textContent === text);
+    if (slot === undefined) throw new Error(`no slot “${text}”`);
+    await act(async () => { fireEvent.click(slot); });
+    await settle();
 }
 
+/** The one-shot calls a value slot's summary sends: a summary's limits, its time limit its own. */
+const summaryCalls = () => h.oneShots().filter((request) => request.limits.type === "some" && request.limits.value.timeoutMs.type === "some");
+
 describe("the jq view (#937) — J2 the data's values", () => {
-    test("inside `== \"` the values come from the summary the builder holds of the rows there; with none held, none, and nothing is fetched", async () => {
-        const fetched: string[] = [];
-        const cache = new SummaryCache(async (request) => {
-            fetched.push(request.prefix);
-            return { summary: evaluateJq(request.program, FIXTURE_VALUE, { inputType: FixtureType, root: true }) as Summary, hashes: new Map() };
-        });
-        const summaries = { cache, hashes: new Map<string, string>() };
-        const text = ".orders\n| map(select(.customer_id == \"C0";
-        render(<ChakraProvider value={system}><Alone initial=".orders" summaries={summaries} /></ChakraProvider>);
+    const text = ".orders\n| map(select(.customer_id == \"C0";
+
+    test("inside `== \"` with no summary of the rows there held, no values are offered, and none is fetched", async () => {
+        await h.mountBuilder();
+        await openJq(BIG.name);
         await type(text);
-        // No summary of the orders yet: no values, and none fetched.
-        expect([completions(), fetched]).toEqual([null, []]);
-        // The visual view's value slot fetched the orders' summary.
-        const parsed = parseSteps(".orders", ROOT.type);
-        if ("error" in parsed) throw new Error(parsed.error.message);
-        await cache.ensure(summaryAt(parsed.query, 0, ROOT.type)!, summaries.hashes);
+        area().setSelectionRange(text.length, text.length);
+        await key(" ", { code: "Space", ctrlKey: true });
+        expect([completions(), summaryCalls()]).toEqual([null, []]);
+    });
+
+    test("inside `== \"` the values come from the summary the builder holds of the rows there — a value slot's, read from e3 — and nothing more is fetched", async () => {
+        await h.mountBuilder();
+        await openQuery(variant("saved", BIG.name));
+        // The visual view's value slot reads the summary of the orders, by a call of its own to e3.
+        await openSlot("1000");
+        expect(summaryCalls()).toHaveLength(1);
+        await act(async () => { fireEvent.keyDown(within(document.querySelector<HTMLElement>("[data-query-autocomplete]")!).getByRole("combobox"), { key: "Escape" }); });
+        await settle();
+        await act(async () => { fireEvent.click(within(screen.getByRole("group", { name: "View" })).getByRole("button", { name: "jq" })); });
+        await settle();
+        await type(text);
         area().setSelectionRange(text.length, text.length);
         await key(" ", { code: "Space", ctrlKey: true });
         expect(offered().map(([glyph, label]) => [glyph, label])).toEqual(["C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08"].map((c) => ["\"v", c]));
         expect(offered().every(([, , detail]) => /^\d+ in data$/.test(detail!))).toBe(true);
-        expect(fetched).toEqual([".orders"]);
+        expect(summaryCalls()).toHaveLength(1);
         await key("Enter");
         expect(area().value).toBe(".orders\n| map(select(.customer_id == \"C01\"");
     });
@@ -252,7 +255,7 @@ describe("the jq view (#937) — J2 the data's values", () => {
 
 describe("the jq view (#937) — J3 the problems panel", () => {
     test("codes, positions and the checker's sentences; a part that stays a jq step, noted; going to one selects its range", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         const text = ".orders\n| sort_by(-.total)\n| map(.totl)";
         await type(text);
@@ -267,7 +270,7 @@ describe("the jq view (#937) — J3 the problems panel", () => {
     });
 
     test("each fix makes a program that checks clean, the caret after it: Use .total, Narrow first, Use any(.lines[]; …)", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         const fixes: readonly (readonly [string, string, string, string])[] = [
             [".orders\n| sort_by(-.total)\n| map(.totl)", "unknown_field", "Use .total", ".orders\n| sort_by(-.total)\n| map(.total)"],
@@ -285,7 +288,7 @@ describe("the jq view (#937) — J3 the problems panel", () => {
     });
 
     test("a fix is a gesture of its own: Undo returns the jq as it was typed", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         await type(".orders\n| sort_by(-.total)\n| map(.totl)");
         await press("Use .total", rowOf("unknown_field"));
@@ -301,7 +304,7 @@ describe("the jq view (#937) — J3 the problems panel", () => {
 
 describe("the jq view (#937) — J4 one gesture, and the keys", () => {
     test("the jq typed and left is one transaction: Undo restores the jq before it", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         await type(".orders\n| map(select(.total >= 2000))");
         await leave();
@@ -312,15 +315,14 @@ describe("the jq view (#937) — J4 one gesture, and the keys", () => {
     });
 
     test("⌘⏎ runs the jq as typed, left first; Tab inserts two spaces", async () => {
-        const offline = offlineCall();
-        await mountBuilder(offline.call);
+        await mount();
         await openJq(BIG.name);
         await type(".orders | length");
         await key("Enter", { metaKey: true });
         await settle();
         // Opening the query ran it (#938); ⌘⏎ runs it again: two calls, each with a run's limits, its time limit the server's (#1131).
         const runLimits = some({ timeoutMs: none, maxResultBytes: some(1_048_576n), maxLogBytes: none });
-        expect(offline.requests.map((r) => r.limits)).toEqual([runLimits, runLimits]);
+        expect(h.oneShots().map((r) => r.limits)).toEqual([runLimits, runLimits]);
         await press("Undo");
         expect(area().value).toBe(".orders\n| map(select(.total >= 1000))");
         area().setSelectionRange(0, 0);
@@ -330,7 +332,7 @@ describe("the jq view (#937) — J4 one gesture, and the keys", () => {
     });
 
     test("the completions close when the caret moves, and on blur", async () => {
-        await mountBuilder(offlineCall().call);
+        await mount();
         await openJq(BIG.name);
         await type(".orders[0].");
         expect(completions()).not.toBeNull();
@@ -370,31 +372,30 @@ function answered(answer: ExecuteResult): unknown {
 
 describe("the jq view (#937) — another query opened while it shows one (#1132)", () => {
     test("a query that is not steps opened while the jq view shows another: its own jq from the start, which the run opening it runs, and no draft left on it", async () => {
-        recordHarness(savedRecord([TOP, BIG, IDS, NAMES]));
-        const one = fixtureCall();
-        await mountBuilder(one.call, { query: IDS.name });
+        await h.seed([TOP, BIG, IDS, NAMES]);
+        const answers = h.oneShotResults();
+        await h.mountBuilder({ query: IDS.name });
         expect([viewShown(), area().value]).toEqual(["jq", IDS_PROGRAM]);
         await openQuery(variant("saved", NAMES.name));
         expect([viewShown(), area().value]).toEqual(["jq", NAMES_PROGRAM]);
-        // Two runs, each its own query's: the customers' names, not the big orders' ids again.
-        expect(one.requests).toHaveLength(2);
+        // Two runs, each its own query's: the customers' names, not the big orders' ids again — the fixture's, as e3 holds them.
+        expect(h.oneShots()).toHaveLength(2);
         const ids = evaluateJq(IDS_PROGRAM, FIXTURE_VALUE, { inputType: FixtureType, root: true });
         const names = evaluateJq(NAMES_PROGRAM, FIXTURE_VALUE, { inputType: FixtureType, root: true });
-        expect(equalFor(ArrayType(IntegerType))(answered(one.answers[0]!) as never, ids as never)).toBe(true);
-        expect(equalFor(ArrayType(StringType))(answered(one.answers[1]!) as never, names as never)).toBe(true);
+        expect(equalFor(ArrayType(IntegerType))(answered(answers()[0]!) as never, ids as never)).toBe(true);
+        expect(equalFor(ArrayType(StringType))(answered(answers()[1]!) as never, names as never)).toBe(true);
         // Nothing drafted on the query opened: nothing to undo, and saved as it was.
         expect([enabled("Undo"), saveState()]).toEqual([false, "saved"]);
     });
 
     test("a query of steps opened while the jq view shows another: the visual view, its own program run as it opens, and no draft left on it", async () => {
-        const one = fixtureCall();
-        await mountBuilder(one.call);
+        await h.mountBuilder();
         await openJq(BIG.name);
         expect(viewShown()).toBe("jq");
         await openQuery(variant("saved", TOP.name));
         expect(viewShown()).toBe("visual");
         // Opening each ran it: the big orders, then the top shipped orders with their own fields.
-        expect(one.requests).toHaveLength(2);
+        expect(h.oneShots()).toHaveLength(2);
         expect(resultFields()).toBe("· order, customer, region, total, shipped");
         expect([enabled("Undo"), saveState()]).toEqual([false, "saved"]);
     });

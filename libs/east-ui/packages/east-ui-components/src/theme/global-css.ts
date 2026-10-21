@@ -239,6 +239,12 @@ export const globalCss = defineGlobalStyles({
         color: "fg.danger",
         borderColor: "status.neg",
     },
+    /* A drop the cell takes with a warning (an Allocation fit under its
+     * minimum): the warning's ink. */
+    "[data-drag-caption][data-warn]": {
+        color: "fg.warning",
+        borderColor: "status.warn",
+    },
     /* A draggable is a keyboard control (#608): focused, Space / Enter picks
      * it up. The global reset below strips focus outlines, so it wears the
      * brand ring the moment the keyboard reaches it. */

@@ -3,76 +3,74 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Paged flow records: preserve index order in the list and primary identity in edits. */
+/**
+ * The `flows` source of a flowchart's slice (#1340, #1346): the Flows tab
+ * pages the flows its rail narrows the record to, in its index's order, each
+ * row keeping the record's primary key — its name — as the flow's identity;
+ * the open flow is read by that key, whatever the narrowing; and the tab's own
+ * search reads a narrowing of its own through the source's part.
+ *
+ * @packageDocumentation
+ */
 import {
-    ArrayType, BlobType, East, OptionType, StringType, StructType, FunctionType,
-    isTypeEqual, none, some, variant, type ExprType,
+    ArrayType, BlobType, East, IntegerType, OptionType, StringType, StructType, FunctionType,
+    isTypeEqual, none, printType, some, type ExprType,
 } from "@elaraai/east";
-import {
-    buildRowSource, resolveRowSource, PinnedSourceType,
-    RecordSliceChromeType, recordSliceChrome, type RecordSliceChromeOptions,
-} from "@elaraai/east-ui/internal";
-import { FlowchartFlowType, FlowchartFlowsType } from "./types.js";
+import { buildRowSource, resolveRowSource, LiveSourceType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { FlowchartFlowType } from "./types.js";
 
 /** A list entry retains the record's primary key even when sorted by an index. */
 export const FlowchartEntryType = StructType({ name: StringType, flow: FlowchartFlowType });
-/** The normalized, snapshot-pinned list of flows. */
-export const FlowchartWindowType = PinnedSourceType(ArrayType(FlowchartEntryType));
+/**
+ * The normalized list of flows, pinned to the record's snapshot and to the rail's narrowing (#1354): a live source,
+ * read under the narrowing as it stands, its `query` naming it.
+ */
+export const FlowchartWindowType = LiveSourceType(ArrayType(FlowchartEntryType));
 /** Read by primary identity: outer none is pending; inner none is confirmed absence. */
 export const FlowchartReadEntryType = FunctionType([StringType], OptionType(OptionType(BlobType)));
-/** The shared record filter controls, independent of the list's current query. */
-export const FlowchartRecordChromeType = OptionType(RecordSliceChromeType);
+/**
+ * A page of the flows a narrowing holds (#1340, ruling 11): the Flows tab's
+ * own search — the rail's choices and the search's text — read through the
+ * `flows` source's `pageWhere`, never the rail's state; `none` while it is read.
+ */
+export const FlowchartSearchType = FunctionType([RecordSliceWhereType, IntegerType, IntegerType], OptionType(ArrayType(FlowchartEntryType)));
+
+/** An indexed window's entry, as the `flows` source serves it: the flow's name, and its row joined. */
+type FlowEntry = StructType<{ key: StringType; row: OptionType<FlowchartFlowType> }>;
+
+/** The `flows` source's part, as the flowchart reads it: a page of a narrowing, and a flow by its name. */
+type FlowsPart = ExprType<StructType<{
+    pageWhere: FunctionType<[typeof RecordSliceWhereType, IntegerType, IntegerType], OptionType<ArrayType<FlowEntry>>>;
+    readEntry: typeof FlowchartReadEntryType;
+}>>;
 
 /**
- * Normalize a record window without reading the whole record.
- * @param window - Data.bindPaged(record), or Slice.rows of its record slice
- * @param slice - Shared record Slice controls; required for an indexed window
- * @returns The window, primary-key reader and optional Slice chrome
- * @throws {Error} When the window does not contain complete, pinned flow entries
+ * The `flows` source's reads, over the source as the payload's block bound
+ * it (#1356): a function captures what it reads, so each holds the `flows`
+ * source alone, never the whole slice.
+ *
+ * @param part - The `flows` source's part of the slice, bound: its `pageWhere`, a narrowing's page, the rail's state unchanged, and its `readEntry`, a flow by its name, whatever the narrowing
+ * @param rows - Its narrowed data — `Slice.rows(slice, "flows")` — bound
+ * @returns The Flows tab's window, the read of a flow by its name, and the tab's search's page
+ * @throws {Error} When the source pages anything but a record of flows by name, its rows joined
  * @internal
  */
-export function flowchartWindow(window: unknown, slice: RecordSliceChromeOptions | undefined) {
-    const resolved = resolveRowSource(window, "Flowchart");
-    const joined = resolved.kind === "ordered" && resolved.elementType.type === "Struct"
-        ? resolved.elementType.fields.row : undefined;
-    const indexed = resolved.kind === "ordered" && isTypeEqual(resolved.keyType, StringType)
-        && joined?.type === "Variant" && joined.cases.some !== undefined
-        && isTypeEqual(joined.cases.some, FlowchartFlowType);
-    if (resolved.kind === "inline" || !resolved.pinned
-        || (!isTypeEqual(resolved.collectionType, FlowchartFlowsType) && !indexed)) {
-        throw new Error("Flowchart: `window` must page complete flows from the bound record — Data.bindPaged(record), or Slice.rows(recordSlice) with joined rows");
+export function flowchartWindow(part: ExprType<StructType>, rows: ExprType<StructType>) {
+    const resolved = resolveRowSource(rows, "Flowchart.slice's flows");
+    const joined = resolved.kind === "ordered" && resolved.elementType.type === "Struct" ? resolved.elementType.fields.row : undefined;
+    const flows = resolved.kind === "ordered" && resolved.query && isTypeEqual(resolved.keyType, StringType)
+        && joined?.type === "Variant" && joined.cases.some !== undefined && isTypeEqual(joined.cases.some, FlowchartFlowType);
+    if (!flows) {
+        throw new Error(`Flowchart: \`slice\`'s \`flows\` source pages a record of flows by name, Flowchart.Types.Flows, its rows joined — Data.bindPaged(record, { indexes }) over the record \`record\` binds — and this one pages ${printType(resolved.collectionType)}`);
     }
-    if (indexed && slice === undefined) {
-        throw new Error("Flowchart: an indexed `window` needs slice={{ slice: recordSlice }} so Save confirms changes by their original record IDs");
-    }
-    const rowsType = ArrayType(FlowchartEntryType);
-    const source = buildRowSource(resolved, rowsType, (collection) => {
-        if (!indexed) return (collection as ExprType<FlowchartFlowsType>).toArray((_$, flow, name) => ({ name, flow }));
-        const rows = collection as ExprType<ArrayType<StructType<{
-            key: StringType; row: OptionType<FlowchartFlowType>;
-        }>>>;
-        return rows.map((_$, entry) => ({ name: entry.key, flow: entry.row.unwrap("some") }));
-    }).unwrap("pinned");
-    const chrome = slice === undefined ? undefined : recordSliceChrome(slice);
-    const entry = chrome !== undefined ? chrome.slice.readEntry
-        : East.function([StringType], OptionType(OptionType(BlobType)), ($, name) => {
-            const src = $.const(source);
-            const answer = $.let(none, OptionType(OptionType(BlobType)));
-            $.match(src.seek, { some: ($, seek) => {
-                $.match(seek(variant("key", East.print(name))), { some: ($, found) => {
-                    $.if(found.found.not(), ($) => { $.assign(answer, some(none)); });
-                    $.if(found.found, ($) => {
-                        $.match(src.page(found.row, 1n), { some: ($, rows) => {
-                            const flow = $.let(none, OptionType(BlobType));
-                            $.for(rows, ($, row) => {
-                                $.if(row.name.equal(name), ($) => { $.assign(flow, some(East.Blob.encodeBeast(row.flow, "v2"))); });
-                            });
-                            $.assign(answer, some(flow));
-                        } });
-                    });
-                } });
-            } });
-            return answer;
-        });
-    return { window: source, entry, chrome: chrome === undefined ? none : some(chrome) };
+    const entries = (collection: ExprType<ArrayType<FlowEntry>>) => collection.map((_$, entry) => ({ name: entry.key, flow: entry.row.unwrap("some") }));
+    const window = buildRowSource(resolved, ArrayType(FlowchartEntryType), (collection) => entries(collection as unknown as ExprType<ArrayType<FlowEntry>>)).unwrap("live");
+    const search = East.function([RecordSliceWhereType, IntegerType, IntegerType], OptionType(ArrayType(FlowchartEntryType)), ($, where, offset, limit) => {
+        const page = $.const((part as unknown as FlowsPart).pageWhere);
+        const result = $.let(none, OptionType(ArrayType(FlowchartEntryType)));
+        const found = $.let(page(where, offset, limit));
+        $.match(found, { some: ($2, held) => { $2.assign(result, some(entries(held))); } });
+        return result;
+    });
+    return { window, entry: (part as unknown as FlowsPart).readEntry, search };
 }

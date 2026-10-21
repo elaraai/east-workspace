@@ -30,6 +30,12 @@
  * revision it belongs to, plus one per dataset for its revision, which every
  * read tracks.
  *
+ * Searches of one source's rows launched in one synchronous turn are a burst
+ * (#1360): each answer is applied to its channel as it lands, and the last
+ * re-fires every channel the burst answered at once, so a reader of a window
+ * over an interval index — some fifty-five searches — runs again once, not
+ * once a search. Windows re-fire as each lands.
+ *
  * A window a landed one covers is never fetched (#1217): its rows are that
  * window's, at the same revision, so the read is answered from it and keeps
  * the answer in its own channel. A sheet reads an entry it is about to draft
@@ -245,6 +251,17 @@ interface WindowSpan {
     readonly offset: number;
     /** How many elements it holds. */
     readonly count: number;
+}
+
+/** Searches of one source's rows launched in one synchronous turn (#1360). */
+interface SearchBurst {
+    /** Whether a search may still join: until the turn that opened it ends. */
+    open: boolean;
+    /** Members still in flight. */
+    pending: number;
+    /** The channels its members answered, landed or failed, to re-fire once
+     *  the last is done. */
+    readonly answered: string[];
 }
 
 /**
@@ -555,6 +572,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     /** Each dataset's snapshot, by workspace and path. */
     private readonly snapshots = new Map<string, Snapshot>();
 
+    /** This turn's open search bursts, by the family of the rows they search. */
+    private readonly bursts = new Map<string, SearchBurst>();
+
     /** Fetches launched so far — the source of every channel's `launchSeq`. */
     private launches = 0;
 
@@ -600,6 +620,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         this.snapshots.clear();
         this.clearChannels();
         this.loadedWindows.clear();
+        this.bursts.clear();
     }
 
     private resolveWorkspace(): string {
@@ -795,24 +816,98 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         return entry.launchSeq;
     }
 
-    /** Apply a fetch's outcome if the channel still waits on it, re-firing the
-     *  channel's reads. Returns whether it applied. */
-    private settle(key: string, seq: number, mutate: (entry: PageEntry) => void): boolean {
+    /** Apply a fetch's outcome if the channel still waits on it. Returns
+     *  whether it applied. */
+    private apply(key: string, seq: number, mutate: (entry: PageEntry) => void): boolean {
         const entry = this.entries.get(key);
         if (entry === undefined || entry.launchSeq !== seq) return false;
         mutate(entry);
+        return true;
+    }
+
+    /** Apply a fetch's outcome if the channel still waits on it, re-firing the
+     *  channel's reads. Returns whether it applied. */
+    private settle(key: string, seq: number, mutate: (entry: PageEntry) => void): boolean {
+        if (!this.apply(key, seq, mutate)) return false;
         this.notify(key);
         return true;
     }
 
-    /** Settle a fetch as failed, with the reason a read will throw. */
-    private fail(key: string, seq: number, reason: string, permanent: boolean): void {
-        this.settle(key, seq, (e) => {
+    /** A failed fetch's outcome: the reason a read will throw. */
+    private failure(reason: string, permanent: boolean): (entry: PageEntry) => void {
+        return (e) => {
             e.status = "failed";
             e.error = reason;
             e.failedAtMs = this.now();
             e.permanent = permanent;
-        });
+        };
+    }
+
+    /** Settle a fetch as failed, with the reason a read will throw. */
+    private fail(key: string, seq: number, reason: string, permanent: boolean): void {
+        this.settle(key, seq, this.failure(reason, permanent));
+    }
+
+    /**
+     * Join this turn's burst of searches of one source's rows (#1360), opening
+     * it with the turn's first. It closes as the turn ends.
+     *
+     * @param family - The rows searched — {@link pagedWindowFamily}
+     * @returns The burst
+     */
+    private joinBurst(family: string): SearchBurst {
+        let burst = this.bursts.get(family);
+        if (burst === undefined) {
+            const opened: SearchBurst = { open: true, pending: 0, answered: [] };
+            this.bursts.set(family, opened);
+            queueMicrotask(() => {
+                opened.open = false;
+                if (this.bursts.get(family) === opened) this.bursts.delete(family);
+                this.flushBurst(opened);
+            });
+            burst = opened;
+        }
+        burst.pending += 1;
+        return burst;
+    }
+
+    /**
+     * A member of a burst is done: answered, or dropped — by a move, or by a
+     * newer launch on its channel.
+     *
+     * @param burst - Its burst
+     * @param answered - Its channel, when its answer was applied
+     */
+    private leaveBurst(burst: SearchBurst, answered: string | undefined): void {
+        if (answered !== undefined) burst.answered.push(answered);
+        burst.pending -= 1;
+        this.flushBurst(burst);
+    }
+
+    /** Re-fire every channel a closed burst answered, once its last member is done. */
+    private flushBurst(burst: SearchBurst): void {
+        if (burst.open || burst.pending > 0 || burst.answered.length === 0) return;
+        this.notifyAll(burst.answered.splice(0));
+    }
+
+    /**
+     * Ask again what failed: an explicit refresh — a Retry — puts every channel
+     * of the snapshot that failed for a reason a retry can fix back to `idle`
+     * and re-fires its readers, so their next read fetches it at once, not
+     * after the retry gap a read alone waits. A permanent failure stays until
+     * the source moves; nothing else is dropped.
+     *
+     * @param snapshot - The source's snapshot
+     */
+    private rearmFailed(snapshot: Snapshot): void {
+        for (const key of snapshot.channels) {
+            const entry = this.entries.get(key);
+            if (entry === undefined || entry.status !== "failed" || entry.permanent === true) continue;
+            entry.status = "idle";
+            delete entry.error;
+            delete entry.failedAtMs;
+            this.notify(key);
+        }
     }
 
     /** What a read of a channel answers: its value once loaded, `none` while
@@ -960,12 +1055,14 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     }
 
     /** Start the pinned fence search for one key query if it is due one,
-     *  returning its channel — the seek sibling of {@link ensureWindow}. */
+     *  returning its channel — the seek sibling of {@link ensureWindow}. Its
+     *  answer re-fires its channel with the rest of its burst (#1360). */
     private ensureSeek(
         workspace: string,
         path: TreePath,
         snapshot: Snapshot,
         revision: string,
+        selector: PagedSelector,
         query: DatasetFindQuery,
         key: string,
     ): PageEntry {
@@ -973,24 +1070,31 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         if (!this.due(entry)) return entry;
         const seq = this.launch(entry);
         const api = this.api;
+        const burst = this.joinBurst(pagedWindowFamily(workspace, path, revision, selector));
 
         void (async () => {
-            let range: DatasetFindResult;
+            let answered = false;
             try {
-                if (api === null) throw new Error("no PagedApi installed");
-                range = await api.findKey(workspace, path, { ...query, hash: revision });
-            } catch (err) {
-                if (this.followed(workspace, path, snapshot, revision, err)) return;
-                this.fail(key, seq, failureOf(path, err), isPermanentPageError(err));
-                console.error(`Data.bindPaged: key search failed for ${key}:`, err);
-                return;
+                let range: DatasetFindResult;
+                try {
+                    if (api === null) throw new Error("no PagedApi installed");
+                    range = await api.findKey(workspace, path, { ...query, hash: revision });
+                } catch (err) {
+                    if (this.followed(workspace, path, snapshot, revision, err)) return;
+                    answered = this.apply(key, seq, this.failure(failureOf(path, err), isPermanentPageError(err)));
+                    console.error(`Data.bindPaged: key search failed for ${key}:`, err);
+                    return;
+                }
+                if (!this.pinnedTo(snapshot, revision)) return;
+                answered = this.apply(key, seq, (e) => {
+                    e.status = "loaded";
+                    e.range = range;
+                    delete e.error;
+                });
+            } finally {
+                // Every way out leaves the burst, so its last member re-fires the rest.
+                this.leaveBurst(burst, answered ? key : undefined);
             }
-            if (!this.pinnedTo(snapshot, revision)) return;
-            this.settle(key, seq, (e) => {
-                e.status = "loaded";
-                e.range = range;
-                delete e.error;
-            });
         })();
         return entry;
     }
@@ -1045,7 +1149,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     const query = toFindQuery(queryArg, selector);
                     const key = pagedSeekKey(workspace, path, revision, query, selector);
                     this.track(key);
-                    const entry = this.ensureSeek(workspace, path, this.snapshotOf(workspace, path), revision, query, key);
+                    const entry = this.ensureSeek(workspace, path, this.snapshotOf(workspace, path), revision, selector, query, key);
                     const range = entry.range;
                     return this.answer(entry, range === undefined
                         ? undefined
@@ -1066,8 +1170,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     queueMicrotask(() => {
                         if (this.workspace !== workspace) return;
                         const snapshot = this.snapshotOf(workspace, path);
-                        if (target.type === "some") this.moveTo(workspace, path, snapshot, target.value);
-                        else this.find(workspace, path, snapshot);
+                        if (target.type === "some") { this.moveTo(workspace, path, snapshot, target.value); return; }
+                        // Following the current state is a Retry too: what failed is asked again now.
+                        this.rearmFailed(snapshot);
+                        this.find(workspace, path, snapshot);
                     });
                     return null;
                 }),

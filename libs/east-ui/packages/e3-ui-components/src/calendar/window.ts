@@ -3,39 +3,91 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Author-bound Slice chrome and the time window used by Schedule's index reader. */
-import { useLayoutEffect, useMemo } from "react";
-import { some, variant, type ValueTypeOf } from "@elaraai/east";
-import type { RecordSliceChromeType, SliceBindType } from "@elaraai/east-ui/internal";
-import { usePersistedState, useSliceReactivity } from "@elaraai/east-ui-components";
-import { calendarRange, DAY, dayStart, type CalendarRange, type CalendarValue, type CalendarView } from "./model.js";
-import { recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
+/**
+ * The Calendar's one date window (#1343): every event kind narrowed through
+ * its source of the slice reads the window the Calendar shows, and each such
+ * source's range holds it, so its counts, its Save notice and the window agree.
+ * The first event source holding a range leads; navigation writes every one,
+ * and a range written to one — the range editor's — is written to the others.
+ * A source still holding its seed — the slice's `initial`, written over by
+ * nothing — leads nothing: the view decides the window, the viewer's own when
+ * a reload restores it, so a reload keeps the period and the date the viewer
+ * left rather than the slice's start. With no slice, the view alone is the
+ * window.
+ */
+import { useLayoutEffect, useMemo, useState } from "react";
+import type { ValueTypeOf } from "@elaraai/east";
+import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
+import { usePersistedState, useSlicesReactivity } from "@elaraai/east-ui-components";
+import { recordSliceSeeded, recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { sourcePart } from "../shared/schedule/visibility.js";
+import { calendarRange, DAY, dayStart, type CalendarKind, type CalendarRange, type CalendarValue, type CalendarView } from "./model.js";
 import { timelineRange } from "./timeline.js";
 
-/** The window and shared controls that every Calendar layout consumes. */
-export interface CalendarWindow {
-    view: CalendarView; setView: (next: CalendarView) => void; range: CalendarRange;
-    slice: ValueTypeOf<typeof SliceBindType> | undefined; affordances: readonly string[];
-    recordChrome: ValueTypeOf<RecordSliceChromeType> | undefined;
+/** One record Slice's controls. */
+type Bind = ValueTypeOf<RecordSliceBindType>;
+
+/** An event kind narrowed through its source of the slice: the kind, and its part. */
+export interface CalendarEventPart {
+    /** The event kind. */
+    readonly kind: CalendarKind;
+    /** Its source's part of the slice: the Slice its reads, its counts and its Save notice go through. */
+    readonly part: Bind;
 }
 
-/** The author's Slice is the range owner; layout and period remain viewer preferences. */
+/** The window and the slice that every Calendar layout consumes. */
+export interface CalendarWindow {
+    view: CalendarView; setView: (next: CalendarView) => void; range: CalendarRange;
+    /** The rail; `undefined` with no slice. */
+    chrome: ValueTypeOf<RecordSlicesChromeType> | undefined;
+    /** Each event kind narrowed through its source, in the kinds' order. */
+    eventParts: readonly CalendarEventPart[];
+    /** The event sources that hold the window: each with a range, in the kinds' order. */
+    windowParts: readonly CalendarEventPart[];
+    /** The rail's affordances. */
+    affordances: readonly string[];
+    /** Why the window could not be written to a source's range — its indexes answer none alone. */
+    error: string | undefined;
+}
+
+/**
+ * Each event kind narrowed through its source of the slice: the source named
+ * after its slot, as the tag hands it the kind (#1343).
+ *
+ * @param value - The payload
+ * @returns Each such kind and its part, in the kinds' order
+ */
+export function calendarEventParts(value: CalendarValue): CalendarEventPart[] {
+    const chrome = value.slice.type === "some" ? value.slice.value : undefined;
+    return value.events.flatMap(kind => {
+        const part = sourcePart(chrome, kind.key);
+        return part === undefined ? [] : [{ kind, part }];
+    });
+}
+
+/** The window as one range's bounds: the part's half-open range, in epoch milliseconds. */
+function sameWindow(part: Bind, from: number, to: number): boolean {
+    const window = recordSliceWindow(part);
+    return window?.kind === "datetime" && window.min === from && window.max === to;
+}
+
+/** The slice is the window's owner when it narrows an event kind; layout and period remain viewer preferences. */
 export function useCalendarWindow(value: CalendarValue, key: string, now: Date): CalendarWindow {
-    const slice = value.slice.type === "some" ? value.slice.value.slice : undefined;
-    const recordChrome = value.recordSlice?.type === "some" ? value.recordSlice.value : undefined;
-    const record = recordChrome?.slice;
-    useSliceReactivity(record?.key ?? slice?.key);
-    const affordances = useMemo(() => (recordChrome ?? (value.slice.type === "some" ? value.slice.value : undefined))?.affordances.map(a => a.type) ?? [], [value.slice, recordChrome]);
+    const chrome = value.slice.type === "some" ? value.slice.value : undefined;
+    const eventParts = useMemo(() => calendarEventParts(value), [value]);
+    const windowParts = useMemo(() => eventParts.filter(({ part }) => part.config.range.type === "some"), [eventParts]);
+    const version = useSlicesReactivity(eventParts.map(({ part }) => part.key));
+    const affordances = useMemo(() => chrome?.affordances.map(a => a.type) ?? [], [chrome]);
+    const [error, setError] = useState<string>();
     const { state, setState } = usePersistedState<CalendarView>(`${key}.view`, {
         layout: value.settings.layout.type, period: value.settings.period.type,
         date: dayStart(value.settings.date.type === "some" ? value.settings.date.value : now).getTime(),
     });
-    const bound = slice?.read().range;
-    const datetime = bound?.type === "some" && bound.value.type === "datetime" ? bound.value.value : undefined;
-    const indexed = record === undefined ? undefined : recordSliceWindow(record);
-    const from = indexed?.kind === "datetime" ? indexed.min : datetime === undefined ? undefined : dayStart(datetime.from).getTime();
-    // Local Slice is inclusive; record Slice and schedule windows are half-open.
-    const to = indexed?.kind === "datetime" ? indexed.max : datetime === undefined ? undefined : dayStart(datetime.to).getTime() + DAY;
+    // The first event source holding a range leads; the others follow it. One still holding its seed leads nothing:
+    // its window is the author's start, and the view — restored by a reload — writes its own over it.
+    const lead = windowParts.filter(({ part }) => !recordSliceSeeded(part)).map(({ part }) => recordSliceWindow(part)).find(window => window?.kind === "datetime");
+    const from = lead?.min;
+    const to = lead?.max;
     const view = useMemo(() => from === undefined || (state.date >= from && state.date < (to ?? from)) ? state : { ...state, date: from }, [state, from, to]);
     const range = useMemo((): CalendarRange => {
         if (from === undefined || to === undefined || to <= from) return view.layout === "timeline" ? timelineRange(view) : calendarRange(view, value.settings);
@@ -46,20 +98,26 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
         }
         return { from: new Date(from), to: new Date(to), days };
     }, [from, to, view, value.settings]);
-    const rangeField = record?.config.range;
-    const needsWindow = rangeField?.type === "some" && !record?.read().where.has(rangeField.value);
-    useLayoutEffect(() => {
-        if (record !== undefined && needsWindow) setRecordSliceWindow(record, range.from.getTime(), range.to.getTime());
-    }, [record, needsWindow, range.from, range.to]);
-    const setView = (next: CalendarView) => {
-        setState(next);
-        if (record !== undefined) {
-            const window = next.layout === "timeline" ? timelineRange(next) : calendarRange(next, value.settings);
-            setRecordSliceWindow(record, window.from.getTime(), window.to.getTime());
-        } else if (slice !== undefined && slice.rangeFieldId().type === "some") {
-            const window = next.layout === "timeline" ? timelineRange(next) : calendarRange(next, value.settings);
-            slice.setRange(some(variant("datetime", { from: window.from, to: new Date(window.to.getTime() - 1) })));
+    // Every event source that does not hold the window yet takes it: a first mount, a range cleared, or another
+    // source's range written by the range editor.
+    const write = (min: number, max: number, only: (part: Bind) => boolean) => {
+        try {
+            for (const { part } of windowParts) if (only(part)) setRecordSliceWindow(part, min, max);
+            setError(undefined);
+        } catch (reason) {
+            setError(reason instanceof Error ? reason.message : "The dates could not be applied");
         }
     };
-    return { view, setView, range, slice, recordChrome, affordances };
+    useLayoutEffect(() => {
+        const min = range.from.getTime(), max = range.to.getTime();
+        if (windowParts.some(({ part }) => !sameWindow(part, min, max))) write(min, max, part => !sameWindow(part, min, max));
+        // `version` moves with every source's state: a range cleared or written there is followed here.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [windowParts, range.from, range.to, version]);
+    const setView = (next: CalendarView) => {
+        setState(next);
+        const window = next.layout === "timeline" ? timelineRange(next) : calendarRange(next, value.settings);
+        write(window.from.getTime(), window.to.getTime(), () => true);
+    };
+    return { view, setView, range, chrome, eventParts, windowParts, affordances, error };
 }

@@ -29,6 +29,10 @@ class ResizeObserverStub {
     unobserve(): void { /* noop */ }
     disconnect(): void { /* noop */ }
 }
+// jsdom has no `CSS.escape`, and the combobox finds its highlighted item with it, to scroll it into view — every browser has one.
+// Without it, the combobox's list mutating while an item is highlighted throws from its observer, as the run goes on.
+(globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
+(globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
 
 beforeEach(() => {
     vi.stubGlobal("ResizeObserver", ResizeObserverStub);

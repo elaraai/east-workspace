@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { DictType, East, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
-import { Box, Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
+import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
+import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
@@ -16,6 +16,12 @@ export const increment = e3.mutation.reduce("increment", counter,
     East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)));
 export const reset = e3.mutation.reduce("reset", counter,
     East.function([IntegerType], IntegerType, (_$, _state) => 0n));
+// What the record runtime's specs write beside them (#1378): a take off the
+// counter that refuses to leave it below zero, so a mutation fails as a
+// reducer's program does.
+export const take = e3.mutation.reduce("take", counter,
+    East.function([IntegerType, IntegerType], IntegerType, (_$, state, n) =>
+        East.less(state, n).ifElse(() => East.error("the counter holds fewer than that"), () => state.subtract(n))));
 
 export const recordBindMutate = example({
     keywords: ["Record", "bind", "mutate", "Reactive", "Button", "read", "pending", "status", "system of record"],
@@ -88,6 +94,28 @@ export const recordBindStatus = example({
 export const JobType = StructType({ task: StringType, qty: IntegerType });
 export const jobs = e3.record("jobs", DictType(StringType, JobType), new Map());
 export const jobsPatch = e3.mutation.patch(jobs);
+
+// The records `Record.onApply`'s specs commit through beside the jobs (#1378),
+// each through its patch door: jobs whose index refuses a quantity below zero,
+// so a write fails as an index's program does; a page whose cells a layout
+// edits inside its one entry; and a week whose groups and loose tasks a Sheet
+// edits inside its entry.
+export const checkedJobs = e3.record("checked_jobs", DictType(StringType, JobType), new Map());
+export const checkedJobsPatch = e3.mutation.patch(checkedJobs);
+export const checkedJobsByQty = e3.recordIndex("checked_jobs_by_qty", checkedJobs, {
+    key: East.function([StringType, JobType], IntegerType, (_$, _id, job) =>
+        East.less(job.qty, 0n).ifElse(() => East.error("a job's quantity is never below zero"), () => job.qty)),
+});
+export const CellType = StructType({ key: StringType, span: IntegerType });
+export const PageType = StructType({ title: StringType, cells: ArrayType(CellType) });
+export const layoutPages = e3.record("layout_pages", DictType(StringType, PageType), new Map());
+export const layoutPagesPatch = e3.mutation.patch(layoutPages);
+export const WeekLineType = StructType({ id: StringType, task: StringType });
+export const WeekGroupType = StructType({ id: StringType, name: StringType, lines: ArrayType(WeekLineType) });
+export const WeekEntryType = Editing.Types.Entry(WeekGroupType, "lines");
+export const WeekType = StructType({ title: StringType, entries: ArrayType(WeekEntryType) });
+export const plannedWeeks = e3.record("planned_weeks", DictType(StringType, WeekType), new Map());
+export const plannedWeeksPatch = e3.mutation.patch(plannedWeeks);
 
 export const recordSheetApply = example({
     keywords: ["Record", "onApply", "Sheet", "Save", "patch", "commit", "conflict", "discard", "bindPaged", "editing", "system of record"],

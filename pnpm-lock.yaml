@@ -867,6 +867,9 @@ importers:
       '@elaraai/east-py-datascience':
         specifier: workspace:*
         version: link:../../../east-py/packages/east-py-datascience
+      '@elaraai/east-web-std':
+        specifier: workspace:*
+        version: link:../../../east-web/packages/east-web-std
       '@elaraai/eslint-plugin-east':
         specifier: workspace:*
         version: link:../../../eslint-plugin-east
@@ -1070,6 +1073,9 @@ importers:
       '@elaraai/e3-ui':
         specifier: workspace:*
         version: link:../e3-ui
+      '@elaraai/e3-web':
+        specifier: workspace:*
+        version: link:../../../e3/packages/e3-web
       '@elaraai/east':
         specifier: workspace:*
         version: link:../../../east

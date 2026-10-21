@@ -33,7 +33,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         "chipToggle", "chipEdit", "hint", "hintError",
         "form", "field", "textArea", "hintRow", "hintAction",
         "anchor", "disclosure", "disclosureRegion", "disclosureLabel", "disclosureBody", "disclosureFoot",
-        "choiceList", "choice", "choiceLabel", "choiceCount", "choicePending", "controlRow", "fieldLabel", "fieldActions",
+        "choiceList", "choice", "choiceLabel", "choiceCount", "choiceCounts", "choiceCountsGap", "choicePending", "controlRow", "fieldLabel", "fieldActions",
     ],
     base: {
         anchor: { display: "inline-flex" },
@@ -53,6 +53,10 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         },
         choiceLabel: { flex: "1", minWidth: "0", overflowWrap: "anywhere" },
         choiceCount: { textStyle: "mono.sm", color: "fg.muted", fontVariantNumeric: "tabular-nums", flexShrink: "0" },
+        // A narrowing over several records counts each source on one line:
+        // `2 of 3 lanes · 21 of 33 resources`.
+        choiceCounts: { display: "inline-flex", alignItems: "baseline", gap: "{spacing.1.5}", minWidth: "0", whiteSpace: "nowrap" },
+        choiceCountsGap: { textStyle: "mono.sm", color: "fg.subtle", flexShrink: "0" },
         choicePending: { display: "inline-block", verticalAlign: "middle", height: "{sizes.3}", width: "{sizes.6}", flexShrink: "0" },
         controlRow: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "{spacing.2}", minWidth: "0" },
         // Space distinguishes actions from choices without another section

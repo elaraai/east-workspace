@@ -8,11 +8,13 @@
  * from 1 per plan, legacy blank children during the insertion migration;
  * folds; a line's commit, a blank line's insert, a band cell's commit and
  * the title rename; explicit group insertion; the two-step delete;
- * paste into a plan and a copy that skips summaries; the lens on lines and
- * source key search; the paged arm's geometry in the frame, where an
- * unloaded band is as tall as its rows (#855). The group's noun is the host's
- * (`plan`). Every value built by `<Sheet>`'s factory and COMPILED, and
- * rendered in its frame (#1216).
+ * paste into a plan and a copy that skips summaries; source key search; the
+ * paged arm's geometry in the frame, where an unloaded band is as tall as its
+ * rows (#855). The group's noun is the host's (`plan`). Every value built by
+ * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216). (The
+ * lens on lines, and the folds a view keeps, went with the local Slice,
+ * #1345: the folds a view keeps are `frame/sheet-frame-narrowing`'s, over a
+ * record's `rows` source, and #1349 restores the lens over records.)
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -24,7 +26,6 @@ import {
 } from "@elaraai/east";
 import { Paged, StatusValueType } from "@elaraai/east-ui";
 import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
-import { Slice, State } from "@elaraai/east-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
@@ -72,28 +73,13 @@ const STATUSES = [
     { word: "RELEASED", tone: variant("info", null) },
     { word: "COMPLETE", tone: variant("success", null) },
 ];
-const SPRAY_NARROWING = {
-    range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: some("spray"), visible: none, selectedIndex: none, resolution: none,
-};
-const LINES = PLANS.flatMap((p) => p.lines);
-const VIEWS = [{ id: "spray", name: "SPRAY", narrowing: SPRAY_NARROWING, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
-/** SPRAY and a view of every plan — for a host that moves `activeView` between them. */
-const TWO_VIEWS = [...VIEWS, { id: "all", name: "ALL", narrowing: { ...SPRAY_NARROWING, search: none }, context: 0n, reveals: [], folds: new Map<string, boolean>() }];
-
-/** `activeView` — the sheet opens on this view, with {@link TWO_VIEWS} (else SPRAY, alone). */
-type Options = { lens?: boolean; readOnly?: boolean; activeView?: "spray" | "all" };
+type Options = { readOnly?: boolean };
 
 /** A grouped sheet the way an author builds one: plans over their lines, a band with a title, an eyebrow and two band cells, completed plans folded. */
 function buildGrouped(opts: Options = {}): SheetValue {
-    const viewList = opts.activeView !== undefined ? TWO_VIEWS : VIEWS;
-    const opening = opts.activeView ?? "spray";
     const program = East.function([], SheetPayloadType, ($) => {
         const plans = $.const(PLANS, ArrayType(PlanType));
         const statuses = $.const(STATUSES, ArrayType(StatusType));
-        const lines = $.const(LINES, ArrayType(LineType));
-        const views = $.const(State.bind([ArrayType(Sheet.Types.View)], "sheet-grouped-views", viewList));
-        const slice = $.let(Slice.bind("sheet_grouped_dom", lines, { fields: { task: { label: "Task" } }, search: "task" }));
         return Sheet.Payload({
             data: plans,
             columns: {
@@ -114,7 +100,6 @@ function buildGrouped(opts: Options = {}): SheetValue {
                 noun: { singular: "plan", plural: "plans" },
             }),
             registers: { statuses: Sheet.register.members(statuses, { kind: "status", key: (s) => s.word, label: (s) => s.word, tone: (s) => some(s.tone) }) },
-            ...(opts.lens ? { slice, affordances: ["search" as const], views, activeView: some(opening) } : {}),
             ...(opts.readOnly ? { readOnly: true } : {}),
         });
     });
@@ -370,25 +355,6 @@ describe("the clipboard (G9)", () => {
         fireEvent.copy(card, { clipboardData: { setData: (k: string, v: string) => set.set(k, v), getData: () => "" } });
         expect(set.get("text/plain")).toBe("16/2/2026\tRouting\t120");
         expect(msg()).toBe("Copied 1×3 to clipboard");
-    });
-});
-
-describe("the lens on a grouped sheet", () => {
-    test("a view's search narrows the groups, then the lines inside a shown group — a hit keeps its number, the rest collapse into bands; folds are untouched", async () => {
-        const value = buildGrouped({ lens: true });
-        const { container, band, lines, flush } = mount(value);
-        await flush();
-        await waitFor(() => expect(container.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(true));
-        expect(container.querySelector("[data-sheet]")!.getAttribute("data-view")).toBe("spray");
-        expect(container.querySelector('[data-slot="tabs"]')).toBeTruthy();
-        // p1 shows through its `Spraying` line — line 2, a hit — and its Routing line collapses into a band.
-        expect(lines("p1").map(row => row.querySelector('[data-key="task"]')!.textContent)).toEqual(["Spraying"]);
-        expect(lines("p1")[0]!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("2");
-        expect(lines("p1")[0]!.querySelector('[data-slot="gutterNumber"]')!.hasAttribute("data-hit")).toBe(true);
-        // p2 matches nothing: it is hidden in a band of its own, and it stays folded.
-        expect(band("p2")).toBeNull();
-        expect(container.querySelectorAll('[data-band="lens"]')).toHaveLength(2);
-        expect(container.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("1 match");
     });
 });
 
@@ -876,41 +842,6 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         const f = framed(ui);
         await waitFor(() => expect(ui.band("P11500")).not.toBeNull(), { timeout: 10_000 });
         await waitFor(() => expect(f.frame().scrollTop).toBe(f.bandTop("P11500")));
-    });
-
-    test("folds left on a tab come back when the sheet opens on it again; a sheet no one folded records no tab", async () => {
-        // The sheet opens on its SPRAY view, as its host declares — and opening a view folds nothing.
-        let ui = mount(buildGrouped({ lens: true }));
-        const view = () => ui.container.querySelector("[data-sheet]")!.getAttribute("data-view");
-        const stored = () => localStorage.getItem("sheet-grouped-test");
-        await waitFor(() => expect(view()).toBe("spray"));
-        // Storage holds what the persisted-state hook writes on its first read — nothing — and no tab.
-        expect(stored()).toBe(JSON.stringify({ view: null, folds: [], anchor: null }));
-        // p1 folds on SPRAY, and the sheet goes before the tab is ever left — the view's own folds never hear of it.
-        fireEvent.mouseDown(ui.band("p1")!.querySelector('[data-slot="fold"]')!, { button: 0 });
-        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
-        expect(stored()).toBe(JSON.stringify({ view: "spray", folds: [["p1", true]], anchor: null }));
-        ui.unmount();
-        ui = mount(buildGrouped({ lens: true }));
-        await waitFor(() => expect(view()).toBe("spray"));
-        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
-    });
-
-    test("a host that moves activeView later opens each view's own folds: the last session's are spent on the first open", async () => {
-        localStorage.setItem("sheet-grouped-test", JSON.stringify({ view: "spray", folds: [["p1", true]], anchor: null }));
-        const ui = mount(buildGrouped({ lens: true, activeView: "spray" }));
-        const view = () => ui.container.querySelector("[data-sheet]")!.getAttribute("data-view");
-        const open = (id: "spray" | "all") => ui.rerender(
-            <ChakraProvider value={system}><EastChakraSheet value={buildGrouped({ lens: true, activeView: id })} storageKey="sheet-grouped-test" /></ChakraProvider>,
-        );
-        await waitFor(() => expect(view()).toBe("spray"));
-        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(true);
-        open("all");
-        await waitFor(() => expect(view()).toBe("all"));
-        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(false);
-        open("spray");
-        await waitFor(() => expect(view()).toBe("spray"));
-        expect(ui.band("p1")!.hasAttribute("data-folded")).toBe(false);
     });
 });
 

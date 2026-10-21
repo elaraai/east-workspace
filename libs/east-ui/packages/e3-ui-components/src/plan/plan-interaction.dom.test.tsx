@@ -7,38 +7,34 @@
  * Plan interaction DOM tests — selection and the esc ladder, the hover
  * cursor as DOM chrome (#609), element clicks and the keyboard rungs (#569),
  * the #615 interaction fixes, and the root's element resolvers (popover /
- * hover).
+ * hover). The window the keys move is the record Slice's half-open range
+ * (#1344), its rows' source the Plan's dated rows on e3 itself
+ * (`rail.test-utils.ts`, #1376). A canvas persists its toggles under its
+ * storageKey (#813), and the harness clears them after each test.
  *
- * (Split out of `plan.dom.test.tsx`, #815: every test moved verbatim.)
+ * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect } from "vitest";
 import { Profiler } from "react";
-import { render, screen, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
-import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { Slice, type RecordSliceAffordance } from "@elaraai/east-ui/internal";
+import { system } from "@elaraai/east-ui-components";
+import { recordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { Data } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { PlanElementRefValue } from "./context.js";
 import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+import { RAIL_MODULES, bindRail, type Rail } from "./rail.test-utils.js";
 
-// A canvas persists its toggles under its storageKey (#813), and several tests
-// share one — nothing may carry from one test to the next.
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
-
-// jsdom lacks ResizeObserver — the floating-ui positioner behind the
-// resolver popovers needs one; a no-op stub keeps positioning inert (the
-// slice / schematic dom-test convention).
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+e3Harness(RAIL_MODULES, { measure: false });
 
 const W27 = new Date("2026-06-29T00:00:00Z");           // Monday, ISO week 27
 const W39 = new Date("2026-09-21T00:00:00Z");           // exclusive max → 12 weeks
@@ -273,46 +269,38 @@ describe("Plan element clicks (#569, #824)", () => {
     });
 });
 
-describe("Plan keyboard rungs (#569)", () => {
-    const sliceFixture = (key: string) => {
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        return buildSliceHandle(key, cfg, initial as never, [{ at: W27 }] as never, none) as never as {
-            read(): { range: { value: { value: { from: Date; to: Date } } } };
-        };
-    };
+/** The rail over the rows' source — the dated rows, W27's and W39's — its window W27..W39: what the keys and the segment write. */
+const weekly = (key: string, affordances: readonly RecordSliceAffordance[] = []): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
+    rows: {
+        source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+        fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
+    },
+}), affordances);
 
-    test("[ and ] PAN the window one period through the slice; n recenters on now — asserted on the WINDOW, not on emitted effects", () => {
-        const handle = sliceFixture("plan.kbd.pan");
+describe("Plan keyboard rungs (#569)", () => {
+    test("[ and ] PAN the window one period through the slice; n recenters on now — asserted on the WINDOW, not on emitted effects", async () => {
+        const rail = await weekly("plan.kbd.pan");
+        const part = rail.part("rows");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [] }),
+            slice: some(rail.chrome),
         }), "plan-kbd-pan");
         const surface = container.querySelector('[tabindex="0"]')!;
-        const range = () => handle.read().range.value.value;
+        const range = () => { const w = recordSliceWindow(part)!; return { from: new Date(w.min), to: new Date(w.max) }; };
 
-        // A slice range is closed, so each window `[a, b)` is written ending
-        // the millisecond before `b` (#949) — and read back whole, so a pan
-        // and its inverse land exactly where they began.
+        // A record's range is half-open, as the window is (#1344) — and read
+        // back whole, so a pan and its inverse land exactly where they began.
         fireEvent.keyDown(surface, { key: "[" });
         expect(range().from.toISOString()).toBe("2026-06-22T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-09-13T23:59:59.999Z");
+        expect(range().to.toISOString()).toBe("2026-09-14T00:00:00.000Z");
         fireEvent.keyDown(surface, { key: "]" });
         expect(range().from.toISOString()).toBe("2026-06-29T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-09-20T23:59:59.999Z");
+        expect(range().to.toISOString()).toBe("2026-09-21T00:00:00.000Z");
 
         // n re-derives the window on period edges with the same column count,
         // now (Aug 12 → its Monday, W33) a third of the way in.
         fireEvent.keyDown(surface, { key: "n" });
         expect(range().from.toISOString()).toBe("2026-07-13T00:00:00.000Z");
-        expect(range().to.toISOString()).toBe("2026-10-04T23:59:59.999Z");
+        expect(range().to.toISOString()).toBe("2026-10-05T00:00:00.000Z");
     });
 
     test("without a slice the pan rungs idle — the declared window is not writable", () => {
@@ -379,21 +367,10 @@ describe("The toolbar's expand/collapse control", () => {
     });
 
     test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        const handle = buildSliceHandle("plan.632.resolution", cfg, initial as never, [{ at: W27 }] as never, none) as never as {
-            read(): { resolution: { type: string; value: { type: string } } };
-        };
+        const rail = await weekly("plan.632.resolution");
+        const part = rail.part("rows");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [] }),
+            slice: some(rail.chrome),
             resolutions: [variant("week", null), variant("day", null)],
         }), "plan-632-resolution");
         const seg = container.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
@@ -406,29 +383,20 @@ describe("The toolbar's expand/collapse control", () => {
         act(() => week!.focus());
         fireEvent.keyDown(week!, { key: "ArrowRight" });
         expect(document.activeElement).toBe(day);
-        expect(handle.read().resolution.value.type).toBe("day");
+        expect(part.read().resolution).toEqual(some(variant("day", null)));
         await waitFor(() => expect(day!.getAttribute("aria-checked")).toBe("true"));
         expect(day!.tabIndex).toBe(0);
     });
 });
 
 describe("Plan interaction fixes (#615)", () => {
-    test("neither a caption click nor a sub-threshold strip click leaves a phantom brush esc rung", () => {
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: some(variant("datetime", { from: W27, to: W39 })),
-            compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none,
-            resolution: some(variant("week", null)),
-        };
-        const handle = buildSliceHandle("plan.brush.phantom", cfg, initial as never,
-            [{ at: W27 }, { at: W39 }] as never, none) as never;
+    test("neither a caption click nor a sub-threshold strip click leaves a phantom brush esc rung", async () => {
+        const rail = await weekly("plan.brush.phantom", ["brush"]);
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
-            slice: some({ slice: handle, affordances: [variant("brush", null)] }),
+            slice: some(rail.chrome),
         }), "plan-brush-phantom");
+        // The horizon is the rows' dates' extent, read from e3: the strip draws once it has landed.
+        await settle();
 
         // Select a row — the esc target a phantom rung would eat.
         fireEvent.click(container.querySelector(rowSel("m1"))!);

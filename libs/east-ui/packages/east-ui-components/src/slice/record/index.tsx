@@ -4,31 +4,37 @@
  */
 
 /** Record narrowing controls on the existing Slice popover and toolbar ladder. */
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
-import { DateTimeType, IntegerType, FloatType, parseFor, printFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
+import type { IconName, IconPrefix, IconProp } from "@fortawesome/fontawesome-svg-core";
+import { DateTimeType, IntegerType, FloatType, lessFor, parseFor, printFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
 import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip } from "../choice.js";
 import { SliceRangeEditor, type SliceRangeKind } from "../range/editor.js";
 import { ResolutionSeg, type ResolutionTag } from "../range/index.js";
-import { useFormatters } from "../../format/index.js";
+import { useFormatters, type Formatters } from "../../format/index.js";
+import { narrowedCount } from "../../collections/library/count.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
 import { enableRecordSlicePersistence } from "../../platform/slice/record.js";
 import type { SlicePersistMode } from "../../platform/slice/index.js";
 import { SliceEditPopover } from "../edit/index.js";
-import { useSliceRailItems } from "../rail/toolbar.js";
-import { useSliceReactivity } from "../use-slice-reactivity.js";
+import { useSliceRailItems, type SliceRailDescriptor } from "../rail/toolbar.js";
+import { SUMMARY_RANK } from "../rail/ranks.js";
+import { useSliceReactivity, useSlicesReactivity } from "../use-slice-reactivity.js";
 import { PRESETS, presetAnchor, presetWindow } from "../range/presets.js";
 import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordValueLabel } from "./value.js";
 
 type Bind = ValueTypeOf<RecordSliceBindType>;
+type Product = ValueTypeOf<RecordSlicesBindType>;
+type Part = Product["parts"][number];
 type Field = ValueTypeOf<RecordSliceFieldType>;
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 const scalarTypes = { datetime: DateTimeType, integer: IntegerType, float: FloatType };
-const SEARCH_DELAY_MS = 250;
+/** How long a record search waits after the last keystroke before it reads: the rail's field search, and a paged tab's own (#1340). */
+export const SEARCH_DELAY_MS = 250;
 
 /** Optional Unset is not a String hint; only real known values replace search. */
 function hasStringHints(field: Field): boolean {
@@ -50,6 +56,106 @@ export function RecordSliceSummary({ slice, noun = "rows" }: { slice: Bind; noun
     const { count, total } = result.value;
     return <SliceCountSummary count={count.type === "some" ? count.value : undefined}
         total={total.type === "some" ? total.value : undefined} noun={noun} />;
+}
+
+/** A source's icon on the rail (#1339): its Icon definition's, drawn from the registered solid set. */
+function sourceIcon(part: Part): IconProp | undefined {
+    return part.icon.type === "some" ? [part.icon.value.prefix as IconPrefix, part.icon.value.name as IconName] : undefined;
+}
+
+/** How the rail heads a source's fields (#1339): its label, else the host's noun for it, else its name. */
+function sourceHeading(part: Part, nouns: Readonly<Record<string, string>> | undefined): string {
+    return part.label.type === "some" ? part.label.value : nouns?.[part.source] ?? part.source;
+}
+
+/**
+ * The noun a source is counted in: the host's, else its label as running text
+ * writes it — in lower case unless it is written in capitals (`SKU`) — else
+ * its name.
+ */
+function sourceNoun(part: Part, nouns: Readonly<Record<string, string>> | undefined, locale: string): string {
+    const noun = nouns?.[part.source];
+    if (noun !== undefined) return noun;
+    if (part.label.type === "none") return part.source;
+    const label = part.label.value;
+    return label === label.toLocaleUpperCase(locale) ? label : label.toLocaleLowerCase(locale);
+}
+
+/** Whether a narrowed count is under its record's total: what a narrowing hides rows of. */
+const lessCount = lessFor(IntegerType);
+
+/** One source's exact counts as a summary reads them: each `none` while it is read; or that they could not be read. */
+type SourceCounts = { ok: true; count: option<bigint>; total: option<bigint> } | { ok: false };
+
+/**
+ * The sources a narrowing hides rows of, counted on one line (#1358):
+ * `2 of 30 print job events · 6 of 16 customers`, each exact; nothing while
+ * none does. A count still being read is left out until it lands, so pending
+ * is never a zero; one that could not be read says so, with its source's
+ * Retry.
+ *
+ * @param slices - The product's handle
+ * @param nouns - The host's noun counting each source, by its name
+ * @param except - Sources counted elsewhere — each in its heading in the rail's editor — and so not on this line
+ */
+export function RecordSlicesSummary({ slices, nouns, except }: {
+    slices: Product; nouns?: Readonly<Record<string, string>> | undefined; except?: readonly string[] | undefined;
+}) {
+    const styles = useSlotRecipe({ key: "sliceEdit" })();
+    const { locale } = useFormatters();
+    // The sources it counts, kept while the product and the sources skipped are the same: `except` is keyed by its names.
+    const skipped = except?.join("\u0000") ?? "";
+    const parts = useMemo(() => {
+        const skip = new Set(skipped === "" ? [] : skipped.split("\u0000"));
+        return slices.parts.filter(part => !skip.has(part.source));
+    }, [slices.parts, skipped]);
+    // Each source read on its own: one failing leaves the others counted.
+    const read = useCallback(() => parts.map((part): SourceCounts => {
+        try { return { ok: true, count: part.slice.count(), total: part.slice.total() }; } catch { return { ok: false }; }
+    }), [parts]);
+    const { result } = useTrackedEvaluation(read);
+    const named: ({ part: Part; failed: true } | { part: Part; failed: false; count: bigint; total: bigint })[] = [];
+    if (result.ok) {
+        parts.forEach((part, i) => {
+            const counts = result.value[i]!;
+            if (!counts.ok) named.push({ part, failed: true });
+            else if (counts.count.type === "some" && counts.total.type === "some" && lessCount(counts.count.value, counts.total.value)) {
+                named.push({ part, failed: false, count: counts.count.value, total: counts.total.value });
+            }
+        });
+    }
+    if (named.length === 0) return null;
+    return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="">
+        {named.map((shown, i) => <Fragment key={shown.part.source}>
+            {i > 0 && <Box as="span" css={styles.choiceCountsGap} aria-hidden="true">·</Box>}
+            <span data-record-slice-source={shown.part.source}>{shown.failed
+                ? <RecordSliceFailure slice={shown.part.slice} message="Could not load count" />
+                : <SliceCountSummary count={shown.count} total={shown.total} noun={sourceNoun(shown.part, nouns, locale)} />}</span>
+        </Fragment>)}
+    </Box>;
+}
+
+/**
+ * A source's count at its heading in the rail's editor (#1358), as a Library
+ * tab counts it: the total while nothing narrows the source, `2 of 30` while
+ * its narrowing is in force; a skeleton while a count it needs is read, and
+ * its source's Retry when one could not be.
+ */
+function RecordSourceCount({ slice }: { slice: Bind }) {
+    useSliceReactivity(slice.key);
+    const styles = useSlotRecipe({ key: "sliceEdit" })();
+    const words = useFormatters();
+    const read = useCallback(() => ({ count: slice.count(), total: slice.total() }), [slice]);
+    const { result } = useTrackedEvaluation(read);
+    if (!result.ok) return <RecordSliceFailure slice={slice} message="Could not load count" />;
+    const narrowing = slice.read().where.size > 0;
+    const { count, total } = result.value;
+    const shown = narrowing ? count : total;
+    if (total.type === "none" || shown.type === "none") {
+        return <Box as="span" role="status" aria-busy="true"><Skeleton as="span" css={styles.choicePending} aria-label="Count loading" /></Box>;
+    }
+    const said = narrowedCount(words, Number(shown.value), Number(total.value), narrowing);
+    return <Box as="span" role="status" aria-busy="false">{typeof said === "number" ? words.number(said) : said}</Box>;
 }
 
 function proposalFor(slice: Bind, field: Field, choice: Choice, words: ReturnType<typeof useFormatters>): { hint?: string; disabled: boolean } {
@@ -175,7 +281,7 @@ function ScalarRange({ slice, field, choice, run }: { slice: Bind; field: Field;
 }
 
 /** The same typed field editor inside a host-owned navigator or the Slice rail. */
-export function RecordSliceFieldEditor({ slice, field }: { slice: Bind; field: Field }) {
+export function RecordSliceFieldEditor({ slice, field, source }: { slice: Bind; field: Field; source?: string | undefined }) {
     useSliceReactivity(slice.key);
     const styles = useSlotRecipe({ key: "sliceEdit" })();
     const [error, setError] = useState<string>();
@@ -185,7 +291,7 @@ export function RecordSliceFieldEditor({ slice, field }: { slice: Bind; field: F
     const run = (action: () => unknown) => {
         try { action(); setError(undefined); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not apply this choice"); }
     };
-    return <Box css={styles.choiceList} data-record-slice-editor={field.fieldId}>
+    return <Box css={styles.choiceList} data-record-slice-editor={field.fieldId} data-record-slice-source={source}>
             {field.set && <Box css={styles.hint}>Includes one value</Box>}
             {field.values.length > 0 && <KnownValues slice={slice} field={field} run={run} />}
             {field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId) && <StringSearch slice={slice} field={field} run={run} />}
@@ -195,15 +301,15 @@ export function RecordSliceFieldEditor({ slice, field }: { slice: Bind; field: F
     </Box>;
 }
 
-function FieldChip({ slice, field }: { slice: Bind; field: Field }) {
+function FieldChip({ slice, field, source }: { slice: Bind; field: Field; source?: string | undefined }) {
     useSliceReactivity(slice.key);
     const [open, setOpen] = useState(false);
     const words = useFormatters();
     const choice = slice.read().where.get(field.fieldId);
     const label = recordChoiceLabel(field, choice, words);
     return <SliceEditPopover open={open} onOpenChange={setOpen} label={field.label} trigger={
-        <SliceFieldChip label={field.label} aria-label={label} active={choice !== undefined} caret data-record-slice-field={field.fieldId} />
-    }>{open && <RecordSliceFieldEditor slice={slice} field={field} />}</SliceEditPopover>;
+        <SliceFieldChip label={field.label} aria-label={label} active={choice !== undefined} caret data-record-slice-field={field.fieldId} data-record-slice-source={source} />
+    }>{open && <RecordSliceFieldEditor slice={slice} field={field} source={source} />}</SliceEditPopover>;
 }
 
 function Presets({ slice }: { slice: Bind }) {
@@ -211,6 +317,23 @@ function Presets({ slice }: { slice: Bind }) {
     const state = slice.read();
     return <SliceChoiceGroup choices={slice.config.presets.map(p => ({ id: p.id, label: p.name,
         active: state.preset.type === "some" && state.preset.value === p.id }))} onPick={id => slice.togglePreset(id)} />;
+}
+
+/** A record field's rail descriptor: its words, icon and fold rank, the same in every host. */
+function fieldDescriptor(slice: Bind, field: Field, kind: string, words: Formatters, attributes?: Readonly<Record<string, string>>): SliceRailDescriptor {
+    const choice = slice.read().where.get(field.fieldId);
+    const range = !field.set && ["datetime", "integer", "float"].includes(field.kind);
+    const search = field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId);
+    return { kind, label: field.label, icon: range ? faCalendar : search ? faMagnifyingGlass : faFilter,
+        text: recordChoiceLabel(field, choice, words), active: choice !== undefined, rank: range ? 2 : search ? 1 : 3,
+        ...(attributes === undefined ? {} : { attributes }) };
+}
+
+/** The fields a record Slice offers under the host's affordances. */
+function offeredFields(slice: Bind, affordances: readonly string[], exclude?: readonly string[]): Field[] {
+    return slice.config.fields.filter(field => !exclude?.includes(field.fieldId)).filter(field => affordances.includes("fields")
+        || (affordances.includes("search") && slice.config.search.includes(field.fieldId))
+        || (affordances.includes("range") && slice.config.range.type === "some" && slice.config.range.value === field.fieldId));
 }
 
 /** Shared toolbar items used by every host of a record Slice. */
@@ -221,9 +344,7 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
     useEffect(() => { if (slice !== undefined && persist !== undefined) enableRecordSlicePersistence(slice, persist); }, [slice, persist]);
     const state = slice?.read();
     const affordances = options.affordances ?? ["fields", "presets", "summary"];
-    const fields = slice?.config.fields.filter(field => !options.excludeFields?.includes(field.fieldId)).filter(field => affordances.includes("fields")
-        || (affordances.includes("search") && slice.config.search.includes(field.fieldId))
-        || (affordances.includes("range") && slice.config.range.type === "some" && slice.config.range.value === field.fieldId)) ?? [];
+    const fields = slice === undefined ? [] : offeredFields(slice, affordances, options.excludeFields);
     const presets = affordances.includes("presets") && (slice?.config.presets.length ?? 0) > 0;
     const resolution = affordances.includes("resolution") && slice?.config.range.type === "some"
         && slice.config.fields.some(field => field.fieldId === slice.config.range.value && field.kind === "datetime" && !field.set);
@@ -240,11 +361,7 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
                 const selected = state.preset.type === "some" ? slice.config.presets.find(p => p.id === state.preset.value) : undefined;
                 return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3 };
             }
-            const choice = state.where.get(field.fieldId);
-            const range = !field.set && ["datetime", "integer", "float"].includes(field.kind);
-            const search = field.kind === "string" && !hasStringHints(field) && slice.config.search.includes(field.fieldId);
-            return { kind, label: field.label, icon: range ? faCalendar : search ? faMagnifyingGlass : faFilter,
-                text: recordChoiceLabel(field, choice, words), active: choice !== undefined, rank: range ? 2 : search ? 1 : 3 };
+            return fieldDescriptor(slice, field, kind, words);
         },
         renderEditor: kind => {
             if (kind === "resolution") return <ResolutionSeg options={resolutions} active={state.resolution.type === "some" ? state.resolution.value.type : undefined}
@@ -259,8 +376,94 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
             return field === undefined ? <Presets slice={slice} /> : <FieldChip slice={slice} field={field} />;
         },
     }, [{ key: "record-slice", kinds }]);
-    if (slice !== undefined && affordances.includes("summary")) items.push({ key: "record-summary", side: "end", rank: 12, forms: [
+    // The summary folds after every step of the rail, whose editor keeps it, and before the host's own items.
+    if (slice !== undefined && affordances.includes("summary")) items.push({ key: "record-summary", side: "end", rank: SUMMARY_RANK, forms: [
         <RecordSliceSummary slice={slice} {...(options.noun === undefined ? {} : { noun: options.noun })} />, null,
     ] });
+    return items;
+}
+
+/** A preset over several records: selected when every part holds it; a pick is the product's own toggle. */
+function ProductPresets({ slices }: { slices: Product }) {
+    useSlicesReactivity(slices.parts.map(part => part.slice.key));
+    return <SliceChoiceGroup choices={slices.presets.map(p => ({ id: p.id, label: p.name, active: productPreset(slices) === p.id }))}
+        onPick={id => slices.togglePreset(id)} />;
+}
+
+/** The preset every part holds, if one does. */
+function productPreset(slices: Product): string | undefined {
+    const [first, ...rest] = slices.parts.map(part => part.slice.read().preset);
+    return first?.type === "some" && rest.every(preset => preset.type === "some" && preset.value === first.value) ? first.value : undefined;
+}
+
+/**
+ * Toolbar items for a narrowing over several records (`Slice.bindRecords`):
+ * one rail, each source's field chips in source order, the presets over
+ * them, one Clear all, and one summary naming the sources a narrowing hides
+ * rows of (#1358). A source's icon marks its fields' chips; folded, with
+ * fields from more than one source, the editor heads each source's fields
+ * with its name, its icon and its count — the total, or `N of M` while
+ * narrowed — then the presets with `Presets` (#1339, #1358); a line under the
+ * fields names what no heading counts that a narrowing hides rows of.
+ *
+ * @param slices - The product's handle; undefined mounts nothing
+ * @param options - Persistence for every part, the noun counting and, without a label of its own, heading each source (by its name), the affordances, and fields to leave out (as `source.field`)
+ * @returns Items for the host's one Toolbar
+ */
+export function useRecordSlicesToolbarItems(slices: Product | undefined, options: {
+    persist?: SlicePersistMode; nouns?: Readonly<Record<string, string>>; affordances?: readonly string[]; excludeFields?: readonly string[];
+} = {}): ToolbarItem[] {
+    const version = useSlicesReactivity(slices?.parts.map(part => part.slice.key) ?? []);
+    const words = useFormatters();
+    const persist = options.persist;
+    useEffect(() => {
+        if (slices === undefined || persist === undefined) return;
+        for (const part of slices.parts) enableRecordSlicePersistence(part.slice, persist);
+    }, [slices, persist]);
+    const affordances = options.affordances ?? ["fields", "presets", "summary"];
+    const entries = slices?.parts.flatMap(part => offeredFields(part.slice, affordances,
+        options.excludeFields?.filter(name => name.startsWith(`${part.source}.`)).map(name => name.slice(part.source.length + 1)))
+        .map(field => ({ kind: `field:${part.source}.${field.fieldId}`, part, field }))) ?? [];
+    const byKind = new Map(entries.map(entry => [entry.kind, entry]));
+    const presets = affordances.includes("presets") && (slices?.presets.length ?? 0) > 0;
+    const kinds = [...byKind.keys(), ...(presets ? ["presets"] : [])];
+    // Fields from more than one source are headed by their source; the presets, over them all, by their own.
+    const headings = [...new Set(entries.map(entry => entry.part.source))];
+    const headed = headings.length > 1;
+    // Counted as the summary affordance asks (#1358): in the editor, each headed source in its heading, and what no
+    // heading counts on a line under the fields; on the toolbar, every source a narrowing hides rows of.
+    const counted = slices !== undefined && affordances.includes("summary");
+    const summary = counted ? <RecordSlicesSummary slices={slices} nouns={options.nouns} /> : undefined;
+    const status = counted ? <RecordSlicesSummary slices={slices} nouns={options.nouns} except={headed ? headings : []} /> : undefined;
+    const items = useSliceRailItems(slices === undefined ? undefined : {
+        version, activeCount: slices.parts.reduce((count, part) => count + part.slice.read().where.size, 0),
+        clear: () => { slices.clearAll(); },
+        status,
+        describe: kind => {
+            const entry = byKind.get(kind);
+            if (entry === undefined) {
+                const id = productPreset(slices);
+                const selected = id === undefined ? undefined : slices.presets.find(p => p.id === id);
+                return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3,
+                    ...(headed ? { group: { key: "presets", label: "Presets" } } : {}) };
+            }
+            const field = fieldDescriptor(entry.part.slice, entry.field, kind, words,
+                { "data-record-slice-source": entry.part.source, "data-record-slice-field": entry.field.fieldId });
+            const icon = sourceIcon(entry.part);
+            return { ...field, ...(icon === undefined ? {} : { icon }),
+                ...(headed ? { group: { key: `source:${entry.part.source}`, label: sourceHeading(entry.part, options.nouns), icon,
+                    ...(counted ? { count: <RecordSourceCount slice={entry.part.slice} /> } : {}) } } : {}) };
+        },
+        renderEditor: kind => {
+            const entry = byKind.get(kind);
+            return entry === undefined ? <ProductPresets slices={slices} /> : <RecordSliceFieldEditor slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
+        },
+        render: kind => {
+            const entry = byKind.get(kind);
+            return entry === undefined ? <ProductPresets slices={slices} /> : <FieldChip slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
+        },
+    }, [{ key: "record-slices", kinds }]);
+    // As one record's: after every step of the rail, before the host's own items.
+    if (summary !== undefined) items.push({ key: "record-summary", side: "end", rank: SUMMARY_RANK, forms: [summary, null] });
     return items;
 }

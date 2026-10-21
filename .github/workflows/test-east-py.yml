@@ -74,14 +74,20 @@ jobs:
           path: tmp/east-py-datascience/
           if-no-files-found: error
 
+  # The pytest sweep runs in two parts, a job each, every test in one of them:
+  # the whole sweep took 15–26 minutes of the job's 30 on every OS, and a
+  # runner half again as slow ran a macOS job out of its time. Part 1 is the
+  # conformance round trips and the diagnostics rules, beside the compliance
+  # run; part 2 is every other suite, beside the CLI's tests and the lints.
   test-east-py:
-    name: Test east-py (${{ matrix.os }})
+    name: Test east-py (${{ matrix.os }}, ${{ matrix.part }}/2)
     needs: export-ir
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-14, windows-latest]
+        part: [1, 2]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -137,6 +143,7 @@ jobs:
             --reinstall-package elaraai-east-py --refresh-package elaraai-east-py
 
       - name: Run east-py compliance
+        if: matrix.part == 1
         working-directory: libs/east-py
         run: uv run --package elaraai-east-py python packages/east-py/tests/test_compliance.py --ir-dir "$GITHUB_WORKSPACE/ir-east"
 
@@ -149,14 +156,20 @@ jobs:
       # directory a failure rather than a skip — the conformance legs used to
       # skip silently wherever the temp dir did not match their default path,
       # which is every OS but Linux. Every suite reads the downloaded artifacts
-      # through the variables make would otherwise set.
-      - name: Run east-py tests (full pytest sweep)
+      # through the variables make would otherwise set. Part 1 runs
+      # tests/conformance and tests/diagnostics, part 2 every other suite.
+      - name: Run east-py tests (pytest sweep, part ${{ matrix.part }} of 2)
         working-directory: libs/east-py/packages/east-py
         env:
           EAST_TEST_IR_DIR: ${{ github.workspace }}/ir-east
           EAST_EXAMPLES_IR_DIR: ${{ github.workspace }}/ir-examples
           EAST_CONFORMANCE_REQUIRED: "1"
-        run: uv run pytest tests -q --no-cov
+        run: |
+          if [ "${{ matrix.part }}" = "1" ]; then
+            uv run pytest tests/conformance tests/diagnostics -q --no-cov
+          else
+            uv run pytest tests --ignore=tests/conformance --ignore=tests/diagnostics -q --no-cov
+          fi
 
       # `run`'s lazy inputs and `exec`'s stdin lifeline against the
       # checked-in cross-runner fixtures, and `exec` against the runner
@@ -164,6 +177,7 @@ jobs:
       # (runner_corpus/). EAST_CONFORMANCE_REQUIRED=1 makes a missing corpus
       # a failure rather than the local skip.
       - name: Run east-py-cli tests
+        if: matrix.part == 2
         working-directory: libs/east-py/packages/east-py-cli
         env:
           EAST_TEST_IR_DIR: ${{ github.workspace }}/ir-east
@@ -173,13 +187,14 @@ jobs:
       # The East rules (#638) over every package's own East bodies — the
       # build's refusals at edit time — as `make lint` runs them.
       - name: Lint the East bodies (east-py lint)
+        if: matrix.part == 2
         working-directory: libs/east-py
         run: uv run east-py lint packages/east-py/east packages/east-py-std packages/east-py-io packages/east-py-cli/east_py_cli packages/east-py-datascience/src
 
       # The rest of `make lint`: the license headers and ruff. One OS is
       # enough, since neither reads the platform.
       - name: Lint (license headers + ruff)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.part == 2
         working-directory: libs/east-py
         run: |
           uv run python scripts/check_headers.py

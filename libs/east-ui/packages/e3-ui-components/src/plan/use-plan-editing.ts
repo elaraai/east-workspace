@@ -30,6 +30,11 @@
  * were made among the kinds', and Undo, Redo, Discard and Save are the
  * history's.
  *
+ * When the rows are the `rows` source of the Plan's slice (#1344), the session
+ * is the record's — its editing identity the source's record, whatever its
+ * narrowing — an entry is read back by its key outside every narrowing, and a
+ * Save that moves entries out of it says so (`prepareRecordSliceSave`).
+ *
  * @packageDocumentation
  */
 
@@ -46,9 +51,10 @@ import {
 import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
-import { PLAN_PAGE_SIZE, type PlanPagedSourceValue } from "./use-plan-paging.js";
+import { PLAN_PAGE_SIZE, windowedArm, type PlanPagedSourceValue } from "./use-plan-paging.js";
 import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import type { RowKey } from "./plan-state.js";
+import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
 
 /** The decoded Plan editing declaration (the root's `editing` some-value). */
 export type PlanEditingValue = ValueTypeOf<typeof Plan.Types.Editing>;
@@ -173,7 +179,8 @@ function entryValueOf(version: EntryVersion<PlanEntryRef> | undefined): { value:
 export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     const { value, data, rows, origin, storageKey } = args;
     const declared = value.editing.type === "some" ? value.editing.value : undefined;
-    const recordSlice = value.recordSlice?.type === "some" ? value.recordSlice.value.slice : undefined;
+    // The `rows` source's part, when the slice gives the canvas its rows (#1344).
+    const recordSlice = useMemo(() => planPart(planSlices(value), ROWS_SOURCE), [value]);
     const editing = useMemo(() => declared === undefined || recordSlice === undefined ? declared
         : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
     const paged = windowedSourceOf(value.rows);
@@ -329,19 +336,21 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
                     return s !== undefined && s.type === "some" ? s.value(query) : none;
                 })
                 : none,
+            // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
+            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
         };
         wrapperOf.current = { src: paged, wrapped: next };
         return next;
     }, [paged, editing]);
-    // The wrapper rides the source's own arm: a pinned source stays pinned.
+    // The wrapper rides the source's own arm: a pinned source stays pinned, a live one live.
     const shownData = useMemo((): PlanRootValue => {
         if (inlineBlocks !== undefined) return { ...data, rows: variant("inline", inlineBlocks) as PlanRootValue["rows"] };
-        if (wrapped !== undefined) return { ...data, rows: variant(data.rows.type === "pinned" ? "pinned" : "paged", wrapped) as PlanRootValue["rows"] };
+        if (wrapped !== undefined) return { ...data, rows: variant(windowedArm(data.rows), wrapped) as PlanRootValue["rows"] };
         return data;
     }, [data, inlineBlocks, wrapped]);
     const shownValue = useMemo((): PlanRootValue => {
         if (inlineBlocks !== undefined) return { ...value, rows: variant("inline", inlineBlocks) as PlanRootValue["rows"] };
-        if (wrapped !== undefined) return { ...value, rows: variant(value.rows.type === "pinned" ? "pinned" : "paged", wrapped) as PlanRootValue["rows"] };
+        if (wrapped !== undefined) return { ...value, rows: variant(windowedArm(value.rows), wrapped) as PlanRootValue["rows"] };
         return value;
     }, [value, inlineBlocks, wrapped]);
 

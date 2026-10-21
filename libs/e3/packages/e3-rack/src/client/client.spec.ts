@@ -20,20 +20,48 @@ import { RackSession } from './session.js';
 import { closeSocketServer, serveOnSocket } from './local-http.js';
 import { EmptyType, HubHelloType } from '../protocol/control.js';
 import { HUB_PROTOCOL } from '../version.js';
-import { hubSocketPath } from '../paths.js';
+import { HUB_LOG_FILE, hubSocketPath } from '../paths.js';
 import { readHubLock } from '../hub/lock.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+/** Whether a process has exited, waiting up to `ms` for it to. */
+async function exited(pid: number, ms: number): Promise<boolean> {
+  for (const end = Date.now() + ms; ; await delay(20)) {
+    try { process.kill(pid, 0); } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ESRCH') return true;
+      throw err;
+    }
+    if (Date.now() >= end) return false;
+  }
+}
+/** The hubs spawned for a home, by pid, as their spawner logged each one: every process holding the home's log as its output. */
+async function spawnedHubs(home: string): Promise<number[]> {
+  const log = await readFile(join(home, HUB_LOG_FILE), 'utf8').catch((err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return '';
+    throw err;
+  });
+  return [...log.matchAll(/rack hub spawned \(pid (\d+)\)/g)].map((match) => Number(match[1]));
+}
 async function home() {
   const path = await mkdtemp(join(tmpdir(), 'e3c-'));
   cleanup.push(() => rm(path, { recursive: true, force: true }));
   cleanup.push(async () => {
-    await new HubClient(path).stop().catch(() => {});
-    for (let i = 0; i < 100 && await readHubLock(path) !== null; i++) await delay(20);
+    // Every hub spawned for the home holds the home's files — its log among them, its output — until its process
+    // exits: on Windows a file held open is not removed, and nor is the directory holding it. Those that lost the
+    // election exit on their own, and are waited for while the hub holding the lock still holds it, so none of them
+    // wins it once it is gone; then that hub is stopped.
     const lock = await readHubLock(path);
-    if (lock !== null) try { process.kill(Number(lock.pid), 'SIGKILL'); } catch { /* already gone */ }
+    const holder = lock === null ? undefined : Number(lock.pid);
+    for (const pid of await spawnedHubs(path)) {
+      if (pid !== holder) assert(await exited(pid, 10_000), `the hub ${pid}, which lost the election for its home, did not exit`);
+    }
+    await new HubClient(path).stop().catch(() => {});
+    if (holder === undefined) return;
+    if (await exited(holder, 2000)) return;
+    try { process.kill(holder, 'SIGKILL'); } catch { /* already gone */ }
+    assert(await exited(holder, 10_000), `the hub ${holder} did not exit once killed`);
   });
   return path;
 }
@@ -73,6 +101,9 @@ it('cold-starts the published hub entry, logs startup and shares it across three
   assert.equal(Number((await client.status()).hello.pid), pids[0]);
   assert.match(await readFile(join(path, 'hub.log'), 'utf8'), /rack hub started/);
   assert.equal(Number((await readHubLock(path))!.pid), pids[0]);
+  // Its spawner names each hub it spawned — the one serving among them — before the process that spawned it goes on.
+  const spawned = await spawnedHubs(path);
+  assert.ok(spawned.length >= 1 && spawned.length <= 3 && spawned.includes(pids[0]), `the log names the hubs spawned (${spawned.join(", ")}), the one serving among them`);
 });
 
 it('drains an older protocol, refuses a newer one and leaves its sessions alone', async () => {

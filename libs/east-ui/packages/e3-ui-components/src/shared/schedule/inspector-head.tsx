@@ -8,12 +8,13 @@ import { Box, type BoxProps } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 
-/** The shared Plan/Calendar inspector heading, using the inspector's existing recipe slots. */
-export function ScheduleInspectorHead({ styles, kind, title, when, status, pending }: {
+/** The shared Plan/Calendar inspector heading, using the inspector's existing recipe slots; `children` sit under its row, in its section (the Allocation's bin actions). */
+export function ScheduleInspectorHead({ styles, kind, title, when, status, pending, children }: {
     styles: Record<string, BoxProps["css"]>;
     kind: { name: string; icon: string }; title: string; when: ReactNode;
     status?: { label: string; tone: { type: string }; ring: boolean } | undefined;
     pending?: "pending" | "new" | undefined;
+    children?: ReactNode;
 }) {
     return <Box css={styles.head}>
         <Box css={styles.headRow}>
@@ -28,5 +29,6 @@ export function ScheduleInspectorHead({ styles, kind, title, when, status, pendi
                 </Box>}
             </Box>
         </Box>
+        {children}
     </Box>;
 }

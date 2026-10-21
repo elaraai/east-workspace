@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Shared period/tick bands for Plan and Calendar, on the body's exact scale. */
+/** Shared period/tick bands for Plan, Calendar and the Allocation, on the body's exact scale. */
 import { useRef } from "react";
 import { Box } from "@chakra-ui/react";
 import { MAX_BUCKETS, TIME_WORDS, periodText, resolutionInterval, type Scale, type ScaleBucket, type TimeResolution, type TimeWords } from "./scale.js";
@@ -44,17 +44,22 @@ export function timeRulerUnits<I>(scale: Scale<I, string>, words: TimeWords = TI
 /** A ruler band. Plan fits complete labels before paint; scrolling timelines
  * keep each period caption sticky inside its own column instead.
  */
-export function TimeRulerRow<I>({ scale, styles, band, owner, sticky = false, highlight }: {
-    scale: RulerScale<I>; styles: Styles; band: "units" | "ticks"; owner: "plan" | "plan-narrow" | "calendar"; sticky?: boolean; highlight?: number | undefined;
+export function TimeRulerRow<I>({ scale, styles, band, owner, sticky = false, highlight, marked }: {
+    scale: RulerScale<I>; styles: Styles; band: "units" | "ticks"; owner: "plan" | "plan-narrow" | "calendar" | "allocation"; sticky?: boolean; highlight?: number | undefined;
+    /** Buckets the host marks (`data-marked`): the Allocation's focus's hold. */
+    marked?: ((bucket: ScaleBucket<I>) => boolean) | undefined;
 }) {
     const trackRef = useRef<HTMLDivElement>(null);
     const placed = useRulerFit(trackRef, scale, highlight, !sticky);
+    const plan = owner === "plan" || owner === "plan-narrow";
     return <Box ref={trackRef} css={styles.rulerRow} data-time-ruler={band}
         data-calendar-ruler={owner === "calendar" ? band : undefined}
-        data-plan-ruler={owner !== "calendar" ? band : undefined}>
+        data-allocation-ruler={owner === "allocation" ? band : undefined}
+        data-plan-ruler={plan ? band : undefined}>
         {scale.buckets.map((bucket, i) => <Box key={bucket.index} css={styles.rulerTick}
-            data-slot={owner === "calendar" ? undefined : band === "units" ? "rulerUnit" : owner === "plan" ? "rulerTick" : "narrowRulerTick"}
+            data-slot={!plan ? undefined : band === "units" ? "rulerUnit" : owner === "plan" ? "rulerTick" : "narrowRulerTick"}
             data-now={bucket.index === highlight ? "" : undefined}
+            data-marked={marked?.(bucket) === true ? "" : undefined}
             data-period-start={startsPeriod(scale, bucket) ? "" : undefined}
             data-thinned={placed !== undefined && !placed.shown[i] ? "" : undefined}
             data-align={placed?.align[i] !== "centre" ? placed?.align[i] : undefined}

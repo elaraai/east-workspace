@@ -102,3 +102,28 @@ export async function tapScrim(page: Page, builder: Locator, side: "start" | "en
     }, side);
     await page.touchscreen.tap(point.x, point.y);
 }
+
+/**
+ * What is wrong with a builder's one toolbar row (A1, #1193): its band not
+ * 44px tall, an item past its row's edge, or the history not the last thing to
+ * fold.
+ *
+ * @param frame - The builder's root, which holds the frame's toolbar band
+ * @returns Each fault, in words; none when the row holds
+ */
+export function toolbarFaults(frame: Locator): Promise<string[]> {
+    return frame.evaluate((root) => {
+        const band = root.querySelector('[data-frame-slot="toolbar"]')!;
+        const row = band.querySelector("[data-toolbar]")!;
+        const box = band.getBoundingClientRect(), r = row.getBoundingClientRect();
+        const faults: string[] = [];
+        if (Math.abs(box.height - 44) > 0.5) faults.push(`toolbar height ${box.height}`);
+        for (const item of row.querySelectorAll("[data-toolbar-item]")) {
+            const b = item.getBoundingClientRect(); if (b.width === 0) continue;
+            if (b.left < r.left - 0.5 || b.right > r.right + 0.5 || b.top < box.top - 0.5 || b.bottom > box.bottom + 0.5) faults.push(`overflow ${item.getAttribute("data-toolbar-item")}`);
+        }
+        const ladder = (row.getAttribute("data-toolbar-ladder") ?? "").split(" ");
+        if (ladder.some((step) => step.startsWith("history>")) && !ladder.at(-1)?.startsWith("history>")) faults.push("history does not fold last");
+        return faults;
+    });
+}

@@ -3,23 +3,17 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  */
-import { afterEach, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { variant } from "@elaraai/east";
-import { clearPagedApi, initializePagedApi, initializeRecordApi } from "../platform/index.js";
-import { countWholeReads, recordPaging } from "../platform/record-paging.test-utils.js";
-import { act, mount, rosterHarness, settle, slot, width, WORKSPACE } from "./harness.test-utils.js";
+import { act, rosterHarness, settle, slot, width } from "./harness.test-utils.js";
 const h = rosterHarness();
-afterEach(() => clearPagedApi());
+/** The weeks' and the duties' records, as the request log names their datasets. */
+const WEEKS = "records.roster_rota_weeks", DUTIES = "records.roster_duties";
 for (const mainWidth of [900, 390]) test(`Roster holds a full-frame skeleton until its week resolves at ${mainWidth}px`, async () => {
-    const reads = countWholeReads(h.cache);
-    initializeRecordApi(reads.serve(h.memory), h.cache, WORKSPACE);
-    const service = recordPaging(h.cache, reads.raw, [{ path: [variant("field", "records"), variant("field", ex.rosterWeeks.name)], type: ex.rosterWeeks.type }]);
-    let release!: () => void;
-    const waiting = new Promise<void>(resolve => { release = resolve; });
-    initializePagedApi({ ...service.api, getPage: async (...args) => { await waiting; return service.api.getPage(...args); } }, WORKSPACE);
-    const { container } = mount(ex.rosterWindowed);
-    await settle(); await width(mainWidth);
+    // Every page and key search of the weeks and of the duties held on its way to e3: the week the windowed Roster opens on is unresolved.
+    const held = h.e3.hold(request => (request.kind === "page" || request.kind === "find") && (request.dataset === WEEKS || request.dataset === DUTIES));
+    const { container } = await h.mount(ex.rosterWindowed);
+    await width(mainWidth);
     const frame = container.querySelector('[data-builder-frame]')!;
     const canvas = slot(container, "main").firstElementChild!.firstElementChild;
     expect(frame.getAttribute("aria-busy")).toBe("true");
@@ -27,13 +21,13 @@ for (const mainWidth of [900, 390]) test(`Roster holds a full-frame skeleton unt
     expect(slot(container, "body").hasAttribute("inert")).toBe(true);
     expect(slot(container, "body").getAttribute("aria-hidden")).toBe("true");
     expect(container.textContent).not.toContain("Week not started");
-    await act(async () => { release(); }); await settle();
+    await act(async () => { held.release(); }); await settle();
     expect(container.querySelector('[data-builder-frame]')).toBe(frame);
     expect(frame.getAttribute("aria-busy")).toBe("false");
     expect(slot(container, "main").firstElementChild!.firstElementChild).toBe(canvas);
     expect(container.querySelector('[data-builder-loading]')).toBeNull();
-    // This example opens a confirmed absent week: only now is forecast shown.
+    // This example opens on a week the duties hold none of: only now is it Not started.
     expect(container.textContent).toContain("Week not started");
     expect(container.querySelector(mainWidth < 480 ? '[data-roster-agenda]' : '[data-roster-grid]')).not.toBeNull();
-    expect(reads.paths.filter(p => p === "records.roster_weeks")).toEqual([]);
+    expect([h.requests("read", WEEKS), h.requests("read", DUTIES)]).toEqual([[], []]);
 });

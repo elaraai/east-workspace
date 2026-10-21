@@ -10,13 +10,18 @@
  * then the count goes, the context label, the `+ TAB` label and the
  * whole-sheet count, the tab names cap, and last the context switch goes
  * and the strip closes up; after those a paged source's key search folds to
- * its icon and the strip into one chip, the open view's (#1221), and last the
- * history item to its buttons. jsdom lays nothing out, so each form's width
- * is stubbed from what it shows: a tab 80px (50 once the names cap), `+n` 30,
- * `+ TAB` 50 (20 once its label goes), the strip's one chip 60, the context
- * switch 150 with its label and 100 without, the count 100, the key search's
- * box 200 and its icon 44, the history item 150 and its buttons 100; the gap
- * between items is 10px.
+ * its icon and the strip into one chip, the open view's (#1221), then the
+ * chip into the key search's popover (#1345), and last the history item to
+ * its buttons. jsdom lays nothing out, so each form's width is stubbed from
+ * what it shows: a tab 80px (50 once the names cap), `+n` 30, `+ TAB` 50 (20
+ * once its label goes), the strip's one chip 60, the strip folded away 0, the
+ * context switch 150 with its label and 100 without, the count 100, the key
+ * search's box 200 and its icon 44, the history item 150 and its buttons
+ * 100; the gap between items is 10px.
+ *
+ * The views folded into the key search's popover (#1345): every view a
+ * choice over the search box, `+ TAB` and the open view's close, each doing
+ * what its tab or button does, and the box still seeking.
  *
  * And both by the keyboard alone (#860): the tabs a WAI-ARIA tablist, the
  * context switch a radio group.
@@ -53,7 +58,9 @@ function widthOf(el: Element): number {
     switch (el.getAttribute("data-toolbar-item")) {
         case "tabs": {
             const strip = el.querySelector('[data-slot="tabs"]');
-            const squeezed = strip?.getAttribute("data-strip");
+            // Folded into the key search's popover (#1345): nothing in the row.
+            if (strip === null) return 0;
+            const squeezed = strip.getAttribute("data-strip");
             if (squeezed === "menu") return 60;
             const tabs = el.querySelectorAll('[data-slot="tab"]').length;
             const more = el.querySelector('[data-slot="tabMore"]') !== null ? 30 : 0;
@@ -151,8 +158,6 @@ function Harness({ count, active }: { count: string; active: string | null }) {
     return (
         <SheetToolbar
             styles={styles}
-            slice={undefined}
-            affordances={[]}
             count={count}
             partial={false}
             context={{ value: 0, onChange: noop }}
@@ -223,7 +228,7 @@ describe("the toolbar's ladder", () => {
         const history = historyItem();
         function WithSearch() {
             const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
-            return <SheetToolbar styles={styles} slice={undefined} affordances={[]} count="12 matches" partial={false}
+            return <SheetToolbar styles={styles} count="12 matches" partial={false}
                 context={{ value: 0, onChange: noop }} tabs={tabsOf(styles, VIEWS, "router")} search={SEARCH} history={history} />;
         }
         const at = (px: number) => {
@@ -232,21 +237,29 @@ describe("the toolbar's ladder", () => {
             const { container } = render(<ChakraProvider value={system}><WithSearch /></ChakraProvider>);
             const form = (key: string) => container.querySelector(`[data-toolbar-item="${key}"]`)?.getAttribute("data-toolbar-form") ?? null;
             return {
-                ladder: container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-ladder"), strip: read(container).strip, seek: form("seek"), history: form("history"),
+                ladder: container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-ladder"),
+                strip: container.querySelector('[data-slot="tabs"]')?.getAttribute("data-strip") ?? (form("tabs") === null ? "folded" : null),
+                seek: form("seek"), history: form("history"),
                 // It hugs the row's end, with the rail and the history.
                 end: container.querySelector('[data-toolbar-item="seek"]')?.hasAttribute("data-toolbar-end") ?? null,
             };
         };
-        // Its step comes after the strip closes up and the context switch goes; the strip's one chip after it, and the history item's last.
-        expect(at(2000)).toEqual({ ladder: "tabs>1 tabs>2 count>1 context>1 tabs>3 tabs>4 tabs>5 context>2 seek>1 tabs>6 history>1", strip: null, seek: "0", history: "0", end: true });
+        // Its step comes after the strip closes up and the context switch goes; the strip's one chip after it; the chip and
+        // the search's popover together, one move (#1345); and the history item's last.
+        expect(at(2000)).toEqual({
+            ladder: "tabs>1 tabs>2 count>1 context>1 tabs>3 tabs>4 tabs>5 context>2 seek>1 tabs>6 tabs>7 seek>2 history>1",
+            strip: null, seek: "0", history: "0", end: true,
+        });
         // The closed strip (150), the box (200) and the history item (150): the box holds while it fits.
         expect(at(520)).toMatchObject({ strip: "closed", seek: "0", history: "0" });
         // A pixel short of that, the icon (44), the history item whole.
         expect(at(519)).toMatchObject({ strip: "closed", seek: "1", history: "0" });
         // Shorter still (150 + 44 + 150 + 20 = 364), the strip folds into its chip (60), the history item whole.
         expect(at(363)).toMatchObject({ strip: "menu", seek: "1", history: "0" });
-        // And past that (60 + 44 + 150 + 20 = 274), the history item folds to its buttons, last.
-        expect(at(273)).toMatchObject({ strip: "menu", seek: "1", history: "1" });
+        // Past that (60 + 44 + 150 + 20 = 274), the chip folds into the search's popover: the icon (44) beside the history item whole.
+        expect(at(273)).toMatchObject({ strip: "folded", seek: "2", history: "0" });
+        // And past that (44 + 150 + 10 = 204), the history item folds to its buttons, last.
+        expect(at(203)).toMatchObject({ strip: "folded", seek: "2", history: "1" });
     });
 });
 
@@ -317,6 +330,72 @@ describe("the strip as one chip (#1221)", () => {
     });
 });
 
+/**
+ * The strip folded with the key search into its popover (#1345), on a row too
+ * short for the chip and the icon both: a host that keeps what the views
+ * change, counts `+ TAB`, and hears the search's finds.
+ */
+function SearchViewsHost({ created, found }: { created: () => void; found: () => void }) {
+    const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
+    const [views, setViews] = useState<SheetTabView[]>(VIEWS);
+    const [active, setActive] = useState<string | null>("router");
+    const search: SheetSearch = { ...SEARCH, find: async () => { found(); return { found: false, row: 0, count: 0 }; } };
+    return <SheetToolbar styles={styles} count="" partial={false} search={search}
+        tabs={tabsOf(styles, views, active, {
+            onSwitch: setActive, onCreate: created,
+            onClose: (id) => { setViews((vs) => vs.filter((v) => v.id !== id)); if (active === id) setActive(null); },
+        })} />;
+}
+
+describe("the strip folded into the key search's popover (#1345)", () => {
+    test("on a row too short for the chip and the icon, the views fold into the search's popover: every view a choice with its count, the open one pressed, then + TAB and the open view's close — each doing what its tab or button does, and closing the popover as the chip's menu closes — over the box, which still seeks", async () => {
+        // The chip (60) and the icon (44) need 114: at 100 they fold into the icon alone.
+        row.px = 100;
+        let creates = 0, finds = 0;
+        const { container } = render(<ChakraProvider value={system}><SearchViewsHost created={() => { creates += 1; }} found={() => { finds += 1; }} /></ChakraProvider>);
+        expect(container.querySelector('[data-toolbar-item="tabs"]')).toBeNull();
+        const icon = () => container.querySelector('[data-toolbar-item="seek"] [data-key-search="icon"]') as HTMLElement;
+        expect([container.querySelector('[data-toolbar-item="seek"]')!.getAttribute("data-toolbar-form"), icon().getAttribute("aria-label")]).toEqual(["2", "Views and search"]);
+        /** Opens the popover from its icon, and returns its views once they show. */
+        const open = async () => {
+            await act(async () => { fireEvent.click(icon()); });
+            return waitFor(() => {
+                const el = document.querySelector<HTMLElement>('[data-slot="searchViews"]');
+                if (el === null || icon().getAttribute("data-state") !== "open") throw new Error("the popover has not opened");
+                return el;
+            });
+        };
+        const closed = () => waitFor(() => expect(icon().getAttribute("data-state")).toBe("closed"));
+        const choices = (views: HTMLElement) => [...views.querySelectorAll<HTMLElement>("button[aria-pressed]")];
+        const pressed = (views: HTMLElement) => choices(views).filter((c) => c.getAttribute("aria-pressed") === "true").map((c) => c.textContent);
+        const button = (views: HTMLElement, name: string) => [...views.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent === name);
+        let views = await open();
+        expect([choices(views).map((c) => c.textContent), pressed(views)]).toEqual([["All 60", "SPRAYING 12", "ROUTERS 12", "OVERDUE 3"], ["ROUTERS 12"]]);
+        expect([button(views, "New tab from this view") !== undefined, button(views, 'Close "ROUTERS"') !== undefined]).toEqual([true, true]);
+        // A view picked is the open one, and the popover closes.
+        await act(async () => { fireEvent.click(choices(views)[3]!); });
+        await closed();
+        views = await open();
+        expect(pressed(views)).toEqual(["OVERDUE 3"]);
+        // Its close closes it: the whole sheet open, with nothing to close.
+        await act(async () => { fireEvent.click(button(views, 'Close "OVERDUE"')!); });
+        await closed();
+        views = await open();
+        expect([choices(views).map((c) => c.textContent), pressed(views), button(views, 'Close "OVERDUE"')]).toEqual([["All 60", "SPRAYING 12", "ROUTERS 12"], ["All 60"], undefined]);
+        // + TAB snapshots a view, as the strip's button does.
+        await act(async () => { fireEvent.click(button(views, "New tab from this view")!); });
+        await closed();
+        expect(creates).toBe(1);
+        // The box below the views is the key search: a key typed is a find — typed once the open popover has put the
+        // focus in it, where a key lands, as the shared key search's tests type.
+        await open();
+        const box = document.querySelector<HTMLInputElement>('[data-key-search="popover"] input')!;
+        await waitFor(() => expect(document.activeElement).toBe(box));
+        await act(async () => { fireEvent.change(box, { target: { value: "J-0" } }); });
+        await waitFor(() => expect(finds).toBeGreaterThan(0));
+    });
+});
+
 /** A host that keeps what the tabs and the context switch change, as the sheet's machine does, and counts `+ TAB`. */
 function KeyboardHost({ created }: { created: () => void }) {
     const recipe = useSlotRecipe({ key: "sheet" });
@@ -329,8 +408,6 @@ function KeyboardHost({ created }: { created: () => void }) {
     return (
         <SheetToolbar
             styles={styles}
-            slice={undefined}
-            affordances={[]}
             count=""
             partial={false}
             context={{ value: context, onChange: setContext }}
@@ -430,7 +507,7 @@ describe("by the keyboard alone (#860)", () => {
         const history = historyItem();
         function WithHistory() {
             const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
-            return <SheetToolbar styles={styles} slice={undefined} affordances={[]} count="" partial={false} history={history} />;
+            return <SheetToolbar styles={styles} count="" partial={false} history={history} />;
         }
         const { container } = render(<ChakraProvider value={system}><WithHistory /></ChakraProvider>);
         const item = container.querySelector('[data-toolbar-item="history"]')!;

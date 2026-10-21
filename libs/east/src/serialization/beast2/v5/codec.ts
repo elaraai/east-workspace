@@ -57,6 +57,7 @@ import { SourceMap, type Location } from "../../../location.js";
 import { type Beast2DecodeOptions, type PlatformDecodeContext, buildPlatformContext, checkDecodeType, describeNoIrValue, finishDecodedFunction, irTypeValue } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
 import { type Beast2Codec, FrameReader, type FrameInflate, writeFrame, preInflateFrames } from "./frames.js";
+import { BodyKeys, type IrKey } from "./body-key.js";
 
 // =============================================================================
 // Wire constants
@@ -129,6 +130,14 @@ export interface V5DecodeContext extends PlatformDecodeContext {
    *  serve frozen and mutable decodes alike. Cleared around Function capture
    *  decoding — a closure owns its own state. */
   frozen: boolean;
+  /** What the decode keys each function by, its content, so that functions
+   *  over one body share one compiled body (#1353). A whole-value decode
+   *  keys them; where it is absent (a segment reader), each function
+   *  compiles on its own. */
+  bodyKeys?: BodyKeys;
+  /** The key of the function IR being read, told of each container it
+   *  defines, back-references and closes; `null` between IRs. */
+  irKey?: IrKey | null;
 }
 
 // =============================================================================
@@ -476,10 +485,15 @@ export function buildV5Encoder(type: EastTypeValue, typeCtx: Map<bigint, V5Encod
 // =============================================================================
 
 /** Reads a container tag; resolves and returns the aliased container for REF,
- *  or `undefined` for NEW (the caller then defines the container). */
+ *  or `undefined` for NEW (the caller then defines the container, and tells
+ *  the IR key being read, if any, where its content ends). */
 function readContainerTag(reader: BufferReader, ctx: V5DecodeContext): any | undefined {
+  const at = reader.offset;
   const tag = reader.readUint8();
-  if (tag === TAG_NEW) return undefined;
+  if (tag === TAG_NEW) {
+    ctx.irKey?.open(at, ctx.containers.length);
+    return undefined;
+  }
   if (tag !== TAG_REF) {
     throw new Error(`beast2 v5: invalid container tag 0x${tag.toString(16)}`);
   }
@@ -487,7 +501,9 @@ function readContainerTag(reader: BufferReader, ctx: V5DecodeContext): any | und
   if (delta < 1 || delta > ctx.containers.length) {
     throw new Error(`beast2 v5: container backref delta ${delta} out of range (${ctx.containers.length} definitions visible)`);
   }
-  return ctx.containers[ctx.containers.length - delta];
+  const def = ctx.containers.length - delta;
+  ctx.irKey?.ref(at, reader.offset, def);
+  return ctx.containers[def];
 }
 
 /**
@@ -544,6 +560,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
           if (n === 0) break;
           for (let i = 0; i < n; i++) arr.push(elem(reader, ctx));
         }
+        ctx.irKey?.close(reader.offset);
         if (ctx.frozen) Object.freeze(arr);
         return arr;
       };
@@ -577,6 +594,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
             set.add(item);
           }
         }
+        ctx.irKey?.close(reader.offset);
         if (ctx.frozen) Object.freeze(set);
         return set;
       };
@@ -611,6 +629,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
             map.set(k, v);
           }
         }
+        ctx.irKey?.close(reader.offset);
         if (ctx.frozen) Object.freeze(map);
         return map;
       };
@@ -627,6 +646,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
         const cell = ref(undefined as any);
         ctx.containers.push(cell);
         cell.value = inner(reader, ctx);
+        ctx.irKey?.close(reader.offset);
         if (ctx.frozen) Object.freeze(cell);
         return cell;
       };
@@ -688,11 +708,14 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
       const captureDecoderCache = new Map<EastTypeValue, V5Decoder>();
 
       return (reader: BufferReader, ctx: V5DecodeContext) => {
-        // Inline source-map delta.
+        // Inline source-map delta, which a function's key holds (#1353).
+        const keys = ctx.bodyKeys;
         const newStacks = reader.readVarint();
+        const stacksFrom = reader.offset;
         for (let i = 0; i < newStacks; i++) {
           ctx.sourceMap.intern_stack(readStack(reader));
         }
+        if (keys !== undefined && newStacks > 0) keys.addStacks(reader.buffer, stacksFrom, reader.offset);
 
         // The IR itself must never decode frozen — decoded functions compile
         // their IR — and captured values stay mutable (a closure owns its own
@@ -701,7 +724,23 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
         const wasFrozen = ctx.frozen;
         ctx.frozen = false;
         try {
-          const ir = fnIrDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
+          // The IR is keyed as it is read (#1353). It holds no function value,
+          // so no other IR is read while it is, and its captures, read next,
+          // are not part of its key.
+          let ir: FunctionIR | AsyncFunctionIR;
+          let key: string | undefined;
+          if (keys === undefined) {
+            ir = fnIrDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
+          } else {
+            keys.ir.begin(reader.buffer, reader.offset);
+            ctx.irKey = keys.ir;
+            try {
+              ir = fnIrDecoder(reader, ctx) as FunctionIR | AsyncFunctionIR;
+            } finally {
+              ctx.irKey = null;
+            }
+            key = keys.keyOf(reader.offset);
+          }
           if (ir.type !== (isAsync ? "AsyncFunction" : "Function")) {
             throw new Error(`Expected ${fnType.type} IR, got ${ir.type}`);
           }
@@ -731,7 +770,7 @@ export function buildV5Decoder(type: EastTypeValue, typeCtx: Map<bigint, V5Decod
             typeContext[name] = captureType;
           }
 
-          return finishDecodedFunction(ir, isAsync, captureContext, typeContext, ctx, ctx.sourceMap);
+          return finishDecodedFunction(ir, isAsync, captureContext, typeContext, ctx, ctx.sourceMap, key);
         } finally {
           ctx.frozen = wasFrozen;
         }
@@ -1014,9 +1053,11 @@ interface V5DecodeResult {
   sourceMap: SourceMap;
 }
 
-/** Parses the v5 header and returns the wire root type plus a reader
- *  positioned at the first value-stream frame. */
-function readHeader(data: Uint8Array): { rootType: EastTypeValue; sourceMap: SourceMap; frameOffset: number } {
+/** Parses the v5 header and returns the wire root type, its source map, the
+ *  offset of the map's section (what a decoded function's key holds of the
+ *  map, #1353), and the offset of the first value-stream frame, where the
+ *  section ends. */
+function readHeader(data: Uint8Array): { rootType: EastTypeValue; sourceMap: SourceMap; sourceMapAt: number; frameOffset: number } {
   if (data.length < 8) {
     throw new Error(`Data too short for Beast2 format: ${data.length} bytes`);
   }
@@ -1027,14 +1068,15 @@ function readHeader(data: Uint8Array): { rootType: EastTypeValue; sourceMap: Sou
   }
   const reader = new BufferReader(data, MAGIC_BYTES_V5.length);
   const { rootType } = readTypeSection(reader);
+  const sourceMapAt = reader.offset;
   const sourceMap = readSourceMapSectionV5(reader);
-  return { rootType, sourceMap, frameOffset: reader.offset };
+  return { rootType, sourceMap, sourceMapAt, frameOffset: reader.offset };
 }
 
 /** Decodes a whole v5 blob with the given decode type (`null` = use the wire
  *  root type), enforcing whole-stream strictness. */
 function decodeV5(data: Uint8Array, decodeType: EastTypeValue | null, options: Beast2DecodeOptions | undefined, inflate?: FrameInflate): V5DecodeResult {
-  const { rootType, sourceMap, frameOffset } = readHeader(data);
+  const { rootType, sourceMap, sourceMapAt, frameOffset } = readHeader(data);
   if (decodeType !== null) checkDecodeType(rootType, decodeType);
   const typeValue = decodeType ?? rootType;
   const ctx: V5DecodeContext = {
@@ -1042,6 +1084,10 @@ function decodeV5(data: Uint8Array, decodeType: EastTypeValue | null, options: B
     sourceMap,
     frozen: options?.frozen ?? false,
     ...buildPlatformContext(options),
+    // Its functions are keyed by content, so functions over one body share
+    // one compiled body (#1353).
+    bodyKeys: new BodyKeys(data, sourceMapAt, frameOffset),
+    irKey: null,
   };
   const cursor = new FrameReader(data, frameOffset, inflate);
   const segmentCounts: number[] | null = isSegmentedRoot(typeValue) ? [] : null;

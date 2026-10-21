@@ -40,6 +40,15 @@ export interface EditHistoryPaged {
     readonly refresh: (revision: option<string>) => unknown;
     /** An entry by its id, read by its key at the source's revision — tracked: `none` while the read is in flight, `some(none)` for an entry the source does not hold. */
     readonly entry: (id: string) => option<option<unknown>>;
+    /**
+     * An entry as the collection's own reads hold it at the source's revision,
+     * read with no request — tracked: `undefined` for one they do not hold,
+     * which {@link EditHistoryPaged.entry} reads by its key; `none` while they
+     * are read. Given, every entry a commit or a conflict leaves to judge that
+     * they hold is judged in one pass, and only the rest are read by their
+     * keys, a bounded batch at a time.
+     */
+    readonly held?: ((id: string) => option<option<unknown>> | undefined) | undefined;
 }
 
 /**
@@ -190,9 +199,18 @@ export function useEditHistory<W>(
                 const revision = part.paged.revision();
                 if (revision.type !== "some") continue;
                 const { session } = part;
-                const ids = session.readIdsAt(revision.value);
                 const got = new Map<string, option<unknown>>();
-                for (const id of ids) {
+                // What the collection's own reads hold costs no request: every entry still to judge that they hold, at once.
+                const held = part.paged.held;
+                if (held !== undefined) {
+                    for (const id of session.unresolvedIdsAt(revision.value)) {
+                        const entry = held(id);
+                        if (entry !== undefined && entry.type === "some") got.set(id, entry.value);
+                    }
+                }
+                // The rest by their keys, a bounded batch at a time.
+                for (const id of session.readIdsAt(revision.value)) {
+                    if (got.has(id)) continue;
                     const entry = part.paged.entry(id);
                     if (entry.type === "some") got.set(id, entry.value);
                 }

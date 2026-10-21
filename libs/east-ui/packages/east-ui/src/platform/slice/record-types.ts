@@ -9,8 +9,9 @@ import {
     OptionType, SetType, StringType, StructType, VariantType, type EastType,
 } from "@elaraai/east";
 import { ValueFormatType } from "../../contracts/format.js";
+import { IconType } from "../../display/icon/types.js";
 import { TimeResolutionType } from "../../contracts/time.js";
-import { PinnedSourceType, SeekQueryType, SeekRangeType } from "../../contracts/source.js";
+import { LiveSourceType, SeekQueryType, SeekRangeType } from "../../contracts/source.js";
 
 /**
  * One field's narrowing, with values encoded as typed .east literals.
@@ -147,6 +148,7 @@ export type RecordSliceDomainType = typeof RecordSliceDomainType;
  * @property retry - Retry failed reads against the current record revision.
  * @property sourceId - Stable record identity for a shared editing session.
  * @property contains - Exact indexed membership of a primary identity in a captured narrowing; internal editing integration.
+ * @property containsRow - Exact indexed membership of an entry whose row the caller holds at the record's current revision — a Save's: the row its request began from, or the one its confirmation read back — its maintained keys sought without reading the row again; internal editing integration.
  * @property readEntry - Confirm an entry by primary identity: outer none is pending, inner none is confirmed absent. Internal editing integration.
  */
 export const RecordSliceBindType = StructType({
@@ -172,20 +174,74 @@ export const RecordSliceBindType = StructType({
     sourceId: StringType,
     readEntry: FunctionType([StringType], OptionType(OptionType(BlobType))),
     contains: FunctionType([RecordSliceWhereType, StringType], OptionType(BooleanType)),
+    containsRow: FunctionType([RecordSliceWhereType, StringType, BlobType], OptionType(BooleanType)),
 });
 export type RecordSliceBindType = typeof RecordSliceBindType;
 
 /**
  * Typed authoring handle; `data` preserves the narrowed window type through $.let.
+ * @remarks `data` is a live source (#1354): one per binding, whatever the
+ * narrowing, its reads reading the narrowing as it stands when they run and
+ * its `query` naming it — so a component built over it is not built again when
+ * a choice changes.
  * @typeParam C - The collection type one narrowed window serves.
  * @param collection - Window type.
  * @returns The typed record Slice handle.
  */
 export function RecordSliceHandleType<C extends EastType | string>(collection: C) {
-    return StructType({ ...RecordSliceBindType.fields, data: PinnedSourceType(collection),
+    return StructType({ ...RecordSliceBindType.fields, data: LiveSourceType(collection),
         /** Read a captured narrowing without replacing the shared controls' state. */
         pageWhere: FunctionType([RecordSliceWhereType, IntegerType, IntegerType], OptionType(collection)),
     });
+}
+
+/**
+ * One source of a Slice over several records: its name, how the rail names it, and its controls.
+ * @property source - The source's name (`lanes`), what `Slice.rows(slice, source)` names.
+ * @property label - How the rail names it (`Bays`); none, the host's noun for it.
+ * @property icon - Its icon on the rail, a Font Awesome solid icon; none, the rail's own.
+ * @property slice - Its record Slice's controls, a part like any other.
+ */
+export const RecordSlicePartType = StructType({ source: StringType, label: OptionType(StringType), icon: OptionType(IconType), slice: RecordSliceBindType });
+export type RecordSlicePartType = typeof RecordSlicePartType;
+
+/**
+ * A named narrowing over several sources, selected as one.
+ * @property id - Stable preset identity, shared by each part's preset.
+ * @property name - Display name.
+ */
+export const RecordSlicesPresetType = StructType({ id: StringType, name: StringType });
+export type RecordSlicesPresetType = typeof RecordSlicesPresetType;
+
+/**
+ * A Slice over several records' non-generic handle: the product of one record
+ * Slice per source, safe to embed in component IR.
+ * @remarks No index relates two records, so a choice in one part never changes
+ * another's result or counts. The product keeps no state of its own: its state
+ * is each part's.
+ * @property key - Store identity; each part's is `${key}.${source}`.
+ * @property parts - Each source's controls, in source order.
+ * @property presets - Narrowings over several sources; a part holds each as a preset of the same id.
+ * @property clearAll - Clear every part.
+ * @property togglePreset - Select a preset in every part, or clear every part when each already has it.
+ */
+export const RecordSlicesBindType = StructType({
+    key: StringType,
+    parts: ArrayType(RecordSlicePartType),
+    presets: ArrayType(RecordSlicesPresetType),
+    clearAll: FunctionType([], NullType),
+    togglePreset: FunctionType([StringType], NullType),
+});
+export type RecordSlicesBindType = typeof RecordSlicesBindType;
+
+/**
+ * Typed authoring handle over several records; `sources` keeps each part's typed handle through $.let.
+ * @typeParam S - Each source's typed record Slice handle type, by name.
+ * @param sources - The handle types.
+ * @returns The typed handle type.
+ */
+export function RecordSlicesHandleType<S extends Record<string, EastType>>(sources: S) {
+    return StructType({ ...RecordSlicesBindType.fields, sources: StructType(sources) });
 }
 
 /** New record-arm bind; local slice_bind remains byte-for-byte unchanged. @internal */
@@ -197,7 +253,13 @@ function op<const A extends readonly (EastType | string)[], O extends EastType |
     return East.genericPlatform(`slice_record_${name}`, ["S", "C"], [...descriptor, ...args], output, { optional: true });
 }
 
-/** Serializable operations carrying the binding descriptor, including after decode. @internal */
+/**
+ * Serializable operations carrying the binding descriptor, including after decode.
+ * @remarks The narrowed data's reads (`dataPage`, `dataSeek`, `dataQuery`) read
+ * the binding's narrowing when they run, so its handle captures none (#1354);
+ * its total is `count`.
+ * @internal
+ */
 export const RecordSlicePrimitives = {
     read: op("read", [], RecordSliceStateType),
     write: op("write", [RecordSliceStateType], NullType),
@@ -215,15 +277,16 @@ export const RecordSlicePrimitives = {
     replaces: op("replaces", [StringType], ArrayType(StringType)),
     togglePreset: op("toggle_preset", [StringType], NullType),
     setResolution: op("set_resolution", [OptionType(TimeResolutionType)], NullType),
-    page: op("page", [RecordSliceWhereType, IntegerType, IntegerType], OptionType("C")),
     pageWhere: op("page_where", [RecordSliceWhereType, IntegerType, IntegerType], OptionType("C")),
-    seek: op("seek", [RecordSliceWhereType, SeekQueryType], OptionType(SeekRangeType)),
-    dataCount: op("data_count", [RecordSliceWhereType], OptionType(IntegerType)),
+    dataPage: op("data_page", [IntegerType, IntegerType], OptionType("C")),
+    dataSeek: op("data_seek", [SeekQueryType], OptionType(SeekRangeType)),
+    dataQuery: op("data_query", [], StringType),
     revision: op("revision", [], OptionType(StringType)),
     refresh: op("refresh", [OptionType(StringType)], NullType),
     retry: op("retry", [], NullType),
     readEntry: op("read_entry", [StringType], OptionType(OptionType(BlobType))),
     contains: op("contains", [RecordSliceWhereType, StringType], OptionType(BooleanType)),
+    containsRow: op("contains_row", [RecordSliceWhereType, StringType, BlobType], OptionType(BooleanType)),
 };
 
 /**

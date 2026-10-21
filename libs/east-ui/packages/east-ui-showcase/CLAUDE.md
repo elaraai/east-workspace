@@ -49,8 +49,8 @@ The query builder's calls go to that e3 (#1132): `E3Gate` renders each e3
 example under an `E3Provider` over it, so a run is a real one-shot call, or
 a real split call that e3 cuts into pieces, and a run weighs its datasets by
 their statuses there. The e3 worker cuts pieces at 64 KiB
-(`showcase-pieces.ts`, through e3-core's `readTestPieceBytesFrom`, as
-`E3_TEST_PIECE_BYTES` sets a local runner's), and `main.tsx`'s
+(`showcase-pieces.ts`, `serveE3`'s `pieceBytes`, as `E3_TEST_PIECE_BYTES`
+sets a local runner's), and `main.tsx`'s
 `QueryPlanOptionsProvider` tells the planner that e3's smallest piece,
 16 KiB: the fixture's datasets are one call, and the order history the
 query examples' tasks generate when the dataflow runs (36,000 orders, the
@@ -146,11 +146,14 @@ and establish a stable hit target; a previous drop or tab change can scroll it.
   showcase's own chrome, for a quick look at `App.tsx`.
 - `scripts/vite-plugin-example-sources.ts` — exposes example source
   files to the dev server via a virtual module.
-- `scripts/e3-showcase-package.ts` — the showcase's e3 package (#849):
-  every e3 definition the e3-ui example modules export (inputs, records
-  with their mutations and indexes, tasks, functions), packaged with the
-  real SDK and written as a zip (`tsx scripts/e3-showcase-package.ts
-  <zip>`). Two modules declaring one dataset, task or function fail it.
+- The showcase's e3 package (#849) is made by e3-ui's examples' package
+  step (`@elaraai/e3-ui/examples-package`, e3-ui's `test/examples-package.ts`,
+  #1375): every e3 definition the e3-ui example modules export (inputs,
+  records with their mutations and indexes, tasks, functions), packaged with
+  the real SDK and written as a zip (`node ../e3-ui/dist/test/examples-package.js
+  <zip>`). Two modules declaring one dataset, task or function fail it. The
+  renderer's tests on e3-web take the same step's package of the modules a
+  test file mounts, so the SDK packages the examples in e3-ui alone.
 - `scripts/vite-plugin-e3-showcase.ts` — runs that step in a node process
   of its own: the dev server serves the zip at `/e3-showcase.zip` (built
   again, and the page reloaded to start its e3 over it, after e3-ui's

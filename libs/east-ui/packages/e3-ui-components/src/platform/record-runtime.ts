@@ -71,8 +71,9 @@ import type { TreePath } from "@elaraai/e3-types";
 
 // =============================================================================
 // API seam — the narrow surface the runtime talks through for the WRITE side.
-// (The read side goes through the dataset cache, not this.) Tests stub it; the
-// snapshot harness swaps in an in-memory implementation.
+// (The read side goes through the dataset cache, not this.) e3's record routes,
+// over the fetch a host gives (e3-web's, in a test); the snapshot harness swaps
+// in an in-memory implementation.
 // =============================================================================
 
 /** Request shape for {@link RecordApi.mutate} — beast2-encoded positional
@@ -731,10 +732,10 @@ export function createScopedRecordPlatform(records: readonly string[]): Platform
 }
 
 // =============================================================================
-// In-memory RecordApi — offline harnesses (the snapshot harness, tests) register
-// deterministic implementations; `mutate` writes the new state straight into
-// the dataset cache (so `read()` re-renders offline without a poller) and
-// appends a synthetic commit.
+// In-memory RecordApi — for a host with no server (the snapshot harness), never
+// a test, whose records are e3's own (#1380): deterministic implementations;
+// `mutate` writes the new state straight into the dataset cache (so `read()`
+// re-renders offline without a poller) and appends a synthetic commit.
 // =============================================================================
 
 /** One offline record implementation for {@link createInMemoryRecordApi}. */

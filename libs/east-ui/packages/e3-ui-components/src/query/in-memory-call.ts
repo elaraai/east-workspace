@@ -4,10 +4,10 @@
  */
 
 /**
- * A query's calls answered in memory (#940, #941): the stand-ins for e3 where
- * there is no server — the builder's tests, and a host that answers a query's
- * calls itself — as `createInMemoryFunctionApi` stands in for a deployed
- * function.
+ * A query's calls answered in memory (#940, #941), where there is no server:
+ * a host that answers a query's calls itself, as `createInMemoryFunctionApi`
+ * stands in for a deployed function. The builder's tests run its calls on e3
+ * itself (#1376); one uses these as a host of its own would.
  *
  * - **A one-shot call** ({@link createInMemoryQueryCall}), which the builder
  *   makes through it when a `QueryCallProvider` hands it over.

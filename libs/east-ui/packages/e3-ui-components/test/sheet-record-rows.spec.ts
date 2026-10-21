@@ -5,11 +5,12 @@
 
 /**
  * A record's rows over the runtime (#1182, `Sheet Builder Spec.md`
- * SB13–SB17): the sheet `recordRows` builds, committing through its own wire
- * Apply as the renderer sends a batch, to an in-memory record whose patch
- * mutation applies the patch with East's own checks — a before the record no
- * longer holds is a conflict — so each Apply meets the checks a deployed
- * record makes. Both forms: the record's entries as the rows, and one
+ * SB13–SB17), on e3 itself (#1378): the sheet `recordRows` builds, committing
+ * through its own wire Apply as the renderer sends a batch, to the records the
+ * Sheet's examples module deploys — its jobs and its week plans — each through
+ * its patch door. e3 applies the patch with its own checks — a before the
+ * record no longer holds is a conflict — and another session's write is a real
+ * commit before it. Both forms: the record's entries as the rows, and one
  * entry's rows.
  */
 
@@ -17,51 +18,23 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, PatchType, SortedMap, StringType, StructType,
-    applyFor, compareFor, decodeBeast2For, diffFor, encodeBeast2For, none, some, toEastTypeValue, variant,
+    East, OptionType, PatchType, SortedMap, StringType,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
 import { RecordBindHandleType, Sheet, createSheetRootWith, recordRows } from "@elaraai/e3-ui/internal";
-import type { TreePath } from "@elaraai/e3-types";
-import { datasetCacheKey, type ReactiveDatasetCacheInterface } from "../src/platform/dataset-store.js";
-import { RecordRuntime, createInMemoryRecordApi, type RecordApi, type RecordMutateArgs } from "../src/platform/record-runtime.js";
+import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
+import { MutationCallRequestType } from "@elaraai/e3-types";
+import type { RecordRuntime } from "../src/platform/record-runtime.js";
+import { e3Spec } from "./fixtures/e3.js";
 
-const ws = "test-workspace";
+const h = e3Spec({ "sheet/sheet": ex });
+
 const keys = compareFor(StringType);
 
 type Root = ValueTypeOf<typeof Sheet.Types.Root>;
 type Result = ValueTypeOf<typeof Editing.Types.ApplyResult>;
-
-/** A dataset cache holding what the in-memory record writes into it. */
-function fakeCache(): ReactiveDatasetCacheInterface {
-    const store = new Map<string, Uint8Array>();
-    return {
-        read: (w: string, p: TreePath) => store.get(datasetCacheKey(w, p)),
-        getStatus: () => variant("up-to-date", null),
-        async write(w: string, p: TreePath, v: Uint8Array) { store.set(datasetCacheKey(w, p), v); },
-        async refresh() { /* the in-memory record writes the cache itself */ },
-        async launchDataflow() { /* no dataflow */ },
-    } as unknown as ReactiveDatasetCacheInterface;
-}
-
-/** A record in memory whose one mutation is its patch door, bound through a runtime. */
-function inMemory<T extends DictType>(name: string, type: T, initial: ValueTypeOf<T>, handleType: StructType) {
-    const cache = fakeCache();
-    const applyPatch = applyFor(type);
-    const memory = createInMemoryRecordApi(cache, ws, [{
-        name, stateType: type, initial,
-        mutations: [{ name: "patch", argTypes: [PatchType(type)], reduce: (state, patch) => applyPatch(state as never, patch) }],
-    }]);
-    const requests: RecordMutateArgs[] = [];
-    const recording: RecordApi = {
-        ...memory,
-        mutate: (w, record, mutation, req) => { requests.push(req); return memory.mutate(w, record, mutation, req); },
-    };
-    const runtime = new RecordRuntime();
-    runtime.initialize(recording, cache, ws);
-    return { memory, requests, runtime, handle: runtime.buildHandle(toEastTypeValue(handleType), name) };
-}
 
 /** The sheet's own wire Apply, as the renderer calls it with a batch's bytes. */
 async function applyThrough(root: Root, batch: Uint8Array): Promise<Result> {
@@ -74,19 +47,28 @@ const ids = (root: Root): string[] => {
     return root.rows.value.map((row) => row.id);
 };
 
+/** The patches a record's mutation requests sent, decoded by the record's patch type. */
+function sentPatches<T extends typeof ex.sheetJobs.type | typeof ex.sheetWeekPlans.type>(record: { readonly name: string; readonly type: T }) {
+    const decode = decodeBeast2For(PatchType(record.type));
+    return h.requests("mutate", record.name).map((request) => ({
+        request, patch: decode(decodeBeast2For(MutationCallRequestType)(request.body!).args[0]!),
+    }));
+}
+
 describe("the record's entries are the rows", () => {
-    const JobType = StructType({ task: StringType, qty: IntegerType });
-    const JobsType = DictType(StringType, JobType);
+    const JobType = ex.SheetJob;
+    const JobsType = ex.sheetJobs.type;
     const JobsHandle = RecordBindHandleType(JobsType, { patch: [PatchType(JobsType)] });
     type Job = ValueTypeOf<typeof JobType>;
-    const CUT: Job = { task: "Panel cutting", qty: 48n };
-    const BAND: Job = { task: "Edge banding", qty: 12n };
-    const COLUMNS = { task: Sheet.column.text(JobType, { header: "Task" }), qty: Sheet.column.integer(JobType, { header: "Qty" }) };
+    const COLUMNS = { task: Sheet.column.text(JobType, { header: "Task" }), qty: Sheet.column.quantity(JobType, { header: "Qty" }) };
     const entryPatch = diffFor(OptionType(JobType));
     const encodeBatch = encodeBeast2For(Editing.Types.ChangeSet(JobType, StringType));
+    const SANDING: Job = { task: "Sanding", start: none, qty: some(6.0) };
 
-    function jobs() {
-        return inMemory("jobs", JobsType, new SortedMap([["J-0001", CUT], ["J-0002", BAND]], keys), JobsHandle);
+    /** The jobs, read whole as a sheet over them holds them, and what e3 holds of them as the test begins. */
+    async function jobs() {
+        const held = await h.read(ex.sheetJobs);
+        return { held, ...await h.bindRecord(ex.sheetJobs, JobsHandle, { whole: true }) };
     }
     /** The sheet over the jobs record, compiled against the runtime. */
     function sheetOver(runtime: RecordRuntime): (handle: unknown) => Root {
@@ -95,67 +77,75 @@ describe("the record's entries are the rows", () => {
             return createSheetRootWith(rows.data, COLUMNS, rows.options, rows.internal);
         }), runtime.buildPrimitives()) as unknown as (handle: unknown) => Root;
     }
-    /** Takes J-0001 from 48 to 50, removes J-0002 and adds J-0003, over the snapshot the session began from. */
-    const EDIT = encodeBatch({
-        requestId: "jobs-1", base: variant("snapshot", new SortedMap([["J-0001", CUT], ["J-0002", BAND]], keys)), label: "Edit jobs",
-        changes: [
-            { id: "J-0001", patch: entryPatch(some(CUT), some({ ...CUT, qty: 50n })), place: none },
-            { id: "J-0002", patch: entryPatch(some(BAND), none), place: none },
-            { id: "J-0003", patch: entryPatch(none, some({ task: "Sanding", qty: 6n })), place: some(variant("keyOrder", null)) },
-        ],
-    });
+    /** Takes J-0001 from 48 to 50, removes J-0002 and adds J-0005, over the snapshot the session began from. */
+    function edit(held: ValueTypeOf<typeof JobsType>): Uint8Array {
+        const cut = held.get("J-0001")!;
+        const band = held.get("J-0002")!;
+        return encodeBatch({
+            requestId: "jobs-1", base: variant("snapshot", held), label: "Edit jobs",
+            changes: [
+                { id: "J-0001", patch: entryPatch(some(cut), some({ ...cut, qty: some(50.0) })), place: none },
+                { id: "J-0002", patch: entryPatch(some(band), none), place: none },
+                { id: "J-0005", patch: entryPatch(none, some(SANDING)), place: some(variant("keyOrder", null)) },
+            ],
+        });
+    }
 
-    test("the rows are the entries in key order, the session's source the record (SB13)", () => {
-        const { runtime, handle } = jobs();
+    test("the rows are the entries in key order, the session's source the record (SB13)", async () => {
+        const { runtime, handle } = await jobs();
         const root = sheetOver(runtime)(handle);
-        assert.deepEqual(ids(root), ["J-0001", "J-0002"]);
-        assert.equal(root.editing.sourceId, "jobs");
+        assert.deepEqual(ids(root), ["J-0001", "J-0002", "J-0003", "J-0004"]);
+        assert.equal(root.editing.sourceId, ex.sheetJobs.name);
     });
 
     test("an insert, an update and a delete by key in one batch are one commit (SB16)", async () => {
-        const { memory, requests, runtime, handle } = jobs();
-        const result = await applyThrough(sheetOver(runtime)(handle), EDIT);
+        const { held, runtime, handle } = await jobs();
+        const result = await applyThrough(sheetOver(runtime)(handle), edit(held));
         assert.equal(result.type, "applied");
-        const state = (handle as { read: () => SortedMap<string, Job> }).read();
-        assert.deepEqual([...state.entries()], [["J-0001", { ...CUT, qty: 50n }], ["J-0003", { task: "Sanding", qty: 6n }]]);
-        const { commits } = await memory.history(ws, "jobs", undefined);
+        const state = await h.read(ex.sheetJobs);
+        assert.deepEqual([...state.keys()], ["J-0001", "J-0003", "J-0004", "J-0005"]);
+        assert.deepEqual(state.get("J-0001")!.qty, some(50.0));
+        assert.deepEqual(state.get("J-0005"), SANDING);
+        const { commits } = await h.history(ex.sheetJobs);
         assert.deepEqual(commits.map((c) => c.mutation), ["patch", "$init"], "one commit");
-        const sent = decodeBeast2For(PatchType(JobsType))(requests[0]!.args[0]!);
-        if (sent.type !== "patch") assert.fail(`expected a patch by key, got ${sent.type}`);
-        assert.deepEqual([...sent.value].map(([id, op]) => [id, op.type]), [["J-0001", "update"], ["J-0002", "delete"], ["J-0003", "insert"]]);
-        assert.equal(requests[0]!.idempotencyKey, "jobs-1", "the batch's request id keys the write");
+        const [sent] = sentPatches(ex.sheetJobs);
+        if (sent?.patch.type !== "patch") assert.fail(`expected a patch by key, got ${sent?.patch.type}`);
+        assert.deepEqual([...sent.patch.value].map(([id, op]) => [id, op.type]), [["J-0001", "update"], ["J-0002", "delete"], ["J-0005", "insert"]]);
+        assert.equal(sent.request.idempotencyKey, "jobs-1", "the batch's request id keys the write");
     });
 
     test("a row another write moved is a conflict naming it, and nothing is overwritten", async () => {
-        const { memory, runtime, handle } = jobs();
-        const moved = new SortedMap([["J-0001", variant("update", diffFor(JobType)(CUT, { ...CUT, qty: 60n }))]], keys);
-        const wrote = await memory.mutate(ws, "jobs", "patch", { args: [encodeBeast2For(PatchType(JobsType))(variant("patch", moved) as never)] });
-        assert.equal(wrote.outcome.type, "committed");
-        const result = await applyThrough(sheetOver(runtime)(handle), EDIT);
+        const { held, runtime, handle } = await jobs();
+        const cut = held.get("J-0001")!;
+        await h.patch(ex.sheetJobs, new SortedMap([...held].map(([id, job]) => [id, id === "J-0001" ? { ...cut, qty: some(60.0) } : job] as const), keys));
+        const result = await applyThrough(sheetOver(runtime)(handle), edit(held));
         assert.equal(result.type, "conflict");
         assert.deepEqual((result.value as { entry: string }[]).map((issue) => issue.entry), ["J-0001"]);
-        const state = (handle as { read: () => SortedMap<string, Job> }).read();
-        assert.deepEqual([...state.entries()], [["J-0001", { ...CUT, qty: 60n }], ["J-0002", BAND]]);
+        const state = await h.read(ex.sheetJobs);
+        assert.deepEqual(state.get("J-0001")!.qty, some(60.0));
+        assert.deepEqual([...state.keys()], ["J-0001", "J-0002", "J-0003", "J-0004"], "none of this write landed");
     });
 });
 
 describe("one entry's rows", () => {
-    const PlanRowType = StructType({ id: StringType, task: StringType, qty: IntegerType });
-    const WeekType = StructType({ starts: DateTimeType, rows: ArrayType(PlanRowType) });
-    const PlansType = DictType(StringType, WeekType);
+    const WeekRow = ex.WeekRow;
+    const WeekPlan = ex.WeekPlan;
+    const PlansType = ex.sheetWeekPlans.type;
     const PlansHandle = RecordBindHandleType(PlansType, { patch: [PatchType(PlansType)] });
-    type Week = ValueTypeOf<typeof WeekType>;
-    type PlanRow = ValueTypeOf<typeof PlanRowType>;
-    const COLUMNS = { task: Sheet.column.text(PlanRowType, { header: "Task" }), qty: Sheet.column.integer(PlanRowType, { header: "Qty" }) };
-    const R1: PlanRow = { id: "r1", task: "Panel cutting", qty: 48n };
-    const R2: PlanRow = { id: "r2", task: "Edge banding", qty: 12n };
-    const W42: Week = { starts: new Date("2026-10-12T00:00:00Z"), rows: [R1, R2] };
-    const W43: Week = { starts: new Date("2026-10-19T00:00:00Z"), rows: [{ id: "r9", task: "Spray finish", qty: 2n }] };
-    const rowPatch = diffFor(OptionType(PlanRowType));
-    const encodeBatch = encodeBeast2For(Editing.Types.ChangeSet(PlanRowType));
+    type Plan = ValueTypeOf<typeof WeekPlan>;
+    type Row = ValueTypeOf<typeof WeekRow>;
+    const COLUMNS = { task: Sheet.column.text(WeekRow, { header: "Task" }), qty: Sheet.column.quantity(WeekRow, { header: "Qty" }) };
+    const rowPatch = diffFor(OptionType(WeekRow));
+    const encodeBatch = encodeBeast2For(Editing.Types.ChangeSet(WeekRow));
+    const SAND: Row = {
+        id: "w42-4", task: "Sand the door panels", start: none, qty: some(6.0), setups: none, site: "Bench room",
+        status: "PLANNED", code: "", level: variant("day", null), started: none, machines: { from: [], to: [] },
+    };
 
-    function plans() {
-        return inMemory("plans", PlansType, new SortedMap([["2026-W42", W42], ["2026-W43", W43]], keys), PlansHandle);
+    /** The week plans, read whole as a sheet over one of them holds them, and week 42 as e3 holds it as the test begins. */
+    async function plans() {
+        const w42 = (await h.read(ex.sheetWeekPlans)).get("2026-W42")!;
+        return { w42, ...await h.bindRecord(ex.sheetWeekPlans, PlansHandle, { whole: true }) };
     }
     /** The sheet over one week's rows, compiled against the runtime. */
     function sheetOver(runtime: RecordRuntime): (handle: unknown, week: string) => Root {
@@ -169,60 +159,67 @@ describe("one entry's rows", () => {
         return East.compile(East.function([PlansHandle, StringType], OptionType(StringType), ($, record, week) =>
             recordRows(record, { entry: { key: week, rows: "rows", id: "id" } }).missing), runtime.buildPrimitives()) as never;
     }
-    /** Takes r1 from 48 to 50, and adds r3 after r2. */
-    const EDIT = encodeBatch({
-        requestId: "week-1", base: variant("snapshot", W42.rows), label: "Edit the week",
-        changes: [
-            { id: "r1", patch: rowPatch(some(R1), some({ ...R1, qty: 50n })), place: none },
-            { id: "r3", patch: rowPatch(none, some({ id: "r3", task: "Sanding", qty: 6n })), place: some(variant("ordered", variant("after", "r2"))) },
-        ],
-    });
+    /** Takes the first row from 48 to 50, and adds a row after the second, over the rows the session began from. */
+    function edit(w42: Plan): Uint8Array {
+        const first = w42.rows[0]!;
+        return encodeBatch({
+            requestId: "week-1", base: variant("snapshot", w42.rows), label: "Edit the week",
+            changes: [
+                { id: first.id, patch: rowPatch(some(first), some({ ...first, qty: some(50.0) })), place: none },
+                { id: SAND.id, patch: rowPatch(none, some(SAND)), place: some(variant("ordered", variant("after", w42.rows[1]!.id))) },
+            ],
+        });
+    }
 
-    test("the rows are the entry's field in their own order, the session's source the record and the entry (SB15)", () => {
-        const { runtime, handle } = plans();
+    test("the rows are the entry's field in their own order, the session's source the record and the entry (SB15)", async () => {
+        const { runtime, handle } = await plans();
         const root = sheetOver(runtime)(handle, "2026-W42");
-        assert.deepEqual(ids(root), ["r1", "r2"]);
-        assert.equal(root.editing.sourceId, "plans#2026-W42");
+        assert.deepEqual(ids(root), ["w42-1", "w42-2", "w42-3"]);
+        assert.equal(root.editing.sourceId, `${ex.sheetWeekPlans.name}#2026-W42`);
         assert.deepEqual(root.readOnly, some(false));
     });
 
     test("Apply is one diff of that entry, reaching its rows and nothing else (SB16)", async () => {
-        const { requests, runtime, handle } = plans();
-        const result = await applyThrough(sheetOver(runtime)(handle, "2026-W42"), EDIT);
+        const { w42, runtime, handle } = await plans();
+        const w43 = (await h.read(ex.sheetWeekPlans)).get("2026-W43");
+        const result = await applyThrough(sheetOver(runtime)(handle, "2026-W42"), edit(w42));
         assert.equal(result.type, "applied");
-        const state = (handle as { read: () => SortedMap<string, Week> }).read();
-        assert.deepEqual(state.get("2026-W42"), { starts: W42.starts, rows: [{ ...R1, qty: 50n }, R2, { id: "r3", task: "Sanding", qty: 6n }] });
-        assert.deepEqual(state.get("2026-W43"), W43, "the other entry is untouched");
-        const sent = decodeBeast2For(PatchType(PlansType))(requests[0]!.args[0]!);
-        if (sent.type !== "patch") assert.fail(`expected a patch by key, got ${sent.type}`);
-        assert.deepEqual([...sent.value.keys()], ["2026-W42"], "one entry");
-        const op = sent.value.get("2026-W42")!;
+        const state = await h.read(ex.sheetWeekPlans);
+        const [first, second, third] = w42.rows;
+        assert.deepEqual(state.get("2026-W42"), { starts: w42.starts, rows: [{ ...first!, qty: some(50.0) }, second!, SAND, third!] });
+        assert.deepEqual(state.get("2026-W43"), w43, "the other entry is untouched");
+        const [sent] = sentPatches(ex.sheetWeekPlans);
+        if (sent?.patch.type !== "patch") assert.fail(`expected a patch by key, got ${sent?.patch.type}`);
+        assert.deepEqual([...sent.patch.value.keys()], ["2026-W42"], "one entry");
+        const op = sent.patch.value.get("2026-W42")!;
         if (op.type !== "update" || op.value.type !== "patch") assert.fail("expected the week updated field by field");
         assert.equal(op.value.value.starts.type, "unchanged", "the week's other field is not in the write");
     });
 
     test("rows another write moved are a conflict, and nothing is overwritten", async () => {
-        const { memory, runtime, handle } = plans();
-        const moved: Week = { ...W42, rows: [R1, { ...R2, qty: 20n }] };
-        const ops = new SortedMap([["2026-W42", variant("update", diffFor(WeekType)(W42, moved))]], keys);
-        const wrote = await memory.mutate(ws, "plans", "patch", { args: [encodeBeast2For(PatchType(PlansType))(variant("patch", ops) as never)] });
-        assert.equal(wrote.outcome.type, "committed");
-        const result = await applyThrough(sheetOver(runtime)(handle, "2026-W42"), EDIT);
+        const { w42, cache, runtime, handle } = await plans();
+        const moved: Plan = { ...w42, rows: [w42.rows[0]!, { ...w42.rows[1]!, qty: some(200.0) }, w42.rows[2]!] };
+        const held = await h.read(ex.sheetWeekPlans);
+        await h.patch(ex.sheetWeekPlans, new SortedMap([...held].map(([week, plan]) => [week, week === "2026-W42" ? moved : plan] as const), keys));
+        // The sheet's next poll brings it the week as the other write left it.
+        await cache.refresh(h.workspace);
+        await h.settle();
+        const result = await applyThrough(sheetOver(runtime)(handle, "2026-W42"), edit(w42));
         assert.equal(result.type, "conflict");
-        assert.deepEqual((handle as { read: () => SortedMap<string, Week> }).read().get("2026-W42"), moved);
+        assert.deepEqual((await h.read(ex.sheetWeekPlans)).get("2026-W42"), moved);
     });
 
-    test("another entry.key reads that entry under its own source, so each entry keeps its own session (SB17)", () => {
-        const { runtime, handle } = plans();
+    test("another entry.key reads that entry under its own source, so each entry keeps its own session (SB17)", async () => {
+        const { runtime, handle } = await plans();
         const sheet = sheetOver(runtime);
         const w43 = sheet(handle, "2026-W43");
-        assert.deepEqual(ids(w43), ["r9"]);
-        assert.equal(w43.editing.sourceId, "plans#2026-W43");
+        assert.deepEqual(ids(w43), ["w43-1", "w43-2"]);
+        assert.equal(w43.editing.sourceId, `${ex.sheetWeekPlans.name}#2026-W43`);
         assert.notEqual(w43.editing.sourceId, sheet(handle, "2026-W42").editing.sourceId);
     });
 
-    test("an entry the record does not hold is an empty, read-only sheet, its key named for the banner (SB15)", () => {
-        const { runtime, handle } = plans();
+    test("an entry the record does not hold is an empty, read-only sheet, its key named for the banner (SB15)", async () => {
+        const { runtime, handle } = await plans();
         const root = sheetOver(runtime)(handle, "2026-W50");
         assert.deepEqual(ids(root), []);
         assert.deepEqual(root.readOnly, some(true));

@@ -4,7 +4,7 @@
  */
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
 import { expect, test, type Locator, type Page } from "playwright/test";
-import { frameAt } from "./builder-frame";
+import { frameAt, toolbarFaults } from "./builder-frame";
 import { settled } from "./settle";
 const FILE = "e3/roster/roster";
 async function open(page: Page, name = "rosterWarehouse", theme: "light" | "dark" = "light") {
@@ -19,22 +19,6 @@ async function size(page: Page, entry: Locator, width: number) {
     await entry.locator("[data-roster-frame]").first().locator("xpath=..").evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
     await settled(page);
 }
-async function toolbarFaults(frame: Locator) {
-    return frame.evaluate(root => {
-        const band = root.querySelector('[data-frame-slot="toolbar"]')!;
-        const row = band.querySelector('[data-toolbar]')!;
-        const box = band.getBoundingClientRect(), r = row.getBoundingClientRect();
-        const faults: string[] = [];
-        if (Math.abs(box.height - 44) > 0.5) faults.push(`height ${box.height}`);
-        for (const item of row.querySelectorAll('[data-toolbar-item]')) {
-            const b = item.getBoundingClientRect(); if (!b.width) continue;
-            if (b.left < r.left - 0.5 || b.right > r.right + 0.5 || b.top < box.top - 0.5 || b.bottom > box.bottom + 0.5) faults.push(`overflow ${item.getAttribute('data-toolbar-item')}`);
-        }
-        const ladder = (row.getAttribute('data-toolbar-ladder') ?? '').split(' ');
-        if (ladder.some(s => s.startsWith('history>')) && !ladder.at(-1)?.startsWith('history>')) faults.push('history must fold last');
-        return faults;
-    });
-}
 async function view(page: Page, frame: Locator, name: string) {
     const radio = frame.getByRole('radio', { name, exact: true });
     if (await radio.isVisible()) await radio.click();
@@ -45,6 +29,25 @@ async function closeInspector(frame: Locator) {
     const collapse = frame.getByRole('button', { name: 'Collapse Inspector' });
     if (await collapse.isVisible()) await collapse.click();
 }
+/** The toolbar's record rail. */
+const RAIL = '[data-frame-slot="toolbar"] [data-slice-rail="record-slices"]';
+/** The warehouse rail's fields, as `source.field`, in source order. */
+const ROSTER_FIELDS = ['people.team', 'people.position', 'people.trainer', 'people.agency', 'people.skills', 'people.name', 'activities.group'];
+/** A frame wide enough for every chip of the rail live, its presets and its summary; and a page wide enough for it. */
+const WIDE = 2400;
+const WIDE_PAGE = 2800;
+/**
+ * Every source's field as the rail shows it at its width: a live chip, a
+ * folded summary chip (`field:source.field`), or past those its one trigger,
+ * named for every field it holds.
+ */
+const railFields = (frame: Locator) => frame.locator(RAIL).first().evaluate(rail => {
+    const live = [...rail.querySelectorAll('[data-record-slice-source][data-record-slice-field]')].filter(el => el.getBoundingClientRect().width > 0)
+        .map(el => `${el.getAttribute('data-record-slice-source')}.${el.getAttribute('data-record-slice-field')}`);
+    const folded = [...rail.querySelectorAll("[data-slice-fold^='field:']")].map(el => el.getAttribute('data-slice-fold')!.slice(6));
+    const trigger = rail.querySelector("button[aria-label^='Filters:']")?.getAttribute('aria-label') ?? '';
+    return { fields: [...live, ...folded].sort(), named: ['Group', 'Position', 'Trainer', 'Agency', 'Skill', 'Name'].every(label => trigger.includes(label)) };
+});
 async function remount(page: Page, name: string) {
     await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
     await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
@@ -52,6 +55,21 @@ async function remount(page: Page, name: string) {
     const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${FILE}/${name}"]`) });
     await entry.scrollIntoViewIfNeeded(); await expect(entry.locator('[data-roster-frame]').first()).toBeVisible();
     return entry.locator('[data-roster-frame]').first();
+}
+/** Each source a summary names, and what it says of it, by source name: `people: 22 of 69 people`. */
+const namedSources = (summary: Locator) => summary.locator('[data-record-slice-source]').evaluateAll(els => els
+    .map(el => `${el.getAttribute('data-record-slice-source')}: ${(el.textContent ?? '').replace(/\s+/g, ' ').trim()}`).sort());
+/** The warehouse's Thursday issue that a Find a lead fixes (#1334). */
+const LEAD_ISSUE = 'No lead on Dispatch · Early';
+/** Presses a fix under an issue: the inspector opened from its rail when it is collapsed, on its Issues tab, and the fix under the issue's title. */
+async function pressFix(page: Page, frame: Locator, title: string, fix: string) {
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) await expand.click();
+    const end = frame.locator('[data-frame-slot="end"]');
+    await end.getByRole('tab', { name: /^Issues/ }).click();
+    const issue = end.locator('[data-roster-issue]').filter({ has: page.getByRole('button', { name: title, exact: true }) });
+    await issue.getByRole('button', { name: fix, exact: true }).click();
+    await settled(page);
 }
 for (const theme of ['light', 'dark'] as const) {
     test(`Roster frame fits 1440/1024/768/390/360 (${theme}) @narrow`, async ({ page }) => {
@@ -139,7 +157,8 @@ for (const theme of ['light', 'dark'] as const) {
             expect(await toolbarFaults(frame)).toEqual([]);
             await view(page, frame, 'Shifts');
         }
-        await size(page, entry, 1440);
+        // Back on Shifts, its chosen period is kept: on the row from a 1920px frame, where the rail's summary and the view both fit.
+        await size(page, entry, 1920);
         await expect(frame.getByRole('radio', { name: 'Day', exact: true })).toHaveAttribute('aria-checked', 'true');
     });
     test(`phone edits a named assignment and saves through e3 (${theme}) @narrow`, async ({ page }) => {
@@ -153,16 +172,17 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(dialog).toBeVisible();
         const b = (await dialog.boundingBox())!;
         expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x + b.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
-        const overtime = dialog.locator('[data-field="overtime"] input');
-        await overtime.fill('1.5'); await overtime.press('Tab');
+        // C. Clover's duty moves from Putaway to Unloading, another of Inbound's skills.
+        const activity = dialog.locator('[data-field="activity"] [data-scope="select"][data-part="trigger"]');
+        await activity.click();
+        await page.getByRole('option', { name: 'Unloading', exact: true }).click();
         await dialog.getByRole('button', { name: 'Update', exact: true }).click();
         await expect(card).toHaveAttribute('data-drafted', '');
-        await card.getByRole('button', { name: 'Mark agreed' }).click();
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(card).not.toHaveAttribute('data-drafted', '');
         const again = await remount(page, 'rosterMobile');
         await again.locator('[data-roster-card="s37"]').getByRole('button', { name: 'Edit', exact: true }).click();
-        await expect(page.getByRole('dialog').locator('[data-field="overtime"] input')).toHaveValue('1.5');
+        await expect(page.getByRole('dialog').locator('[data-field="activity"] [data-scope="select"][data-part="trigger"]')).toContainText('Unloading');
     });
     test(`mobile People and Shifts preserve drafts and selection (${theme}) @narrow`, async ({ page }) => {
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
@@ -184,7 +204,7 @@ for (const theme of ['light', 'dark'] as const) {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme); await size(page, entry, 1440);
         const frame = entry.locator('[data-roster-frame]').first();
-        await expect(frame.locator('[data-roster-assignment="s37"]')).toContainText('6.0h rest');
+        await expect(frame.locator('[data-roster-assignment="s37"]')).toContainText('6h rest');
         await expect(frame.locator('[data-roster-main] [data-roster-proposal]')).toHaveCount(2);
         await frame.locator('[data-roster-assignment="s37"]').click();
         await closeInspector(frame); await size(page, entry, 390);
@@ -280,7 +300,14 @@ for (const theme of ['light', 'dark'] as const) {
         const assignment = frame.locator('[data-roster-assignment="s37"]');
         await assignment.scrollIntoViewIfNeeded(); await drag(activity, assignment);
         await expect(assignment.getByTitle('Unloading', { exact: true })).toBeVisible();
-        await frame.getByRole('button', { name: 'Save', exact: true }).click();
+        // The warehouse's check holds Save until N. Ochre's new duty has a cost centre: given in the inspector, it saves.
+        const save = frame.getByRole('button', { name: 'Save', exact: true });
+        await expect(save).toBeDisabled();
+        await frame.locator('[data-roster-assignment][data-drafted]').filter({ hasText: 'N. Ochre' }).click();
+        const centre = frame.locator('[data-frame-slot="end"] [data-field="costCentre"]').getByRole('textbox');
+        await centre.fill('CC-IN'); await centre.press('Enter');
+        await expect(save).toBeEnabled();
+        await save.click();
         await expect(frame.locator('[data-roster-assignment][data-drafted]')).toHaveCount(0, { timeout: 15_000 });
         const again = await remount(page, 'rosterWarehouse');
         await expect(again.locator('[data-roster-assignment]').filter({ hasText: 'N. Ochre' })).toHaveCount(1);
@@ -355,14 +382,14 @@ for (const theme of ['light', 'dark'] as const) {
         const entry = await open(page, 'rosterCustomInspector', theme); await size(page, entry, 1920);
         const frame = entry.locator('[data-roster-frame]').first();
         await frame.locator('[data-roster-assignment="s37"]').click();
-        const overtime = frame.getByRole('spinbutton', { name: 'Custom overtime' });
-        await overtime.fill(''); await overtime.pressSequentially('1.5');
-        await expect(overtime).toHaveValue('1.5'); await overtime.press('Tab');
+        const unpaid = frame.getByRole('spinbutton', { name: 'Custom unpaid break' });
+        await unpaid.fill(''); await unpaid.pressSequentially('22.5');
+        await expect(unpaid).toHaveValue('22.5'); await unpaid.press('Tab');
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(frame.locator('[data-roster-assignment="s37"]')).not.toHaveAttribute('data-drafted', '');
         const again = await remount(page, 'rosterCustomInspector');
         await again.locator('[data-roster-assignment="s37"]').click();
-        await expect(again.getByRole('spinbutton', { name: 'Custom overtime' })).toHaveValue('1.5');
+        await expect(again.getByRole('spinbutton', { name: 'Custom unpaid break' })).toHaveValue('22.5');
     });
     test(`group folding is shared by Shifts, People and phone cards (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
@@ -418,7 +445,8 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(proposal.getByRole('button', { name: 'Accept proposal for N. Ochre' })).toHaveCount(1);
         await expect(proposal.getByRole('button', { name: 'Reject proposal for N. Ochre' })).toHaveCount(1);
         const footer = frame.locator('[data-roster-footer]');
-        await expect(footer.locator(':scope > [data-roster-legend]')).toHaveCount(6);
+        // Permanent, agency staff, requested, open and hours needed: overtime is the app's pay's to say.
+        await expect(footer.locator(':scope > [data-roster-legend]')).toHaveCount(5);
         await expect(footer.locator(':scope > :not([data-roster-legend])')).toHaveCount(0);
         const actual = await railStyle(footer); expect(actual.height).toBe(28);
         const groupBands = () => frame.locator('[data-roster-group]').evaluateAll(groups => groups.map(el => {
@@ -460,5 +488,165 @@ for (const theme of ['light', 'dark'] as const) {
         await planEntry.scrollIntoViewIfNeeded(); await settled(page);
         const plan = planEntry.locator('[data-plan-frame] [data-slot="footer"]').first(); await expect(plan).toBeVisible({ timeout: 30_000 });
         expect(await railStyle(plan)).toEqual(actual);
+    });
+    test(`the one rail over people and activities stands at every width, nothing leaving the toolbar (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        for (const width of [1920, 1440, 1024, 768, 390, 360, 294]) {
+            await size(page, entry, width);
+            expect(await toolbarFaults(frame), `${width}px`).toEqual([]);
+            // The rail is in the row, every source's field in it: live, folded to its chip, or in its one trigger's name.
+            await expect(frame.locator(RAIL).first(), `${width}px`).toBeVisible();
+            const shown = await railFields(frame);
+            expect(shown.named || shown.fields.join() === ROSTER_FIELDS.slice().sort().join(), `${width}px: ${JSON.stringify(shown)}`).toBe(true);
+        }
+    });
+    test(`wide, the rail's chips are live in source order, each after its source's icon (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: WIDE_PAGE, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, WIDE);
+        // Each live chip stands in its affordance, after the icon of the source it narrows; the chip itself draws only its caret.
+        const chips = await frame.locator(RAIL).evaluateAll(clusters => clusters.flatMap(cluster => [...cluster.children].flatMap(affordance => {
+            const chip = affordance.querySelector('[data-record-slice-source][data-record-slice-field]');
+            return chip === null || chip.getBoundingClientRect().width === 0 ? [] : [{
+                field: `${chip.getAttribute('data-record-slice-source')}.${chip.getAttribute('data-record-slice-field')}`,
+                icon: affordance.querySelector(':scope > span svg')?.getAttribute('data-icon') ?? null,
+            }];
+        })));
+        expect(chips.map(chip => chip.field)).toEqual(ROSTER_FIELDS);
+        expect(chips.map(chip => chip.icon)).toEqual([...Array(6).fill('user'), 'list-check']);
+    });
+    test(`a Skill chosen through the rail's search narrows the People tab, and the summary names only the source it hides rows of (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: WIDE_PAGE, height: 1200 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, WIDE);
+        const summary = frame.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]');
+        const start = frame.locator('[data-frame-slot="start"]');
+        // Nothing of the staff or the activities narrowed: the summary names the duties alone, of which the week's window
+        // holds 368 of the record's 630 (#1358, D9).
+        await expect(frame.locator(RAIL).first()).toBeVisible();
+        await expect.poll(() => namedSources(summary)).toEqual(['duty: 368 of 630 duty events']);
+        // Skill offers its search: typing finds the skill among the staff's, and choosing it narrows the people.
+        await frame.locator(`${RAIL} [data-record-slice-source="people"][data-record-slice-field="skills"]`).first().click();
+        const search = page.locator('[data-record-slice-editor="skills"]:visible').getByRole('combobox');
+        await search.fill('unl');
+        await page.getByRole('option', { name: /^unload/ }).click();
+        await page.keyboard.press('Escape');
+        await settled(page);
+        // 22 of the staff hold Unloading; the activities, which nothing narrows, go unnamed.
+        await expect.poll(() => namedSources(summary)).toEqual(['duty: 368 of 630 duty events', 'people: 22 of 69 people']);
+        // The People tab counts what the rail leaves it. The 272px pane folds its third tab, Positions, into the row's menu, which keeps its count.
+        await expect(start.locator('[role="tab"]')).toHaveText(['People 22 of 69', 'Activities 17']);
+        await start.getByRole('button', { name: '1 more tab', exact: true }).click();
+        await expect(page.getByRole('menuitem')).toHaveText(['Positions 4']);
+        await page.keyboard.press('Escape');
+        await expect(page.getByRole('menu')).toHaveCount(0);
+        // One 44px row, every tab on it inside its pane.
+        const row = await start.evaluate(el => {
+            const pane = el.getBoundingClientRect();
+            return { height: Math.round(el.querySelector('[data-dock-tabs]')!.parentElement!.getBoundingClientRect().height),
+                inside: [...el.querySelectorAll('[role="tab"]')].every(tab => { const t = tab.getBoundingClientRect(); return t.left >= pane.left - 0.5 && t.right <= pane.right + 0.5; }) };
+        });
+        expect(row).toEqual({ height: 44, inside: true });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    });
+    test(`a People tab the rail empties says so above the agency requests, which stay; its Clear filters clears the people (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: WIDE_PAGE, height: 1200 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        await size(page, entry, WIDE);
+        // No one's name starts so: a prefix through the rail's Name search.
+        await frame.locator(`${RAIL} [data-record-slice-source="people"][data-record-slice-field="name"]`).first().click();
+        const search = page.locator('[data-record-slice-editor="name"]:visible').getByRole('combobox');
+        await search.fill('Zz'); await search.press('Enter');
+        await page.keyboard.press('Escape');
+        await settled(page);
+        const people = frame.locator('[data-roster-library="people"]');
+        await expect(frame.locator('[data-frame-slot="start"] [role="tab"]').first()).toHaveText('People 0 of 69');
+        const empty = people.locator('[data-library-empty][data-narrowed]');
+        await expect(empty).toContainText('No people match the filters');
+        const request = people.locator('[data-library-item]').filter({ hasText: 'Northside Staffing' });
+        await expect(request).toHaveCount(1);
+        // The words sit above the request card, inside the pane.
+        const [words, card, pane] = [(await empty.boundingBox())!, (await request.boundingBox())!, (await people.boundingBox())!];
+        expect(words.y + words.height).toBeLessThanOrEqual(card.y + 0.5);
+        expect([words.x >= pane.x - 0.5, words.x + words.width <= pane.x + pane.width + 0.5]).toEqual([true, true]);
+        await empty.getByRole('button', { name: 'Clear filters' }).click();
+        await settled(page);
+        await expect(frame.locator('[data-frame-slot="start"] [role="tab"]').first()).toHaveText('People 69');
+        await expect(people.locator('[data-library-empty]')).toHaveCount(0);
+    });
+    test(`R1 — a Find's answer in the People tab at 1440/1024/768/390/360 and a 294px parent: its chip and each found card's reason inside the pane, the reason in the card note's voice, cut only by an ellipsis and whole in the card's title (${theme})`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
+        const people = frame.locator('[data-roster-library="people"]');
+        for (const width of [1440, 1024, 768, 390, 360, 294]) {
+            await size(page, entry, width);
+            // Find a lead, pressed under its issue: the Library opens on the People tab under the find's chip, and the app's fit on e3 finds J. Quartz, with its reason.
+            await pressFix(page, frame, LEAD_ISSUE, 'Find a lead');
+            await expect(people.locator('[data-roster-find] button').first(), `${width}px`).toHaveText('Find · Leads');
+            await expect(people.locator('[data-library-note]'), `${width}px`).toHaveText(['Dispatch · 14 h spare']);
+            await expect(people, `${width}px`).not.toHaveAttribute('aria-busy', 'true');
+            const faults = await people.evaluate(root => {
+                // The theme's tokens, as the page resolves them.
+                const resolve = (property: 'color' | 'fontFamily', token: string) => {
+                    const probe = document.createElement('span');
+                    probe.style[property] = `var(${token})`;
+                    document.body.appendChild(probe);
+                    const resolved = getComputedStyle(probe)[property];
+                    probe.remove();
+                    return resolved;
+                };
+                const quiet = resolve('color', '--chakra-colors-fg-subtle'), mono = resolve('fontFamily', '--chakra-fonts-mono');
+                const inside = (b: DOMRect, p: DOMRect) => b.left >= p.left - 0.5 && b.right <= p.right + 0.5;
+                const out: string[] = [];
+                const pane = root.getBoundingClientRect();
+                if (!inside(pane, root.closest('[data-builder-frame]')!.getBoundingClientRect())) out.push('the People tab leaves the frame');
+                // The chip: inside the pane, its words whole.
+                const chip = root.querySelector('[data-roster-find] button')!;
+                if (!inside(chip.getBoundingClientRect(), pane)) out.push('the chip leaves the pane');
+                if (chip.scrollWidth - chip.clientWidth > 1) out.push('the chip cuts its words');
+                // Each found card: inside the pane, its reason inside it in the note's voice, cut only by an ellipsis, the whole of it in the card's title.
+                for (const card of root.querySelectorAll('[data-library-item]')) {
+                    const note = card.querySelector('[data-library-note]');
+                    if (note === null) continue;
+                    const key = card.getAttribute('data-library-item'), c = card.getBoundingClientRect(), s = getComputedStyle(note);
+                    if (!inside(c, pane)) out.push(`${key} leaves the pane`);
+                    if (!inside(note.getBoundingClientRect(), c)) out.push(`${key}'s reason leaves its card`);
+                    if (s.color !== quiet || s.fontFamily !== mono || s.fontSize !== '10px') out.push(`${key}'s reason is not in the note's voice: ${s.color} ${s.fontFamily} ${s.fontSize}`);
+                    if (note.scrollWidth - note.clientWidth > 0.5 && (s.textOverflow !== 'ellipsis' || s.whiteSpace !== 'nowrap')) out.push(`${key}'s reason is cut with no ellipsis`);
+                    if (card.getAttribute('title') !== note.textContent) out.push(`${key}'s title is not its reason`);
+                }
+                const body = root.querySelector('[data-library] [data-scrollable]');
+                if (body !== null && body.scrollWidth - body.clientWidth > 1) out.push('the cards scroll sideways');
+                return out;
+            });
+            expect(faults, `${width}px`).toEqual([]);
+            expect(await toolbarFaults(frame), `${width}px`).toEqual([]);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px page`).toBeLessThanOrEqual(0);
+        }
+        // Its chip pressed, the find clears: no chip, and no card carries a reason.
+        await people.locator('[data-roster-find] button').first().click();
+        await expect(people.locator('[data-roster-find]')).toHaveCount(0);
+        await expect(people.locator('[data-library-note]')).toHaveCount(0);
+    });
+    test(`folded on a phone, the rail's editor heads each source's fields with its noun, icon and count, then the presets (${theme}) @narrow`, async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
+        await frame.locator(`${RAIL} button[aria-label^="Filters:"]`).first().click();
+        const editor = page.getByRole('dialog');
+        expect(await editor.locator('[data-slice-section] [data-record-slice-source]').evaluateAll(els => els.map(el => `${el.getAttribute('data-record-slice-source')}.${el.getAttribute('data-record-slice-field')}`)))
+            .toEqual(ROSTER_FIELDS);
+        // The staff and the activities are headed with their counts; the duties, which no field heads, are counted on the
+        // line under the fields: the week's window (#1358, D9).
+        expect(await namedSources(editor.locator('[data-record-slices-summary]'))).toEqual(['duty: 368 of 630 duty events']);
+        const heads = await editor.evaluate(root => [...root.querySelectorAll<HTMLElement>('[data-slice-group]')].map(head => ({
+            key: head.dataset.sliceGroup, text: head.querySelector('[data-rail-group-label]')!.textContent, icon: head.querySelector('svg')?.getAttribute('data-icon') ?? null,
+            count: head.querySelector('[data-rail-group-count]')?.textContent ?? null, heads: (head.nextElementSibling as HTMLElement | null)?.dataset.sliceSection })));
+        expect(heads.map(h => [h.key, h.text, h.icon, h.count, h.heads])).toEqual([
+            ['source:people', 'people', 'user', '69', 'field:people.team'], ['source:activities', 'activities', 'list-check', '17', 'field:activities.group'], ['presets', 'Presets', null, null, 'presets']]);
+        const box = (await editor.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(390);
+        await page.keyboard.press('Escape');
     });
 }

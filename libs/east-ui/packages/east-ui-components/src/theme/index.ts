@@ -72,6 +72,8 @@ import { deckSlotRecipe } from "./slot-recipes/deck.js";
 import { valueTreeSlotRecipe } from "./slot-recipes/valueTree.js";
 import { timeNavigatorSlotRecipe } from "./slot-recipes/timeNavigator.js";
 import { rosterBuilderSlotRecipe } from "./slot-recipes/rosterBuilder.js";
+import { allocationBuilderSlotRecipe } from "./slot-recipes/allocationBuilder.js";
+import { allocationInspectorSlotRecipe } from "./slot-recipes/allocationInspector.js";
 import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
 import { schematicSlotRecipe } from "./slot-recipes/schematic.js";
 import { flowchartSlotRecipe } from "./slot-recipes/flowchart.js";
@@ -124,6 +126,7 @@ import { brushStripSlotRecipe } from "./slot-recipes/brushStrip.js";
 import { segSlotRecipe } from "./slot-recipes/seg.js";
 import { sliceFrameSlotRecipe } from "./slot-recipes/sliceFrame.js";
 import { pickPanelSlotRecipe } from "./slot-recipes/pickPanel.js";
+import { chooserSlotRecipe } from "./slot-recipes/chooser.js";
 import { sliceEditSlotRecipe } from "./slot-recipes/sliceEdit.js";
 import { clauseBuilderSlotRecipe } from "./slot-recipes/clauseBuilder.js";
 import { facetTabsSlotRecipe } from "./slot-recipes/facetTabs.js";
@@ -212,6 +215,8 @@ const config = defineConfig({
             valueTree:       valueTreeSlotRecipe,
             calendar:        calendarSlotRecipe,
             rosterBuilder:   rosterBuilderSlotRecipe,
+            allocationBuilder: allocationBuilderSlotRecipe,
+            allocationInspector: allocationInspectorSlotRecipe,
             timeNavigator:   timeNavigatorSlotRecipe,
             schematic:       schematicSlotRecipe,
             flowchart:       flowchartSlotRecipe,
@@ -264,6 +269,7 @@ const config = defineConfig({
             seg:             segSlotRecipe,
             sliceFrame:      sliceFrameSlotRecipe,
             pickPanel:       pickPanelSlotRecipe,
+            chooser:         chooserSlotRecipe,
             sliceEdit:       sliceEditSlotRecipe,
             clauseBuilder:   clauseBuilderSlotRecipe,
             facetTabs:       facetTabsSlotRecipe,

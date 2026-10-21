@@ -31,7 +31,12 @@ import { planWindows, type RowRange } from "../paged-window-store.js";
 import type { WindowedSourceValue } from "../windowed-source.js";
 
 type TableRootValue = ValueTypeOf<typeof Table.Types.Root>;
-/** The decoded windowed arm — `paged`, or `pinned` — the source at the Table's own row collection. */
+/**
+ * The decoded windowed arm — `paged`, `pinned` or `live` — the source at the
+ * Table's own row collection. The Table keeps no windows of its own: it reads
+ * them in its tracked evaluation, so a live source's narrowing, read as its
+ * windows are, re-fires it when a choice changes (#1354).
+ */
 export type TablePagedSourceValue = WindowedSourceValue<TableRootValue["rows"]>;
 /** One decoded table row — its cells by column key, its depth in the data's
  *  tree, and whether it starts collapsed (#954). */

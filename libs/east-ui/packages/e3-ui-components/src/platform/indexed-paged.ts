@@ -45,10 +45,14 @@ export class IndexedPagedRuntime {
     private readonly handles = new Map<string, Record<string, unknown>>();
     // Preserve window identity without retaining pages the paged cache evicts.
     private windows = new WeakMap<object, Map<string, unknown[]>>();
+    // Each schema's sources, built once: a window over an interval index is
+    // some fifty-five searches, and each read built its source's window type
+    // again and looked its handle up by that type's structure.
+    private sources = new WeakMap<Schema, Map<string, Handle>>();
 
     constructor(private readonly paged: Pick<PagedRuntime, "buildHandle">) {}
 
-    clear(): void { this.handles.clear(); this.windows = new WeakMap(); }
+    clear(): void { this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); }
 
     private schema(types: EastTypeValue[]): Schema {
         const args = types.map(fromEastTypeValue) as Schema["args"];
@@ -71,10 +75,17 @@ export class IndexedPagedRuntime {
 
     private source(schema: Schema, path: TreePath, metadata: Metadata, joined: boolean, name: string): Handle {
         if (name !== "primary" && !Object.hasOwn(metadata, name)) throw new Error(`Index '${name}' was not declared on this binding`);
+        let built = this.sources.get(schema);
+        if (built === undefined) { built = new Map(); this.sources.set(schema, built); }
+        const sourceKey = `${datasetPathToString(path)}\u0000${name}\u0000${joined ? "+join" : ""}`;
+        const cached = built.get(sourceKey);
+        if (cached !== undefined) return cached;
         const [key, row, projection] = schema.args;
         const type = name === "primary" ? schema.collection : indexWindowType(key, schema.keys[name]!, projection, row);
-        return this.paged.buildHandle(toEastTypeValue(type), path,
+        const handle = this.paged.buildHandle(toEastTypeValue(type), path,
             { index: name === "primary" ? null : name, join: name !== "primary" && joined }, "pinned") as unknown as Handle;
+        built.set(sourceKey, handle);
+        return handle;
     }
 
     private primitives(): PlatformFunction[] {

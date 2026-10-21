@@ -28,7 +28,7 @@ export {
 // (the window ledger), which of them are resident, and a key search's query
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).
 export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, type RowsViewport } from "./collections/virtual-rows.js";
-export { windowedSourceOf, type WindowedSourceValue } from "./collections/windowed-source.js";
+export { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "./collections/windowed-source.js";
 export {
     createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, observeWindow, offsetOfElement,
     offsetOfWindow, rowsIn, slotHeight, windowAtOffset, type WindowLedger, type WindowMeasure,
@@ -59,9 +59,14 @@ export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";
 export { SliceRangeContent } from "./slice/range/index.js";
-export { RecordSliceFieldEditor, RecordSliceSummary, useRecordSliceToolbarItems } from "./slice/record/index.js";
+// The rail's field chip, for a result a host shows as one: a Find fix's, which its × clears (#1342); and its
+// choice chips and quiet reset, for choices a host offers as the rail does: a Sheet's views, folded with its key search (#1345).
+export { SliceChoiceGroup, SliceClearButton, SliceFieldChip, type SliceChoice } from "./slice/choice.js";
+export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, useRecordSliceToolbarItems, useRecordSlicesToolbarItems } from "./slice/record/index.js";
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";
-export { recordSliceWindow, recordSliceDomain, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
+export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
+// Whether a record Slice still holds its seed — its `initial`, written over by nothing — which a builder's restored view replaces.
+export { recordSliceSeeded } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";
@@ -75,6 +80,12 @@ export { coarseHitArea } from "./style/hit-area.js";
 // The Plan's slot recipe: in the theme with every recipe, and its geometry measured against it.
 export { planSlotRecipe } from "./theme/slot-recipes/plan.js";
 
-// Paged builder palettes reuse the Library face and the shared bounded window plan.
+// The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
+export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";
+
+// Paged builder palettes reuse the Library face, its search box — finding within the tab alone, through its
+// source's part of the rail (#1340, ruling 11) — and the shared bounded window plan.
 export { LibraryCard } from "./collections/library/index.js";
-export { PagedLibrary, type LibraryPageSource } from "./collections/library/paged.js";
+export { PagedLibrary, type LibraryPageSource, type PagedLibrarySearch } from "./collections/library/paged.js";
+// A tab's count while a builder's rail narrows it: over resident cards, and over a paged record (#1339, #1341).
+export { narrowedCount, pagedCount, type CountWords, type PagedCountSource } from "./collections/library/count.js";

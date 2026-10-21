@@ -5,8 +5,8 @@
  * @vitest-environment jsdom
  *
  * `<Query.Library>` (#1063, `Query Editor Spec.md` §5, §7 L1–L7), rendered
- * through its carrier over a saved queries record in memory and the shared
- * fixture's orders and customers, at a fixed moment in UTC:
+ * through its carrier over the saved queries record and the query examples'
+ * orders and customers on e3 (#1376), at a fixed moment in UTC:
  *
  * - **L1**: headerless, with one toolbar row — the search, Sort, Grid · List, a
  *   rule and New query — and no border; the gallery draws no toolbar of its own.
@@ -32,16 +32,16 @@ import {
     OptionType, checkJq, decodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { StateRuntime, formatters, system } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
-import { clearPagedApi, initializePagedApi, type PagedApi } from "../platform/index.js";
+import { ReactiveDatasetCache } from "../platform/index.js";
 import { whenWords } from "./about.js";
 import { queryRoot, type QueryRoot } from "./one-shot.js";
 import { QueryOpenType, type QueryOpen } from "./open-query.js";
-import {
-    act, CustomersType, RECORD, WORKSPACE, fixtureCall, mountLibrary, recordHarness, savedQuery, savedRecord, settle, type RecordHarness,
-} from "./query.test-utils.js";
+import { CustomersType, savedQuery } from "./fixture.test-utils.js";
+import { act, queryHarness, settle } from "./query.test-utils.js";
 import type { SavedQuery } from "./session.js";
 
 type TreePath = ValueTypeOf<typeof TreePathType>;
@@ -93,18 +93,16 @@ function remember(...runs: SavedQuery[]) {
     localStorage.setItem(queryKeys(undefined).recent, JSON.stringify(runs.map((run) => printSaved(run))));
 }
 
-let harness: RecordHarness;
+const h = queryHarness();
 
-beforeEach(() => {
+beforeEach(async () => {
     // A fixed moment, read in UTC: a card's byline says when, in the viewer's time.
     vi.stubEnv("TZ", "UTC");
     vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
     vi.setSystemTime(NOW);
-    harness = recordHarness(savedRecord([TOP, BIG, COUNT, MISSING, ELSEWHERE]));
+    await h.seed([TOP, BIG, COUNT, MISSING, ELSEWHERE]);
 });
 afterEach(() => {
-    cleanup();
-    localStorage.clear();
     vi.useRealTimers();
     vi.unstubAllEnvs();
 });
@@ -194,7 +192,7 @@ describe("when a query was saved, in a card's words (#1063)", () => {
 
 describe("<Query.Library> — its toolbar and its pane (#1063 L1, L2)", () => {
     test("L1: headerless, with one toolbar row — the search counting the saved queries, Sort · Recent, Grid · List, a rule and New query on the first data source; the gallery draws no toolbar of its own, and the library no border", async () => {
-        await mountLibrary();
+        await h.mountLibrary();
         expect(library().firstElementChild!.getAttribute("data-slot")).toBe("toolbar");
         expect(library().querySelectorAll("[data-toolbar]")).toHaveLength(1);
         const items = [...library().firstElementChild!.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
@@ -210,7 +208,7 @@ describe("<Query.Library> — its toolbar and its pane (#1063 L1, L2)", () => {
 
     test("L2: All queries and each bound data source with the count of saved queries that start from it, Recent at the foot with its count; a click shows a data source's queries — New query starting on it — or the recent runs", async () => {
         remember(CANCELLED, BIG_RUN);
-        await mountLibrary();
+        await h.mountLibrary();
         // Customers by region reads regions, which isn't bound here: it counts in All queries alone.
         expect(paneRows()).toEqual([
             ["all", "All queries5", true], ["source:orders", "orders3", false], ["source:customers", "customers1", false], ["recent", "Recent2", false],
@@ -236,7 +234,7 @@ describe("<Query.Library> — its toolbar and its pane (#1063 L1, L2)", () => {
 
 describe("<Query.Library> — its gallery (#1063 L3)", () => {
     test("L3: three across, each card a wireframe of its query — its source and a bar per step, the rest counted — with its name, the author's description or the generated sentence, its byline and Open in builder →", async () => {
-        await mountLibrary();
+        await h.mountLibrary();
         const grid = library().querySelector<HTMLElement>("[data-library] [data-layout]")!;
         expect([grid.getAttribute("data-layout"), grid.getAttribute("data-media"), grid.style.getPropertyValue("--library-columns")]).toEqual(["grid", "top", "3"]);
         expect(wireframeOf(card(TOP.name))).toEqual(["steps", ["orders", "Keep rows where", "Look up from another dataset", "Show only these fields", "+2 more"]]);
@@ -252,7 +250,7 @@ describe("<Query.Library> — its gallery (#1063 L3)", () => {
     });
 
     test("L3: a query with problems here draws their count, dashed, and why; one whose data sources aren't bound here carries the reason in the warning tone, has no action, and its click says why in a notice instead of opening", async () => {
-        await mountLibrary();
+        await h.mountLibrary();
         expect(wireframeOf(card(MISSING.name))).toEqual(["problems", ["1 problem", "Reads regions, which isn't here"]]);
         expect(bylineOf(card(MISSING.name))).toBe("regions · jq · 1 problem · saved Dec 1, 2025");
         expect([glyphOf(card(MISSING.name)), glyphOf(card(ELSEWHERE.name))]).toEqual([
@@ -273,7 +271,7 @@ describe("<Query.Library> — its gallery (#1063 L3)", () => {
 
 describe("<Query.Library> — search, sort, layout and the empty states (#1063 L4)", () => {
     test("L4: the search narrows the cards by name, description and data source, and Esc clears it; Sort · Name orders them by name; List lays them out a row each", async () => {
-        await mountLibrary();
+        await h.mountLibrary();
         await search("big");
         expect(names()).toEqual(["Big orders"]);
         await search("1,000 or more");
@@ -298,7 +296,7 @@ describe("<Query.Library> — search, sort, layout and the empty states (#1063 L
     });
 
     test("L4: nothing matching the search says so, with what to try — every query's search, or a filter's; no recent runs; no queries yet", async () => {
-        await mountLibrary();
+        await h.mountLibrary();
         await search("zzz");
         expect(emptyState()).toEqual(["fas box-open", "No queries match “zzz”", ["Check the spelling", "Search by query name, description or data source"]]);
         await show("source:orders");
@@ -307,8 +305,8 @@ describe("<Query.Library> — search, sort, layout and the empty states (#1063 L
         await show("recent");
         expect(emptyState()).toEqual(["fas box-open", "No recent runs", ["Run a query in the builder to see it here"]]);
         cleanup();
-        harness = recordHarness(savedRecord([]));
-        await mountLibrary();
+        await h.seed([]);
+        await h.mountLibrary();
         expect(emptyState()).toEqual(["fas box-open", "No queries yet", ["Save a query in the builder"]]);
         expect(screen.getByRole("textbox", { name: "Search queries" }).getAttribute("placeholder")).toBe("Search 0 queries…");
     });
@@ -318,7 +316,7 @@ describe("<Query.Library> — search, sort, layout and the empty states (#1063 L
 
 describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
     test("L6: Open in builder → writes the builder's open query and tells the host; the open query's card is placed", async () => {
-        await mountLibrary();
+        await h.mountLibrary();
         await click(card(BIG.name));
         expect(opened()).toEqual(variant("saved", "Big orders"));
         expect(screen.getByText(/^told /).textContent).toBe("told Big orders");
@@ -326,7 +324,7 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
     });
 
     test("L6: New query on the data source the pane shows opens a new query on it, and tells the host its name", async () => {
-        await mountLibrary();
+        await h.mountLibrary();
         await show("source:customers");
         await click(screen.getByRole("button", { name: "New query on customers" }));
         const open = opened();
@@ -337,7 +335,7 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
 
     test("L5: a recent run of a saved query opens the saved query; one never saved opens as a new query begun as it — each byline saying when it ran, the open one placed", async () => {
         remember(CANCELLED, BIG_RUN);
-        await mountLibrary();
+        await h.mountLibrary();
         await show("recent");
         expect([bylineOf(card("recent:0")), bylineOf(card("recent:1"))]).toEqual([
             "orders · 2 steps · one whole number · ran 11:00",
@@ -355,14 +353,13 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
     });
 
     test("L6: a builder sharing the library's id opens the query the library opens — with “Opened … from the query library.” — and runs it", async () => {
-        const fixture = fixtureCall();
-        await mountLibrary({ id: "top", builder: fixture.call });
+        await h.mountLibrary({ id: "top", builder: true });
         const builder = document.querySelector<HTMLElement>("[data-query-builder]")!;
-        const ran = fixture.requests.length;
+        const ran = h.oneShots().length;
         await click(card(BIG.name));
         expect(builder.getAttribute("data-query-open")).toBe(`query.saved:"Big orders"`);
         expect([...builder.querySelectorAll("[data-query-tab=query] [role=status]")].map((n) => n.textContent)).toEqual(["Opened “Big orders” from the query library."]);
-        expect(fixture.requests).toHaveLength(ran + 1);
+        expect(h.oneShots()).toHaveLength(ran + 1);
         await click(screen.getByRole("button", { name: "New query on orders" }));
         expect(builder.getAttribute("data-query-open")).toMatch(/^query\.new:/);
         expect([...builder.querySelectorAll("[data-query-tab=query] [role=status]")].map((n) => n.textContent)).toEqual(["Started a new query on orders."]);
@@ -373,39 +370,39 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
 
 describe("<Query.Library> — what it reads, and its drag source (#1063 L7)", () => {
     test("L7: opening the library, and a query from it, reads the saved queries alone — no data source's value, bound or paged", async () => {
-        // Every bound value and the record are read from the dataset cache; a paged source's rows through the paging API.
-        const pages: string[] = [];
-        const paging: PagedApi = {
-            async getPage(_ws, path) { pages.push(pathToString(path)); throw new Error("no rows here"); },
-            async findKey(_ws, path) { pages.push(pathToString(path)); throw new Error("no keys here"); },
-            async getRevision() { return null; },
-            watchRevision() { return () => {}; },
-        };
-        initializePagedApi(paging, WORKSPACE);
-        const reads = vi.spyOn(harness.cache, "read");
-        try {
-            remember(CANCELLED);
-            await mountLibrary();
-            await click(card(BIG.name));
-            await show("recent");
-            await click(card("recent:0"));
-            expect(new Set(reads.mock.calls.map(([, path]) => pathToString(path)))).toEqual(new Set([`.records.${RECORD}`]));
-            expect(pages).toEqual([]);
-        } finally {
-            clearPagedApi(paging);
-        }
+        // A bound value and the record are read from the dataset cache, which also reads itself to say what it holds
+        // (`has`) — the page's polls of what the surface reads; a paged source's rows are read from e3, by page or by key.
+        const read = Object.getOwnPropertyDescriptor(ReactiveDatasetCache.prototype, "read")!.value as ReactiveDatasetCache["read"];
+        const has = Object.getOwnPropertyDescriptor(ReactiveDatasetCache.prototype, "has")!.value as ReactiveDatasetCache["has"];
+        let holding = 0;
+        const surfaceReads = new Set<string>();
+        vi.spyOn(ReactiveDatasetCache.prototype, "has").mockImplementation(function (this: ReactiveDatasetCache, ws, path) {
+            holding++;
+            try { return has.call(this, ws, path); } finally { holding--; }
+        });
+        vi.spyOn(ReactiveDatasetCache.prototype, "read").mockImplementation(function (this: ReactiveDatasetCache, ws, path) {
+            if (holding === 0) surfaceReads.add(pathToString(path));
+            return read.call(this, ws, path);
+        });
+        remember(CANCELLED);
+        await h.mountLibrary();
+        await click(card(BIG.name));
+        await show("recent");
+        await click(card("recent:0"));
+        expect(surfaceReads).toEqual(new Set([`.records.${ex.queries.name}`]));
+        expect([h.requests("page"), h.requests("find")]).toEqual([[], []]);
     });
 
     test("L7: under a drag layer a saved query's card drags, from the library's id — its builder's — and a recent run's does not", async () => {
         remember(CANCELLED);
-        await mountLibrary({ drag: true });
+        await h.mountLibrary({ drag: true });
         expect(library().querySelector("[data-library]")!.getAttribute("data-library")).toBe("query.library");
         expect(cards().every((c) => c.hasAttribute("data-draggable"))).toBe(true);
         await show("recent");
         expect(cards().map((c) => c.hasAttribute("data-draggable"))).toEqual([false]);
         cleanup();
-        harness = recordHarness(savedRecord([BIG]));
-        await mountLibrary({ id: "top", drag: true });
+        await h.seed([BIG]);
+        await h.mountLibrary({ id: "top", drag: true });
         expect(library().querySelector("[data-library]")!.getAttribute("data-library")).toBe("query.library.top");
     });
 });

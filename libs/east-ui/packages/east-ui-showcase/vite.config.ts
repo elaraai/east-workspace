@@ -23,7 +23,8 @@ export default defineConfig(({ command }) => {
         rootDir: __dirname,
       }),
       /* The showcase's e3 package (#849): every e3-ui example module's e3
-       * definitions, exported with the real SDK — served at
+       * definitions, exported with the real SDK by e3-ui's examples' package
+       * step (`@elaraai/e3-ui/examples-package`, #1375) — served at
        * `/e3-showcase.zip` by the dev server, and emitted by the build named
        * by its content (`assets/e3-showcase-<hash>.zip`), the bundle carrying
        * its URL (`virtual:e3-showcase-package`) — which the e3 the page runs
@@ -33,7 +34,6 @@ export default defineConfig(({ command }) => {
        * (an example module reloads rather than updating in place). The React
        * renderer (`e3-ui-components`) keeps Fast Refresh. */
       e3ShowcasePlugin({
-        rootDir: __dirname,
         e3UiDir: path.resolve(__dirname, '../e3-ui'),
       }),
     ],
@@ -56,7 +56,7 @@ export default defineConfig(({ command }) => {
          * stream/events/util), which breaks in the browser — alias to the
          * snapshot harness's browser-safe shim in dev AND build. The package
          * the page's e3 deploys is made with the real SDK, in node
-         * (`scripts/e3-showcase-package.ts`). Anchored ($) so
+         * (e3-ui's `test/examples-package.ts`). Anchored ($) so
          * `@elaraai/e3-ui` / `@elaraai/e3-types` / `@elaraai/e3-web` pass. */
         {
           find: /^@elaraai\/e3$/,

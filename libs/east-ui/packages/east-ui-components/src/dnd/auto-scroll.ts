@@ -17,6 +17,13 @@
  * or the pointer moves away. After every step the layer reads the point again:
  * the content moved under a pointer that did not.
  *
+ * A container of rows on a grid names its row's height
+ * (`data-edge-scroll-row="36"`) and steps instead: while the pointer is within
+ * {@link ROW_EDGE} px of its top — below what its `scroll-padding-top` keeps
+ * covered, a sticky head — or of its bottom, it scrolls one row every
+ * {@link ROW_EVERY}th frame, landing on the rows' grid (the Allocation's panes,
+ * A25).
+ *
  * @packageDocumentation
  */
 
@@ -26,6 +33,10 @@ export const EDGE = 48;
 const MAX_SPEED = 18;
 /** px per frame at the inner edge of the band. */
 const MIN_SPEED = 3;
+/** A row-stepped container's band along its top and bottom, in px. */
+export const ROW_EDGE = 24;
+/** A row-stepped container scrolls a row every this many frames. */
+export const ROW_EVERY = 8;
 
 type Point = { x: number; y: number };
 type Axis = "x" | "y";
@@ -86,6 +97,23 @@ function velocity(el: HTMLElement, point: Point): Point {
     return { x: vx, y: vy };
 }
 
+/** A row-stepped container's row height, or `undefined` for one that scrolls smoothly. */
+function rowOf(el: HTMLElement): number | undefined {
+    const row = Number(el.dataset.edgeScrollRow);
+    return Number.isFinite(row) && row > 0 ? row : undefined;
+}
+
+/** Which way a point steps a row-stepped container: toward the edge band it rests in, where the container can go. */
+function stepOf(el: HTMLElement, point: Point): -1 | 0 | 1 {
+    const r = el.getBoundingClientRect();
+    const covered = Number.parseFloat(getComputedStyle(el).scrollPaddingTop) || 0;
+    const can = room(el);
+    if (point.x < r.left || point.x > r.right) return 0;
+    if (can.down && point.y <= r.bottom && r.bottom - point.y < ROW_EDGE) return 1;
+    if (can.up && point.y >= r.top + covered && point.y - (r.top + covered) < ROW_EDGE) return -1;
+    return 0;
+}
+
 const frame = (fn: () => void): number =>
     typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn) : (setTimeout(fn, 16) as unknown as number);
 const cancelFrame = (id: number): void => {
@@ -100,6 +128,8 @@ const cancelFrame = (id: number): void => {
 export class EdgeScroller {
     private point: Point | undefined;
     private pending: number | undefined;
+    /** Frames a row-stepped container has waited since its last step. */
+    private frames = 0;
     private readonly onStep: () => void;
 
     /**
@@ -124,6 +154,7 @@ export class EdgeScroller {
         if (this.pending !== undefined) cancelFrame(this.pending);
         this.pending = undefined;
         this.point = undefined;
+        this.frames = 0;
     }
 
     private readonly tick = (): void => {
@@ -131,6 +162,19 @@ export class EdgeScroller {
         const point = this.point;
         if (point === undefined) return;
         for (const el of containersFrom(document.elementFromPoint(point.x, point.y))) {
+            const row = rowOf(el);
+            if (row !== undefined) {
+                const step = stepOf(el, point);
+                if (step === 0) { this.frames = 0; continue; }
+                this.frames += 1;
+                if (this.frames >= ROW_EVERY) {
+                    this.frames = 0;
+                    el.scrollTop = Math.max(0, (Math.round(el.scrollTop / row) + step) * row);
+                    this.onStep();
+                }
+                this.pending = frame(this.tick);
+                return;
+            }
             const v = velocity(el, point);
             if (v.x === 0 && v.y === 0) continue;
             el.scrollLeft += v.x;

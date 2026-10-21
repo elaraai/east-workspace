@@ -36,7 +36,12 @@
  * the user ruled on 2026-10-09 — and `density` refused at build; and the
  * request id's (#1275): the host's `onApply` handed the batch's request id with
  * its patch, and an `onApply` of the patch alone refused, by the tag's types
- * and at build.
+ * and at build; and the narrowing's (#1346): one `Slice.bindRecords`, its
+ * `flows` source paging the Flows tab over a record, each templates list a
+ * record of its own naming its source, its cards keyed by the record's keys,
+ * an author's tab following the source it names — and every prop the
+ * narrowing took before, and each misuse of the slice, refused at build,
+ * naming the change.
  */
 
 import { describe, test as hostTest } from "node:test";
@@ -52,9 +57,11 @@ import { Text } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import e3 from "@elaraai/e3";
 import {
-    Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordBindingType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType,
+    Data, Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordBindingType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType,
 } from "@elaraai/e3-ui";
-import { Flowchart, FlowchartCanvasType, FlowchartLibraryTabType, FlowchartPayloadType, flowchartKeys } from "@elaraai/e3-ui/internal";
+import {
+    Flowchart, FlowchartCanvasType, FlowchartLibraryTabType, FlowchartPayloadType, buildFlowchartLibrary, flowchartKeys, type FlowchartLibraryTab,
+} from "@elaraai/e3-ui/internal";
 import * as ex from "./flowchart.examples.js";
 
 type Flow = ValueTypeOf<typeof Flowchart.Types.Flow>;
@@ -588,12 +595,12 @@ describe("the payload (FB6)", () => {
         const tabs: ValueTypeOf<typeof FlowchartLibraryTabType>[] = [
             variant("flows", null),
             variant("states", { name: some("Steps"), icon: some("box"), cards: [{ key: "HLD", label: "Hold", meta: some("hold"), group: none,
-                sets: { key: some("HLD"), label: some(some("Held")), lane: none, members: none, notes: none } }] }),
+                sets: { key: some("HLD"), label: some(some("Held")), lane: none, members: none, notes: none } }], source: "steps" }),
             variant("transitions", { name: none, icon: none, cards: [{ key: "obs", label: "Observed", meta: none, group: none,
-                sets: { key: none, from: none, to: none, kind: some(some(variant("observed", null))), trigger: none, evidence: none } }] }),
+                sets: { key: none, from: none, to: none, kind: some(some(variant("observed", null))), trigger: none, evidence: none } }], source: "moves" }),
             variant("tab", { name: "Owners", icon: none, lands: variant("decision", [{ key: "desk", label: "Customs desk", meta: none, group: none,
-                sets: { key: none, label: none, letter: none, owner: some(some("customs-desk")), queue: none, outcomes: none } }]) }),
-            variant("tab", { name: "Notes", icon: none, lands: variant("none", [{ key: "n1", label: "Read me", meta: none, group: none }]) }),
+                sets: { key: none, label: none, letter: none, owner: some(some("customs-desk")), queue: none, outcomes: none } }]), source: some("owners") }),
+            variant("tab", { name: "Notes", icon: none, lands: variant("none", [{ key: "n1", label: "Read me", meta: none, group: none }]), source: none }),
         ];
         const tabsType = ArrayType(FlowchartLibraryTabType);
         assert.ok(equalFor(tabsType)(decodeBeast2For(tabsType)(encodeBeast2For(tabsType)(tabs)), tabs));
@@ -682,92 +689,110 @@ describe("the inspector (#1250, FB44, FB45)", () => {
 // The library (#1248, §4.2, FB25–FB29): each tab's cards from its own rows
 // ============================================================================
 
-/** A step type: the state templates' row. */
-const StepRow = StructType({ code: StringType, name: StringType, kind: StringType, slots: OptionType(IntegerType) });
+/** A step type: the state templates' row, keyed by its code in its templates record (#1346). */
+const StepRow = StructType({ name: StringType, kind: StringType, slots: OptionType(IntegerType) });
 type Step = ValueTypeOf<typeof StepRow>;
-/** The step types, an Array: a key that repeats — the hold's — keeps its first card. */
-const STEPS: Step[] = [
-    { code: "HLD", name: "Held", kind: "Hold", slots: none },
-    { code: "CH*", name: "Sort chutes", kind: "Sort", slots: some(14n) },
-    { code: "HLD", name: "Held again", kind: "Hold", slots: none },
-];
+/** The step types, a templates record by code: its rows in its key order. */
+const STEPS = new SortedMap<string, Step>([
+    ["HLD", { name: "Held", kind: "Hold", slots: none }],
+    ["CH*", { name: "Sort chutes", kind: "Sort", slots: some(14n) }],
+], compareFor(StringType));
 /** A transition type, by name: the transition templates' row. */
 const MoveRow = StructType({ kind: Flowchart.Types.Kind, decision: OptionType(StringType) });
 type Move = ValueTypeOf<typeof MoveRow>;
-/** The transition types, a Dict: by name, in name order. */
+/** The transition types, a templates record by name, in name order. */
 const MOVES = new SortedMap<string, Move>([
     ["Routed", { kind: variant("planned", null), decision: some("route") }],
     ["Observed", { kind: variant("observed", null), decision: none }],
 ], compareFor(StringType));
 /** A role that owns a decision: the author's tab's row. */
 const OwnerRow = StructType({ role: StringType, desk: StringType });
-const OWNERS: ValueTypeOf<typeof OwnerRow>[] = [{ role: "customs-desk", desk: "Hold bay" }, { role: "sort-planner", desk: "Sort hall" }];
+/** The roles, an Array: a key that repeats — the customs desk's — keeps its first card. */
+const OWNERS: ValueTypeOf<typeof OwnerRow>[] = [
+    { role: "customs-desk", desk: "Hold bay" },
+    { role: "sort-planner", desk: "Sort hall" },
+    { role: "customs-desk", desk: "Gate" },
+];
 
 type LibraryWire = ValueTypeOf<typeof FlowchartLibraryTabType>[];
+const libraryEqual = equalFor(ArrayType(FlowchartLibraryTabType));
 
-/** The state templates' tab over its rows: each card's key its code, the line under it its code, grouped by its kind. */
-function stepsTab(rows: Parameters<typeof PublicFlowchart.library.states<typeof StepRow>>[0]) {
+/** The state templates' tab over its record's rows: each card's key its code, the line under it its code, grouped by its kind, following `source` — `null`, none, as a list written in the code names. */
+function stepsTab(rows: Parameters<typeof PublicFlowchart.library.states<typeof StepRow>>[0], source: string | null = "steps") {
     return PublicFlowchart.library.states(rows, {
-        name: "Steps", icon: "box",
-        key: (s) => s.code, label: (s) => s.name, meta: (s) => some(s.code), group: (s) => s.kind,
-        drop: (s) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: s.code, label: some(s.name), members: s.slots }),
+        name: "Steps", icon: "box", ...(source === null ? {} : { source }),
+        label: (s) => s.name, meta: (_s, code) => some(code), group: (s) => s.kind,
+        drop: (s, code) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: code, label: some(s.name), members: s.slots }),
     });
 }
 
-/** The transition templates' tab over its rows, unnamed: each card keyed and labelled by the row's key. */
-function movesTab(rows: Parameters<typeof PublicFlowchart.library.transitions<typeof MoveRow>>[0]) {
+/** The transition templates' tab over its record's rows, unnamed: each card labelled by its key, following `source` — `null`, none. */
+function movesTab(rows: Parameters<typeof PublicFlowchart.library.transitions<typeof MoveRow>>[0], source: string | null = "moves") {
     return PublicFlowchart.library.transitions(rows, {
-        key: (_m, name) => name, label: (_m, name) => name,
+        ...(source === null ? {} : { source }),
+        label: (_m, name) => name,
         drop: (m) => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind), trigger: m.decision }),
     });
 }
 
-/** The author's Owners tab over its rows: a role dropped on a decision owns it. */
-function ownersTab(rows: Parameters<typeof PublicFlowchart.library.tab<typeof OwnerRow>>[0]) {
+/** The author's Owners tab over its rows: a role dropped on a decision owns it; following `source`, when it names one. */
+function ownersTab(rows: Parameters<typeof PublicFlowchart.library.tab<typeof OwnerRow>>[0], source?: string) {
     return PublicFlowchart.library.tab(rows, {
-        name: "Owners", icon: "user-tie",
+        name: "Owners", icon: "user-tie", ...(source === undefined ? {} : { source }),
         key: (o) => o.role, label: (o) => o.role, meta: (o) => some(o.desk),
         drop: (o) => PublicFlowchart.patch(PublicFlowchart.Types.Trigger, { owner: some(o.role) }),
     });
 }
 
-/** The state templates' cards over STEPS: the hold's first row, then the chutes. */
+/**
+ * The library on the wire, as the payload builds it beside its slice's
+ * sources — over flows by name, or over one flow — compiled and run: no slice
+ * runs here, so the sources are given by name, as the payload hands them on.
+ */
+function libraryWire(library: ($: BlockBuilder<ArrayType<typeof FlowchartLibraryTabType>>) => readonly FlowchartLibraryTab[], sources: readonly string[], many = true): LibraryWire {
+    return East.compile(East.function([], ArrayType(FlowchartLibraryTabType), ($) => buildFlowchartLibrary(library($), many, sources)), [])() as LibraryWire;
+}
+
+/** The state templates' cards over STEPS, in the record's key order: each card's key its row's key in the record. */
 const STEP_CARDS = [
-    { key: "HLD", label: "Held", meta: some("HLD"), group: some("Hold"), sets: { key: some("HLD"), label: some(some("Held")), lane: none, members: some(none), notes: none } },
     { key: "CH*", label: "Sort chutes", meta: some("CH*"), group: some("Sort"), sets: { key: some("CH*"), label: some(some("Sort chutes")), lane: none, members: some(some(14n)), notes: none } },
+    { key: "HLD", label: "Held", meta: some("HLD"), group: some("Hold"), sets: { key: some("HLD"), label: some(some("Held")), lane: none, members: some(none), notes: none } },
 ];
 /** The transition templates' cards over MOVES, in name order. */
 const MOVE_CARDS = [
     { key: "Observed", label: "Observed", meta: none, group: none, sets: { key: none, from: none, to: none, kind: some(some(variant("observed", null))), trigger: some(none), evidence: none } },
     { key: "Routed", label: "Routed", meta: none, group: none, sets: { key: none, from: none, to: none, kind: some(some(variant("planned", null))), trigger: some(some("route")), evidence: none } },
 ];
-/** The Owners tab's cards over OWNERS: each sets a decision's owner. */
-const OWNER_CARDS = OWNERS.map((o) => ({
+/** The Owners tab's cards over OWNERS: each sets a decision's owner, the customs desk's repeat folded. */
+const OWNER_CARDS = OWNERS.slice(0, 2).map((o) => ({
     key: o.role, label: o.role, meta: some(o.desk), group: none,
     sets: { key: none, label: none, letter: none, owner: some(some(o.role)), queue: none, outcomes: none },
 }));
 
+/** A slice whose sources each page the step types through their kind, under each name given: what templates lists and tabs name. */
+const templatesSlice = (...names: string[]) => Slice.bindRecords("flowchart.spec.templates",
+    Object.fromEntries(names.map((name) => [name, { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) }])) as never);
+/** A slice whose `flows` source pages a record of flows through its lanes. */
+const flowsSlice = () => Slice.bindRecords("flowchart.spec.flows", { flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] }) } });
+
 describe("the library (#1248, FB25–FB29)", () => {
-    hostTest("each tab on the wire, in the order `library` lists it: the Flows tab, then each data tab's cards from its own rows — over an Array and over a Dict — each with what its drop sets", () => {
-        const payload = carried(($) => PublicFlowchart({
-            record: $.let(flowsRecord()),
-            library: [
-                PublicFlowchart.library.flows(),
-                stepsTab($.const(STEPS, ArrayType(StepRow))),
-                movesTab($.const(MOVES, DictType(StringType, MoveRow))),
-                ownersTab($.const(OWNERS, ArrayType(OwnerRow))),
-            ],
-        }));
+    hostTest("each tab on the wire, in the order `library` lists it: the Flows tab, then each data tab's cards from its own rows — a templates record's by its keys, an author's Array — each with what its drop sets and the source it follows (#1346)", () => {
+        const library = libraryWire(($) => [
+            PublicFlowchart.library.flows(),
+            stepsTab($.const(STEPS, DictType(StringType, StepRow))),
+            movesTab($.const(MOVES, DictType(StringType, MoveRow))),
+            ownersTab($.const(OWNERS, ArrayType(OwnerRow))),
+        ], ["steps", "moves"]);
         const expected: LibraryWire = [
             variant("flows", null),
-            // An Array: the hold's first row kept, its repeat folded; each card the state its drop seeds.
-            variant("states", { name: some("Steps"), icon: some("box"), cards: STEP_CARDS }),
-            // A Dict: keyed by its keys, in their order; unnamed, so the renderer names it.
-            variant("transitions", { name: none, icon: none, cards: MOVE_CARDS }),
-            // An author's tab whose drop is a decision's patch: its cards land on a decision.
-            variant("tab", { name: "Owners", icon: some("user-tie"), lands: variant("decision", OWNER_CARDS) }),
+            // A templates record: each card its row, keyed by the record's key, in the record's order; each the state its drop seeds.
+            variant("states", { name: some("Steps"), icon: some("box"), cards: STEP_CARDS, source: "steps" }),
+            // Unnamed, so the renderer names it.
+            variant("transitions", { name: none, icon: none, cards: MOVE_CARDS, source: "moves" }),
+            // An author's tab whose drop is a decision's patch: its cards land on a decision; naming no source, it lists its rows whole.
+            variant("tab", { name: "Owners", icon: some("user-tie"), lands: variant("decision", OWNER_CARDS), source: none }),
         ];
-        assert.deepEqual(payload.library, expected);
+        assert.ok(libraryEqual(library, expected), "the tabs, their cards and their sources");
     });
 
     hostTest("an author's tab without a drop is read, never dragged; over an Array a row's key is its index, printed, and over a Dict its key", () => {
@@ -782,18 +807,19 @@ describe("the library (#1248, FB25–FB29)", () => {
             variant("tab", { name: "Desks", icon: none, lands: variant("none", [
                 { key: "0", label: "Hold bay", meta: none, group: none },
                 { key: "1", label: "Sort hall", meta: none, group: none },
-            ]) }),
+                { key: "2", label: "Gate", meta: none, group: none },
+            ]), source: none }),
             variant("tab", { name: "Moves", icon: none, lands: variant("none", [
                 { key: "Observed", label: "Observed", meta: none, group: some("free") },
                 { key: "Routed", label: "Routed", meta: none, group: some("decided") },
-            ]) }),
+            ]), source: none }),
         ];
-        assert.deepEqual(payload.library, expected);
+        assert.ok(libraryEqual(payload.library, expected), "each card by its row's key, read only");
     });
 
     hostTest("an author's drop lands where its patch's type says: a state, a transition, a lane's header or a decision's diamond", () => {
         const payload = carried(($) => {
-            const rows = $.const(OWNERS, ArrayType(OwnerRow));
+            const rows = $.const(OWNERS.slice(0, 2), ArrayType(OwnerRow));
             const owners = (name: string, drop: (o: ExprType<typeof OwnerRow>) => unknown) =>
                 PublicFlowchart.library.tab(rows, { name, key: (o) => o.role, label: (o) => o.role, drop: drop as never });
             return PublicFlowchart({
@@ -814,19 +840,15 @@ describe("the library (#1248, FB25–FB29)", () => {
         assert.deepEqual(onLane.value.lands.value[0], { key: "customs-desk", label: "customs-desk", meta: none, group: none, sets: { key: none, label: some(some("Hold bay")) } });
     });
 
-    hostTest("each tab takes its own bound data — a record's rows, an input's — apart from the flows and from the other tabs (the user, 2026-10-08)", () => {
+    hostTest("each tab takes its own bound data — a templates record's rows, a record's — apart from the flows and from the other tabs (the user, 2026-10-08; #1346)", () => {
         // The step types and the owners are records of their own, bound beside the record of flows.
-        const stepsRecord = boundRecord(DictType(StringType, StepRow), new SortedMap([["hold", STEPS[0]!], ["chutes", STEPS[1]!]], compareFor(StringType)), false);
+        const stepsRecord = boundRecord(DictType(StringType, StepRow), STEPS, false);
         const ownersRecord = boundRecord(DictType(StringType, OwnerRow), new SortedMap([["customs", OWNERS[0]!]], compareFor(StringType)), false);
-        const payload = carried(($) => {
-            const flows = $.let(flowsRecord());
+        const library = libraryWire(($) => {
             const steps = $.let(stepsRecord());
             const owners = $.let(ownersRecord());
-            return PublicFlowchart({
-                record: flows,
-                library: [PublicFlowchart.library.flows(), stepsTab(steps.read()), ownersTab(owners.read()), movesTab($.const(MOVES, DictType(StringType, MoveRow)))],
-            });
-        });
+            return [PublicFlowchart.library.flows(), stepsTab(steps.read()), ownersTab(owners.read(), "owners"), movesTab($.const(MOVES, DictType(StringType, MoveRow)))];
+        }, ["steps", "owners", "moves"]);
         const cardKeys = (tab: LibraryWire[number]) => {
             switch (tab.type) {
                 case "flows": return [];
@@ -836,37 +858,78 @@ describe("the library (#1248, FB25–FB29)", () => {
             }
         };
         // Each tab's cards are its own rows', none of the flows' states, nor another tab's rows.
-        assert.deepEqual(payload.library.map(cardKeys), [[], ["CH*", "HLD"], ["customs-desk"], ["Observed", "Routed"]]);
+        assert.deepEqual(library.map(cardKeys), [[], ["CH*", "HLD"], ["customs-desk"], ["Observed", "Routed"]]);
         const flowStates = new Set([...FLOWS.values()].flatMap((f) => f.states.map((s) => s.key)));
-        assert.deepEqual(cardKeys(payload.library[1]!).filter((key) => flowStates.has(key)), ["CH*"], "a step type may share a code with a flow's state: its card is the row's");
-        if (payload.library[1]!.type !== "states") assert.fail("expected the state templates");
-        assert.deepEqual(payload.library[1]!.value.cards.map((c) => c.label), ["Sort chutes", "Held"], "the record's rows, by key: its labels, not the flow's");
-        // The flows are the record's own, read where the renderer reads them.
-        if (payload.source.type !== "record") assert.fail("expected the record arm");
-        assert.ok(flowsEqual(payload.source.value.read(), FLOWS));
+        assert.deepEqual(cardKeys(library[1]!).filter((key) => flowStates.has(key)), ["CH*"], "a step type may share a code with a flow's state: its card is the row's");
+        if (library[1]!.type !== "states") assert.fail("expected the state templates");
+        assert.deepEqual(library[1]!.value.cards.map((c) => c.label), ["Sort chutes", "Held"], "the record's rows, by key: its labels, not the flow's");
     });
 
     hostTest("a template tab left unnamed is named by the renderer; named, its name rides the wire (FB25)", () => {
-        const payload = carried(($) => PublicFlowchart({
-            data: FLOWS,
-            library: [
-                PublicFlowchart.library.states($.const(STEPS, ArrayType(StepRow)), { key: (s) => s.code, label: (s) => s.name,
-                    drop: (s) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: s.code }) }),
-                PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), { name: "Retypes", key: (_m, n) => n, label: (_m, n) => n,
-                    drop: (m) => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind) }) }),
-            ],
-        }));
-        assert.deepEqual(payload.library.map((tab) => (tab.type === "states" || tab.type === "transitions" ? [tab.type, tab.value.name, tab.value.icon] : [tab.type])), [
+        const library = libraryWire(($) => [
+            PublicFlowchart.library.states($.const(STEPS, DictType(StringType, StepRow)), { label: (s) => s.name, source: "steps",
+                drop: (_s, code) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: code }) }),
+            PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), { name: "Retypes", label: (_m, n) => n, source: "moves",
+                drop: (m) => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind) }) }),
+        ], ["steps", "moves"]);
+        assert.deepEqual(library.map((tab) => (tab.type === "states" || tab.type === "transitions" ? [tab.type, tab.value.name, tab.value.icon] : [tab.type])), [
             ["states", none, none], ["transitions", some("Retypes"), none],
         ]);
     });
 
     hostTest("a template tab's cards and a one-flow flowchart: over one flow the library takes every tab but the Flows tab (FB16)", () => {
-        const payload = carried(($) => PublicFlowchart({
-            data: INBOUND_VALUE,
-            library: [stepsTab($.const(STEPS, ArrayType(StepRow))), movesTab($.const(MOVES, DictType(StringType, MoveRow))), ownersTab($.const(OWNERS, ArrayType(OwnerRow)))],
-        }));
-        assert.deepEqual(payload.library.map((tab) => tab.type), ["states", "transitions", "tab"]);
+        const library = libraryWire(($) => [
+            stepsTab($.const(STEPS, DictType(StringType, StepRow))), movesTab($.const(MOVES, DictType(StringType, MoveRow))), ownersTab($.const(OWNERS, ArrayType(OwnerRow))),
+        ], ["steps", "moves"], false);
+        assert.deepEqual(library.map((tab) => tab.type), ["states", "transitions", "tab"]);
+    });
+
+    hostTest("an author's tab follows the source of the slice it names, by its cards' keys (#1346); naming none, it lists its rows whole; a source the slice lacks is refused", () => {
+        const owners = ($: BlockBuilder<ArrayType<typeof FlowchartLibraryTabType>>, source?: string) => [ownersTab($.const(OWNERS, ArrayType(OwnerRow)), source)];
+        const [followed] = libraryWire(($) => owners($, "owners"), ["steps", "owners"]);
+        if (followed?.type !== "tab") assert.fail("expected an author's tab");
+        assert.deepEqual(followed.value.source, some("owners"));
+        const [whole] = libraryWire(($) => owners($), ["steps", "owners"]);
+        if (whole?.type !== "tab") assert.fail("expected an author's tab");
+        assert.deepEqual(whole.value.source, none);
+        assert.throws(() => libraryWire(($) => owners($, "owners"), ["steps"]),
+            /^Error: Flowchart: the "Owners" tab's source 'owners' is not one of the slice's sources \(steps\)$/);
+        assert.throws(() => libraryWire(($) => owners($, "owners"), []), /\(it has no slice\)$/);
+    });
+
+    hostTest("templates are records (#1340, ruling 9; #1346): a list written in the code, one naming no source or one the slice lacks, one naming `flows`, the two lists naming one source, rows that are no record's and a `key` are each refused, naming the change", () => {
+        const build = (props: ($: BlockBuilder<NullType>) => object) => () => inBlock(($) => Flowchart.Payload(props($)));
+        const steps = ($: BlockBuilder<NullType>) => $.let(Data.bind(ex.stepTemplates)).read();
+        const change = /^Error: Flowchart: templates are records now — bind them in Slice\.bindRecords and name the source, Flowchart\.library\.states\(rows, \{ …, source: "stateTemplates" \}\)/;
+        // A list naming no source — one written in the code — beside a slice, and with none.
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") }, library: [stepsTab(steps($), null)] })),
+            new RegExp(`${change.source} \\(the slice's sources: steps\\)$`));
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), library: [stepsTab(steps($), null)] })), new RegExp(`${change.source} \\(it has no slice\\)$`));
+        // A source the slice lacks, and one with no slice at all.
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") }, library: [stepsTab(steps($), "moves")] })),
+            /\(the slice's sources: steps — 'moves' is not one of them\)$/);
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), library: [stepsTab(steps($))] })), /\(it has no slice — 'steps' is not one of them\)$/);
+        // The transition templates' declaration, in their refusal.
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") }, library: [movesTab($.const(MOVES, DictType(StringType, MoveRow)), null)] })),
+            /^Error: Flowchart: templates are records now — bind them in Slice\.bindRecords and name the source, Flowchart\.library\.transitions\(rows, \{ …, source: "transitionTemplates" \}\)/);
+        // `flows` narrows the flows, and each list is a record of its own: its own source.
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecords("flowchart.spec.both", {
+            flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] }) },
+            steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
+        }) }, library: [stepsTab(steps($), "flows")] })),
+            /^Error: Flowchart: Flowchart\.library\.states\(\) names the source 'flows', which narrows the flows — each templates list is a record of its own, and its own source of the slice$/);
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
+            library: [stepsTab(steps($)), movesTab($.const(MOVES, DictType(StringType, MoveRow)), "steps")] })),
+            /^Error: Flowchart: the state templates and the transition templates both name the source 'steps' — each templates list is a record of its own, and its own source of the slice$/);
+        // A templates list's rows are its record's — a Dict — and its cards are keyed by the record's keys.
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
+            library: [PublicFlowchart.library.states($.const([], ArrayType(StepRow)) as never, { label: (s: ExprType<typeof StepRow>) => s.name, source: "steps",
+                drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) })] })),
+            /^Error: Flowchart: Flowchart\.library\.states\(\) lists templates, which are records — its rows are its templates record's, each card a row by its key: a Dict<String, T>, its binding's read\(\) — and these are an Array$/);
+        assert.throws(build(($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
+            library: [PublicFlowchart.library.states(steps($), { key: (_s: unknown, code: ExprType<StringType>) => code, label: (s: ExprType<typeof StepRow>) => s.name, source: "steps",
+                drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) } as never)] })),
+            /^Error: Flowchart: Flowchart\.library\.states\(\)'s cards are its templates record's rows, each keyed by the record's key, which its source follows — leave `key` out$/);
     });
 
     for (const [field, sets] of [
@@ -876,19 +939,53 @@ describe("the library (#1248, FB25–FB29)", () => {
     ] as const) {
         hostTest(`a transition card whose drop sets the transition's \`${field}\` is refused as the tab's cards are read, naming the tab, the card and the field (#1248, §4.4)`, () => {
             const refusal = new RegExp(`Flowchart: Flowchart\\.library\\.transitions\\(\\)'s card "Routed" sets a transition's \`${field}\` — a transition card retypes the transition it lands on, its kind, its decision and its other fields, never its key or its ends: leave \`key\`, \`from\` and \`to\` out of its Flowchart\\.patch`);
-            assert.throws(() => carried(($) => PublicFlowchart({
-                data: FLOWS,
-                library: [PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), {
-                    key: (_m, name) => name, label: (_m, name) => name,
-                    // The observed move retypes; the routed one, in name order the second, also rewires.
-                    drop: (m) => m.decision.match({
-                        some: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind), ...sets } as never),
-                        none: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind) }),
-                    }),
-                })],
-            })), refusal);
+            assert.throws(() => libraryWire(($) => [PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), {
+                label: (_m, name) => name, source: "moves",
+                // The observed move retypes; the routed one, in name order the second, also rewires.
+                drop: (m) => m.decision.match({
+                    some: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind), ...sets } as never),
+                    none: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, { kind: some(m.kind) }),
+                }),
+            })], ["moves"]), refusal);
         });
     }
+});
+
+// ============================================================================
+// The narrowing (#1346): one Slice.bindRecords — the Flows tab's `flows`
+// source over a record, and each source a templates list or a tab names
+// ============================================================================
+
+describe("the narrowing (#1346)", () => {
+    const typeOf = (e: unknown): EastType => Expr.type(e as Expr) as EastType;
+
+    hostTest("over a record, a `flows` source pages the Flows tab, and the templates lists and the tabs follow the sources they name: the payload builds over each", () => {
+        inBlock(($) => {
+            const flows = $.let(flowsRecord());
+            const steps = $.let(Data.bind(ex.stepTemplates));
+            // The Flows tab over the slice's `flows` source.
+            assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ record: flows, slice: { slice: flowsSlice() }, library: [Flowchart.library.flows()] })), FlowchartPayloadType));
+            // The flows and a templates list, one rail.
+            const both = Slice.bindRecords("flowchart.spec.both", {
+                flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] }), fields: { lane: { label: "Lane" } } },
+                steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
+            });
+            assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ record: flows, slice: { slice: both, affordances: ["fields", "search", "summary"] },
+                library: [Flowchart.library.flows(), stepsTab(steps.read())] })), FlowchartPayloadType));
+            // Over the host's flows, and over its one flow, the slice narrows only the lists and the tabs that name a source.
+            assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ data: FLOWS, slice: { slice: templatesSlice("steps") }, library: [Flowchart.library.flows(), stepsTab(steps.read())] })), FlowchartPayloadType));
+            assert.ok(isTypeEqual(typeOf(Flowchart.Payload({ data: INBOUND_VALUE, slice: { slice: templatesSlice("steps", "owners") },
+                library: [stepsTab(steps.read()), ownersTab($.const(OWNERS, ArrayType(OwnerRow)), "owners")] })), FlowchartPayloadType));
+        });
+    });
+
+    hostTest("the record's flows read whole cross the record arm when the slice holds no `flows` source: the templates' rail narrows the library alone", () => {
+        inBlock(($) => {
+            const steps = $.let(Data.bind(ex.stepTemplates));
+            const payload = Flowchart.Payload({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") }, library: [Flowchart.library.flows(), stepsTab(steps.read())] });
+            assert.ok(isTypeEqual(typeOf(payload), FlowchartPayloadType));
+        });
+    });
 });
 
 // ============================================================================
@@ -908,10 +1005,6 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: `onApply` commits `data`'s edits — a flowchart over `record` commits through the record's patch mutation; leave `onApply` out$/],
         ["`flow` over the host's one flow", (_$) => ({ data: INBOUND_VALUE, flow: "Inbound parcels" }),
             /^Error: Flowchart: `flow` opens one of many flows first, and this `data` is one flow, Flowchart\.Types\.Flow — leave `flow` out$/],
-        ["`slice` over a record", ($) => ({ record: $.let(flowsRecord()), slice: $.let(depotSlice($)) }),
-            /^Error: Flowchart: record filters use window=/],
-        ["`affordances` over a record", ($) => ({ record: $.let(flowsRecord()), affordances: ["filter"] }),
-            /^Error: Flowchart: record affordances belong inside slice=/],
         ["a record of one flow, with the remedy: a record of flows with one entry, or `data`", ($) => ({ record: $.let(flowRecord()) }),
             /^Error: Flowchart: `record` holds flows by name, Flowchart\.Types\.Flows — e3's patch mutation writes only keyed records — and this record holds one flow: make it a record of flows with one entry \(Flowchart\.values\(\{ \[name\]: flow \}\)\), or pass the flow as `data`$/],
         ["a record of another type", ($) => ({ record: $.let(jobsRecord()) }),
@@ -922,8 +1015,6 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\), and this binding has a `patch` that takes another patch than the record's$/],
         ["a `record` that is no bound record", (_$) => ({ record: FLOWS }),
             /^Error: Flowchart: `record` is an e3 record bound with its patch mutation — Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\)$/],
-        ["\"brush\" among the affordances", ($) => ({ data: INBOUND_VALUE, slice: $.let(depotSlice($)), affordances: ["filter", "brush"] }),
-            /^Error: Flowchart: `affordances` lists "brush", and a flowchart has no continuous axis to brush along/],
         ["`data` of neither flow type", ($) => ({ data: $.const([{ code: "ARV" }]) }),
             /^Error: Flowchart: `data` is Flowchart\.Types\.Flows, flows by name, or Flowchart\.Types\.Flow, one flow — a value, an expression or a bind handle of either; Flowchart\.over builds one flow from an app's tables — and this is \.Array/],
         ["a `data` value of neither flow type", (_$) => ({ data: [{ code: "ARV" }] }),
@@ -952,22 +1043,52 @@ describe("refused when the surface is built (§4.4, FB5)", () => {
             /^Error: Flowchart: `library` lists the library pane's tabs, each a Flowchart\.library\.\* call — library=\{\[Flowchart\.library\.flows\(\)\]\}$/],
         ["a template tab without the rows it reads, which no Flowchart.library call makes (#1248)", (_$) => ({ data: FLOWS, library: [{ kind: "states" }] }),
             /^Error: Flowchart: `library` lists the library pane's tabs, each a Flowchart\.library\.\* call — library=\{\[Flowchart\.library\.flows\(\)\]\}$/],
-        ["the state templates listed twice, naming the tab (#1248, FB29)", ($) => ({ record: $.let(flowsRecord()), library: [stepsTab($.const(STEPS, ArrayType(StepRow))), stepsTab($.const([], ArrayType(StepRow)))] }),
+        ["the state templates listed twice, naming the tab (#1248, FB29)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("steps") },
+            library: [stepsTab($.const(STEPS, DictType(StringType, StepRow))), stepsTab($.const(new SortedMap<string, Step>([], compareFor(StringType)), DictType(StringType, StepRow)))] }),
             /^Error: Flowchart: the library lists Flowchart\.library\.states\(\) twice — each tab once$/],
-        ["the transition templates listed twice, naming the tab (#1248, FB29)", ($) => ({ data: FLOWS, library: [movesTab($.const(MOVES, DictType(StringType, MoveRow))), movesTab($.const(MOVES, DictType(StringType, MoveRow)))] }),
+        ["the transition templates listed twice, naming the tab (#1248, FB29)", ($) => ({ data: FLOWS, slice: { slice: templatesSlice("moves") },
+            library: [movesTab($.const(MOVES, DictType(StringType, MoveRow))), movesTab($.const(MOVES, DictType(StringType, MoveRow)))] }),
             /^Error: Flowchart: the library lists Flowchart\.library\.transitions\(\) twice — each tab once$/],
         ["two of the author's tabs of one name, naming it (#1248, FB29)", ($) => ({ data: INBOUND_VALUE, library: [ownersTab($.const(OWNERS, ArrayType(OwnerRow))), ownersTab($.const([], ArrayType(OwnerRow)))] }),
             /^Error: Flowchart: the library lists two tabs named "Owners" — each tab's name is its own$/],
-        ["a data tab's rows that are no collection (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.states($.const(7n) as never, { key: () => "k", label: () => "l", drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) })] }),
-            /^Error: Flowchart: Flowchart\.library\.states\(\) reads its rows as an Array<T> or a Dict<String, T> — a value, or an expression such as a binding's read\(\), its own apart from the flows and the other tabs — and these are \.Integer$/],
+        ["an author's tab's rows that are no collection (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.tab($.const(7n) as never, { name: "Seven", key: () => "k", label: () => "l" })] }),
+            /^Error: Flowchart: the "Seven" tab reads its rows as an Array<T> or a Dict<String, T> — a value, or an expression such as a binding's read\(\), its own apart from the flows and the other tabs — and these are \.Integer$/],
+        ["a templates list's rows that are no record's (#1346, §4.4)", ($) => ({ data: FLOWS, slice: { slice: templatesSlice("steps") },
+            library: [PublicFlowchart.library.states($.const(7n) as never, { label: () => "l", source: "steps", drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) })] }),
+            /^Error: Flowchart: Flowchart\.library\.states\(\) reads its rows as a Dict<String, T> — its templates record's, its binding's read\(\), its own apart from the flows and the other tabs — and these are \.Integer$/],
         ["a data tab's rows by keys that are no String (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.tab($.const(new SortedMap([[1n, "one"]], compareFor(IntegerType)), DictType(IntegerType, StringType)) as never, { name: "Numbers", key: () => "k", label: () => "l" })] }),
             /^Error: Flowchart: the "Numbers" tab reads its rows as an Array<T> or a Dict<String, T> — .* — and these are \.Dict/],
-        ["a state template's drop over another row than a state (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.states($.const(STEPS, ArrayType(StepRow)), { key: (s) => s.code, label: (s) => s.name, drop: (() => PublicFlowchart.patch(PublicFlowchart.Types.Lane, {})) as never })] }),
+        ["a state template's drop over another row than a state (#1248, §4.4)", ($) => ({ data: FLOWS, slice: { slice: templatesSlice("steps") },
+            library: [PublicFlowchart.library.states($.const(STEPS, DictType(StringType, StepRow)), { label: (s) => s.name, source: "steps", drop: (() => PublicFlowchart.patch(PublicFlowchart.Types.Lane, {})) as never })] }),
             /^Error: Flowchart: Flowchart\.library\.states\(\)'s `drop` returns the fields of the state a card adds — Flowchart\.patch\(Flowchart\.Types\.State, \{ … \}\) — and this one returns \.Struct/],
-        ["a transition template's drop over another row than a transition (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), { key: (_m, n) => n, label: (_m, n) => n, drop: (() => PublicFlowchart.patch(PublicFlowchart.Types.State, {})) as never })] }),
+        ["a transition template's drop over another row than a transition (#1248, §4.4)", ($) => ({ data: FLOWS, slice: { slice: templatesSlice("moves") },
+            library: [PublicFlowchart.library.transitions($.const(MOVES, DictType(StringType, MoveRow)), { label: (_m, n) => n, source: "moves", drop: (() => PublicFlowchart.patch(PublicFlowchart.Types.State, {})) as never })] }),
             /^Error: Flowchart: Flowchart\.library\.transitions\(\)'s `drop` returns the fields a card sets on the transition it lands on — Flowchart\.patch\(Flowchart\.Types\.Link, \{ … \}\) — and this one returns \.Struct/],
         ["an author's drop over none of a flow's rows (#1248, §4.4)", ($) => ({ data: FLOWS, library: [PublicFlowchart.library.tab($.const(OWNERS, ArrayType(OwnerRow)), { name: "Jobs", key: (o) => o.role, label: (o) => o.role, drop: (o) => East.value({ task: some(o.role) }, StructType({ task: OptionType(StringType) })) })] }),
             /^Error: Flowchart: the "Jobs" tab's `drop` returns a patch over one of a flow's rows, its type naming what a card lands on — Flowchart\.patch\(Flowchart\.Types\.State, Link, Lane or Trigger, \{ … \}\) — and this one returns \.Struct/],
+        // The narrowing (#1346): one Slice.bindRecords, its `flows` source the Flows tab's; every prop it took before refused, naming the change.
+        ["`window`, which the slice's `flows` source replaced (#1346)", ($) => ({ record: $.let(flowsRecord()), window: $.let(Data.bindPaged(ex.indexedFlows)) }),
+            /^Error: Flowchart: `window=\{Slice\.rows\(slice\)\}` is gone — the Flows tab pages the `flows` source of `slice`: slice=\{\{ slice: Slice\.bindRecords\(key, \{ flows: \{ source: Data\.bindPaged\(record, \{ indexes \}\), fields \} \}\) \}\}$/],
+        ["`affordances` beside the slice, which moved into it (#1346)", ($) => ({ record: $.let(flowsRecord()), affordances: ["fields"] }),
+            /^Error: Flowchart: `affordances` moved into `slice` — slice=\{\{ slice, affordances \}\}$/],
+        ["the bare handle as `slice`, as a flow from the host's tables was narrowed by (#1346)", ($) => ({ data: INBOUND_VALUE, slice: $.let(depotSlice($)) }),
+            /^Error: Flowchart: `slice` takes \{ slice \} — slice=\{\{ slice: Slice\.bindRecords\(key, \{ flows, … \}\) \}\} over a record of flows; the bare handle is gone, and a flow built from the host's tables \(Flowchart\.over over `data`\) is never narrowed: narrow its rows in the task that builds them$/],
+        ["the bare `Slice.bindRecords` handle as `slice` (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: $.let(flowsSlice()) }),
+            /^Error: Flowchart: `slice` takes \{ slice \} — /],
+        ["`Slice.bind` as the narrowing (#1340, ruling 1)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: depotSlice($) } }),
+            /^Error: Flowchart: `slice` is Slice\.bindRecords\(key, \{ flows \}\) — name each source after what it narrows; Slice\.bind and Slice\.bindRecord are not taken$/],
+        ["a single `Slice.bindRecord` as the narrowing (#1340, ruling 1)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecord("flowchart.spec.single", Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] })) } }),
+            /^Error: Flowchart: `slice` is Slice\.bindRecords\(key, \{ flows \}\) — name each source after what it narrows; Slice\.bind and Slice\.bindRecord are not taken$/],
+        ["a source nothing names (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: templatesSlice("jobs") } }),
+            /^Error: Flowchart: `slice` narrows its flows, and the templates lists and tabs that name a source — its source 'jobs' is none of them; name the sources `flows`$/],
+        ["a `flows` source over the host's flows, which nothing narrows (#1346)", (_$) => ({ data: FLOWS, slice: { slice: flowsSlice() } }),
+            /^Error: Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows — bind the record as record=\{Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\)\}, or leave `flows` out of the slice$/],
+        ["a `flows` source over the host's one flow (#1346)", (_$) => ({ data: INBOUND_VALUE, slice: { slice: flowsSlice() } }),
+            /^Error: Flowchart: `slice`'s `flows` source pages a record of flows, and these flows are the host's, which nothing narrows/],
+        ["a `flows` source over a record of another type (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: Slice.bindRecords("flowchart.spec.steps", { flows: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) } }) } }),
+            /^Error: Flowchart: `slice`'s `flows` source pages a record of flows by name, Flowchart\.Types\.Flows, its rows joined — Data\.bindPaged\(record, \{ indexes \}\) over the record `record` binds — and this one pages /],
+        ["\"brush\" among the slice's affordances (#1346)", ($) => ({ record: $.let(flowsRecord()), slice: { slice: flowsSlice(), affordances: ["fields", "brush"] } }),
+            /^Error: Flowchart: `slice`'s affordances list "brush", and a flowchart has no continuous axis to brush along — mount fields, search, presets or summary$/],
     ];
     // Every callback the flowchart took for an edit, and `linkMode`, over either source (#1247, FB24).
     const callbacks: [string, ($: BlockBuilder<NullType>) => unknown][] = [
@@ -1041,6 +1162,11 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             const one = $.let(flowRecord());
             const jobs = $.let(jobsRecord());
             const slice = $.let(depotSlice($));
+            // The narrowing (#1346): one Slice.bindRecords — the flows, and the templates' record.
+            const narrowing = $.let(Slice.bindRecords("flowchart.spec.forms", {
+                flows: { source: Data.bindPaged(ex.indexedFlows, { indexes: [ex.flowsByLane] }) },
+                steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
+            }));
             const applyFlows = $.const(East.asyncFunction([StringType, PatchType(FlowsType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
             const applyFlow = $.const(East.asyncFunction([StringType, PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
             // The host's commit before #1275: the patch alone, no request id.
@@ -1048,7 +1174,8 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             const patchOnlyFlow = $.const(East.asyncFunction([PatchType(FlowType)], Editing.Types.ApplyResult, (_$2) => variant("applied", { revision: none })));
             // Each form, as it is written.
             PublicFlowchart({ record: flows, flow: "Returns", inspector: true, name: "depot", library: [PublicFlowchart.library.flows()] });
-            PublicFlowchart({ data: FLOWS, flow: "Returns", onApply: applyFlows, slice, affordances: ["search"], library: [PublicFlowchart.library.flows()] });
+            PublicFlowchart({ data: FLOWS, flow: "Returns", onApply: applyFlows, slice: { slice: narrowing }, library: [PublicFlowchart.library.flows()] });
+            PublicFlowchart({ record: flows, slice: { slice: narrowing, affordances: ["fields", "search", "summary"], persist: "local" }, library: [PublicFlowchart.library.flows()] });
             PublicFlowchart({ data: INBOUND_VALUE, onApply: applyFlow, library: [] });
             // @ts-expect-error — one flow has no Flows tab: there are no flows by name to list (#1246, FB16)
             PublicFlowchart({ data: INBOUND_VALUE, library: [PublicFlowchart.library.flows()] });
@@ -1056,8 +1183,14 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             PublicFlowchart({ record: one });
             // @ts-expect-error — a record commits through its patch mutation, never the host's onApply
             PublicFlowchart({ record: flows, onApply: applyFlows });
-            // @ts-expect-error — a record's flows are the record's: no slice narrows them
+            // @ts-expect-error — `slice` takes { slice }, one Slice.bindRecords: the bare handle is gone (#1346)
             PublicFlowchart({ record: flows, slice });
+            // @ts-expect-error — the narrowing is one Slice.bindRecords: Slice.bind is not taken (#1340, ruling 1)
+            PublicFlowchart({ data: INBOUND_VALUE, slice: { slice } });
+            // @ts-expect-error — the Flows tab pages the slice's `flows` source: `window` is gone (#1346)
+            PublicFlowchart({ record: flows, window: narrowing });
+            // @ts-expect-error — the rail's affordances are the slice's (#1346)
+            PublicFlowchart({ record: flows, affordances: ["fields"] });
             // @ts-expect-error — a record of jobs is no record of flows
             PublicFlowchart({ record: jobs });
             // @ts-expect-error — the host's one flow has no `flow` to open
@@ -1090,20 +1223,24 @@ hostTest("the tag's forms type each arm's props — a prop another arm takes fai
             PublicFlowchart({ data: INBOUND_VALUE, stateHover: $.const(East.function([StringType], UIComponentType, (_$2, key) => Text.Root(key))) });
             // @ts-expect-error — a kind's own Details are a state's or a transition's: a decision's are its form (#1250, FB45)
             PublicFlowchart({ data: INBOUND_VALUE, inspector: { decision: true } });
-            // The library's data tabs (#1248): one flow takes every tab but the Flows tab.
-            const steps = $.const(STEPS, ArrayType(StepRow));
+            // The library's data tabs (#1248): one flow takes every tab but the Flows tab; the templates are records (#1346).
+            const steps = $.const(STEPS, DictType(StringType, StepRow));
             const moves = $.const(MOVES, DictType(StringType, MoveRow));
             const owners = $.const(OWNERS, ArrayType(OwnerRow));
-            PublicFlowchart({ data: INBOUND_VALUE, library: [stepsTab(steps), movesTab(moves), ownersTab(owners)] });
-            PublicFlowchart({ record: flows, library: [PublicFlowchart.library.flows(), stepsTab(steps), movesTab(moves), ownersTab(owners)] });
+            PublicFlowchart({ data: INBOUND_VALUE, slice: { slice: narrowing }, library: [stepsTab(steps), movesTab(moves), ownersTab(owners)] });
+            PublicFlowchart({ record: flows, slice: { slice: narrowing }, library: [PublicFlowchart.library.flows(), stepsTab(steps), movesTab(moves), ownersTab(owners, "steps")] });
             // @ts-expect-error — a state template's drop is the fields of the state it adds (#1248)
-            PublicFlowchart.library.states(steps, { key: (s) => s.code, label: (s) => s.name, drop: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, {}) });
+            PublicFlowchart.library.states(steps, { label: (s) => s.name, drop: () => PublicFlowchart.patch(PublicFlowchart.Types.Link, {}) });
             // @ts-expect-error — a transition template's drop is the fields it sets on a transition (#1248)
-            PublicFlowchart.library.transitions(moves, { key: (_m, n) => n, label: (_m, n) => n, drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) });
+            PublicFlowchart.library.transitions(moves, { label: (_m, n) => n, drop: () => PublicFlowchart.patch(PublicFlowchart.Types.State, {}) });
             // @ts-expect-error — an author's tab is named: its name is its identity in `library` (#1248)
             PublicFlowchart.library.tab(owners, { key: (o) => o.role, label: (o) => o.role });
-            // @ts-expect-error — a template's card is keyed (#1248)
-            PublicFlowchart.library.states(steps, { label: (s) => s.name, drop: (s) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: s.code }) });
+            // @ts-expect-error — an author's card is keyed (#1248)
+            PublicFlowchart.library.tab(owners, { name: "Owners", label: (o) => o.role });
+            // @ts-expect-error — a template's card is its record's row, keyed by the record's key: it takes no key (#1346)
+            PublicFlowchart.library.states(steps, { key: (_s, code) => code, label: (s) => s.name, drop: (_s, code) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: code }) });
+            // @ts-expect-error — a templates list reads its templates record's rows, a Dict, never an Array (#1346)
+            PublicFlowchart.library.states($.const([], ArrayType(StepRow)), { label: (s) => s.name, drop: (_s, code) => PublicFlowchart.patch(PublicFlowchart.Types.State, { key: code }) });
         });
     };
     assert.equal(typeof never, "function");

@@ -21,7 +21,7 @@ import {
 } from "@elaraai/east";
 import { Table } from "@elaraai/east-ui/internal";
 import { EastChakraTable, I18nProvider, formatters, system, type TableRootValue } from "@elaraai/east-ui-components";
-import { FIXTURE_VALUE, OrdersType, ROOT } from "./query.test-utils.js";
+import { FIXTURE_VALUE, OrdersType, ROOT } from "./fixture.test-utils.js";
 import { prepareQuery } from "./one-shot.js";
 import { queryWords } from "./model/words.js";
 import { cellText, resultRows, resultTable, type DecodedResult } from "./results-table.js";

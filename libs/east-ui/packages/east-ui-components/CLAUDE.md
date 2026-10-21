@@ -191,7 +191,37 @@ component, nothing in east-ui.
   `Dock` pane, which draws itself). A pane tab that lists cards is a
   `Library` (`EastChakraLibrary`, `toolbar` on for its search), whose
   `empty` words say what an empty tab shows; a search or a filter that
-  hides every card says `No matches` itself, in the shared empty state.
+  hides every card says `No matches` itself, in the shared empty state. A
+  host may give its own words for the search (`search`) and for a search that
+  hides every card (`noMatch`), draw beside each compact card's shared face
+  what its domain shows (`extras`: a tooltip, a figure on the name's line, a
+  note line in a tone, a dashed or sunken look, an × of its own), and mark a
+  group's head (`groupMark`) — the Allocation's Library (#1330). While a
+  host's narrowing — a builder's rail — leaves it no item, `narrowing` gives
+  its empty state the host's words and a Clear filters (#1339); the Library
+  still lists only what its host feeds it. A tab that also lists cards the
+  narrowing does not touch — the Roster's agency requests beside its people —
+  says so above them while the narrowing has left none of its own
+  (`emptied`), and a narrowing that clears elsewhere (a Find's chip) offers no
+  Clear filters (#1342). A tab's search box finds within that tab alone, never
+  the rail's search: the Library is a palette (#1340, ruling 11). The paged Library (`PagedLibrary`,
+  `./internal`) takes the same `empty` and `narrowing` (#1341), and, given its
+  source's part of the rail (`search`, #1346), draws the Library's search box
+  over its record (`LibrarySearchBox`, shared with the Library, ⌘ / and all):
+  a prefix of the first String field its source lists in `search` that follows
+  the rail's choices on one index, or that the rail narrows already, narrowed
+  further (`paged-search.ts`), read through the part's `pageWhere` and
+  `countWhere`. Its text is the tab's own state, never the rail's, so the rail,
+  the board and every count stay as they are; its footer counts what it hides,
+  with Show all, and a search the rail's choices block says which, with the
+  rail's Clear filters. Over a rail's narrowed source — a live one, its id the
+  same under every narrowing (#1354) — it starts its viewport again when the
+  source's `query()` moves, as for a new source; a reader that keeps windows
+  keys them by `snapshotOf(source)`, the revision and the narrowing together.
+  A tab's count
+  while a rail narrows it is `narrowedCount` over resident cards (`10 of 33`),
+  or `pagedCount` over a paged record's exact counts (`40 of 2,048`). A collapsed
+  pane's rail may carry a `mark` after its badge (`Overdue arrival`).
 - **Rail counts.** Pass a numeric `badge` for a count, keeping it numeric until
   `DockPane` formats it with the shared locale formatter's `compact()`.
   Its exact value remains available on hover and to assistive technology.
@@ -212,7 +242,10 @@ component, nothing in east-ui.
   (`MIN_SCRIM`), so a 48px strip of main always shows beside it, as a
   phone's drawer leaves one (`paneWidths`, a pure function: on a 324px
   phone Studio's palette and inspector are each 232px). Esc closes it before
-  anything else in the frame hears it, and puts the focus on its rail; one
+  anything else in the frame hears it, and puts the focus on its rail — but
+  a layer open in it that takes Esc itself and says so, `data-escape-layer`
+  (the shared Chooser laid in a pane, given `onClose`), closes first, as a
+  popover portaled out of the frame does; one
   overlay pane is open at a time. `auto` (the default): pinned while main
   keeps `minMain` beside the pinned panes, the start pane placed first;
   overlaid otherwise, and always at 560px and narrower — the frame's own
@@ -244,7 +277,14 @@ component, nothing in east-ui.
   the key search over a keyed source's `seek`
   (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
   edit popover, and keeps its form while a query is typed; `focusKeySearch`
-  brings a host's key for it, the Sheet's ⌘F, to it in either form). Controls
+  brings a host's key for it, the Sheet's ⌘F, to it in either form). A record
+  rail's summary (`12 of 69 people`) folds after every step of the rail and
+  before a host's own items (`SUMMARY_RANK`, ruled 18 Oct 2026, #1340). Over
+  several records it names only the sources a narrowing hides rows of
+  (`2 of 30 print job events`), nothing while none does; the Filters editor
+  heads each source's fields with its count, as a Library tab counts (`6`,
+  `2 of 30`), and keeps a line under them only for the sources no heading
+  counts (ruled 19 Oct 2026, #1358). Controls
   that fold into one chip (#1229) fold into the shared `ChipMenu`, whose menu
   does what they do: their steps and the chip's share a `bundle`, so the chip
   draws in the step that hides them, and a popover one of them opens hangs

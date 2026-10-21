@@ -330,16 +330,17 @@ test.describe("Visual invariants — the Plan", () => {
             });
         }
 
-        test(`planNumberAxis (${theme}): the horizon is an overview with a lens, its steps counted once; the range reads inclusive; the footer says plain summaries`, async ({ page }) => {
+        test(`planNumberAxis (${theme}): the horizon is an overview with a lens and no histogram; the window is the orders' range, its eight days counted in the rail's summary; the range chip in mono; the footer says plain summaries`, async ({ page }) => {
             const entry = await openExample(page, "planNumberAxis", PLAN_EXAMPLES, theme);
             const read = await entry.evaluate((root) => {
                 const body = root.querySelector("[data-plan-body]")!;
                 const plot = body.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
                 const lens = body.querySelector("[data-slot='horizon'] [data-plan-lens]");
                 const lr = lens?.getBoundingClientRect();
-                const bars = [...body.querySelectorAll("[data-slot='horizon'] [data-brush-bar]")].map((b) => Math.round(b.getBoundingClientRect().height));
-                // The toolbar and the footer are the frame's, around the canvas (#1193).
-                const range = root.querySelector("[data-frame-slot='toolbar'] [data-slice-range-label]");
+                const bars = body.querySelectorAll("[data-slot='horizon'] [data-brush-bar]").length;
+                // The toolbar and the footer are the frame's, around the canvas (#1193); the window is the orders'
+                // range, the leading source's, a chip of the rail on a number axis (#1344).
+                const range = root.querySelector("[data-frame-slot='toolbar'] [data-record-slice-source='orders'][data-record-slice-field='day']");
                 const rs = range !== null ? getComputedStyle(range) : undefined;
                 const count = (sel: string) => body.querySelectorAll(sel).length;
                 return {
@@ -359,27 +360,29 @@ test.describe("Visual invariants — the Plan", () => {
                         now: count("[data-plan-row] [data-plan-now]"),
                         nowChip: count("[data-plan-nowchip]"),
                         tableCells: count("[data-plan-kind='table'] [data-plan-bucket]"),
-                        addFilter: root.querySelectorAll("[data-frame-slot='toolbar'] [data-slice-add='filter']").length,
+                        fields: root.querySelectorAll("[data-frame-slot='toolbar'] [data-record-slice-field]").length,
                     },
                     lens: lr === undefined ? null : { left: Math.round(lr.left - plot.left), width: Math.round(lr.width - plot.width) },
-                    barsEven: bars.length > 0 && bars.every((h) => h === bars[0]),
-                    range: range?.textContent ?? null,
+                    bars,
+                    range: (range as HTMLElement | null)?.innerText ?? null,
                     rangeType: rs === undefined ? null : { size: Number.parseFloat(rs.fontSize), mono: /mono/i.test(rs.fontFamily) },
                     footer: [...root.querySelectorAll("[data-frame-slot='footer'] [data-slot='footer'] > :not([data-slot='footerTransport'])")].map((el) => (el as HTMLElement).innerText),
-                    summary: (root.querySelector("[data-frame-slot='toolbar'] [data-slot='toolbarSummary']") as HTMLElement | null)?.innerText ?? null,
+                    summary: (root.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='record-summary'] [data-record-slices-summary]") as HTMLElement | null)?.innerText ?? null,
                 };
             });
             for (const [hook, n] of Object.entries(read.seen)) expect(n, `the ${hook} hook`).toBeGreaterThan(0);
             // The lens meets the plot's own edges: its connectors end where the grid does.
             expect(read.lens).toEqual({ left: 0, width: 0 });
-            expect(read.barsEven).toBe(true);
-            expect(read.range).toBe("1–8");
-            // Mono 11–12px — no longer the loudest text in the toolbar.
+            // A record's brush moves its window once a gesture and draws no histogram (#1344).
+            expect(read.bars).toBe(0);
+            // The range is the orders' Day, its chip in the rail: mono 11–12px — no longer the loudest text in the toolbar.
+            expect(read.range).toBe("Day");
             expect(read.rangeType?.mono).toBe(true);
             expect(read.rangeType?.size).toBeGreaterThanOrEqual(11);
             expect(read.rangeType?.size).toBeLessThanOrEqual(12);
             expect(read.footer).toEqual(["8 STEPS · NOW 5"]);
-            expect(read.summary).toMatch(/^\d+ OF \d+ ROWS · \d+ FILTERS?$/);
+            // The window [1, 9) is the eight days 1–8: their sixteen orders, of the twenty-four, two a day.
+            expect(read.summary).toBe("16 of 24 orders");
         });
 
         test(`planTargetState (${theme}): a links focus inks as \`Plan links.html\` does — the muted ink over the paper casing, captions on paper knockouts, an end past the window in a slot dashed in the subtle ink; lit, the strong ink and its halo; its band, Tags, rails and pressed control in their tokens (#1258)`, async ({ page }) => {
@@ -727,35 +730,38 @@ test.describe("Visual invariants — the Table, on touch", () => {
 /**
  * Every host with a slice rail (#952) or a toolbar row of its own, by an
  * example that mounts it, and the viewport widths it is swept across — each
- * host's own range: the flagship's wide layout holds down to 886px, its
- * resolution folding into its menu by 900 — narrower, its library's 44px rail
- * leaves main under the 480px the narrow layout takes over at, whose toolbar
- * draws no grain segment and so has room to unfold the resolution again, so
- * the sweep stops at 900; its narrow layout is `planTargetState`'s in a 360px
- * box, as a phone's;
+ * host's own range: the flagship's wide layout holds down to 886px, its record
+ * rail (#1344) folding first, its summary gone by 1000 and its date navigator
+ * compact by 900 — narrower, its library's 44px rail leaves main under the
+ * 480px the narrow layout takes over at, so the sweep stops at 900; its narrow
+ * layout is `planTargetState`'s in a 360px box, as a phone's;
  * a Plan with editing over a keyed paged source, its palette its library
  * (#1193, #1259), is swept through its narrow layout, which its library's rail
- * brings on at 800px: there its grain segment goes, and the items that stay
- * fold no less than they did wider, its history last. The SnapGrid editor and Studio's
+ * brings on at 800px, and the items that stay fold no less than they did
+ * wider, its history last. The SnapGrid editor and Studio's
  * builder fold their zoom into the View chip as their widths hide, and Studio
  * its Save as template, Preview and Publish into the ⋯ chip, each one move
- * (#1229). The Flowchart's frame (#1245) folds its slice's rail first, then
- * its freshness chip goes, LR · TD folds into its chip and find state into its
- * icon.
+ * (#1229). The Flowchart's frame (#1245) lets its freshness chip go, LR · TD
+ * fold into its chip and find state into its icon — over the host's tables,
+ * which no rail narrows (#1346), with nothing before them. A builder over one
+ * `Slice.bindRecords` rail — the Calendar's (#1343), the Sheet's (#1345), the
+ * Flowchart's over a record of flows (#1346) — folds every step of the rail
+ * first, then the rail's summary, then its own steps (ruled 18 Oct, #1340).
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; box?: number; rail?: readonly string[]; ladder?: Ladder }> = [
-    { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900], nudge: [1500, 1400, 1000], rail: ["cluster", "range"], ladder: planLadder },
-    { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planRowDrop`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], rail: ["cluster", "range"], ladder: planLadder },
+    { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900], nudge: [1500, 1400, 1000], rail: ["record-slices"], ladder: planLadder },
+    { name: "Plan (editing)", route: `${PLAN_EXAMPLES}/planRowDrop`, widths: [1600, 1400, 1200, 1000, 900, 800, 700], nudge: [1200, 900], ladder: planLadder },
     { name: "Plan (narrow)", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1200, 900], nudge: [1200], box: 360 },
-    { name: "Calendar", route: "e3/calendar/calendar/calendarOperations", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["calendar.filter"] },
-    { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["rail"], ladder: sheetLadder },
+    { name: "Calendar", route: "e3/calendar/calendar/calendarOperations", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => CALENDAR_LADDER },
+    { name: "Sheet", route: "e3/sheet/sheet/sheetStress", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1400, 1000, 800], rail: ["record-slices"], ladder: sheetLadder },
     { name: "Table", route: "slice/slice/sliceTableChrome", widths: [1600, 1200, 1000, 800, 700, 600], nudge: [1000, 700] },
     { name: "chart", route: "slice/slice/sliceChartChrome", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Slice.Rail", route: "slice/slice/sliceRail", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Deck", route: "collections/deck/deckSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "Library", route: "collections/library/libraryLarge", widths: [1600, 1200, 900, 700, 600], nudge: [900], rail: ["rail"], ladder: () => LIBRARY_LADDER },
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
-    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["rail"], ladder: () => FLOWCHART_LADDER },
+    { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => FLOWCHART_LADDER },
+    { name: "Flowchart (records)", route: "e3/flowchart/flowchart/flowchartRecordIndexes", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => FLOWCHART_LADDER },
     { name: "Schematic", route: "collections/schematic/schematicSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
     { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },
@@ -768,17 +774,20 @@ type ToolbarState = ReadonlyMap<string, { form: number; forms: number }>;
 type Ladder = (state: ToolbarState) => ReadonlyArray<readonly [string, number]>;
 
 /** The Plan's own order (the user's decision, #952; its frame's toolbar,
- *  #1193, PB21): the summary shortens to its count, the resolution then the
- *  grain segment fold into their menus, the summary hides, the key search
- *  folds into its icon, and the history item folds last, to its buttons —
- *  each step where its item has it to take. */
+ *  #1193, PB21), after its record rail (#1344): the rail's summary first,
+ *  after every step of the rail and before the Plan's own (ruled 18 Oct,
+ *  #1340); then the date navigator compacts, the resolution folds into its
+ *  menu, the fold toggle to its icon and the key search to its icon; then,
+ *  where the Plan navigates its dates, the toggle, the navigator and the
+ *  resolution fold into the navigator's View, one move; and the history item
+ *  folds last, to its buttons — each step where its item has it to take. */
 function planLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
-    const summary = state.get("summary")?.forms ?? 0;
+    const navigates = state.has("time-navigation");
     return [
-        ...(summary === 3 ? [["summary", 1] as const] : []),
-        ["resolution", 1], ["grain", 1],
-        ...(summary > 1 ? [["summary", summary - 1] as const] : []),
+        ["record-summary", 1],
+        ["time-navigation", 1], ["resolution", 1], ["groups", 1],
         ["seek", 1],
+        ...(navigates ? [["groups", 2] as const, ["time-navigation", 2] as const, ["resolution", 2] as const] : []),
         ["history", 1],
     ];
 }
@@ -804,23 +813,52 @@ const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
     ["save-template", 1], ["preview", 1], ["publish", 1], ["more", 1], ["status", 1], ["history", 1],
 ];
 
-/** The Flowchart's own order (#1245, FB9): the freshness chip goes, LR · TD
- *  folds into its chip, find state into its icon, and the history item folds
- *  last, to its buttons, where the flowchart edits through its session — over
- *  a record of flows (#1246; `flowchart-flows.spec.ts` sweeps that row). */
-const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
+/** The Flowchart's own order (#1245, FB9): over a record its `flows` source
+ *  narrows (#1346), the rail's summary first, after every step of the rail
+ *  and before the Flowchart's own (ruled 18 Oct, #1340); then the freshness
+ *  chip goes, LR · TD folds into its chip, find state into its icon, and the
+ *  history item folds last, to its buttons, where the flowchart edits through
+ *  its session — over a record of flows (#1246; `flowchart-flows.spec.ts`
+ *  sweeps that row). */
+const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["record-summary", 1], ["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
 
-/** The Sheet's own order (§6.3): the tabs fold into `+n` one by one, then the
- *  count goes, the context label, the strip's `+ TAB` label and whole-sheet
- *  count, its names cap, it closes up and the context switch goes; and last
- *  the strip folds into one chip, the open view's tab (#1221, SB20). */
+/** The Calendar's own order (#1343), after its rail: the rail's summary
+ *  first, after every step of the rail and before the Calendar's own (ruled 18
+ *  Oct, #1340); then the overlaps chip shortens to its count, the Layout and
+ *  Period segments fold into the View menu, one move, and the time navigator
+ *  compacts; then the View menu and the navigator fold into the navigator's
+ *  one View popover, one move; and the history item last, to its buttons. */
+const CALENDAR_LADDER: ReadonlyArray<readonly [string, number]> = [
+    ["record-summary", 1],
+    ["calendar.overlaps", 1],
+    ["calendar.layout", 1], ["calendar.period", 1], ["calendar.view", 1],
+    ["calendar.navigation", 1],
+    ["calendar.view", 2], ["calendar.navigation", 2],
+    ["history", 1],
+];
+
+/** The Sheet's own order (§6.3), after its rail — the record rail (#1345),
+ *  whose shared summary folds first, after every step of the rail and before
+ *  the sheet's own (ruled 18 Oct, #1340): the tabs fold into `+n` one by one, then
+ *  the count goes, the context label, the strip's `+ TAB` label and
+ *  whole-sheet count, its names cap, it closes up and the context switch goes;
+ *  then the strip folds into one chip, the open view's tab (#1221, SB20); and
+ *  last, where the sheet has a key search, the chip and the search fold into
+ *  its popover, one move (#1345). The count and the context switch are the
+ *  lens's, which is off until #1349 brings it back over records: until then
+ *  the sheet draws neither, and only the tabs' and the search's steps are
+ *  read. */
 function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const tabs = state.get("tabs");
-    const maxFold = tabs === undefined ? 0 : tabs.forms - 5;
+    // With a key search the strip has one rung more: its chip folding with the search into its popover.
+    const searchViews = tabs !== undefined && state.has("seek");
+    const maxFold = tabs === undefined ? 0 : tabs.forms - (searchViews ? 6 : 5);
     return [
+        ["record-summary", 1],
         ...Array.from({ length: maxFold }, (_x, k) => ["tabs", k + 1] as const),
         ["count", 1], ["context", 1], ["tabs", maxFold + 1], ["tabs", maxFold + 2], ["tabs", maxFold + 3], ["context", 2],
         ["tabs", maxFold + 4],
+        ...(searchViews ? [["tabs", maxFold + 5] as const, ["seek", 2] as const] : []),
     ];
 }
 
