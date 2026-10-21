@@ -41,7 +41,7 @@ for (const theme of ["light", "dark"] as const) {
         expect(await lane.evaluate(type)).toEqual({ size: "10.5px", weight: "500", mono: true });
         expect(await lane.evaluate(el => getComputedStyle(el).color)).toBe(await token(page, "fg-muted"));
         // Its chip: 28px on the rule-strong border, radius 4; the code 11px 600 in ink, the meta 10px ink-4; its chevron and × 20px targets.
-        const chip = bin.locator("[data-allocation-chip=event]");
+        const chip = bin.locator("[data-allocation-chip=arrival]");
         expect(await chip.evaluate(el => { const s = getComputedStyle(el); return [el.getBoundingClientRect().height, s.borderTopStyle, s.borderTopColor, s.borderTopLeftRadius]; }))
             .toEqual([28, "solid", await token(page, "border-strong"), "4px"]);
         expect(await chip.locator("span").nth(1).evaluate(type)).toEqual({ size: "11px", weight: "600", mono: true });
@@ -57,9 +57,9 @@ for (const theme of ["light", "dark"] as const) {
             .toEqual(["10.5px", "600", "uppercase", "1.05px", await token(page, "fg-muted")]);
         expect(await status.locator("span").evaluate(el => [Math.round(el.getBoundingClientRect().width), Math.round(el.getBoundingClientRect().height), getComputedStyle(el).backgroundColor]))
             .toEqual([8, 8, await token(page, "status-pos")]);
-        // A free row: dashed placeholders, italic 10.5px ink-4, the event's spanning its quantity and the app's columns; its time ink-3; Free in ink-5.
+        // A free row: dashed placeholders, italic 10.5px ink-4, the arrival's spanning its quantity and the app's columns; its time ink-3; Free in ink-5.
         const free = freeRow(table, "B-1", "00", "15");
-        const placeholder = free.locator("[data-allocation-placeholder=event]");
+        const placeholder = free.locator("[data-allocation-placeholder=arrival]");
         expect(await placeholder.evaluate(el => { const s = getComputedStyle(el); return [el.getBoundingClientRect().height, s.borderTopStyle, s.borderTopColor, s.fontStyle, s.fontSize, s.color]; }))
             .toEqual([28, "dashed", await token(page, "border-strong"), "italic", "10.5px", await token(page, "fg-subtle")]);
         expect(await placeholder.evaluate(el => Math.round(el.parentElement!.getBoundingClientRect().width))).toBe(widths[2]! + widths[3]! + widths[4]!);
@@ -116,8 +116,8 @@ for (const theme of ["light", "dark"] as const) {
         expect([widths[0], widths[1], widths[3], widths[4], widths[6], widths[7]]).toEqual([84, 64, 64, 72, 144, 128]);
         expect(await head.evaluate(el => [...el.children].filter(c => c.scrollWidth > c.clientWidth).map(c => c.textContent))).toEqual([]);
         expect(await head.evaluate(el => [getComputedStyle(el.children[3]!).textOverflow, el.children[3]!.getAttribute("title")])).toEqual(["ellipsis", "Vol"]);
-        // Nothing narrowed: the summary names no source (#1358).
-        await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]')).toHaveCount(0);
+        // Nothing of the bays or the kilns narrowed: the summary names the bins the day's window holds alone (#1358).
+        await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first()).toHaveText("26 of 33 bin events");
         // The bands: the yard's shifts, folded to their heads.
         for (let i = 0; i < 3; i++) {
             const unfolded = table.locator("[data-allocation-band][aria-expanded=true]").first();
@@ -130,11 +130,11 @@ for (const theme of ["light", "dark"] as const) {
         // A bay's area chosen through its chip, live on a frame wide enough for every chip: the summary counts the bays in the yard's word.
         await page.setViewportSize({ width: 2800, height: 1200 });
         await size(page, entry, 2400);
-        await entry.locator('[data-frame-slot="toolbar"] [data-record-slice-source="lanes"][data-record-slice-field="area"]').first().click();
+        await entry.locator('[data-frame-slot="toolbar"] [data-record-slice-source="bays"][data-record-slice-field="area"]').first().click();
         await page.getByRole("button", { name: "North 2" }).click();
         await page.keyboard.press("Escape");
         await settled(page);
-        await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first()).toHaveText("2 of 3 bays");
+        await expect(entry.locator('[data-frame-slot="toolbar"] [data-record-slices-summary]').first()).toHaveText("26 of 33 bin events·2 of 3 bays");
     });
 
     test(`Table fits 1440/1024/768/390/360 and a 294px parent, scrolling inside main; below 480px of main, its cards (${theme}) @narrow`, async ({ page }) => {
@@ -164,19 +164,19 @@ for (const theme of ["light", "dark"] as const) {
         }
     });
 
-    test(`A45, A47 — a chip's drag: every free row's event placeholder a brand-d target; the one under the pointer brand-tint, \`drop to move here\` (${theme}) @desktop`, async ({ page }) => {
+    test(`A45, A47 — a chip's drag: every free row's arrival placeholder a brand-d target; the one under the pointer brand-tint, \`drop to move here\` (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationTable", theme);
         await size(page, entry, 1440);
         const table = entry.locator("[data-allocation-table]").first();
         await table.evaluate(el => el.scrollIntoView({ block: "center" })); await settled(page);
-        const chip = table.locator('[data-allocation-row="bin:3103"] [data-allocation-chip=event]');
+        const chip = table.locator('[data-allocation-row="bin:3103"] [data-allocation-chip=arrival]');
         const b = (await chip.boundingBox())!;
         await page.mouse.move(b.x + 30, b.y + b.height / 2); await page.mouse.down();
         for (let i = 1; i <= 4; i++) await page.mouse.move(b.x + 30 + i * 3, b.y + b.height / 2 + i * 2);
         await expect(table).toHaveAttribute("data-allocation-drag", "body");
-        const target = freeRow(table, "B-2", "00", "35").locator("[data-allocation-placeholder=event]");
-        const other = freeRow(table, "B-3", "00", "55").locator("[data-allocation-placeholder=event]");
+        const target = freeRow(table, "B-2", "00", "35").locator("[data-allocation-placeholder=arrival]");
+        const other = freeRow(table, "B-3", "00", "55").locator("[data-allocation-placeholder=arrival]");
         expect(await other.evaluate(el => getComputedStyle(el).borderTopColor)).toBe(await token(page, "brand-solid"));
         const t = (await target.boundingBox())!;
         await page.mouse.move(t.x + 60, t.y + t.height / 2, { steps: 4 }); await page.mouse.move(t.x + 64, t.y + t.height / 2); await settled(page);

@@ -199,7 +199,7 @@ for (const theme of ["light", "dark"] as const) {
         const brand = await token(page, "brand-solid");
         // A pick: its best fits as rows — the fit's, at most three (the DOM spec holds which) — each a dashed brand target 48px at
         // least, its rank a 16px brand badge, a Book on it.
-        const picked = frame.locator('[data-allocation-library="events"] [data-library-item="event:LD-2235"]');
+        const picked = frame.locator('[data-allocation-library="arrivals"] [data-library-item="arrival:LD-2235"]');
         await picked.scrollIntoViewIfNeeded();
         await picked.click(); await settled(page);
         const rows = body.locator("[data-allocation-drop-row]");

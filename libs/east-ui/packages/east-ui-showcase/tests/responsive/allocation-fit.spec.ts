@@ -7,7 +7,7 @@
  * §12.4): every rank and reason the board shows is the app's `e3.function`,
  * run in the page's e3 — the kiln yard's `yard_fit`, a greedy look-ahead over
  * the built-in rules, and the bulk-kiln rule's `yard_bulk_fit` — and two years
- * of plans are read a day at a time. What answers is the e3 function, in
+ * of bins are read a day at a time. What answers is the e3 function, in
  * either theme, so each runs in one.
  */
 import { expect, test, type Locator, type Page } from "playwright/test";
@@ -24,9 +24,9 @@ async function visit(page: Page, name: string): Promise<Locator> {
     return entry;
 }
 
-/** Picks a Library event card, as a click does (A9): the Inspector's drop list asks the fit for it (A23, A34). */
-async function pick(page: Page, frame: Locator, event: string): Promise<Locator> {
-    const card = frame.locator(`[data-allocation-library="events"] [data-library-item="event:${event}"]`);
+/** Picks a Library arrival card, as a click does (A9): the Inspector's drop list asks the fit for it (A23, A34). */
+async function pick(page: Page, frame: Locator, arrival: string): Promise<Locator> {
+    const card = frame.locator(`[data-allocation-library="arrivals"] [data-library-item="arrival:${arrival}"]`);
     await card.scrollIntoViewIfNeeded();
     await card.click(); await settled(page);
     return frame.locator('[data-allocation-inspector="details"] [data-allocation-drop-row]');
@@ -76,7 +76,7 @@ test(`§12.4, §3.4 — every fit the board shows is the app's e3.function, run 
     });
 });
 
-test(`§3.4, A2 — two years of plans read a day at a time on e3: a day back is published, the picker marks each day of the month it opens on, and forward again the draft (light) @desktop`, async ({ page }) => {
+test(`§3.4, A2 — two years of bins read a day at a time on e3: a day back is published, the picker marks each day of the month it opens on, and forward again the draft (light) @desktop`, async ({ page }) => {
     await page.setViewportSize({ width: 2160, height: 1200 });
     const entry = await open(page, "allocationWindowed");
     await size(page, entry, 1440);

@@ -8,7 +8,7 @@
  * board at every width with nothing overflowing; the scrolls that follow a
  * selection (A12); and what a drag draws (#1328, A24–A31), as the mock draws
  * LD-2201's; a link's drag — its `was` line, the new line to the pointer and
- * the drag's families (A69, A65) — and an event's lines into its best fits
+ * the drag's families (A69, A65) — and an arrival's lines into its best fits
  * (A30), at the widths that drag, in both themes.
  */
 import { expect, test, type Locator, type Page } from "playwright/test";
@@ -27,7 +27,7 @@ const mix = (page: Page, a: string, pct: number, b: string) => page.evaluate(([a
     return value;
 }, [a, pct, b] as const);
 /** Picks an element up with the mouse, past the 5px a drag waits for, and waits for the board to draw the drag. */
-async function pickUp(page: Page, el: Locator, timeline: Locator, kind: "body" | "port" | "link" | "event", at?: { x: number; y: number }) {
+async function pickUp(page: Page, el: Locator, timeline: Locator, kind: "body" | "port" | "link" | "arrival", at?: { x: number; y: number }) {
     const box = (await el.boundingBox())!;
     const from = at ?? { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     await page.mouse.move(from.x, from.y);
@@ -538,7 +538,7 @@ for (const theme of ["light", "dark"] as const) {
         await page.keyboard.press("Escape"); await page.mouse.up(); await settled(page);
     });
 
-    test(`A30 — an event dragged over the lane grid wherever main takes drags: a brand 1.5 line from the pointer into each of its three best fits' rows, over the Library too; over the rows, none; narrower, none — at 1440/1024/768/390/360 and in a 294px parent (${theme}) @desktop`, async ({ page }) => {
+    test(`A30 — an arrival dragged over the lane grid wherever main takes drags: a brand 1.5 line from the pointer into each of its three best fits' rows, over the Library too; over the rows, none; narrower, none — at 1440/1024/768/390/360 and in a 294px parent (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -551,11 +551,11 @@ for (const theme of ["light", "dark"] as const) {
                 expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px page`).toBeLessThanOrEqual(0);
                 continue;
             }
-            const event = frame.locator('[data-allocation-library="events"] [data-library-item="event:LD-2236"]');
-            if (!(await event.isVisible())) { await frame.getByRole("button", { name: "Expand Library", exact: true }).click(); await settled(page); }
+            const arrival = frame.locator('[data-allocation-library="arrivals"] [data-library-item="arrival:LD-2236"]');
+            if (!(await arrival.isVisible())) { await frame.getByRole("button", { name: "Expand Library", exact: true }).click(); await settled(page); }
             await timeline.evaluate(el => el.scrollIntoView({ block: "center" })); await settled(page);
-            await event.scrollIntoViewIfNeeded(); await event.hover();
-            await pickUp(page, event, timeline, "event");
+            await arrival.scrollIntoViewIfNeeded(); await arrival.hover();
+            await pickUp(page, arrival, timeline, "arrival");
             // Still over the Library, left of the board: three lines out of the drag point, cut at the board's edge.
             const lines = timeline.locator("[data-allocation-link-lines] [data-plan-link-guide]");
             await expect(lines, `${width}px over the Library`).toHaveCount(3);

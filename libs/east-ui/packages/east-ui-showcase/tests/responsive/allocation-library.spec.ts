@@ -14,8 +14,8 @@ import { expect, test, type Locator, type Page } from "playwright/test";
 import { open, size, token } from "./allocation-page";
 import { settled } from "./settle";
 
-const pane = (frame: Locator, tab: "events" | "resources") => frame.locator(`[data-allocation-library="${tab}"]`);
-const item = (frame: Locator, tab: "events" | "resources", key: string) => pane(frame, tab).locator(`[data-library-item="${key}"]`);
+const pane = (frame: Locator, tab: "arrivals" | "resources") => frame.locator(`[data-allocation-library="${tab}"]`);
+const item = (frame: Locator, tab: "arrivals" | "resources", key: string) => pane(frame, tab).locator(`[data-library-item="${key}"]`);
 /** Picks a Library card up with the mouse, past the 4px a drag waits for, and waits for the board to draw the drag. */
 async function pickUp(page: Page, el: Locator, timeline: Locator, kind: string) {
     // Into its list's view, the pointer on it by the locator's actionability: no foot or neighbour over it.
@@ -39,11 +39,11 @@ for (const theme of ["light", "dark"] as const) {
         expect(await start.evaluate(el => [el.getAttribute("data-pane-mode"), Math.round(el.getBoundingClientRect().width)])).toEqual(["pinned", 264]);
         // The tab row: 44px, each tab with its count.
         const tabs = start.locator('[role="tab"]');
-        expect(await tabs.allTextContents()).toEqual(["Events 27", "Resources 33"]);
+        expect(await tabs.allTextContents()).toEqual(["Arrivals 27", "Resources 33"]);
         expect(await start.locator("[data-dock-tabs]").evaluate(el => Math.round(el.parentElement!.getBoundingClientRect().height))).toBe(44);
-        const events = pane(frame, "events");
+        const arrivals = pane(frame, "arrivals");
         // A card: its code and its figure on one line, its meta and its ready line under them; overdue in warn-text 600.
-        const late = item(frame, "events", "event:LD-2231");
+        const late = item(frame, "arrivals", "arrival:LD-2231");
         const anatomy = await late.evaluate(el => {
             const label = el.querySelector("[data-library-figure]")!.previousElementSibling!, figure = el.querySelector("[data-library-figure]")!, note = el.querySelector("[data-library-note]")!;
             const l = label.getBoundingClientRect(), f = figure.getBoundingClientRect(), c = el.getBoundingClientRect(), n = note.getBoundingClientRect();
@@ -53,14 +53,14 @@ for (const theme of ["light", "dark"] as const) {
         });
         expect(anatomy).toEqual({ oneLine: true, figureEnd: true, noteBelow: true, note: [await token(page, "fg-warning"), "600", true], figure: [true, "tabular-nums"], grip: true });
         // The Overdue group's head, in warn, its triangle in the warn mark's ink.
-        const overdue = events.locator("[data-library-head][data-tone=warning]");
+        const overdue = arrivals.locator("[data-library-head][data-tone=warning]");
         expect(await overdue.evaluate(el => [getComputedStyle(el.firstElementChild!).color, getComputedStyle(el.querySelector("[data-library-group-mark]")!).color]))
             .toEqual([await token(page, "fg-warning"), await token(page, "status-warn")]);
         // An Allocated card is sunken, on the paper below, with no grip.
-        const allocated = item(frame, "events", "event:LD-2201");
+        const allocated = item(frame, "arrivals", "arrival:LD-2201");
         expect(await allocated.evaluate(el => [getComputedStyle(el).backgroundColor, el.querySelector("[data-drag-grip]") === null])).toEqual([await token(page, "bg-canvas"), true]);
         // No card leaves the pane; nothing in it scrolls sideways; the hint sits under the cards.
-        const faults = await events.evaluate(root => {
+        const faults = await arrivals.evaluate(root => {
             const out: string[] = [];
             const p = root.getBoundingClientRect();
             for (const card of root.querySelectorAll("[data-library-item]")) if (card.getBoundingClientRect().right > p.right + 0.5) out.push(`${card.getAttribute("data-library-item")} leaves the pane`);
@@ -71,7 +71,7 @@ for (const theme of ["light", "dark"] as const) {
             return out;
         });
         expect(faults).toEqual([]);
-        await expect(events.locator("[data-allocation-library-hint]")).toHaveText("Drag onto a lane hour or a resource");
+        await expect(arrivals.locator("[data-allocation-library-hint]")).toHaveText("Drag onto a lane hour or a resource");
     });
 
     test(`A51, A9, A53 — a removed bin's card dashed, a picked card the shared placed state, its action under the hint (${theme}) @desktop`, async ({ page }) => {
@@ -84,16 +84,16 @@ for (const theme of ["light", "dark"] as const) {
         await bin.scrollIntoViewIfNeeded();
         await bin.click(); await settled(page);
         await page.keyboard.press("Delete"); await settled(page);
-        const removed = item(frame, "events", "removed:3113");
+        const removed = item(frame, "arrivals", "removed:3113");
         await expect(removed).toBeVisible();
         expect(await removed.evaluate(el => [getComputedStyle(el).borderTopStyle, getComputedStyle(el).borderTopColor])).toEqual(["dashed", await token(page, "border-strong")]);
         // A pick is the shared Library's placed state: the brand's border and tint.
-        const picked = item(frame, "events", "event:LD-2235");
+        const picked = item(frame, "arrivals", "arrival:LD-2235");
         await picked.click(); await settled(page);
         expect(await picked.evaluate(el => [getComputedStyle(el).borderTopColor, getComputedStyle(el).backgroundColor])).toEqual([await token(page, "brand-solid"), await token(page, "brand-tint")]);
-        const action = pane(frame, "events").locator("[data-allocation-library-action]");
+        const action = pane(frame, "arrivals").locator("[data-allocation-library-action]");
         await expect(action).toHaveText("Click a free lane hour or a ranked resource to book LD-2235 there, or select a free slot first.");
-        expect(await pane(frame, "events").evaluate(root => {
+        expect(await pane(frame, "arrivals").evaluate(root => {
             const hint = root.querySelector("[data-allocation-library-hint]")!.getBoundingClientRect(), box = root.querySelector("[data-allocation-library-action]")!.getBoundingClientRect(), p = root.getBoundingClientRect();
             return [box.top >= hint.bottom - 0.5, box.right <= p.right + 0.5, box.bottom <= p.bottom + 0.5];
         })).toEqual([true, true, true]);
@@ -113,7 +113,7 @@ for (const theme of ["light", "dark"] as const) {
             return { w: Math.round(el.getBoundingClientRect().width), badge: badge.textContent, mark: [mark.getAttribute("aria-label"), getComputedStyle(mark).color],
                 below: mark.getBoundingClientRect().top >= badge.getBoundingClientRect().bottom, icon: mark.querySelector("svg[data-icon='triangle-exclamation']") !== null };
         });
-        expect(rail).toEqual({ w: 44, badge: "27", mark: ["Overdue event", await token(page, "status-warn")], below: true, icon: true });
+        expect(rail).toEqual({ w: 44, badge: "27", mark: ["Overdue arrival", await token(page, "status-warn")], below: true, icon: true });
         await start.getByRole("button", { name: "Expand Library" }).click(); await settled(page);
         expect(await start.evaluate(el => Math.round(el.getBoundingClientRect().width))).toBe(264);
     });
@@ -140,7 +140,7 @@ for (const theme of ["light", "dark"] as const) {
                 await start.getByRole("button", { name: "Expand Library" }).click(); await settled(page);
                 const open = await frame.evaluate(root => {
                     const f = root.getBoundingClientRect(), sheet = root.querySelector('[data-frame-slot="start"] > *')!.getBoundingClientRect();
-                    const cards = [...root.querySelectorAll('[data-allocation-library="events"] [data-library-item]')].filter(c => c.getBoundingClientRect().width > 0);
+                    const cards = [...root.querySelectorAll('[data-allocation-library="arrivals"] [data-library-item]')].filter(c => c.getBoundingClientRect().width > 0);
                     return { strip: Math.round(f.right - sheet.right), inside: cards.every(c => c.getBoundingClientRect().right <= sheet.right + 0.5), cards: cards.length };
                 });
                 expect(open.strip, `${width}px strip`).toBeGreaterThanOrEqual(48);
@@ -150,7 +150,7 @@ for (const theme of ["light", "dark"] as const) {
         }
     });
 
-    test(`§10 — a Library event dragged onto a free lane hour books it there, its caption the slot's (${theme}) @desktop`, async ({ page }) => {
+    test(`§10 — a Library arrival dragged onto a free lane hour books it there, its caption the slot's (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
         await size(page, entry, 1440);
@@ -158,15 +158,16 @@ for (const theme of ["light", "dark"] as const) {
         const timeline = frame.locator("[data-allocation-timeline]");
         await timeline.evaluate(el => el.scrollIntoView({ block: "center" })); await settled(page);
         const cell = timeline.locator(`[data-allocation-cell="B-1|${Date.UTC(2027, 4, 11, 0, 15)}"]`);
-        await pickUp(page, item(frame, "events", "event:LD-2236"), timeline, "event");
+        await pickUp(page, item(frame, "arrivals", "arrival:LD-2236"), timeline, "arrival");
         const target = (await cell.boundingBox())!;
         await page.mouse.move(target.x + target.width / 2 - 4, target.y + target.height / 2, { steps: 4 });
         await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2);
         await settled(page);
         await expect(page.locator("[data-drag-caption]")).toHaveText("to B-1 00:15");
         await page.mouse.up(); await settled(page);
-        const booked = timeline.locator('[data-allocation-card="N1"]');
-        await expect(booked.locator("[data-allocation-code]")).toHaveText("LD-2236");
+        // Its bin, under a key the board minted: the day's one card of LD-2236.
+        const booked = timeline.locator("[data-allocation-card]", { has: page.locator("[data-allocation-code]", { hasText: "LD-2236" }) });
+        await expect(booked).toHaveCount(1);
         await expect(booked.locator("[data-unlinked]")).toHaveText("not linked");
         expect(await booked.evaluate((el, c) => { const b = el.getBoundingClientRect(), x = document.querySelector(`[data-allocation-cell="${c}"]`)!.getBoundingClientRect(); return b.left >= x.left && b.right <= x.right + 0.5; },
             `B-1|${Date.UTC(2027, 4, 11, 0, 15)}`)).toBe(true);

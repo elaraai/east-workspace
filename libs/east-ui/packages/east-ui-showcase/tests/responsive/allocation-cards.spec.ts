@@ -52,7 +52,7 @@ const cardLook = (card: Locator) => card.evaluate(el => {
 const mainWidth = (frame: Locator) => frame.locator("[data-allocation-main]").evaluate(el => el.getBoundingClientRect().width);
 
 for (const theme of ["light", "dark"] as const) {
-    test(`A78 — the Timeline's cards at 390/360 and in a 294px parent: each inside main and its parts inside it, the shared agenda's look, their actions whole, Book an event…'s popover inside the window, nothing to drag (${theme}) @narrow`, async ({ page }) => {
+    test(`A78 — the Timeline's cards at 390/360 and in a 294px parent: each inside main and its parts inside it, the shared agenda's look, their actions whole, Book an arrival…'s popover inside the window, nothing to drag (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         const entry = await open(page, "allocationKilnYard", theme);
         const frame = entry.locator("[data-allocation-frame]").first();
@@ -73,8 +73,8 @@ for (const theme of ["light", "dark"] as const) {
                 .toEqual({ padding: "12px", border: `1px solid ${subtle}`, radius: "4px", background: surface, title: ["15px", "600"] });
             // The cards 8px apart, as the shared agenda's cards in a group are.
             expect(await cards.locator("[data-allocation-resource-card]").evaluateAll(els => Math.round(els[1]!.getBoundingClientRect().top - els[0]!.getBoundingClientRect().bottom)), `${width}px gap`).toBe(8);
-            // A card's actions are reachable: Book an event…'s Chooser opens inside the window, over the page.
-            await frame.locator('[data-allocation-resource-card="K-101"]').getByRole("button", { name: "Book an event…" }).click(); await settled(page);
+            // A card's actions are reachable: Book an arrival…'s Chooser opens inside the window, over the page.
+            await frame.locator('[data-allocation-resource-card="K-101"]').getByRole("button", { name: "Book an arrival…" }).click(); await settled(page);
             const popover = page.locator('[data-allocation-choices="resource:K-101|book"]');
             await expect(popover.getByRole("option").first(), `${width}px`).toBeVisible();
             expect(await popover.evaluate(el => { const c = el.closest("[role=dialog]")!.getBoundingClientRect(); return c.left >= -0.5 && c.right <= window.innerWidth + 0.5; }), `${width}px popover`).toBe(true);
@@ -101,7 +101,7 @@ for (const theme of ["light", "dark"] as const) {
             const status = await free.locator("[data-status]").evaluate(el => { const s = getComputedStyle(el); return [el.textContent, s.fontSize, s.fontWeight, s.textTransform, s.color]; });
             expect(status, `${width}px`).toEqual(["Free", "10.5px", "600", "uppercase", muted]);
             await free.getByRole("button", { name: "Book…" }).click(); await settled(page);
-            const popover = page.locator(`[data-allocation-choices="${await free.getAttribute("data-allocation-row-card")}|event"]`);
+            const popover = page.locator(`[data-allocation-choices="${await free.getAttribute("data-allocation-row-card")}|arrival"]`);
             await expect(popover.getByRole("option").first(), `${width}px`).toBeVisible();
             expect(await popover.evaluate(el => { const c = el.closest("[role=dialog]")!.getBoundingClientRect(); return c.left >= -0.5 && c.right <= window.innerWidth + 0.5; }), `${width}px popover`).toBe(true);
             await page.keyboard.press("Escape"); await settled(page);
@@ -134,10 +134,10 @@ for (const theme of ["light", "dark"] as const) {
         await expect(frame.locator('[data-allocation-cards="timeline"]')).toBeVisible();
         await expect(frame.locator(DRAG)).toHaveCount(0);
         expect(await cardFaults(frame, "[data-allocation-resource-card]")).toEqual([]);
-        // K-101's card: bin 3125's Unlink, Move, Split… and Back to Events, and Book an event….
+        // K-101's card: bin 3125's Unlink, Move, Split… and Back to Arrivals, and Book an arrival….
         const k101 = frame.locator('[data-allocation-resource-card="K-101"]');
-        await expect(k101.locator('[data-allocation-card-bin="3125"]').getByRole("button")).toHaveText(["22:35 · B-2LD-222031 m³", "Unlink", "Move", "Split…", "Back to Events"]);
-        await expect(k101.getByRole("button", { name: "Book an event…" })).toBeVisible();
+        await expect(k101.locator('[data-allocation-card-bin="3125"]').getByRole("button")).toHaveText(["22:35 · B-2LD-222031 m³", "Unlink", "Move", "Split…", "Back to Arrivals"]);
+        await expect(k101.getByRole("button", { name: "Book an arrival…" })).toBeVisible();
         expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
     });
 }
