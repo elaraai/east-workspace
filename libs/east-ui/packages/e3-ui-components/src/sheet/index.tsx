@@ -129,7 +129,7 @@ import { anchorAt, insertionGesture, insertsLoose, groupInsertionSide, type Inse
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
 import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
-import { COARSE_GUTTER_PX, FOLDED_GUTTER_PX, GUTTER_PX, gutterFolds } from "./gutter.js";
+import { NUMBER_PX, gutterFolds, gutterWidths } from "./gutter.js";
 import { SheetCellContent } from "./cells/Cell.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
@@ -585,11 +585,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // own changes), what decides whether the gutter folds (#1215).
     const [viewPx, setViewPx] = useState<number | undefined>(undefined);
     const [framePx, setFramePx] = useState<number | undefined>(undefined);
+    // The number column: as wide as the widest number the sheet shows, in the
+    // number's own face (measured below, before the first paint), never
+    // narrower than its least width — and every gutter grows by what it grows by.
+    const [numberPx, setNumberPx] = useState(NUMBER_PX);
+    const least = gutterWidths(numberPx);
     // Touch targets fit in separate lanes; row heights include their seam borders.
-    const fullGutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, GUTTER_PX, coarse ? COARSE_GUTTER_PX : 0);
+    const fullGutterPx = Math.max(parseWidth(style !== undefined ? getSomeorUndefined(style.gutterWidth) : undefined) ?? DEFAULT_GUTTER_PX, least.fine, coarse ? least.coarse : 0);
     // A frame too narrow for the touch gutter beside the first column folds it: one row-actions button holds each row's actions (#1215).
     const folded = gutterFolds(framePx, coarse, fullGutterPx, columns.list[0]?.width);
-    const gutterPx = folded ? FOLDED_GUTTER_PX : fullGutterPx;
+    const gutterPx = folded ? least.folded : fullGutterPx;
     // The frame's slack goes to the TEXT columns, each capped at 2.5× its
     // width, and a trailing filler track takes the rest: a link or date
     // column keeps its declared width on a wide screen instead of stretching
@@ -2572,6 +2577,42 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         measure();
         return () => observer.disconnect();
     }, [viewFrame]);
+    // The widest number each of the gutter's numbers can show: a row's — a
+    // flat sheet's blank padding and a proposal's among them — a band's, a
+    // loose row's and a line's; and, apart, a line's with its sub rows'
+    // chevron before it. A group folded or not loaded yet counts as it will
+    // show, so the column holds still as the viewer folds and scrolls.
+    const widest = useMemo(() => {
+        let plain = Math.max(paging.total ?? 0, endPosition) + (group === undefined ? blanks + ui.appended : 0);
+        let chevron = 0;
+        if (group !== undefined) {
+            for (const g of rows) {
+                if (isLooseRow(g)) continue;
+                plain = Math.max(plain, g.lines.length + (blanks > 0 ? 1 : 0));
+                g.lines.forEach((line, j) => { if (line.subRows.length > 0) chevron = Math.max(chevron, j + 1); });
+            }
+        }
+        if (ui.sugg !== null && ui.sugg.rows.length > 0) for (const it of body) if (it.kind === "proposal") plain = Math.max(plain, it.number);
+        return { plain, chevron };
+    }, [paging.total, endPosition, group, blanks, ui.appended, ui.sugg, rows, body]);
+    // The number column's width: those numbers as the rows draw them (the
+    // probe in the card), measured before the first paint, and again whenever
+    // the probe changes size — its face landing, or the grid drawn again after
+    // it was hidden.
+    const [numberProbe, setNumberProbe] = useState<HTMLElement | null>(null);
+    useLayoutEffect(() => {
+        if (numberProbe === null) return undefined;
+        const measure = () => {
+            let px = NUMBER_PX;
+            for (const n of numberProbe.children) px = Math.max(px, Math.ceil(n.getBoundingClientRect().width));
+            setNumberPx(px);
+        };
+        measure();
+        if (typeof ResizeObserver === "undefined") return undefined;
+        const observer = new ResizeObserver(measure);
+        observer.observe(numberProbe);
+        return () => observer.disconnect();
+    }, [numberProbe, widest.plain, widest.chevron]);
     // What sticks under the header is read off the MOUNTED rows
     // (`stickyRows`): the band of the group whose lines scroll under it, and
     // under the band the open line whose sub rows scroll under that. The
@@ -2770,8 +2811,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // The chips sit wholly below the column header: the seam above the first row lies on its edge.
         const headerBottom = headerRef.current?.getBoundingClientRect().bottom ?? -Infinity;
         const top = Math.max(hitBox.top + hitBox.height / 2, headerBottom + 12) - cardBox.top;
-        // The chips: in the gutter's actions column (x 72), else from the gutter edge.
-        setSeam({ r, side, top, left: (side === "gutter" ? gutterBox.left + 72 : gutterBox.right) - cardBox.left });
+        // The chips: 8 px into the gutter's actions column — wherever the number column beside it ends — else from the gutter edge.
+        const actions = side === "gutter" ? gutter.querySelector<HTMLElement>(":scope > [data-slot=fillSlot]") : null;
+        setSeam({ r, side, top, left: (actions !== null ? actions.getBoundingClientRect().left + 8 : gutterBox.right) - cardBox.left });
         insertActions(r, side).preview?.(canInsertRows ? "row" : "group");
     }, [insertActions, canInsertRows]);
     /** The pointer left the seam or its chips: they stay while it moves between the two. */
@@ -3698,9 +3740,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 tabIndex={0}
                 data-sheet-card
                 aria-busy={paging.replacing || undefined}
-                // Where the gutter ends — what the seam lines start from — and whether it folded (#1215).
+                // Where the gutter ends — what the seam lines start from — whether it folded (#1215), and how wide its number column is.
                 data-gutter={folded ? "folded" : undefined}
-                style={{ "--sheet-gutter": `${gutterPx}px` } as CSSProperties}
+                style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px` } as CSSProperties}
                 role="grid"
                 aria-rowcount={ariaRowCount}
                 aria-colcount={colCount + 1}
@@ -3737,6 +3779,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 {seam !== undefined && seamsOn && (
                     <SheetInsertLayer ref={insertLayerRef} styles={styles} seam={seam} actions={insertActions(seam.r, seam.side)} onLeave={onSeamLeave} />
                 )}
+                {/* What the number column is measured by: the widest numbers, drawn as the rows draw them at their boldest (a hit's) — never shown, never hit. */}
+                <Box as="span" ref={setNumberProbe} css={styles.numberMeasure} data-slot="numberMeasure" aria-hidden="true">
+                    <Box as="span" css={styles.gutterNumber} data-hit="">{widest.plain}</Box>
+                    {widest.chevron > 0 && <Box as="span" css={styles.gutterNumber} data-hit="" data-chevron="">{widest.chevron}</Box>}
+                </Box>
             </Box>
             {(wr !== null && edit === null || rows.length === 0) && editingState.available && <SheetInsertStrip styles={styles}
                 ordered={!keyed || anchorFor(ui.sel.r, "before").child !== undefined}
