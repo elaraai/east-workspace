@@ -394,6 +394,9 @@ refusal, a type — compiled against a platform whose every handle refuses
 A jsdom test runs under `vitest.setup.ts`, which gives bytes one realm, as a
 browser page has, and refuses the global `fetch`: a test whose request does
 not go through the harness's fails, naming it (`test/fetch-guard.spec.ts`).
+The package's lint refuses a stand-in in a test or a test's helper — the
+in-memory record and function APIs, a mock of e3's client, a stub of the
+global fetch — naming the harness (`test/stand-in-lint.spec.ts`).
 e3-ui-components declares no e3 SDK. A definition a test
 needs, such as a patch door another session writes through or a checked door
 that refuses, goes into the e3-ui example module it belongs to.
