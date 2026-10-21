@@ -503,7 +503,9 @@ keep them, and Save includes them. The period's own reads of each record —
 its events' window, its own row, the Roster's targets — are what a gesture's
 original and a Save's confirmation read, each kept at the revision it was read
 at (`shared/schedule/records.ts`' `keptAtRevision`, `heldInWindow`,
-`periodRowRead`); a row they do not hold is read by its key.
+`periodRowRead`); a row they do not hold is read by its key. A Save confirms
+every row they hold in one pass (`EditHistoryPaged.held`), and reads only the
+rest by key, a bounded batch at a time.
 
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads

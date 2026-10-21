@@ -320,13 +320,21 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         const seam = kind.entries.value;
         const decodeRow = codecs[i]!.decodeRow;
         const own = kind.read;
+        // Where the builder's own reads hold an entry, at the revision every read of the record is pinned to: read with no
+        // request, so a Save's confirmation judges every one of them at once.
+        const heldRow = own === undefined ? undefined : (id: string): option<option<unknown>> | undefined => {
+            const held = own(id);
+            if (held === undefined) return undefined;
+            return held.type !== "some" ? none : some(held.value.type === "some" ? some(decodeRow(held.value.value)) : none);
+        };
         const paged: EditHistoryPaged = {
             revision: () => seam.revision(),
             refresh: (revision) => seam.refresh(revision),
+            held: heldRow,
             entry: (id) => {
-                // Where the builder's own reads hold it, at the revision every read of the record is pinned to; else by its key.
-                const held = own?.(id);
-                if (held !== undefined) return held.type !== "some" ? none : some(held.value.type === "some" ? some(decodeRow(held.value.value)) : none);
+                // Where the builder's own reads hold it; else by its key.
+                const held = heldRow?.(id);
+                if (held !== undefined) return held;
                 const read = seam.entry(id);
                 if (read.type !== "some") return none;
                 return read.value.type === "some" ? some(some(decodeRow(read.value.value))) : some(none);

@@ -684,15 +684,32 @@ export class EditSession<W> {
      * @returns The next small batch needing confirmation or conflict naming
      */
     readIdsAt(revision: string): readonly string[] {
+        return this.idsAt(revision, 8);
+    }
+
+    /**
+     * Every identity still to confirm or name at this revision: what a reader
+     * whose own reads hold entries at the revision judges at once, with no
+     * request — {@link EditSession.readIdsAt} bounds those it reads by their
+     * keys.
+     * @param revision - The source revision currently available to the reader
+     * @returns Every identity needing confirmation or conflict naming there
+     */
+    unresolvedIdsAt(revision: string): readonly string[] {
+        return this.idsAt(revision, Infinity);
+    }
+
+    /** The identities still to confirm or name at a revision, at most `limit` of them. */
+    private idsAt(revision: string, limit: number): readonly string[] {
         const request = this.submission;
         if (request !== undefined && this.status === "reconciling") {
             if (request.revision === undefined || !stringEqual(revision, request.revision)) return [];
-            return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, 8);
+            return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, limit);
         }
         const conflict = this.conflicted;
         if (conflict === undefined || this.status !== "conflict" || stringEqual(revision, conflict.revision)) return [];
         const checked = conflict.checked !== undefined && stringEqual(revision, conflict.checked.revision) ? conflict.checked.matches : undefined;
-        return [...conflict.targets.keys()].filter(id => !checked?.has(id)).slice(0, 8);
+        return [...conflict.targets.keys()].filter(id => !checked?.has(id)).slice(0, limit);
     }
 
     /**
