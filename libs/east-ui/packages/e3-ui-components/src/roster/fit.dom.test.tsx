@@ -20,7 +20,7 @@ import { StringType, none, printFor, variant } from "@elaraai/east";
 import { BannerView, system } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { readRosterSource } from "./identity.js";
-import { START, act, assignment, narrow, narrowing, open, rosterHarness, settle, slot, warehouseRoster, type Choice } from "./harness.test-utils.js";
+import { START, act, assignment, narrow, narrowing, open, rosterHarness, settle, slot, warehouseRoster, weekDuties, type Choice } from "./harness.test-utils.js";
 
 const h = rosterHarness();
 const text = printFor(StringType);
@@ -73,7 +73,7 @@ describe("a Find fix asks the app's fit, and the People tab shows its answer (R1
         expect(h.fits.requests()).toHaveLength(1);
         const asked = h.fits.requests()[0]!;
         expect([asked.need, asked.slot, asked.start]).toEqual([LEAD.need, LEAD.slot, START]);
-        expect([asked.context.people.size, asked.week.assignments.size]).toEqual([69, 316]);
+        expect([asked.context.people.size, asked.week.assignments.size]).toEqual([69, weekDuties(await h.read(ex.rosterDuties), START).size]);
         expect(tabs(c)[0]).toBe("People 1 of 69");
         // The card carries the reason, and its tooltip the whole of it, which a narrow card cuts.
         expect(card(c, "jquartz")!.getAttribute("title")).toBe("Dispatch · 14 h spare");
@@ -162,7 +162,7 @@ describe("without a fit, no Find fix is offered (R2)", () => {
         expect(within(slot(c, "end")).getByText("No lead on Dispatch · Early")).toBeTruthy();
         expect(within(slot(c, "end")).getByText("B. Swale · trainee without trainer")).toBeTruthy();
         expect(finds(c)).toEqual([]);
-        expect(within(slot(c, "end")).getAllByRole("button", { name: "Mark agreed" }).length).toBeGreaterThan(0);
+        expect(within(slot(c, "end")).getAllByRole("button", { name: "Request agency" }).length).toBeGreaterThan(0);
         expect(h.fits.requests()).toHaveLength(0);
     });
 

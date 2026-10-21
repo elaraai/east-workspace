@@ -90,6 +90,8 @@ export const rosterSuggestionsPatch = e3.mutation.patch(rosterSuggestions);
 
 /** The duties of a roster the warehouse has locked: the warehouse's own duties, which no Save changes. */
 export const rosterLockedDuties = e3.record("roster_locked_duties", DictType(StringType, WarehouseDuty), warehouseDuties);
+/** The locked duties by their times: what a roster over them reads a week of them through. */
+export const rosterLockedDutiesByTime = e3.recordIndex("roster_locked_duties_by_time", rosterLockedDuties, { interval: { from: "start", to: "end" } });
 /** The locked roster's door, a checked one: it refuses every change, naming why — what a Save over it is answered. */
 export const rosterLockedDutiesPatch = e3.mutation.reduce("patch", rosterLockedDuties,
     East.function([DictType(StringType, WarehouseDuty), PatchType(DictType(StringType, WarehouseDuty))], DictType(StringType, WarehouseDuty), ($, duties, _patch) => {

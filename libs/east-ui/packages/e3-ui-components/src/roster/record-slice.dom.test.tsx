@@ -8,14 +8,14 @@ import { fireEvent, waitFor, within } from "@testing-library/react";
 import { decodeBeast2For, encodeBeast2For, none, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster-records";
-import { act, assignment, open, rosterHarness, settle, slot, START, width } from "./harness.test-utils.js";
+import { act, assignment, open, press, rosterHarness, settle, slot, START, weekDuties, width } from "./harness.test-utils.js";
 
-// The indexed examples read the warehouse's activities, configuration, forecast and proposals beside their own records.
+// The indexed examples read the warehouse's activities, cover targets and suggestions beside their own records.
 const h = rosterHarness({ "roster/roster-records": ex });
-/** The indexed staff's and weeks' records, as the request log names their datasets. */
-const STAFF = "records.indexed_roster_staff", WEEKS = "records.indexed_roster_weeks";
+/** The indexed staff's, weeks' and duties' records, as the request log names their datasets. */
+const STAFF = "records.indexed_roster_staff", WEEKS = "records.indexed_roster_weeks", DUTIES = "records.indexed_roster_duties";
 
-test("indexed staff visibility replaces atomically without narrowing coverage, and hidden edits Save the original week on mobile", async () => {
+test("indexed staff visibility replaces atomically without narrowing coverage, and hidden edits Save the original duty on mobile", async () => {
     const { container, store, unmount } = await open(ex.rosterRecordIndexes);
     await waitFor(() => expect(assignment(container, "s37")).not.toBeNull());
     await settle();
@@ -42,10 +42,12 @@ test("indexed staff visibility replaces atomically without narrowing coverage, a
     const again = await h.mount(ex.rosterRecordIndexes); await width(390);
     const save = within(slot(again.container, "toolbar")).getByRole("button", { name: "Save" });
     expect(save).toHaveProperty("disabled", false);
-    await act(async () => { fireEvent.click(save); });
-    await waitFor(() => expect(within(slot(again.container, "toolbar")).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true));
-    const committed = await h.read(ex.indexedRosterWeeks);
-    expect(committed.get(START)!.assignments.has("s37")).toBe(false);
-    expect(committed.get(START)!.assignments.size).toBe(315);
-    expect(h.requests("read", WEEKS)).toEqual([]);
+    // Save runs to its end — the narrowing's notice read, the commit, and its confirmation — and leaves nothing to save.
+    await press(save);
+    expect(within(slot(again.container, "toolbar")).getByRole("button", { name: "Save" })).toHaveProperty("disabled", true);
+    const committed = await h.read(ex.indexedRosterDuties);
+    expect(committed.has("s37")).toBe(false);
+    expect(weekDuties(committed, START).size).toBe(315);
+    // A year of duties and of weeks, and neither read whole.
+    expect([h.requests("read", WEEKS), h.requests("read", DUTIES)]).toEqual([[], []]);
 });

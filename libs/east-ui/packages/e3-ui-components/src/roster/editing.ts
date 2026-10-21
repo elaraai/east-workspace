@@ -3,63 +3,200 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useMemo } from "react";
-import { DateTimeType, decodeBeast2For, encodeBeast2For, isVariant, none, some, toEastTypeValue, variant } from "@elaraai/east";
-import { Editing } from "@elaraai/east-ui";
-import { RosterWeekType, RosterWeeksType } from "@elaraai/e3-ui/internal";
-import { useEditHistory, type EditHistoryState, type EditSession, type EditingValue, type EditHistorySource, type EntryVersion, type Origin } from "@elaraai/east-ui-components";
-import { emptyWeek, parseWeek, weekKey, type RosterValue, type Week } from "./model.js";
-import { readWindowWeek, type useRosterData } from "./data.js";
-
-const draftType = Editing.Types.DraftField(RosterWeekType);
-const encodeWeeks = encodeBeast2For(RosterWeeksType);
-const decodeBatch = decodeBeast2For(Editing.Types.ChangeSet(RosterWeekType, DateTimeType));
-const PLACE = some(variant("keyOrder", null));
-const ABSENT: EntryVersion<Week> = { draft: undefined, wire: undefined, place: none };
-/** Typed whole-week draft; the shared session owns history, conflicts and request recovery. */
-function draftWeek(entry: EntryVersion<Week> | undefined): Week | undefined {
-    return entry !== undefined && isVariant(entry.draft) && entry.draft.type === "value" ? entry.draft.value as Week : undefined;
-}
 /**
- * Each week retains its shared session under its view key. They share the
- * record's write gate, while Save sends only the active week's batch.
+ * The Roster's editing (#1369, `Builder Interfaces Spec.md` §7): one history
+ * over a session per record it writes — the duties (the duty kind's session,
+ * read by key through its `entries` when it is given them), the weeks (the
+ * periods') and the targets — through the shared Schedule editing, so a
+ * gesture across them is one step and Save sends each record's changes as its
+ * own request. Drafts of every week stay in their sessions, as the Calendar's
+ * do: navigating, the rail and a remount keep them, and Save includes them.
+ * The week's own reads of each record serve a gesture's original and a Save's
+ * confirmation, at the revision the Save committed; a row they do not hold is
+ * read by its key.
+ *
+ * @packageDocumentation
  */
-export function useRosterEditing(value: RosterValue, start: Date, storageKey: string, data: ReturnType<typeof useRosterData>): RosterEditing {
-    const id = weekKey(start);
-    const sources = useMemo((): EditHistorySource<Week>[] => {
-        const editing: EditingValue = {
-            sourceId: value.sourceId, entryType: toEastTypeValue(RosterWeekType), draftType: toEastTypeValue(draftType),
-            keyType: some(toEastTypeValue(DateTimeType)), idField: none, children: none,
-            snapshot: data.snapshot === undefined ? none : some(encodeWeeks(data.snapshot)),
-            readEntry: () => none, onPatch: none, mode: variant("batch", null),
-            onApply: some(variant("async", async bytes => value.apply(decodeBatch(bytes)))),
-        };
-        if (data.snapshot !== undefined) return [{ editing }];
-        const window = value.window.type === "some" ? value.window.value : undefined;
-        return [{ editing, paged: {
-            revision: () => window?.revision() ?? none,
-            refresh: revision => window?.refresh(revision),
-            entry: id => {
-                const date = parseWeek(id);
-                return window === undefined || !date.success ? none : readWindowWeek(window, date.value);
-            },
-        } }];
-    }, [value, data.snapshot]);
-    const state = useEditHistory<Week>(sources, `${storageKey}.week.${id}`);
-    const key = state.keys[0]!;
-    const session = state.history.session(key);
-    const held = data.weeks.get(start);
-    const original = draftWeek(session?.originals.get(id)) ?? held;
-    const week = draftWeek(session?.entries.get(id)) ?? held ?? emptyWeek(value, start);
-    const available = !value.settings.readOnly && held?.status.type !== "published" && !data.loading && state.available(key);
-    const record = (next: Week, origin: Origin, label: string): boolean => {
-        if (!available || week.status.type === "published") return false;
-        const before = session?.entries.get(id) ?? (held === undefined ? ABSENT : { draft: variant("value", held), wire: held, place: PLACE });
-        return state.history.record([{ key, updates: [{ id, before, after: { draft: variant("value", next), wire: next, place: PLACE } }] }], origin, label);
-    };
-    return { ...state, key, session, week, held: original, available, record };
+
+import { useMemo, useRef } from "react";
+import { StringType, equalFor, isVariant, none, some, type ValueTypeOf, type option } from "@elaraai/east";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import type { EditHistory, EditSession, EntryVersion } from "@elaraai/east-ui-components";
+import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead } from "../shared/schedule/editing.js";
+import { rosterDomain, rowCodec, weekKey, weekSpan, weekWindow, type DraftedDuty, type RosterValue, type StoredTarget } from "./model.js";
+
+/** What a change names the weeks' record by in the history: no duty kind's slot. */
+export const PERIODS = "roster.periods";
+/** What a change names the targets' record by in the history. */
+export const TARGETS = "roster.targets";
+
+/** The Roster's editing: its history, and every draft of each record, decoded once. */
+export interface RosterEditing {
+    /** The shared Schedule editing over the three records: how a gesture is recorded, and what each record holds. */
+    readonly schedule: ScheduleEditing;
+    /** The one history over them. */
+    readonly history: EditHistory<ScheduleEntryRef>;
+    /** The duty kind's slot: what a change names the duties by. */
+    readonly duty: string;
+    /** Every drafted duty of every week, by key: its bytes, its roles and its row, or `undefined` for one removed. */
+    readonly duties: ReadonlyMap<string, DraftedDuty | undefined>;
+    /** Every drafted target, by key: its bytes and its roles, or `undefined` for one removed. */
+    readonly targets: ReadonlyMap<string, StoredTarget | undefined>;
+    /** Every drafted week's row, by its key's text: its bytes, or `undefined` for one removed. */
+    readonly periods: ReadonlyMap<string, Uint8Array | undefined>;
 }
-export interface RosterEditing extends Omit<EditHistoryState<Week>, "held" | "available"> {
-    key: string; session: EditSession<Week> | undefined; week: Week; held: Week | undefined; available: boolean;
-    record: (next: Week, origin: Origin, label: string) => boolean;
+
+const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
+const stringEqual = equalFor(StringType);
+
+/** An entry's drafted row, when its draft holds one; `undefined` for an entry its draft removes. */
+function draftedRow(entry: EntryVersion<ScheduleEntryRef> | undefined): { row: unknown } | undefined {
+    const draft = entry?.draft;
+    return isVariant(draft) && draft.type === "value" ? { row: draft.value } : undefined;
+}
+
+/**
+ * A window of a record as the Roster reads it, kept at the revision it was
+ * read at: every read of a record is pinned to one revision, whose rows stay
+ * as they are however often they are read, so a Save's confirmation, which
+ * reads its entries a batch at a time, reads the window once. Tracked where it
+ * is called: the record moving, or the window's read landing, runs it again.
+ *
+ * @param entries - The record read by key, whose revision the window is kept at; `none` for one read whole, read each time
+ * @param read - The window's read: `none` while it is in flight
+ * @returns The window's read, kept
+ */
+function keptAtRevision<R>(entries: ScheduleEditingRecord["entries"], read: () => option<R>): () => option<R> {
+    let kept: { readonly revision: string; readonly rows: R } | undefined;
+    return () => {
+        const at = entries.type === "some" ? entries.value.revision() : none;
+        if (at.type === "some" && kept !== undefined && stringEqual(kept.revision, at.value)) return some(kept.rows);
+        const rows = read();
+        if (rows.type === "some" && at.type === "some") kept = { revision: at.value, rows: rows.value };
+        return rows;
+    };
+}
+
+/**
+ * A row of a window read by key: its bytes where the window holds it; `none`
+ * while the window is read; `undefined` for one it does not hold, which is
+ * read by its key — the record may hold it outside the window.
+ */
+function heldIn(rows: option<ReadonlyMap<string, { readonly row: Uint8Array }>>, key: string): ReturnType<ScheduleRowRead> {
+    if (rows.type !== "some") return none;
+    const row = rows.value.get(key);
+    return row === undefined ? undefined : some(some(row.row));
+}
+
+/**
+ * The Roster's sessions over its records, and their drafts (see the module docs).
+ *
+ * @param value - The payload
+ * @param storageKey - The Roster's key: its sessions and their history are kept under it
+ * @param start - The week shown: the windows the Roster reads its records over
+ * @param recordSlices - The slice's parts over the records it writes: each Save notice counts what leaves its own
+ * @returns The editing
+ */
+export function useRosterEditing(value: RosterValue, storageKey: string, start: Date, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[]): RosterEditing {
+    const domain = rosterDomain(value.duty.rowType);
+    const kinds = useMemo(() => [value.duty.kind], [value.duty.kind]);
+    const records = useMemo((): ScheduleEditingRecord[] => [
+        ...(value.periods.type === "some" ? [{ key: PERIODS, name: value.periods.value.every.type === "week" ? "Weeks" : "Days",
+            editing: value.periods.value.editing, entries: value.periods.value.entries }] : []),
+        ...(value.targets.type === "some" ? [{ key: TARGETS, name: "Targets", editing: value.targets.value.editing, entries: value.targets.value.entries }] : []),
+    ], [value.periods, value.targets]);
+    const epoch = start.getTime();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const range = useMemo(() => weekWindow(start), [epoch]);
+    // Each record's rows where the week's own reads hold them — the duties' window, the week's own row and its targets:
+    // a gesture's original, and what a Save confirms its entries by at the revision it committed.
+    const reads = useMemo((): Record<string, ScheduleRowRead> => {
+        const window = weekWindow(start), week = weekSpan(start), id = weekKey(start);
+        const duties = keptAtRevision(value.duty.kind.entries, () => value.duty.rows(window.from, window.to));
+        const out: Record<string, ScheduleRowRead> = { [value.duty.kind.key]: key => heldIn(duties(), key) };
+        if (value.periods.type === "some") {
+            const periods = value.periods.value;
+            const weeks = keptAtRevision(periods.entries, () => periods.rows(week.from, week.to));
+            // The week's own row, by its start: the week's read holds none of another week's.
+            out[PERIODS] = key => {
+                if (!stringEqual(key, id)) return undefined;
+                const rows = weeks();
+                if (rows.type !== "some") return none;
+                const row = rows.value.get(start);
+                return some(row === undefined ? none : some(row));
+            };
+        }
+        if (value.targets.type === "some") {
+            const targets = value.targets.value;
+            const read = keptAtRevision(targets.entries, () => targets.rows(week.from, week.to));
+            out[TARGETS] = key => heldIn(read(), key);
+        }
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [value.duty, value.periods, value.targets, epoch]);
+    const schedule = useScheduleEditing({ kinds, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, range, recordSlices });
+    const duty = value.duty.kind.key;
+    const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;
+    // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.
+    const dutyCache = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, DraftedDuty>());
+    const targetCache = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, StoredTarget>());
+    const periodCache = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, Uint8Array>());
+    const drafts = schedule.drafts;
+    const duties = useMemo(() => {
+        const session = sessionOf(duty);
+        const out = new Map<string, DraftedDuty | undefined>();
+        for (const id of schedule.draftsOf(duty).keys()) {
+            const entry = session?.entries.get(id);
+            const drafted = draftedRow(entry);
+            if (entry === undefined || drafted === undefined) { out.set(id, undefined); continue; }
+            let held = dutyCache.current.get(entry);
+            if (held === undefined) {
+                const bytes = domain.encodeRow(drafted.row);
+                held = { bytes, roles: value.duty.read(bytes, id), row: drafted.row };
+                dutyCache.current.set(entry, held);
+            }
+            out.set(id, held);
+        }
+        return out;
+        // The drafts move with every gesture: their bytes say when.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [drafts, duty, domain, value.duty]);
+    const targets = useMemo(() => {
+        const out = new Map<string, StoredTarget | undefined>();
+        if (value.targets.type !== "some") return out;
+        const kind = value.targets.value;
+        const codec = rowCodec(kind.rowType);
+        const session = sessionOf(TARGETS);
+        for (const id of schedule.draftsOf(TARGETS).keys()) {
+            const entry = session?.entries.get(id);
+            const drafted = draftedRow(entry);
+            if (entry === undefined || drafted === undefined) { out.set(id, undefined); continue; }
+            let held = targetCache.current.get(entry);
+            if (held === undefined) {
+                const bytes = codec.encode(drafted.row);
+                held = { bytes, roles: kind.read(bytes) };
+                targetCache.current.set(entry, held);
+            }
+            out.set(id, held);
+        }
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [drafts, value.targets]);
+    const periods = useMemo(() => {
+        const out = new Map<string, Uint8Array | undefined>();
+        if (value.periods.type !== "some") return out;
+        const codec = rowCodec(value.periods.value.rowType);
+        const session = sessionOf(PERIODS);
+        for (const id of schedule.draftsOf(PERIODS).keys()) {
+            const entry = session?.entries.get(id);
+            const drafted = draftedRow(entry);
+            if (entry === undefined || drafted === undefined) { out.set(id, undefined); continue; }
+            let held = periodCache.current.get(entry);
+            if (held === undefined) { held = codec.encode(drafted.row); periodCache.current.set(entry, held); }
+            out.set(id, held);
+        }
+        return out;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [drafts, value.periods]);
+    return useMemo(() => ({ schedule, history: schedule.history, duty, duties, targets, periods }), [schedule, duty, duties, targets, periods]);
 }

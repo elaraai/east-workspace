@@ -84,7 +84,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
     const reasons = useMemo(() => answer === undefined ? undefined : (item: LibraryItemValue) => reasonOf(answer, item), [answer]);
     if (value.library.length === 0) return undefined;
     const rostered = new Set([...week.assignments.values()].flatMap(a => a.slot.day === BigInt(day) && a.who.type === "person" ? [a.who.value] : []));
-    const draggable = !narrow && commands.editing.available && week.status.type === "draft";
+    const draggable = !narrow && commands.available;
     const slot = selection?.type === "slot" || selection?.type === "requirement" ? selection.slot
         : selection?.type === "assignment" ? week.assignments.get(selection.key)?.slot : undefined;
     const defaultSlot: Slot = slot ?? { day: BigInt(day), group: value.groups[0]!.key, shift: value.shifts[0]!.key };
@@ -163,7 +163,9 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             count = follows.count;
             narrowing = follows.narrowing;
             pane = follows.pane;
-            cards = (follows.cards as typeof tab.value.cards).map(card => ({ ...make(card.key, card.label, card.meta.type === "some" ? card.meta.value : "", card.group.type === "some" ? card.group.value : "", tab.value.icon.type === "some" ? tab.value.icon.value : undefined), draggable: draggable && card.patch.type === "some", placed: chosen[name] === card.key }));
+            // A card drags where it sets a field of the duty it lands on.
+            const lands = tab.value.drop.type === "some";
+            cards = (follows.cards as typeof tab.value.cards).map(card => ({ ...make(card.key, card.label, card.meta.type === "some" ? card.meta.value : "", card.group.type === "some" ? card.group.value : "", tab.value.icon.type === "some" ? tab.value.icon.value : undefined), draggable: draggable && lands && card.sets.length > 0, placed: chosen[name] === card.key }));
         }
         const choose = (key: string): null => {
             setChosen(before => ({ ...before, [name]: key })); setError(undefined);
@@ -183,7 +185,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         const parsed = tab.type === "people" && chosenKey !== undefined ? readRosterSource(chosenKey) : undefined;
         const source: RosterSource | undefined = parsed?.success ? { type: parsed.value.type, key: parsed.value.value } : undefined;
         const target = selection?.type === "assignment" ? selection.key : undefined;
-        const custom = tab.type === "tab" ? tab.value.cards.find(card => card.key === chosenKey) : undefined;
+        const custom = tab.type === "tab" && tab.value.drop.type === "some" ? tab.value.cards.find(card => card.key === chosenKey) : undefined;
         const finding = tab.type === "people" && findWhat !== undefined;
         return { key: name, label, count, body: <Box css={styles.pane} data-roster-library={name} {...pane}>
             {finding && <Box css={styles.paneFoot} data-roster-find="">
@@ -194,10 +196,10 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
                 extras={tab.type === "people" ? reasons : undefined} />
             <Box css={[styles.paneFoot, styles.paneHint]}>{narrow ? tab.type === "people" ? "Select a person to assign" : "Select a card, then an assignment"
                 : tab.type === "people" ? `Drag onto a shift · ${format.weekdayDate(new Date(start.getTime() + day * DAY))}` : "Drag onto a person · one per shift"}</Box>
-            {commands.editing.available && chosenKey !== undefined && <Box css={styles.paneFoot}>
+            {commands.available && chosenKey !== undefined && <Box css={styles.paneFoot}>
                 {source !== undefined && <PlaceAction label={source.type === "agency" ? "Request staff" : "Assign person"} source={source} slot={defaultSlot} value={value} start={start} commands={commands} styles={styles} />}
-                {tab.type === "activities" && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.activity(target, some(chosenKey))); }}>Set activity on selected assignment</Button>}
-                {custom?.patch.type === "some" && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined && custom.patch.type === "some") setError(commands.patch(target, custom.patch.value)); }}>Apply to selected assignment</Button>}
+                {tab.type === "activities" && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.activity(target, some(chosenKey))); }}>Set activity on selected duty</Button>}
+                {custom !== undefined && custom.sets.length > 0 && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.sets(target, custom.sets)); }}>Apply to selected duty</Button>}
                 {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
             </Box>}
         </Box> };
