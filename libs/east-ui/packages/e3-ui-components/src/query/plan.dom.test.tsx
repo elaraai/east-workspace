@@ -36,8 +36,8 @@
  *   (`StrictMode`, as the showcase mounts it), started again and answering;
  * - under its `E3Provider`, whose `fetch` is e3's in the page, a run's status,
  *   its split call's launch and polls, its explain, and a one-shot call all go
- *   through that `fetch`, with the provider's token, and none reaches the
- *   global one.
+ *   through that `fetch`, with the provider's token — and none reaches the
+ *   global one, which refuses every request a test makes (`vitest.setup.ts`).
  *
  * e3's execution cache is the file's: a test whose run must be caught going
  * runs a program no other test runs.
@@ -567,20 +567,6 @@ describe("<Query.Builder> — a split run abandoned, refused, or never reaching 
 // ─── Through the provider's fetch ────────────────────────────────────────────
 
 describe("<Query.Builder> — under its E3Provider, whose fetch is e3's in the page, every call goes through it (#941)", () => {
-    /** The requests that reached the global fetch. */
-    let escaped: string[] = [];
-    beforeEach(() => {
-        escaped = [];
-        vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
-            const url = input instanceof Request ? input.url : String(input);
-            escaped.push(url);
-            throw new Error(`a request went to the global fetch: ${url}`);
-        }));
-    });
-    afterEach(() => {
-        vi.unstubAllGlobals();
-    });
-
     test("a run's status, its split call's launch and polls, its explain, and a one-shot call — each with the provider's token", async () => {
         const jobs = h.jobs();
         const quiet = answeredBeforeItSaid();
@@ -608,6 +594,5 @@ describe("<Query.Builder> — under its E3Provider, whose fetch is e3's in the p
             `POST /repos/default/workspaces/${ws}/one-shot`,
         ]));
         expect(h.requests().filter((request) => request.authorization !== "Bearer tok").map((request) => request.path)).toEqual([]);
-        expect(escaped).toEqual([]);
     });
 });

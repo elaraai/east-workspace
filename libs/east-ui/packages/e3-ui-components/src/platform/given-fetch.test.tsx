@@ -9,11 +9,11 @@
  * dataset cache and the `Func.bind`, `Data.bindPaged` and `Record.bind`
  * adapters the provider installs, and the previews. On e3 itself (#1377): each
  * fetch a host gives here is the harness's, saying what it carried and the
- * token each request did, and a spy on the global `fetch`, passing every call
- * on, says nothing reached it.
+ * token each request did; and nothing reaches the global `fetch`, which
+ * refuses every request a test makes (`vitest.setup.ts`).
  */
 
-import { describe, test, expect, beforeEach, vi, type MockInstance } from "vitest";
+import { describe, test, expect } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -35,10 +35,6 @@ const h = e3Harness({ "bind/data/data": ex }, { measure: false });
 /** The ui task binding nothing, and the counts every adapter here reads. */
 const VIEW = ex.previewView.name;
 const COUNTS = ex.previewCountsInput.path;
-
-/** The global fetch, spied on: each call goes on as it would, and nothing here should make one. */
-let escaped: MockInstance<typeof globalThis.fetch>;
-beforeEach(() => { escaped = vi.spyOn(globalThis, "fetch"); });
 
 /** A fetch a host gives: the harness's, recording each request it carries and the token it carried. */
 function givenServer(): { requests: { path: string; auth: string | null }[]; fetch: typeof globalThis.fetch } {
@@ -105,7 +101,6 @@ describe("E3Config.fetch", () => {
         await expect(installed<PagedApi>(defaultPagedRuntime).getRevision(h.workspace, COUNTS)).resolves.toBe(hash);
         expect(second.requests).toEqual([{ path: `${workspaceRoutes()}datasets/inputs/preview_counts?status=true`, auth: "Bearer two" }]);
         expect(first.requests).toHaveLength(carried);
-        expect(escaped).not.toHaveBeenCalled();
     });
 
     test("carries UITaskPreview's requests, from its config or from the provider", async () => {
@@ -137,7 +132,6 @@ describe("E3Config.fetch", () => {
             expect(paths).toContain(`${workspaceRoutes()}tasks/${VIEW}`);
             expect(paths).toContain(`${workspaceRoutes()}datasets/tasks/${VIEW}/output?status=true`);
         }
-        expect(escaped).not.toHaveBeenCalled();
     });
 
     test("TaskPreview hands its request options' fetch to the UI task's preview", async () => {
@@ -154,6 +148,5 @@ describe("E3Config.fetch", () => {
         expect(await screen.findByText("the view")).not.toBe(null);
         expect(server.requests.map((request) => request.path)).toContain(`${workspaceRoutes()}datasets/tasks/${VIEW}/output?status=true`);
         for (const request of server.requests) expect(request.auth).toBe("Bearer tok");
-        expect(escaped).not.toHaveBeenCalled();
     });
 });

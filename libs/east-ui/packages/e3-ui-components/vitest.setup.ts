@@ -4,7 +4,8 @@
  */
 
 /**
- * One realm for bytes in a DOM test, as a browser page has one (#1375).
+ * One realm for bytes in a DOM test, as a browser page has one (#1375), and
+ * no request past the harness's fetch (#1380).
  *
  * Vitest's jsdom environment puts jsdom's typed arrays and `ArrayBuffer` in
  * place of Node's, while the bytes Node's message ports, `fetch`,
@@ -17,8 +18,15 @@
  * East or anything that makes bytes. In a Node environment they are Node's
  * already, and nothing changes.
  *
+ * A test's requests go to e3 through the harness's fetch, as a page's go
+ * through the fetch its provider gives: the global `fetch` refuses each
+ * request, as a network that fails does, and a test that made one fails,
+ * naming it.
+ *
  * @packageDocumentation
  */
+
+import { afterEach } from "vitest";
 
 const globals = globalThis as unknown as Record<string, unknown>;
 
@@ -34,3 +42,20 @@ const samples: readonly (readonly [name: string, sample: object])[] = [
 // Node's structured clone makes its copy in Node's own realm, whatever the
 // global names: the copy's constructor is Node's.
 for (const [name, sample] of samples) globals[name] = (structuredClone(sample) as object).constructor;
+
+/** Each request that reached the global fetch in the test running now. */
+let escaped: string[] = [];
+
+/** The global fetch: it refuses every request, which never goes through the harness's. */
+const refused: typeof globalThis.fetch = async (input) => {
+    const url = input instanceof Request ? input.url : `${input}`;
+    escaped.push(url);
+    throw new TypeError(`fetch failed: ${url} went to the global fetch, not through the harness's`);
+};
+globalThis.fetch = refused;
+
+afterEach(() => {
+    const urls = escaped;
+    escaped = [];
+    if (urls.length > 0) throw new Error(`the test's requests reached the global fetch, not the harness's: ${urls.join(", ")}`);
+});

@@ -392,7 +392,9 @@ refusal, a type — compiled against a platform whose every handle refuses
 (e3-ui's `test/refusing-platform.ts`).
 
 A jsdom test runs under `vitest.setup.ts`, which gives bytes one realm, as a
-browser page has. e3-ui-components declares no e3 SDK. A definition a test
+browser page has, and refuses the global `fetch`: a test whose request does
+not go through the harness's fails, naming it (`test/fetch-guard.spec.ts`).
+e3-ui-components declares no e3 SDK. A definition a test
 needs, such as a patch door another session writes through or a checked door
 that refuses, goes into the e3-ui example module it belongs to.
 
