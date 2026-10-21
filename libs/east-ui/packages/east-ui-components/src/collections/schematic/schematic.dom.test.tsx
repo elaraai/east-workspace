@@ -15,7 +15,8 @@
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { variant, some, none } from "@elaraai/east";
+import { defaultValue, variant, some, none } from "@elaraai/east";
+import { Schematic } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { EastChakraSchematic, type SchematicValue, type SchematicItemValue, type SchematicLinkValue, type SchematicNetValue, type SchematicZoneValue } from "./index.js";
 
@@ -102,5 +103,38 @@ describe("EastChakraSchematic (jsdom mount)", () => {
             </ChakraProvider>,
         );
         expect(first.container.querySelector("[data-schematic-canvas]")).not.toBeNull();
+    });
+});
+
+/** Three items, B outside the slice, under a slice effect of the given emphasis: engaged from the first render. */
+function emphasised(emphasis: "pulse" | "halo"): SchematicValue {
+    const at = (key: string, x: number, y: number, excluded: boolean): SchematicItemValue =>
+        ({ ...defaultValue<typeof Schematic.Types.Item>(Schematic.Types.Item), key, label: key, x, y, excluded: some(excluded) });
+    return {
+        ...defaultValue<typeof Schematic.Types.Schematic>(Schematic.Types.Schematic),
+        extent: { width: 20, height: 10 },
+        items: [at("A", 2, 2, false), at("B", 8, 2, true), at("C", 8, 6, false)],
+        sliceEffect: some({ ...defaultValue<typeof Schematic.Types.SliceEffect>(Schematic.Types.SliceEffect), emphasis: some(variant(emphasis, null)) }),
+    };
+}
+
+/** The card layer: the element the camera's variables are written on. */
+const cardLayer = (container: HTMLElement) =>
+    [...container.querySelectorAll<HTMLElement>("[data-schematic-canvas] *")].find(el => el.style.getPropertyValue("--cam-ppu") !== "");
+
+describe("EastChakraSchematic — the pulse emphasis", () => {
+    test("its frames breathe the card layer, though they start before the canvas is measured and the layer mounts; stopped, the layer they wrote rests at 0", async () => {
+        const r = render(<ChakraProvider value={system}><EastChakraSchematic value={emphasised("pulse")} storageKey="dom-pulse" /></ChakraProvider>);
+        const layer = await vi.waitFor(() => {
+            const el = cardLayer(r.container);
+            expect(["", "0"]).not.toContain(el?.style.getPropertyValue("--pulse") ?? "");
+            return el!;
+        });
+        // The halo is still, so the pulse stops: no frame runs again, and the layer it breathed is at rest.
+        r.rerender(<ChakraProvider value={system}><EastChakraSchematic value={emphasised("halo")} storageKey="dom-pulse" /></ChakraProvider>);
+        expect(cardLayer(r.container)).toBe(layer);
+        expect(layer.style.getPropertyValue("--pulse")).toBe("0");
+        await new Promise<void>(resolve => { requestAnimationFrame(() => { requestAnimationFrame(() => { resolve(); }); }); });
+        expect(layer.style.getPropertyValue("--pulse")).toBe("0");
     });
 });
