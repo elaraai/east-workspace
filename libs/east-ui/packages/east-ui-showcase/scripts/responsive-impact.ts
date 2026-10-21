@@ -20,7 +20,7 @@ const componentSpecs = {
     plan: ["plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
     query: ["query-builder.spec.ts", "query-library.spec.ts", "query-runs.spec.ts"],
     roster: ["roster.spec.ts", "roster-inspector.spec.ts", "roster-load.spec.ts"],
-    sheet: ["sheet-bound.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-narrowing.spec.ts"],
+    sheet: ["sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-narrowing.spec.ts"],
     studio: ["studio-builder.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts"],
 } as const;
 

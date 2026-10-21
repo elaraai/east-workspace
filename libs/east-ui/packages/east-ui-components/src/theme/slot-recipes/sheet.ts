@@ -138,6 +138,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { fieldInRingedControl } from "../field-chrome.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
 export const sheetSlotRecipe = defineSlotRecipe({
@@ -1042,7 +1043,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
         editorGhost: {
             color: "fg.subtle",
         },
+        // The text a cell edits — a text's, a choice's, a reference's, a set's and a band title's: the ring is its chrome,
+        // so it casts neither the page's focus ring nor Chakra's.
         editorInput: {
+            ...fieldInRingedControl,
             width: "100%",
             border: "none",
             outline: "none",
@@ -1077,7 +1081,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         editorStepper: {
             marginLeft: "6px",
         },
-        // The common date field inside the ring: the segments in the sheet's mono.
+        // The common date field inside the ring: the segments in the sheet's mono. The ring is its chrome: a segment draws
+        // no box and no focus ring of its own, and the one being typed into is tinted.
         editorDate: {
             flex: "1",
             minWidth: "0",
@@ -1086,6 +1091,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             gap: "6px",
             fontFamily: "mono",
             color: "fg",
+            "& [role=spinbutton]": { ...fieldInRingedControl, borderColor: "transparent" },
+            "& [role=spinbutton]:focus:not([data-readonly])": { background: "brandTint", color: "fg", borderColor: "transparent" },
         },
         // the common combobox inside the ring: the root and the
         // control are chromeless (the ring is the chrome), the list is the
