@@ -191,12 +191,21 @@ describe("FieldForm — each field the shared Field around the shared input its 
         expect((within(field("stock")).getByRole("textbox") as HTMLInputElement).value).toBe(printFor(DictType(StringType, IntegerType))(JOB.stock));
     });
 
-    test("a date and a time are named by their Field's label, as the shared Ark inputs are", () => {
+    test("each control is named by its Field's label alone, as the shared Ark inputs are: the key beside the label is for the eye", () => {
         const { field } = mount();
-        const segments = within(field("due")).getAllByRole("spinbutton");
-        expect(segments.length).toBeGreaterThan(0);
-        expect(within(field("due")).getAllByRole("spinbutton", { name: /Due/ })).toHaveLength(segments.length);
-        expect(within(field("crew")).getByRole("spinbutton", { name: /Crew/ })).toBeTruthy();
+        // The label's text holds the key after it; the names hold the label's words, never the two run together.
+        expect(field("crew").querySelector("label")!.textContent).toBe("Crewcrew");
+        expect(namesOf(field("task"), "textbox")).toEqual(["Task"]);
+        expect(namesOf(field("site.room"), "textbox")).toEqual(["Room"]);
+        expect(namesOf(field("stock"), "textbox")).toEqual(["Stock"]);
+        expect(namesOf(field("crew"), "spinbutton")).toEqual(["Crew"]);
+        expect(namesOf(field("length"), "spinbutton")).toEqual(["Length"]);
+        expect(namesOf(field("status"), "combobox")).toEqual(["Status"]);
+        expect(namesOf(field("bench"), "combobox")).toEqual(["Bench"]);
+        // A date's segments: each named by its own part, then the label (`month, Due`).
+        const due = namesOf(field("due"), "spinbutton");
+        expect(due.length).toBeGreaterThan(0);
+        expect(due.filter((name) => !/^[^,]+, Due$/.test(name))).toEqual([]);
     });
 
     test("a text is one edit on Enter, never per keystroke; Esc puts it back; leaving the field commits it", async () => {
@@ -548,6 +557,15 @@ describe("FieldForm — a text longer than its box (#1250)", () => {
         expect(titleOf(ownField, "stock")).toBe(printFor(DictType(StringType, IntegerType))(JOB.stock));
     });
 });
+
+/**
+ * The names a field's controls of a role are given, as assistive technology reads them: of the controls the query
+ * returns — its name test also sees the ones it then drops as hidden, a select's native `<select>`.
+ */
+function namesOf(field: HTMLElement, role: "textbox" | "spinbutton" | "combobox"): string[] {
+    const named = new Map<Element, string>();
+    return within(field).queryAllByRole(role, { name: (name, el) => { named.set(el, name); return true; } }).map((el) => named.get(el)!);
+}
 
 /** A select's chosen words — its placeholder while it holds no value. */
 function chosenOf(field: (key: string) => HTMLElement, key: string): string {
