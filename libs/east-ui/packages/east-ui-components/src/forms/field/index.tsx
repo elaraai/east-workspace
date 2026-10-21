@@ -50,20 +50,8 @@ export const EastChakraField = memo(function EastChakraField({ value, storageKey
         <ChakraField.Root {...props}>
             <ChakraField.Label>
                 {value.label}
-                {schemaKey && (
-                    <Box
-                        as="span"
-                        ml="2"
-                        fontFamily="mono"
-                        fontSize="11px"
-                        fontWeight="500"
-                        letterSpacing="0"
-                        textTransform="none"
-                        color="fg.muted"
-                    >
-                        {schemaKey}
-                    </Box>
-                )}
+                {/* The field's key, after its label: the `field` recipe styles it, and wraps it under the label short of room. */}
+                {schemaKey && <Box as="span" data-field-key="">{schemaKey}</Box>}
             </ChakraField.Label>
             {controlNode ?? <EastChakraComponent value={value.control} storageKey={`${storageKey}.control`} />}
             {helperText && <ChakraField.HelperText>{helperText}</ChakraField.HelperText>}
