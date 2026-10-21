@@ -221,7 +221,7 @@ component, nothing in east-ui.
   A tab's count
   while a rail narrows it is `narrowedCount` over resident cards (`10 of 33`),
   or `pagedCount` over a paged record's exact counts (`40 of 2,048`). A collapsed
-  pane's rail may carry a `mark` after its badge (`Overdue event`).
+  pane's rail may carry a `mark` after its badge (`Overdue arrival`).
 - **Rail counts.** Pass a numeric `badge` for a count, keeping it numeric until
   `DockPane` formats it with the shared locale formatter's `compact()`.
   Its exact value remains available on hover and to assistive technology.

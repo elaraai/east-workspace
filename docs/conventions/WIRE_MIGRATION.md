@@ -255,3 +255,40 @@ Each wire changed under this rule, with the kind it is.
   under the other: packages are re-exported, and the dataflow computes each UI
   task's output again under the new type. A UI task's output is not stored
   state, so no repository upgrade step ships with it.
+- **e3-ui's `Roster` takes the app's own records through Schedule's kinds
+  (#1365, #1368, #1369)** — package-borne. The `Roster` extension's payload
+  trades `sourceId`, and the `read`, `apply` and `window` over
+  `Roster.Types.Weeks`, for its duty kind (`duty`, Schedule's Roster kind over
+  the app's duty rows), its periods (`periods`, what `Schedule.periods`
+  builds) and its targets (`targets`), each closed over beast2 bytes as
+  Schedule's kinds are, so the payload is one type whatever the app's rows
+  hold. It trades `forecast` for `targets`, `costs` for `pay` and `currency`,
+  and its `inspector`'s forms for a Boolean: a duty's own form is its kind's
+  `inspector`, a target's `Roster.targets`'. Its `check` takes its request as
+  bytes, and an app's library tab is Schedule's (`ScheduleAuthorTabType`).
+  `Roster.Types.Weeks` and `Roster.Types.Costs` are removed. The types over a
+  week become constructors of the app's duty row type — `Assignment(R)`,
+  `Week(R)`, `CheckContext(R)`, `FitRequest(R)` and the new `PayRequest(R)` —
+  each assignment carrying the duty's own row and losing `offset`, `overtime`
+  and `agreed`. `Status` is Schedule's period status, `Rules` loses `agree`,
+  `Context` loses `costs`, `Coverage`'s hours lose `overtime`, `Issue`'s kind
+  loses `agree`, `Fix` loses `agree` and its `start` names the later start's
+  time rather than its hours, and `Proposal` names its `day`, `group` and
+  `shift` in place of its week and slot. A UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, so no repository upgrade step ships with it. An
+  application's weeks record (`Roster.Types.Weeks`, #1174) and its forecast
+  and proposals records hold types that are removed or changed; moving them
+  into the application's own records — its duties, the weeks of its rota and
+  its targets — is those records' own migration, as with any record whose type
+  an application changes.
+- **Schedule's kinds take the Roster's and the Allocation's roles (#1365,
+  #1367)** — package-borne. `Schedule.events` takes the builders' roles, and a
+  kind builds two closed forms beside the Calendar's and Plan's —
+  `ScheduleRosterKindType` and `ScheduleAllocationKindType` — which the
+  Roster's and the Allocation's payloads carry, beside the closed periods of
+  the new `Schedule.periods` (`SchedulePeriodsKindType`). The Calendar's and
+  Plan's kinds on the wire (`ScheduleKindType`, `PlanEventKindType`) are
+  unchanged. The Allocation's extension, which takes them too, is new in this
+  release: no earlier release wrote it, so no form of it moves.

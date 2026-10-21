@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with one Slice.bindRecords rail (its rows, each event kind, resource kind and templates record a source, one window), key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search), or the `rows` source of its one Slice.bindRecords rail, paged from it, the rail narrowing its templates records too; typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, saved-view tabs over every source's narrowing, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply). (14) Calendar — the record-backed scheduling builder in e3-ui: Calendar, Resources and Timeline layouts, bound resource and template records, the event record’s unscheduled backlog, one Slice.bindRecords rail — a source per event kind, resource kind and templates record, one date window — shared Toolbar/Library/FieldForm/EditSession behavior, and explicit agenda/card actions below 480px. BuilderFrame remains internal. (15) Roster — weekly staffing over bound records, Shifts and People layouts, pure coverage/rules, Find fixes on the app's fit e3.function (Func.bind, Roster.fit), bounded week reads, one Slice.bindRecords rail over people and activities, shared Library/Session, atomic Save/Publish and explicit mobile actions. (16) The Flowchart — <Flowchart>, the state-transition flowchart, always in its builder frame — one toolbar (find state, LR · TD, the freshness chip, the rail of its one Slice.bindRecords, and where it edits the history item), the canvas filling main, the footer's counts: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers); its library pane's Flows tab (Flowchart.library.flows()) lists the flows by name — over a record those its rail's `flows` source narrows it to, counted — and opens one, the open flow kept under the flowchart's name, and '+ New flow' starts one, beside state and transition templates, templates records (Flowchart.library.states / transitions), and the author's own cards (Flowchart.library.tab), each following the source of the rail it names, and each card dropped on the canvas — a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says, ⏎ on a card onto the selection; every gesture on the canvas — '+ LANE', a lane renamed (a double-click on its header) or deleted, a state added, edited, moved or deleted, a handle dragged to connect, Del on the selection — one transaction of the open flow's editing session, each flow keeping its own drafts, with Undo / Redo and one checked Save through the record's patch mutation or the host's onApply; its inspector pane, on by default (inspector={false} takes it away) — Details for the state, transition, decision, lane (a click on its header) or several states selected, or the open flow, each through the shared form, a state's or a transition's own Details in its place with inspector={{ state, transition }}, and Issues, each selecting what it names; with selection and path tracing — its types on Flowchart.Types, a row patch from Flowchart.patch. (17) The Allocation — <Allocation>, a day's events booked into timed lane slots and each bin's quantity allocated to resources with room and time for its hold, always in its builder frame, as a Timeline (lanes, links, resource rows) or a Table (a row per slot): one plans record of Allocation.Types.Days(V) over the app's bin values, bound with its patch mutation — every gesture a draft, Save writing the open day as one patch and Publish writing it published — the app's events, lanes and resources read through Allocation.events / lanes / resources, the app's fit an e3.function bound with Func.bind (a place or a take question about the drafted plan, built on Allocation.answer / fit / lookahead), split loads and Find a fit, the app's bin values as columns and its own check, one Slice.bindRecords rail over its lanes, resources and events, the shared Library, Inspector and session, explicit-action cards below 480px, and pure loads / candidates / check / slots a task runs too."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with one Slice.bindRecords rail (its rows, each event kind, resource kind and templates record a source, one window), key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search), or the `rows` source of its one Slice.bindRecords rail, paged from it, the rail narrowing its templates records too; typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, saved-view tabs over every source's narrowing, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply). (14) Calendar — the record-backed scheduling builder in e3-ui: Calendar, Resources and Timeline layouts, bound resource and template records, the event record’s unscheduled backlog, one Slice.bindRecords rail — a source per event kind, resource kind and templates record, one date window — shared Toolbar/Library/FieldForm/EditSession behavior, and explicit agenda/card actions below 480px. BuilderFrame remains internal. (15) Roster — weekly staffing over the app's own records: its duties a Schedule.events kind (start, end, resource, shift, group, position?, activity?, hours?), its people and agencies Schedule.resources kinds, its weeks Schedule.periods for Publish, its cover Roster.targets, and its shifts, groups, positions, activities and proposals read through Roster.* accessors; Shifts and People layouts; pure coverage/rules over the duty row type; the app's pay in its own codes, asked a person at a time; Find fixes on the app's fit e3.function (Func.bind, Roster.fit(R)); the week's duties read through the slice's duty source; one Slice.bindRecords rail over the duties, targets, people and activities; one history over a session per record, Save per record and Publish saving first, then the week's status; and explicit mobile actions. (16) The Flowchart — <Flowchart>, the state-transition flowchart, always in its builder frame — one toolbar (find state, LR · TD, the freshness chip, the rail of its one Slice.bindRecords, and where it edits the history item), the canvas filling main, the footer's counts: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers); its library pane's Flows tab (Flowchart.library.flows()) lists the flows by name — over a record those its rail's `flows` source narrows it to, counted — and opens one, the open flow kept under the flowchart's name, and '+ New flow' starts one, beside state and transition templates, templates records (Flowchart.library.states / transitions), and the author's own cards (Flowchart.library.tab), each following the source of the rail it names, and each card dropped on the canvas — a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says, ⏎ on a card onto the selection; every gesture on the canvas — '+ LANE', a lane renamed (a double-click on its header) or deleted, a state added, edited, moved or deleted, a handle dragged to connect, Del on the selection — one transaction of the open flow's editing session, each flow keeping its own drafts, with Undo / Redo and one checked Save through the record's patch mutation or the host's onApply; its inspector pane, on by default (inspector={false} takes it away) — Details for the state, transition, decision, lane (a click on its header) or several states selected, or the open flow, each through the shared form, a state's or a transition's own Details in its place with inspector={{ state, transition }}, and Issues, each selecting what it names; with selection and path tracing — its types on Flowchart.Types, a row patch from Flowchart.patch. (17) The Allocation — <Allocation>, a day's arrivals booked into timed lane slots and each bin's quantity allocated to resources with room and time for its hold, always in its builder frame, as a Timeline (lanes, links, resource rows) or a Table (a row per slot), over the app's own records: its bins an instant Schedule.events kind (at, resource, arrival, quantity, parts, hold, kind?), its lanes and resources Schedule.resources kinds (offset; min, max, note, hold, jobs), what it books from Allocation.arrivals (each arrival's values a booked bin's own fields), and its days Schedule.periods for Publish — one history over the bins' and the days' sessions, every gesture a draft, Save per record and Publish saving first, then the day's status — the app's fit an e3.function bound with Func.bind (a place or a take question about the drafted day, FitRequest(R) over the bin row type, built on Allocation.answer / fit / lookahead), split loads and Find a fit, the app's bin fields as columns and its own check over CheckContext(R), one Slice.bindRecords rail over the day's bins, its lanes, resources and arrivals, the shared Library, Inspector and session, explicit-action cards below 480px, and pure loads / candidates / check / slots over Day(R) a task runs too."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -170,14 +170,26 @@ Task → What do you need?
     │   ├─ A card dropped on the canvas, or ⏎ on it                   → a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says; ⏎ onto the selection
     │   └─ Edit a flow: lanes, states, transitions — Undo, one Save   → record={…}, or data={…} + onApply (every canvas gesture a draft; canConnect vetoes a pair)
     │
-    ├─ Book a day's events into lane slots, each bin on its resources — the Allocation (see Allocation below)
-    │   ├─ The plans, one day an entry, saved whole                  → e3.record(name, Allocation.Types.Days(V), seed) + e3.mutation.patch; days={Record.bind(plans, [patch])}
-    │   ├─ The app's events, lanes and resources                     → Allocation.events(rows, { label, quantity, hold, values }) · Allocation.lanes(rows, { label, offset? }) · Allocation.resources(rows, { label, min, max })
-    │   ├─ Who fits where: the app's fit, on e3                      → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest(V) to FitResult, over Allocation.answer + Allocation.fit (+ Allocation.lookahead)
-    │   ├─ Narrow its lanes, resources and events — one rail         → slice={{ slice: Slice.bindRecords(key, { lanes?, resources?, events? }) }}
-    │   ├─ Its panes                                                 → library={[Allocation.library.events(), Allocation.library.resources()]} · inspector (+ {{ bin }})
-    │   ├─ The app's bin values on the board, and its own issues     → columns={[{ key, label, text }]} · check={fn(CheckContext(V)) → Array<Issue>}
-    │   └─ The board's figures in a task                             → Allocation.loads / candidates / check / slots (V)
+    ├─ Staff a week's shifts from the app's own duties — the Roster (see Roster below)
+    │   ├─ The duties: the app's record, a span kind                 → events={{ duty: Schedule.events(Record.bind(duties, [dutiesPatch]), { start, end, resource: { field, of }, shift, group, position?, activity?, hours? }) }}
+    │   ├─ Who is rostered                                           → resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }), agencies? }}
+    │   ├─ The lists it reads, over the app's rows                   → Roster.shifts / groups / positions / activities / proposals(rows, { … })
+    │   ├─ Publish, and the targets: the app's weeks and cover       → periods={Schedule.periods(Record.bind(weeks, [weeksPatch]), { every: "week", status, dismissed? })} · targets={Roster.targets(Record.bind(cover, [coverPatch]), { day, group, shift, positions, hours })}
+    │   ├─ Costs in the app's own pay codes                          → pay={fn(Roster.Types.PayRequest(R)) → Roster.Types.Pay} currency="…"
+    │   ├─ Who fits a Find fix: the app's fit, on e3                 → fit={Func.bind(e3.function)} from Roster.Types.FitRequest(R) to FitResult, over Roster.answer(R) + Roster.fit(R)
+    │   ├─ Narrow its duties, targets, people and activities         → slice={{ slice: Slice.bindRecords(key, { duty: { source, range: "start" }, targets?, people?, activities? }) }}
+    │   └─ The week's figures in a task                              → Roster.coverage / check / weekHours / rest (R)
+    │
+    ├─ Book a day's arrivals into lane slots, each bin on its resources — the Allocation (see Allocation below)
+    │   ├─ The bins: the app's record, an instant kind               → events={{ bin: Schedule.events(Record.bind(bins, [binsPatch]), { at, resource: { field, of: "<lanes>" }, arrival, quantity: { field, unit }, parts: { field, of: "<resources>" }, hold, kind? }) }}
+    │   ├─ The lanes and the resources                               → resources={{ <lanes>: Schedule.resources(rows, { name, icon, label, offset? }), <resources>: Schedule.resources(rows, { name, icon, label, min, max, … }) }}
+    │   ├─ What it books from                                        → arrivals={Allocation.arrivals(rows, { label, quantity, hold, kind?, values?, … })}
+    │   ├─ Publish: the app's days                                   → periods={Schedule.periods(Record.bind(days, [daysPatch]), { every: "day", status })}
+    │   ├─ Who fits where: the app's fit, on e3                      → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest(R) to FitResult, over Allocation.answer(R) + Allocation.fit (+ Allocation.lookahead(R))
+    │   ├─ Narrow its bins, lanes, resources and arrivals — one rail → slice={{ slice: Slice.bindRecords(key, { bin: { source, range: "at" }, <lanes>?, <resources>?, arrivals? }) }}
+    │   ├─ Its panes                                                 → library={[Allocation.library.arrivals(), Allocation.library.resources()]} · inspector (+ the bin kind's own inspector)
+    │   ├─ The app's bin fields on the board, and its own issues     → columns={[{ key, label, text }]} · check={fn(CheckContext(R)) → Array<Issue>}
+    │   └─ The board's figures in a task                             → Allocation.loads / candidates / check / slots (R)
     │
     ├─ Render deployed surfaces in a React app (@elaraai/e3-ui-components)
     │   ├─ Which e3, and how requests reach it → <E3Provider config={{ apiUrl, repo, workspace, token, fetch }}>
@@ -364,8 +376,11 @@ Sessions retain original-key drafts across paging, narrowing and remount in the
 same UI store. Save includes hidden edits and confirms primary rows at the
 committed revision. A saved row leaving the narrowing produces footer feedback;
 moving off a resident page does not. Slice persistence saves query state, not
-unsaved drafts. Roster still saves weekly assignments and calculates coverage
-over complete staff; its indexed staff query controls visibility only.
+unsaved drafts. The Roster and the Allocation keep a session for each record
+they write — the Roster's duties, weeks and targets, the Allocation's bins and
+days — under one history: Save sends each record's drafts as its own request,
+and their figures read every person, resource and event of the period,
+whatever the rail shows.
 
 Search examples: `planRecordIndexes`, `sheetRecordIndexes`,
 `calendarRecordIndexes`, `rosterRecordIndexes`, their Mobile counterparts,
@@ -1228,20 +1243,40 @@ summary and Rerun, Approve all and Reject all), a series' `review` and
 are gone, with the verdict buttons on a row and in the inspector. Each throws
 at build, naming the removal. The history item's commit is Save.
 
-#### `Schedule`: resource and event kinds shared with Calendar
+#### `Schedule`: the kinds every builder shares
 
 Bind records inside the example's own `Reactive` body. Resources and templates
 can come from bound records; the backlog is the event record's unscheduled rows.
 `Schedule` declares field roles and accessors. The internal renderer owns the
 frame, Slice toolbar, shared fields, drag layer and editing session.
 
+Every builder takes the app's own records through these declarations (#1365):
+what it writes is the app's record, its fields mapped to the builder's roles
+(`Schedule.events`); what it reads comes from the app's rows through
+accessors (`Schedule.resources`); and what it publishes is a record of the
+app's too, its status a field the app maps (`Schedule.periods`). The Calendar
+and Plan take Plan's roles, the Roster and the Allocation their own beside
+them, and a builder takes no notice of the roles it has no use for, so one
+record of duties drives a Calendar and a Roster at once. A role names a field
+of the row: its type is checked when the code compiles and again at build,
+refused naming the role, the field and its type (`` `shift` names a String
+field — "unpaidBreak" holds .Float ``). A gesture writes only the fields its
+roles map; every other field of the row reads back as it was, and a new row's
+unmapped fields hold their type's default.
+
 | API / option | Meaning | Tested example |
 | --- | --- | --- |
 | `Schedule.resources(rows, { name, icon, label, meta? })` | Keyed resources; accessors receive `(row, key)`. `meta` is an optional second line. Use `Record.bind(record, []).read()` for a resource record. | `planEvents`, `planPrintWorks` |
-| Resource `group`, `parent` | Plan groups resources by the group label, and nests a resource under the optional key of its parent in the same kind. | `planPrintWorks` |
+| Resource `group`, `parent` | Plan groups resources by the group label, and nests a resource under the optional key of its parent in the same kind. `group` is also a Roster person's home group and an Allocation resource's group. | `planPrintWorks` |
 | Resource `sub`, `value`, `status`, `collapsed` | Plan's gutter subtitle, value and status; initial collapse is a Boolean or accessor. | `planPrintWorks` |
 | Resource `rollup`, `measures` | Parent bands use `union` (default), `byStatus` or `sum`. Measures are read-only `Plan.series.heat`, `table` or `chart` rows over the resource type, with unique keys and no children. | `planPrintWorks` |
-| `Schedule.events(record, { name, icon, title, start, end, … })` | A record bound with its patch mutation; `title` names a String field, and `start`/`end` name matching DateTime or Option<DateTime> fields. | `planEvents` |
+| Resource `position`, `skills`, `contract`, `agency`, `trainer`, `trainee`, `usual` | The Roster's people (#1367): a person's default position (String), the skills they hold (`Set<String>`), their contracted weekly hours (Float), whether they are a named agency worker, train others or need a trainer beside them (Booleans), and their usual shift (`Option<String>`). | `rosterWarehouse` |
+| Resource `offset` · `min`, `max`, `note`, `hold`, `jobs` | The Allocation's lanes: how far past each slot's start a lane's bins are booked (a TimeStep). Its resources: their range in the quantity's unit (Floats, required by the Allocation), a line about the next job (`Option<String>`), how long a reservation is held (a TimeStep) and their other work (`Array<Allocation.Types.Job>`). | `allocationKilnYard` |
+| a resource accessor returning another type **❗** | Each accessor is reified once and held to the type it returns: one returning another is refused at build, naming what it returns (`` "People": `contract` returns a Float, a person's contracted weekly hours — and this one returns .String ``). | — |
+| `Schedule.events(record, { name, icon, title?, start, end, … })` | A record bound with its patch mutation; `title` names a String field, and `start`/`end` name matching DateTime or Option<DateTime> fields. `title` is optional: the Calendar and Plan draw it and refuse a kind without one; the Roster and the Allocation draw a duty and a bin by their roles. | `planEvents` |
+| Event `shift`, `group`, `position?`, `activity?`, `hours?` | The Roster's roles (#1367): String fields naming a duty's shift, the group it is rostered in and the position it holds; an `Option<String>` its one activity; and an accessor `(row, key) => Float`, the hours it counts — its length when omitted. See the Roster below. | `rosterWarehouse`, `rosterMinimal` |
+| Event `arrival`, `parts: { field, of }`, `hold`, `kind?` | The Allocation's roles (#1367): an `Option<String>` naming the arrival a bin books (`none`, a reservation); a `Dict<String, Float>`, its quantity on each resource of the slot `of` names; a TimeStep, how long a resource holds it; and an `Option<String>`, what it goes with. With Plan's `quantity` and an instant's `at`. See the Allocation below. | `allocationKilnYard`, `allocationMinimal` |
+| roles of both builders on one kind, or two roles naming one field **❗** | Refused at build, naming them: a kind is the Roster's duties or the Allocation's bins, and a builder writes each of its roles into a field of its own. | — |
 | Event `at`, `draw` | An instant uses `at` instead of start/end and defaults to `marks`; it may draw `buckets`. Intervals default to `span`, and may draw `buckets`, `cards` or `marks`. | `planPrintWorks`, `planEventLinks` |
 | Event `resource: { field, of }` | A String/Option<String> field targets one resource slot. A variant field maps each case to a resource slot, such as bay or van. | `planPrintWorks` |
 | Event `state`, `quantity: { field, unit?, format? }`, `lane` | Plan's lifecycle field (confirmed when omitted), Float quantity with its unit/format, and String lane for bucket tiles. | `planPrintWorks` |
@@ -1251,10 +1286,27 @@ frame, Slice toolbar, shared fields, drag layer and editing session.
 | Event `templates` | `Schedule.templates(rows, { name, group?, at?, duration, values, source })` (`Calendar.templates` in a Calendar) over a templates record, its `source` the rail's source that narrows its cards; `values` supplies the fields other than time and resource, and an instant kind's templates omit `duration`. The Calendar and the Plan refuse a list written in the code (#1343, #1344). | `calendarOperations`, `planPrintWorks` |
 | Event `fields`, `Schedule.field.*` | The shared `Fields` vocabulary: `text`, `number`, `select`, `tags`, `checklist`, `reference`, `readonly`, `hidden`; other editors derive from the field type. | `planEvents`, `planPrintWorks` |
 | Event `ready`, `inspector` | Readiness returns `Editing.Types.Readiness` and can hold Save. A custom inspector receives the typed row and its session writer. | `planPrintWorks` |
-| Event source, `entries` | The builder's `Slice.bindRecords` narrows a kind through a source named after its slot, over an interval index: its events in the window and its backlog read through it (the Calendar, #1343; the Plan, #1344). `entries: Data.bindPaged(record)` supplies original-key reads for editing. A kind's own `slice` and `filter` are refused at build, naming the change. See Indexed records and shared Slice above. | `calendarRecordIndexes`, `calendarOperations`, `planPrintWorks`, `planWindows` |
+| Event source, `entries` | The builder's `Slice.bindRecords` narrows a kind through a source named after its slot, over an interval index: its events in the window and its backlog read through it (the Calendar, #1343; the Plan, #1344), and the Roster's week of duties and the Allocation's day of bins, the range their own navigation writes (#1368, #1371). `entries: Data.bindPaged(record)` supplies original-key reads for editing. A kind's own `slice` and `filter` are refused at build, naming the change. See Indexed records and shared Slice above. | `calendarRecordIndexes`, `calendarOperations`, `planPrintWorks`, `planWindows`, `rosterWindowed`, `allocationWindowed` |
 | Event `window`, `backlogWindow`, `entries` | The separate single-index paging form, described under Large records below. A kind narrowed through a source of its builder's rail takes neither `window` nor `backlogWindow`. | `calendarWindowed` |
+| `Schedule.periods(Record.bind(r, [patch]), { every, status: { field, draft, published }, dismissed?, entries? })` **❗** | What a builder publishes (#1367): the app's record of periods, `Dict<DateTime, P>`, a row each keyed by its start — a UTC midnight, a week's first day by the builder's week start for `"week"`, or a `"day"`. `status.field` names a variant field of `P`, not an Option, and `draft` and `published` two of its cases; the published case holds `Null` or `{ at: DateTime }`. `dismissed`, the Roster's, names a `Set<String>` field: the proposals a week dismissed. `entries: Data.bindPaged(r)` reads the periods by key — the period, the one before it, the open picker's span, each one key search and one page — else the record is read whole. Without `periods`, a builder has no status chip and no Publish. | `rosterWarehouse`, `rosterWindowed`, `allocationKilnYard`, `allocationWindowed` |
 
-`Schedule.Types` exposes the same contracts to both builders:
+A period whose status is the published case is read-only in every layout,
+phones included, and so is one in a case that is neither, its chip naming the
+case; a period with no row is Not started. Publish saves the period's drafts
+first, and once every record reads back as saved writes the published case —
+the time in `at` when the case holds one — and saves the period: a Save that
+fails leaves the period a draft with its drafts kept, so a published period
+never sits over unsaved rows. A period row the builder makes holds its type's
+default in every field it doesn't map. Refused at build, each naming the
+option: a record not bound with its patch mutation, not keyed by DateTime, or
+whose rows are no structs; an `every` that is neither `"week"` nor `"day"`; a
+`status.field` the row lacks, that is no variant or that is an Option; a
+`status.draft` or `status.published` that is no case of it (`` `status.published`
+names a case of "state" (cancelled, issued, open) — and it names "sent" ``), or
+both naming one; a published case holding anything else; a `dismissed` that is
+no `Set<String>` field; and `entries` that is not the record's own entries.
+
+`Schedule.Types` exposes the same contracts to every builder:
 
 | Type | Value |
 | --- | --- |
@@ -1264,6 +1316,7 @@ frame, Slice toolbar, shared fields, drag layer and editing session.
 | `Duration` | The shared time-step variant: minutes, hours, days, weeks or months, with a Float amount. |
 | `Candidate` | `kind`, `from` (template/backlog/event key), `start`, `end`, optional `resource`; the Plan's drop veto receives this. |
 | `Patch(RowType)` | Every field optional; `Schedule.patch` constructs the patch. An omitted field stays unchanged; `none` supplied for an Option field clears it. |
+| `Fit`, `Refusal` | One verdict of an app's fit — `fits { score, why, warn }`, or `refused` with its `Refusal` (`{ group, reason, measure }`) — the Roster's and the Allocation's alike. |
 
 Event kinds default to batch Save. For automatic commits, set
 `applyMode="auto"` on the same `<Plan>` with its bound resources and events:
@@ -2340,40 +2393,153 @@ are exact counts of original records; a kind read through a day index
 (`window`) counts the window it has loaded.
 
 
-## Roster — weekly staffing over bound records
+## Roster — weekly staffing over the app's own records
 
 Import `Roster` from `@elaraai/e3-ui`; the renderer is in e3-ui-components.
-One `<Roster>` owns its internal BuilderFrame. The former east-ui Roster and
-Board, their closed UI variant arms, recipes and examples are removed. Rebuild
-and re-export packages using those old components; stored e3 record formats do
-not change. Staff, activities, configuration, forecast and proposals may all
-be bound record/input/task values inside the example's inline `Reactive` body;
-what the Roster reads whole binds with `Data.bind`.
+One `<Roster>` owns its internal BuilderFrame. It stores nothing in a shape of
+its own (#1365): it writes the app's duties through the duty kind's roles
+(`Schedule.events`), reads its people and agencies (`Schedule.resources`),
+publishes its weeks (`Schedule.periods`) and writes its cover targets
+(`Roster.targets`), each the app's own record bound with its patch mutation;
+its shifts, groups, positions, activities and proposals are read from the
+app's rows through accessors. What the Roster reads whole binds with
+`Data.bind`. Coverage, pay, checks and fits read every duty of the week, every
+person and every activity, whatever the rail shows.
 
-Its `slice` is one `Slice.bindRecords(key, { people, activities })` over the
-staff's and the activities' records (#1342), and the Roster reads each
-source's keys itself. Coverage, costs and checks read every person and every
-activity, whatever the rail shows:
+The smallest roster — duties with their times, shift and team; staff; shift
+times; teams:
 
 ```tsx
-// Inside Reactive: every person and activity is the calculation scope; the rail chooses which show.
-const weeks = $.let(Record.bind(d.weeks, [d.weeksPatch]));
-const staff = $.let(Data.bind(d.staff));
-const acts = $.let(Data.bind(d.activities));
-const configuration = $.let(Data.bind(d.configuration));   // groups, shifts, positions…
-const cfg = $.const(configuration.read());
-const people = $.let(Data.bindPaged(d.staff, { indexes: [d.staffByTeamName, d.staffBySkill] }));
-const activities = $.let(Data.bindPaged(d.activities, { indexes: [d.activitiesByGroup] }));
+// Module level: the app's own duties; its workers (name, team), shift times (name, code, starts, hours, order) and teams likewise.
+export const Duty = StructType({ person: StringType, start: DateTimeType, end: DateTimeType, shift: StringType, team: StringType });
+export const duties = e3.record("duties", DictType(StringType, Duty), new Map());
+export const dutiesPatch = e3.mutation.patch(duties);
+// Inside Reactive:
+const rota = $.let(Record.bind(duties, [dutiesPatch]));
+const staff = $.let(Data.bind(workers));
+const times = $.let(Data.bind(shiftTimes));
+const groups = $.let(Data.bind(teams));
+return <Roster
+    events={{ duty: Schedule.events(rota, {
+        name: "Duty", icon: "user-clock",
+        start: "start", end: "end", resource: { field: "person", of: "people" },
+        shift: "shift", group: "team",
+    }) }}
+    resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team }) }}
+    shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+    groups={Roster.groups(groups.read(), { label: t => t.name })} />;
+```
+
+The warehouse's roster over its own records — its duties, the weeks of its
+rota, its cover targets and suggestions, staff and an agency — with its pay,
+its check, Publish, one rail and its fit (`rosterWarehouse`):
+
+```tsx
+// Module level: the warehouse's duty, WarehouseDuty — who (a staff key, or an agency's), start, end, shift, team, role, task,
+// unpaidBreak, agreed, costCentre and note — and its records: rosterDuties (with rosterDutiesByTime), rosterWeeks, rosterCover, ….
+// Inside Reactive: what the Roster writes, each through its patch door.
+const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+const entries = $.let(Data.bindPaged(rosterDuties));                                     // one duty by its key
+const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));   // interval: { from: "start", to: "end" }
+const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
+const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+// What it reads whole — every person and activity is the calculation scope — and their indexes for the rail.
+const people = $.let(Data.bind(rosterStaff));
+const acts = $.let(Data.bind(rosterActivities));
+const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffBySkill] }));
+const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
 const slice = $.let(Slice.bindRecords("ops.roster", {
-    people: { source: people, search: ["name"], fields: { team: { label: "Group" }, skills: { label: "Skill" } } },
-    activities: { source: activities, fields: { group: { label: "Group" } } },
+    // The week's duties: the Roster's navigation writes the range; no chip picks the week.
+    duty: { source: byTime, range: "start" },
+    people: { source: staffIndex, search: ["name", "skills"], fields: { team: { label: "Group" }, skills: { label: "Skill" } } },
+    activities: { source: actIndex, fields: { group: { label: "Group" } } },
 }));
-const staffFit = $.let(Func.bind(d.staffFit));   // the app's fit: who fits a Find fix's need
-return <Roster weeks={weeks} slice={{ slice }} fit={staffFit}
-    people={Roster.people(staff.read(), { name: p => p.name, group: p => p.team, skills: p => p.skills })}
-    activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group })}
-    groups={cfg.groups} shifts={cfg.shifts}
-    library={[Roster.library.people(), Roster.library.activities()]} inspector />;
+// firms, times, teams, roles and ideas: the agencies, shift times, teams, positions and suggestions, each Data.bind.
+const fit = $.let(Func.bind(rosterStaffFit));   // the app's fit, below
+// pay and check: below.
+return <Roster week={{ start: "sunday" }} slice={{ slice }} fit={fit} pay={pay} currency="AUD" check={check} inspector
+    events={{ duty: Schedule.events(rota, {
+        name: "Duty", icon: "user-clock", entries,
+        start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+        shift: "shift", group: "team", position: "role", activity: "task",
+        // The hours a duty counts: its length less its unpaid break.
+        hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+        fields: { costCentre: Schedule.field.text({ label: "Cost centre" }), note: Schedule.field.text({ label: "Note" }) },
+    }) }}
+    resources={{
+        people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+            position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+            trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+        agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+    }}
+    periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
+    targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+    shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order })}
+    groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+    positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+    activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+    proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+    rules={{ rest: 10.0 }}
+    library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(roles.read(), {
+        name: "Positions", icon: "id-badge", label: p => p.label, meta: p => some(p.code),
+        drop: (_p, key) => Schedule.patch(WarehouseDuty, { role: key }),   // a card dropped on a duty sets its own field
+    })]} />;
+```
+
+Pay is the app's, in its own pay codes (#1368): an East function over one
+person's duties for the week, or one agency's requests, that returns each
+duty's cost by code. The Roster asks it a person at a time, again only for the
+people whose duties changed, and totals what it answers by duty, slot, day,
+week, person and code. The app's check is given those costs and each duty's
+own row:
+
+```tsx
+// Ordinary time up to the person's contracted hours in the week, OT1 past them, and an agency's hours at its own rate.
+const rateRows = $.let(Data.bind(rosterPayRates));
+const rates = $.const(rateRows.read());
+const pay = $.const(East.function([Roster.Types.PayRequest(WarehouseDuty)], Roster.Types.Pay, ($2, req) => {
+    const out = $2.let(new Map(), Roster.Types.Pay);
+    const zero = $2.const(0.0, FloatType);
+    const agency = $2.let(true, BooleanType);
+    const contract = $2.let(0.0, FloatType);
+    $2.match(req.who, { person: ($3, key) => {
+        $3.if(req.context.people.has(key), ($4) => {
+            const person = $4.const(req.context.people.get(key));
+            $4.assign(agency, person.agency);
+            $4.assign(contract, person.contract);
+        });
+    } });
+    const worked = $2.let(0.0, FloatType);
+    // The week's duties in time order, so the contract's hours run out where they do.
+    const ordered = $2.const(req.duties.toArray(($3, duty, key) => ({ key, duty })).sort(($3, d) => d.duty.start));
+    $2.for(ordered, ($3, d) => {
+        const costs = $3.let(new Map(), DictType(StringType, FloatType));
+        $3.if(agency, ($4) => {
+            $4(costs.insert("AGENCY", d.duty.hours.multiply(rates.get("AGENCY", () => 0.0))));
+        }).else(($4) => {
+            const ordinary = $4.const(East.max(East.min(d.duty.hours, contract.subtract(worked)), zero));
+            const over = $4.const(d.duty.hours.subtract(ordinary));
+            $4(costs.insert("ORD", ordinary.multiply(rates.get("ORD", () => 0.0))));
+            $4.if(East.greater(over, 0.0), ($5) => { $5(costs.insert("OT1", over.multiply(rates.get("OT1", () => 0.0)))); });
+        });
+        $3.assign(worked, worked.add(d.duty.hours));
+        $3(out.insert(d.key, costs));
+    });
+    return out;
+}));
+// The app's check sees the pay too: overtime on a duty nobody has agreed — a field of the warehouse's own row.
+const check = $.const(East.function([Roster.Types.CheckContext(WarehouseDuty)], ArrayType(Roster.Types.Issue), ($2, cx) => {
+    const issues = $2.let([], ArrayType(Roster.Types.Issue));
+    $2.for(cx.week.assignments, ($3, a, id) => {
+        const costs = $3.const(cx.pay.get(id, () => East.value(new Map(), DictType(StringType, FloatType))));
+        $3.if(costs.has("OT1").and(() => East.notEqual(a.row.agreed, some(true))), ($4) => {
+            $4(issues.pushLast({ kind: variant("breach", null), tone: variant("info", null),
+                title: "Overtime not agreed", detail: East.str`${a.row.team} · ${a.row.shift}`,
+                slot: some(a.slot), assignment: some(id), flag: some("OT"), fix: none }));
+        });
+    });
+    return issues;
+}));
 ```
 
 A Find fix (Find a lead, a trainer, skilled staff) asks the app's fit — an
@@ -2381,16 +2547,17 @@ A Find fix (Find a lead, a trainer, skilled staff) asks the app's fit — an
 issue's need on its slot, over the drafted week and every person, whatever
 the rail shows. The People tab shows its fits among what the rail shows, best
 first, each card with the fit's reason, under a chip that clears it; the
-renderer decides no one itself. A fit builds on the ready-made rule:
+renderer decides no one itself. A fit builds on the ready-made rule, over the
+app's duty row type:
 
 ```tsx
 // Module level: the warehouse's fit, on e3 — the ready-made rule, then the most spare contract hours first.
-export const staffFit = e3.function("roster_staff_fit", East.function([Roster.Types.FitRequest], Roster.Types.FitResult, ($, req) => {
-    const answer = $.const(Roster.answer);
-    const rule = $.const(Roster.fit);
-    const weekHours = $.const(Roster.weekHours);
+export const rosterStaffFit = e3.function("roster_staff_fit", East.function([Roster.Types.FitRequest(WarehouseDuty)], Roster.Types.FitResult, ($, req) => {
+    const answer = $.const(Roster.answer(WarehouseDuty));
+    const rule = $.const(Roster.fit(WarehouseDuty));
+    const weekHours = $.const(Roster.weekHours(WarehouseDuty));
     const hours = $.const(weekHours(req.week, req.context));
-    return answer(req, East.function([Roster.Types.FitRequest, Roster.Types.Person], Roster.Types.Fit, ($2, request, person) => {
+    return answer(req, East.function([Roster.Types.FitRequest(WarehouseDuty), Roster.Types.Person], Roster.Types.Fit, ($2, request, person) => {
         const verdict = $2.const(rule(request, person));
         $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
         const fits = $2.const(verdict.unwrap("fits"));
@@ -2401,103 +2568,213 @@ export const staffFit = e3.function("roster_staff_fit", East.function([Roster.Ty
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| **Builder and sources** | | |
-| `<Roster weeks people groups shifts activities? positions? agencies? rules? costs? forecast? proposals? check? fit? library? inspector? slice? window? week? view? density? chipSkills? requirements? readOnly? id? />` **❗** | Shifts day/week and People week. `weeks` is a `Record.bind` handle for `Roster.Types.Weeks` with its patch mutation. Empty literal groups/shifts, duplicate library tabs and missing write doors are refused, and so are `visiblePeople`, `duties` and groups that carry their skills, each naming the change. The renderer validates live configuration. | `rosterWarehouse`, `rosterMinimal` |
-| `Roster.people(rows: Dict<String, R>, { name, group, position?, skills?, contract?, agency?, trainer?, trainee?, usual? })` | Typed `(row, key)` accessors over bound staff: every person, the calculation scope. Original dictionary keys are assignment identities. | `rosterWarehouse` |
-| `Roster.activities(rows: Dict<String, A>, { label, code?, group?, order? })` **❗** | Every activity from a keyed activities record (`Roster.Types.Activity` rows, or the app's own through the accessors): a group's skills are the activities of that group, and an activity of no group is a duty every group may assign. `order` sets where each shows, lowest first, else the record's key order. Coverage and checks read every one. | `rosterWarehouse` |
-| `slice={{ slice: Slice.bindRecords(key, { people, activities }) }}` **❗** | One rail over the staff's and the activities' records: `people` narrows the grid's and the People layout's people, the People tab and the person choices; `activities` the Activities tab and the activity choices. Coverage, costs and rules read complete `people`, `activities` and the active week; filters never drop hidden drafts from Save. `Slice.bind`, a single `Slice.bindRecord` and a source of another name are refused. | `rosterWarehouse`, `rosterRecordIndexes` |
-| `window={Data.bindPaged(weeksRecord)}` | Reads only the active week, the previous copy source and the open picker's month; no full history download. The week is the Roster's own navigation and its picker, never a Slice. | `rosterWindowed`, `rosterRecordIndexes` |
-| `fit={Func.bind(fn: FunctionDef<[Roster.Types.FitRequest], Roster.Types.FitResult>)}` **❗** | The app's fit, beside `check`. A Find fix asks it who fits its issue's need on its slot, over the drafted week and the complete staff, whatever the rail shows; the People tab shows its fits among what the rail shows, best first, each card with the fit's reason, under a `Find · Leads` chip that clears it. One question is in flight at a time, answers are kept by question and drafts, and a find asks again when the drafts change. While asked, the fix reads `Finding…`; a failure is a warning banner, `Fits couldn't be checked`, with Retry. Omitted, no Find fix is offered, though `Roster.check` still reports the issue. A binding of another signature is refused, naming the type it asks or answers. | `rosterWarehouse`, `rosterRecordIndexes` |
+| **Builder and records** | | |
+| `<Roster events resources shifts groups periods? targets? positions? activities? proposals? pay? currency? rules? check? fit? slice? library? inspector? view? week? density? chipSkills? requirements? readOnly? id? />` **❗** | Shifts day/week and People week. Refused at build, each naming the change: a removed prop (below); `events` holding other than one kind; `resources` other than `people` and `agencies`; a duty kind whose resource names no `people`; a resource kind read a page at a time; a `people` kind with no `group`; `positions` beside a duty kind with no `position` role; `pay` without `currency`; a `pay`, a `check` or a `fit` over another row type; and a library tab listed twice. The renderer validates live configuration. | `rosterWarehouse`, `rosterMinimal` |
+| `events={{ duty: Schedule.events(Record.bind(duties, [patch]), { start, end, resource, shift, group, position?, activity?, hours?, fields?, inspector?, ready?, entries? }) }}` **❗** | Exactly one kind, the duties: a span kind of plain DateTime times, keyed by String. `resource` names a `people` key, or a variant whose cases name `people` and `agencies`: a person, or an agency asked to send someone. `hours` is what a duty counts for coverage, skill hours, contract hours, rest and pay; its length when omitted. The inspector shows a duty's times, position and activity, then the kind's form over the fields no role writes (`fields` hints) or the kind's own `inspector`; `ready` is the app's check on a draft. | `rosterWarehouse`, `rosterCustomInspector` |
+| `resources={{ people: Schedule.resources(rows, { name, icon, label, group, position?, skills?, contract?, agency?, trainer?, trainee?, usual? }), agencies?: Schedule.resources(rows, { name, icon, label }) }}` | Every person and agency, read whole: the calculation scope. A person's key is what a duty's resource holds; `group` is their home group. | `rosterWarehouse` |
+| `periods={Schedule.periods(Record.bind(weeks, [patch]), { every: "week", status, dismissed?, entries? })}` | The app's weeks, each keyed by its first day by the Roster's week start: the status chip, Publish and the picker's Published · Draft · Not started. `dismissed` keeps the proposals a week rejected; without it, a proposal offers Accept only. Without `periods`, no Publish. | `rosterWarehouse`, `rosterPublished` |
+| `targets={Roster.targets(Record.bind(cover, [patch]), { day, group, shift, positions, hours, inspector?, entries? })}` **❗** | The app's cover targets, a row per slot, which its forecast fills: `day` a DateTime (a UTC midnight), `group` and `shift` Strings, `positions` an Integer, `hours` a `Dict<String, Float>` by activity. A slot with no row has no target; a target edit on one inserts a row under a minted key, its other fields their type's default. `inspector` is the app's own form for one target. | `rosterWarehouse`, `rosterCustomInspector` |
+| `Roster.shifts(rows, { label, code, start, hours, order? })` · `Roster.groups(rows, { label, order? })` · `Roster.positions(rows, { label, code, lead, order? })` **❗** | The lists the Roster reads over the app's rows, each a `Dict` keyed by String, in its `order`, then key order. A shift's `start` is a `Schedule.Types.Clock` and its `hours` what a new duty runs and a skill holder's capacity; a position that leads satisfies the lead rule, which needs the duty kind's `position` role. An accessor returning another type is refused, naming what it returns. | `rosterWarehouse`, `rosterMinimal` |
+| `Roster.activities(rows, { label, code?, group?, order? })` | Every activity from a keyed activities record (`Roster.Types.Activity` rows, or the app's own through the accessors): a group's skills are the activities of that group, and an activity of no group is a duty every group may assign. Coverage and checks read every one. | `rosterWarehouse` |
+| `Roster.proposals(rows, { person, day, group, shift, reason })` | The app's suggestions, a person for a slot, each keyed by its row's key: Accept places the duty and keeps the key in the week's `dismissed`, one step; Reject keeps it there alone. A stale or already rostered proposal is hidden. | `rosterWarehouse` |
+| `slice={{ slice: Slice.bindRecords(key, { <duty slot>?, targets?, people?, activities?, <a tab's source>? }) }}` **❗** | One rail. The duty kind's source reads the week's duties through an interval index from `start` to `end`, `range: "start"`, the range the Roster's own navigation writes — no chip picks the week — the kind given `entries`; `targets` reads the week's targets the same way, `Roster.targets` given `entries`; `people` narrows the grid's and the People layout's people, the People tab and the person choices; `activities` the Activities tab and the activity choices. Without the duty source the duties are read whole. Coverage, pay and rules read every duty of the week and every person; filters never drop hidden drafts from Save. | `rosterWarehouse`, `rosterWindowed`, `rosterRecordIndexes` |
+| **Pay, checks and fits** | | |
+| `pay={fn(Roster.Types.PayRequest(R)) => Roster.Types.Pay}` + `currency` **❗** | The app's pay in its own codes: asked once per person with that person's duties for the week — `{ who, start, duties, context }` — and once per agency with its requests, each duty's cost by code back; asked again only for those whose duties, or whose duties' rows, changed. The Roster sums the costs by duty, slot, day, week, person and code, printed in `currency`; a call that throws is a warning banner naming the person, whose duties show no cost. Without `pay`, no costs show. | `rosterWarehouse` |
+| `check={fn(Roster.Types.CheckContext(R)) => Array<Roster.Types.Issue>}` | The app's issues after the built-in ones, over `{ start, week, context, coverage, pay }`: each assignment carries its duty's own row (`a.row`), so a check reads the app's own fields. | `rosterWarehouse` |
+| `fit={Func.bind(fn: FunctionDef<[Roster.Types.FitRequest(R)], Roster.Types.FitResult>)}` **❗** | The app's fit, beside `check`. A Find fix asks it who fits its issue's need on its slot, over the drafted week and the complete staff, whatever the rail shows; the People tab shows its fits among what the rail shows, best first, each card with the fit's reason, under a `Find · Leads` chip that clears it. One question is in flight at a time, answers are kept by question and drafts, and a find asks again when the drafts change. While asked, the fix reads `Finding…`; a failure is a warning banner, `Fits couldn't be checked`, with Retry. Omitted, no Find fix is offered, though `Roster.check` still reports the issue. A fit bound over another row type is refused, naming both. | `rosterWarehouse`, `rosterRecordIndexes` |
 | **Library and inspector** | | |
 | `Roster.library.people()` / `.activities()` | Shared Library cards, avatars, search and explicit placement, each tab following its source of the rail: it counts what it shows and, emptied, says so with Clear filters. Neither has a filter of its own: leads, trainers, agency and skill are rail fields of the staff record, and a Find fix's result — the app's fit's answer — is shown in the People tab, with a chip that clears it. Named staff and unnamed agency requests stay distinct. | `rosterWarehouse`, `rosterMobile` |
-| `Roster.library.tab(rows, { name, icon?, label, meta?, group?, drop?, source? })` **❗** | Reified typed card accessors over a bound dictionary, following the rail's `source` it names. `drop(row, key)` returns a typed assignment patch. Non-string card keys use East's canonical print. A `source` the slice lacks is refused. | `rosterWarehouse` |
-| `Roster.patch({ position?, activity?, offset?, overtime?, agreed? })` **❗** | A custom card's patch on a named assignment. `slot` and `who` cannot be patched. Runtime commands validate positions/activities and read-only state. | `rosterWarehouse` |
-| `inspector` or `inspector={{ assignment?, requirement? }}` | Shared typed forms by default. Custom East callbacks receive `(value, update)` and update through the same commands/session. | `rosterCustomInspector` |
+| `Roster.library.tab(rows, { name, icon?, label, meta?, group?, drop?, source? })` **❗** | Reified typed card accessors over a bound dictionary, following the rail's `source` it names. `drop(row, key)` returns `Schedule.patch(DutyRowType, { … })`: the duty's own fields a card dropped on it sets, as Plan's tabs do. A card never replaces a duty's person. A `source` the slice lacks is refused. | `rosterWarehouse` |
+| `inspector` | The end pane: a duty's times, position and activity, its kind's form or own `inspector`, and its costs by code; a slot's coverage and its targets, or `Roster.targets`' `inspector`. Every edit is a command of the same session as a drag or a card's action. | `rosterWarehouse`, `rosterCustomInspector` |
 | **Domain functions and values** | | |
-| `Roster.Types.{Weeks, Week, Status, Slot, Who, Assignment, Requirements, Requirement, Person, Activity, Group, Skill, Shift, Position, Agency, Rules, Costs, Context, Coverage, CoverageLine, Proposal, Issue, Fix, CheckContext, Need, FitRequest, FitResult, Fit, Refusal}` | Weeks are UTC DateTime-keyed dictionaries; assignments have stable string keys, a configured slot and a named person or agency request. Requirements hold positions and hours by activity. An `Activity` is an activities record's row, a `Skill` an activity resolved with its key, and a `Group` carries no skills. A `Need` (leads, trainers, a skill) is a Find fix's; a `FitRequest` is `{ need, slot, start, week, context, coverage }`, a `FitResult` `{ need, slot, people: Dict<String, Fit> }` echoing its question. `Fit` and `Refusal` are `Schedule.Types`', the Allocation's too. | `rosterWarehouse` |
-| `Roster.coverage(week, context)` | Pure East function: positions, named people, nominal/agency/overtime/requested hours, skill capacity/assigned hours, costs, leads and trainers for every configured slot. | `rosterCoverage` |
-| `Roster.check(week, context)` | Pure East checks: missing lead, double booking, within-week adjacent-day rest, trainee/trainer, skill compatibility, open positions/skill gaps and changed-hours agreement, with typed fix actions. | `rosterChecks` |
-| `Roster.fit(request: FitRequest, person: Person): Fit` | The ready-made rule: refused `Not a lead` / `Not a trainer` / `Not skilled` without the need, `Rostered` that day, `Rest too short` (its measure the rest); else it fits, scored by spare contract hours this week and a week's 168 more in the slot's group, its reason `Dispatch · 14 h spare` or `from Inbound · 2 h over contract`. | `rosterFitTrainer` |
-| `Roster.answer(request: FitRequest, rule: (FitRequest, Person) → Fit): FitResult` | A verdict per person of the complete staff from a rule, the need and the slot echoed: an `e3.function` fit's body. | `rosterAnswerLeads` |
-| `Roster.weekHours(week, context)` / `Roster.rest(assignment, id, week, context)` | Pure named-person totals and adjacent-day rest. Offset shifts start/end without reducing nominal hours; overtime extends the end. Unnamed requests supply no person/skill capacity. | `rosterWeekHours`, `rosterRest` |
+| `Roster.Types.{Week(R), Assignment(R), PayRequest(R), CheckContext(R), FitRequest(R), Pay, Status, Slot, Who, Requirements, Requirement, Person, Activity, Group, Skill, Shift, Position, Agency, Rules, Context, Coverage, CoverageLine, Proposal, Issue, Fix, Need, FitResult, Fit, Refusal, Clock}` | The Roster's reading of the app's rows, carried in requests and stored nowhere. Each `(R)` is a constructor of the app's duty row type: the same `R`, the same East type. An `Assignment(R)` is `{ slot, who, position, activity, start, end, hours, row }`, `row` the duty's own; a `Week(R)` `{ status, assignments, requirements, dismissed }`, its status Schedule's period status (`draft`, `published { at }` or `other`). `Pay` is duty key → pay code → cost. A `Need` (leads, trainers, a skill) is a Find fix's; a `FitResult` `{ need, slot, people: Dict<String, Fit> }` echoes its question. `Fit` and `Refusal` are `Schedule.Types`', the Allocation's too. | `rosterWarehouse`, `rosterCoverage` |
+| `Roster.coverage(R): (week, context, pay) => Dict<Slot, Coverage>` | Positions, named people, permanent, agency and requested hours — each duty's own hours — skill capacity and assigned hours, leads and trainers for every configured slot; its cost the app's pay summed, zero without it. Requests fill positions but never supply skills or a lead. | `rosterCoverage` |
+| `Roster.check(R): (week, context) => Array<Issue>` | The built-in checks: missing lead, double booking, within-week rest, trainee without trainer, skill compatibility, open positions and skill gaps, each with its fix — a rest breach's moves the duty to another shift of its day, or to a later start. | `rosterChecks` |
+| `Roster.fit(R): (request, person) => Fit` | The ready-made rule: refused `Not a lead` / `Not a trainer` / `Not skilled` without the need, `Rostered` that day, `Rest too short` (its measure the rest); else it fits, scored by spare contract hours this week and a week's 168 more in the slot's group, its reason `Dispatch · 14 h spare` or `from Inbound · 2 h over contract`. | `rosterFitTrainer` |
+| `Roster.answer(R): (request, rule: (FitRequest(R), Person) → Fit) => FitResult` | A verdict per person of the complete staff from a rule, the need and the slot echoed: an `e3.function` fit's body. | `rosterAnswerLeads` |
+| `Roster.weekHours(R): (week, context) => Dict<String, Float>` / `Roster.rest(R): (assignment, id, week, context) => Rest` | Each person's hours for the week, each duty's own; and a duty's rest before and after it, measured between the duties' own times. An agency's request has none. | `rosterWeeklyHours`, `rosterRest` |
 
-Every gesture is a shared Session transaction. Save patches the active week
-only; Publish includes the held draft and its status in one checked write.
-Lost responses stay unconfirmed and retry with the same identity. Published
-weeks are read-only. Copy into an unstarted week retains its forecast targets,
-mints assignment keys and resets changed hours/agreement. Proposals are
-accepted/dismissed into the week; a stale or already rostered proposal is hidden.
+A duty's day is the UTC day whose shift start is nearest its start, and its
+week the week holding that day. The Roster draws a duty's own times wherever
+they differ from its shift's (`05:00–15:00` on the 06:00–14:00 shift) and
+gives them no name and no worth — the app's `pay` does. Editing them keeps a
+duty within 12 hours of its shift's start, its end after its start. A move to
+another slot moves `start` and `end` with it, kept where they stood against
+the shift's start, and writes `shift` and `group`: a move and back leaves them
+as they were. A new duty runs its slot's shift, its other fields their type's
+default, under a key minted unique (`crypto.randomUUID()`); Copy previous week
+copies each duty of the week before at its shift's own times, its other fields
+as they were. A duty whose shift or group isn't configured, or that names no
+one, is listed in Issues and kept as stored, never placed.
+
+Every gesture is one step of one history over the duties', the weeks' and the
+targets' sessions: accepting a proposal records the duty and the dismissal
+together. Save sends each record's changes as its own request; a conflict or a
+refusal keeps that record's drafts and leaves the others' commits standing,
+and a lost response retries the same request. Drafts of every week stay in
+their sessions, and Save includes them. Publish saves first, then writes the
+week's status once every record reads back as saved; a failed save leaves the
+week a draft, its drafts kept. A published week is read-only in every layout.
 Below 480px of **main** width, Shifts and People use cards with explicit
-Assign/Move/Edit/Remove/Restore/Request/Accept/Reject/target actions and no DnD.
-The `rosterMobile` example demonstrates the complete inline authoring pattern.
+Assign/Move/Edit/Remove/Restore/Request/Accept/Reject/target actions and no
+drag. The `rosterMobile` example demonstrates the complete inline authoring
+pattern.
 
-## Allocation — a day's events booked into lane slots, each bin on its resources
+Removed with #1368, each still written refused at build, naming its
+replacement: `weeks` and `window` (`events={{ <slot>: Schedule.events(…) }}`
+and `periods`, the week's duties read through the slice's duty source);
+`people={Roster.people(…)}` and `agencies` as `Roster.Types.Agency` values
+(`resources={{ people, agencies }}`, `Schedule.resources` kinds); `groups`,
+`shifts` and `positions` as Roster values (`Roster.groups`, `Roster.shifts`,
+`Roster.positions` over the app's rows); `forecast` (`targets={Roster.targets(…)}`,
+a record of the app's that its forecast fills); proposals as
+`Roster.Types.Proposal` values (`Roster.proposals`); `inspector={{
+assignment, requirement }}` (the duty kind's own `inspector`, and
+`Roster.targets`' `inspector`); `Roster.patch` in a tab's `drop`
+(`Schedule.patch(DutyRowType, …)`); `costs` (`pay`, the app's East function in
+its own codes, and `currency`); and an assignment's `offset`, `overtime` and
+`agreed`, `rules.agree` and the agree issue and fix (the duty's own times and
+fields, the app's `pay` and its `check`). `Roster.Types.Weeks` and
+`Roster.Types.Costs` are gone: an app's weeks record becomes its own duties,
+weeks and targets records. `visiblePeople` and `duties` stay refused (#1342).
+
+The runnable examples `rosterMinimal`, `rosterWarehouse`, `rosterMobile`,
+`rosterPeople`, `rosterWeek`, `rosterWindowed`, `rosterPublished`,
+`rosterCustomInspector`, `rosterRecordIndexes` and `rosterRecordIndexesMobile`
+include their record declarations and seeds; `rosterCoverage`, `rosterChecks`,
+`rosterWeeklyHours`, `rosterRest`, `rosterFitTrainer` and `rosterAnswerLeads`
+run the pure functions over a small staff. Search those names in the example
+index.
+
+## Allocation — a day's arrivals booked into lane slots, each bin on its resources
 
 Import `Allocation` from `@elaraai/e3-ui`; the renderer is in
 e3-ui-components, and its BuilderFrame is internal. One `<Allocation>` books a
-day's events into timed lane slots — each lane takes a bin every `every`, an
+day's arrivals into timed lane slots — each lane takes a bin every `every`, an
 hour by default, at its offset past it — and allocates each bin's quantity to
 the resources with room and time for its hold, as a Timeline (the lane grid,
 the link channel and the resource rows) or a Table (a row per slot, in time
-bands). Its plans are one record of `Allocation.Types.Days(V)` — a day's plan
-per UTC midnight, over the app's bin values `V` — bound with its patch
-mutation: every gesture is a draft of the open day, Save writes the day as one
-patch, and Publish writes it published, read only from then on. Issues never
-block either. The events, the lanes and the resources are the app's own
-records, read whole with `Data.bind` and adapted through `Allocation.events`,
-`Allocation.lanes` and `Allocation.resources`, each accessor `(row, key) => …`.
-Fits, checks and totals read every lane, event and resource, whatever the rail
-shows.
+bands). It stores nothing in a shape of its own (#1365): it writes the app's
+bins through the bin kind's roles (`Schedule.events`, an instant kind), reads
+its lanes and resources (`Schedule.resources`) and what it books from
+(`Allocation.arrivals`), and publishes the app's days (`Schedule.periods`).
+Every gesture is a draft; Save sends each record's changes, and Publish saves,
+then writes the day published, read only from then on. Issues never block
+either. Fits, checks and totals read every lane, arrival and resource, and
+every bin of the day, whatever the rail shows.
+
+The smallest board — bins with only the board's roles, the bays, the kilns and
+the day's loads:
 
 ```tsx
-// Module level: the plans, one per UTC day over the yard's bin values, each patched whole.
-export const kilnPlans = e3.record("kiln_plans", Allocation.Types.Days(BinValues), yardPlans);
-export const kilnPlansPatch = e3.mutation.patch(kilnPlans);
-// Inside Reactive: the board saves through the plans' patch; what it reads whole binds with Data.bind.
-const days = $.let(Record.bind(kilnPlans, [kilnPlansPatch]));
+// Module level: the app's own bins; its loads (code, m3, dryingDays), kilns and bays are records of its own too.
+export const Bin = StructType({
+    bay: StringType, at: DateTimeType, load: OptionType(StringType),
+    m3: FloatType, kilns: DictType(StringType, FloatType), dryFor: TimeStepType,
+});
+export const bins = e3.record("bins", DictType(StringType, Bin), new Map());
+export const binsPatch = e3.mutation.patch(bins);
+// Inside Reactive:
+const rows = $.let(Record.bind(bins, [binsPatch]));
 const loads = $.let(Data.bind(arrivals));
 const yard = $.let(Data.bind(kilns));
 const bays = $.let(Data.bind(yardBays));
-const fit = $.let(Func.bind(yardFit));   // the yard's fit, on e3: below
+const fit = $.let(Func.bind(binFit));   // an e3.function from Allocation.Types.FitRequest(Bin), as the yard's fit below is over its own bins
+return <Allocation fit={fit}
+    events={{ bin: Schedule.events(rows, {
+        name: "Bin", icon: "box",
+        at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+        quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+    }) }}
+    resources={{
+        bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+        kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max, jobs: k => k.charges }),
+    }}
+    arrivals={Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) })} />;
+```
+
+The kiln yard's board over its own records — bins with the yard's spec and
+grade beside the board's roles, the days it publishes, a check over the bins'
+own fields, one rail and its library (`allocationKilnYard`):
+
+```tsx
+// Inside Reactive: what the board writes, each through its patch door.
+const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+const entries = $.let(Data.bindPaged(kilnBins));                                   // one bin by its key
+const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));     // interval: { from: "at", to: "at" }
+const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+// What it reads whole — every bay, kiln and load is the calculation scope — and their indexes for the rail.
+const yard = $.let(Data.bind(kilns));
+const loads = $.let(Data.bind(arrivals));
+const bays = $.let(Data.bind(yardBays));
 const bayIndex = $.let(Data.bindPaged(yardBays, { indexes: [yardBaysByArea] }));
 const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroup] }));
 const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
-// One rail, a source per record, each named after what it narrows.
+// One rail, a source named after each slot it narrows.
 const slice = $.let(Slice.bindRecords("ops.allocation", {
-    lanes: { source: bayIndex, fields: { area: { label: "Area" } } },
-    resources: { source: kilnIndex, fields: { group: { label: "Kiln group" } } },
-    events: { source: loadIndex, fields: { spec: { label: "Spec" } } },
+    bin: { source: byTime, range: "at" },     // the day's bins: the board's navigation writes the range
+    bays: { source: bayIndex, fields: { area: { label: "Area" } } },
+    kilns: { source: kilnIndex, fields: { group: { label: "Kiln group" } } },
+    arrivals: { source: loadIndex, fields: { spec: { label: "Spec" } } },
 }));
-return <Allocation days={days} fit={fit} slice={{ slice }} quantity={{ unit: "m³" }}
-    lanes={Allocation.lanes(bays.read(), { label: b => b.name, offset: b => b.offset })}
-    events={Allocation.events(loads.read(), {
-        label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
+const fit = $.let(Func.bind(yardFit));
+// The yard's check reads its own fields: a bin measured off its booked spec is flagged, never refused.
+const check = $.const(East.function([Allocation.Types.CheckContext(KilnBin)], ArrayType(Allocation.Types.Issue), ($2, cx) => {
+    const issues = $2.let([], ArrayType(Allocation.Types.Issue));
+    $2.for(cx.plan.bins, ($3, bin, id) => {
+        $3.match(bin.arrival, { some: ($4, code) => {
+            $4.if(East.notEqual(bin.row.specBooked, bin.row.specMeasured), ($5) => {
+                $5(issues.pushLast({ kind: variant("custom", "Spec mismatch"), tone: variant("neutral", null),
+                    title: East.str`${code} · bin ${id}`,
+                    detail: East.str`Spec booked ${bin.row.specBooked} · measured ${bin.row.specMeasured} · ${bin.lane} ${bin.at.printFormatted("HH:mm")}`,
+                    bin: some(id), resource: none, flag: some("≠ spec"), fix: none }));
+            });
+        } });
+    });
+    return issues;
+}));
+return <Allocation title="Kiln loading" fit={fit} check={check} slice={{ slice }} inspector
+    library={[Allocation.library.arrivals(), Allocation.library.resources()]}
+    view={{ layout: "timeline", date: new Date("2027-05-11T00:00:00Z") }}
+    events={{ bin: Schedule.events(bins, {
+        name: "Bin", icon: "box", entries,
+        at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+        quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+        fields: { specMeasured: Schedule.field.text({ label: "Spec measured" }), instruction: Schedule.field.text({ label: "Loading instruction" }) },
+    }) }}
+    resources={{
+        bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+        kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group, note: k => k.note,
+            min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges }),
+    }}
+    arrivals={Allocation.arrivals(loads.read(), {
+        label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec), due: l => some(l.due),
+        // A booked bin's own fields: the ones no role maps.
         values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
     })}
-    resources={Allocation.resources(yard.read(), {
-        label: k => k.name, group: k => some(k.group), min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges,
-    })}
-    columns={[{ key: "spec", label: "Spec", text: v => v.specMeasured }]}
-    library={[Allocation.library.events(), Allocation.library.resources()]} inspector
-    view={{ layout: "timeline", date: new Date("2027-05-11T00:00:00Z") }} />;
+    periods={Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } })}
+    columns={[
+        { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
+            tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
+    ]} />;
 ```
 
 The board computes no fit of its own. `fit` is the app's `e3.function`, bound
-with `Func.bind`, from `Allocation.Types.FitRequest(V)` — the plan day, its
-plan with the drafts, one question, and every event and resource — to
-`Allocation.Types.FitResult`. A question is a **place** — a bin or an event,
-with the quantity being placed: a verdict per resource — or a **take** — a
-resource: a verdict per bin, per event the plan has not booked, and one for
-reserving an empty slot. The answer echoes its question, and every rank,
-refusal and reason the board shows is its. A fit builds on the ready-made
-parts:
+with `Func.bind`, from `Allocation.Types.FitRequest(R)` — the plan day, the day
+as drafted with each bin's own row, one question, and every arrival and
+resource — to `Allocation.Types.FitResult`. A question is a **place** — a bin
+or an arrival, with the quantity being placed: a verdict per resource — or a
+**take** — a resource: a verdict per bin, per arrival the day has not booked,
+and one for reserving an empty slot. The answer echoes its question, and every
+rank, refusal and reason the board shows is its. A fit builds on the
+ready-made parts, over the app's bin row type:
 
 ```tsx
 // Module level: the built-in rules, then a greedy look-ahead over the day's other loads.
-export const yardFit = e3.function("yard_fit", East.function([Allocation.Types.FitRequest(BinValues)], Allocation.Types.FitResult, ($, req) => {
-    const answer = $.const(Allocation.answer(BinValues));
+export const yardFit = e3.function("yard_fit", East.function([Allocation.Types.FitRequest(KilnBin)], Allocation.Types.FitResult, ($, req) => {
+    const answer = $.const(Allocation.answer(KilnBin));
     const rule = $.const(Allocation.fit);
-    const ahead = $.const(Allocation.lookahead(BinValues));
+    const ahead = $.const(Allocation.lookahead(KilnBin));
     return answer(req, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(req, c, rule)),
         "ranked by load, kind and spare days, and what it leaves for the day's other loads");
 }));
@@ -2505,51 +2782,74 @@ export const yardFit = e3.function("yard_fit", East.function([Allocation.Types.F
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| **Builder and sources** | | |
-| `<Allocation days lanes events resources fit every? check? columns? slice? quantity? rules? library? inspector? view? horizon? title? publish? readOnly? labels? table? window? id? />` **❗** | One toolbar row at every width — the day's navigator, its picker marking each day Published · Draft · Not started; Table · Timeline; the status chip; the focus; the rail and its count; the issues; the history and Publish — folding into one View in the narrowest frame; then the Timeline or the Table, the panes the props ask for, and the footer's legend. Refused at build, each naming the change: `days` that is not a plans record, a `fit` bound over other bin values, empty `lanes`, `events` not from `Allocation.events`, a library tab or a column given twice, a `check` of another type, a `slice` that is not `Slice.bindRecords` over `lanes`, `resources` and `events`, an empty label, and Table bands that don't start at 0 and rise within the day. | `allocationMinimal`, `allocationKilnYard`, `allocationTable` |
-| `days={Record.bind(plans, [plansPatch])}` **❗** | The plans record, `e3.record(name, Allocation.Types.Days(V), seed)` with its `e3.mutation.patch`: what the board reads and saves through, a day an entry. Each day keeps its own drafts and history while the viewer moves between days. | `allocationMinimal` |
-| `window={Data.bindPaged(plans)}` **❗** | The same record with no index, for a long history: navigation reads the active day and the open picker's month only. A paged read of another type, an index's among them, is refused. | `allocationWindowed` |
-| `Allocation.events(rows: Dict<String, R>, { label, quantity, hold, values, kind?, meta?, due?, window?, details? })` **❗** | Every event the day may book. `values` is what a new bin of it starts with, reified at the plans' `V`, so an event can only start a bin the plans hold; `kind` is what it goes with; `due` before the day makes it overdue. A bin keeps the kind, hold and values it was booked with. | `allocationKilnYard` |
-| `Allocation.lanes(rows: Dict<String, R>, { label, offset? })` **❗** | Every lane, in the rows' key order, keyed by its row: it takes a bin each `every`, at `offset` past it. An `Array<Allocation.Types.Lane>` is taken as it is. | `allocationMinimal` |
-| `Allocation.resources(rows: Dict<String, R>, { label, min, max, group?, meta?, note?, hold?, jobs? })` **❗** | Every resource and its range in the quantity's unit. `jobs` is its other work: one covering the day's start makes it busy, the first after it is its next job; `hold` is how long a reservation on it is checked for. | `allocationKilnYard` |
-| `slice={{ slice: Slice.bindRecords(key, { lanes?, resources?, events? }) }}` **❗** | One rail in both layouts. Each source narrows every place its rows appear — the Timeline's lanes and rows, the Table's rows, the Choosers and the Library's tabs (`Resources 10 of 33`) — and the board reads each one's keys itself. The bare handle, `Slice.bind`, a single `Slice.bindRecord`, a source of another name and one keyed otherwise than by String are refused. | `allocationKilnYard`, `allocationTable` |
-| `check={fn(Allocation.Types.CheckContext(V)) => Array<Allocation.Types.Issue>}` **❗** | The app's issues, after the built-in ones wherever issues show; an issue's `flag` marks its bin's card (`≠ spec`). A neutral or info issue is listed, not counted. | `allocationKilnYard` |
-| `columns={[{ key, label, text: fn(V) => String, tone?: fn(V) => Option<StatusToken>, table? }]}` **❗** | The app's bin values as Table columns after the quantity, and as the inspector's rows; `table: false` shows one in the inspector only. | `allocationKilnYard` |
-| `labels={{ lane?, event?, resource?, quantity? }}` **❗** | The board's nouns everywhere it writes them, each `"Bay"` or `{ one, other?, article? }`; Lane, Event, Resource and `QTY` by default. | `allocationLabels` |
+| **Builder and records** | | |
+| `<Allocation events resources arrivals fit periods? every? check? columns? slice? rules? library? inspector? view? horizon? title? readOnly? labels? table? id? />` **❗** | One toolbar row at every width — the day's navigator, its picker marking each day Published · Draft · Not started; Table · Timeline; the status chip; the focus; the rail and its count; the issues; the history and Publish — folding into one View in the narrowest frame; then the Timeline or the Table, the panes the props ask for, and the footer's legend. Refused at build, each naming the change: a removed prop (below); `events` holding other than one kind; a bin kind with no lane or no parts; a resource kind that is neither the lanes' nor the resources'; resources read a page at a time or keyed by anything but String; a resources kind with no `min` or `max`; `arrivals` not from `Allocation.arrivals`, and its `values` of another struct than the bin kind's own fields; `periods` not from `Schedule.periods`; a `fit` bound over another row type, naming both; a `check` of another type; a library tab or a column given twice; an empty label; and Table bands that don't start at 0 and rise within the day. | `allocationMinimal`, `allocationKilnYard`, `allocationTable` |
+| `events={{ bin: Schedule.events(Record.bind(bins, [patch]), { at, resource: { field, of }, arrival, quantity: { field, unit? }, parts: { field, of }, hold, kind?, fields?, inspector?, ready?, entries? }) }}` **❗** | Exactly one kind, the bins: an instant kind keyed by String. A bin's UTC day is its plan day, and a batch's bins follow one minute apart. `resource` names its lane, a String key of the lanes' kind; `arrival` the arrival it books, `none` a reservation; `quantity`'s unit shows everywhere a quantity does; `parts` holds its quantity on each resource of the slot `of` names, empty while it is not linked; `hold` and `kind` are kept from booking. The inspector shows the kind's form over the fields no role writes (`fields` hints), or the kind's own `inspector`. | `allocationKilnYard`, `allocationCustomBin` |
+| `resources={{ <lanes>: Schedule.resources(rows, { name, icon, label, offset? }), <resources>: Schedule.resources(rows, { name, icon, label, min, max, group?, meta?, note?, hold?, jobs? }) }}` **❗** | The lanes' kind under the slot the bin kind's `resource.of` names, each lane taking a bin each `every` at its `offset` past it, in key order; the resources' kind under the slot its `parts.of` names, each with its range in the quantity's unit. `jobs` is a resource's other work: one covering the day's start makes it busy, the first after it is its next job; `hold` is how long a reservation on it is checked for. Both are read whole and keyed by String. | `allocationKilnYard` |
+| `arrivals={Allocation.arrivals(rows: Dict<String, R>, { label, quantity, hold, kind?, meta?, due?, window?, details?, values? })}` **❗** | Every arrival the day may book, each accessor `(row, key) => …`. Booking one writes the bin's roles — `arrival` its key, `quantity`, `kind` and `hold` from these accessors, `parts` empty, `at` and the lane where it is booked — and `values`' struct into the row's other fields: the bin kind's fields no role maps, held to them at build. Without `values` they take their type's default, as a reservation's always do. `due` before the day makes it overdue. | `allocationKilnYard` |
+| `periods={Schedule.periods(Record.bind(days, [patch]), { every: "day", status, entries? })}` | The app's days, each keyed by its UTC midnight: the status chip, Publish and the picker's Published · Draft · Not started. A published day is read only under its banner; navigation, the rail, the focus, links and the inspector still work. Without `periods`, no status chip and no Publish. | `allocationKilnYard`, `allocationPublished`, `allocationNoPublish` |
+| `slice={{ slice: Slice.bindRecords(key, { <bin slot>?, <lanes>?, <resources>?, arrivals? }) }}` **❗** | One rail in both layouts. The bin kind's source reads the day's bins through an interval index from `at` to `at`, `range: "at"`, the range the board's own navigation writes — no chip picks the day — the kind given `entries`; without it the bins are read whole. The lanes', the resources' and `arrivals` each narrow every place their rows appear — the Timeline's lanes and rows, the Table's rows, the Choosers and the Library's tabs (`Resources 10 of 33`) — and the board reads each one's keys itself. The summary counts the day's bins too (`26 of 33 bin events`). The bare handle, `Slice.bind`, a single `Slice.bindRecord`, a source of another name and one keyed otherwise than by String are refused. | `allocationKilnYard`, `allocationTable`, `allocationWindowed` |
+| `check={fn(Allocation.Types.CheckContext(R)) => Array<Allocation.Types.Issue>}` **❗** | The app's issues, after the built-in ones wherever issues show, over `{ day, plan, context, loads }`: each bin carries its own row (`bin.row`), so a check reads the app's own fields. An issue's `flag` marks its bin's card (`≠ spec`); a neutral or info issue is listed, not counted. | `allocationKilnYard` |
+| `columns={[{ key, label, text: fn(R) => String, tone?: fn(R) => Option<StatusToken>, table? }]}` **❗** | The app's bin fields as Table columns after the quantity, and as the inspector's rows, each over the bin's own row; `table: false` shows one in the inspector only. | `allocationKilnYard` |
+| `labels={{ lane?, arrival?, resource?, quantity? }}` **❗** | The board's nouns everywhere it writes them, each `"Bay"` or `{ one, other?, article? }`; Lane, Arrival, Resource and `QTY` by default. | `allocationLabels` |
 | `table={{ bands: [{ from, label? }] }}` **❗** | The Table's time bands, each from its hour to the next band's, the last to midnight; four by default. | `allocationLabels` |
-| `publish={false}` / `readOnly` | No status chip and no Publish; no edits. A published day is read only under its banner, and navigation, the rail, the focus, links and the inspector still work. | `allocationNoPublish`, `allocationPublished` |
-| `quantity={{ unit }}` · `rules={{ under }}` · `every` · `view={{ layout, date }}` · `horizon={{ before, after }}` · `title` · `id` | The quantity's unit; whether the built-in rules warn under a resource's minimum (true); the slot spacing; the first layout and day, then kept under `id`; the Timeline's resource axis around the day (3 days before, 10 after); the summary's heading; storage keys when a surface holds two boards. | `allocationKilnYard` |
+| `rules={{ under }}` · `every` · `view={{ layout, date }}` · `horizon={{ before, after }}` · `title` · `readOnly` · `id` | Whether the built-in rules warn under a resource's minimum (true); the slot spacing; the first layout and day, then kept under `id`; the Timeline's resource axis around the day (3 days before, 10 after); the summary's heading; no edits; storage keys when a surface holds two boards. | `allocationKilnYard` |
 | **Library and inspector** | | |
-| `Allocation.library.events()` / `.resources()` **❗** | The start pane's tabs, in order — Events: overdue, ready, removed from the plan, allocated; Resources: free, loading and busy today. Each card drags onto the board, or a click picks it and a click on a free lane hour books it; each tab follows its source of the rail. A tab listed twice is refused. | `allocationKilnYard` |
-| `inspector` / `inspector={{ bin }}` **❗** | The end pane, Details and Issues: what is selected — a bin with its Assigned to, each part's quantity, `Split…` (the remainder, or with none some of its largest part) and its other fits; a reservation; a free slot with what it can book and reserve; a resource — or the day's summary; and the day's issues, each with its fix. `bin` is the app's typed bin form in place of the quantity field and the value rows, `update(edited)` one draft; a function of another type is refused. | `allocationKilnYard`, `allocationCustomBin` |
+| `Allocation.library.arrivals()` / `.resources()` **❗** | The start pane's tabs, in order — Arrivals: overdue, ready around now, removed from the plan, allocated; Resources: free, loading and busy today. Each card drags onto the board, or a click picks it and a click on a free lane hour books it; each tab follows its source of the rail. A tab listed twice is refused. | `allocationKilnYard` |
+| `inspector` **❗** | The end pane, Details and Issues: what is selected — a bin with its Assigned to, each part's quantity, `Split…` (the remainder, or with none some of its largest part), its other fits and the kind's form, or the bin kind's own `inspector` (`update(edited)` one draft); a reservation; a free slot with what it can book and reserve; a resource — or the day's summary; and the day's issues, each with its fix. | `allocationKilnYard`, `allocationCustomBin` |
 | **The fit** | | |
-| `fit={Func.bind(fn: FunctionDef<[Allocation.Types.FitRequest(V)], Allocation.Types.FitResult>)}` **❗** | Required. The board asks for its active subject — the selected bin, a picked event, what a drag, a Chooser or Find a fit is for — and again when the drafts change, one question in flight at a time. While an answer is pending no verdict shows and a drop waits; a failure is the banner `Fits couldn't be checked`, with Retry. A fit bound over other bin values than the plans' is refused, naming both types. | `allocationMinimal`, `allocationFitRule` |
-| `Allocation.answer(V): (FitRequest(V), fit: fn(Candidate) => Fit, basis: String) => FitResult` | The question's candidates, each given a verdict by `fit`: a place's by resource, a take's by bin, by event and for reserving. `basis` is the answer's words for how it ranks. An app's fit's body. | `allocationAnswerPlace`, `allocationAnswerTake` |
+| `fit={Func.bind(fn: FunctionDef<[Allocation.Types.FitRequest(R)], Allocation.Types.FitResult>)}` **❗** | Required. The board asks for its active subject — the selected bin, a picked arrival, what a drag, a Chooser or Find a fit is for — and again when the drafts change, one question in flight at a time. While an answer is pending no verdict shows and a drop waits; a failure is the banner `Fits couldn't be checked`, with Retry. A fit bound over another row type than the bin kind's is refused, naming both types. | `allocationMinimal`, `allocationFitRule` |
+| `Allocation.answer(R): (FitRequest(R), fit: fn(Candidate) => Fit, basis: String) => FitResult` | The question's candidates, each given a verdict by `fit`: a place's by resource, a take's by bin, by arrival and for reserving. `basis` is the answer's words for how it ranks. An app's fit's body. | `allocationAnswerPlace`, `allocationAnswerTake` |
 | `Allocation.fit: (Candidate) => Fit` | The built-in rules, in order: busy (`busy until Fri 14`), a hold past the next job (`gap too short · next job Wed 19`), over max (`over max by 4 m³`), a reservation on a full resource (`full · …`). Else it fits, scored by its fill of the max, +0.25 beside a bin of its kind, −0.1 beside only others, −0.5 under the min and −0.04 a spare day up to six; its reason the spare days and the load it leaves (`1 d spare to Fri 21 · leaves 20 m³ · takes 10–24`), warning `under min` when `rules.under`. | `allocationRules` |
-| `Allocation.candidates(V): (FitRequest(V)) => Array<Candidate>` | A place's subject on every resource, in key order; a take's every bin (its unallocated quantity, with its part there), every event the plan has not booked, then a reservation. | `allocationRules` |
-| `Allocation.lookahead(V): (FitRequest(V), Candidate, fit: fn(Candidate) => Fit) => Fit` | A greedy look-ahead: it places the candidate, then the day's unbooked events largest first, each on its best fit, and lowers the score by one for each left with nowhere to go (`· leaves 1 load with no fit`); a refusal passes through. | `allocationLookahead` |
+| `Allocation.candidates(R): (FitRequest(R)) => Array<Candidate>` | A place's subject on every resource, in key order; a take's every bin (its unallocated quantity, with its part there), every arrival the day has not booked, then a reservation. | `allocationRules` |
+| `Allocation.lookahead(R): (FitRequest(R), Candidate, fit: fn(Candidate) => Fit) => Fit` | A greedy look-ahead: it places the candidate, then the day's unbooked arrivals largest first, each on its best fit, and lowers the score by one for each left with nowhere to go (`· leaves 1 load with no fit`); a refusal passes through. | `allocationLookahead` |
 | a rule over the ready-made fit | An `e3.function` that refuses what the app refuses, then gives `Allocation.fit`'s verdict: the board's ranks and reasons are its. | `allocationFitRule` |
 | **Domain functions and values** | | |
-| `Allocation.loads(V): (day, Day(V), Context) => Dict<String, Load>` | Every resource's fill, bins, hold and state on the day: free, loading or busy. | `allocationDayLoads` |
-| `Allocation.check(V): (day, Day(V), Context) => Array<Issue>` | The built-in checks — Not linked, Partly allocated, Overlaps the next job, Over max, and Under minimum when `rules.under` — each with its fix; the app's `check` follows them wherever issues show. | `allocationChecks` |
-| `Allocation.slots(V): (day, Day(V), Context) => Array<Slot>` | The day's lane slots, one per lane per `every`, in time then lane order, each free, booked or reserved, with its bins; a booking takes the first free one. | `allocationSlots` |
-| `Allocation.Types.{Lane, Status, Bin(V), Day(V), Days(V), Interval, Job, Detail, Event, Resource, Rules, Context, LoadState, Load, Candidate, Refusal, Fit, FitAsk, FitRequest(V), FitResult, Fix, IssueKind, Issue, CheckContext(V), SlotStatus, Slot, Layout}` | A type over a bin is a constructor of the app's `V`: the same `V`, the same East type. A bin is `{ lane, at, event, quantity, kind, hold, parts, values }`, `parts` its quantity on each resource, empty while it is not linked; a reservation has no event. `FitAsk` is `place { subject: bin \| event, quantity }` or `take { resource }`, and `FitResult` `{ ask, resources, bins, events, reserve, basis }`. `Fit` and `Refusal` are `Schedule.Types`', the Roster's too. | `allocationKilnYard`, `allocationAnswerTake` |
+| `Allocation.loads(R): (day, Day(R), Context) => Dict<String, Load>` | Every resource's fill, bins, hold and state on the day: free, loading or busy. | `allocationDayLoads` |
+| `Allocation.check(R): (day, Day(R), Context) => Array<Issue>` | The built-in checks — Not linked, Partly allocated, Overlaps the next job, Over max, and Under minimum when `rules.under` — each with its fix; the app's `check` follows them wherever issues show. | `allocationChecks` |
+| `Allocation.slots(R): (day, Day(R), Context) => Array<Slot>` | The day's lane slots, one per lane per `every`, in time then lane order, each free, booked or reserved, with its bins; a booking takes the first free one. | `allocationSlots` |
+| `Allocation.Types.{Lane, Status, Bin(R), Day(R), Interval, Job, Detail, Arrival, Resource, Rules, Context, LoadState, Load, Candidate, Refusal, Fit, FitAsk, FitRequest(R), FitResult, Fix, IssueKind, Issue, CheckContext(R), SlotStatus, Slot, Layout}` | The board's reading of the app's rows, carried in requests and stored nowhere. A type over a bin is a constructor of the app's bin row type: the same `R`, the same East type. A bin is `{ lane, at, arrival, quantity, kind, hold, parts, row }`, its roles beside the app's row, `parts` its quantity on each resource, empty while it is not linked; a reservation books no arrival. A day is `{ status, bins }`, its status Schedule's period status. `FitAsk` is `place { subject: bin \| arrival, quantity }` or `take { resource }`, and `FitResult` `{ ask, resources, bins, arrivals, reserve, basis }`. `Fit` and `Refusal` are `Schedule.Types`', the Roster's too. | `allocationKilnYard`, `allocationAnswerTake` |
 
 Every gesture — a drop, a Chooser's choice, a lane or a time step, a quantity,
-a split, a fix, Back to Events, Revert — is one undo step of the open day's
-session; Discard drops the day's drafts, and a write with no answer retries
-the same request. A bin's quantity may be split across resources: each part is
-its own link, and what the parts leave is unallocated — a Partly allocated
-issue, whose Find a fit asks the fit for the remainder and shows its fits in
-the Library's Resources tab, best first, each with the fit's reason, under a
-chip that clears it (`allocationSplit`). `Split…` is on every bin with
-something to split: it places the remainder, or, on a bin wholly on its
-resources, takes a quantity off its largest part — half of it by default —
-onto the resource chosen, one undo step (`allocationKilnYard`). Below 480px of
-main the Timeline is a card per resource and the Table a card per row, every
-action explicit — Book an event…, Move, Split…, Unlink and Back to Events;
-Book…, Reserve…, Allocate… and a whole bin's Split… — the same commands, the
-pickers in anchored popovers, and nothing drags (`allocationMobile`).
+a split, a fix, Back to Arrivals, Revert — is one step of one history over the
+bins' and the days' sessions. Discard drops every draft; Save sends each
+record's changes as its own request, and a write with no answer retries the
+same request. A changed bin's row is written through the bin kind's roles,
+every other field as it was; a new one's under a key minted unique
+(`crypto.randomUUID()`), a booking's other fields its arrival's `values` and a
+reservation's their defaults. Drafts of every day stay in their sessions, and
+Save includes them. Publish saves first, then writes the day's status once
+every record reads back as saved; a failed save leaves the day a draft, its
+drafts kept. A bin's quantity may be split across resources: each part is its
+own link, and what the parts leave is unallocated — a Partly allocated issue,
+whose Find a fit asks the fit for the remainder and shows its fits in the
+Library's Resources tab, best first, each with the fit's reason, under a chip
+that clears it (`allocationSplit`). `Split…` is on every bin with something to
+split: it places the remainder, or, on a bin wholly on its resources, takes a
+quantity off its largest part — half of it by default — onto the resource
+chosen, one step (`allocationKilnYard`). Below 480px of main the Timeline is a
+card per resource and the Table a card per row, every action explicit — Book
+an arrival…, Move, Split…, Unlink and Back to Arrivals; Book…, Reserve…,
+Allocate… and a whole bin's Split… — the same commands, the pickers in
+anchored popovers, and nothing drags (`allocationMobile`).
+
+Removed with #1371, each still written refused at build, naming its
+replacement: `days` and `window` (`events={{ <slot>: Schedule.events(…) }}`
+and `periods`, the day's bins read through the slice's bin source);
+`Allocation.Types.Days(V)` and the bin values `V` (the app's own bins and days
+records — `Bin(R)` and `Day(R)` carry the app's row as `row` where they
+carried `values`); `events={Allocation.events(…)}` and `Allocation.events`
+(`arrivals={Allocation.arrivals(…)}`); `Allocation.lanes` and
+`Allocation.resources`, and `lanes` and `resources` as values
+(`resources={{ <lanes>, <resources> }}`, `Schedule.resources` kinds under the
+app's own slots); `publish={false}` (leave `periods` out); `quantity={{ unit
+}}` (the `quantity` role's `unit`); `inspector={{ bin }}` (the bin kind's own
+`inspector`); and `labels.event` and `Allocation.library.events()`
+(`labels.arrival`, "Arrival" by default, and the Arrivals tab,
+`Allocation.library.arrivals()`). `Allocation.Types.Event` is
+`Allocation.Types.Arrival`, and `events` is `arrivals` in the context, the
+fit's ask and its result. The Allocation had shipped in no release, so no
+app's record moves.
 
 The runnable examples `allocationMinimal`, `allocationKilnYard`,
 `allocationTable`, `allocationLabels`, `allocationPublished`,
