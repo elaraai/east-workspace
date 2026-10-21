@@ -8,7 +8,8 @@
  * `Schedule.periods` are built over in Schedule's specs, which e3-ui-components
  * reads on e3 itself (#1379). Schedule draws nothing of its own — its kinds
  * are the Calendar's, the Plan's, the Roster's and the Allocation's, whose
- * examples show them — so this module declares records and no examples.
+ * examples show them — so this module declares records and no examples: a
+ * `.examples.ts` module, of which the showcase builds no page.
  *
  * - Calendar Spec §3.1's: shifts on people, maintenance jobs on machines with
  *   a backlog, inspections on a site or a machine, tasks whose estimates run in
