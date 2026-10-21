@@ -2,18 +2,28 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { test } from "node:test";
+
+/**
+ * The Allocation's tag (#1371, `Builder Interfaces Spec.md` §6.1, §2): what it
+ * refuses at build, each removed prop naming the form that replaces it (B4),
+ * and the examples, compiled. A payload's build reads the app's records — the
+ * bin kind's session, the lanes and the resources from their accessors — so
+ * what a payload holds is checked on e3 itself, in e3-ui-components; here,
+ * what is refused before anything is read, and the board's words and bands as
+ * the tag resolves them.
+ */
+import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, IntegerType, StringType, StructType, fromEastTypeValue, isTypeEqual, none, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
-import { Slice } from "@elaraai/east-ui";
+import * as EastUI from "@elaraai/east-ui";
+import { Slice, TimeStepType } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
-import { Allocation, type AllocationProps } from "@elaraai/e3-ui";
-import { AllocationPayloadType, Data, Func, Record, createAllocationPayload } from "@elaraai/e3-ui/internal";
-import { refusingPlatform } from "../refusing-platform.js";
-import { Bay, BinValues, TimberLoad, yardArrivals, yardBayRows, yardKilns, yardLanes } from "./kiln-yard.js";
+import { Allocation, Data, Schedule } from "@elaraai/e3-ui";
+import { AllocationPayloadType, Func, Record, allocationBands, allocationLabels, createAllocationPayload, type AllocationProps } from "@elaraai/e3-ui/internal";
+import { Kiln, KilnBin } from "./kiln-yard.js";
 import * as ex from "./allocation.examples.js";
 
 describeEast("Allocation — inline bound examples", test => {
@@ -25,151 +35,280 @@ describeEast("Allocation — inline bound examples", test => {
     });
 }, { platformFns: TestImpl });
 
-// The tag is built against a platform whose every binding refuses to read: what
-// its payload reads of e3 — the plans, as bytes — e3-ui-components' allocation
-// payload spec reads on e3 itself.
+/** The props over the kiln yard's records, its bins' row type theirs. */
+type Props = AllocationProps<typeof KilnBin>;
 
-/** The kiln yard's payload, built by the tag over the module's records. */
-function payloadWith(overrides: Partial<AllocationProps<typeof BinValues>> = {}) {
-    const fn = East.function([], AllocationPayloadType, $ => {
-        const days = $.let(Record.bind(ex.kilnPlans, [ex.kilnPlansPatch]));
-        const fit = $.let(Func.bind(ex.yardFit));
-        const loads = $.const(yardArrivals, DictType(StringType, TimberLoad));
-        const yard = $.const(yardKilns, ex.kilns.type);
-        return createAllocationPayload({
-            days, fit, lanes: yardLanes,
-            events: Allocation.events(loads, { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
-                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }) }),
-            resources: Allocation.resources(yard, { label: k => k.name, min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges }),
-            columns: [{ key: "spec", label: "Spec", text: v => East.equal(v.specBooked, v.specMeasured).ifElse(() => v.specMeasured, () => East.str`booked ${v.specBooked} · measured ${v.specMeasured}`) }],
-            ...overrides,
-        });
-    });
-    return East.compile(fn, refusingPlatform)();
+/** What the props over the kiln yard's records hold before a test changes them: the bins, the bays, the kilns, the loads and the fit. */
+interface Base {
+    /** The props. */
+    readonly props: Props;
+    /** The bins, bound with their patch door. */
+    readonly bins: unknown;
+    /** The kilns, bound. */
+    readonly yard: unknown;
 }
 
-test("Allocation is one tag: BuilderFrame, Builder and View are not part of its developer API, and its payload holds no UI", () => {
-    assert.equal("Builder" in Allocation, false); assert.equal("View" in Allocation, false);
-    const value = payloadWith();
-    assert.equal("frame" in value, false); assert.equal("children" in value, false);
-    assert.equal(value.sourceId, "kiln_plans");
-    assert.equal(value.fit.name, "yard_fit");
-    assert.ok(isTypeEqual(fromEastTypeValue(value.valuesType), BinValues));
-    assert.equal(value.events.length, 27); assert.equal(value.resources.length, 33);
-    assert.equal(value.library.length, 0); assert.equal(value.inspector.type, "none"); assert.equal(value.check.type, "none");
-    assert.equal(value.settings.title, "Allocation"); assert.equal(value.settings.publish, true); assert.equal(value.settings.layout.type, "timeline");
-    assert.ok(value.every.type === "hours" && value.every.value === 1);
-    assert.ok(value.settings.horizon.before.type === "days" && value.settings.horizon.before.value === 3);
-    assert.ok(value.settings.horizon.after.type === "days" && value.settings.horizon.after.value === 10);
-    assert.equal(value.rules.under, true);
-});
-
-test("a fit bound over other bin values is refused at build, naming both types", () => {
-    const OtherValues = StructType({ grade: StringType });
-    const otherFit = e3.function("other_fit", East.function([Allocation.Types.FitRequest(OtherValues)], Allocation.Types.FitResult, ($, req) => {
-        const answer = $.const(Allocation.answer(OtherValues));
-        const rule = $.const(Allocation.fit);
-        return answer(req, rule, "ranked");
-    }));
-    assert.throws(() => East.function([], AllocationPayloadType, $ => {
-        const days = $.let(Record.bind(ex.kilnPlans, [ex.kilnPlansPatch]));
-        const fit = $.let(Func.bind(otherFit));
-        return createAllocationPayload({
-            days, fit: fit as never, lanes: yardLanes, resources: [],
-            events: Allocation.events($.const(yardArrivals, DictType(StringType, TimberLoad)), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
-                values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade, gradeMeasured: l.grade, instruction: none }) }),
-        });
-    }), /`fit` is bound over bin values .*grade.*, and `days` holds bin values .*specBooked/);
-});
-
-test("the tag refuses empty lanes, a repeated library tab, a repeated column and a check of another type", () => {
-    assert.throws(() => payloadWith({ lanes: [] }), /`lanes` must not be empty/);
-    assert.throws(() => payloadWith({ library: [Allocation.library.events(), Allocation.library.events()] }), /duplicate library tab events/);
-    assert.throws(() => payloadWith({ columns: [
-        { key: "spec", label: "Spec", text: v => v.specBooked }, { key: "spec", label: "Again", text: v => v.specMeasured },
-    ] }), /duplicate column spec/);
-    assert.throws(() => payloadWith({ check: East.function([StringType], ArrayType(Allocation.Types.Issue), () => []) as never }), /`check` is an East function from Allocation.Types.CheckContext/);
-});
-
-test("the tag takes its library, inspector and settings as given", () => {
-    const value = payloadWith({
-        library: [Allocation.library.resources(), Allocation.library.events()], inspector: true, publish: false, title: "Kiln loading",
-        view: { layout: "table" }, every: variant("minutes", 30), horizon: { before: variant("days", 1), after: variant("days", 7) }, rules: { under: false },
-        quantity: { unit: "m³" }, id: "yard",
+/**
+ * Builds a payload's East function over the kiln yard's records, the props the
+ * test gives beside or in place of the base's — refused, if it is, as it is built.
+ */
+function payload(change: (base: Base) => Partial<Props> | Readonly<Record<string, unknown>> = () => ({})): void {
+    East.function([], AllocationPayloadType, ($) => {
+        const bins = $.let(Record.bind(ex.kilnBins, [ex.kilnBinsPatch]));
+        const loads = $.let(Data.bind(ex.arrivals));
+        const yard = $.let(Data.bind(ex.kilns));
+        const bays = $.let(Data.bind(ex.yardBays));
+        const fit = $.let(Func.bind(ex.yardFit));
+        const props: Props = {
+            fit,
+            events: { bin: Schedule.events(bins, {
+                name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+            }) },
+            resources: {
+                bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+                kilns: Schedule.resources(yard.read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max }),
+            },
+            arrivals: Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays) }),
+        };
+        return createAllocationPayload({ ...props, ...change({ props, bins, yard }) } as Props);
     });
-    assert.deepEqual(value.library.map(t => t.type), ["resources", "events"]);
-    assert.ok(value.inspector.type === "some" && value.inspector.value.bin.type === "none");
-    assert.equal(value.settings.publish, false); assert.equal(value.settings.title, "Kiln loading"); assert.equal(value.settings.layout.type, "table");
-    assert.ok(value.every.type === "minutes" && value.every.value === 30);
-    assert.equal(value.rules.under, false);
-    assert.ok(value.quantity.unit.type === "some" && value.quantity.unit.value === "m³");
-    assert.ok(value.id.type === "some" && value.id.value === "yard");
+}
+
+/** The kilns' kind, its accessors as given. */
+const kilnsKind = (base: Base, config: object) =>
+    Schedule.resources((base.yard as { read: () => never }).read(), { name: "Kilns", icon: "fire", label: (k: { name: unknown }) => k.name, ...config } as never);
+
+test("Allocation is one tag; BuilderFrame, Builder and View are not part of its developer API, and east-ui has no Allocation", () => {
+    assert.equal("Builder" in Allocation, false); assert.equal("View" in Allocation, false);
+    assert.equal("Allocation" in EastUI, false);
+    assert.doesNotThrow(() => payload());
 });
 
-test("Allocation.lanes reads the app's keyed rows as lanes, in key order, each lane keyed by its row", () => {
-    const lanes = East.compile(East.function([], ArrayType(Allocation.Types.Lane), $ => {
-        const bays = $.const(yardBayRows, DictType(StringType, Bay));
-        return Allocation.lanes(bays, { label: b => East.str`Bay ${b.name}`, offset: b => b.offset });
-    }), [])();
-    assert.deepEqual(lanes.map(lane => [lane.key, lane.label]), [["B-1", "Bay B-1"], ["B-2", "Bay B-2"], ["B-3", "Bay B-3"]]);
-    assert.deepEqual(lanes.map(lane => lane.offset), [variant("minutes", 15), variant("minutes", 35), variant("minutes", 55)]);
-    const bare = East.compile(East.function([], ArrayType(Allocation.Types.Lane), $ =>
-        Allocation.lanes($.const(yardBayRows, DictType(StringType, Bay)), { label: b => b.name })), [])();
-    assert.deepEqual(bare.map(lane => lane.offset), [variant("minutes", 0), variant("minutes", 0), variant("minutes", 0)], "no offset: on the slot");
-    assert.throws(() => Allocation.lanes(East.value([], ArrayType(Bay)) as never, { label: () => "" }), /a Dict keyed by String/);
+describe("the props §2 removed, each refused naming its replacement (B4)", () => {
+    test("`days` and `window`: the app's bins, its days, and the bin kind's source of the slice", () => {
+        assert.throws(() => payload(() => ({ days: {} })),
+            /Allocation: `days` is gone — the Allocation writes the app's own bins, events=\{\{ bin: Schedule\.events\(.*periods=\{Schedule\.periods\(.*every: "day"/);
+        assert.throws(() => payload(() => ({ window: {} })),
+            /Allocation: `window` is gone — the Allocation reads a day's bins through the bin kind's source of its slice, an interval index from `at` to `at`/);
+    });
+
+    test("`events` as Allocation.events: the bins are a Schedule.events kind, and what the board books from is `arrivals`", () => {
+        assert.throws(() => (Allocation.events as () => never)(),
+            /Allocation\.events is gone — what the board books from is arrivals=\{Allocation\.arrivals\(rows, \{ label, quantity, hold, … \}\)\}, and its `events` are its bins/);
+        assert.throws(() => payload(() => ({ events: East.value([], ArrayType(StringType)) as never })),
+            /Allocation: `events` holds the bins, one Schedule\.events kind — events=\{\{ bin: Schedule\.events\(.*\}\) \}\}; what the board books from is arrivals=\{Allocation\.arrivals/);
+    });
+
+    test("`lanes` and `resources` as values: the lanes' and the resources' Schedule.resources kinds", () => {
+        assert.throws(() => payload(() => ({ lanes: [] })), /Allocation: `lanes` moves to `resources`: resources=\{\{ <lanes>: Schedule\.resources\(.*offset/);
+        assert.throws(() => payload(() => ({ resources: East.value([], ArrayType(Allocation.Types.Resource)) as never })),
+            /Allocation: `resources` holds Schedule\.resources kinds by slot — the lanes' \(the bin kind's `resource\.of`\) and the resources' \(its `parts\.of`\).* — Allocation\.resources values are gone/);
+        assert.throws(() => (Allocation.lanes as () => never)(), /Allocation\.lanes is gone — the lanes are a Schedule\.resources kind under the slot the bin kind's `resource` names/);
+        assert.throws(() => (Allocation.resources as () => never)(), /Allocation\.resources is gone — the resources are a Schedule\.resources kind under the slot the bin kind's `parts` name/);
+    });
+
+    test("`publish` and `quantity`: the app's days, and the quantity role's unit", () => {
+        assert.throws(() => payload(() => ({ publish: false })), /Allocation: `publish` is gone — Publish is the app's own days, periods=\{Schedule\.periods\(.*leave `periods` out for no Publish/);
+        assert.throws(() => payload(() => ({ quantity: { unit: "m³" } })), /Allocation: `quantity` is gone — the unit is the bin kind's `quantity` role's: .*quantity: \{ field, unit: "m³" \}/);
+    });
+
+    test("`inspector={{ bin }}`: the bin kind's own inspector", () => {
+        assert.throws(() => payload(() => ({ inspector: { bin: undefined } })),
+            /Allocation: `inspector` is true or false — a bin's own form is the bin kind's `inspector` \(Schedule\.events\(record, \{ …, inspector \}\)\)/);
+        assert.doesNotThrow(() => payload(() => ({ inspector: true })));
+    });
+
+    test("`labels.event` and the Events tab: `labels.arrival` and the Arrivals tab", () => {
+        assert.throws(() => payload(() => ({ labels: { event: "Load" } as never })), /Allocation: `labels\.event` is gone — the board's noun for what it books is `labels\.arrival`, "Arrival" by default/);
+        assert.throws(() => (Allocation.library.events as () => never)(), /Allocation\.library\.events is gone — the Arrivals tab is Allocation\.library\.arrivals\(\)/);
+        assert.doesNotThrow(() => payload(() => ({ labels: { arrival: "Load" }, library: [Allocation.library.arrivals(), Allocation.library.resources()] })));
+    });
 });
 
-test("with no slice the board narrows nothing; a slice is Slice.bindRecords over lanes, resources and events, refused otherwise", () => {
-    const value = payloadWith();
-    assert.equal(value.slice.type, "none");
-    assert.deepEqual([value.narrowed.lanes.type, value.narrowed.resources.type, value.narrowed.events.type], ["none", "none", "none"]);
-    const bayIndex = Data.bindPaged(ex.yardBays, { indexes: [ex.yardBaysByArea] });
-    const kilnIndex = Data.bindPaged(ex.kilns, { indexes: [ex.kilnsByGroup] });
-    const loadIndex = Data.bindPaged(ex.arrivals, { indexes: [ex.arrivalsBySpec] });
-    // The narrowing builds over every source, and over any alone.
-    for (const sources of [{ lanes: { source: bayIndex } }, { resources: { source: kilnIndex } }, { events: { source: loadIndex } },
-        { lanes: { source: bayIndex }, resources: { source: kilnIndex }, events: { source: loadIndex } }]) {
-        assert.doesNotThrow(() => East.function([], AllocationPayloadType, $ => {
-            const days = $.let(Record.bind(ex.kilnPlans, [ex.kilnPlansPatch]));
-            const fit = $.let(Func.bind(ex.yardFit));
-            const slice = $.let(Slice.bindRecords("spec.yard", sources as never));
-            return createAllocationPayload({ days, fit, lanes: yardLanes, resources: [], slice: { slice },
-                events: Allocation.events($.const(yardArrivals, DictType(StringType, TimberLoad)), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
-                    values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade, gradeMeasured: l.grade, instruction: none }) }) });
+describe("the bins, the lanes and the resources", () => {
+    test("`events` holds one kind, the bins", () => {
+        assert.throws(() => payload((base) => ({ events: { bin: base.props.events.bin!, other: base.props.events.bin! } })),
+            /Allocation: `events` holds one kind, the bins — and it holds 2 \(bin, other\)/);
+        assert.throws(() => payload(() => ({ events: {} })), /Allocation: `events` holds the bins — events=\{\{ bin: Schedule\.events/);
+    });
+
+    test("`resources` holds the lanes' kind and the resources' kind, each read whole and keyed by String", () => {
+        assert.throws(() => payload((base) => ({ resources: { ...base.props.resources, presses: base.props.resources.bays! } })),
+            /Allocation: `resources` holds the lanes' kind \(`bays`, the slot events\.bin's resource names\) and the resources' kind \(`kilns`, the slot its parts name\) — and it holds `presses`/);
+        assert.throws(() => payload((base) => ({ resources: { bays: base.props.resources.bays! } })),
+            /Allocation: events\.bin's parts name the slot "kilns", and `resources` has no slot of that name \(bays\)/);
+        assert.throws(() => payload((base) => ({ resources: { kilns: base.props.resources.kilns! } })),
+            /Allocation: events\.bin's resource names the slot "bays", and `resources` has no slot of that name \(kilns\)/);
+        assert.throws(() => payload((base) => ({ resources: { ...base.props.resources,
+            kilns: Schedule.resources(Data.bindPaged(ex.kilns), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max }) } })),
+        /Allocation: resources\.kilns is read whole — fits, checks and totals read every one — so give the rows as a Dict/);
+        const numbered = e3.record("allocation_spec_numbered_kilns", DictType(IntegerType, Kiln), new Map());
+        assert.throws(() => payload((base) => ({ resources: { ...base.props.resources,
+            kilns: Schedule.resources(Data.bind(numbered).read(), { name: "Kilns", icon: "fire", label: k => k.name, min: k => k.min, max: k => k.max }) } })),
+        /Allocation: events\.bin's parts hold String keys of resources\.kilns, which is keyed by \.Integer — key the resources by String/);
+        assert.throws(() => payload((base) => ({ resources: { ...base.props.resources,
+            bays: Schedule.resources(Data.bindPaged(ex.yardBays), { name: "Bays", icon: "warehouse", label: b => b.name }) } })),
+        /Allocation: resources\.bays is read whole — the board draws every lane, and slots and checks read every one — so give the rows as a Dict/);
+    });
+
+    test("a resources kind with no `min` or `max` accessor is refused", () => {
+        const refusal = /Allocation: resources\.kilns gives each resource's `min` and `max` — Schedule\.resources\(kilns\.read\(\), \{ …, min: \(k\) => k\.min, max: \(k\) => k\.max \}\)/;
+        assert.throws(() => payload((base) => ({ resources: { ...base.props.resources, kilns: kilnsKind(base, { max: (k: { max: unknown }) => k.max }) } })), refusal);
+        assert.throws(() => payload((base) => ({ resources: { ...base.props.resources, kilns: kilnsKind(base, { min: (k: { min: unknown }) => k.min }) } })), refusal);
+    });
+
+    test("a bin kind that is no Allocation kind is refused: no lane, no parts, or a role it lacks, as its build names it", () => {
+        const kind = (base: Base, config: object) => ({ events: { bin: Schedule.events(base.bins as never, {
+            name: "Bin", icon: "box", at: "at", arrival: "load", quantity: { field: "m3" }, hold: "dryFor", ...config,
+        } as never) } });
+        assert.throws(() => payload((base) => kind(base, { parts: { field: "kilns", of: "kilns" } })),
+            /Allocation: events\.bin books each bin into one lane — give it a `resource`, a String field naming a key of the lanes' kind/);
+        assert.throws(() => payload((base) => kind(base, { resource: { field: "bay", of: "bays" } })),
+            /Allocation: events\.bin allocates each bin to resources — give it `parts`, a Dict of String to Float field and the resources' slot/);
+        assert.throws(() => payload((base) => kind(base, { resource: { field: "bay", of: "bays" }, parts: { field: "kilns", of: "kilns" }, arrival: undefined })),
+            /Schedule\.events: "Bin": the Allocation books a bin's `arrival` — give it/);
+    });
+
+    test("a bin kind whose lane field names a kind per case, or whose slots the slice would name twice, is refused", () => {
+        // A lane field with a case per kind: the board books each bin into one lane of one kind.
+        const Cased = StructType({
+            bay: VariantType({ north: StringType, south: StringType }), at: DateTimeType, load: OptionType(StringType), m3: FloatType,
+            kilns: DictType(StringType, FloatType), dryFor: TimeStepType,
+        });
+        const cased = e3.record("allocation_spec_cased_bins", DictType(StringType, Cased), new Map());
+        assert.throws(() => payload((base) => ({
+            events: { bin: Schedule.events(Record.bind(cased, [e3.mutation.patch(cased)]), {
+                name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: { north: "bays", south: "yards" } }, arrival: "load",
+                quantity: { field: "m3" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+            }) },
+            resources: { ...base.props.resources, yards: base.props.resources.bays! },
+        })), /Allocation: events\.bin books each bin into one lane — its `resource` is a String field naming a key of the lanes' kind, and this one names a kind per case \(bays, yards\)/);
+        // The slice names a source after the bins' slot, the lanes', the resources' and the arrivals, each once.
+        const twice = /Allocation: the slice names a source after the bins' slot \("(arrivals|bays)"\), the lanes' \("bays"\), the resources' \("kilns"\) and the arrivals/;
+        assert.throws(() => payload((base) => ({ events: { arrivals: base.props.events.bin! } })), twice);
+        assert.throws(() => payload((base) => ({ events: { bays: base.props.events.bin! } })), twice);
+    });
+
+    test("`arrivals` is Allocation.arrivals over the app's rows", () => {
+        assert.throws(() => payload(() => ({ arrivals: East.value([], ArrayType(Allocation.Types.Arrival)) as never })),
+            /Allocation: `arrivals` is Allocation\.arrivals\(rows, \{ label, quantity, hold, … \}\) over the app's rows — every arrival the day may book/);
+        assert.throws(() => payload(() => ({ arrivals: undefined as never })), /Allocation: `arrivals` is Allocation\.arrivals/);
+    });
+
+    test("an arrival's `values` builds the bin kind's own fields, the ones no role maps, or it is refused naming both", () => {
+        const loads = () => Data.bind(ex.arrivals).read();
+        assert.doesNotThrow(() => payload(() => ({ arrivals: Allocation.arrivals(loads(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
+            values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade, gradeMeasured: l.grade, instruction: l.instruction }) }) })));
+        assert.throws(() => payload(() => ({ arrivals: Allocation.arrivals(loads(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
+            values: l => ({ specBooked: l.spec }) }) })),
+        /Allocation\.arrivals: `values` returns a booked bin's own fields, the bin kind's fields no role maps — \.Struct \[.*gradeBooked.*\] — and this one returns/);
+    });
+});
+
+describe("the fit and the check, over the bins' row type", () => {
+    test("`fit` is Func.bind of an e3.function from FitRequest(R) to FitResult; one bound over another row type is refused, naming both", () => {
+        const Other = StructType({ grade: StringType });
+        const otherFit = e3.function("allocation_spec_other_bins", East.function([Allocation.Types.FitRequest(Other)], Allocation.Types.FitResult, ($, req) => {
+            const answer = $.const(Allocation.answer(Other));
+            const rule = $.const(Allocation.fit);
+            return answer(req, rule, "ranked");
         }));
-    }
-    const refused = (slice: unknown) => () => payloadWith({ slice: { slice: slice as never } });
-    assert.throws(refused(Slice.bindRecord("spec.single", kilnIndex)), /`slice` is Slice.bindRecords\(key, \{ lanes, resources, events \}\) — name each source after what it narrows/);
-    assert.throws(refused(Slice.bindRecords("spec.bays", { bays: { source: bayIndex } })),
-        /its source 'bays' is none of them; name the sources `lanes`, `resources` and `events`/);
-    const Numbered = DictType(IntegerType, StructType({ group: StringType }));
-    const numbered = e3.record("spec_numbered", Numbered, new Map());
-    const byGroup = e3.recordIndex("spec_numbered_by_group", numbered, { on: ["group"] });
-    assert.throws(refused(Slice.bindRecords("spec.numbered", { resources: { source: Data.bindPaged(numbered, { indexes: [byGroup] }) } })),
-        /String primary keys/);
+        assert.throws(() => payload(() => ({ fit: Func.bind(otherFit) as never })),
+            /Allocation: `fit` is bound over bin rows \.Struct \[.*grade.*\], and the bin kind's rows are \.Struct \[.*specBooked.*\] — bind a fit over Allocation\.Types\.FitRequest of the bins' row type/);
+        const answersText = e3.function("allocation_spec_answers_text", East.function([Allocation.Types.FitRequest(KilnBin)], StringType, () => "nowhere"));
+        assert.throws(() => payload(() => ({ fit: Func.bind(answersText) as never })), /Allocation: `fit` answers \.String, not Allocation\.Types\.FitResult/);
+        const asksText = e3.function("allocation_spec_asks_text", East.function([StringType], Allocation.Types.FitResult, () => ({
+            ask: variant("take", { resource: "K-101" }), resources: new Map(), bins: new Map(), arrivals: new Map(), reserve: none, basis: "none",
+        })));
+        assert.throws(() => payload(() => ({ fit: Func.bind(asksText) as never })), /Allocation: `fit` asks \.String, not Allocation\.Types\.FitRequest\(\.Struct \[/);
+        const notBound = /Allocation: `fit` is Func\.bind of the app's e3\.function from Allocation\.Types\.FitRequest\(R\) to Allocation\.Types\.FitResult, R the bins' row type/;
+        assert.throws(() => payload(() => ({ fit: East.value("yard_fit") as never })), notBound);
+        assert.throws(() => payload(() => ({ fit: undefined as never })), notBound);
+    });
+
+    test("`check` is an East function from CheckContext(R) to Array<Issue>", () => {
+        const fine = East.function([Allocation.Types.CheckContext(KilnBin)], ArrayType(Allocation.Types.Issue), () => []);
+        assert.doesNotThrow(() => payload(() => ({ check: fine })));
+        const otherRow = East.function([Allocation.Types.CheckContext(IntegerType)], ArrayType(Allocation.Types.Issue), () => []);
+        assert.throws(() => payload(() => ({ check: otherRow as never })), /Allocation: `check` is an East function from Allocation\.Types\.CheckContext\(\.Struct \[.*\]\) to Array<Allocation\.Types\.Issue>/);
+        assert.throws(() => payload(() => ({ check: East.function([StringType], ArrayType(Allocation.Types.Issue), () => []) as never })), /Allocation: `check` is an East function from Allocation\.Types\.CheckContext/);
+    });
 });
 
-test("labels: the board's nouns, resolved — regular plurals and articles by default, given ones kept, the quantity QTY", () => {
-    const defaults = payloadWith().labels;
-    assert.deepEqual(defaults, {
-        lane: { one: "Lane", other: "Lanes", article: "a" }, event: { one: "Event", other: "Events", article: "an" },
+describe("the narrowing, the library and the columns", () => {
+    const binSource = () => Data.bindPaged(ex.kilnBins, { indexes: [ex.kilnBinsByTime] });
+    const baySource = () => Data.bindPaged(ex.yardBays, { indexes: [ex.yardBaysByArea] });
+    const kilnSource = () => Data.bindPaged(ex.kilns, { indexes: [ex.kilnsByGroup] });
+    const loadSource = () => Data.bindPaged(ex.arrivals, { indexes: [ex.arrivalsBySpec] });
+    /** The bin kind given `entries`, read by key beside its source of the slice. */
+    const withEntries = (base: Base) => ({ bin: Schedule.events(base.bins as never, {
+        name: "Bin", icon: "box", entries: Data.bindPaged(ex.kilnBins), at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+        quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+    } as never) });
+
+    test("`slice` is Slice.bindRecords, a source named after the bin kind's slot, the lanes', the resources' and `arrivals`", () => {
+        assert.throws(() => payload(() => ({ slice: { slice: Slice.bind("spec.local", [{ name: "B-1" }], { fields: { name: { label: "Name" } } }) } as never })),
+            /Allocation: `slice` is Slice\.bindRecords\(key, \{ bin, bays, kilns, arrivals \}\) — name each source after what it narrows/);
+        assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.lanes", { lanes: { source: baySource() } }) } })),
+            /Allocation: `slice` narrows its bins \(bin\), its lanes \(bays\), its resources \(kilns\) and its arrivals — its source 'lanes' is none of them; name the sources `bin`, `bays`, `kilns` and `arrivals`/);
+        // The bins' source reads them through their interval index; without `entries` beside it, a bin is never read by its key.
+        assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.bin", { bin: { source: binSource(), range: "at" } }) } })),
+            /the builder's source "bin" reads only its narrowing — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it/);
+        // Each source alone, and every one together: the bins' source beside the kind's `entries`.
+        for (const sources of [{ bays: { source: baySource() } }, { kilns: { source: kilnSource() } }, { arrivals: { source: loadSource() } },
+            { bin: { source: binSource(), range: "at" } },
+            { bin: { source: binSource(), range: "at" }, bays: { source: baySource() }, kilns: { source: kilnSource() }, arrivals: { source: loadSource() } }]) {
+            assert.doesNotThrow(() => payload((base) => ({ ...("bin" in sources ? { events: withEntries(base) } : {}),
+                slice: { slice: Slice.bindRecords("spec.yard", sources as never) } })), Object.keys(sources).join(", "));
+        }
+    });
+
+    test("a library tab listed twice is refused, and so is a column key", () => {
+        assert.throws(() => payload(() => ({ library: [Allocation.library.arrivals(), Allocation.library.arrivals()] })), /Allocation: duplicate library tab arrivals/);
+        assert.throws(() => payload(() => ({ columns: [
+            { key: "spec", label: "Spec", text: (b: { specBooked: never }) => b.specBooked }, { key: "spec", label: "Again", text: (b: { specMeasured: never }) => b.specMeasured },
+        ] as never })), /Allocation: duplicate column spec/);
+        assert.doesNotThrow(() => payload(() => ({ columns: [{ key: "spec", label: "Spec", text: (b: { specBooked: never }) => b.specBooked }] as never })));
+    });
+
+    test("`periods` is Schedule.periods over the app's days, and a library tab one of the board's two", () => {
+        assert.throws(() => payload(() => ({ periods: {} as never })),
+            /Allocation: `periods` is what the board publishes, the app's days — periods=\{Schedule\.periods\(Record\.bind\(days, \[daysPatch\]\), \{ every: "day", status \}\)\}/);
+        assert.doesNotThrow(() => payload(() => ({ periods: Schedule.periods(Record.bind(ex.yardDays, [ex.yardDaysPatch]), {
+            every: "day", status: { field: "state", draft: "draft", published: "issued" },
+        }) })));
+        assert.throws(() => payload(() => ({ library: [{ kind: "events" }] as never })),
+            /Allocation: a library tab is Allocation\.library\.arrivals\(\) or Allocation\.library\.resources\(\) — and this one is events/);
+    });
+
+    test("table.bands and labels are refused at build, naming what is wrong", () => {
+        assert.throws(() => payload(() => ({ table: { bands: [] } })), /needs at least one band, from 0/);
+        assert.throws(() => payload(() => ({ table: { bands: [{ from: 6 }] } })), /first band starts at 0/);
+        assert.throws(() => payload(() => ({ labels: { arrival: " " } })), /`labels\.arrival` must not be empty/);
+    });
+});
+
+test("labels: the board's nouns, resolved — regular plurals and articles by default, given ones kept, what it books an Arrival, the quantity QTY", () => {
+    assert.deepEqual(allocationLabels(undefined), {
+        lane: { one: "Lane", other: "Lanes", article: "a" }, arrival: { one: "Arrival", other: "Arrivals", article: "an" },
         resource: { one: "Resource", other: "Resources", article: "a" }, quantity: "QTY",
     });
-    const yard = payloadWith({ labels: { lane: "Bay", event: "Order", resource: { one: "Bus", other: "Buses" }, quantity: "Volume" } }).labels;
-    assert.deepEqual(yard, {
-        lane: { one: "Bay", other: "Bays", article: "a" }, event: { one: "Order", other: "Orders", article: "an" },
+    assert.deepEqual(allocationLabels({ lane: "Bay", arrival: "Order", resource: { one: "Bus", other: "Buses" }, quantity: "Volume" }), {
+        lane: { one: "Bay", other: "Bays", article: "a" }, arrival: { one: "Order", other: "Orders", article: "an" },
         resource: { one: "Bus", other: "Buses", article: "a" }, quantity: "Volume",
     });
-    assert.deepEqual(payloadWith({ labels: { lane: { one: "Unit", article: "a" } } }).labels.lane, { one: "Unit", other: "Units", article: "a" });
-    assert.throws(() => payloadWith({ labels: { event: " " } }), /`labels.event` must not be empty/);
+    assert.deepEqual(allocationLabels({ lane: { one: "Unit", article: "a" } }).lane, { one: "Unit", other: "Units", article: "a" });
+    assert.deepEqual(allocationLabels({ arrival: { one: "Delivery", other: "Deliveries" } }).arrival, { one: "Delivery", other: "Deliveries", article: "a" });
+    assert.throws(() => allocationLabels({ event: "Load" } as never), /`labels\.event` is gone/);
 });
 
 test("table.bands: four by default; the app's own, from 0 and rising within the day, labelled or not; refused otherwise", () => {
-    assert.deepEqual(payloadWith().table.bands, [0, 6, 12, 18].map(from => ({ from, label: none })));
-    assert.deepEqual(payloadWith({ table: { bands: [{ from: 0, label: "Night" }, { from: 7.5 }, { from: 18, label: "Evening" }] } }).table.bands,
+    assert.deepEqual(allocationBands(undefined), [0, 6, 12, 18].map(from => ({ from, label: none })));
+    assert.deepEqual(allocationBands([{ from: 0, label: "Night" }, { from: 7.5 }, { from: 18, label: "Evening" }]),
         [{ from: 0, label: some("Night") }, { from: 7.5, label: none }, { from: 18, label: some("Evening") }]);
-    assert.throws(() => payloadWith({ table: { bands: [] } }), /needs at least one band, from 0/);
-    assert.throws(() => payloadWith({ table: { bands: [{ from: 6 }] } }), /first band starts at 0/);
-    assert.throws(() => payloadWith({ table: { bands: [{ from: 0 }, { from: 12 }, { from: 12 }] } }), /band 3 starts at 12, not after 12/);
-    assert.throws(() => payloadWith({ table: { bands: [{ from: 0 }, { from: 24 }] } }), /band 2 starts at 24: a band starts within the day/);
+    assert.throws(() => allocationBands([]), /needs at least one band, from 0/);
+    assert.throws(() => allocationBands([{ from: 6 }]), /first band starts at 0/);
+    assert.throws(() => allocationBands([{ from: 0 }, { from: 12 }, { from: 12 }]), /band 3 starts at 12, not after 12/);
+    assert.throws(() => allocationBands([{ from: 0 }, { from: 24 }]), /band 2 starts at 24: a band starts within the day/);
 });

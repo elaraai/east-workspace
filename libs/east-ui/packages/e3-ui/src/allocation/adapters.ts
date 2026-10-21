@@ -4,212 +4,307 @@
  */
 
 /**
- * The Allocation's adapters (`Allocation Spec.md` §4.1): an app's keyed rows
- * read as events, lanes and resources through accessors, `(row, key) => …`, each
- * reified once into one East function, as `Roster.people` does. The board
- * never writes the rows.
+ * The Allocation's adapters (#1371, `Builder Interfaces Spec.md` §6.1, §6.4):
+ * what the board books from, the app's keyed rows read as arrivals through
+ * accessors, `(row, key) => …`, each reified once into one East function and
+ * called per row, as `Schedule.resources` reifies its own; and the board's
+ * lanes and resources, built from their `Schedule.resources` kinds' accessors
+ * the same way. The board writes none of them: it writes the app's bins
+ * (`Schedule.events`) and its days (`Schedule.periods`).
+ *
+ * An arrival's `values` gives a bin booked from it the fields no role maps
+ * (B13). Those are the bin kind's, which only the tag holds, so `values` is
+ * reified there, at the bin kind's own fields (`allocationInitial`).
  *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BlobType, East, Expr, FunctionType, StringType, none, variant,
-    type DateTimeType, type DictType, type EastType, type ExprType, type FloatType, type OptionType, type SubtypeExprOrValue,
+    ArrayType, BlobType, DateTimeType, East, Expr, FloatType, FunctionType, OptionType, StringType, isSubtype, isTypeEqual, none, printType,
+    some, variant,
+    type DictType, type EastType, type ExprType, type StructType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import type { TimeStepType } from "@elaraai/east-ui";
-import { AllocationDetailType, AllocationEventType, AllocationIntervalType, AllocationJobType, AllocationLaneType, AllocationResourceType } from "./types.js";
+import { TimeStepType } from "@elaraai/east-ui";
+import { scheduleAccessor } from "../schedule/accessor.js";
+import type { ScheduleResourceKind } from "../schedule/resources.js";
+import { AllocationArrivalType, AllocationDetailType, AllocationIntervalType, AllocationLaneType, AllocationResourceType } from "./types.js";
 
-/** Brands an events declaration, so the tag knows one from any other object. @internal */
-export const ALLOCATION_EVENTS: unique symbol = Symbol("Allocation.events");
+/** Brands an arrivals declaration, so the tag knows one from any other value. @internal */
+export const ALLOCATION_ARRIVALS: unique symbol = Symbol("Allocation.arrivals");
 
 /**
- * Accessors reading an app's rows as events.
+ * One of an arrival's accessors: what it reads from the app's row and its key.
+ *
+ * @typeParam R - The app's row type
+ * @typeParam T - What it returns
+ */
+export type AllocationArrivalAccessor<R extends EastType, T extends EastType> = (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<T>;
+
+/**
+ * Accessors reading an app's rows as arrivals, what the board books from
+ * (§6.4).
  *
  * @typeParam R - The app's row type
  */
-export interface AllocationEventsConfig<R extends EastType> {
+export interface AllocationArrivalsConfig<R extends EastType> {
     /** Its code on cards, chips, captions and lists (`LD-2231`). */
-    label: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
-    /** Its quantity, booked whole unless split. */
-    quantity: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<FloatType>;
-    /** How long a resource holds a bin of it (`variant("days", 8)`). */
-    hold: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<typeof TimeStepType>;
-    /** The values a new bin of it starts with: the app's bin values, the plans' `V`. */
-    values: (row: ExprType<R>, key: ExprType<StringType>) => unknown;
-    /** What it goes with: a resource holding the same kind ranks it higher in `Allocation.fit`. */
-    kind?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** Its card's second line and the Table chip's tail (`RDG · R2 · spec MC12`). */
-    meta?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
+    label: AllocationArrivalAccessor<R, StringType>;
+    /** Its quantity, booked whole unless split: a bin booked from it takes it as its own. */
+    quantity: AllocationArrivalAccessor<R, FloatType>;
+    /** How long a resource holds a bin of it (`variant("days", 8)`): a bin booked from it keeps it. */
+    hold: AllocationArrivalAccessor<R, TimeStepType>;
+    /** What it goes with: a resource holding the same kind ranks it higher in `Allocation.fit`, and a bin booked from it keeps it. Omitted, none. */
+    kind?: AllocationArrivalAccessor<R, OptionType<StringType>>;
+    /** Its card's second line and the Table chip's tail (`BRK · R2 · spec MC12`). */
+    meta?: AllocationArrivalAccessor<R, OptionType<StringType>>;
     /** When it is due: overdue before the plan day. */
-    due?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<DateTimeType>>;
+    due?: AllocationArrivalAccessor<R, OptionType<DateTimeType>>;
     /** Its ready window, `[from, to)`. */
-    window?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<typeof AllocationIntervalType>>;
+    window?: AllocationArrivalAccessor<R, OptionType<AllocationIntervalType>>;
     /** Read-only lines in a bin's inspector (`Settings`). */
-    details?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<ArrayType<typeof AllocationDetailType>>;
+    details?: AllocationArrivalAccessor<R, ArrayType<AllocationDetailType>>;
+    /**
+     * A booked bin's own fields: the fields of the bin kind's row that no role maps, which a bin booked from it starts
+     * with (`(l) => ({ specBooked: l.spec, … })`). Omitted, each takes its type's default, as a reservation's always do.
+     */
+    values?: (row: ExprType<R>, key: ExprType<StringType>) => unknown;
 }
 
 /**
- * An events declaration: the app's rows and their accessors, resolved by the
- * tag at the plans' bin values.
+ * An arrivals declaration: the app's rows and their accessors, each reified
+ * once (`Allocation.arrivals`), and the `values` the tag reifies at the bin
+ * kind's own fields.
  */
-export interface AllocationEvents {
+export interface AllocationArrivals {
     /** The brand. */
-    readonly [ALLOCATION_EVENTS]: true;
-    /** The app's rows. */
+    readonly [ALLOCATION_ARRIVALS]: true;
+    /** Every arrival's row, by key. Erased, so arrivals of any rows are one declaration. */
     readonly rows: ExprType<DictType<StringType, EastType>>;
-    /** Their accessors. */
-    readonly config: AllocationEventsConfig<EastType>;
+    /** The rows' type. */
+    readonly rowType: EastType;
+    /** One arrival from its row and its key: its accessors, each reified once and called once. */
+    readonly arrival: ExprType<FunctionType<[EastType, StringType], AllocationArrivalType>>;
+    /** The author's `values`, reified by the tag at the bin kind's own fields; `undefined` without one. */
+    readonly values: ((row: ExprType<EastType>, key: ExprType<StringType>) => unknown) | undefined;
 }
 
+/** A kind's accessor's value for a row, or `otherwise` when the kind has no such accessor. */
+type Call = <T extends EastType>(fn: ExprType<FunctionType<[EastType, EastType], T>> | undefined, otherwise: SubtypeExprOrValue<T>) => SubtypeExprOrValue<T>;
+
 /**
- * Declares the events the day may book, read from the app's keyed rows.
+ * Declares what the board books from: the arrivals, read from the app's keyed
+ * rows (§6.4).
  *
  * @typeParam R - The app's row type
- * @param rows - Every event's row, by key — usually a record's `read()`
- * @param config - The accessors; `values` is what a new bin starts with
- * @returns The declaration `<Allocation events>` takes
- * @throws {Error} When the rows are not a Dict keyed by String
+ * @param rows - Every arrival's row, by key — usually a record's `read()`: fits, checks and the library read every one
+ * @param config - The accessors; `values`, a booked bin's own fields
+ * @returns The declaration `<Allocation arrivals>` takes
+ * @throws {Error} When the rows are not a Dict keyed by String, or an accessor returns another type than it takes, naming what it returns
  *
  * @remarks
- * The values' type is the plans' `V`: the tag reifies `values` at the type of
- * the record bound as `days`, so an event can only start a bin the plans hold.
- */
-export function allocationEvents<R extends EastType>(rows: ExprType<DictType<StringType, R>>, config: AllocationEventsConfig<R>): AllocationEvents {
-    const type = Expr.type(rows as unknown as Expr) as EastType;
-    if (type.type !== "Dict" || type.key.type !== "String") throw new Error("Allocation.events: the events must be a Dict keyed by String");
-    return { [ALLOCATION_EVENTS]: true, rows: rows as unknown as ExprType<DictType<StringType, EastType>>, config: config as unknown as AllocationEventsConfig<EastType> };
-}
-
-/**
- * Resolves an events declaration at the plans' bin values: every event, and
- * each event's starting values as bytes.
+ * Booking an arrival writes the bin's roles — `arrival` its key, `quantity`,
+ * `kind` and `hold` from these accessors, `parts` empty, `at` and `resource`
+ * where it is booked — and `values`' struct into the row's other fields.
  *
- * @param events - The declaration
- * @param values - The plans' bin values type
- * @returns The events, and `initial`, an East function from an event's key to its starting values as bytes at `values`
- * @throws {Error} When `values` does not build the plans' values
- * @internal
+ * @example
+ * ```tsx
+ * import { DictType, FloatType, StringType, StructType, variant } from "@elaraai/east";
+ * import { Allocation, Data } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * const Load = StructType({ code: StringType, m3: FloatType, dryingDays: FloatType });
+ * const loads = e3.record("loads", DictType(StringType, Load), new Map());
+ *
+ * // Inside the board's Reactive body: every load the day may book.
+ * const arrivals = Allocation.arrivals(Data.bind(loads).read(), { label: (l) => l.code, quantity: (l) => l.m3, hold: (l) => variant("days", l.dryingDays) });
+ * ```
  */
-export function resolveAllocationEvents(events: AllocationEvents, values: EastType): {
-    events: ExprType<ArrayType<typeof AllocationEventType>>; initial: ExprType<FunctionType<[StringType], BlobType>>;
-} {
-    const rows = events.rows;
-    const rowType = (Expr.type(rows as unknown as Expr) as DictType<StringType, EastType>).value;
-    const config = events.config;
-    const resolve = East.function([rowType, StringType], AllocationEventType, (_$, row, key) => ({
-        key, label: config.label(row, key), meta: config.meta?.(row, key) ?? none, quantity: config.quantity(row, key),
-        hold: config.hold(row, key), kind: config.kind?.(row, key) ?? none, due: config.due?.(row, key) ?? none,
-        window: config.window?.(row, key) ?? none, details: config.details?.(row, key) ?? [],
-    }));
-    let start: ExprType<FunctionType<[EastType, StringType], EastType>>;
-    try {
-        start = East.function([rowType, StringType], values, (_$, row, key) => config.values(row, key) as SubtypeExprOrValue<EastType>) as ExprType<FunctionType<[EastType, StringType], EastType>>;
-    } catch (cause) {
-        throw new Error(`Allocation.events: \`values\` must build the plans' bin values — ${(cause as Error).message}`);
+export function allocationArrivals<R extends EastType>(rows: ExprType<DictType<StringType, R>>, config: AllocationArrivalsConfig<R>): AllocationArrivals {
+    const where = "Allocation.arrivals";
+    const type = rows instanceof Expr ? Expr.type(rows as unknown as Expr) as EastType : undefined;
+    if (type === undefined || type.type !== "Dict" || !isTypeEqual(type.key as EastType, StringType)) {
+        throw new Error(`${where}: arrivals are a Dict keyed by String — a record's read() — and these are ${type === undefined ? "no East value" : printType(type)}`);
     }
+    const rowType = type.value as EastType;
+    const given = config as unknown as AllocationArrivalsConfig<EastType>;
+    for (const prop of ["label", "quantity", "hold"] as const) {
+        if (typeof given[prop] !== "function") throw new Error(`${where}: \`${prop}\` is an accessor, (row, key) => …, which the board reads of every arrival — give it`);
+    }
+    // Each accessor, one East function, called per row (`shared/reify.ts`' rule), held to the type it returns.
+    const accessor = <T extends EastType>(prop: string, out: T, what: string, fn: AllocationArrivalAccessor<EastType, NoInfer<T>> | undefined) =>
+        fn === undefined ? undefined
+            : scheduleAccessor(rowType, StringType, out, fn as (row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<T>,
+                (returns) => `${where}: \`${prop}\` returns ${what} — and this one returns ${returns}`);
+    const optString = OptionType(StringType);
+    const label = accessor("label", StringType, "a String, an arrival's code", given.label)!;
+    const quantity = accessor("quantity", FloatType, "a Float, an arrival's quantity", given.quantity)!;
+    const hold = accessor("hold", TimeStepType, "a TimeStep, how long a resource holds a bin of it", given.hold)!;
+    const kind = accessor("kind", optString, "an Option of a String, what an arrival goes with on a resource", given.kind);
+    const meta = accessor("meta", optString, "an Option of a String, an arrival's second line", given.meta);
+    const due = accessor("due", OptionType(DateTimeType), "an Option of a DateTime, when an arrival is due", given.due);
+    const window = accessor("window", OptionType(AllocationIntervalType), "an Option of an Allocation.Types.Interval, an arrival's ready window", given.window);
+    const details = accessor("details", ArrayType(AllocationDetailType), "an Array of Allocation.Types.Detail, the lines a bin's inspector shows", given.details);
+    // One arrival from its row: each accessor called once.
+    const arrival = East.function([rowType, StringType], AllocationArrivalType, ($, row, key) => {
+        const call: Call = (fn, otherwise) => {
+            if (fn === undefined) return otherwise;
+            const bound = $.const(fn);
+            return bound(row as never, key as never) as never;
+        };
+        const labelOf = $.const(label);
+        const quantityOf = $.const(quantity);
+        const holdOf = $.const(hold);
+        return {
+            key, label: labelOf(row as never, key as never), meta: call(meta, East.value(none, optString)),
+            quantity: quantityOf(row as never, key as never), hold: holdOf(row as never, key as never), kind: call(kind, East.value(none, optString)),
+            due: call(due, East.value(none, OptionType(DateTimeType))), window: call(window, East.value(none, OptionType(AllocationIntervalType))),
+            details: call(details, East.value([], ArrayType(AllocationDetailType))),
+        };
+    });
     return {
-        events: rows.toArray(($, row, key) => {
-            const adapt = $.const(resolve);
-            return adapt(row as never, key);
-        }),
-        initial: East.function([StringType], BlobType, ($, key) => {
-            const all = $.const(rows);
-            const startOf = $.const(start);
-            return East.Blob.encodeBeast(startOf(all.get(key), key), "v2");
-        }),
+        [ALLOCATION_ARRIVALS]: true,
+        rows: rows as unknown as ExprType<DictType<StringType, EastType>>,
+        rowType,
+        arrival: arrival as unknown as ExprType<FunctionType<[EastType, StringType], AllocationArrivalType>>,
+        values: given.values,
     };
 }
 
 /**
- * Accessors reading an app's rows as lanes.
+ * Whether a value is an arrivals declaration (`Allocation.arrivals`).
  *
- * @typeParam R - The app's row type
+ * @param value - What an app passed as `arrivals`
+ * @returns Whether it is one
+ * @internal
  */
-export interface AllocationLanesConfig<R extends EastType> {
-    /** Its name (`B-1`). */
-    label: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
-    /** How far past each slot's start its bins are booked (`variant("minutes", 15)`); none by default. */
-    offset?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<typeof TimeStepType>;
+export function isAllocationArrivals(value: unknown): value is AllocationArrivals {
+    return typeof value === "object" && value !== null && !(value instanceof Expr) && (value as { [ALLOCATION_ARRIVALS]?: unknown })[ALLOCATION_ARRIVALS] === true;
 }
 
 /**
- * Reads the app's keyed rows as lanes, every one of them.
+ * Every arrival, read from the app's rows through the declaration's
+ * accessors, each called once per row, in the rows' key order.
  *
- * @typeParam R - The app's row type
- * @param rows - Every lane's row, by key — usually a record's `read()`
- * @param config - The accessors
- * @returns Every lane, in the rows' key order; a lane's key is its row's
- * @throws {Error} When the rows are not a Dict keyed by String
- *
- * @remarks
- * The rows' keys are the lanes' keys: a `Slice.bindRecords` source named
- * `lanes` over the same record narrows the board by them. The accessors are
- * reified once into one East function, called per row.
+ * @param arrivals - The declaration
+ * @returns Every arrival
+ * @internal
  */
-export function allocationLanes<R extends EastType>(
-    rows: ExprType<DictType<StringType, R>>, config: AllocationLanesConfig<R>,
-): ExprType<ArrayType<typeof AllocationLaneType>> {
-    const type = Expr.type(rows);
-    if (type.type !== "Dict" || type.key.type !== "String") throw new Error("Allocation.lanes: the lanes must be a Dict keyed by String");
-    const resolve = East.function([type.value, StringType], AllocationLaneType, (_$, row, key) => ({
-        key, label: config.label(row, key), offset: config.offset?.(row, key) ?? variant("minutes", 0.0),
-    }));
-    return rows.toArray(($, row, key) => {
-        const adapt = $.const(resolve);
-        return adapt(row as unknown as SubtypeExprOrValue<R>, key);
+export function allocationArrivalsOf(arrivals: AllocationArrivals): ExprType<ArrayType<AllocationArrivalType>> {
+    const make = arrivals.arrival;
+    return arrivals.rows.toArray(($, row, key) => {
+        const arrivalOf = $.const(make);
+        return arrivalOf(row as never, key);
+    }) as unknown as ExprType<ArrayType<AllocationArrivalType>>;
+}
+
+/**
+ * The fields a bin booked from an arrival starts with, by the arrival's key:
+ * its `values`, as bytes at the bin kind's own fields (B13) — what the bin
+ * kind's `create` takes beside the bin's roles.
+ *
+ * @param arrivals - The declaration
+ * @param values - The bin kind's own fields, the ones no role maps (`allocationValues`)
+ * @returns An East function from an arrival's key to its starting fields as bytes at `values`; `none` for a key the arrivals do not hold, and for every key without `values`, so each field takes its type's default
+ * @throws {Error} When `values` returns another struct than `values`: a field missing, one the bin kind's own fields lack, or one of another type, naming both
+ * @internal
+ */
+export function allocationInitial(arrivals: AllocationArrivals, values: StructType): ExprType<FunctionType<[StringType], OptionType<BlobType>>> {
+    const given = arrivals.values;
+    if (given === undefined) {
+        return East.function([StringType], OptionType(BlobType), (_$, _key) => East.value(none, OptionType(BlobType)));
+    }
+    // What `values` returns, as East infers it from its own body: an object literal missing a field, or holding one the
+    // struct lacks, is a struct of another shape, refused naming both rather than read as East would convert it.
+    const inferred = (Expr.type(East.function([arrivals.rowType, StringType], undefined, (_$, row, key) =>
+        given(row, key) as ExprType<EastType>) as unknown as Expr) as FunctionType).output as EastType;
+    if (!isSubtype(inferred, values)) {
+        throw new Error(`Allocation.arrivals: \`values\` returns a booked bin's own fields, the bin kind's fields no role maps — ${printType(values)} — ` +
+            `and this one returns ${printType(inferred)}`);
+    }
+    const start = East.function([arrivals.rowType, StringType], values, (_$, row, key) => given(row, key) as SubtypeExprOrValue<EastType>);
+    const rows = arrivals.rows;
+    return East.function([StringType], OptionType(BlobType), ($, key) => {
+        const all = $.const(rows);
+        const startOf = $.const(start);
+        const result = $.let(none, OptionType(BlobType));
+        $.match(all.tryGet(key), {
+            some: ($2, row) => { $2.assign(result, some(East.Blob.encodeBeast(startOf(row as never, key), "v2"))); },
+        });
+        return result;
     });
 }
 
 /**
- * Accessors reading an app's rows as resources.
+ * The lanes, built from the lanes' resource kind's accessors, each called
+ * once per row, in key order (§6.2): each takes a bin each `every`, at its
+ * `offset` past the slot's start — on the slot itself without one.
  *
- * @typeParam R - The app's row type
+ * @param kind - The lanes' resource kind, read whole and keyed by String
+ * @returns Every lane
+ * @throws {Error} For a kind read a window at a time, which the tag refuses before it builds the lanes
+ * @internal
  */
-export interface AllocationResourcesConfig<R extends EastType> {
-    /** Its name (`K-203`). */
-    label: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
-    /** Its minimum, in the quantity's unit. */
-    min: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<FloatType>;
-    /** Its maximum. */
-    max: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<FloatType>;
-    /** Its group: its row's line, the Library's groups, the narrowing's field when indexed. */
-    group?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** Its free line (`Hall B · 40 m³`). */
-    meta?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** A line about its next job, after the inspector's next fill. */
-    note?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** How long a reservation on it is checked for, and how long it is held when it holds only reservations; no time by default. */
-    hold?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<typeof TimeStepType>;
-    /** Other work on it: a job covering the plan day's start makes it busy; one starting inside a hold is a short gap. */
-    jobs?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<ArrayType<typeof AllocationJobType>>;
+export function allocationLanesOf(kind: ScheduleResourceKind<EastType, EastType>): ExprType<ArrayType<AllocationLaneType>> {
+    if (kind.source === undefined) throw new Error("Allocation: the lanes' kind is read whole — give its rows as a Dict, usually a record's read()");
+    const { label, offset } = kind.accessors;
+    const lane = East.function([kind.rowType, kind.keyType], AllocationLaneType, ($, row, key) => {
+        const labelOf = $.const(label);
+        let at: SubtypeExprOrValue<TimeStepType>;
+        if (offset === undefined) {
+            at = variant("minutes", 0.0);
+        } else {
+            const offsetOf = $.const(offset);
+            at = offsetOf(row as never, key as never);
+        }
+        return { key: key as ExprType<StringType>, label: labelOf(row as never, key as never), offset: at };
+    });
+    return kind.source.toArray(($, row, key) => {
+        const make = $.const(lane);
+        return make(row as never, key as never);
+    }) as unknown as ExprType<ArrayType<AllocationLaneType>>;
 }
 
 /**
- * Reads the app's keyed rows as resources, every one of them.
+ * The resources, built from the resources' kind's accessors, each called once
+ * per row, in key order (§6.2): every resource, whatever the narrowing shows,
+ * as fits, checks and totals read them.
  *
- * @typeParam R - The app's row type
- * @param rows - Every resource's row, by key — usually a record's `read()`
- * @param config - The accessors
- * @returns Every resource, in the rows' key order
- * @throws {Error} When the rows are not a Dict keyed by String
- *
- * @remarks
- * Pass every resource: fits, checks and totals read all of them, whatever
- * the narrowing shows. The accessors are reified once into one East
- * function, called per row.
+ * @param kind - The resources' kind, read whole and keyed by String, with `min` and `max`
+ * @returns Every resource; one with no `group` has none, no `note` none, no `hold` no time, and no `jobs` none
+ * @throws {Error} For a kind read a window at a time, or with no `min` or `max`, which the tag refuses before it builds the resources
+ * @internal
  */
-export function allocationResources<R extends EastType>(
-    rows: ExprType<DictType<StringType, R>>, config: AllocationResourcesConfig<R>,
-): ExprType<ArrayType<typeof AllocationResourceType>> {
-    const type = Expr.type(rows);
-    if (type.type !== "Dict" || type.key.type !== "String") throw new Error("Allocation.resources: the resources must be a Dict keyed by String");
-    const resolve = East.function([type.value, StringType], AllocationResourceType, (_$, row, key) => ({
-        key, label: config.label(row, key), group: config.group?.(row, key) ?? none, meta: config.meta?.(row, key) ?? none,
-        note: config.note?.(row, key) ?? none, min: config.min(row, key), max: config.max(row, key),
-        hold: config.hold?.(row, key) ?? variant("days", 0.0), jobs: config.jobs?.(row, key) ?? [],
-    }));
-    return rows.toArray(($, row, key) => {
-        const adapt = $.const(resolve);
-        return adapt(row as unknown as SubtypeExprOrValue<R>, key);
+export function allocationResourcesOf(kind: ScheduleResourceKind<EastType, EastType>): ExprType<ArrayType<AllocationResourceType>> {
+    const a = kind.accessors;
+    const { min, max } = a;
+    if (kind.source === undefined || min === undefined || max === undefined) {
+        throw new Error("Allocation: the resources' kind is read whole and gives each resource's `min` and `max` — Schedule.resources(rows, { …, min, max })");
+    }
+    const resource = East.function([kind.rowType, kind.keyType], AllocationResourceType, ($, row, key) => {
+        const call: Call = (fn, otherwise) => {
+            if (fn === undefined) return otherwise;
+            const bound = $.const(fn);
+            return bound(row as never, key as never) as never;
+        };
+        const labelOf = $.const(a.label);
+        const metaOf = $.const(a.meta);
+        const minOf = $.const(min);
+        const maxOf = $.const(max);
+        let group: SubtypeExprOrValue<OptionType<StringType>>;
+        if (a.group === undefined) {
+            group = none;
+        } else {
+            const groupOf = $.const(a.group);
+            group = some(groupOf(row as never, key as never));
+        }
+        return {
+            key: key as ExprType<StringType>, label: labelOf(row as never, key as never), group, meta: metaOf(row as never, key as never),
+            note: call(a.note, East.value(none, OptionType(StringType))), min: minOf(row as never, key as never), max: maxOf(row as never, key as never),
+            hold: call(a.hold, East.value(variant("days", 0.0), TimeStepType)), jobs: call(a.jobs, East.value([], AllocationResourceType.fields.jobs)),
+        };
     });
+    return kind.source.toArray(($, row, key) => {
+        const make = $.const(resource);
+        return make(row as never, key as never);
+    }) as unknown as ExprType<ArrayType<AllocationResourceType>>;
 }

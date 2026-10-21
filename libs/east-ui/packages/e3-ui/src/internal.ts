@@ -589,8 +589,8 @@ export * from "./roster/times.js";
 export * from "./roster/lists.js";
 export * from "./roster/targets.js";
 
-// The Allocation's renderer contracts and its pure functions, which the
-// renderer compiles over the plans' bin values.
+// The Allocation's renderer contracts, its adapters and its pure functions,
+// which the renderer compiles over the bins' row type (#1371).
 export * from "./allocation/index.js";
 export * from "./allocation/types.js";
 export * from "./allocation/functions.js";

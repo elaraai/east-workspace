@@ -2,14 +2,17 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { ArrayType, DictType, East, IntegerType, SortedMap, StringType, StructType, compareFor, example, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, example, none, some, variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
 import { Allocation } from "@elaraai/e3-ui";
 
-/** What a bin carries of the yard's own: the grade measured on arrival. */
-export const GradeValues = StructType({ grade: StringType });
-/** One day's plan over those values, and one of its bins. */
-export const GradeDay = Allocation.Types.Day(GradeValues);
-export const GradeBin = Allocation.Types.Bin(GradeValues);
+/** A bin of a small yard's own: its bay, its time and its load, and the grade measured on arrival, which the board carries but never reads. */
+export const GradeBin = StructType({ bay: StringType, at: DateTimeType, load: OptionType(StringType), grade: StringType });
+/** One day of the yard's bins as the board reads them, and one of its bins. */
+export const GradeDay = Allocation.Types.Day(GradeBin);
+export const GradeBoardBin = Allocation.Types.Bin(GradeBin);
 
 const byString = compareFor(StringType);
 /** The plan day: Tue 11 May 2027. */
@@ -18,7 +21,7 @@ export const planDay = new Date("2027-05-11T00:00:00Z");
 export const context: ValueTypeOf<typeof Allocation.Types.Context> = {
     lanes: [{ key: "B-1", label: "B-1", offset: variant("minutes", 15) }, { key: "B-2", label: "B-2", offset: variant("minutes", 35) }],
     every: variant("hours", 1),
-    events: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Event>>([
+    arrivals: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Arrival>>([
         ["L-1", { key: "L-1", label: "L-1", meta: none, quantity: 12, hold: variant("days", 8), kind: some("MC12"), due: none, window: none, details: [] }],
         ["L-2", { key: "L-2", label: "L-2", meta: none, quantity: 30, hold: variant("days", 6), kind: some("MC14"), due: none, window: none, details: [] }],
         ["L-3", { key: "L-3", label: "L-3", meta: none, quantity: 8, hold: variant("days", 9), kind: some("MC12"), due: none, window: none, details: [] }],
@@ -35,21 +38,21 @@ export const context: ValueTypeOf<typeof Allocation.Types.Context> = {
 /** Tue 11's plan: L-1's 12 m³ in B-1 at 06:15, on K-1. */
 export const plan: ValueTypeOf<typeof GradeDay> = {
     status: variant("draft", null),
-    bins: new SortedMap<string, ValueTypeOf<typeof GradeBin>>([
-        ["b1", { lane: "B-1", at: new Date("2027-05-11T06:15:00Z"), event: some("L-1"), quantity: 12, kind: some("MC12"), hold: variant("days", 8),
-            parts: new SortedMap<string, number>([["K-1", 12]], byString), values: { grade: "R1" } }],
+    bins: new SortedMap<string, ValueTypeOf<typeof GradeBoardBin>>([
+        ["b1", { lane: "B-1", at: new Date("2027-05-11T06:15:00Z"), arrival: some("L-1"), quantity: 12, kind: some("MC12"), hold: variant("days", 8),
+            parts: new SortedMap<string, number>([["K-1", 12]], byString), row: { bay: "B-1", at: new Date("2027-05-11T06:15:00Z"), load: some("L-1"), grade: "R1" } }],
     ], byString),
 };
 /** The same day with two more bins drafted: L-2's 30 m³ with 26 on K-2, and L-3's 8 m³ on no kiln yet. */
 export const drafted: ValueTypeOf<typeof GradeDay> = {
     status: variant("draft", null),
-    bins: new SortedMap<string, ValueTypeOf<typeof GradeBin>>([
-        ["b1", { lane: "B-1", at: new Date("2027-05-11T06:15:00Z"), event: some("L-1"), quantity: 12, kind: some("MC12"), hold: variant("days", 8),
-            parts: new SortedMap<string, number>([["K-1", 12]], byString), values: { grade: "R1" } }],
-        ["b2", { lane: "B-2", at: new Date("2027-05-11T07:35:00Z"), event: some("L-2"), quantity: 30, kind: some("MC14"), hold: variant("days", 6),
-            parts: new SortedMap<string, number>([["K-2", 26]], byString), values: { grade: "U1" } }],
-        ["b3", { lane: "B-1", at: new Date("2027-05-11T09:15:00Z"), event: some("L-3"), quantity: 8, kind: some("MC12"), hold: variant("days", 9),
-            parts: new SortedMap<string, number>([], byString), values: { grade: "P2" } }],
+    bins: new SortedMap<string, ValueTypeOf<typeof GradeBoardBin>>([
+        ["b1", { lane: "B-1", at: new Date("2027-05-11T06:15:00Z"), arrival: some("L-1"), quantity: 12, kind: some("MC12"), hold: variant("days", 8),
+            parts: new SortedMap<string, number>([["K-1", 12]], byString), row: { bay: "B-1", at: new Date("2027-05-11T06:15:00Z"), load: some("L-1"), grade: "R1" } }],
+        ["b2", { lane: "B-2", at: new Date("2027-05-11T07:35:00Z"), arrival: some("L-2"), quantity: 30, kind: some("MC14"), hold: variant("days", 6),
+            parts: new SortedMap<string, number>([["K-2", 26]], byString), row: { bay: "B-2", at: new Date("2027-05-11T07:35:00Z"), load: some("L-2"), grade: "U1" } }],
+        ["b3", { lane: "B-1", at: new Date("2027-05-11T09:15:00Z"), arrival: some("L-3"), quantity: 8, kind: some("MC12"), hold: variant("days", 9),
+            parts: new SortedMap<string, number>([], byString), row: { bay: "B-1", at: new Date("2027-05-11T09:15:00Z"), load: some("L-3"), grade: "P2" } }],
     ], byString),
 };
 
@@ -62,7 +65,7 @@ export const allocationDayLoads = example({
         ["K-3", { resource: "K-3", fill: 0, bins: 0n, hold: none, state: variant("busy", null) }],
     ], byString),
     fn: East.function([GradeDay, Allocation.Types.Context], DictType(StringType, Allocation.Types.Load), ($, plan, context) => {
-        const loads = $.const(Allocation.loads(GradeValues));
+        const loads = $.const(Allocation.loads(GradeBin));
         return loads(planDay, plan, context);
     }),
 });
@@ -76,9 +79,9 @@ export const allocationRules = example({
         variant("refused", { group: "Busy", reason: "busy until Fri 14", measure: variant("day", { lead: "until", at: new Date("2027-05-14T00:00:00Z") }) }),
     ],
     fn: East.function([GradeDay, Allocation.Types.Context], ArrayType(Allocation.Types.Fit), ($, plan, context) => {
-        const candidates = $.const(Allocation.candidates(GradeValues));
+        const candidates = $.const(Allocation.candidates(GradeBin));
         const rule = $.const(Allocation.fit);
-        const request = $.const({ day: planDay, plan, ask: variant("place", { subject: variant("event", "L-2"), quantity: 30 }), context }, Allocation.Types.FitRequest(GradeValues));
+        const request = $.const({ day: planDay, plan, ask: variant("place", { subject: variant("arrival", "L-2"), quantity: 30 }), context }, Allocation.Types.FitRequest(GradeBin));
         return candidates(request).map(($2, candidate) => rule(candidate));
     }),
 });
@@ -87,34 +90,34 @@ export const allocationAnswerPlace = example({
     description: "Allocation.answer over the built-in rules, placing L-3's 8 m³: a verdict per resource — K-1 fits best, beside a bin of its kind with a day spare before its next charge; K-2 fits under its minimum, a warning; K-3 refused busy",
     keywords: ["Allocation", "Allocation.answer", "Allocation.fit", "fit", "place", "FitRequest", "FitResult", "under min", "e3.function"], inputs: [plan, context],
     returns: {
-        ask: variant("place", { subject: variant("event", "L-3"), quantity: 8 }),
+        ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }),
         resources: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([
             ["K-1", variant("fits", { score: 1.0433333333333334, why: "1 d spare to Fri 21 · leaves 20 m³ · takes 10–24", warn: none })],
             ["K-2", variant("fits", { score: -0.49, why: "open gap · leaves 8 m³ · min 20 · 12 short", warn: some("under min") })],
             ["K-3", variant("refused", { group: "Busy", reason: "busy until Fri 14", measure: variant("day", { lead: "until", at: new Date("2027-05-14T00:00:00Z") }) })],
         ], byString),
         bins: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
-        events: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
+        arrivals: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
         reserve: none, basis: "ranked by load, kind and spare days",
     },
     fn: East.function([GradeDay, Allocation.Types.Context], Allocation.Types.FitResult, ($, plan, context) => {
-        const answer = $.const(Allocation.answer(GradeValues));
+        const answer = $.const(Allocation.answer(GradeBin));
         const rule = $.const(Allocation.fit);
-        const request = $.const({ day: planDay, plan, ask: variant("place", { subject: variant("event", "L-3"), quantity: 8 }), context }, Allocation.Types.FitRequest(GradeValues));
+        const request = $.const({ day: planDay, plan, ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }), context }, Allocation.Types.FitRequest(GradeBin));
         return answer(request, rule, "ranked by load, kind and spare days");
     }),
 });
 
 export const allocationAnswerTake = example({
-    description: "Allocation.answer for a take — what can K-1 take: a verdict for its bin, one for each event the plan has not booked (L-2 over its max, L-3 beside a bin of its kind) and one for reserving an empty slot",
-    keywords: ["Allocation", "Allocation.answer", "Allocation.fit", "fit", "take", "reserve", "FitResult", "bins", "events"], inputs: [plan, context],
+    description: "Allocation.answer for a take — what can K-1 take: a verdict for its bin, one for each arrival the plan has not booked (L-2 over its max, L-3 beside a bin of its kind) and one for reserving an empty slot",
+    keywords: ["Allocation", "Allocation.answer", "Allocation.fit", "fit", "take", "reserve", "FitResult", "bins", "arrivals"], inputs: [plan, context],
     returns: {
         ask: variant("take", { resource: "K-1" }),
         resources: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
         bins: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([
             ["b1", variant("fits", { score: 0.42, why: "2 d spare to Fri 21 · leaves 12 m³ · takes 10–24", warn: none })],
         ], byString),
-        events: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([
+        arrivals: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([
             ["L-2", variant("refused", { group: "Over max", reason: "over max by 18 m³", measure: variant("amount", { lead: "by", value: 18 }) })],
             ["L-3", variant("fits", { score: 1.0433333333333334, why: "1 d spare to Fri 21 · leaves 20 m³ · takes 10–24", warn: none })],
         ], byString),
@@ -122,9 +125,9 @@ export const allocationAnswerTake = example({
         basis: "ranked by load, kind and spare days",
     },
     fn: East.function([GradeDay, Allocation.Types.Context], Allocation.Types.FitResult, ($, plan, context) => {
-        const answer = $.const(Allocation.answer(GradeValues));
+        const answer = $.const(Allocation.answer(GradeBin));
         const rule = $.const(Allocation.fit);
-        const request = $.const({ day: planDay, plan, ask: variant("take", { resource: "K-1" }), context }, Allocation.Types.FitRequest(GradeValues));
+        const request = $.const({ day: planDay, plan, ask: variant("take", { resource: "K-1" }), context }, Allocation.Types.FitRequest(GradeBin));
         return answer(request, rule, "ranked by load, kind and spare days");
     }),
 });
@@ -133,21 +136,21 @@ export const allocationLookahead = example({
     description: "Allocation.lookahead over the built-in rules, as a fit's body: placing L-3 on K-2 would leave L-2 with nowhere to go, so that fit drops by one and says so; K-1's leaves room for L-2 on K-2 and stands",
     keywords: ["Allocation", "Allocation.lookahead", "Allocation.answer", "Allocation.fit", "greedy", "look-ahead", "fit", "e3.function"], inputs: [plan, context],
     returns: {
-        ask: variant("place", { subject: variant("event", "L-3"), quantity: 8 }),
+        ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }),
         resources: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([
             ["K-1", variant("fits", { score: 1.0433333333333334, why: "1 d spare to Fri 21 · leaves 20 m³ · takes 10–24", warn: none })],
             ["K-2", variant("fits", { score: -1.49, why: "open gap · leaves 8 m³ · min 20 · 12 short · leaves 1 load with no fit", warn: some("under min") })],
             ["K-3", variant("refused", { group: "Busy", reason: "busy until Fri 14", measure: variant("day", { lead: "until", at: new Date("2027-05-14T00:00:00Z") }) })],
         ], byString),
         bins: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
-        events: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
+        arrivals: new SortedMap<string, ValueTypeOf<typeof Allocation.Types.Fit>>([], byString),
         reserve: none, basis: "ranked by load, kind and spare days, and what it leaves for the day's other loads",
     },
     fn: East.function([GradeDay, Allocation.Types.Context], Allocation.Types.FitResult, ($, plan, context) => {
-        const answer = $.const(Allocation.answer(GradeValues));
+        const answer = $.const(Allocation.answer(GradeBin));
         const rule = $.const(Allocation.fit);
-        const ahead = $.const(Allocation.lookahead(GradeValues));
-        const request = $.const({ day: planDay, plan, ask: variant("place", { subject: variant("event", "L-3"), quantity: 8 }), context }, Allocation.Types.FitRequest(GradeValues));
+        const ahead = $.const(Allocation.lookahead(GradeBin));
+        const request = $.const({ day: planDay, plan, ask: variant("place", { subject: variant("arrival", "L-3"), quantity: 8 }), context }, Allocation.Types.FitRequest(GradeBin));
         return answer(request, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(request, c, rule)),
             "ranked by load, kind and spare days, and what it leaves for the day's other loads");
     }),
@@ -163,7 +166,7 @@ export const allocationChecks = example({
             bin: some("b2"), resource: none, flag: none, fix: some(variant("find", null)) },
     ],
     fn: East.function([GradeDay, Allocation.Types.Context], ArrayType(Allocation.Types.Issue), ($, plan, context) => {
-        const check = $.const(Allocation.check(GradeValues));
+        const check = $.const(Allocation.check(GradeBin));
         return check(planDay, plan, context);
     }),
 });
@@ -173,7 +176,7 @@ export const allocationSlots = example({
     keywords: ["Allocation", "Allocation.slots", "slots", "lanes", "booked", "free", "reserved"], inputs: [plan, context],
     returns: { slots: 48n, held: [{ lane: "B-1", at: new Date("2027-05-11T06:15:00Z"), status: variant("booked", null), bins: ["b1"] }] },
     fn: East.function([GradeDay, Allocation.Types.Context], StructType({ slots: IntegerType, held: ArrayType(Allocation.Types.Slot) }), ($, plan, context) => {
-        const slots = $.const(Allocation.slots(GradeValues));
+        const slots = $.const(Allocation.slots(GradeBin));
         const all = $.const(slots(planDay, plan, context));
         return { slots: all.size(), held: all.filter(($2, slot) => slot.status.hasTag("free").not()) };
     }),

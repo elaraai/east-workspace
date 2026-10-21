@@ -4,13 +4,16 @@
  */
 
 /**
- * The Allocation's East types (`Allocation Spec.md` §5.1): a day's plan of
- * bins booked into lane slots and allocated to resources, the events and
- * resources an app gives the board, and the fit's question and answer.
+ * The Allocation's East types (#1371, `Builder Interfaces Spec.md` §6.3). A
+ * day is the board's reading of the app's own rows — each bin the app's row,
+ * with the roles the board reads from it — carried in the fit's and the
+ * check's requests and in the renderer, and stored nowhere: the bins and the
+ * days are the app's records. Beside them, the arrivals and resources an app
+ * gives the board, and the fit's question and answer.
  *
- * The plans are generic over the app's bin values `V`, so each type that holds
- * a bin is a constructor of `V`: the same `V` gives the same East type
- * (`isTypeEqual`), so a record declared once matches the board and the fit.
+ * The types over a day take the app's bin row type, `R`: each is a
+ * constructor, and the same `R` gives the same East type (`isTypeEqual`), so a
+ * row type declared once matches the board's bin kind and the fit's request.
  *
  * @packageDocumentation
  */
@@ -20,17 +23,17 @@ import {
     VariantType, type EastType,
 } from "@elaraai/east";
 import { StatusTokenType, TimeStepType } from "@elaraai/east-ui";
-import { ScheduleFitType, ScheduleRefusalType } from "../schedule/types.js";
+import { ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType } from "../schedule/types.js";
 
 // ============================================================================
-// The plans
+// The day, as the board reads it
 // ============================================================================
 
 /**
  * A lane: it takes one bin each `every` (an hour by default), at its offset
  * past it.
  *
- * @property key - Its key, what a bin's `lane` names
+ * @property key - Its key, what a bin's lane names: its row's key in the lanes' resource kind
  * @property label - Its name (`B-1`)
  * @property offset - How far past each slot's start its bins are booked (`minutes 15`)
  */
@@ -40,88 +43,80 @@ export const AllocationLaneType = StructType({ key: StringType, label: StringTyp
 export type AllocationLaneType = typeof AllocationLaneType;
 
 /**
- * A day's stored status.
+ * A day's status: Schedule's period status, read from the app's days record
+ * (`Schedule.periods`).
  *
- * @property draft - The day is a draft
- * @property published - The day is published, read-only, at this instant
+ * @property draft - An editable day
+ * @property published - A read-only day, and when it was published when the app's published case holds the time
+ * @property other - Another case of the app's status, by its name: read-only
  */
-export const AllocationStatusType = VariantType({ draft: NullType, published: StructType({ at: DateTimeType }) });
+export const AllocationStatusType = SchedulePeriodStatusType;
 
 /** Type representing {@link AllocationStatusType}. */
 export type AllocationStatusType = typeof AllocationStatusType;
 
-/** The fields of a {@link AllocationBinType}, over the app's values `V`. */
-export type AllocationBinFields<V extends EastType> = {
-    lane: StringType; at: DateTimeType; event: OptionType<StringType>; quantity: FloatType; kind: OptionType<StringType>;
-    hold: typeof TimeStepType; parts: DictType<StringType, FloatType>; values: V;
+/** The fields of a {@link AllocationBinType}, over the app's bin row type `R`. */
+export type AllocationBinFields<R extends EastType> = {
+    lane: StringType; at: DateTimeType; arrival: OptionType<StringType>; quantity: FloatType; kind: OptionType<StringType>;
+    hold: typeof TimeStepType; parts: DictType<StringType, FloatType>; row: R;
 };
 
-/** A bin over the app's values `V` — what {@link AllocationBinTypeFor} constructs. */
-export type AllocationBinType<V extends EastType> = StructType<AllocationBinFields<V>>;
+/** A bin over the app's bin row type `R` — what {@link AllocationBinTypeFor} constructs. */
+export type AllocationBinType<R extends EastType> = StructType<AllocationBinFields<R>>;
 
 /**
- * A bin: one booking in a lane slot, and the quantity it puts on each
- * resource.
+ * One bin, as the board reads it from the app's row (`R`): its roles — one
+ * booking in a lane slot, and the quantity it puts on each resource — beside
+ * the row itself, every field of it.
  *
  * @remarks
- * A bin keeps what it was booked with — its kind and its hold come from its
- * event when it is booked, as its values do, and stay with it when it moves —
- * so a bin can differ from its event, as a delivery measured on arrival does.
- * A reservation has no event, no quantity, no kind and no hold.
+ * Composed from the bin kind's roles (its `rows` and `read`) and the row. A
+ * bin keeps what it was booked with — its kind and its hold come from its
+ * arrival when it is booked, as its row's other fields do, and stay with it
+ * when it moves — so a bin can differ from its arrival, as a delivery measured
+ * on arrival does. A reservation books no arrival, and holds no quantity, no
+ * kind and no hold.
  *
- * @typeParam V - The app's bin values
- * @param values - The app's bin values type
- * @returns `StructType({ lane, at, event, quantity, kind, hold, parts, values })`
+ * @typeParam R - The app's bin row type
+ * @param row - The app's bin row type
+ * @returns `StructType({ lane, at, arrival, quantity, kind, hold, parts, row })`
  *
  * @property lane - Its lane's key
  * @property at - Its time; a batch's bins follow one minute apart
- * @property event - Its event's key; `none` for a reservation
+ * @property arrival - The arrival it books, by key; `none` for a reservation
  * @property quantity - Its quantity; 0 for a reservation
- * @property kind - What it goes with on a resource (its event's kind when booked)
- * @property hold - How long a resource holds it from the plan day (its event's hold when booked)
+ * @property kind - What it goes with on a resource (its arrival's kind when booked); `none` for a kind with no `kind` role
+ * @property hold - How long a resource holds it from the plan day (its arrival's hold when booked)
  * @property parts - The quantity on each resource, by key; empty while it is not linked
- * @property values - The app's values
+ * @property row - The app's row, every field of it
  */
-export function AllocationBinTypeFor<V extends EastType>(values: V): AllocationBinType<V> {
+export function AllocationBinTypeFor<R extends EastType>(row: R): AllocationBinType<R> {
     return StructType({
-        lane: StringType, at: DateTimeType, event: OptionType(StringType), quantity: FloatType, kind: OptionType(StringType),
-        hold: TimeStepType, parts: DictType(StringType, FloatType), values,
-    }) as unknown as AllocationBinType<V>;
+        lane: StringType, at: DateTimeType, arrival: OptionType(StringType), quantity: FloatType, kind: OptionType(StringType),
+        hold: TimeStepType, parts: DictType(StringType, FloatType), row,
+    }) as unknown as AllocationBinType<R>;
 }
 
-/** A day over the app's values `V` — what {@link AllocationDayTypeFor} constructs. */
-export type AllocationDayType<V extends EastType> = StructType<{ status: AllocationStatusType; bins: DictType<StringType, AllocationBinType<V>> }>;
+/** A day over the app's bin row type `R` — what {@link AllocationDayTypeFor} constructs. */
+export type AllocationDayType<R extends EastType> = StructType<{ status: AllocationStatusType; bins: DictType<StringType, AllocationBinType<R>> }>;
 
 /**
- * One day's plan: its status and its bins, saved as one entry.
+ * One day of the app's bins, as the board reads them: its period's status and
+ * its bins, the drafts in place.
  *
- * @typeParam V - The app's bin values
- * @param values - The app's bin values type
+ * @typeParam R - The app's bin row type
+ * @param row - The app's bin row type
  * @returns `StructType({ status, bins })`
  *
- * @property status - Draft or published
- * @property bins - Its bins, by id
+ * @property status - The day's status, from the app's days record; a draft with no `periods`, or no row for the day
+ * @property bins - The bins whose `at` falls in the day, by their keys
  */
-export function AllocationDayTypeFor<V extends EastType>(values: V): AllocationDayType<V> {
-    return StructType({ status: AllocationStatusType, bins: DictType(StringType, AllocationBinTypeFor(values)) }) as unknown as AllocationDayType<V>;
-}
-
-/** The plans over the app's values `V` — what {@link AllocationDaysTypeFor} constructs. */
-export type AllocationDaysType<V extends EastType> = DictType<DateTimeType, AllocationDayType<V>>;
-
-/**
- * The plans: one day's plan per UTC midnight — the plans record's type.
- *
- * @typeParam V - The app's bin values
- * @param values - The app's bin values type
- * @returns `DictType(DateTimeType, Day(V))`
- */
-export function AllocationDaysTypeFor<V extends EastType>(values: V): AllocationDaysType<V> {
-    return DictType(DateTimeType, AllocationDayTypeFor(values)) as unknown as AllocationDaysType<V>;
+export function AllocationDayTypeFor<R extends EastType>(row: R): AllocationDayType<R> {
+    return StructType({ status: AllocationStatusType, bins: DictType(StringType, AllocationBinTypeFor(row)) }) as unknown as AllocationDayType<R>;
 }
 
 // ============================================================================
-// Events and resources
+// Arrivals and resources
 // ============================================================================
 
 /**
@@ -149,7 +144,7 @@ export const AllocationJobType = StructType({ label: StringType, start: DateTime
 export type AllocationJobType = typeof AllocationJobType;
 
 /**
- * One line of an event's details, shown read-only in a bin's inspector.
+ * One line of an arrival's details, shown read-only in a bin's inspector.
  *
  * @property label - Its label (`Settings`)
  * @property value - Its text
@@ -160,9 +155,10 @@ export const AllocationDetailType = StructType({ label: StringType, value: Strin
 export type AllocationDetailType = typeof AllocationDetailType;
 
 /**
- * An event the day may book, resolved from the app's rows.
+ * What the board books from: an arrival, resolved from the app's rows
+ * (`Allocation.arrivals`).
  *
- * @property key - Its key in the app's rows, what a bin's `event` names
+ * @property key - Its key in the app's rows, what a bin's `arrival` names
  * @property label - Its code on cards, chips and lists (`LD-2231`)
  * @property meta - Its second line (`BRK · R2 · spec MC12`)
  * @property quantity - Its quantity, booked whole unless split
@@ -172,16 +168,17 @@ export type AllocationDetailType = typeof AllocationDetailType;
  * @property window - Its ready window
  * @property details - Read-only lines in a bin's inspector
  */
-export const AllocationEventType = StructType({
+export const AllocationArrivalType = StructType({
     key: StringType, label: StringType, meta: OptionType(StringType), quantity: FloatType, hold: TimeStepType, kind: OptionType(StringType),
     due: OptionType(DateTimeType), window: OptionType(AllocationIntervalType), details: ArrayType(AllocationDetailType),
 });
 
-/** Type representing {@link AllocationEventType}. */
-export type AllocationEventType = typeof AllocationEventType;
+/** Type representing {@link AllocationArrivalType}. */
+export type AllocationArrivalType = typeof AllocationArrivalType;
 
 /**
- * A resource bins are allocated to, resolved from the app's rows.
+ * A resource bins are allocated to, resolved from the app's rows through its
+ * resource kind's accessors (`Schedule.resources`).
  *
  * @property key - Its key in the app's rows, what a bin's `parts` name
  * @property label - Its name (`K-203`)
@@ -212,18 +209,19 @@ export const AllocationRulesType = StructType({ under: BooleanType });
 export type AllocationRulesType = typeof AllocationRulesType;
 
 /**
- * Everything a fit and the checks read besides the plan: the board's
- * configuration, every event and every resource — whatever the narrowing hides.
+ * Everything a fit and the checks read besides the day: the board's
+ * configuration, every arrival and every resource — whatever the narrowing
+ * hides.
  *
  * @property lanes - The lanes, in order
  * @property every - The slot spacing
- * @property events - Every event, by key
+ * @property arrivals - Every arrival, by key
  * @property resources - Every resource, by key
  * @property rules - The built-in rules
  * @property unit - The quantity's unit (`m³`), or empty
  */
 export const AllocationContextType = StructType({
-    lanes: ArrayType(AllocationLaneType), every: TimeStepType, events: DictType(StringType, AllocationEventType),
+    lanes: ArrayType(AllocationLaneType), every: TimeStepType, arrivals: DictType(StringType, AllocationArrivalType),
     resources: DictType(StringType, AllocationResourceType), rules: AllocationRulesType, unit: StringType,
 });
 
@@ -281,17 +279,17 @@ export const AllocationResourceLineType = StructType({
 export type AllocationResourceLineType = typeof AllocationResourceLineType;
 
 /**
- * One quantity on one resource, against the drafted plan: what a fit is asked
+ * One quantity on one resource, against the drafted day: what a fit is asked
  * about, one candidate at a time.
  *
  * @property day - The plan day
- * @property bin - The bin it is for; `none` for an event not yet booked and for a new reservation
- * @property reserve - Whether it reserves a slot (a reservation, or a bin with no event): checked with no quantity, and refused when the resource is full
+ * @property bin - The bin it is for; `none` for an arrival not yet booked and for a new reservation
+ * @property reserve - Whether it reserves a slot (a reservation, or a bin booking no arrival): checked with no quantity, and refused when the resource is full
  * @property quantity - What the resource would hold of it
- * @property event - Its event, if it has one
+ * @property arrival - Its arrival, if it has one
  * @property kind - Its kind
  * @property resource - The resource
- * @property load - The resource's load as the plan stands
+ * @property load - The resource's load as the day stands
  * @property after - What the resource would hold with it: the other bins' parts, and its quantity
  * @property hold - From the plan day for the longer of its hold and the resource's other bins' holds
  * @property spare - The days between the hold's end and the resource's next job; `none` with no next job
@@ -301,7 +299,7 @@ export type AllocationResourceLineType = typeof AllocationResourceLineType;
  * @property unit - The quantity's unit
  */
 export const AllocationCandidateType = StructType({
-    day: DateTimeType, bin: OptionType(StringType), reserve: BooleanType, quantity: FloatType, event: OptionType(AllocationEventType),
+    day: DateTimeType, bin: OptionType(StringType), reserve: BooleanType, quantity: FloatType, arrival: OptionType(AllocationArrivalType),
     kind: OptionType(StringType), resource: AllocationResourceType, load: AllocationLoadType, after: FloatType, hold: AllocationIntervalType,
     spare: OptionType(FloatType), kindMates: BooleanType, otherMates: BooleanType, rules: AllocationRulesType, unit: StringType,
 });
@@ -324,36 +322,36 @@ export type AllocationFitType = typeof AllocationFitType;
 /**
  * The question a fit answers.
  *
- * @property place - Where can this subject — a bin, or an event — go with this quantity: a verdict per resource
- * @property take - What can this resource take: a verdict per bin, one per event the plan has not booked, and one for reserving an empty slot on it
+ * @property place - Where can this subject — a bin, or an arrival — go with this quantity: a verdict per resource
+ * @property take - What can this resource take: a verdict per bin, one per arrival the day has not booked, and one for reserving an empty slot on it
  */
 export const AllocationFitAskType = VariantType({
-    place: StructType({ subject: VariantType({ bin: StringType, event: StringType }), quantity: FloatType }),
+    place: StructType({ subject: VariantType({ bin: StringType, arrival: StringType }), quantity: FloatType }),
     take: StructType({ resource: StringType }),
 });
 
 /** Type representing {@link AllocationFitAskType}. */
 export type AllocationFitAskType = typeof AllocationFitAskType;
 
-/** A fit's request over the app's values `V` — what {@link AllocationFitRequestTypeFor} constructs. */
-export type AllocationFitRequestType<V extends EastType> = StructType<{
-    day: DateTimeType; plan: AllocationDayType<V>; ask: AllocationFitAskType; context: AllocationContextType;
+/** A fit's request over the app's bin row type `R` — what {@link AllocationFitRequestTypeFor} constructs. */
+export type AllocationFitRequestType<R extends EastType> = StructType<{
+    day: DateTimeType; plan: AllocationDayType<R>; ask: AllocationFitAskType; context: AllocationContextType;
 }>;
 
 /**
- * One question to the app's fit, about the drafted plan.
+ * One question to the app's fit, about the drafted day.
  *
- * @typeParam V - The app's bin values
- * @param values - The app's bin values type
+ * @typeParam R - The app's bin row type
+ * @param row - The app's bin row type
  * @returns `StructType({ day, plan, ask, context })`
  *
  * @property day - The plan day
- * @property plan - The day's plan with its drafts
+ * @property plan - The day as drafted: each bin its roles and its own row
  * @property ask - The question
- * @property context - Every event and resource, and the board's configuration
+ * @property context - Every arrival and resource, and the board's configuration
  */
-export function AllocationFitRequestTypeFor<V extends EastType>(values: V): AllocationFitRequestType<V> {
-    return StructType({ day: DateTimeType, plan: AllocationDayTypeFor(values), ask: AllocationFitAskType, context: AllocationContextType }) as unknown as AllocationFitRequestType<V>;
+export function AllocationFitRequestTypeFor<R extends EastType>(row: R): AllocationFitRequestType<R> {
+    return StructType({ day: DateTimeType, plan: AllocationDayTypeFor(row), ask: AllocationFitAskType, context: AllocationContextType }) as unknown as AllocationFitRequestType<R>;
 }
 
 /**
@@ -363,13 +361,13 @@ export function AllocationFitRequestTypeFor<V extends EastType>(values: V): Allo
  * @property ask - The question answered
  * @property resources - A place's verdicts, by resource
  * @property bins - A take's verdicts, by bin
- * @property events - A take's verdicts for booking each event the plan has not booked onto the resource, by event (the Table's event Chooser, a reservation's Book list)
+ * @property arrivals - A take's verdicts for booking each arrival the day has not booked onto the resource, by arrival (the Table's arrival Chooser, a reservation's Book list)
  * @property reserve - A take's verdict for reserving an empty slot
  * @property basis - How the fits are ranked, in words (`ranked by load, kind and spare days`)
  */
 export const AllocationFitResultType = StructType({
     ask: AllocationFitAskType, resources: DictType(StringType, AllocationFitType), bins: DictType(StringType, AllocationFitType),
-    events: DictType(StringType, AllocationFitType), reserve: OptionType(AllocationFitType), basis: StringType,
+    arrivals: DictType(StringType, AllocationFitType), reserve: OptionType(AllocationFitType), basis: StringType,
 });
 
 /** Type representing {@link AllocationFitResultType}. */
@@ -409,7 +407,7 @@ export const AllocationIssueKindType = VariantType({
 export type AllocationIssueKindType = typeof AllocationIssueKindType;
 
 /**
- * One warning about the drafted plan. Issues never block Save or Publish.
+ * One warning about the drafted day. Issues never block Save or Publish.
  *
  * @property kind - What it is about
  * @property tone - Its tone; warning and danger issues are counted, neutral and info ones listed only
@@ -428,34 +426,34 @@ export const AllocationIssueType = StructType({
 /** Type representing {@link AllocationIssueType}. */
 export type AllocationIssueType = typeof AllocationIssueType;
 
-/** The app's check's input over the app's values `V` — what {@link AllocationCheckContextTypeFor} constructs. */
-export type AllocationCheckContextType<V extends EastType> = StructType<{
-    day: DateTimeType; plan: AllocationDayType<V>; context: AllocationContextType; loads: DictType<StringType, AllocationLoadType>;
+/** The app's check's input over the app's bin row type `R` — what {@link AllocationCheckContextTypeFor} constructs. */
+export type AllocationCheckContextType<R extends EastType> = StructType<{
+    day: DateTimeType; plan: AllocationDayType<R>; context: AllocationContextType; loads: DictType<StringType, AllocationLoadType>;
 }>;
 
 /**
- * What the app's `check` is given: the drafted plan and every load.
+ * What the app's `check` is given: the drafted day and every load.
  *
- * @typeParam V - The app's bin values
- * @param values - The app's bin values type
+ * @typeParam R - The app's bin row type
+ * @param row - The app's bin row type
  * @returns `StructType({ day, plan, context, loads })`
  *
  * @property day - The plan day
- * @property plan - The day's plan with its drafts
- * @property context - Every event and resource
+ * @property plan - The day as drafted: each bin its roles and its own row, which the app's check reads
+ * @property context - Every arrival and resource
  * @property loads - Every resource's load, by key
  */
-export function AllocationCheckContextTypeFor<V extends EastType>(values: V): AllocationCheckContextType<V> {
+export function AllocationCheckContextTypeFor<R extends EastType>(row: R): AllocationCheckContextType<R> {
     return StructType({
-        day: DateTimeType, plan: AllocationDayTypeFor(values), context: AllocationContextType, loads: DictType(StringType, AllocationLoadType),
-    }) as unknown as AllocationCheckContextType<V>;
+        day: DateTimeType, plan: AllocationDayTypeFor(row), context: AllocationContextType, loads: DictType(StringType, AllocationLoadType),
+    }) as unknown as AllocationCheckContextType<R>;
 }
 
 /**
  * A slot's state.
  *
  * @property free - No bin is in it
- * @property booked - A bin with an event is in it
+ * @property booked - A bin booking an arrival is in it
  * @property reserved - Only reservations are in it
  */
 export const AllocationSlotStatusType = VariantType({ free: NullType, booked: NullType, reserved: NullType });

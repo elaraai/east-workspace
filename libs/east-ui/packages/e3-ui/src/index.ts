@@ -291,9 +291,10 @@ export type {
 export type { RosterTargets, RosterTargetsConfig } from "./roster/targets.js";
 export type { RosterLibraryTab } from "./roster/library.js";
 
-// The Allocation: a day's events booked into lane slots and allocated to
-// resources, over one plans record, with the app's fit on e3.
+// The Allocation (#1371): a day's arrivals booked into lane slots and
+// allocated to resources, over the app's own bins, lanes, resources, arrivals
+// and days, with the app's fit on e3.
 export {
-    Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationDaysHandle, type AllocationLibraryDeclaration, type AllocationNoun,
+    Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationLibraryDeclaration, type AllocationNoun,
 } from "./allocation/index.js";
-export type { AllocationEvents, AllocationEventsConfig, AllocationLanesConfig, AllocationResourcesConfig } from "./allocation/adapters.js";
+export type { AllocationArrivals, AllocationArrivalsConfig } from "./allocation/adapters.js";

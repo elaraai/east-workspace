@@ -3,19 +3,41 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /**
- * The kiln yard, transcribed from docs/proposals/Allocation Spec.html: three
- * unloading bays in two areas, 33 drying kilns in six groups, the day's loads and Tue 11
- * May 2027's plan. Every name, code and figure is generated.
+ * The kiln yard, transcribed from docs/proposals/Allocation Spec.html into
+ * records of its own (#1371, `Builder Interfaces Spec.md` §6.5): its bins and
+ * the days of its plan, which the board writes, and its kilns, its loads and
+ * its bays, which it reads — three unloading bays in two areas, 33 drying
+ * kilns in six groups, the day's loads and Tue 11 May 2027's plan. Every name,
+ * code and figure is generated. Beside them, the board's reading of the plan
+ * day (`Allocation.Types.Day(KilnBin)`), each bin its roles and the yard's own
+ * row, which the pure functions' specs hold to the spec's worked facts (§0).
  */
-import { ArrayType, DateTimeType, FloatType, OptionType, SortedMap, StringType, StructType, compareFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, DateTimeType, DictType, FloatType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, none, some, variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
 import { TimeStepType } from "@elaraai/east-ui";
 import { Allocation } from "@elaraai/e3-ui";
 
-/** What each bin carries of the yard's own: the moisture target and grade booked, and as measured on arrival, and its loading instruction. */
-export const BinValues = StructType({
+/**
+ * A bin, the yard's own: where it is booked (its bay and its time), the load
+ * it books (none: a reservation), its m³, its spec, how long it dries and its
+ * split across kilns — the board's roles — and the yard's own fields beside
+ * them: the moisture target and grade booked, and as measured on arrival, and
+ * its loading instruction.
+ */
+export const KilnBin = StructType({
+    bay: StringType, at: DateTimeType, load: OptionType(StringType),
+    m3: FloatType, spec: OptionType(StringType), dryFor: TimeStepType,
+    kilns: DictType(StringType, FloatType),
     specBooked: StringType, specMeasured: StringType,
-    gradeBooked: StringType, gradeMeasured: StringType,
-    instruction: OptionType(StringType),
+    gradeBooked: StringType, gradeMeasured: StringType, instruction: OptionType(StringType),
+});
+/** A day of the yard's plan: a draft, or issued and when. */
+export const YardDay = StructType({ state: VariantType({ draft: NullType, issued: StructType({ at: DateTimeType }) }) });
+/** A bin of the smallest board's: the board's roles alone — its bay, its time, its load, its m³, its split across kilns and how long it dries. */
+export const MinimalBin = StructType({
+    bay: StringType, at: DateTimeType, load: OptionType(StringType), m3: FloatType, kilns: DictType(StringType, FloatType), dryFor: TimeStepType,
 });
 /** A drying kiln: its range, the days it usually dries for, and its charges — the one drying now and the next planned. */
 export const Kiln = StructType({
@@ -30,27 +52,28 @@ export const TimberLoad = StructType({
     m3: FloatType, dryingDays: FloatType, due: DateTimeType, from: DateTimeType, to: DateTimeType,
     schedule: StringType, instruction: OptionType(StringType),
 });
-/** A bin of the yard's plans. */
-export const YardBin = Allocation.Types.Bin(BinValues);
-/** A day of the yard's plans. */
-export const YardDay = Allocation.Types.Day(BinValues);
+/** The board's reading of a bin of the yard's: its roles, and the yard's own row. */
+export const YardBin = Allocation.Types.Bin(KilnBin);
+/** The board's reading of a day of the yard's: its status, and its bins. */
+export const YardPlan = Allocation.Types.Day(KilnBin);
 
 const byString = compareFor(StringType);
 const byDate = compareFor(DateTimeType);
+const DAY = 86_400_000;
 /** The plan day the mock opens on: Tue 11 May 2027. */
 export const yardDay: Date = new Date("2027-05-11T00:00:00Z");
+/** The week before's day, published: Tue 4 May 2027. */
+export const yardPublishedDay: Date = new Date("2027-05-04T00:00:00Z");
+/** When Tue 4 May was issued. */
+export const yardIssuedAt: Date = new Date("2027-05-03T17:40:00Z");
+/** A day of loads split across kilns: Wed 12 May 2027. */
+export const yardSplitDay: Date = new Date("2027-05-12T00:00:00Z");
 /** The unloading bays, by key: two in the north yard, one in the south, B-2 the open one; each takes one bin an hour, at its offset past the hour. */
 export const yardBayRows: SortedMap<string, ValueTypeOf<typeof Bay>> = new SortedMap<string, ValueTypeOf<typeof Bay>>([
     ["B-1", { name: "B-1", area: "North", cover: "Covered", offset: variant("minutes", 15) }],
     ["B-2", { name: "B-2", area: "North", cover: "Open", offset: variant("minutes", 35) }],
     ["B-3", { name: "B-3", area: "South", cover: "Covered", offset: variant("minutes", 55) }],
 ], byString);
-/** The same bays as the board's lanes, for the tests that hand it lanes directly. */
-export const yardLanes: ValueTypeOf<typeof Allocation.Types.Lane>[] = [
-    { key: "B-1", label: "B-1", offset: variant("minutes", 15) },
-    { key: "B-2", label: "B-2", offset: variant("minutes", 35) },
-    { key: "B-3", label: "B-3", offset: variant("minutes", 55) },
-];
 export const yardKilns: SortedMap<string, ValueTypeOf<typeof Kiln>> = new SortedMap<string, ValueTypeOf<typeof Kiln>>([
     ["K-101", { name: "K-101", group: "Hall A", min: 16, max: 32, days: 9, note: none, charges: [{ label: "planned", start: new Date("2027-05-20T00:00:00Z"), end: new Date("2027-05-28T00:00:00Z") }] }],
     ["K-102", { name: "K-102", group: "Hall A", min: 16, max: 32, days: 9, note: none, charges: [] }],
@@ -115,76 +138,98 @@ export const yardArrivals: SortedMap<string, ValueTypeOf<typeof TimberLoad>> = n
     ["LD-2220", { code: "LD-2220", mill: "RDG", spec: "MC18", grade: "R1", m3: 31, dryingDays: 8, due: new Date("2027-05-11T00:00:00Z"), from: new Date("2027-05-10T00:00:00Z"), to: new Date("2027-05-13T00:00:00Z"), schedule: "Schedule KS-2 · 55 °C dry bulb · 12 % target", instruction: none }],
     ["LD-2221", { code: "LD-2221", mill: "FRN", spec: "MC08", grade: "R3", m3: 17, dryingDays: 8, due: new Date("2027-05-11T00:00:00Z"), from: new Date("2027-05-10T00:00:00Z"), to: new Date("2027-05-13T00:00:00Z"), schedule: "Schedule KS-4 · 70 °C dry bulb · continuous venting", instruction: some("Hold the kiln at 40 °C on arrival") }],
 ], byString);
-/** Tue 11 May 2027's bins, as the mock opens: 26 bins in 18 slots, 556 m³. */
-export const yardBins: SortedMap<string, ValueTypeOf<typeof YardBin>> = new SortedMap<string, ValueTypeOf<typeof YardBin>>([
-    ["3101", { lane: "B-3", at: new Date("2027-05-11T01:55:00Z"), event: some("LD-2201"), quantity: 35, kind: some("MC14"), hold: variant("days", 7), parts: new SortedMap([["K-209", 35]], byString), values: { specBooked: "MC14", specMeasured: "MC14", gradeBooked: "R", gradeMeasured: "R1", instruction: some("Load into K-209 first; any balance goes with bin 3102. Sticker every 600 mm before loading") } }],
-    ["3102", { lane: "B-3", at: new Date("2027-05-11T01:56:00Z"), event: some("LD-2202"), quantity: 27, kind: some("MC22"), hold: variant("days", 9), parts: new SortedMap([["K-102", 27]], byString), values: { specBooked: "MC08", specMeasured: "MC22", gradeBooked: "P", gradeMeasured: "P1", instruction: some("Hold the kiln at 40 °C on arrival") } }],
-    ["3103", { lane: "B-1", at: new Date("2027-05-11T02:15:00Z"), event: some("LD-2203"), quantity: 24, kind: some("MC14"), hold: variant("days", 9), parts: new SortedMap([["K-109", 24]], byString), values: { specBooked: "MC14", specMeasured: "MC14", gradeBooked: "U", gradeMeasured: "U1", instruction: some("Hold the kiln at 40 °C on arrival") } }],
-    ["3104", { lane: "B-1", at: new Date("2027-05-11T03:15:00Z"), event: some("LD-2204"), quantity: 47, kind: some("MC14"), hold: variant("days", 7), parts: new SortedMap([["K-501", 47]], byString), values: { specBooked: "MC14", specMeasured: "MC14", gradeBooked: "P", gradeMeasured: "U1", instruction: none } }],
-    ["3105", { lane: "B-1", at: new Date("2027-05-11T04:15:00Z"), event: some("LD-2205"), quantity: 39, kind: some("MC10"), hold: variant("days", 7), parts: new SortedMap([["K-203", 39]], byString), values: { specBooked: "MC12", specMeasured: "MC10", gradeBooked: "P", gradeMeasured: "U1", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3106", { lane: "B-2", at: new Date("2027-05-11T05:35:00Z"), event: some("LD-2206"), quantity: 1, kind: some("MC18"), hold: variant("days", 7), parts: new SortedMap([["K-304", 1]], byString), values: { specBooked: "MC20", specMeasured: "MC18", gradeBooked: "P", gradeMeasured: "P2", instruction: some("Hold the kiln at 40 °C on arrival") } }],
-    ["3107", { lane: "B-2", at: new Date("2027-05-11T05:36:00Z"), event: some("LD-2206"), quantity: 35, kind: some("MC18"), hold: variant("days", 8), parts: new SortedMap([["K-201", 35]], byString), values: { specBooked: "MC18", specMeasured: "MC18", gradeBooked: "P", gradeMeasured: "P1", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3108", { lane: "B-2", at: new Date("2027-05-11T06:35:00Z"), event: some("LD-2207"), quantity: 19, kind: some("MC12"), hold: variant("days", 7), parts: new SortedMap([["K-402", 19]], byString), values: { specBooked: "MC14", specMeasured: "MC12", gradeBooked: "P", gradeMeasured: "R3", instruction: some("Hold the kiln at 40 °C on arrival") } }],
-    ["3109", { lane: "B-2", at: new Date("2027-05-11T06:36:00Z"), event: some("LD-2207"), quantity: 44, kind: some("MC12"), hold: variant("days", 9), parts: new SortedMap([["K-207", 44]], byString), values: { specBooked: "MC12", specMeasured: "MC12", gradeBooked: "P", gradeMeasured: "P2", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3110", { lane: "B-1", at: new Date("2027-05-11T09:15:00Z"), event: some("LD-2208"), quantity: 1, kind: some("MC18"), hold: variant("days", 7), parts: new SortedMap([["K-304", 1]], byString), values: { specBooked: "MC18", specMeasured: "MC18", gradeBooked: "U", gradeMeasured: "P2", instruction: none } }],
-    ["3111", { lane: "B-1", at: new Date("2027-05-11T10:15:00Z"), event: some("LD-2209"), quantity: 16, kind: some("MC18"), hold: variant("days", 9), parts: new SortedMap([["K-403", 16]], byString), values: { specBooked: "MC18", specMeasured: "MC18", gradeBooked: "P", gradeMeasured: "R3", instruction: none } }],
-    ["3112", { lane: "B-1", at: new Date("2027-05-11T10:16:00Z"), event: some("LD-2209"), quantity: 2, kind: some("MC20"), hold: variant("days", 7), parts: new SortedMap([["K-304", 2]], byString), values: { specBooked: "MC22", specMeasured: "MC20", gradeBooked: "R", gradeMeasured: "R3", instruction: some("Hold the kiln at 40 °C on arrival") } }],
-    ["3113", { lane: "B-2", at: new Date("2027-05-11T10:35:00Z"), event: some("LD-2210"), quantity: 32, kind: some("MC22"), hold: variant("days", 7), parts: new SortedMap([["K-108", 32]], byString), values: { specBooked: "MC08", specMeasured: "MC22", gradeBooked: "R", gradeMeasured: "R2", instruction: none } }],
-    ["3114", { lane: "B-1", at: new Date("2027-05-11T13:15:00Z"), event: some("LD-2211"), quantity: 2, kind: some("MC16"), hold: variant("days", 7), parts: new SortedMap([["K-304", 2]], byString), values: { specBooked: "MC16", specMeasured: "MC16", gradeBooked: "R", gradeMeasured: "R1", instruction: some("Hold the kiln at 40 °C on arrival") } }],
-    ["3115", { lane: "B-2", at: new Date("2027-05-11T15:35:00Z"), event: some("LD-2212"), quantity: 20, kind: some("MC18"), hold: variant("days", 8), parts: new SortedMap([["K-106", 20]], byString), values: { specBooked: "MC20", specMeasured: "MC18", gradeBooked: "P", gradeMeasured: "U2", instruction: some("Hold the kiln at 40 °C on arrival") } }],
-    ["3116", { lane: "B-3", at: new Date("2027-05-11T16:55:00Z"), event: some("LD-2213"), quantity: 10, kind: some("MC20"), hold: variant("days", 8), parts: new SortedMap([["K-303", 10]], byString), values: { specBooked: "MC22", specMeasured: "MC20", gradeBooked: "P", gradeMeasured: "R2", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3117", { lane: "B-2", at: new Date("2027-05-11T17:35:00Z"), event: some("LD-2214"), quantity: 5, kind: some("MC16"), hold: variant("days", 8), parts: new SortedMap([["K-301", 5]], byString), values: { specBooked: "MC18", specMeasured: "MC16", gradeBooked: "R", gradeMeasured: "R3", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3118", { lane: "B-3", at: new Date("2027-05-11T17:55:00Z"), event: some("LD-2215"), quantity: 15, kind: some("MC14"), hold: variant("days", 9), parts: new SortedMap([["K-401", 15]], byString), values: { specBooked: "MC14", specMeasured: "MC14", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3119", { lane: "B-3", at: new Date("2027-05-11T17:56:00Z"), event: some("LD-2216"), quantity: 37, kind: some("MC12"), hold: variant("days", 8), parts: new SortedMap([["K-205", 37]], byString), values: { specBooked: "MC14", specMeasured: "MC12", gradeBooked: "P", gradeMeasured: "U1", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3120", { lane: "B-3", at: new Date("2027-05-11T17:57:00Z"), event: some("LD-2217"), quantity: 5, kind: some("MC08"), hold: variant("days", 9), parts: new SortedMap([["K-302", 5]], byString), values: { specBooked: "MC08", specMeasured: "MC08", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3121", { lane: "B-2", at: new Date("2027-05-11T20:35:00Z"), event: some("LD-2218"), quantity: 1, kind: some("MC22"), hold: variant("days", 7), parts: new SortedMap([["K-304", 1]], byString), values: { specBooked: "MC08", specMeasured: "MC22", gradeBooked: "R", gradeMeasured: "P1", instruction: none } }],
-    ["3122", { lane: "B-2", at: new Date("2027-05-11T20:36:00Z"), event: some("LD-2218"), quantity: 37, kind: some("MC16"), hold: variant("days", 7), parts: new SortedMap([["K-206", 37]], byString), values: { specBooked: "MC16", specMeasured: "MC16", gradeBooked: "U", gradeMeasured: "U2", instruction: none } }],
-    ["3123", { lane: "B-3", at: new Date("2027-05-11T20:55:00Z"), event: some("LD-2219"), quantity: 22, kind: some("MC20"), hold: variant("days", 8), parts: new SortedMap([["K-202", 22]], byString), values: { specBooked: "MC20", specMeasured: "MC20", gradeBooked: "R", gradeMeasured: "R2", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3124", { lane: "B-3", at: new Date("2027-05-11T20:56:00Z"), event: some("LD-2219"), quantity: 32, kind: some("MC22"), hold: variant("days", 8), parts: new SortedMap([["K-105", 32]], byString), values: { specBooked: "MC22", specMeasured: "MC22", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") } }],
-    ["3125", { lane: "B-2", at: new Date("2027-05-11T22:35:00Z"), event: some("LD-2220"), quantity: 31, kind: some("MC18"), hold: variant("days", 9), parts: new SortedMap([["K-101", 31]], byString), values: { specBooked: "MC18", specMeasured: "MC18", gradeBooked: "U", gradeMeasured: "R1", instruction: none } }],
-    ["3126", { lane: "B-2", at: new Date("2027-05-11T23:35:00Z"), event: some("LD-2221"), quantity: 17, kind: some("MC08"), hold: variant("days", 8), parts: new SortedMap([["K-202", 17]], byString), values: { specBooked: "MC08", specMeasured: "MC08", gradeBooked: "U", gradeMeasured: "R3", instruction: some("Hold the kiln at 40 °C on arrival") } }],
-], byString);
 
-/** Tue 4 May 2027, published: the week before's plan, read-only. */
-export const yardPublishedDay: ValueTypeOf<typeof YardDay> = {
-    status: variant("published", { at: new Date("2027-05-03T17:40:00Z") }),
-    bins: new SortedMap([
-        ["3001", { lane: "B-1", at: new Date("2027-05-04T06:15:00Z"), event: some("LD-2201"), quantity: 35, kind: some("MC14"), hold: variant("days", 8), parts: new SortedMap([["K-209", 35]], byString), values: { specBooked: "MC14", specMeasured: "MC14", gradeBooked: "R", gradeMeasured: "R1", instruction: some("Sticker every 600 mm before loading") } }],
-        ["3002", { lane: "B-2", at: new Date("2027-05-04T06:35:00Z"), event: some("LD-2205"), quantity: 39, kind: some("MC12"), hold: variant("days", 6), parts: new SortedMap([["K-203", 39]], byString), values: { specBooked: "MC12", specMeasured: "MC12", gradeBooked: "U", gradeMeasured: "U1", instruction: some("Sticker every 600 mm before loading") } }],
-        ["3003", { lane: "B-3", at: new Date("2027-05-04T08:55:00Z"), event: some("LD-2213"), quantity: 10, kind: some("MC22"), hold: variant("days", 8), parts: new SortedMap([["K-303", 10]], byString), values: { specBooked: "MC22", specMeasured: "MC22", gradeBooked: "R", gradeMeasured: "R2", instruction: some("Sticker every 600 mm before loading") } }],
-        ["3004", { lane: "B-1", at: new Date("2027-05-04T10:15:00Z"), event: some("LD-2215"), quantity: 15, kind: some("MC14"), hold: variant("days", 6), parts: new SortedMap([["K-401", 15]], byString), values: { specBooked: "MC14", specMeasured: "MC14", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") } }],
-    ], byString),
-};
-/** Wed 12 May 2027: loads split across kilns, one with a remainder still unallocated. */
-export const yardSplitDay: ValueTypeOf<typeof YardDay> = {
-    status: variant("draft", null),
-    bins: new SortedMap([
-        ["3201", { lane: "B-1", at: new Date("2027-05-12T06:15:00Z"), event: some("LD-2232"), quantity: 30, kind: some("MC10"), hold: variant("days", 8), parts: new SortedMap([["K-601", 20], ["K-208", 6]], byString), values: { specBooked: "MC10", specMeasured: "MC10", gradeBooked: "R", gradeMeasured: "R1", instruction: some("Sticker every 600 mm before loading") } }],
-        ["3202", { lane: "B-2", at: new Date("2027-05-12T07:35:00Z"), event: some("LD-2234"), quantity: 18, kind: some("MC12"), hold: variant("days", 9), parts: new SortedMap([["K-107", 12], ["K-110", 6]], byString), values: { specBooked: "MC12", specMeasured: "MC12", gradeBooked: "P", gradeMeasured: "P2", instruction: some("Sticker every 600 mm before loading") } }],
-        ["3203", { lane: "B-3", at: new Date("2027-05-12T09:55:00Z"), event: some("LD-2236"), quantity: 11, kind: some("MC16"), hold: variant("days", 6), parts: new SortedMap([["K-305", 8], ["K-110", 3]], byString), values: { specBooked: "MC16", specMeasured: "MC16", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") } }],
-    ], byString),
-};
-/** Tue 11 May 2027, a draft: the mock's plan day. */
-export const yardPlanDay: ValueTypeOf<typeof YardDay> = { status: variant("draft", null), bins: yardBins };
-/** The plans: Tue 4 (published), Tue 11 (the mock's day) and Wed 12 (split loads). */
-export const yardPlans: SortedMap<Date, ValueTypeOf<typeof YardDay>> = new SortedMap<Date, ValueTypeOf<typeof YardDay>>([
-    [new Date("2027-05-04T00:00:00Z"), yardPublishedDay], [yardDay, yardPlanDay], [new Date("2027-05-12T00:00:00Z"), yardSplitDay],
+type Row = ValueTypeOf<typeof KilnBin>;
+/** Tue 4 May 2027's bins: the week before's plan, published. */
+const publishedBins: [string, Row][] = [
+    ["3001", { bay: "B-1", at: new Date("2027-05-04T06:15:00Z"), load: some("LD-2201"), m3: 35, spec: some("MC14"), dryFor: variant("days", 8), kilns: new SortedMap([["K-209", 35]], byString), specBooked: "MC14", specMeasured: "MC14", gradeBooked: "R", gradeMeasured: "R1", instruction: some("Sticker every 600 mm before loading") }],
+    ["3002", { bay: "B-2", at: new Date("2027-05-04T06:35:00Z"), load: some("LD-2205"), m3: 39, spec: some("MC12"), dryFor: variant("days", 6), kilns: new SortedMap([["K-203", 39]], byString), specBooked: "MC12", specMeasured: "MC12", gradeBooked: "U", gradeMeasured: "U1", instruction: some("Sticker every 600 mm before loading") }],
+    ["3003", { bay: "B-3", at: new Date("2027-05-04T08:55:00Z"), load: some("LD-2213"), m3: 10, spec: some("MC22"), dryFor: variant("days", 8), kilns: new SortedMap([["K-303", 10]], byString), specBooked: "MC22", specMeasured: "MC22", gradeBooked: "R", gradeMeasured: "R2", instruction: some("Sticker every 600 mm before loading") }],
+    ["3004", { bay: "B-1", at: new Date("2027-05-04T10:15:00Z"), load: some("LD-2215"), m3: 15, spec: some("MC14"), dryFor: variant("days", 6), kilns: new SortedMap([["K-401", 15]], byString), specBooked: "MC14", specMeasured: "MC14", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") }],
+];
+/** Tue 11 May 2027's bins, as the mock opens: 26 bins in 18 slots, 556 m³. */
+const planBins: [string, Row][] = [
+    ["3101", { bay: "B-3", at: new Date("2027-05-11T01:55:00Z"), load: some("LD-2201"), m3: 35, spec: some("MC14"), dryFor: variant("days", 7), kilns: new SortedMap([["K-209", 35]], byString), specBooked: "MC14", specMeasured: "MC14", gradeBooked: "R", gradeMeasured: "R1", instruction: some("Load into K-209 first; any balance goes with bin 3102. Sticker every 600 mm before loading") }],
+    ["3102", { bay: "B-3", at: new Date("2027-05-11T01:56:00Z"), load: some("LD-2202"), m3: 27, spec: some("MC22"), dryFor: variant("days", 9), kilns: new SortedMap([["K-102", 27]], byString), specBooked: "MC08", specMeasured: "MC22", gradeBooked: "P", gradeMeasured: "P1", instruction: some("Hold the kiln at 40 °C on arrival") }],
+    ["3103", { bay: "B-1", at: new Date("2027-05-11T02:15:00Z"), load: some("LD-2203"), m3: 24, spec: some("MC14"), dryFor: variant("days", 9), kilns: new SortedMap([["K-109", 24]], byString), specBooked: "MC14", specMeasured: "MC14", gradeBooked: "U", gradeMeasured: "U1", instruction: some("Hold the kiln at 40 °C on arrival") }],
+    ["3104", { bay: "B-1", at: new Date("2027-05-11T03:15:00Z"), load: some("LD-2204"), m3: 47, spec: some("MC14"), dryFor: variant("days", 7), kilns: new SortedMap([["K-501", 47]], byString), specBooked: "MC14", specMeasured: "MC14", gradeBooked: "P", gradeMeasured: "U1", instruction: none }],
+    ["3105", { bay: "B-1", at: new Date("2027-05-11T04:15:00Z"), load: some("LD-2205"), m3: 39, spec: some("MC10"), dryFor: variant("days", 7), kilns: new SortedMap([["K-203", 39]], byString), specBooked: "MC12", specMeasured: "MC10", gradeBooked: "P", gradeMeasured: "U1", instruction: some("Sticker every 600 mm before loading") }],
+    ["3106", { bay: "B-2", at: new Date("2027-05-11T05:35:00Z"), load: some("LD-2206"), m3: 1, spec: some("MC18"), dryFor: variant("days", 7), kilns: new SortedMap([["K-304", 1]], byString), specBooked: "MC20", specMeasured: "MC18", gradeBooked: "P", gradeMeasured: "P2", instruction: some("Hold the kiln at 40 °C on arrival") }],
+    ["3107", { bay: "B-2", at: new Date("2027-05-11T05:36:00Z"), load: some("LD-2206"), m3: 35, spec: some("MC18"), dryFor: variant("days", 8), kilns: new SortedMap([["K-201", 35]], byString), specBooked: "MC18", specMeasured: "MC18", gradeBooked: "P", gradeMeasured: "P1", instruction: some("Sticker every 600 mm before loading") }],
+    ["3108", { bay: "B-2", at: new Date("2027-05-11T06:35:00Z"), load: some("LD-2207"), m3: 19, spec: some("MC12"), dryFor: variant("days", 7), kilns: new SortedMap([["K-402", 19]], byString), specBooked: "MC14", specMeasured: "MC12", gradeBooked: "P", gradeMeasured: "R3", instruction: some("Hold the kiln at 40 °C on arrival") }],
+    ["3109", { bay: "B-2", at: new Date("2027-05-11T06:36:00Z"), load: some("LD-2207"), m3: 44, spec: some("MC12"), dryFor: variant("days", 9), kilns: new SortedMap([["K-207", 44]], byString), specBooked: "MC12", specMeasured: "MC12", gradeBooked: "P", gradeMeasured: "P2", instruction: some("Sticker every 600 mm before loading") }],
+    ["3110", { bay: "B-1", at: new Date("2027-05-11T09:15:00Z"), load: some("LD-2208"), m3: 1, spec: some("MC18"), dryFor: variant("days", 7), kilns: new SortedMap([["K-304", 1]], byString), specBooked: "MC18", specMeasured: "MC18", gradeBooked: "U", gradeMeasured: "P2", instruction: none }],
+    ["3111", { bay: "B-1", at: new Date("2027-05-11T10:15:00Z"), load: some("LD-2209"), m3: 16, spec: some("MC18"), dryFor: variant("days", 9), kilns: new SortedMap([["K-403", 16]], byString), specBooked: "MC18", specMeasured: "MC18", gradeBooked: "P", gradeMeasured: "R3", instruction: none }],
+    ["3112", { bay: "B-1", at: new Date("2027-05-11T10:16:00Z"), load: some("LD-2209"), m3: 2, spec: some("MC20"), dryFor: variant("days", 7), kilns: new SortedMap([["K-304", 2]], byString), specBooked: "MC22", specMeasured: "MC20", gradeBooked: "R", gradeMeasured: "R3", instruction: some("Hold the kiln at 40 °C on arrival") }],
+    ["3113", { bay: "B-2", at: new Date("2027-05-11T10:35:00Z"), load: some("LD-2210"), m3: 32, spec: some("MC22"), dryFor: variant("days", 7), kilns: new SortedMap([["K-108", 32]], byString), specBooked: "MC08", specMeasured: "MC22", gradeBooked: "R", gradeMeasured: "R2", instruction: none }],
+    ["3114", { bay: "B-1", at: new Date("2027-05-11T13:15:00Z"), load: some("LD-2211"), m3: 2, spec: some("MC16"), dryFor: variant("days", 7), kilns: new SortedMap([["K-304", 2]], byString), specBooked: "MC16", specMeasured: "MC16", gradeBooked: "R", gradeMeasured: "R1", instruction: some("Hold the kiln at 40 °C on arrival") }],
+    ["3115", { bay: "B-2", at: new Date("2027-05-11T15:35:00Z"), load: some("LD-2212"), m3: 20, spec: some("MC18"), dryFor: variant("days", 8), kilns: new SortedMap([["K-106", 20]], byString), specBooked: "MC20", specMeasured: "MC18", gradeBooked: "P", gradeMeasured: "U2", instruction: some("Hold the kiln at 40 °C on arrival") }],
+    ["3116", { bay: "B-3", at: new Date("2027-05-11T16:55:00Z"), load: some("LD-2213"), m3: 10, spec: some("MC20"), dryFor: variant("days", 8), kilns: new SortedMap([["K-303", 10]], byString), specBooked: "MC22", specMeasured: "MC20", gradeBooked: "P", gradeMeasured: "R2", instruction: some("Sticker every 600 mm before loading") }],
+    ["3117", { bay: "B-2", at: new Date("2027-05-11T17:35:00Z"), load: some("LD-2214"), m3: 5, spec: some("MC16"), dryFor: variant("days", 8), kilns: new SortedMap([["K-301", 5]], byString), specBooked: "MC18", specMeasured: "MC16", gradeBooked: "R", gradeMeasured: "R3", instruction: some("Sticker every 600 mm before loading") }],
+    ["3118", { bay: "B-3", at: new Date("2027-05-11T17:55:00Z"), load: some("LD-2215"), m3: 15, spec: some("MC14"), dryFor: variant("days", 9), kilns: new SortedMap([["K-401", 15]], byString), specBooked: "MC14", specMeasured: "MC14", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") }],
+    ["3119", { bay: "B-3", at: new Date("2027-05-11T17:56:00Z"), load: some("LD-2216"), m3: 37, spec: some("MC12"), dryFor: variant("days", 8), kilns: new SortedMap([["K-205", 37]], byString), specBooked: "MC14", specMeasured: "MC12", gradeBooked: "P", gradeMeasured: "U1", instruction: some("Sticker every 600 mm before loading") }],
+    ["3120", { bay: "B-3", at: new Date("2027-05-11T17:57:00Z"), load: some("LD-2217"), m3: 5, spec: some("MC08"), dryFor: variant("days", 9), kilns: new SortedMap([["K-302", 5]], byString), specBooked: "MC08", specMeasured: "MC08", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") }],
+    ["3121", { bay: "B-2", at: new Date("2027-05-11T20:35:00Z"), load: some("LD-2218"), m3: 1, spec: some("MC22"), dryFor: variant("days", 7), kilns: new SortedMap([["K-304", 1]], byString), specBooked: "MC08", specMeasured: "MC22", gradeBooked: "R", gradeMeasured: "P1", instruction: none }],
+    ["3122", { bay: "B-2", at: new Date("2027-05-11T20:36:00Z"), load: some("LD-2218"), m3: 37, spec: some("MC16"), dryFor: variant("days", 7), kilns: new SortedMap([["K-206", 37]], byString), specBooked: "MC16", specMeasured: "MC16", gradeBooked: "U", gradeMeasured: "U2", instruction: none }],
+    ["3123", { bay: "B-3", at: new Date("2027-05-11T20:55:00Z"), load: some("LD-2219"), m3: 22, spec: some("MC20"), dryFor: variant("days", 8), kilns: new SortedMap([["K-202", 22]], byString), specBooked: "MC20", specMeasured: "MC20", gradeBooked: "R", gradeMeasured: "R2", instruction: some("Sticker every 600 mm before loading") }],
+    ["3124", { bay: "B-3", at: new Date("2027-05-11T20:56:00Z"), load: some("LD-2219"), m3: 32, spec: some("MC22"), dryFor: variant("days", 8), kilns: new SortedMap([["K-105", 32]], byString), specBooked: "MC22", specMeasured: "MC22", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") }],
+    ["3125", { bay: "B-2", at: new Date("2027-05-11T22:35:00Z"), load: some("LD-2220"), m3: 31, spec: some("MC18"), dryFor: variant("days", 9), kilns: new SortedMap([["K-101", 31]], byString), specBooked: "MC18", specMeasured: "MC18", gradeBooked: "U", gradeMeasured: "R1", instruction: none }],
+    ["3126", { bay: "B-2", at: new Date("2027-05-11T23:35:00Z"), load: some("LD-2221"), m3: 17, spec: some("MC08"), dryFor: variant("days", 8), kilns: new SortedMap([["K-202", 17]], byString), specBooked: "MC08", specMeasured: "MC08", gradeBooked: "U", gradeMeasured: "R3", instruction: some("Hold the kiln at 40 °C on arrival") }],
+];
+/** Wed 12 May 2027's bins: loads split across kilns, one with a remainder still unallocated. */
+const splitBins: [string, Row][] = [
+    ["3201", { bay: "B-1", at: new Date("2027-05-12T06:15:00Z"), load: some("LD-2232"), m3: 30, spec: some("MC10"), dryFor: variant("days", 8), kilns: new SortedMap([["K-208", 6], ["K-601", 20]], byString), specBooked: "MC10", specMeasured: "MC10", gradeBooked: "R", gradeMeasured: "R1", instruction: some("Sticker every 600 mm before loading") }],
+    ["3202", { bay: "B-2", at: new Date("2027-05-12T07:35:00Z"), load: some("LD-2234"), m3: 18, spec: some("MC12"), dryFor: variant("days", 9), kilns: new SortedMap([["K-107", 12], ["K-110", 6]], byString), specBooked: "MC12", specMeasured: "MC12", gradeBooked: "P", gradeMeasured: "P2", instruction: some("Sticker every 600 mm before loading") }],
+    ["3203", { bay: "B-3", at: new Date("2027-05-12T09:55:00Z"), load: some("LD-2236"), m3: 11, spec: some("MC16"), dryFor: variant("days", 6), kilns: new SortedMap([["K-110", 3], ["K-305", 8]], byString), specBooked: "MC16", specMeasured: "MC16", gradeBooked: "U", gradeMeasured: "U2", instruction: some("Sticker every 600 mm before loading") }],
+];
+/** The yard's bins, every day's, by key: Tue 4 May's four, published; Tue 11's 26, the mock's day; and Wed 12's three, split across kilns. */
+export const yardBinRows: SortedMap<string, Row> = new SortedMap<string, Row>([...publishedBins, ...planBins, ...splitBins], byString);
+/** The days of the yard's plan: Tue 4 May issued, Tue 11 and Wed 12 drafts. */
+export const yardDayRows: SortedMap<Date, ValueTypeOf<typeof YardDay>> = new SortedMap<Date, ValueTypeOf<typeof YardDay>>([
+    [yardPublishedDay, { state: variant("issued", { at: yardIssuedAt }) }],
+    [yardDay, { state: variant("draft", null) }],
+    [yardSplitDay, { state: variant("draft", null) }],
 ], byDate);
+/** The smallest board's bins: the plan day's, their roles alone. */
+export const yardMinimalBinRows: SortedMap<string, ValueTypeOf<typeof MinimalBin>> = new SortedMap<string, ValueTypeOf<typeof MinimalBin>>(planBins.map(([id, row]) => [id, {
+    bay: row.bay, at: row.at, load: row.load, m3: row.m3, kilns: new SortedMap([...row.kilns], byString), dryFor: row.dryFor,
+}] as const), byString);
 /**
- * Two years of plans to Tue 11 May 2027, for the board read a day at a time:
- * each day published with four of the plan day's bins at its own date, and
- * the plan day itself as the mock opens.
+ * Two years of the yard's bins to Tue 11 May 2027, for the board read a day
+ * at a time through its slice: on each day before it, four of the plan day's
+ * bins at their times on that day, keyed by how many days before; and the plan
+ * day's own.
  */
-export const yardHistory: SortedMap<Date, ValueTypeOf<typeof YardDay>> = (() => {
-    const history = new SortedMap<Date, ValueTypeOf<typeof YardDay>>([], byDate);
-    const sample = [...yardBins].slice(0, 4);
-    for (let n = -730; n < 0; n++) {
-        const date = new Date(yardDay.getTime() + n * 86_400_000);
-        const bins = new SortedMap<string, ValueTypeOf<typeof YardBin>>(sample.map(([id, bin]) => [id, {
-            ...bin, at: new Date(bin.at.getTime() + n * 86_400_000), parts: new SortedMap([...bin.parts], byString),
-        }]), byString);
-        history.set(date, { status: variant("published", { at: new Date(date.getTime() - 6 * 3_600_000) }), bins });
+export const yardBinHistoryRows: SortedMap<string, Row> = (() => {
+    const history = new SortedMap<string, Row>(planBins, byString);
+    const sample = planBins.slice(0, 4);
+    for (let n = 1; n <= 730; n++) {
+        for (const [id, row] of sample) {
+            history.set(`h${n}-${id}`, { ...row, at: new Date(row.at.getTime() - n * DAY), kilns: new SortedMap([...row.kilns], byString) });
+        }
     }
-    history.set(yardDay, yardPlanDay);
     return history;
 })();
+/** The days of those two years: each issued six hours before it starts, and the plan day a draft. */
+export const yardDayHistoryRows: SortedMap<Date, ValueTypeOf<typeof YardDay>> = (() => {
+    const days = new SortedMap<Date, ValueTypeOf<typeof YardDay>>([[yardDay, { state: variant("draft", null) }]], byDate);
+    for (let n = 1; n <= 730; n++) {
+        const day = new Date(yardDay.getTime() - n * DAY);
+        days.set(day, { state: variant("issued", { at: new Date(day.getTime() - 6 * 3_600_000) }) });
+    }
+    return days;
+})();
+
+/**
+ * A bin as the board reads it: its roles from the yard's fields — its bay its
+ * lane, its load its arrival, its m³ its quantity, its spec its kind, how long
+ * it dries its hold, its split its parts — beside the row itself.
+ */
+function boardBin(row: Row): ValueTypeOf<typeof YardBin> {
+    return { lane: row.bay, at: row.at, arrival: row.load, quantity: row.m3, kind: row.spec, hold: row.dryFor, parts: new SortedMap([...row.kilns], byString), row };
+}
+/** Tue 11 May 2027 as the board reads it: a draft, its 26 bins. */
+export const yardPlanDay: ValueTypeOf<typeof YardPlan> = {
+    status: variant("draft", null),
+    bins: new SortedMap(planBins.map(([id, row]) => [id, boardBin(row)] as const), byString),
+};

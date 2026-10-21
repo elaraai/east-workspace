@@ -475,6 +475,21 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      */
     readonly roles: readonly string[];
     /**
+     * The resource slot its bins' parts are on, `parts.of` (#1371): what the
+     * Allocation checks its `resources` against and names its slice's sources
+     * by at build, as `takes` is `resource.of`'s; `undefined` for a kind with
+     * no `parts`.
+     */
+    readonly partsOf: string | undefined;
+    /**
+     * The fields of its row none of the Allocation's roles maps, a struct
+     * (#1371, B13): what an arrival's `values` gives a bin booked from it,
+     * each field its type's default without them. The Allocation holds its
+     * arrivals' `values` to it at build, and `buildAllocation` carries it as
+     * the kind's `values`.
+     */
+    readonly allocationValues: StructType;
+    /**
      * The kind on the wire, under its slot: the Calendar's, which takes no
      * notice of Plan's options.
      *
@@ -832,6 +847,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     }
     const holdField = role("hold", config.hold, TimeStepType, "a TimeStep field");
     const kindField = role("kind", config.kind, OptionType(StringType), "an Option of a String field");
+    // The fields none of the Allocation's roles maps (#1371): what an arrival's values give a booked bin (B13) — every
+    // field but its time, its lane and its roles' fields — which the Allocation reads at build, and `buildAllocation` writes.
+    const allocationMapped = new Set([startField, endField, ...[resource?.field, arrivalField, quantityField, partsField, holdField, kindField]
+        .filter((name): name is string => name !== undefined)]);
+    const allocationValues = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !allocationMapped.has(name))));
     // The hours a duty counts, reified once and called per row.
     const hoursOf = config.hours === undefined ? undefined : scheduleAccessor(rowType, keyType, FloatType, config.hours,
         (returns) => `${where}: \`hours\` returns a Float, the hours a duty counts — and this one returns ${returns}`);
@@ -1464,6 +1484,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         templatesSource,
         templatesList: config.templates === undefined ? "none" : SCHEDULE_TEMPLATES in config.templates ? "record" : "code",
         roles: [...rosterGiven, ...allocationGiven],
+        partsOf: config.parts?.of,
+        allocationValues,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
             return East.value(kindParts(slot, part, formSpecs).fields as never, ScheduleKindType);
         },
@@ -1583,9 +1605,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             const quantity = quantityField;
             const shares = partsField;
             const hold = holdField;
-            const mapped = new Set([startField, lane, arrival, quantity, shares, hold, ...(kindField === undefined ? [] : [kindField])]);
-            // The fields no role maps: what an arrival's values give a booked bin, a reservation's their type's default.
-            const ValuesType = StructType(Object.fromEntries(Object.entries(fields).filter(([name]) => !mapped.has(name))));
+            // The fields no role maps (`allocationValues`): what an arrival's values give a booked bin, a reservation's their type's default.
+            const mapped = allocationMapped;
+            const ValuesType = allocationValues;
             const parts = kindParts(slot, part, formOver([...mapped]));
             const Roles = ScheduleAllocationRolesType;
             // A row with the Allocation's roles written from `roles`, and every other field from `source`: the row as it
