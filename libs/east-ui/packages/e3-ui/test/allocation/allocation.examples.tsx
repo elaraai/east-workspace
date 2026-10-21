@@ -195,7 +195,6 @@ export const allocationKilnYard = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -259,7 +258,6 @@ export const allocationTable = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -320,7 +318,6 @@ export const allocationLabels = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -379,7 +376,6 @@ export const allocationPublished = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -436,7 +432,6 @@ export const allocationNoPublish = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -495,7 +490,6 @@ export const allocationSplit = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -557,7 +551,6 @@ export const allocationWindowed = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -616,7 +609,6 @@ export const allocationMobile = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -686,7 +678,6 @@ export const allocationCustomBin = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
@@ -745,7 +736,6 @@ export const allocationFitRule = example({
                 { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
                 { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
-                { key: "instruction", label: "Instruction", text: b => b.instruction.unwrap("some", () => "none"), table: false },
             ]} />
         </Box>;
     }}</Reactive>),

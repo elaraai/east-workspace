@@ -222,12 +222,15 @@ describe("a bin (A56–A59)", () => {
         expect([button(details(c), "One hour later").hasAttribute("disabled"), button(details(c), "One hour earlier").hasAttribute("disabled")]).toEqual([true, false]);
     });
 
-    test("A57 — the app's columns as rows over the bin's row, a warning one in warn-text: `Spec · booked MC08 · measured MC22`", async () => {
+    test("A57 — the app's columns as rows over the bin's row, a warning one in warn-text: `Spec · booked MC08 · measured MC22`; what the bin kind's form edits stands once, as its field", async () => {
         const c = await open();
         await press(card(c, "3113"));
         expect(rowsOf(details(c).querySelector("[data-allocation-values]"))).toEqual([
-            ["Spec", "booked MC08 · measured MC22", "warning"], ["Grade", "R2", null], ["Instruction", "none", null],
+            ["Spec", "booked MC08 · measured MC22", "warning"], ["Grade", "R2", null],
         ]);
+        // The loading instruction is the form's to edit, and no column says it again.
+        expect([...details(c).querySelectorAll('[data-field="instruction"]')].map(f => f.querySelector("label")!.firstChild!.textContent)).toEqual(["Loading instruction"]);
+        expect(within(details(c)).queryAllByText(/^Instruction$/)).toEqual([]);
     });
 
     test("A57, A75 — the quantity is one draft; a bin wholly on its resource stays wholly there, and Saves", async () => {
