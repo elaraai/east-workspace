@@ -80,6 +80,7 @@
     "@elaraai/e3-core": "workspace:*",
     "@elaraai/east-node-std": "workspace:*",
     "@elaraai/east-py-datascience": "workspace:*",
+    "@elaraai/east-web-std": "workspace:*",
     "@elaraai/eslint-plugin-east": "workspace:*",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8",

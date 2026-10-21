@@ -867,6 +867,9 @@ importers:
       '@elaraai/east-py-datascience':
         specifier: workspace:*
         version: link:../../../east-py/packages/east-py-datascience
+      '@elaraai/east-web-std':
+        specifier: workspace:*
+        version: link:../../../east-web/packages/east-web-std
       '@elaraai/eslint-plugin-east':
         specifier: workspace:*
         version: link:../../../eslint-plugin-east

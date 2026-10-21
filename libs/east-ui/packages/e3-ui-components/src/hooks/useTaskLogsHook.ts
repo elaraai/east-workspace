@@ -229,8 +229,9 @@ export function useTaskLogs(
                 return { data: log.data, offset: 0n, size: BigInt(log.data.length), totalSize: BigInt(log.totalSize), complete: true };
             } catch {
                 // No execution yet, or a failed read: what was read stays, and
-                // the poll backs off
-                at.pollMs = Math.min(at.pollMs * 2, backoffMs);
+                // the poll backs off — never sooner than the poll before it
+                // waited, so an ended log's failed poll keeps its half minute
+                at.pollMs = Math.max(at.pollMs, Math.min(at.pollMs * 2, backoffMs));
                 keep(held.current, key, at);
                 return at.log === undefined
                     ? NO_LOG

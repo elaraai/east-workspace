@@ -7,6 +7,7 @@ import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, Integ
 import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record, Sheet, ui } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
+import { Console } from "@elaraai/east-web-std";
 
 export const thresholdInput      = e3.input('threshold',       FloatType, variant('value', 50.0));
 export const thresholdPatchInput = e3.input('threshold_patch', PatchType(FloatType), variant('value', variant("unchanged", null)));
@@ -722,6 +723,24 @@ export const previewMachinesInput = e3.input('preview_machines', DictType(String
 /** A data task reporting the counts' total: its output is what a task's preview shows. */
 export const previewReportTask = e3.task('preview_report', [previewCountsInput],
     East.function([DictType(StringType, IntegerType)], IntegerType, (_$, counts) => counts.reduce((_$2, total, count) => total.add(count), 0n)));
+
+/** The lines a task writes to its log, as many as another session writes. */
+export const previewLogLinesInput = e3.input('preview_log_lines', ArrayType(StringType), variant('value', ["one", "two"]));
+
+/**
+ * A task that writes each of its lines to its log as it runs — standard
+ * output — and how many there were to standard error: what a task's log
+ * preview polls. Run over other lines, it is another execution, with a log of
+ * its own.
+ */
+export const previewLogTask = e3.task('preview_log', [previewLogLinesInput],
+    East.function([ArrayType(StringType)], IntegerType, ($, lines) => {
+        $.for(lines, ($2, line) => {
+            $2(Console.log(line));
+        });
+        $(Console.error(East.str`${lines.size()} lines`));
+        return lines.size();
+    }));
 
 /** A ui task binding nothing: its output is the view a ui task's preview draws. */
 export const previewView = ui('preview_view', [], East.function([], UIComponentType, (_$) => <Text>the view</Text>));
