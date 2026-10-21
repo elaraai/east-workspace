@@ -773,13 +773,15 @@ The board:
 
 ```tsx
 export const allocationKilnYard = example({
-    description: "The kiln yard's board over its own records: bins with the yard's spec and grade, published days, a check over them, the rail over bays, kilns and loads, the library and the inspector.",
-    keywords: ["Allocation", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Slice.bindRecords", "Func.bind", "Publish"], inputs: [],
+    description: "The kiln yard's board over its own records: its bins, each with the yard's spec and grade beside the board's roles, read a day at a time through the slice; the days it publishes; a check over the bins' own fields; the rail over the bays, the kilns and the loads — each source with its icon, and each narrowing every place its rows appear, the Library's tabs included; the yard's fields as columns; the Arrivals and Resources library; the inspector; and the yard's greedy fit on e3.",
+    keywords: ["Allocation", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "fit", "check", "columns", "links", "Publish", "Library", "narrowing"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        // What the board writes: the bins and the days of the plan, each through its patch door.
         const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
         const entries = $.let(Data.bindPaged(kilnBins));
         const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
         const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
+        // Every bay, kiln and load is the calculation scope; the narrowing only chooses which show.
         const yard = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
         const bays = $.let(Data.bind(yardBays));
@@ -787,29 +789,40 @@ export const allocationKilnYard = example({
         const kilnIndex = $.let(Data.bindPaged(kilns, { indexes: [kilnsByGroupMax, kilnsByName] }));
         const loadIndex = $.let(Data.bindPaged(arrivals, { indexes: [arrivalsBySpec] }));
         const slice = $.let(Slice.bindRecords("ex.allocationKilnYard", {
-            bin: { source: byTime, range: "at" },     // the day's bins: the board's navigation writes the range
+            // The day's bins: the board's navigation writes the range; no chip picks the day.
+            bin: { source: byTime, range: "at" },
             bays: { source: bayIndex, icon: { prefix: "fas", name: "warehouse" },
                 fields: { area: { label: "Area", hints: ["North", "South"] }, cover: { label: "Cover", hints: ["Covered", "Open"] } } },
+            // A max narrows within a group (one index on group, then max); a name is searched by its start.
             kilns: { source: kilnIndex, icon: { prefix: "fas", name: "fire" },
-                fields: { group: { label: "Kiln group" }, max: { label: "Max m³" }, name: { label: "Name" } } },
-            arrivals: { source: loadIndex, icon: { prefix: "fas", name: "truck" }, fields: { spec: { label: "Spec" } } },
+                fields: { group: { label: "Kiln group", hints: ["Hall A", "Hall B", "Compact", "Standard", "Large", "Bulk"] }, max: { label: "Max m³" }, name: { label: "Name" } } },
+            arrivals: { source: loadIndex, icon: { prefix: "fas", name: "truck" }, fields: { spec: { label: "Spec", hints: ["MC08", "MC10", "MC12", "MC14", "MC16", "MC18", "MC20", "MC22"] } } },
+        }, {
+            presets: [
+                { id: "halls", name: "Halls", where: { kilns: { group: ["Hall A", "Hall B"] } } },
+                { id: "small", name: "Compact and standard", where: { kilns: { group: ["Compact", "Standard"] } } },
+                { id: "large", name: "Large and bulk", where: { kilns: { group: ["Large", "Bulk"] } } },
+                { id: "north", name: "North bays, halls", where: { bays: { area: ["North"] }, kilns: { group: ["Hall A", "Hall B"] } } },
+            ],
         }));
         const fit = $.let(Func.bind(yardFit));
         // The yard's check reads its own fields: a bin measured off its booked spec is flagged, never refused.
         const check = $.const(East.function([Allocation.Types.CheckContext(KilnBin)], ArrayType(Allocation.Types.Issue), ($2, cx) => {
             const issues = $2.let([], ArrayType(Allocation.Types.Issue));
             $2.for(cx.plan.bins, ($3, bin, id) => {
-                $3.if(bin.arrival.hasTag("some").and(() => East.notEqual(bin.row.specBooked, bin.row.specMeasured)), ($4) => {
-                    $4(issues.pushLast({ kind: variant("custom", "Spec mismatch"), tone: variant("neutral", null), title: East.str`Bin ${id}`,
-                        detail: East.str`Spec booked ${bin.row.specBooked} · measured ${bin.row.specMeasured}`,
-                        bin: some(id), resource: none, flag: some("≠ spec"), fix: none }));
-                });
+                $3.match(bin.arrival, { some: ($4, code) => {
+                    $4.if(East.notEqual(bin.row.specBooked, bin.row.specMeasured), ($5) => {
+                        $5(issues.pushLast({ kind: variant("custom", "Spec mismatch"), tone: variant("neutral", null),
+                            title: East.str`${code} · bin ${id}`,
+                            detail: East.str`Spec booked ${bin.row.specBooked} · measured ${bin.row.specMeasured} · ${bin.lane} ${bin.at.printFormatted("HH:mm")}`,
+                            bin: some(id), resource: none, flag: some("≠ spec"), fix: none }));
+                    });
+                } });
             });
             return issues;
         }));
         return <Box width="100%" height="900px"><Allocation id="allocationKilnYard" title="Kiln loading" fit={fit} check={check} slice={{ slice }} inspector
-            library={[Allocation.library.arrivals(), Allocation.library.resources()]}
-            labels={{ lane: "Bay", arrival: "Load", resource: "Kiln" }} view={{ layout: "timeline", date: yardDay }}
+            library={[Allocation.library.arrivals(), Allocation.library.resources()]} view={{ layout: "timeline", date: yardDay }}
             events={{ bin: Schedule.events(bins, {
                 name: "Bin", icon: "box", entries,
                 at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
@@ -832,14 +845,20 @@ export const allocationKilnYard = example({
             })}
             periods={Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } })}
             columns={[
-                { key: "spec", label: "Spec",
-                    text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
+                { key: "spec", label: "Spec", text: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => b.specMeasured, () => East.str`booked ${b.specBooked} · measured ${b.specMeasured}`),
                     tone: b => East.equal(b.specBooked, b.specMeasured).ifElse(() => none, () => some(variant("warning", null))) },
-                { key: "grade", label: "Grade", text: b => b.gradeMeasured, table: false },
+                { key: "grade", label: "Grade", text: b => b.gradeMeasured.startsWith(b.gradeBooked).ifElse(() => b.gradeMeasured, () => East.str`booked ${b.gradeBooked} · measured ${b.gradeMeasured}`), table: false },
             ]} />
         </Box>;
     }}</Reactive>),
 });
+```
+
+The board keeps its own nouns here: lane, arrival and resource. The yard's
+own words are `allocationLabels`', over the Table (`Allocation Spec.md` §3.4):
+
+```tsx
+labels={{ lane: "Bay", arrival: { one: "Delivery", other: "Deliveries" }, resource: "Kiln", quantity: "Vol" }}
 ```
 
 In a 390px box the same props give a card per kiln, or per slot in the Table,
