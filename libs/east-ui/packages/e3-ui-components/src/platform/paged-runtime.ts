@@ -487,8 +487,8 @@ interface Snapshot {
     readonly held: Map<string, HeldRows>;
     /** Which entry keys a narrowing's runs hold, as membership reads have
      *  answered them at this revision, by the runs (#1349). Dropped when it
-     *  moves. */
-    readonly within: Map<string, Map<string, boolean>>;
+     *  moves, with what each batch kept for its reader. */
+    readonly within: Map<string, HeldWithin>;
     /** Stops following the dataset; `undefined` while it is not followed —
      *  nothing reads it, or no adapter is installed. */
     unwatch: (() => void) | undefined;
@@ -514,10 +514,107 @@ const PLACE_CONCURRENCY = 4;
 export const MAX_WITHIN_KEYS = 20_000;
 
 /** The most entry keys whose membership one narrowing's runs hold answered;
- *  past it, what was held goes and the newest read's answers are held alone.
- *  Twice what one read asks, so the answers a read waited on are always held
- *  when it reads again. */
+ *  past it, the least recently read go — but never one a batch keeps for its
+ *  reader ({@link HeldWithin}), so the answers a read waits on are held when
+ *  it reads again, whatever other readers' answers land meanwhile. */
 const MAX_HELD_WITHIN = 2 * MAX_WITHIN_KEYS;
+
+/** The most membership batches of one narrowing's runs that keep keys for
+ *  their readers at once; past it, the oldest batch's keys are trimmed as any
+ *  are. What batches keep is bounded by it, so the answers held never pass
+ *  {@link MAX_HELD_WITHIN} by more than the keys of this many batches. */
+const MAX_PINNING_BATCHES = 16;
+
+/**
+ * Which entry keys one narrowing's runs hold, as membership reads answered
+ * them at one revision (#1349), and what each batch keeps for its reader.
+ *
+ * A batch keeps every key its reader asks of — those already held when it
+ * launches, and those its answer brings — until a read that holds every key
+ * it asks of reads them. So however many readers' answers land between a
+ * batch's landing and its reader's next read, trimming to
+ * {@link MAX_HELD_WITHIN} never takes an answer the reader is waiting to
+ * read, and each reader reads its answers after one batch: no reader's
+ * landing undoes another's.
+ */
+interface HeldWithin {
+    /** Each entry key's answer, the least recently read first: a read moves the keys it reads to the end. */
+    readonly answers: Map<string, boolean>;
+    /** The batches that keep each key, until a read reads it. */
+    readonly pins: Map<string, Set<string>>;
+    /** Each batch keeping keys, the oldest first, with the keys its reader asks of. */
+    readonly batches: Map<string, readonly string[]>;
+}
+
+/** The membership answers one narrowing's runs hold, made empty on first use. */
+function heldWithinOf(snapshot: Snapshot, family: string): HeldWithin {
+    let held = snapshot.within.get(family);
+    if (held === undefined) {
+        held = { answers: new Map(), pins: new Map(), batches: new Map() };
+        snapshot.within.set(family, held);
+    }
+    return held;
+}
+
+/**
+ * Keep keys for a batch until its reader reads them. Past
+ * {@link MAX_PINNING_BATCHES}, the oldest batch keeps its keys no longer.
+ *
+ * @param held - The answers one narrowing's runs hold
+ * @param batch - The batch's channel key
+ * @param keys - Every key its reader asks of
+ * @param kept - The keys it keeps now: those held as it launches, or those its answer brings
+ */
+function keepWithin(held: HeldWithin, batch: string, keys: readonly string[], kept: Iterable<string>): void {
+    if (!held.batches.has(batch)) held.batches.set(batch, keys);
+    for (const key of kept) {
+        let by = held.pins.get(key);
+        if (by === undefined) {
+            by = new Set();
+            held.pins.set(key, by);
+        }
+        by.add(batch);
+    }
+    while (held.batches.size > MAX_PINNING_BATCHES) releaseWithin(held, held.batches.keys().next().value!);
+}
+
+/** A batch keeps its keys no longer: they are trimmed as any are, unless another batch keeps them. */
+function releaseWithin(held: HeldWithin, batch: string): void {
+    const keys = held.batches.get(batch);
+    if (keys === undefined) return;
+    held.batches.delete(batch);
+    for (const key of keys) {
+        const by = held.pins.get(key);
+        if (by === undefined) continue;
+        by.delete(batch);
+        if (by.size === 0) held.pins.delete(key);
+    }
+}
+
+/**
+ * A read that holds every key it asks of has read them: each moves to the
+ * end, the most recently read, and no batch keeps it any longer — however
+ * many kept it, since the read answers every reader asking of it alike.
+ */
+function readWithin(held: HeldWithin, keys: readonly string[]): void {
+    for (const key of keys) {
+        const answer = held.answers.get(key);
+        if (answer === undefined) continue;
+        held.answers.delete(key);
+        held.answers.set(key, answer);
+        held.pins.delete(key);
+    }
+    trimWithin(held);
+}
+
+/** Past {@link MAX_HELD_WITHIN}, the least recently read answers go — but none a batch keeps. */
+function trimWithin(held: HeldWithin): void {
+    if (held.answers.size <= MAX_HELD_WITHIN) return;
+    for (const key of held.answers.keys()) {
+        if (held.answers.size <= MAX_HELD_WITHIN) break;
+        if (!held.pins.has(key)) held.answers.delete(key);
+    }
+}
 
 /**
  * The runs left of `runs` once their first `taken` entries are in hand.
@@ -748,6 +845,12 @@ export function pagedBatchKey(
     workspace: string, path: TreePath, revision: string, selector: PagedSelector, kind: "seekAll" | "rows" | "runs" | "place" | "within", parts: readonly string[],
 ): string {
     return `${pagedWindowFamily(workspace, path, revision, selector)}#${kind}:${parts.join("\u0001")}`;
+}
+
+/** The family of a narrowing's membership answers (#1349): the runs of one
+ *  of a record's indexes, at one revision. */
+function withinFamily(workspace: string, path: TreePath, revision: string, selector: PagedSelector, runs: readonly PagedRun[]): string {
+    return `${pagedWindowFamily(workspace, path, revision, selector)}#within:${runs.map(([row, count]) => `${row}+${count}`).join(",")}`;
 }
 
 /** A key query as a batch's wire takes it: its form alone, the index and the
@@ -1745,7 +1848,11 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * again — a segment drawn again, a window panned back — is answered from
      * what is held, and only the keys not held go in a request: one for each
      * {@link DATASET_BATCH_MAX} keys, and for each as many runs, a key in any
-     * group of the runs being in them.
+     * group of the runs being in them. Past {@link MAX_HELD_WITHIN} answers the
+     * least recently read go, but a batch keeps every key its reader asks of
+     * until the reader has read them ({@link HeldWithin}): several readers whose
+     * keys together pass the cap each read theirs after one batch, and a reader
+     * whose answers went since asks again for those alone.
      *
      * @param source - One of a record's indexes, the runs' rows
      * @param runs - The narrowing's runs: ascending, disjoint, each inside the index
@@ -1766,16 +1873,20 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         const revision = this.revisionFor(workspace, path);
         if (typeof revision !== "string") return none;
         const snapshot = this.snapshotOf(workspace, path);
-        const family = `${pagedWindowFamily(workspace, path, revision, selector)}#within:${runs.map(([row, count]) => `${row}+${count}`).join(",")}`;
+        const family = withinFamily(workspace, path, revision, selector, runs);
         const held = snapshot.within.get(family);
         const answers: boolean[] = new Array<boolean>(keys.length);
         const missing = new Set<string>();
         for (const [i, key] of keys.entries()) {
-            const known = held?.get(key);
+            const known = held?.answers.get(key);
             if (known === undefined) missing.add(key);
             else answers[i] = known;
         }
-        if (missing.size === 0) return some(answers);
+        if (missing.size === 0) {
+            // Every answer is held: the reader has read them, and no batch keeps them for it any longer.
+            if (held !== undefined) readWithin(held, keys);
+            return some(answers);
+        }
         const asked = [...missing];
         // The channel coordinates the read; the answers are held key by key, so
         // two reads that share a channel each read their own keys again if need be.
@@ -1784,8 +1895,34 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         this.track(batchKey);
         const batch = this.channel(snapshot, batchKey);
         if (batch.status === "loaded") batch.status = "idle";
-        if (this.due(batch)) this.launchWithin(workspace, path, snapshot, revision, index, family, batchKey, runs, asked);
+        if (this.due(batch)) {
+            // The batch keeps every key its reader asks of: those held now, and those its answer brings.
+            const kept = heldWithinOf(snapshot, family);
+            releaseWithin(kept, batchKey);
+            keepWithin(kept, batchKey, [...keys], keys.filter((key) => !missing.has(key)));
+            this.launchWithin(workspace, path, snapshot, revision, index, family, batchKey, runs, asked);
+        }
         return this.answer<readonly boolean[]>(batch, undefined);
+    }
+
+    /**
+     * How many membership answers the runtime holds of a source's dataset,
+     * over every narrowing's runs, and how many of them batches keep for their
+     * readers (#1349): what its specs hold the bounds to. A move drops them
+     * all, so they are always the current revision's.
+     *
+     * @param source - One of a record's indexes, or any source of the same record
+     * @returns The answers held, and those kept
+     */
+    protected withinHeld(source: PagedSource): { answers: number; kept: number } {
+        const snapshot = this.snapshots.get(pagedRevisionKey(this.resolveWorkspace(), source.path));
+        let answers = 0;
+        let kept = 0;
+        for (const held of snapshot?.within.values() ?? []) {
+            answers += held.answers.size;
+            kept += held.pins.size;
+        }
+        return { answers, kept };
     }
 
     /** Launch a membership read of the keys not held: a request for each group
@@ -1824,13 +1961,15 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 return;
             }
             if (!this.pinnedTo(snapshot, revision)) return;
-            let held = snapshot.within.get(family);
-            // Past the cap, what was held goes, and this read's answers are held alone.
-            if (held === undefined || held.size + keys.length > MAX_HELD_WITHIN) {
-                held = new Map();
-                snapshot.within.set(family, held);
+            const held = heldWithinOf(snapshot, family);
+            for (const [i, key] of keys.entries()) {
+                held.answers.delete(key);
+                held.answers.set(key, within[i]!);
             }
-            for (const [i, key] of keys.entries()) held.set(key, within[i]!);
+            // Its answers are kept for its reader, beside what the batch kept as it launched, until the reader reads
+            // them; past the cap, the least recently read of the rest go.
+            keepWithin(held, batchKey, keys, keys);
+            trimWithin(held);
             this.settle(batchKey, seq, (e) => { e.status = "loaded"; delete e.error; });
         })();
     }
