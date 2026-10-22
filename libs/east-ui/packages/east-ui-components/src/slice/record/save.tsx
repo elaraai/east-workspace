@@ -8,7 +8,7 @@ import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "rea
 import { Button } from "@chakra-ui/react";
 import { StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, type option, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
-import type { EditSessionBinding } from "../../editing/session.js";
+import type { EditSessionBinding, HeldRows } from "../../editing/session.js";
 import { getStore } from "../../platform/state-runtime.js";
 import type { UIStoreInterface } from "../../platform/state-store.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
@@ -23,18 +23,23 @@ const encode = encodeBeast2For(RecordSliceWhereType);
 const decode = decodeBeast2For(RecordSliceWhereType);
 
 /** Keep membership facts, never decoded pages. A revision change restarts the
- * check; only a small batch of missing identities is requested at a time. */
-function membership(ids: readonly string[], revision: () => option<string>, contains: (id: string) => option<boolean>) {
+ * check; only a small batch of missing identities is requested at a time. An
+ * entry whose row the Save holds at the revision checked — what its request
+ * began from, or what its confirmation read back — is checked by that row,
+ * never read by its key again. */
+function membership(slice: Slice, where: Where, ids: readonly string[], revision: () => option<string>, held: HeldRows | undefined) {
     let at: string | undefined;
     const results = new Map<string, boolean>();
     return (): option<ReadonlyMap<string, boolean>> => {
         const before = revision();
         if (before.type === "none") { at = undefined; results.clear(); return none; }
         if (at === undefined || !sameRevision(at, before.value)) { at = before.value; results.clear(); }
+        const rows = held !== undefined && sameRevision(held.revision, before.value) ? held.rows : undefined;
         let pending = 0;
         for (const id of ids) {
             if (results.has(id)) continue;
-            const included = contains(id);
+            const row = rows?.get(id);
+            const included = row === undefined ? slice.contains(where, id) : slice.containsRow(where, id, row);
             if (included.type === "some") results.set(id, included.value);
             else if (++pending === 8) break;
         }
@@ -66,14 +71,14 @@ class SaveNotice {
         this.changed();
     }
 
-    confirm(slice: Slice, where: Where, ids: readonly string[], revision: () => option<string>): void {
+    confirm(slice: Slice, where: Where, ids: readonly string[], revision: () => option<string>, held: HeldRows | undefined): void {
         if (!same(slice.read().where, where)) return;
         this.scope(where);
         const generation = ++this.generation;
         const run = () => {
             if (generation !== this.generation || !same(slice.read().where, where)) return;
             this.pending = true; this.error = undefined; this.changed();
-            const read = membership(ids, revision, id => slice.contains(where, id));
+            const read = membership(slice, where, ids, revision, held);
             void awaitTracked(() => {
                 if (generation !== this.generation || !same(slice.read().where, where)) return some(undefined);
                 const included = read();
@@ -114,11 +119,14 @@ function notice(slice: Slice): SaveNotice {
  * primary identities after confirmation. Hidden edits already outside this
  * query do not count as leaving; a newly inserted row outside it does.
  * Changing the query cancels the notice, while Save still includes all drafts.
+ * Each check takes the rows the session holds at the revision it checks —
+ * what the request began from, and what its confirmation read back — so it
+ * reads by its key only an entry they do not hold.
  */
 export function prepareRecordSliceSave(slice: Slice | undefined, revision: (() => option<string>) | undefined): Prepare | undefined {
     if (slice === undefined || revision === undefined) return undefined;
     const model = notice(slice);
-    return async targets => {
+    return async (targets, began) => {
         const where = decode(encode(slice.read().where));
         if (where.size === 0) return () => {};
         // Deletions already have their own action. New rows outside the query
@@ -129,13 +137,13 @@ export function prepareRecordSliceSave(slice: Slice | undefined, revision: (() =
             if (target.after.type === "none") continue;
             (target.before.type === "none" ? created : existing).push(id);
         }
-        const read = membership(existing, revision, id => slice.contains(where, id));
+        const read = membership(slice, where, existing, revision, began);
         const candidates = await awaitTracked(() => {
             if (!same(slice.read().where, where)) return some<string[]>([]);
             const included = read();
             return included.type === "none" ? none : some([...created, ...existing.filter(id => included.value.get(id))]);
         });
-        return () => model.confirm(slice, where, candidates, revision);
+        return (confirmed) => model.confirm(slice, where, candidates, revision, confirmed);
     };
 }
 

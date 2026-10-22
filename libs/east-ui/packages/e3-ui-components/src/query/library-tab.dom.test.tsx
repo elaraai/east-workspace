@@ -5,8 +5,8 @@
  * @vitest-environment jsdom
  *
  * The builder's Library tab (#939, `Query Editor Spec.md` §4.10, §7 D3–D4),
- * through `<Query.Builder>`'s carrier over a saved queries record in memory and
- * this viewer's recent runs:
+ * through `<Query.Builder>`'s carrier over the saved queries record on e3
+ * (#1376) and this viewer's recent runs:
  *
  * - **D3**: Recent, then the saved queries by the data source they start from,
  *   each by name, with its description — the author's, else the generated
@@ -17,12 +17,13 @@
  *   in the warning tone, and a click says so instead of opening.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { cleanup, fireEvent, screen, within } from "@testing-library/react";
+import { describe, test, expect, beforeEach } from "vitest";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
-import { act, CUSTOMERS, fixtureCall, mountBuilder, recordHarness, savedQuery, savedRecord, settle } from "./query.test-utils.js";
+import { CUSTOMERS, savedQuery } from "./fixture.test-utils.js";
+import { act, queryHarness, settle } from "./query.test-utils.js";
 
 type TreePath = ValueTypeOf<typeof TreePathType>;
 
@@ -53,12 +54,10 @@ function remember(...runs: ValueTypeOf<typeof SavedQueryType>[]) {
     localStorage.setItem(queryKeys(undefined).recent, JSON.stringify(runs.map((run) => printSaved(run))));
 }
 
-beforeEach(() => {
-    recordHarness(savedRecord([TOP, BIG, MISSING, ELSEWHERE]));
-});
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
+const h = queryHarness();
+
+beforeEach(async () => {
+    await h.seed([TOP, BIG, MISSING, ELSEWHERE]);
 });
 
 // ─── What the tab shows ──────────────────────────────────────────────────────
@@ -101,7 +100,7 @@ const notices = () => [...document.querySelectorAll("[data-query-tab=query] [rol
 describe("the builder's Library tab (#939 D3)", () => {
     test("Recent first, then the saved queries by the data source they start from, each by name, with the author's description or the generated sentence", async () => {
         remember(CANCELLED);
-        await mountBuilder(fixtureCall().call);
+        await h.mountBuilder();
         await show("Library");
         expect(groups()).toEqual([
             ["Recent", ["Cancelled orders"]],
@@ -114,29 +113,27 @@ describe("the builder's Library tab (#939 D3)", () => {
     });
 
     test("a click opens a saved query, which runs, with its notice; the open query is placed", async () => {
-        const fixture = fixtureCall();
-        await mountBuilder(fixture.call);
+        await h.mountBuilder();
         await show("Library");
         await pick(card("Big orders"));
         expect(openQueryId()).toBe(`query.saved:"Big orders"`);
         expect(screen.getByRole("tab", { name: "Query" }).getAttribute("aria-selected")).toBe("true");
         expect(notices()).toEqual(["Opened “Big orders” from the library."]);
-        expect(fixture.requests).toHaveLength(1);
+        expect(h.oneShots()).toHaveLength(1);
         await show("Library");
         expect([card("Big orders").hasAttribute("data-placed"), card("Top shipped orders, 2026").hasAttribute("data-placed")]).toEqual([true, false]);
     });
 
     test("a recent run never saved opens as a new query begun as it, which runs; a recent run of a saved query opens the saved query", async () => {
         remember(CANCELLED, { ...BIG, saved_at: new Date(Date.UTC(2026, 9, 1, 8, 0)) });
-        const fixture = fixtureCall();
-        const { container } = await mountBuilder(fixture.call);
+        const { container } = await h.mountBuilder();
         await show("Library");
         await pick(card("Cancelled orders"));
         expect(openQueryId()).toMatch(/^query\.new:/);
         expect([...container.querySelectorAll("[data-step-id]")].map((s) => s.getAttribute("aria-label"))).toEqual(["Keep rows where", "Count the rows"]);
         expect(container.querySelector("[data-query-status] [data-query-name]")!.textContent).toBe("Cancelled orders");
         expect(notices()).toEqual(["Opened “Cancelled orders” from the library."]);
-        expect(fixture.requests).toHaveLength(1);
+        expect(h.oneShots()).toHaveLength(1);
         await show("Library");
         expect(card("Cancelled orders").hasAttribute("data-placed")).toBe(true);
         // The recent run of Big orders is its saved query.
@@ -150,8 +147,7 @@ describe("the builder's Library tab (#939 D3)", () => {
 
 describe("the builder's Library tab (#939 D4)", () => {
     test("a query whose data sources aren't bound here carries its reason in the warning tone, and a click says so instead of opening", async () => {
-        const fixture = fixtureCall();
-        await mountBuilder(fixture.call);
+        await h.mountBuilder();
         await show("Library");
         expect([glyphOf(card("Customers by region")), glyphOf(card("Archived orders")), glyphOf(card("Big orders"))]).toEqual([
             ["Reads regions, which isn't here", "warning"],
@@ -161,6 +157,6 @@ describe("the builder's Library tab (#939 D4)", () => {
         const before = openQueryId();
         await pick(card("Customers by region"));
         expect(tab().querySelector("[data-query-library-notice]")!.textContent).toBe("Reads regions, which isn't here");
-        expect([openQueryId(), fixture.requests.length]).toEqual([before, 0]);
+        expect([openQueryId(), h.oneShots().length]).toEqual([before, 0]);
     });
 });

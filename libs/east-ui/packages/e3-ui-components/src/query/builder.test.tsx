@@ -4,35 +4,33 @@
  *
  * @vitest-environment jsdom
  *
- * `<Query.Builder>`'s shell (#935), rendered over a saved queries record in
- * memory whose patch door applies each patch with East's own checks: the one
- * toolbar with the history item, the pane with its three tabs, the results and
- * the status line, and no border; the record read; the open query from the UI
- * store, or a new one on the first data source. And the open query's editing
- * session, through the history item (E1–E7): one gesture is one transaction,
- * undone, redone and discarded; Apply is one patch of one entry; readiness is
- * the check's; a stale save is a conflict; a new query is named on its first
+ * `<Query.Builder>`'s shell (#935), rendered over the saved queries record on
+ * e3 (#1376), its patch door e3's own: the one toolbar with the history item,
+ * the pane with its three tabs, the results and the status line, and no
+ * border; the record read; the open query from the UI store, or a new one on
+ * the first data source. And the open query's editing session, through the
+ * history item (E1–E7): one gesture is one transaction, undone, redone and
+ * discarded; Apply is one patch of one entry; readiness is the check's; a save
+ * another session's overtakes is a conflict; a new query is named on its first
  * Apply; opening another query and back keeps the drafts. Recent runs round
  * trip through the browser's storage.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach } from "vitest";
 import { useCallback, useMemo } from "react";
-import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
+import { fireEvent, renderHook, screen } from "@testing-library/react";
 import {
-    East, JqType, PatchType, SortedMap, checkJq, encodeBeast2For, equalFor, none, some, variant,
+    East, JqType, PatchType, SortedMap, checkJq, equalFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Toolbar, getRegisteredPlatformImplementations, historyToolbarItem, system, useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { Query, QueriesHandleType, queryKeys, recordBindPlatformFn } from "@elaraai/e3-ui/internal";
+import { Query, QueriesHandleType, Record, RecordBindHandleType, queryKeys } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/query/query";
 import { TreePathType } from "@elaraai/e3-types";
 import { useRecentQueries } from "./hooks.js";
 import { querySourceId, useOpenQuery, type QueryOpen } from "./open-query.js";
-import {
-    act, CUSTOMERS, HandleType, RECORD, ROOT, commits as committed, enabled, keys, mountBuilder, openQuery, press, readRecord as recordOf, recordHarness,
-    savedQuery, settle, type RecordHarness, type Saved,
-} from "./query.test-utils.js";
+import { CUSTOMERS, ROOT, keys, savedQuery, type Saved } from "./fixture.test-utils.js";
+import { act, enabled, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
 import { entriesQuery, queryEntries, savedOffers, type QueryEntry, type SavedQuery } from "./session.js";
 import { newStep } from "./steps/edit.js";
 import { layOutSteps } from "./steps/print.js";
@@ -43,31 +41,24 @@ type TreePath = ValueTypeOf<typeof TreePathType>;
 
 const BIG_ORDERS = savedQuery("Big orders", ".orders | map(select(.total >= 1000))");
 const COUNT = savedQuery("Order count", ".orders | length");
-const SAVED: Saved = new SortedMap([[BIG_ORDERS.name, BIG_ORDERS], [COUNT.name, COUNT]], keys);
 const savedEqual = equalFor(Query.Types.SavedQuery);
 const programEqual = equalFor(JqType);
 
-let harness: RecordHarness;
+const h = queryHarness();
 
-beforeEach(() => {
-    harness = recordHarness(SAVED);
+/** The saved queries' commits once the test's own were made: what a save adds to. */
+let before: string[] = [];
+
+beforeEach(async () => {
+    await h.seed([BIG_ORDERS, COUNT]);
+    before = await h.commits();
 });
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
-
-/** The record as it stands — what its patch door last wrote. */
-const readRecord = () => recordOf(harness);
-
-/** The mutations the record committed, newest first. */
-const commits = () => committed(harness);
 
 // ─── The shell, through its carrier ─────────────────────────────────────────
 
 describe("<Query.Builder> — the shell (#935)", () => {
     test("the one toolbar holds the history item; the result's strips under it; the pane its Query, Datasets and Library tabs; the results and the status line", async () => {
-        const { container } = await mountBuilder();
+        const { container } = await h.mountBuilder();
         const builder = container.querySelector<HTMLElement>("[data-query-builder]")!;
         expect([...builder.querySelector("[data-frame-slot=toolbar]")!.querySelectorAll("[data-toolbar-item]")].map(el => el.getAttribute("data-toolbar-item")))
             .toEqual(["history", "copy", "save", "run"]);
@@ -94,7 +85,7 @@ describe("<Query.Builder> — the shell (#935)", () => {
     });
 
     test("it opens a new query on the first data source, and a saved query the query library opens, from the record it reads", async () => {
-        const { container } = await mountBuilder();
+        const { container } = await h.mountBuilder();
         const builder = () => container.querySelector<HTMLElement>("[data-query-builder]")!;
         expect(builder().getAttribute("data-query-open")).toBe(querySourceId(variant("new", { id: "first", source: "orders", from: none })));
         // The pane's rail counts the open query's steps.
@@ -107,8 +98,8 @@ describe("<Query.Builder> — the shell (#935)", () => {
         expect(rail()).toBe("1Query");
     });
 
-    test("a saved query the record no longer holds says so, and a record that fails to read is a banner", async () => {
-        const { container } = await mountBuilder();
+    test("a saved query the record no longer holds says so, in the builder's place", async () => {
+        const { container } = await h.mountBuilder();
         await openQuery(variant("saved", "Gone"));
         expect(screen.getByText("“Gone” isn't saved here")).toBeTruthy();
         expect(container.querySelector("[data-query-builder]")).toBeNull();
@@ -117,14 +108,14 @@ describe("<Query.Builder> — the shell (#935)", () => {
 
 // ─── The editing session, through the history item ──────────────────────────
 
-/** The bound record, as the record runtime gives it. */
-function boundRecord(): ValueTypeOf<typeof QueriesHandleType> {
-    return East.compile(East.function([], HandleType, (_$) => recordBindPlatformFn([HandleType], RECORD)), getRegisteredPlatformImplementations())() as never;
-}
+/** The record bound with its patch door, as a surface binds it: what the session's surface reads, and what loads before it renders. */
+const HandleType = RecordBindHandleType(Query.Types.Saved, { patch: [PatchType(Query.Types.Saved)] });
+const bound = { fn: East.function([], HandleType, (_$) => Record.bind(ex.queries, [ex.queriesPatch])) };
 
 /** A surface over the open query's session: the history item in its toolbar, and the session handed out. */
 function SessionHarness({ onState }: { onState: (state: QuerySessionState) => void }) {
-    const handle = useMemo(() => boundRecord(), []);
+    // The bound record is the builder's handle, its status and its other doors beside the ones the session takes.
+    const handle = useMemo((): ValueTypeOf<typeof QueriesHandleType> => bound.fn.toIR().compile(getRegisteredPlatformImplementations())() as never, []);
     const words = useQueryWords();
     const editingWords = useQueryEditingWords();
     const read = useCallback(() => handle.read(), [handle]);
@@ -141,23 +132,18 @@ function SessionHarness({ onState }: { onState: (state: QuerySessionState) => vo
     );
 }
 
-/** Mount the harness, and hand back the session as it stands after each render. */
+/** Mounts the session's surface over the record on e3, and hands back the session as it stands after each render. */
 async function mountSession() {
     let latest: QuerySessionState | undefined;
-    const utils = render(
-        <ChakraProvider value={system}>
-            <SessionHarness onState={(state) => { latest = state; }} />
-        </ChakraProvider>,
-    );
-    await settle();
+    const utils = await h.mount(bound, { drag: false, view: <SessionHarness onState={(state) => { latest = state; }} /> });
     return { ...utils, state: () => latest! };
 }
 
 /** The open query's steps as they stand, with a step added at the end — a gesture's entries. */
 function withStep(state: QuerySessionState, kind: "limit" | "filter" | "count"): QueryEntry[] {
     const { header, query } = entriesQuery(state.entries!);
-    const before = layOutSteps(query, ROOT.type).final;
-    return queryEntries(header, [...query.steps, newStep(kind, before, ROOT.type)]);
+    const last = layOutSteps(query, ROOT.type).final;
+    return queryEntries(header, [...query.steps, newStep(kind, last, ROOT.type)]);
 }
 
 /** One gesture, as a surface records it. */
@@ -166,6 +152,13 @@ async function gesture(state: () => QuerySessionState, next: QueryEntry[], label
     await act(async () => { recorded = state().gesture(next, "insert", label); });
     await settle();
     return recorded;
+}
+
+/** The history item's Save, pressed as a pointer does: what a race sends. */
+function clickSave() {
+    const button = screen.getByRole("button", { name: "Save" });
+    fireEvent.mouseDown(button, { button: 0 });
+    fireEvent.click(button);
 }
 
 describe("<Query.Builder> — the editing session (#935)", () => {
@@ -193,8 +186,8 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         await gesture(state, withStep(state(), "limit"), "Keep the first");
         expect(enabled("Save")).toBe(true);
         await press("Save");
-        expect(await commits()).toEqual(["patch", "$init"]);
-        const saved = readRecord();
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        const saved = await h.saved();
         // The program of the steps as saved: the filter, then Keep the first's `.[:10]`.
         expect(programEqual(checkJq(".orders | map(select(.total >= 1000))\n| .[:10]", ROOT.type, { root: true }).program!, saved.get("Big orders")!.program)).toBe(true);
         expect(savedEqual(saved.get("Order count")!, COUNT)).toBe(true);
@@ -214,29 +207,19 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         expect(state().session.readiness.type).toBe("ready");
     });
 
-    test("E5: a save another landed first is a conflict, and the other save stands", async () => {
+    test("E5: a save another session's overtakes is a conflict, and the other save stands", async () => {
         const { state, container } = await mountSession();
         await openQuery(variant("saved", "Big orders"));
         await gesture(state, withStep(state(), "limit"), "Keep the first");
         // Another operator's save of the query lands between this Apply's read and its commit.
         const other = { ...BIG_ORDERS, description: some("Orders of 1,000 or more."), saved_at: new Date(Date.UTC(2026, 9, 1, 8, 0)) };
-        const patch = East.compile(Query.save, [])(SAVED, some("Big orders"), other);
-        const forward = harness.memory.mutate.bind(harness.memory);
-        let raced = false;
-        harness.memory.mutate = async (ws, record, mutation, request) => {
-            if (!raced) {
-                raced = true;
-                await forward(ws, record, mutation, { args: [encodeBeast2For(PatchType(Query.Types.Saved))(patch)] });
-            }
-            return forward(ws, record, mutation, request);
-        };
-        await press("Save");
-        expect(await commits()).toEqual(["patch", "$init"]);
-        expect(savedEqual(readRecord().get("Big orders")!, other)).toBe(true);
+        await h.race(ex.queries, clickSave, (now: Saved) => new SortedMap([...now].map(([name, query]): [string, SavedQuery] => [name, name === "Big orders" ? other : query]), keys));
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        expect(savedEqual((await h.saved()).get("Big orders")!, other)).toBe(true);
         // The commit is refused, in the builder's words; and the session, reading the query back, finds it moved under its drafts.
         expect([state().session.status, state().session.stale]).toEqual(["conflict", true]);
         expect(state().session.issues.map(i => i.message)).toEqual([
-            "Big orders changed since this edit began — last changed by memory. Discard your changes to see it, or save under another name.",
+            "Big orders changed since this edit began — last changed by another session. Discard your changes to see it, or save under another name.",
         ]);
         expect(container.querySelector("[data-slot=history]")!.textContent).toContain("Source changed — review or discard these drafts");
         expect(enabled("Save")).toBe(false);
@@ -249,7 +232,7 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         expect(enabled("Save")).toBe(true);
         await press("Save");
         expect(container.querySelector("[data-naming]")).not.toBeNull();
-        expect(await commits()).toEqual(["$init"]);
+        expect(await h.commits()).toEqual(before);
     });
 
     test("E6: a new query saved under its name opens as that saved query, once its session has taken the save", async () => {
@@ -259,8 +242,8 @@ describe("<Query.Builder> — the editing session (#935)", () => {
         await gesture(state, queryEntries({ ...header, name: "Orders counted" }, query.steps), "Name the query");
         await act(async () => { await state().session.apply(); });
         await settle();
-        expect(await commits()).toEqual(["patch", "$init"]);
-        expect(programEqual(readRecord().get("Orders counted")!.program, checkJq(".orders | length", ROOT.type, { root: true }).program!)).toBe(true);
+        expect(await h.commits()).toEqual(["patch", ...before]);
+        expect(programEqual((await h.saved()).get("Orders counted")!.program, checkJq(".orders | length", ROOT.type, { root: true }).program!)).toBe(true);
         expect(container.querySelector("[data-open]")!.getAttribute("data-open")).toBe(`query.saved:"Orders counted"`);
         expect([state().session.status, state().session.pending]).toEqual(["idle", 0]);
         expect(entriesQuery(state().entries!).query.steps.map(s => s.type)).toEqual(["count"]);

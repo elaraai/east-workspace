@@ -22,10 +22,9 @@ import { describe, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
-import { el, entry, mount, planHarness, programOf, rowAt, settle, slot } from "./harness.test-utils.js";
+import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
 
@@ -71,7 +70,7 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 
 describe("selecting events (#1197, the Calendar's B15)", () => {
     test("a click selects one event and its row, the event drawn pressed; a click on another selects it instead, and again holds", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         // Every event's element is a toggle, none of them pressed.
         expect(job(container, "J-1001").getAttribute("aria-pressed")).toBe("false");
@@ -95,7 +94,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
     });
 
     test("Shift, ⌘ or Ctrl adds an event of any kind, on any row, to the selection — or takes it out", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(job(container, "J-1001"));
         await settle();
@@ -114,7 +113,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
     });
 
     test("a click on a row selects the row in place of its events, a click in its plot too; Esc clears it all at once", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(job(container, "J-1001"));
         fireEvent.click(job(container, "J-1002"), { shiftKey: true });
@@ -145,7 +144,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
     });
 
     test("Enter on an event's element selects it, and Shift+Enter adds it", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.keyDown(job(container, "J-1001"), { key: "Enter" });
         await settle();
@@ -156,7 +155,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
     });
 
     test("a commit that moves a selected event keeps it selected where it draws now", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(job(container, "J-1001"));
         await settle();
@@ -170,7 +169,7 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
     });
 
     test("an element of a row no event kind draws — a run of a series over a dataset — is no toggle: its click selects its row", async () => {
-        const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
             const stock = $.let(Data.bind(ex.planLinkStock));
@@ -185,8 +184,8 @@ describe("selecting events (#1197, the Calendar's B15)", () => {
                     runs: (s) => [Plan.run({ key: "order", start: FIRST, end: LAST, label: s.name, state: "actual" })],
                 })])],
             });
-        }))), getRegisteredPlatformImplementations());
-        const { container } = mount(program);
+        }))) };
+        const { container } = await h.mount(program);
         await settle();
         const board = container.querySelector<HTMLElement>(`${rowAt(entry("orders", "board"))} [data-run="order"]`)!;
         expect(board.hasAttribute("aria-pressed")).toBe(false);
@@ -235,7 +234,7 @@ function plotBoxes(): () => void {
 
 describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     test("nothing selected: the window's events, how long they run and the backlog — then three hints (PB41)", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         expect(pane(container).getAttribute("data-frame-slot")).toBe("end");
         expect(showing(container)).toBe("none");
@@ -248,7 +247,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     });
 
     test("one event: its kind, its title, when it runs, its facts and its kind's form, the fields its roles read left to their lines — every edit control on, in one fieldset (PB38, #1194)", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(job(container, "J-1001"));
         await settle();
@@ -276,7 +275,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     });
 
     test("a stop shows its kind's own inspector in place of a form — its title and its kind on a segment, in the edits' fieldset; an instant's one time (PB60)", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(stop(container, "S-01"));
         await settle();
@@ -294,7 +293,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     });
 
     test("several events: how many, each kind's count, the list in the order they were selected, and the bulk edit — the state, the resource and a shift — on (PB39, #1194)", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(job(container, "J-1001"));
         fireEvent.click(shift(container, "SH-01"), { shiftKey: true });
@@ -317,7 +316,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     test("a press: its name, its line and its hall, its events in the window, and its measures at the bucket a click on its plot named (PB40)", async () => {
         const restore = plotBoxes();
         try {
-            const { container } = mount(programOf(ex.planPrintWorks));
+            const { container } = await h.mount(ex.planPrintWorks);
             await settle();
             fireEvent.click(container.querySelector(`${rowAt(A1)} [role="rowheader"]`)!);
             await settle();
@@ -358,7 +357,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
             const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, ValueTypeOf<typeof ex.PrintJob>>);
             jobs.set("J-1001", { ...jobs.get("J-1001")!, press: none });
             await h.commit(ex.planPrintJobs, jobs);
-            const { container } = mount(programOf(ex.planPrintWorks));
+            const { container } = await h.mount(ex.planPrintWorks);
             await settle();
             fireEvent.click(container.querySelector(`${rowAt(entry("job.unassigned", "span"))} [role="rowheader"]`)!);
             await settle();
@@ -380,7 +379,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     });
 
     test("the inspector reads its event again as its record commits; an event no longer there is left out, its row shown", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(job(container, "J-1001"));
         await settle();
@@ -395,7 +394,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     });
 
     test("collapsed, the pane is a rail with its icon and what is selected — the event's title, how many events, or the row's name", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks));
+        const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         fireEvent.click(within(pane(container)).getByRole("button", { name: "Collapse Inspector" }));
         await settle();
@@ -415,7 +414,7 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
     });
 
     test("a Plan given no inspector has no end pane: given a library, its start pane is all it draws beside main", async () => {
-        const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -431,8 +430,8 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
                 },
                 library: [Plan.library.backlog()],
             });
-        }))), getRegisteredPlatformImplementations());
-        const { container } = mount(program);
+        }))) };
+        const { container } = await h.mount(program);
         await settle();
         expect(slot(container, "start")).not.toBeNull();
         expect(slot(container, "end")).toBeNull();

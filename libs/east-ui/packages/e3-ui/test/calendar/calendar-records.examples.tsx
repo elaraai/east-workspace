@@ -49,26 +49,28 @@ export const indexedCalendarMachines = e3.record("indexed_calendar_machines", Di
 
 export const calendarRecordIndexes = example({
     description: "12,000 events across a year, narrowed through interval indexes. The opening days demonstrate carry-in and year-long events; navigate to other dates for the larger production schedule. Filters and navigation share Slice, and drafts save by original key.",
-    keywords: ["Calendar", "Slice", "bindRecord", "interval", "overlap", "records", "paging"],
+    keywords: ["Calendar", "Slice", "Slice.bindRecords", "interval", "overlap", "records", "paging"],
     inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const events = $.let(Record.bind(indexedCalendarEvents, [indexedCalendarPatch]));
         const entries = $.let(Data.bindPaged(indexedCalendarEvents));
         const indexed = $.let(Data.bindPaged(indexedCalendarEvents, { indexes: [indexedCalendarByTime, indexedCalendarByStatus, indexedCalendarByMachine] }));
-        const scope = $.let(Slice.bindRecord("ex.calendarRecordIndexes.scope", indexed, {
-            fields: { status: { label: "Status", hints: ["Ready", "Done"] }, machine: { label: "Machine" }, start: { label: "Dates" } },
-            range: "start", search: ["machine"],
-            initial: { status: ["Ready"], start: { from: new Date("2026-10-02T00:00:00Z"), to: new Date("2026-10-03T00:00:00Z") } },
+        // The rail's one source, named after the kind it narrows (#1343): its interval indexes keep every overlapping event.
+        const slice = $.let(Slice.bindRecords("ex.calendarRecordIndexes", {
+            job: { source: indexed, icon: { prefix: "fas", name: "print" },
+                fields: { status: { label: "Status", hints: ["Ready", "Done"] }, machine: { label: "Machine" }, start: { label: "Dates" } },
+                range: "start", search: ["machine"],
+                initial: { status: ["Ready"], start: { from: new Date("2026-10-02T00:00:00Z"), to: new Date("2026-10-03T00:00:00Z") } } },
         }));
         const machines = $.let(Record.bind(indexedCalendarMachines, []));
         return <Box height="720px" width="100%"><Calendar id="calendarRecordIndexes" inspector
             events={{ job: Calendar.events(events, {
                 name: "Job", icon: "print", title: "title", start: "start", end: "end",
-                resource: { field: "machine", of: "machines" }, slice: scope, entries,
+                resource: { field: "machine", of: "machines" }, entries,
                 backlog: { duration: () => variant("hours", 3) },
             }) }}
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
-            library={[Calendar.library.backlog()]} slice={{ slice: scope, affordances: ["fields", "summary"] }}
+            library={[Calendar.library.backlog()]} slice={{ slice, affordances: ["fields", "summary"] }}
             view={{ layout: "calendar", period: "day", date: new Date("2026-10-02T00:00:00Z") }}
             now={new Date("2026-10-02T09:00:00Z")} />
         </Box>;
@@ -77,26 +79,28 @@ export const calendarRecordIndexes = example({
 
 export const calendarRecordIndexesMobile = example({
     description: "Indexed Calendar at phone width: the same Slice fields, overlap queries and original-key editing, shown as agenda cards with explicit actions",
-    keywords: ["Calendar", "Slice", "bindRecord", "interval", "mobile", "agenda"],
+    keywords: ["Calendar", "Slice", "Slice.bindRecords", "interval", "mobile", "agenda"],
     inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const events = $.let(Record.bind(indexedCalendarEvents, [indexedCalendarPatch]));
         const entries = $.let(Data.bindPaged(indexedCalendarEvents));
         const indexed = $.let(Data.bindPaged(indexedCalendarEvents, { indexes: [indexedCalendarByTime, indexedCalendarByStatus, indexedCalendarByMachine] }));
-        const scope = $.let(Slice.bindRecord("ex.calendarRecordIndexesMobile.scope", indexed, {
-            fields: { status: { label: "Status", hints: ["Ready", "Done"] }, machine: { label: "Machine" }, start: { label: "Dates" } },
-            range: "start", search: ["machine"],
-            initial: { status: ["Ready"], start: { from: new Date("2026-10-02T00:00:00Z"), to: new Date("2026-10-03T00:00:00Z") } },
+        // The rail's one source, named after the kind it narrows (#1343): its interval indexes keep every overlapping event.
+        const slice = $.let(Slice.bindRecords("ex.calendarRecordIndexesMobile", {
+            job: { source: indexed, icon: { prefix: "fas", name: "print" },
+                fields: { status: { label: "Status", hints: ["Ready", "Done"] }, machine: { label: "Machine" }, start: { label: "Dates" } },
+                range: "start", search: ["machine"],
+                initial: { status: ["Ready"], start: { from: new Date("2026-10-02T00:00:00Z"), to: new Date("2026-10-03T00:00:00Z") } } },
         }));
         const machines = $.let(Record.bind(indexedCalendarMachines, []));
         return <Box height="760px" width="390px" maxWidth="100%"><Calendar id="calendarRecordIndexesMobile" inspector
             events={{ job: Calendar.events(events, {
                 name: "Job", icon: "print", title: "title", start: "start", end: "end",
-                resource: { field: "machine", of: "machines" }, slice: scope, entries,
+                resource: { field: "machine", of: "machines" }, entries,
                 backlog: { duration: () => variant("hours", 3) },
             }) }}
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
-            library={[Calendar.library.backlog()]} slice={{ slice: scope, affordances: ["fields", "summary"] }}
+            library={[Calendar.library.backlog()]} slice={{ slice, affordances: ["fields", "summary"] }}
             view={{ layout: "calendar", period: "day", date: new Date("2026-10-02T00:00:00Z") }}
             now={new Date("2026-10-02T09:00:00Z")} />
         </Box>;

@@ -23,7 +23,8 @@
  *   (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
  *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
- *   share (`Schedule.events`, `Schedule.resources`).
+ *   share (`Schedule.events`, `Schedule.resources`), and what a builder
+ *   publishes (`Schedule.periods`).
  * - `<Diff>` — review pending changes for any combination of bindings.
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
@@ -156,10 +157,10 @@ export {
 // `<Sheet>` — over an e3 record or the host's rows, in its frame, its library
 // and inspector panes optional props — its authoring vocabulary on `Sheet`
 // (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.link.*`,
-// `Sheet.group`, `Sheet.patch`, `Sheet.library.*`, `Sheet.field`,
-// `Sheet.apply`, `Sheet.Types`), and its props.
+// `Sheet.group`, `Sheet.patch`, `Sheet.templates`, `Sheet.library.*`,
+// `Sheet.field`, `Sheet.apply`, `Sheet.Types`), and its props.
 export {
-    Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplate, type SheetTemplatesInput,
+    Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplates, type SheetTemplatesConfig, type SheetTemplatesProp,
     type SheetLibraryTab, type SheetLibraryTabConfig,
 } from './sheet/index.js';
 
@@ -168,16 +169,17 @@ export {
 // transitions, decision triggers and evidence-weighted strokes, over a record
 // of flows or the host's flow, in its frame, its library pane an optional
 // prop and its inspector on by default, every gesture a transaction of its
-// editing session — the values, patches, library tabs and East types it is
-// written with (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
+// editing session, narrowed through one `Slice.bindRecords` (#1346) — the
+// values, patches, library tabs and East types it is written with
+// (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
 // `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`), and its props.
 export {
     Flowchart, type FlowchartNamespace, type FlowchartTypes, type FlowchartCommon, type FlowchartRecordHandle, type FlowchartBindHandle,
     type FlowchartInspectorOptions, type FlowchartRowInspector,
-    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab, type FlowchartLibraryRows,
+    type FlowchartLibrary, type FlowchartLibraryTab, type FlowchartOneFlowLibraryTab, type FlowchartLibraryRows, type FlowchartTemplateRows,
     type FlowchartFlowsTab, type FlowchartStatesTab, type FlowchartTransitionsTab, type FlowchartAuthorTab,
     type FlowchartCardAccessors, type FlowchartStatesConfig, type FlowchartTransitionsConfig, type FlowchartTabConfig,
-    type FlowchartCanvasOptions, type FlowchartSliceOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
+    type FlowchartCanvasOptions, type FlowchartFreshnessInput, type FlowchartOrientationLiteral,
     type FlowchartTables, type FlowchartStateFields, type FlowchartLinkFields, type FlowchartLaneFields,
     type FlowchartTriggerFields, type FlowchartEvidenceFields, type FlowchartLaneLiteral, type FlowchartFlowInput, type FlowchartLaneInput,
     type FlowchartStateInput, type FlowchartLinkInput, type FlowchartEvidenceInput, type FlowchartTriggerInput, type FlowchartLinkKindLiteral,
@@ -187,12 +189,15 @@ export {
 // Schedule (#1218, #1190): the event and resource kinds the Calendar and
 // Plan's builder share — `Schedule.events`, `Schedule.resources`,
 // `Schedule.field`, `Schedule.patch`, `Schedule.days`, `Schedule.unscheduled`
-// and `Schedule.Types` — with Plan's options beside the Calendar's.
+// and `Schedule.Types` — with Plan's options beside the Calendar's, and the
+// Roster's and the Allocation's beside them, with what a builder publishes,
+// `Schedule.periods` (#1367).
 export {
     Schedule, type ScheduleNamespace,
     type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig, type ScheduleInstantEventsConfig,
-    type ScheduleInstantTemplate, type ScheduleOverlapsLiteral, type SchedulePatchInput, type SchedulePatchOf, type ScheduleQuantity,
-    type ScheduleRecordHandle, type ScheduleResourceKind, type ScheduleResourcesConfig, type ScheduleTemplate,
+    type ScheduleInstantTemplate, type ScheduleOverlapsLiteral, type ScheduleParts, type SchedulePatchInput, type SchedulePatchOf,
+    type SchedulePeriods, type SchedulePeriodsConfig, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceKind,
+    type ScheduleResourcesConfig, type ScheduleTemplate,
 } from './schedule/index.js';
 
 // e3 `<Diff>` tag + its types
@@ -278,6 +283,18 @@ export { type DecisionJournalOptions } from './decision/journal.js';
 export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calendar/index.js";
 
 // Record-backed staffing roster.
-export { Roster, type RosterProps, type RosterNamespace, type RosterWeeksHandle } from "./roster/index.js";
-export type { RosterPeopleConfig } from "./roster/people.js";
-export type { RosterPatchOptions, RosterLibraryTabConfig, RosterLibraryTab } from "./roster/library.js";
+export { Roster, type RosterProps, type RosterNamespace } from "./roster/index.js";
+export type {
+    RosterActivitiesConfig, RosterGroups, RosterGroupsConfig, RosterPositions, RosterPositionsConfig, RosterProposals, RosterProposalsConfig,
+    RosterShifts, RosterShiftsConfig,
+} from "./roster/lists.js";
+export type { RosterTargets, RosterTargetsConfig } from "./roster/targets.js";
+export type { RosterLibraryTab } from "./roster/library.js";
+
+// The Allocation (#1371): a day's arrivals booked into lane slots and
+// allocated to resources, over the app's own bins, lanes, resources, arrivals
+// and days, with the app's fit on e3.
+export {
+    Allocation, type AllocationNamespace, type AllocationProps, type AllocationColumn, type AllocationLibraryDeclaration, type AllocationNoun,
+} from "./allocation/index.js";
+export type { AllocationArrivals, AllocationArrivalsConfig } from "./allocation/adapters.js";

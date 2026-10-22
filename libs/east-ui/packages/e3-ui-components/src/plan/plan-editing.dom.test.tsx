@@ -21,8 +21,11 @@ import { UIStore } from "@elaraai/east-ui-components";
 import {
     Presses, SEED, type PressValue,
     banner, bannerAction, dropCellOf, dropJob, history, historyButton, hoverJob, jobsDrawn, key, markOf, marks,
-    mountCanvas, releaseCanvases, settle, statusLine, type EditingCanvas,
+    canvasHarness, mountCanvas, releaseCanvases, settle, statusLine, type EditingCanvas,
 } from "./plan-editing.test-utils.js";
+
+// The paged canvases' presses, on e3.
+canvasHarness();
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -62,8 +65,8 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.patches[0]!.draftChanges.map((d) => d.id)).toEqual(["p2"]);
             // A draft: nothing saved, the source as it was.
             expect(canvas.applies).toHaveLength(0);
-            expect(canvas.stored().get("p2")!.jobs).toEqual([]);
-            expect(samePresses(canvas.stored(), SEED)).toBe(true);
+            expect((await canvas.stored()).get("p2")!.jobs).toEqual([]);
+            expect(samePresses(await canvas.stored(), SEED)).toBe(true);
             expect(historyButton(canvas, "Save").disabled).toBe(false);
         });
 
@@ -95,7 +98,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(jobs(c)).toEqual([["job-1"], ["job-2"], []]);
             expect(origins(canvas)).toEqual(["drop", "drop", "undo", "undo", "redo", "redo", "undo", "redo", "undo", "redo"]);
             expect(canvas.applies).toHaveLength(0);
-            expect(samePresses(canvas.stored(), SEED)).toBe(true);
+            expect(samePresses(await canvas.stored(), SEED)).toBe(true);
         });
 
         test("canDrop refuses before a draft — the refused press shows ⊘, and nothing is drafted", async () => {
@@ -135,8 +138,8 @@ for (const arm of ["inline", "paged"] as const) {
             await history(canvas, "Save");
             // One request for the two gestures, written once.
             expect(canvas.applies).toHaveLength(1);
-            expect(canvas.writes()).toBe(1);
-            const stored = canvas.stored();
+            expect(await canvas.writes()).toBe(1);
+            const stored = await canvas.stored();
             expect(stored.get("p1")!.jobs.map((j) => j.key)).toEqual(["job-1"]);
             expect(stored.get("p2")!.jobs.map((j) => j.key)).toEqual(["job-2"]);
             // Committed — but not read back yet: the drafts stand.
@@ -194,7 +197,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.queryByRole("alert")).toBeNull();
             expect(canvas.applies).toHaveLength(2);
             expect(canvas.applies[1]).toEqual(canvas.applies[0]);
-            expect(canvas.writes()).toBe(1);
+            expect(await canvas.writes()).toBe(1);
             await canvas.confirm();
             expect(marks(c)).toEqual({});
             expect(jobsDrawn(c, "p1")).toEqual(["job-1"]);

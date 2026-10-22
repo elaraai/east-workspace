@@ -23,11 +23,11 @@ import e3 from "@elaraai/e3";
 //   only as axes over the host's flows (`data`), which its `onApply` commits,
 //   the selection and a traced path heard in its aside;
 // - `flowchartLibrary`, the depot's flows (§3.3): the Flows tab, the step and
-//   transition templates and the decisions' owners, each card dropped on the
-//   canvas;
+//   transition templates and the decisions' owners, each a record of its own
+//   that one rail narrows, each card dropped on the canvas;
 // - `flowchartDepot`, a flow from the host's tables (§3.4): decisions,
 //   evidence, a state class, an in-place transition and an unresolved one,
-//   narrowed by a slice, read only;
+//   read only;
 // - `flowchartHandover`, the host's one flow, top down, with no pane;
 // - `flowchartDetail`, a record's one flow edited on the canvas, a
 //   connection veto, and a state's and a transition's own Details.
@@ -42,8 +42,12 @@ import e3 from "@elaraai/e3";
 // Every flowchart binds its flows from e3, so each runs on e3-web in the
 // showcase (§2a): a record of flows written with `Flowchart.values`, whose
 // patch mutation every Save commits through; an input of one flow written
-// with `Flowchart.value`; or the host's tables, each an input. `State` holds
-// only what the viewer owns: the configurator's axes and what it heard.
+// with `Flowchart.value`; or the host's tables, each an input. A flowchart's
+// narrowing is one `Slice.bindRecords` (#1346): a `flows` source over a record
+// of flows narrows the Flows tab, which pages it, and each other source the
+// templates list or the tab that names it; the host's tables are never
+// narrowed. `State` holds only what the viewer owns: the configurator's axes
+// and what it heard.
 //
 // A flowchart fills its parent, as a ui task's page fills the window: each
 // example gives it a box of its own height. One page shows them all, so every
@@ -118,33 +122,40 @@ export const handoverFlow = e3.input("flowchart_handover", Flowchart.Types.Flow,
     triggers: [{ key: "attempt", label: "attempt", owner: "driver" }],
 })));
 
-// The library's rows (#1248): each tab its own bound data, apart from the
-// flows and from the other tabs — the step types an input's rows, the
-// transition types a record's rows by name, and the roles that own a decision
-// another input's.
-export const StepTemplate = StructType({ code: StringType, name: StringType, kind: StringType, slots: OptionType(IntegerType) });
-export const stepTemplates = e3.input("flowchart_step_templates", ArrayType(StepTemplate), variant("value", [
-    { code: "ARV", name: "Arrived", kind: "Intake", slots: none },
-    { code: "SCN", name: "Scanned", kind: "Intake", slots: none },
-    { code: "CH*", name: "Sort chutes", kind: "Sort", slots: some(12n) },
-    { code: "HLD", name: "Held", kind: "Hold", slots: none },
-    { code: "LDD", name: "Loaded", kind: "Load", slots: none },
+// The library's records (#1248, #1346): each tab its own bound data, apart
+// from the flows and from the other tabs — the step types by code, the
+// transition types by name and the roles that own a decision, each a record
+// of its own, its cards its rows by key, and each indexed on the field the
+// rail narrows it by.
+export const StepTemplate = StructType({ name: StringType, kind: StringType, slots: OptionType(IntegerType) });
+export const stepTemplates = e3.record("flowchart_step_templates", DictType(StringType, StepTemplate), new Map([
+    ["ARV", { name: "Arrived", kind: "Intake", slots: none }],
+    ["SCN", { name: "Scanned", kind: "Intake", slots: none }],
+    ["CH*", { name: "Sort chutes", kind: "Sort", slots: some(12n) }],
+    ["HLD", { name: "Held", kind: "Hold", slots: none }],
+    ["LDD", { name: "Loaded", kind: "Load", slots: none }],
 ]));
+export const stepsByKind = e3.recordIndex("flowchart_steps_by_kind", stepTemplates, { on: ["kind"] });
+/** The step types' patch door: what another writer adds a step type through, the Steps tab's cards following. */
+export const stepTemplatesPatch = e3.mutation.patch(stepTemplates);
 export const MoveTemplate = StructType({ kind: Flowchart.Types.Kind, decision: OptionType(StringType), note: StringType });
 export const moveTemplates = e3.record("flowchart_move_templates", DictType(StringType, MoveTemplate), new Map([
     ["Observed", { kind: variant("observed", null), decision: none, note: "Mined from the scans" }],
     ["Planned", { kind: variant("planned", null), decision: none, note: "The designed path" }],
     ["Routed", { kind: variant("planned", null), decision: some("route"), note: "Governed by the route decision" }],
 ]));
-export const DecisionOwner = StructType({ role: StringType, name: StringType, desk: StringType });
-export const decisionOwners = e3.input("flowchart_decision_owners", ArrayType(DecisionOwner), variant("value", [
-    { role: "sort-planner", name: "Sort planner", desk: "Sort hall" },
-    { role: "customs-desk", name: "Customs desk", desk: "Hold bay" },
+export const movesByKind = e3.recordIndex("flowchart_moves_by_kind", moveTemplates, { on: ["kind"] });
+export const DecisionOwner = StructType({ name: StringType, desk: StringType });
+export const decisionOwners = e3.record("flowchart_decision_owners", DictType(StringType, DecisionOwner), new Map([
+    ["sort-planner", { name: "Sort planner", desk: "Sort hall" }],
+    ["customs-desk", { name: "Customs desk", desk: "Hold bay" }],
 ]));
+export const ownersByDesk = e3.recordIndex("flowchart_owners_by_desk", decisionOwners, { on: ["desk"] });
 
 // The depot's own tables (§3.4), each an input of the app's own rows: its
-// steps by phase, the transitions mined from its scans — what the slice
-// narrows — and its decisions. `Flowchart.over` builds one flow from them.
+// steps by phase, the transitions mined from its scans and its decisions.
+// `Flowchart.over` builds one flow from them; a task narrows the rows it
+// builds one from, for the flowchart narrows no table of the host's (#1346).
 export const DepotState = StructType({ code: StringType, name: StringType, phase: StringType, slots: OptionType(IntegerType) });
 export const depotStates = e3.input("flowchart_depot_states", ArrayType(DepotState), variant("value", [
     { code: "ARV", name: "Arrived", phase: "intake", slots: none },
@@ -308,47 +319,61 @@ export const flowchartVariants = example({
 });
 
 /**
- * The library (#1248): the Flows tab, then the step types, the transition
- * types and the roles that own a decision — each tab its own bound data,
- * apart from the flows and from the other tabs: an input's rows, a record's
- * rows by name, another input's. Each template card is a drag source, as is
- * each of the author's cards, whose tab declares a `drop`; a click selects a
- * card, and a click on the selected card lets it go.
+ * The library (#1248, #1346): the Flows tab, then the step types, the
+ * transition types and the roles that own a decision — each tab its own
+ * bound data, apart from the flows and from the other tabs: a templates
+ * record by code, one by name, and a record of roles. One rail narrows them,
+ * a source each: each templates list and the Owners tab follow the source
+ * they name, counting what they show (`2 of 5`) and saying so, with Clear
+ * filters, when the rail leaves them none. Each template card is a drag
+ * source, as is each of the author's cards, whose tab declares a `drop`; a
+ * click selects a card, and a click on the selected card lets it go.
  */
 export const flowchartLibrary = example({
-    keywords: ["Flowchart", "library", "Flowchart.library.states", "Flowchart.library.transitions", "Flowchart.library.tab", "templates", "state templates", "transition templates", "author's tab", "bound data", "Data.bind", "Record.bind", "drag", "cards", "Flowchart.patch"],
-    description: "A record of flows with its library — the Flows tab, step types from an input's rows, transition types from a record's rows by name, and the author's own cards — each tab its own bound data, each card a drag source a click selects",
+    keywords: ["Flowchart", "library", "Flowchart.library.states", "Flowchart.library.transitions", "Flowchart.library.tab", "templates", "state templates", "transition templates", "templates records", "author's tab", "bound data", "Data.bind", "Data.bindPaged", "recordIndex", "Slice.bindRecords", "source", "narrowing", "Record.bind", "drag", "cards", "Flowchart.patch"],
+    description: "A record of flows with its library — the Flows tab, step types and transition types from templates records, and the author's own cards from a record of roles — each tab its own bound data, one Slice.bindRecords rail narrowing each through the source it names, each card a drag source a click selects",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+            // What a tab reads whole binds with Data.bind, which keeps it loaded beside its pages.
             const steps = $.let(Data.bind(stepTemplates));
-            const moves = $.let(Record.bind(moveTemplates, []));
+            const moves = $.let(Data.bind(moveTemplates));
             const owners = $.let(Data.bind(decisionOwners));
+            // One rail over the library's records, a source each (#1346): each tab follows the source it names.
+            const slice = $.let(Slice.bindRecords("flowchart.depot", {
+                steps: { source: Data.bindPaged(stepTemplates, { indexes: [stepsByKind] }), label: "Steps", icon: { prefix: "fas", name: "box" },
+                    fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
+                moves: { source: Data.bindPaged(moveTemplates, { indexes: [movesByKind] }), label: "Transitions", icon: { prefix: "fas", name: "arrow-right" },
+                    fields: { kind: { label: "Transition kind" } } },
+                owners: { source: Data.bindPaged(decisionOwners, { indexes: [ownersByDesk] }), label: "Owners", icon: { prefix: "fas", name: "user-tie" },
+                    fields: { desk: { label: "Desk", hints: ["Sort hall", "Hold bay"] } } },
+            }));
             return (
                 <Box height="560px">
                     <Flowchart
                         record={flows}
                         flow="Inbound parcels"
                         name="depot"
+                        slice={{ slice }}
                         library={[
                             Flowchart.library.flows(),
-                            // Step types, an input's rows: a card dropped on a lane adds a state seeded with what its drop sets.
+                            // Step types, a templates record by code: a card dropped on a lane adds a state seeded with what its drop sets.
                             Flowchart.library.states(steps.read(), {
-                                name: "Steps", icon: "box",
-                                key: s => s.code, label: s => s.name, meta: s => some(s.code), group: s => s.kind,
-                                drop: s => Flowchart.patch(Flowchart.Types.State, { key: s.code, label: some(s.name), members: s.slots }),
+                                name: "Steps", icon: "box", source: "steps",
+                                label: s => s.name, meta: (_s, code) => some(code), group: s => s.kind,
+                                drop: (s, code) => Flowchart.patch(Flowchart.Types.State, { key: code, label: some(s.name), members: s.slots }),
                             }),
-                            // Transition types, a record's rows by name: a card dropped on a transition retypes it.
+                            // Transition types, a templates record by name: a card dropped on a transition retypes it.
                             Flowchart.library.transitions(moves.read(), {
-                                icon: "arrow-right",
-                                key: (_m, name) => name, label: (_m, name) => name, meta: m => some(m.note),
+                                icon: "arrow-right", source: "moves",
+                                label: (_m, name) => name, meta: m => some(m.note),
                                 drop: m => Flowchart.patch(Flowchart.Types.Link, { kind: some(m.kind), trigger: m.decision }),
                             }),
-                            // The author's own cards: a role dropped on a decision owns it.
+                            // The author's own cards, a record of roles: a role dropped on a decision owns it.
                             Flowchart.library.tab(owners.read(), {
-                                name: "Owners", icon: "user-tie",
-                                key: o => o.role, label: o => o.name, meta: o => some(o.desk),
-                                drop: o => Flowchart.patch(Flowchart.Types.Trigger, { owner: some(o.role) }),
+                                name: "Owners", icon: "user-tie", source: "owners",
+                                key: (_o, role) => role, label: o => o.name, meta: o => some(o.desk),
+                                drop: (_o, role) => Flowchart.patch(Flowchart.Types.Trigger, { owner: some(role) }),
                             }),
                         ]}
                     />
@@ -364,34 +389,24 @@ export const flowchartLibrary = example({
  * transitions mined from its scans and its decisions, each an e3 input of the
  * app's own rows, built into one flow by `Flowchart.over` through their row
  * mappers and shown read only: decision triggers, evidence-weighted links, a
- * ×14 state class, an ↻ in-place loop and an unresolved ghost. A bound slice
- * narrows the transitions the flow is built from, its rail at the toolbar's
- * end, and the freshness chip names the evidence. Its one pane is the
- * inspector, every field of what is selected printed, its Issues the
- * unresolved transition.
+ * ×14 state class, an ↻ in-place loop and an unresolved ghost. The freshness
+ * chip names the evidence. Its one pane is the inspector, every field of what
+ * is selected printed, its Issues the unresolved transition.
  */
 export const flowchartDepot = example({
-    keywords: ["Flowchart", "Flowchart.over", "data", "states", "links", "lanes", "tables", "row mappers", "minimal", "planned", "observed", "triggers", "evidence", "slice", "Slice.rows", "Data.bind", "e3.input", "scans", "inspector", "Details", "Issues", "read only", "state class", "in-place", "unresolved", "freshness"],
-    description: "Parcel-depot flowchart over the host's tables, each an e3 input bound with Data.bind and built into one flow by Flowchart.over, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, a bound slice narrowing the transitions, the freshness chip, and the inspector showing the selected state, transition or decision read only, its Issues the unresolved transition",
+    keywords: ["Flowchart", "Flowchart.over", "data", "states", "links", "lanes", "tables", "row mappers", "minimal", "planned", "observed", "triggers", "evidence", "Data.bind", "e3.input", "scans", "inspector", "Details", "Issues", "read only", "state class", "in-place", "unresolved", "freshness"],
+    description: "Parcel-depot flowchart over the host's tables, each an e3 input bound with Data.bind and built into one flow by Flowchart.over, read only — decision triggers, evidence-weighted links, a ×14 state class, an ↻ in-place loop, an unresolved ghost, the freshness chip, and the inspector showing the selected state, transition or decision read only, its Issues the unresolved transition",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const states = $.let(Data.bind(depotStates));
             const scans = $.let(Data.bind(scanTransitions));
             const decisions = $.let(Data.bind(depotDecisions));
-            const slice = $.let(Slice.bind("flowchart-depot", scans.read(), {
-                fields: {
-                    service: { label: "Service" },
-                    src: { label: "From" },
-                    dst: { label: "To" },
-                },
-                search: ["src", "dst"],
-            }));
             return (
                 <Box height="600px">
                     <Flowchart
                         data={Flowchart.over(states.read(), {
                             state: s => ({ key: s.code, label: s.name, lane: s.phase, members: s.slots }),
-                            links: Slice.rows(slice),
+                            links: scans.read(),
                             link: l => ({
                                 key: l.id, from: l.src, to: l.dst, kind: l.kind, trigger: l.trigger,
                                 evidence: { volume: l.parcels, count: l.n, measuredAt: some(l.at), unit: "parcels" },
@@ -404,7 +419,6 @@ export const flowchartDepot = example({
                             triggers: decisions.read(),
                             trigger: t => ({ key: t.id, label: t.name, owner: t.who }),
                         })}
-                        slice={slice} affordances={["filter", "search"]}
                         freshness={{ label: "evidence-2026.06", date: new Date("2026-06-30T00:00:00Z") }}
                         name="scans"
                     />
@@ -534,7 +548,16 @@ export const indexedFlows = e3.record("flowchart_indexed_flows", Flowchart.Types
         }];
     }))));
 export const indexedFlowsPatch = e3.mutation.patch(indexedFlows);
+// A flow's name is its record's key: an index of its own, so the Flows tab's
+// search finds a flow by its name (#1346), alone and after a description.
+export const flowsByName = e3.recordIndex("name", indexedFlows, {
+    key: East.function([StringType, Flowchart.Types.Flow], StringType, (_$, name, _flow) => name),
+});
 export const flowsByDescription = e3.recordIndex("flowchart_by_description", indexedFlows, { on: ["description"] });
+export const flowsByDescriptionName = e3.recordIndex("flowchart_by_description_name", indexedFlows, {
+    key: East.function([StringType, Flowchart.Types.Flow], StructType({ description: OptionType(StringType), name: StringType }),
+        (_$, name, flow) => ({ description: flow.description, name })),
+});
 // Slice derives controls from each computed index’s declared key type. Scalar
 // keys use the index name; a composite key supplies its field names.
 export const flowsByStateCount = e3.recordIndex("stateCount", indexedFlows, {
@@ -555,31 +578,35 @@ export const flowsByDecisionOwner = e3.recordIndex("decisionOwner", indexedFlows
 });
 
 export const flowchartRecordIndexes = example({
-    keywords: ["Flowchart", "record", "indexes", "computed indexes", "state count", "lane", "decision owner", "recordIndex", "Slice.bindRecord", "Slice.rows", "Data.bindPaged", "paging", "Flows tab", "mobile", "Save"],
-    description: "2,048 route flowcharts in a paged record. Shared Slice filters use maintained indexes on description, computed state count, lane and decision owner. Choose an exact description plus a state-count range together; lane and owner use exact membership. The Flows tab pages results, and drafts keep their original record ID through filtering and Save.",
+    keywords: ["Flowchart", "record", "indexes", "computed indexes", "state count", "lane", "decision owner", "recordIndex", "Slice.bindRecords", "flows", "Data.bindPaged", "paging", "Flows tab", "count", "search", "mobile", "Save"],
+    description: "2,048 route flowcharts in a paged record, narrowed through the rail's flows source by maintained indexes on name, description, computed state count, lane and decision owner. Choose an exact description plus a state-count range together; lane and owner use exact membership. The Flows tab pages and counts what the rail narrows to, its search box finds a flow by name within it, and drafts keep their original record ID through filtering and Save.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const flows = $.let(Record.bind(indexedFlows, [indexedFlowsPatch]));
-            const indexed = $.let(Data.bindPaged(indexedFlows, { indexes: [flowsByDescription, flowsByStateCount, flowsByDescriptionStateCount, flowsByLane, flowsByDecisionOwner] }));
-            const slice = $.let(Slice.bindRecord("flowchart.recordIndexes", indexed, {
-                fields: {
-                    description: { label: "Flows" },
-                    stateCount: { label: "State count" },
-                    lane: { label: "Lane" },
-                    decisionOwner: { label: "Decision owner" },
+            // One rail over the flows (#1346): its `flows` source narrows the Flows tab, which pages and counts what it narrows to.
+            const slice = $.let(Slice.bindRecords("flowchart.recordIndexes", {
+                flows: {
+                    source: Data.bindPaged(indexedFlows, { indexes: [flowsByName, flowsByDescription, flowsByDescriptionName, flowsByStateCount, flowsByDescriptionStateCount, flowsByLane, flowsByDecisionOwner] }),
+                    fields: {
+                        description: { label: "Flows" },
+                        stateCount: { label: "State count" },
+                        lane: { label: "Lane" },
+                        decisionOwner: { label: "Decision owner" },
+                        name: { label: "Name" },
+                    },
+                    search: ["name", "description", "lane", "decisionOwner"],
                 },
-                search: ["description", "lane", "decisionOwner"],
+            }, {
                 presets: [
-                    { id: "inbound", name: "Inbound", where: { description: ["Inbound parcels"] } },
-                    { id: "inbound-review", name: "Inbound · 4–6 states", where: { description: ["Inbound parcels"], stateCount: { from: 4n, to: 7n } } },
-                    { id: "review", name: "Review lane", where: { lane: ["review"] } },
-                    { id: "customs", name: "Customs decisions", where: { decisionOwner: ["customs-desk"] } },
+                    { id: "inbound", name: "Inbound", where: { flows: { description: ["Inbound parcels"] } } },
+                    { id: "inbound-review", name: "Inbound · 4–6 states", where: { flows: { description: ["Inbound parcels"], stateCount: { from: 4n, to: 7n } } } },
+                    { id: "review", name: "Review lane", where: { flows: { lane: ["review"] } } },
+                    { id: "customs", name: "Customs decisions", where: { flows: { decisionOwner: ["customs-desk"] } } },
                 ],
             }));
             return (
                 <Box width="100%" height="640px">
-                    <Flowchart record={flows} window={Slice.rows(slice)}
-                        slice={{ slice, affordances: ["fields", "search", "presets", "summary"] }}
+                    <Flowchart record={flows} slice={{ slice, affordances: ["fields", "search", "presets", "summary"] }}
                         library={[Flowchart.library.flows()]} name="recordIndexes" />
                 </Box>
             );

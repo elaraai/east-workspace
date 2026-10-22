@@ -5,8 +5,9 @@
  * @vitest-environment jsdom
  *
  * The Flowchart's inspector (#1250, `Flowchart Builder Spec.md` §5.3, §9.9,
- * FB35–FB38, FB44, FB45), over a record of flows in memory bound with its
- * patch mutation, so a Save is a real commit (`flowchart.test-utils.tsx`):
+ * FB35–FB38, FB44, FB45), over the depot's record of flows on e3 itself,
+ * bound with its patch mutation, so a Save is a real commit
+ * (`flowchart.test-utils.tsx`, #1376):
  *
  * - **the pane** — on by default, `inspector={false}` taking it away; its
  *   tabs Details and Issues, Issues with its count; collapsed, a rail with its
@@ -31,21 +32,23 @@
  * place they open in.
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    East, FunctionType, NullType, PatchType, SortedMap, StringType, compareFor, diffFor, equalFor, none, some, variant, type BlockBuilder, type ValueTypeOf,
+    East, FunctionType, NullType, PatchType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type BlockBuilder, type ValueTypeOf,
 } from "@elaraai/east";
 import { Button, Editing, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { UIStore, editingMessages, formatters, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as edits from "./edits.js";
-import { commitOther, commits, enabled, mountRecord, press, readRecord, recordHarness, settle, type RecordHarness } from "./flowchart.test-utils.js";
+import { act, enabled, flowchartHarness, press, settle, type FlowchartHarness } from "./flowchart.test-utils.js";
 import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
 import { flowchartMessages } from "./messages.js";
+
+const h = flowchartHarness();
 
 // jsdom lacks the ResizeObserver the panes and the canvas reach for, the matchMedia the popovers do, and a listbox's scroll.
 beforeAll(() => {
@@ -117,10 +120,6 @@ function withFlow(name: string, flow: Flow | undefined, flows: Flows = FLOWS): F
 /** The sort flow open over the record, the Flows tab listed. */
 const SORT_OPEN = { flow: "Sort", library: [Flowchart.library.flows()] };
 
-/** The record of flows, as another writer commits to it. */
-const FLOWS_RECORD = { name: "depot_flows", type: Flowchart.Types.Flows, initial: FLOWS };
-const diffFlows = diffFor(Flowchart.Types.Flows);
-
 /** A night shift's flow, which another write makes. */
 const NIGHT: Flow = Flowchart.value({ lanes: [{ key: "night", label: "Night" }], states: [{ key: "NGT", label: "Night intake", lane: "night" }], links: [] });
 
@@ -134,23 +133,26 @@ function answering(flows: Flows, answer: () => Promise<ValueTypeOf<typeof Editin
     });
 }
 
-/** The record in memory, and the flowchart over it — the sort flow open, its inspector on by default. */
-async function mountSort(props: Parameters<typeof mountRecord>[0] = SORT_OPEN): Promise<{ container: HTMLElement; harness: RecordHarness }> {
-    const harness = recordHarness(FLOWS);
-    const { container } = await mountRecord(props);
-    return { container, harness };
+/** The depot's record holding the flows, and the flowchart over it — the sort flow open, its inspector on by default — with the record's commits before it mounts. */
+async function mountSort(props: Parameters<FlowchartHarness["mountRecord"]>[0] = SORT_OPEN): Promise<{ container: HTMLElement; before: string[] }> {
+    await h.commitFlows(FLOWS);
+    const before = await h.commits();
+    const { container } = await h.mountRecord(props);
+    return { container, before };
 }
 
 /** A payload of the flows, as the renderer takes it: the sort flow open, over `source`. */
 function payload(source: FlowchartValue["source"], options: Partial<Pick<FlowchartValue, "inspector" | "readOnly">> = {}): FlowchartValue {
     return {
         canvas: {
-            orientation: none, freshness: none, minimap: none, legend: some(false), slice: none,
+            orientation: none, freshness: none, minimap: none, legend: some(false),
             onSelectState: none, onSelectLink: none, onSelectTrigger: none, onTracePath: none, canConnect: none,
         },
         source,
         open: some("Sort"),
         library: [],
+        slice: none,
+        narrowed: new SortedMap([], compareFor(StringType)),
         inspector: options.inspector ?? some({ state: none, transition: none }),
         readOnly: options.readOnly ?? false,
         name: none,
@@ -260,14 +262,13 @@ describe("the pane (#1250, FB35, FB44)", () => {
     });
 
     test("`inspector={false}` takes it away; `true` gives it, as no prop does", async () => {
-        recordHarness(FLOWS);
-        const off = await mountRecord({ ...SORT_OPEN, inspector: false });
+        await h.commitFlows(FLOWS);
+        const off = await h.mountRecord({ ...SORT_OPEN, inspector: false });
         expect(pane(off.container)).toBeNull();
         expect(off.container.querySelector("[data-frame-slot='start']")).not.toBeNull();
         cleanup();
         initializeStore(new UIStore());
-        recordHarness(FLOWS);
-        const on = await mountRecord({ ...SORT_OPEN, inspector: true });
+        const on = await h.mountRecord({ ...SORT_OPEN, inspector: true });
         expect(tabs(on.container)).toEqual(["Details", "Issues 1"]);
     });
 });
@@ -296,7 +297,7 @@ describe("Details: a state (§5.3, FB36)", () => {
     });
 
     test("an edit is one transaction, tinted and Pending: a new key rekeys its transitions and the decisions' queues; Undo takes it back; Save commits it", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await click(node(container, "IND"));
         await retype(container, "key", "INX");
         expect(stateKeys(container)).toContain("INX");
@@ -312,8 +313,8 @@ describe("Details: a state (§5.3, FB36)", () => {
         await retype(container, "label", "Inducted");
         expect([chip(container), field(container, "label").hasAttribute("data-dirty"), field(container, "key").hasAttribute("data-dirty")]).toEqual(["Pending", true, false]);
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort")!, edits.editState(SORT, "IND", "IND", "Inducted"))).toBe(true);
-        expect(await commits(harness)).toEqual(["patch", "$init"]);
+        expect(flowEqual((await h.flows()).get("Sort")!, edits.editState(SORT, "IND", "IND", "Inducted"))).toBe(true);
+        expect(await h.commits()).toEqual(["patch", ...before]);
     });
 
     test("its lane a select over the flow's lanes, its members a number with Set and Clear, its notes — each one transaction", async () => {
@@ -392,7 +393,7 @@ describe("Details: a transition (§5.3, FB36)", () => {
     });
 
     test("each edit one transaction: its kind, its decision — none among them — its ends and its key, the selection following the key it goes by", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await click(container.querySelector("[data-flowchart-link='CH*→SRD#1']")!);
         await choose(container, "kind", m.kindLabel({ kind: "planned" }));
         await choose(container, "trigger", "route");
@@ -408,7 +409,7 @@ describe("Details: a transition (§5.3, FB36)", () => {
         expect(enabled(UNDO)).toBe(false);
         for (let i = 0; i < 5; i++) await press(editingMessages.redo());
         await press(SAVE);
-        const saved = readRecord(harness).get("Sort")!;
+        const saved = (await h.flows()).get("Sort")!;
         expect(saved.links[1]).toEqual({ key: some("back"), from: "CH*", to: "IND", kind: some(variant("planned", null)), trigger: none, evidence: none });
     });
 
@@ -427,7 +428,7 @@ describe("Details: a transition (§5.3, FB36)", () => {
 
 describe("Details: a decision (§5.3, FB36)", () => {
     test("its key, label, letter, owner, queue — tags over the flow's states — and outcomes; the transitions it governs; a new key renaming it on them; Delete clearing it from them", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await click(container.querySelector("[data-flowchart-trigger='route']")!);
         expect(showing(container)).toBe("decision");
         expect(head(container)).toEqual(["Decision · R", "route"]);
@@ -444,7 +445,7 @@ describe("Details: a decision (§5.3, FB36)", () => {
         expect(container.querySelector("[data-flowchart-trigger='routing']")).not.toBeNull();
         expect(head(container)[0]).toBe("Decision · R");
         await press(SAVE);
-        const saved = readRecord(harness).get("Sort")!;
+        const saved = (await h.flows()).get("Sort")!;
         expect([saved.triggers[0]!.key, saved.triggers[0]!.queue, saved.links[0]!.trigger]).toEqual(["routing", some(["IND", "SRD"]), some("routing")]);
         await click(action(container, "delete")!);
         expect(container.querySelector("[data-flowchart-trigger]")).toBeNull();
@@ -458,7 +459,7 @@ describe("Details: a decision (§5.3, FB36)", () => {
 
 describe("Details: a lane (§5.3, FB36)", () => {
     test("a click on its header selects it: its key — a new key moving its states — and label; how many states it holds; Delete off while it holds any, saying why", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await click(container.querySelector("[data-flowchart-lane='sort']")!);
         expect(showing(container)).toBe("lane");
         expect(head(container)).toEqual(["Lane · Sort", null]);
@@ -471,7 +472,7 @@ describe("Details: a lane (§5.3, FB36)", () => {
         expect(laneHeads(container)).toEqual(["INDUCT", "SORTING", "HOLD"]);
         expect(head(container)[0]).toBe("Lane · Sorting");
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort")!, edits.renameLane(edits.rekeyLane(SORT, "sort", "sorting"), "sorting", "Sorting"))).toBe(true);
+        expect(flowEqual((await h.flows()).get("Sort")!, edits.renameLane(edits.rekeyLane(SORT, "sort", "sorting"), "sorting", "Sorting"))).toBe(true);
         // An empty lane: its Delete on.
         await click(container.querySelector("[data-flowchart-lane='hold']")!);
         expect(action(container, "delete")!.disabled).toBe(false);
@@ -514,34 +515,41 @@ describe("Details: several states (§5.3, FB36)", () => {
 
 describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
     test("over many flows: its name and description, Duplicate and Delete, its counts, its last save and who made it, and three hints", async () => {
-        const { container } = await mountSort();
-        expect(showing(container)).toBe("flow");
-        expect(head(container)).toEqual(["Flow", "Sort"]);
-        expect(editors(container)).toEqual(["name:text", "description:text"]);
-        expect([box(container, "name").value, box(container, "description").value]).toEqual(["Sort", "From the belt to the chutes"]);
-        expect([action(container, "duplicate") !== null, action(container, "delete") !== null]).toEqual([true, true]);
-        expect([...panel(container).querySelectorAll("[data-count]")].map((el) => [el.getAttribute("data-count"), el.textContent]))
-            .toEqual([["lanes", "3Lanes"], ["states", "3States"], ["transitions", "3Transitions"], ["decisions", "1Decision"]]);
-        expect(panel(container).querySelector("[data-inspector-split]")!.textContent).toBe("1 planned · 1 observed · 1 unresolved");
-        // The in-memory record commits its first state at the epoch, as "memory".
-        expect(panel(container).querySelector("[data-inspector-saved]")!.textContent).toBe(m.inspectorSaved({ when: WORDS.dateTime(new Date(0)), by: "memory" }));
-        expect([...panel(container).querySelectorAll("li")].map((li) => li.textContent)).toEqual([m.inspectorHint({ n: 1 }), m.inspectorHint({ n: 2 }), m.inspectorHint({ n: 3 })]);
-        // Esc, or a click where nothing is, comes back here.
-        await click(node(container, "IND"));
-        await click(container.querySelector("[data-flowchart-canvas]")!);
-        expect(showing(container)).toBe("flow");
+        // A clock from 14:02 of one day, running, so e3 stamps the save of the session that wrote the flows on the day the flowchart calls today.
+        vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2026-10-06T14:02:00Z"));
+        try {
+            const { container } = await mountSort();
+            expect(showing(container)).toBe("flow");
+            expect(head(container)).toEqual(["Flow", "Sort"]);
+            expect(editors(container)).toEqual(["name:text", "description:text"]);
+            expect([box(container, "name").value, box(container, "description").value]).toEqual(["Sort", "From the belt to the chutes"]);
+            expect([action(container, "duplicate") !== null, action(container, "delete") !== null]).toEqual([true, true]);
+            expect([...panel(container).querySelectorAll("[data-count]")].map((el) => [el.getAttribute("data-count"), el.textContent]))
+                .toEqual([["lanes", "3Lanes"], ["states", "3States"], ["transitions", "3Transitions"], ["decisions", "1Decision"]]);
+            expect(panel(container).querySelector("[data-inspector-split]")!.textContent).toBe("1 planned · 1 observed · 1 unresolved");
+            // The record's last commit, today's: its time, and the session that made it.
+            expect(panel(container).querySelector("[data-inspector-saved]")!.textContent).toBe(m.inspectorSaved({ when: WORDS.time(new Date("2026-10-06T14:02:00Z")), by: "another session" }));
+            expect([...panel(container).querySelectorAll("li")].map((li) => li.textContent)).toEqual([m.inspectorHint({ n: 1 }), m.inspectorHint({ n: 2 }), m.inspectorHint({ n: 3 })]);
+            // Esc, or a click where nothing is, comes back here.
+            await click(node(container, "IND"));
+            await click(container.querySelector("[data-flowchart-canvas]")!);
+            expect(showing(container)).toBe("flow");
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     test("a new description is one transaction, which Save commits", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await retype(container, "description", "From the belt to the hold");
         expect([pending(container), chip(container)]).toEqual([pendingOf(1), "Pending"]);
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort")!, { ...SORT, description: some("From the belt to the hold") })).toBe(true);
+        expect(flowEqual((await h.flows()).get("Sort")!, { ...SORT, description: some("From the belt to the hold") })).toBe(true);
     });
 
     test("a new name renames the flow, one transaction — refused for a name the flowchart holds, or none — and Save commits it as one patch, the flow then open under its new name", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await retype(container, "name", "Returns");
         expect(footerMessage(container)).toBe(m.inspectorRefused({ why: "nameTaken", name: "Returns" }));
         expect(box(container, "name").value).toBe("Sort");
@@ -571,8 +579,8 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         watch.disconnect();
         shown.push(footerFlow(container) ?? "");
         expect(shown.filter((name) => name !== "Sorting")).toEqual([]);
-        expect(flowsEqual(readRecord(harness), withFlow("Sorting", edits.editState(SORT, "SRD", "SRD", "Sorted out"), withFlow("Sort", undefined)))).toBe(true);
-        expect(await commits(harness)).toEqual(["patch", "$init"]);
+        expect(flowsEqual((await h.flows()), withFlow("Sorting", edits.editState(SORT, "SRD", "SRD", "Sorted out"), withFlow("Sort", undefined)))).toBe(true);
+        expect(await h.commits()).toEqual(["patch", ...before]);
         // Open under its new name, nothing waiting.
         expect([footerFlow(container), pending(container)]).toEqual(["Sorting", pendingOf(0)]);
         expect(cards(container).map((card) => [card.name, card.chip])).toEqual([["Returns", null], ["Sorting", null]]);
@@ -622,11 +630,11 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
     });
 
     test("a flow deleted and saved is done with: made again by another write, it opens as that write left it, with nothing to confirm", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await click(action(container, "delete")!);
         await press(SAVE);
         expect(footerFlow(container)).toBe("Returns");
-        await commitOther(harness, FLOWS_RECORD, diffFlows(readRecord(harness), withFlow("Sort", NIGHT, readRecord(harness))));
+        await h.commitFlows(withFlow("Sort", NIGHT, await h.flows()));
         await settle();
         await click(container.querySelector("[data-frame-slot='start'] [data-library-item='Sort']")!);
         expect([footerFlow(container), stateKeys(container), pending(container)]).toEqual(["Sort", ["NGT"], pendingOf(0)]);
@@ -634,17 +642,17 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
     });
 
     test("Duplicate opens a copy as a new flow, Pending, which Save inserts", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await click(action(container, "duplicate")!);
         expect(footerFlow(container)).toBe("Sort copy");
         expect([head(container)[1], chip(container)]).toEqual(["Sort copy", "New"]);
         expect(cards(container).map((card) => [card.name, card.chip])).toEqual([["Returns", null], ["Sort", null], ["Sort copy", m.flowPending()]]);
         await press(SAVE);
-        expect(flowEqual(readRecord(harness).get("Sort copy")!, SORT)).toBe(true);
+        expect(flowEqual((await h.flows()).get("Sort copy")!, SORT)).toBe(true);
     });
 
     test("Delete deletes it: main says so and Details too; Undo brings it back; Save removes it from the record, and the next flow opens", async () => {
-        const { container, harness } = await mountSort();
+        const { container, before } = await mountSort();
         await click(action(container, "delete")!);
         expect(container.querySelector("[data-frame-slot='main'] [data-flowchart-deleted]")!.textContent).toContain(m.flowDeleted({ part: "title", name: "Sort" }));
         expect([showing(container), chip(container)]).toEqual(["deleted", m.inspectorChip({ state: "deleted" })]);
@@ -653,7 +661,7 @@ describe("Details: nothing selected — the open flow (§5.3, FB36)", () => {
         expect(stateKeys(container)).toContain("CH*");
         await click(action(container, "delete")!);
         await press(SAVE);
-        expect([...readRecord(harness).keys()]).toEqual(["Returns"]);
+        expect([...(await h.flows()).keys()]).toEqual(["Returns"]);
         expect(stateKeys(container)).toEqual(["RCV"]);
         expect(footerFlow(container)).toBe("Returns");
         // Its session saw its Save through, and keeps nothing of it: a new flow of its name starts with its one lane alone.
@@ -781,7 +789,7 @@ describe("a kind's own Details (FB45)", () => {
     };
 
     test("a state's own Details show in place of its form, and their update writes the edited state back as one transaction; a transition's Details stay its form", async () => {
-        const { container, harness } = await mountSort(own(false));
+        const { container, before } = await mountSort(own(false));
         await click(node(container, "SRD"));
         const custom = panel(container).querySelector<HTMLElement>("[data-inspector-fields='custom']")!;
         expect(panel(container).querySelector("[data-inspector-fields='form']")).toBeNull();
@@ -792,7 +800,7 @@ describe("a kind's own Details (FB45)", () => {
         expect(node(container, "SRD").textContent).not.toContain("×");
         await press(editingMessages.redo());
         await press(SAVE);
-        expect(edits.stateRow(readRecord(harness).get("Sort")!, "SRD")!.members).toEqual(some(3n));
+        expect(edits.stateRow((await h.flows()).get("Sort")!, "SRD")!.members).toEqual(some(3n));
         await click(container.querySelector("[data-flowchart-link='IND→CH*']")!);
         expect(editors(container)[0]).toBe("from:reference");
     });

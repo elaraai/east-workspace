@@ -129,19 +129,3 @@ export function createFakeClock(): FakeClock {
         },
     };
 }
-
-/** Yield to microtasks once. */
-export const flushMicrotasks = (): Promise<void> =>
-    new Promise(resolve => queueMicrotask(resolve));
-
-/** Drain ALL pending microtasks (and short macrotask hops). The cache's
- *  poll path chains 5+ awaits — `setImmediate` lets every queued
- *  microtask drain before we resume. Use after `tick()` whenever you
- *  need the poll's full state-update pipeline to have settled. */
-export const settle = async (): Promise<void> => {
-    // Yield to setImmediate twice — drains microtask queues that were
-    // populated by other microtasks. Two passes covers the common
-    // 5-deep await chain in the cache's polling code.
-    await new Promise(resolve => setImmediate(resolve));
-    await new Promise(resolve => setImmediate(resolve));
-};

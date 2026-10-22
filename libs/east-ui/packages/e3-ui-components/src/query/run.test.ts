@@ -18,7 +18,7 @@ import { checkSteps } from "./steps/check.js";
 import { QUERY_HEADER_ID, type QueryHeader } from "./session.js";
 import { canonicalProgram, planRun, runOutput, type RunEditor } from "./run.js";
 import type { QueryResult } from "./one-shot.js";
-import { FIXTURE_VALUE, FixtureType, ROOT } from "./query.test-utils.js";
+import { FIXTURE_VALUE, FixtureType, ROOT } from "./fixture.test-utils.js";
 
 const HEADER: QueryHeader = { id: QUERY_HEADER_ID, name: "Big orders", description: none, source: "orders", jq: none };
 

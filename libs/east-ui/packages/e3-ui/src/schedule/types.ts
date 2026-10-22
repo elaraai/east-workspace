@@ -13,8 +13,8 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DateTimeType, DictType, FunctionType, IntegerType, NullType, OptionType, StringType,
-    StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType,
+    StringType, StructType, VariantType,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { EventStateType, StatusTokenType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
@@ -120,6 +120,43 @@ export const ScheduleCandidateType = StructType({
 
 /** Type representing {@link ScheduleCandidateType}. */
 export type ScheduleCandidateType = typeof ScheduleCandidateType;
+
+/**
+ * Why something does not fit: the refusal a fit gives, and what a run of
+ * refusals of one group gathers into one label (`Over max · by 4–13 m³`).
+ *
+ * @property group - Its group, the run label's lead (`Over max`, `Busy`, `Gap too short`)
+ * @property reason - Its words (`over max by 4 m³`)
+ * @property measure - What the run's label gathers: nothing, an amount (`by` 4) or a day (`until` Fri 14)
+ */
+export const ScheduleRefusalType = StructType({
+    group: StringType,
+    reason: StringType,
+    measure: VariantType({
+        none: NullType,
+        amount: StructType({ lead: StringType, value: FloatType }),
+        day: StructType({ lead: StringType, at: DateTimeType }),
+    }),
+});
+
+/** Type representing {@link ScheduleRefusalType}. */
+export type ScheduleRefusalType = typeof ScheduleRefusalType;
+
+/**
+ * One verdict of a fit: it fits, with its score, its reason and a warning,
+ * or it is refused. A builder ranks the fits by score and shows each reason
+ * as it is; it computes none of its own.
+ *
+ * @property fits - It fits: higher scores rank first; `why` its reason (`3 d spare to Wed 19 · leaves 31 m³ · takes 20–40`); `warn` a warning it still fits with (`under min`)
+ * @property refused - It does not fit, and why
+ */
+export const ScheduleFitType = VariantType({
+    fits: StructType({ score: FloatType, why: StringType, warn: OptionType(StringType) }),
+    refused: ScheduleRefusalType,
+});
+
+/** Type representing {@link ScheduleFitType}. */
+export type ScheduleFitType = typeof ScheduleFitType;
 
 // ============================================================================
 // The kinds' wire
@@ -292,9 +329,12 @@ export const ScheduleRolesType = StructType({
  * @property status - How each case of its status shows
  * @property backlog - Whether its rows with no time are its backlog
  * @property templates - Its templates, for the library
+ * @property templatesSource - The builder's Slice source whose shown keys filter its templates, the source its templates list names; none, every template shows (#1343)
  * @property fields - The inspector's form over its other fields (`Fields`)
  * @property items - Its events overlapping `[from, to)`, the drafts in place; `none` while a read is in flight
- * @property unscheduled - Its backlog: the rows with no time, the drafts in place
+ * @property unscheduled - Its backlog: the rows with no time, the drafts in place. It takes the window `[from, to)`
+ *   the canvas reads: a kind narrowed by its builder's slice holds the events its narrowing holds there and in its
+ *   backlog alike, so a draft moves one between them by its times (#1343)
  * @property write - Each gesture into its entry's new bytes; `none` for a gesture the kind refuses
  * @property ready - The author's check over drafted entries, one result each
  * @property editing - The shared session over the record: its entry and key types, and its patch door — its base the record's snapshot, or for a kind read a window at a time (#1199) its revision
@@ -309,9 +349,10 @@ export const ScheduleKindType = StructType({
     status: ArrayType(StructType({ case: StringType, status: ScheduleStatusType })),
     backlog: BooleanType,
     templates: ArrayType(ScheduleTemplateType),
+    templatesSource: OptionType(StringType),
     fields: ArrayType(FieldSpecType),
     items: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(ScheduleItemType))),
-    unscheduled: FunctionType([ScheduleDraftsType], OptionType(ArrayType(ScheduleItemType))),
+    unscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(ScheduleItemType))),
     write: FunctionType([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType))),
     ready: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType))),
     editing: EditingType,
@@ -421,7 +462,7 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property overlaps - Whether two of its events on one resource at once are a conflict
  * @property roles - The fields its roles read
  * @property planItems - Its events overlapping `[from, to)` as Plan draws them, the drafts in place; `none` while a read is in flight
- * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place
+ * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place, over the window `[from, to)` the canvas reads, as `unscheduled` takes it
  * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row; `none` when there is no such event. A kind read a window at a time (#1199) looks for it first among the rows its windows hold over `[from, to)` — the range the canvas reads, where a gesture's event is drawn — and its backlog's, then reads it by its key, `none` while that read is in flight; a kind read whole takes no notice of the range
  * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
  */
@@ -432,7 +473,7 @@ export const PlanEventKindType = StructType({
     overlaps: ScheduleOverlapsType,
     roles: PlanEventRolesType,
     planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
-    planUnscheduled: FunctionType([ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
+    planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
     planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(PlanEventReadType)),
     inspector: OptionType(RowInspectorType),
 });
@@ -487,3 +528,194 @@ export const PlanResourcesType = StructType({
 
 /** Type representing {@link PlanResourcesType}. */
 export type PlanResourcesType = typeof PlanResourcesType;
+
+// ============================================================================
+// The kinds as the builders over the app's own records take them (#1367)
+// ============================================================================
+
+/**
+ * A duty's roles, as the Roster reads them from the app's row
+ * (`Builder Interfaces Spec.md` §4.1, §5.2): what its kind's fields hold,
+ * whatever the row calls them.
+ *
+ * @property start - When it starts
+ * @property end - When it ends
+ * @property resource - Who: a person, or an agency asked to send someone, by the resource kind its field's case names
+ * @property shift - Its shift's key
+ * @property group - The group it is rostered in
+ * @property position - The position held; `none` for a kind with no `position` role
+ * @property activity - Its activity; `none` when it has none, or the kind has no `activity` role
+ * @property hours - The hours it counts: its kind's `hours` accessor's, or its length
+ */
+export const ScheduleRosterRolesType = StructType({
+    start: DateTimeType,
+    end: DateTimeType,
+    resource: OptionType(ScheduleResourceRefType),
+    shift: StringType,
+    group: StringType,
+    position: OptionType(StringType),
+    activity: OptionType(StringType),
+    hours: FloatType,
+});
+
+/** Type representing {@link ScheduleRosterRolesType}. */
+export type ScheduleRosterRolesType = typeof ScheduleRosterRolesType;
+
+/**
+ * One stored duty, as a Roster kind's `rows` gives it: its roles, read in the
+ * same pass that reads the row, and the row as bytes at the row type — what a
+ * write and the session take, and what a request's assignment carries.
+ *
+ * @property roles - Its roles
+ * @property row - Its row, as bytes at the row type
+ */
+export const ScheduleRosterEntryType = StructType({ roles: ScheduleRosterRolesType, row: BlobType });
+
+/** Type representing {@link ScheduleRosterEntryType}. */
+export type ScheduleRosterEntryType = typeof ScheduleRosterEntryType;
+
+/**
+ * One event kind as the Roster takes it (#1367): the Calendar's closed kind
+ * — its session over the record, its reads, its form — with its rows, and its
+ * roles read from a row and written into one.
+ *
+ * @property kind - The Calendar's closed kind: its `editing`, `entries`, `history`, `ready`, `fields` and `inspector`
+ * @property rows - Its stored duties overlapping `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
+ * @property read - A drafted row's roles, from its bytes and its key: what `rows` gives a stored one
+ * @property write - The row with every mapped field written from the roles and every other field as it was; `none` for a resource of a kind it does not take
+ * @property create - A new row from the roles, every other field its type's default; `none` as `write` refuses
+ * @property roles - Which of the optional roles the kind maps
+ * @property rowType - The row type
+ */
+export const ScheduleRosterKindType = StructType({
+    kind: ScheduleKindType,
+    rows: FunctionType([DateTimeType, DateTimeType], OptionType(DictType(StringType, ScheduleRosterEntryType))),
+    read: FunctionType([BlobType, StringType], ScheduleRosterRolesType),
+    write: FunctionType([BlobType, ScheduleRosterRolesType], OptionType(BlobType)),
+    create: FunctionType([ScheduleRosterRolesType], OptionType(BlobType)),
+    roles: StructType({ position: BooleanType, activity: BooleanType }),
+    rowType: EastTypeType,
+});
+
+/** Type representing {@link ScheduleRosterKindType}. */
+export type ScheduleRosterKindType = typeof ScheduleRosterKindType;
+
+/**
+ * A bin's roles, as the Allocation reads them from the app's row
+ * (`Builder Interfaces Spec.md` §4.1, §6.2).
+ *
+ * @property at - Its time
+ * @property lane - Its lane's key
+ * @property arrival - The arrival it books; `none` for a reservation
+ * @property quantity - Its quantity
+ * @property parts - The quantity on each resource, by key
+ * @property hold - How long a resource holds it
+ * @property kind - What it goes with; `none` when it has none, or the kind has no `kind` role
+ */
+export const ScheduleAllocationRolesType = StructType({
+    at: DateTimeType,
+    lane: StringType,
+    arrival: OptionType(StringType),
+    quantity: FloatType,
+    parts: DictType(StringType, FloatType),
+    hold: TimeStepType,
+    kind: OptionType(StringType),
+});
+
+/** Type representing {@link ScheduleAllocationRolesType}. */
+export type ScheduleAllocationRolesType = typeof ScheduleAllocationRolesType;
+
+/**
+ * One stored bin, as an Allocation kind's `rows` gives it: its roles, read in
+ * the same pass that reads the row, and the row as bytes at the row type.
+ *
+ * @property roles - Its roles
+ * @property row - Its row, as bytes at the row type
+ */
+export const ScheduleAllocationEntryType = StructType({ roles: ScheduleAllocationRolesType, row: BlobType });
+
+/** Type representing {@link ScheduleAllocationEntryType}. */
+export type ScheduleAllocationEntryType = typeof ScheduleAllocationEntryType;
+
+/**
+ * One event kind as the Allocation takes it (#1367): the Calendar's closed
+ * kind, with its rows, and its roles read from a row and written into one.
+ *
+ * @property kind - The Calendar's closed kind: its `editing`, `entries`, `history`, `ready`, `fields` and `inspector`
+ * @property rows - Its stored bins of `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
+ * @property read - A drafted row's roles, from its bytes: what `rows` gives a stored one
+ * @property write - The row with every mapped field written from the roles and every other field as it was
+ * @property create - A new row from the roles, and an arrival's values — the fields no role maps, as bytes at `values` — or, with none, every such field its type's default
+ * @property lanes - The resource slot its lanes are: what its `resource.of` names
+ * @property parts - The resource slot its parts are on: what its `parts.of` names
+ * @property kinded - Whether it maps a `kind`
+ * @property unit - Its quantity's unit (`m³`), shown everywhere a quantity is: its `quantity.unit`
+ * @property values - The fields no role maps, a struct: what an arrival's values give a booked bin
+ * @property rowType - The row type
+ */
+export const ScheduleAllocationKindType = StructType({
+    kind: ScheduleKindType,
+    rows: FunctionType([DateTimeType, DateTimeType], OptionType(DictType(StringType, ScheduleAllocationEntryType))),
+    read: FunctionType([BlobType], ScheduleAllocationRolesType),
+    write: FunctionType([BlobType, ScheduleAllocationRolesType], BlobType),
+    create: FunctionType([ScheduleAllocationRolesType, OptionType(BlobType)], BlobType),
+    lanes: StringType,
+    parts: StringType,
+    kinded: BooleanType,
+    unit: OptionType(StringType),
+    values: EastTypeType,
+    rowType: EastTypeType,
+});
+
+/** Type representing {@link ScheduleAllocationKindType}. */
+export type ScheduleAllocationKindType = typeof ScheduleAllocationKindType;
+
+/**
+ * A period's status, as a builder reads it from the app's status field
+ * (`Builder Interfaces Spec.md` §4.3).
+ *
+ * @property draft - The draft case: editable
+ * @property published - The published case, and when, when the case holds a time; read-only
+ * @property other - Any other case of the app's status, by its name; read-only
+ */
+export const SchedulePeriodStatusType = VariantType({
+    draft: NullType,
+    published: StructType({ at: OptionType(DateTimeType) }),
+    other: StringType,
+});
+
+/** Type representing {@link SchedulePeriodStatusType}. */
+export type SchedulePeriodStatusType = typeof SchedulePeriodStatusType;
+
+/**
+ * What a builder publishes, closed (`Schedule.periods`, #1367): the app's
+ * record of periods, a row each, keyed by its start.
+ *
+ * @property every - What a period is: a week from the builder's week start, or a UTC day
+ * @property editing - The shared session over the record: whole rows by their start, its patch door
+ * @property entries - The record read by key, when it is given `entries`; `none` for a record read whole
+ * @property rows - The periods starting in `[from, to)`, by their start, as bytes at the row type; `none` while a read is in flight
+ * @property status - A row's status
+ * @property publish - The row, or a new one, with its status the published case at the time given
+ * @property dismissible - Whether the builder maps `dismissed`
+ * @property dismissed - The proposals a row dismissed; empty when the builder maps none
+ * @property dismiss - The row, or a new one, with its dismissed proposals the set given
+ * @property history - The record's commits, newest first
+ * @property rowType - The row type
+ */
+export const SchedulePeriodsKindType = StructType({
+    every: VariantType({ week: NullType, day: NullType }),
+    editing: EditingType,
+    entries: OptionType(ScheduleEntriesType),
+    rows: FunctionType([DateTimeType, DateTimeType], OptionType(DictType(DateTimeType, BlobType))),
+    status: FunctionType([BlobType], SchedulePeriodStatusType),
+    publish: FunctionType([OptionType(BlobType), DateTimeType], BlobType),
+    dismissible: BooleanType,
+    dismissed: FunctionType([BlobType], SetType(StringType)),
+    dismiss: FunctionType([OptionType(BlobType), SetType(StringType)], BlobType),
+    history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
+    rowType: EastTypeType,
+});
+
+/** Type representing {@link SchedulePeriodsKindType}. */
+export type SchedulePeriodsKindType = typeof SchedulePeriodsKindType;

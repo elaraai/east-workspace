@@ -423,7 +423,10 @@ for (const phone of [false, true]) {
                 test(`workshop selections: line, band, several and none (${theme})`, async ({ page }) => {
                     const { box, pane } = await openSheet(page, "sheetWorkshop", theme, phone);
                     if (theme === "light") {
-                        await test.step("the workshop with nothing selected: its counts and hints inside the pane", async () => {
+                        await test.step("the workshop with nothing selected — the ring on the first order's blank line: its counts and hints inside the pane", async () => {
+                            // The orders page from the rail's rows source (#1345), landing after the sheet opens, so its ring
+                            // opens on the first order's band: set on the order's blank line, it selects nothing.
+                            await select(page, box, box.locator("[data-frame-slot=main] [data-slot=row][data-blank][data-group-id] [data-key]").first(), phone);
                             await expect(pane.locator("[data-sheet-inspector=none]")).toBeVisible();
                             expect(await paneFaults(pane)).toEqual([]);
                         });

@@ -39,6 +39,7 @@ import {
   encodeDatasetBlob,
   indexCollectionType,
   indexWindowType,
+  isCollectionRoot,
   isRecordStateType,
   mutationDeltaType,
   type DeltaTarget,
@@ -52,7 +53,9 @@ import {
   type Structure,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
-import { openDatasetObject, readManifest } from './dataset-open.js';
+import { readManifest } from './dataset-open.js';
+import { storedDatasetValue } from './dataset-adopt.js';
+import { manifestCutElsewhere } from './store-collection.js';
 import { OBJECT_CONCURRENCY, eachAtMost, storeObjects } from './concurrency.js';
 import { computeHash } from './objects.js';
 import { inputsHash } from './executions.js';
@@ -300,6 +303,12 @@ async function withSharedWorkspaceLock<T>(
  *  records don't lock-step their (expensive) reducer re-runs under contention. */
 function casBackoffMs(attempt: number): number {
   return Math.min(2 ** attempt, 64) * (0.5 + Math.random());
+}
+
+/** Why a record that holds no state refuses a write: a record declared with
+ *  no initial value is unassigned until its first state is committed. */
+function noStateYet(recordName: string): MutationOutcome {
+  return { kind: 'invalid', message: `record '${recordName}' has no state yet: it is unassigned until its first state is committed` };
 }
 
 /**
@@ -625,9 +634,7 @@ export async function recordMutate(
       }
 
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
-      if (!existing || existing.ref.type !== 'value') {
-        return { kind: 'invalid', message: `record '${recordName}' has no state` };
-      }
+      if (!existing || existing.ref.type !== 'value') return noStateYet(recordName);
 
       // Idempotent retry (OPS-3): if the record's last mutation already committed
       // under this key, return that commit, and the state it wrote, without
@@ -1091,9 +1098,7 @@ export async function recordReindex(
     const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
     for (let attempt = 1; ; attempt++) {
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
-      if (!existing || existing.ref.type !== 'value') {
-        return { kind: 'invalid', message: `record '${recordName}' has no state` };
-      }
+      if (!existing || existing.ref.type !== 'value') return noStateYet(recordName);
       const state = await readRecordState(storage, repo, existing.ref.value.hash);
       const outcome = await buildRecordIndexes(storage, runner, repo, wanted, state.primary, {
         ...(opts.signal !== undefined && { signal: opts.signal }),
@@ -1177,7 +1182,9 @@ export interface DeployIndexBuild {
  * @param repo - Repository identifier
  * @param pkg - the package being deployed
  * @param stateOf - the state hash a record will hold once the deploy has
- *   written its refs, by the record's ref path; `undefined` when it holds none
+ *   written its refs, by the record's ref path; `null` for a state the deploy
+ *   has not stored yet — the one a plan's migrations would leave, which a plan
+ *   does not run — which names no index; `undefined` when it holds none
  * @param runner - Task runner for the build programs
  * @param onPlan - told what the deploy decided for each index
  * @param planOnly - decide and tell, and build nothing: a deploy's `--plan`
@@ -1191,7 +1198,7 @@ export async function buildDeployIndexes(
   storage: StorageBackend,
   repo: string,
   pkg: { records: Map<string, string> },
-  stateOf: (path: string) => string | undefined,
+  stateOf: (path: string) => string | null | undefined,
   runner?: TaskRunner,
   onPlan?: (plan: RecordIndexPlan) => void,
   planOnly = false,
@@ -1202,13 +1209,17 @@ export async function buildDeployIndexes(
     const recObj = decodeRecordObject(await storage.objects.read(repo, recHash));
     const stateHash = stateOf(recObj.path);
     if (stateHash === undefined) continue;
-    const state = await readRecordState(storage, repo, stateHash);
+    // A state not stored yet — the one a plan's migrations would leave — names
+    // no index: every index the package declares is built over it, as the
+    // deploy will build them, and none is dropped
+    const state = stateHash === null ? null : await readRecordState(storage, repo, stateHash);
+    const held = state?.indexes ?? new Map<string, { manifest: string; index: string }>();
 
     const build = new Map<string, string>();
     for (const [name, indexHash] of recObj.indexes) {
-      if (state.indexes.get(name)?.index !== indexHash) build.set(name, indexHash);
+      if (held.get(name)?.index !== indexHash) build.set(name, indexHash);
     }
-    const dropped = [...state.indexes.keys()].filter((name) => !recObj.indexes.has(name));
+    const dropped = [...held.keys()].filter((name) => !recObj.indexes.has(name));
     if (onPlan !== undefined) {
       for (const name of recObj.indexes.keys()) {
         onPlan({ record: recObj.path, index: name, action: build.has(name) ? variant('build', null) : variant('keep', null) });
@@ -1217,6 +1228,9 @@ export async function buildDeployIndexes(
     }
     if (planOnly || (build.size === 0 && dropped.length === 0)) continue;
 
+    if (stateHash === null || state === null) {
+      throw new Error(`deploying record '${recObj.path}' must build ${[...build.keys()].join(', ')} over a state the deploy has not stored`);
+    }
     if (build.size > 0 && runner === undefined) {
       throw new Error(
         `deploying record '${recObj.path}' must build ${[...build.keys()].join(', ')}, ` +
@@ -1306,7 +1320,11 @@ export type DeployRecordCommit =
   | { kind: 'migrate'; path: string; prior: RecordRef; steps: readonly { name: string; state: string }[]; applied: readonly string[] }
   /** Reset to the package's initial value: a `$reset` root commit, and the
    *  whole chain counted applied. */
-  | { kind: 'reset'; path: string; prior: RecordRef; state: string; applied: readonly string[] };
+  | { kind: 'reset'; path: string; prior: RecordRef; state: string; applied: readonly string[] }
+  /** Sent back to unassigned under the `reset` policy, for a record declared
+   *  with no initial value: its ref unassigned and its chain dropped, as a
+   *  `$reset` drops it, for its first state to be committed again. */
+  | { kind: 'unassign'; path: string; prior: RecordRef };
 
 /**
  * Commit what a deploy decided for each record, on the refs it has just
@@ -1324,7 +1342,10 @@ export type DeployRecordCommit =
  *   steps applied before;
  * - `$reset` drops the idempotency slots, since the keyed write went with the
  *   state, and writes `$schema`, and `$migrations` naming itself as the commit
- *   that applied every step.
+ *   that applied every step;
+ * - an `unassign` writes no commit: the ref goes back to unassigned, and the
+ *   chain and every slot go with it, as a `$reset` drops them, for the
+ *   record's first state to be committed again.
  *
  * Deploy holds the workspace lock exclusively, so every ref write here is
  * uncontended, and the tasks lock, since a migration's states are named by
@@ -1354,7 +1375,7 @@ export async function commitDeployRecords(
     }));
   for (const commit of commits) {
     const selfKeypath = refPathToKeypath(commit.path);
-    const schema = commit.kind === 'keep' || commit.applied.length === 0 ? undefined : commit.applied.join(',');
+    const schema = commit.kind === 'keep' || commit.kind === 'unassign' || commit.applied.length === 0 ? undefined : commit.applied.join(',');
     switch (commit.kind) {
       case 'mint': {
         const head = await system(undefined, commit.state, '$init');
@@ -1408,6 +1429,10 @@ export async function commitDeployRecords(
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
           }),
         }));
+        break;
+      }
+      case 'unassign': {
+        await storage.datasets.write(repo, ws, commit.path, variant('unassigned', null));
         break;
       }
     }
@@ -1627,9 +1652,7 @@ export async function recordCompact(
     const deadline = Date.now() + Math.min(opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS, opts.budgetMs ?? Infinity);
     for (let attempt = 1; ; attempt++) {
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
-      if (!existing || existing.ref.type !== 'value') {
-        return { kind: 'invalid', message: `record '${recordName}' has no state` };
-      }
+      if (!existing || existing.ref.type !== 'value') return noStateYet(recordName);
       const stateHash = existing.ref.value.hash;
       const commit: RecordCommit = {
         parent: none,
@@ -1681,6 +1704,10 @@ const SYSTEM_COMMIT_NAME = /^\$[A-Za-z_][A-Za-z0-9_]*$/;
 /** The names e3's own commits take, whose meaning the commit protocol fixes. */
 const OWN_COMMIT_NAMES: readonly string[] = ['$init', '$deploy', '$reset', '$reindex', '$compact'];
 
+/** The name of a record's first commit: a deploy's mint, or a system commit
+ *  of a state to a record that holds none. */
+const GENESIS_COMMIT = '$init';
+
 /**
  * What a system commit points a record at.
  *
@@ -1688,7 +1715,8 @@ const OWN_COMMIT_NAMES: readonly string[] = ['$init', '$deploy', '$reset', '$rei
  *   goes back to: a rollback.
  * - `{ state, applied }`: a state from outside the record's history, such as a
  *   backup's, and the migrations it had had applied when it was taken: a
- *   restore.
+ *   restore; or a record's first state, committed as its `$init`, with
+ *   `applied` the record's whole declared chain.
  */
 export type RecordSystemCommitTarget =
   | { commit: string }
@@ -1697,7 +1725,8 @@ export type RecordSystemCommitTarget =
 /** What {@link recordSystemCommit} commits, and how it retries. */
 export interface RecordSystemCommitOptions {
   /** The commit's name: `$` and an identifier, such as `$rollback` or
-   *  `$restore`, and none of the names e3's own commits take. */
+   *  `$restore`, and none of the names e3's own commits take — but `$init`,
+   *  on a record that holds no state: its first state, committed. */
   name: string;
   /** What the record is pointed at. */
   target: RecordSystemCommitTarget;
@@ -1742,12 +1771,25 @@ export interface RecordSystemCommitOptions {
  * applied, which must be the record's. Either is refused a state whose type is
  * not the record's, read by its structure: a restored state may come from
  * another build, which can give a recursive type that differs inside the id
- * the record's type gives its own.
+ * the record's type gives its own. And either is refused a collection the
+ * store holds whole, or a manifest an older e3 cut, as the dataset door
+ * refuses them (`datasetSetStored`): a record's collection is the manifest of
+ * its segments, which its mutations rewrite a segment at a time.
  *
  * The state's indexes are reconciled with the package's declarations as a
  * deploy reconciles them: one built under another declaration, or none, is
  * built over the state's primary, and one the package does not declare is
  * dropped.
+ *
+ * A record declared with no initial value holds no state until its first is
+ * committed, and this is the door that commits it: named `$init`, as a
+ * deploy's mint is, with a `{ state, applied }` target whose `applied` is the
+ * record's whole declared chain, since a first state is at the package's type.
+ * It writes the ref as a mint writes it — `$schema` and `$migrations` naming
+ * this commit as the one that applied every step, and no idempotency slot —
+ * and is refused on a record that holds a state already, whose later states
+ * are system commits of other names over its head. Every other name is
+ * refused on a record that holds no state.
  *
  * @param storage - Storage backend
  * @param runner - Task runner for the index builds the commit owes
@@ -1769,11 +1811,12 @@ export async function recordSystemCommit(
   recordName: string,
   opts: RecordSystemCommitOptions,
 ): Promise<MutationOutcome> {
-  if (!SYSTEM_COMMIT_NAME.test(opts.name) || OWN_COMMIT_NAMES.includes(opts.name)) {
+  const genesis = opts.name === GENESIS_COMMIT;
+  if (!SYSTEM_COMMIT_NAME.test(opts.name) || (!genesis && OWN_COMMIT_NAMES.includes(opts.name))) {
     return {
       kind: 'invalid',
       message: `a system commit is named '$' and an identifier, such as '$rollback', and not ${OWN_COMMIT_NAMES.join(', ')}, ` +
-        `which e3's own commits are named: not '${opts.name}'`,
+        `which e3's own commits are named — but '${GENESIS_COMMIT}', which commits a record's first state: not '${opts.name}'`,
     };
   }
   return withSharedWorkspaceLock(storage, repo, ws, opts.lock, async () => {
@@ -1781,30 +1824,34 @@ export async function recordSystemCommit(
     if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
     // The arguments as the commit records them, named once for every attempt
     const argsTuple = opts.args !== undefined && opts.args.length > 0 ? named(encodeArgsTuple(opts.args)) : undefined;
+    // A first state is at the package's type, so the whole chain counts as
+    // applied, as a mint counts it
+    const chain = resolved.migrations.map((step) => step.name);
 
     const deadline = Date.now() + (opts.maxRetryMs ?? DEFAULT_MAX_RETRY_MS);
     for (let attempt = 1; ; attempt++) {
       const existing = await storage.datasets.readVersioned(repo, ws, resolved.refPath);
-      if (!existing || existing.ref.type !== 'value') {
-        return { kind: 'invalid', message: `record '${recordName}' has no state` };
+      const current = existing !== null && existing.ref.type === 'value' ? existing.ref.value : null;
+      const head = current?.versions.get(resolved.selfKeypath);
+      if (genesis && current !== null) {
+        return {
+          kind: 'invalid',
+          message: `record '${recordName}' has a state already${head !== undefined ? `, its head ${head}` : ''}: ` +
+            `a later state is a system commit of another name over it, such as '$restore'`,
+        };
       }
-      const head = existing.ref.value.versions.get(resolved.selfKeypath);
+      if (!genesis && current === null) return noStateYet(recordName);
       if (opts.expectedHead !== undefined && head !== opts.expectedHead) {
         return { kind: 'invalid', message: `record '${recordName}' has moved on from the head expected, ${opts.expectedHead}: read its history again` };
       }
-      const target = await systemCommitState(storage, repo, recordName, head, existing.ref.value.versions, opts.target);
+      const target = current === null
+        ? await genesisState(storage, repo, recordName, chain, opts.target)
+        : await systemCommitState(storage, repo, recordName, head, current.versions, opts.target);
       if ('refusal' in target) return { kind: 'invalid', message: target.refusal };
 
       const state = await readRecordState(storage, repo, target.state);
-      const opened = await openDatasetObject(storage, repo, state.primary);
-      const held = opened.manifest !== null ? opened.manifest.type : readBeast2Type(await storage.objects.read(repo, opened.hash));
-      if (!isTypeValueStructurallyEqual(held, resolved.type)) {
-        return {
-          kind: 'invalid',
-          message: `record '${recordName}' is declared as ${printTypeValueSummary(resolved.type, 2, 8)}, ` +
-            `and the state ${target.state} holds ${printTypeValueSummary(held, 2, 8)}`,
-        };
-      }
+      const refusal = await stateRefusal(storage, repo, recordName, target.state, state.primary, resolved.type);
+      if (refusal !== null) return { kind: 'invalid', message: refusal };
 
       const build = new Map<string, string>();
       for (const [name, indexHash] of resolved.indexes) {
@@ -1818,21 +1865,28 @@ export async function recordSystemCommit(
       if ('failure' in outcome) return outcome.failure;
       const indexes = new Map<string, { manifest: string; index: string }>();
       for (const name of resolved.indexes.keys()) indexes.set(name, outcome.built.get(name) ?? state.indexes.get(name)!);
+      const at = new Date();
       const { stateHash, commitHash } = await storeCommit(storage, repo, { primary: state.primary, indexes }, {
         parent: head !== undefined ? some(head) : none,
         mutation: opts.name,
         actor: opts.actor,
-        at: new Date(),
+        at,
         delta: none,
       }, argsTuple);
+      // A first state writes the ref as a deploy's mint writes it: the chain
+      // applied by this commit, and no idempotency slot, since no write came
+      // before it. A later commit carries every slot forward.
+      const versions = current === null
+        ? nextVersions(undefined, resolved.selfKeypath, commitHash, {
+          [SCHEMA_SLOT]: chain.length === 0 ? undefined : chain.join(','),
+          [MIGRATIONS_SLOT]: migrationsSlot(chain.map((name) => [name, { at, commit: commitHash }] as const)),
+        })
+        : nextVersions(current.versions, resolved.selfKeypath, commitHash);
       try {
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
-          variant('value', {
-            hash: stateHash,
-            versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash),
-          }),
-          existing.revision,
+          variant('value', { hash: stateHash, versions }),
+          existing?.revision ?? null,
         );
         return { kind: 'committed', commitHash, stateHash };
       } catch (err) {
@@ -1844,6 +1898,46 @@ export async function recordSystemCommit(
       }
     }
   });
+}
+
+/**
+ * The state a record's first commit names, or why it is refused.
+ *
+ * @remarks
+ * A record that holds no state has no history to roll back to, so the target
+ * names a state, as a restore's does. The state had had the record's whole
+ * declared chain applied, since a first state is at the package's type, as a
+ * mint's is. And the store holds it whole: it comes from outside the record's
+ * history, so it is re-referenced with everything it names
+ * (`touchReachable`) before the commit roots it, as a restore's is.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param recordName - The record, as a refusal names it
+ * @param chain - The migration chain the record declares, by name
+ * @param target - What the commit points the record at
+ * @returns The state to commit, or the refusal
+ */
+async function genesisState(
+  storage: StorageBackend,
+  repo: string,
+  recordName: string,
+  chain: readonly string[],
+  target: RecordSystemCommitTarget,
+): Promise<{ state: string } | { refusal: string }> {
+  if (!('state' in target)) {
+    return { refusal: `record '${recordName}' has no history to roll back to: its first state names a state, as a restore does` };
+  }
+  if (target.applied.length !== chain.length || target.applied.some((name, i) => chain[i] !== name)) {
+    return {
+      refusal: `record '${recordName}' declares migrations ${namedSteps(chain)}, and the state to commit had had ${namedSteps(target.applied)}: ` +
+        `a first state is at the package's type, with the whole chain applied`,
+    };
+  }
+  if (!await touchReachable(storage, repo, [target.state])) {
+    return { refusal: `the state ${target.state} is not in the repository, whole` };
+  }
+  return { state: target.state };
 }
 
 /**
@@ -1910,6 +2004,52 @@ async function systemCommitState(
     refusal: `commit ${target.commit} is not in record '${recordName}''s history: ` +
       `a compaction has cut it from the chain, or it is another record's`,
   };
+}
+
+/**
+ * Why a state a system commit names cannot be the record's, or `null` when it
+ * can.
+ *
+ * @remarks
+ * The state's primary is read as the dataset door reads a stored value
+ * ({@link storedDatasetValue}): its type from its manifest, or from the head
+ * of any other object, never the object whole, and it must be the record's
+ * declared type, by its structure. A record's collection is stored as the
+ * manifest of its segments, as every write through the door stores one, and
+ * each mutation rewrites the segments it touches: a collection the store
+ * holds whole — a delivery not yet taken in — or a manifest an older e3 cut
+ * is refused, as the door refuses it (`datasetSetStored`).
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param recordName - The record, as a refusal names it
+ * @param stateHash - The state the commit names, as a refusal names it
+ * @param primary - The state's primary: the manifest, for a collection
+ * @param declared - The record's declared type
+ * @returns The refusal, or `null`
+ */
+async function stateRefusal(
+  storage: StorageBackend,
+  repo: string,
+  recordName: string,
+  stateHash: string,
+  primary: string,
+  declared: EastTypeValue,
+): Promise<string | null> {
+  const stored = await storedDatasetValue(storage, repo, primary);
+  if (stored === null) return `the state ${stateHash} is not in the repository, whole`;
+  if (!isTypeValueStructurallyEqual(stored.type, declared)) {
+    return `record '${recordName}' is declared as ${printTypeValueSummary(declared, 2, 8)}, ` +
+      `and the state ${stateHash} holds ${printTypeValueSummary(stored.type, 2, 8)}`;
+  }
+  if (!isCollectionRoot(declared)) return null;
+  if (stored.manifest === null) {
+    return `the state ${stateHash} holds record '${recordName}' whole, not as the manifest of its segments: ` +
+      'take it in first (deliveryAdoptStored), which splits it';
+  }
+  const cut = manifestCutElsewhere(stored.manifest);
+  if (cut === null) return null;
+  return `the state ${stateHash} is a manifest cut ${cut}: an older e3 wrote it — re-create it: deploy again and import its data again`;
 }
 
 /**

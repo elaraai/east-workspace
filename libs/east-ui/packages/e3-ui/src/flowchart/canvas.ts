@@ -6,12 +6,14 @@
 /**
  * The flowchart's canvas (#1244, `Flowchart Builder Spec.md` §5.2): what it
  * draws with besides its flow — orientation, the freshness chip, the legend
- * and the minimap, the selection callbacks, the connect veto and the bound
- * slice. The payload carries one whole, as its `canvas`. The flowchart fills
- * the box it is given (#1245): it takes no height of its own. Its gestures are
- * its editing session's (#1247): it takes no callback for an edit. It has no
- * hover cards (#1250): the inspector shows what is selected. It draws at one
- * rhythm, the spec's 116×40 cards in their lanes (#1251): it takes no density.
+ * and the minimap, the selection callbacks and the connect veto. The payload
+ * carries one whole, as its `canvas`. The flowchart fills the box it is given
+ * (#1245): it takes no height of its own. Its gestures are its editing
+ * session's (#1247): it takes no callback for an edit. It has no hover cards
+ * (#1250): the inspector shows what is selected. It draws at one rhythm, the
+ * spec's 116×40 cards in their lanes (#1251): it takes no density. A flow
+ * built from the host's tables is never narrowed (#1346): the flowchart's one
+ * narrowing is its `slice` over records, the payload's, never the canvas's.
  *
  * @packageDocumentation
  */
@@ -23,7 +25,6 @@ import {
     variant,
     some,
     none,
-    ArrayType,
     BooleanType,
     DateTimeType,
     FunctionType,
@@ -33,7 +34,6 @@ import {
     StructType,
 } from "@elaraai/east";
 
-import { localSliceHandle, SliceAffordanceType, SliceBindType, SliceChromeType, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 import { FlowchartOrientationType, FlowchartFreshnessType } from "./types.js";
 
 /**
@@ -50,7 +50,6 @@ export const FlowchartCanvasType: StructType<{
     freshness: OptionType<FlowchartFreshnessType>,
     minimap: OptionType<BooleanType>,
     legend: OptionType<BooleanType>,
-    slice: OptionType<SliceChromeType>,
     onSelectState: OptionType<FunctionType<[StringType], NullType>>,
     onSelectLink: OptionType<FunctionType<[StringType], NullType>>,
     onSelectTrigger: OptionType<FunctionType<[StringType], NullType>>,
@@ -61,7 +60,6 @@ export const FlowchartCanvasType: StructType<{
     freshness: OptionType(FlowchartFreshnessType),
     minimap: OptionType(BooleanType),
     legend: OptionType(BooleanType),
-    slice: OptionType(SliceChromeType),
     onSelectState: OptionType(FunctionType([StringType], NullType)),
     onSelectLink: OptionType(FunctionType([StringType], NullType)),
     onSelectTrigger: OptionType(FunctionType([StringType], NullType)),
@@ -135,17 +133,6 @@ export interface FlowchartCanvasOptions {
     canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
 }
 
-/**
- * The host's slice over the transitions it builds its flow from — given over
- * `data` only: a flow from a record is the record's, never narrowed.
- */
-export interface FlowchartSliceOptions {
-    /** Optional bound slice handle — mounts the slice's rail in the toolbar; the host feeds `Flowchart.over`'s `links` through `Slice.rows`. */
-    slice?: SubtypeExprOrValue<SliceBindType>;
-    /** The rail's affordances (default `["filter","search"]`), narrowing the transitions. `"brush"` is refused at build — a flowchart has no continuous 1-D axis. */
-    affordances?: SliceAffordanceLiteral[];
-}
-
 // ============================================================================
 // Build
 // ============================================================================
@@ -155,25 +142,10 @@ export interface FlowchartSliceOptions {
  * one left out.
  *
  * @param options - The canvas's options ({@link FlowchartCanvasOptions})
- * @param slice - The host's slice and its affordances, over `data`
  * @returns An East expression of {@link FlowchartCanvasType}
- * @throws {Error} When `affordances` lists `"brush"`
  * @internal
  */
-export function buildCanvas(options: FlowchartCanvasOptions, slice: FlowchartSliceOptions): ExprType<FlowchartCanvasType> {
-    if (slice.affordances?.includes("brush")) {
-        throw new Error("Flowchart: `affordances` lists \"brush\", and a flowchart has no continuous axis to brush along — give \"filter\" and \"search\", or leave `affordances` out for both");
-    }
-    const sliceChromeValue = slice.slice !== undefined
-        ? East.value({
-            slice: localSliceHandle(slice.slice),
-            affordances: East.value(
-                (slice.affordances ?? ["filter", "search"]).map(a => variant(a, null)),
-                ArrayType(SliceAffordanceType),
-            ),
-        }, SliceChromeType)
-        : undefined;
-
+export function buildCanvas(options: FlowchartCanvasOptions): ExprType<FlowchartCanvasType> {
     return East.value({
         orientation: options.orientation !== undefined
             ? some(typeof options.orientation === "string" ? variant(options.orientation, null) : options.orientation)
@@ -186,7 +158,6 @@ export function buildCanvas(options: FlowchartCanvasOptions, slice: FlowchartSli
             : none,
         minimap: options.minimap !== undefined ? some(options.minimap) : none,
         legend: options.legend !== undefined ? some(options.legend) : none,
-        slice: sliceChromeValue ? some(sliceChromeValue) : none,
         onSelectState: options.onSelectState !== undefined ? some(options.onSelectState) : none,
         onSelectLink: options.onSelectLink !== undefined ? some(options.onSelectLink) : none,
         onSelectTrigger: options.onSelectTrigger !== undefined ? some(options.onSelectTrigger) : none,

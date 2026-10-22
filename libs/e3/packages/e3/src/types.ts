@@ -255,8 +255,10 @@ export interface FunctionDef<
  * mutations} rather than blind replace. It *is a* {@link DatasetDef} (so it is
  * accepted everywhere a dataset is — task inputs, `e3.ui` reads — and flows
  * through the structure/ref/deploy machinery), mounted at `.records.${name}`
- * with `writable: false` so raw `e3 set` is rejected. The required initial
- * value rides `DatasetDef.default`; deploy mints the genesis commit from it.
+ * with `writable: false` so raw `e3 set` is rejected. An initial value rides
+ * `DatasetDef.default`, and deploy mints the genesis commit from it; a record
+ * declared without one is unassigned until its first state is committed from
+ * outside, which is then its genesis (see `record`).
  *
  * @typeParam T - The East type of the record state
  */

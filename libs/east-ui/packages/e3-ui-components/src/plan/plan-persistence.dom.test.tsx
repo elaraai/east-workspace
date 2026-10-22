@@ -6,24 +6,27 @@
  *
  * UI state survives a remount (#813) — under the canvas's `storageKey`, the
  * user's collapse toggles, expanded charts and scroll anchor persist, and a
- * remount restores them; a bound slice keeps the resolution. jsdom lays
+ * remount restores them; the slice's source — the Plan's dated rows on e3
+ * itself (`rail.test-utils.ts`, #1376) — keeps the resolution (#1344). jsdom lays
  * nothing out and cannot scroll, so the bounded frame's geometry is stubbed
  * and its `scrollTo` moves `scrollTop` the way a browser does.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { render, cleanup, fireEvent, act, waitFor, screen } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
-import { system, buildSliceHandle, UIStore } from "@elaraai/east-ui-components";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { Slice } from "@elaraai/east-ui/internal";
+import { system } from "@elaraai/east-ui-components";
+import { Data } from "@elaraai/e3-ui/internal";
+import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
+import { act, e3Harness } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import { blocksSource, oneBlock, rowId, rowItem, rowKey, rowSel } from "./plan.test-utils.js";
+import { RAIL_MODULES, bindRail, type RailChrome } from "./rail.test-utils.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+e3Harness(RAIL_MODULES, { measure: false });
 
 // ── Layout stand-ins: a 400px bounded frame over a tall scroll extent ─────
 const VIEWPORT = 400;
@@ -37,7 +40,6 @@ const saved = {
 };
 
 beforeEach(() => {
-    initializeStore(new UIStore());
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
         configurable: true, get(this: HTMLElement) { return frameHeight(this) ?? 0; },
     });
@@ -56,9 +58,8 @@ beforeEach(() => {
         },
     });
 });
+// The harness unmounts what a test rendered and clears the viewer's storage after it.
 afterEach(() => {
-    cleanup();
-    localStorage.clear();
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", saved.offsetHeight);
     Object.defineProperty(Element.prototype, "clientHeight", saved.clientHeight);
     Object.defineProperty(Element.prototype, "scrollHeight", saved.scrollHeight);
@@ -137,25 +138,22 @@ const storedAt = (key: string) => JSON.parse(localStorage.getItem(key) ?? "null"
     collapse: [string, boolean][]; charts: string[]; anchor: { key: string; offset: number; index: number } | null;
 };
 
-/** A slice bound for the resolution segment (WEEK / DAY). */
-function resolutionSlice(key: string) {
-    const cfg = sliceConfig({
-        at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-    }, { rangeFieldId: some("at") });
-    const initial = {
-        range: some(variant("datetime", { from: W27, to: W39 })),
-        compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none,
-        resolution: some(variant("week", null)),
-    };
-    return buildSliceHandle(key, cfg, initial as never, [{ at: W27 }] as never, none);
+/** A slice for the resolution segment (WEEK / DAY): its rows' source — the dated rows — holding the window W27..W39. */
+async function resolutionSlice(key: string): Promise<RailChrome> {
+    const rail = await bindRail(() => Slice.bindRecords(key, {
+        rows: {
+            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+            fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
+        },
+    }), ["resolution"]);
+    return rail.chrome;
 }
 
 describe("Plan UI state survives a remount (#813)", () => {
     test("collapse, expanded charts, resolution and the scroll anchor come back with the same storageKey", async () => {
-        const slice = resolutionSlice("plan-813-slice");
+        const slice = await resolutionSlice("plan-813-slice");
         const value = () => planRoot(rows(), {
-            slice: some({ slice, affordances: [variant("resolution", null)] }),
+            slice: some(slice),
             resolutions: [variant("week", null), variant("day", null)],
         });
         const first = renderPlan(value(), "plan-813");

@@ -455,6 +455,7 @@ const byOwner = e3.recordIndex('by_owner', plans, {
 const pkg = e3.package('planning', '1.0.0', counter, increment, plans, reassign, e3.mutation.patch(plans), byOwner);
 ```
 
+- `e3.record(name, type, initialValue?)` — the initial value is the record's `$init`, which the deploy mints. Omit it for a record whose first state is data that arrives after the deploy: the record is unassigned until `e3 seed <repo> <record> <file.beast2> -w <ws>` (or a host's intake) commits that state as its `$init`, its dependents waiting meanwhile — a run leaves them waiting and goes on without them — so they never run on an empty value.
 - `e3.mutation.reduce(name, record, fn)` — `(state, ...args) => state`, over any record.
 - `e3.mutation.edit(name, record, fn)` — `(state, ...args, edit) => Null`: the body reads the state lazily and writes through `edit.set`, `edit.delete` and `edit.update`, so a write costs the segments it touches. For Dict and Set records.
 - `e3.mutation.patch(record, name?)` — no body: the argument is the change, a `PatchType` of the state. For Dict and Set records.
@@ -544,14 +545,17 @@ e3 workspace status <repo> <ws>                              # Detailed status (
 ```
 
 A deploy decides what to do with each record before it writes anything. It
-mints a new record's `$init` commit, keeps one whose migrations have all been
-applied (with a `$deploy` commit when the package changed), and runs the
-migrations a workspace has not applied, a `$migrate:<name>` commit each. A
-record whose type changed with no migration, or whose applied steps the
-package's chain does not start with, is refused, and so is a record the
-package no longer declares, unless `--allow-drop-records`. `--schema fail`
-runs no migration and refuses instead; `--schema reset` resets such a record to
-the package's initial value, with a `$reset` commit. `--plan` prints the plan
+mints a new record's `$init` commit from its initial value (a record declared
+with none is left unassigned until `e3 seed` commits its first state, the
+tasks over it waiting), keeps
+one whose migrations have all been applied (with a `$deploy` commit when the
+package changed), and runs the migrations a workspace has not applied, a
+`$migrate:<name>` commit each. A record whose type changed with no migration,
+or whose applied steps the package's chain does not start with, is refused,
+and so is a record the package no longer declares, unless
+`--allow-drop-records`. `--schema fail` runs no migration and refuses instead;
+`--schema reset` resets such a record to the package's initial value, with a
+`$reset` commit, or sends one declared with none back to unassigned. `--plan` prints the plan
 and writes nothing. From a zip or a source it imports nothing: it reads the
 package from the zip where it is. A server plans only a package it holds, so
 there it is refused: `e3 package import` the zip, then plan the package by
@@ -636,6 +640,7 @@ refused — and `-w` names the workspace that holds it. Read its state with
 
 ```bash
 e3 mutate <repo> <record.mutation> [args...] -w <ws> [-v]    # Apply a mutation; args are .east literals or .beast2/.json/.east files
+e3 seed <repo> <record> <file.beast2> -w <ws> [-j <n>] [--memory <size>]   # Commit a record's first state from a beast2 file, as its $init (a record declared with no initial value; local repositories)
 e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]   # The commit chain, newest first (--delta: local repositories)
 e3 reindex <repo> <record> -w <ws> [--index <name>]          # Rebuild an index from the record (every one by default)
 e3 compact <repo> <record> -w <ws>                           # Collapse the history to a $compact root; the state is kept
@@ -684,8 +689,8 @@ pass the budget, and runs it again once there is room.
 
 `e3 watch`, `e3 run`, `e3 call`, `e3 mutate`, `e3 reindex` and
 `e3 workspace deploy` take the same two flags for a local repository, a deploy
-taking its file sources in `-j` at a time; `e3 dataset set --from-file` takes
-both for its intake units. Against a server the CLI refuses them, since the
+taking its file sources in `-j` at a time; `e3 dataset set --from-file` and
+`e3 seed` take both for their intake units. Against a server the CLI refuses them, since the
 server runs the work under its own budget (`e3-api-server -j` / `--memory`).
 
 A local run gives every execution a scratch directory — its inputs are marshalled
@@ -708,6 +713,13 @@ same flag works on `e3 run`, `e3 call`, and `e3 mutate`, against **local and
 remote** repositories (remote sends it as a `?verbose=1` query param). All three
 known runtimes (east-node, east-py, east-c) print the identical block.
 
+A task whose input nothing has set — an input never set, or a record declared
+with no initial value whose first state is not yet committed — is left
+waiting, and so are the tasks downstream of it: the run prints `[WAIT]` for
+each, naming the input, completes without them, counts them under `Waiting:`,
+and runs them once the input is set — in the same run, when it is set while
+the run is in flight.
+
 After a successful run, the CLI prints the resolved task output paths so you can read them straight away without having to walk the tree:
 
 ```
@@ -716,6 +728,7 @@ Summary:
   Cached:   0
   Failed:   0
   Skipped:  0
+  Waiting:  0
   Duration: 412ms
 
 Outputs:

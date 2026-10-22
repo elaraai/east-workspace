@@ -65,20 +65,15 @@ import e3 from "@elaraai/e3";
 // kind, every series option, on a bounded canvas
 // ============================================================================
 
-/** A delivery on the horizon — the rows the slice narrows: when, which
- *  hall, whether it is at risk of running late, and the sheets booked so far
- *  (0 = nothing yet). */
+/** A delivery on the horizon — the rows the slice's `deliveries` source
+ *  narrows: when, which hall, whether it is at risk of running late, and the
+ *  sheets booked so far (0 = nothing yet). */
 export const TargetHorizonRow = StructType({ key: StringType, at: DateTimeType, hall: StringType, risk: StringType, sheets: FloatType });
-
-/** How many deliveries the horizon holds — a small authored constant;
- *  {@link planTargetHorizon} makes the rows. */
-export const planTargetHorizonCount = e3.input("plan_target_horizon_count", IntegerType, variant("value", 36n));
 
 /**
  * The horizon's deliveries, generated from their count and spread over
  * the 27 weeks from W21: every third at risk of running late (the `Late
- * risk` cohort counts 12 of 36), every seventh with no sheets booked yet (the
- * `Empty` cohort).
+ * risk` preset narrows to 12 of 36), every seventh with no sheets booked yet.
  */
 export const generateTargetHorizon = East.function([IntegerType], ArrayType(TargetHorizonRow), ($, count) => {
     // Monday of ISO week 1, 2026.
@@ -94,8 +89,23 @@ export const generateTargetHorizon = East.function([IntegerType], ArrayType(Targ
     }));
 });
 
-/** The task that generates the horizon — its output is the rows the slice narrows. */
-export const planTargetHorizon = e3.task("plan_target_horizon", [planTargetHorizonCount], generateTargetHorizon);
+/**
+ * The horizon's 36 deliveries, a record seeded from the generator: what the
+ * flagship's Deliveries tab lists, the rail's `deliveries` source narrowing
+ * them by hall and risk, its range the canvas's window (#1344).
+ */
+export const planTargetDeliveries = e3.record("plan_target_deliveries", DictType(StringType, TargetHorizonRow),
+    East.compile(East.function([IntegerType], DictType(StringType, TargetHorizonRow), ($, count) => {
+        const generate = $.const(generateTargetHorizon);
+        return generate(count).toDict((_$2, delivery) => delivery.key, (_$2, delivery) => delivery);
+    }), [])(36n));
+
+// The deliveries through their indexes, each ending at the delivery's instant, so every narrowing — a hall, a
+// risk, both — holds the window too.
+export const planTargetDeliveriesByAt = e3.recordIndex("plan_target_deliveries_by_at", planTargetDeliveries, { on: ["at"] });
+export const planTargetDeliveriesByRiskAt = e3.recordIndex("plan_target_deliveries_by_risk_at", planTargetDeliveries, { on: ["risk", "at"] });
+export const planTargetDeliveriesByHallAt = e3.recordIndex("plan_target_deliveries_by_hall_at", planTargetDeliveries, { on: ["hall", "at"] });
+export const planTargetDeliveriesByHallRiskAt = e3.recordIndex("plan_target_deliveries_by_hall_risk_at", planTargetDeliveries, { on: ["hall", "risk", "at"] });
 
 /** A job on a press — the RAW record an ops dataset stores: its phase and
  *  optional job ticket, its window, optional sheets, lifecycle state and alert. */
@@ -427,8 +437,12 @@ export const planTargetOps = e3.input("plan_target_ops", DictType(StringType, Ta
  *   expand the KPI, and a readout says what the state holds.
  * - **Popover, hover and every callback** over the element refs and row ids,
  *   a section's strip among them (`Plan.sectionRef`).
- * - **The slice** over a horizon an e3 task generates (cohort, filter, search,
- *   range, resolution, brush, summary), and the status footer.
+ * - **One rail** (`Slice.bindRecords`, #1344) over the horizon's deliveries, a
+ *   record of their own: its `deliveries` source narrows the library's
+ *   Deliveries tab by hall and risk, under two presets, and its range is the
+ *   canvas's window — the toolbar's dates, the resolution and the horizon
+ *   brush write it, and the summary counts the deliveries in it. The status
+ *   footer.
  * - **A bounded host**: the Plan fills it (`style.height: "fill"`), and the
  *   canvas scrolls its own rows in main.
  * - **Its narrow layout**: below 480px of CONTAINER width — a phone, a pane, a
@@ -442,7 +456,7 @@ export const planTargetState = example({
         "span", "run", "group", "groups", "strip", "section", "heat", "buckets", "cards", "chip", "events", "mark", "chart",
         "table", "views", "rows", "layers", "rollup", "union", "byStatus", "bands", "footer", "milestone",
         "decision", "exception", "pinned", "port", "hovercard", "popover", "hover",
-        "slice", "brush", "horizon", "toolbar", "affordances", "cohort", "filter", "search", "summary",
+        "slice", "Slice.bindRecords", "source", "Data.bindPaged", "recordIndex", "presets", "brush", "horizon", "toolbar", "affordances", "summary", "#1344",
         "expand", "expandRender", "expandGutter", "keep", "dim", "off", "collapse", "context strip",
         "resolver", "data-driven", "accessor", "raw", "target state", "flagship",
         "layout", "row id", "Plan.ref", "Plan.sectionRef", "links", "link", "focus", "quantity", "Plan.quantity", "unit",
@@ -457,7 +471,7 @@ export const planTargetState = example({
         "ui", "UiState", "Plan.uiState", "State.bind", "controlled", "selected", "fold", "open", "charts",
         "scroll to row", "external", "write back", "Select", "Button",
         "fill", "height", "bounded", "Box", "scroll", "virtual", "virtualization", "id",
-        "Reactive", "Data.bind", "bound", "e3.input", "e3.task", "generated", "dataset", "#822", "#824", "#590", "#320",
+        "Reactive", "Data.bind", "bound", "e3.input", "e3.record", "generated", "dataset", "#822", "#824", "#590", "#320",
         "state", "event", "label", "format", "readings", "variant", "row", "sub", "spark", "expanded", "R2", "markKind", "applied",
         "Planner", "Roster", "mixed", "unbucketed", "sum per unit", "Series", "one source", "one-off", "subtree", "parent",
         "step down", "nesting", "Pick", "Panel", "panel", "pickItems", "kind icon", "toggle", "show", "hide", "choose",
@@ -466,16 +480,16 @@ export const planTargetState = example({
         "narrow", "mobile", "phone", "responsive", "compact", "container", "breakpoint", "tabs", "Groups", "Rows", "Measures",
         "hottest", "two-finger", "pan", "review", "§10",
     ],
-    description: "The data flagship — every row kind on one axis from one raw ops source bound from e3, grouped by hall in one data step: a pinned KPI, bucket rows derived and stored in lanes, a group strip per hall, span rows with proposal flavours, decisions and ports, contracts rolling up by union and by status, links weighed by quantity, a collapsed section, cards and event rows, a table, a views series and literal rows; expand in place on a row of every kind, the series picked in the library's Series tab, a bound ui state the host drives beside the frame, popover, hover and every callback, slice chrome over a horizon an e3 task generates, and the Plan filling a bounded host; in a box under 480px the same canvas is its narrow layout (Groups · Rows · Measures)",
+    description: "The data flagship — every row kind on one axis from one raw ops source bound from e3, grouped by hall in one data step: a pinned KPI, bucket rows derived and stored in lanes, a group strip per hall, span rows with proposal flavours, decisions and ports, contracts rolling up by union and by status, links weighed by quantity, a collapsed section, cards and event rows, a table, a views series and literal rows; expand in place on a row of every kind, the series picked in the library's Series tab, a bound ui state the host drives beside the frame, popover, hover and every callback, one Slice.bindRecords rail whose deliveries source narrows the Deliveries tab and holds the window, and the Plan filling a bounded host; in a box under 480px the same canvas is its narrow layout (Groups · Rows · Measures)",
     fn: East.function([], UIComponentType, (_$) => {
 
         return (<Reactive>{$ => {
             // The ONE ops source, bound from e3 — every series reads it.
             const ops = $.let(Data.bind(planTargetOps));
-            // The horizon the slice narrows — the deliveries a task
-            // generates (the canvas rows are the ops source; the slice is
-            // chrome over THESE).
-            const horizon = $.let(Data.bind(planTargetHorizon));
+            // The horizon's deliveries — a record of their own, which the
+            // library's Deliveries tab lists, read whole beside the rail's
+            // pages of them (the canvas rows are the ops source).
+            const deliveries = $.let(Data.bind(planTargetDeliveries));
             // Monday of ISO week n, 2026 (W1 Monday = 2025-12-29). The
             // window is W27–W38 (half-open at W39); now = W31.
             const week = $.const(East.function([IntegerType], DateTimeType, ($2, n) => {
@@ -786,24 +800,26 @@ export const planTargetState = example({
                 window: { min: week(27n), max: week(39n) },
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
             }));
-            // The toolbar is SEEDED slice state: the applied window is the
-            // range chip (`JUN 29 – SEP 20 · 84d`), and two saved cohorts sit
-            // beside the filter builder with `Late risk` active — their
-            // counts are live over the horizon, never printed. A slice range
-            // is CLOSED — both ends inclusive — so the twelve weeks W27–W38
-            // end the millisecond before W39.
-            const slice = $.let(Slice.bind("ex.plan.target", horizon.read(), {
-                fields: {
-                    at: { label: "Delivered", format: { date: "MMM D" } },
-                    hall: { label: "Hall" },
-                    risk: { label: "Risk", hints: ["late", "on-time"] },
-                    sheets: { label: "Sheets" },
+            // One rail (#1344): its `deliveries` source narrows the
+            // Deliveries tab by hall and risk, each through the record's
+            // index, and its range — the delivery's instant — is the canvas's
+            // window, W27 to W39 (half-open) as the axis states it. The two
+            // presets narrow the deliveries and keep the window.
+            const slice = $.let(Slice.bindRecords("ex.plan.target", {
+                deliveries: {
+                    source: Data.bindPaged(planTargetDeliveries, { indexes: [planTargetDeliveriesByAt, planTargetDeliveriesByRiskAt, planTargetDeliveriesByHallAt, planTargetDeliveriesByHallRiskAt] }),
+                    label: "Deliveries", icon: { prefix: "fas", name: "truck" },
+                    fields: {
+                        hall: { label: "Hall", hints: ["Hall 1", "Hall 2"] },
+                        risk: { label: "Risk", hints: ["late", "on-time"] },
+                        at: { label: "Delivered", format: { date: "MMM D" } },
+                    },
+                    range: "at", search: [],
                 },
-                range: "at", search: "hall",
-                initial: { at: { from: week(27n), to: week(39n).addMilliseconds(-1n) } },
+            }, {
                 presets: [
-                    { id: "late", name: "Late risk", where: { risk: ["late"] }, active: true },
-                    { id: "empty", name: "Empty", where: { sheets: { lte: 0.0 } } },
+                    { id: "late", name: "Late risk", where: { deliveries: { risk: ["late"] } } },
+                    { id: "hall2", name: "Hall 2", where: { deliveries: { hall: ["Hall 2"] } } },
                 ],
             }));
 
@@ -965,7 +981,7 @@ export const planTargetState = example({
                     <Box height="720px">
                         <Plan
                             id="target"
-                            slice={{ slice, affordances: ["cohort", "filter", "search", "range", "resolution", "brush", "summary"] }}
+                            slice={{ slice }}
                             axis={axis}
                             // The link graph (R1) — the edges cover the routing
                             // permutations: forward, a same-row seam feed,
@@ -991,7 +1007,18 @@ export const planTargetState = example({
                             ]}
                             data={rows}
                             pick={shown}
-                            library={[Plan.library.series()]}
+                            // The series, and the deliveries in the window: the
+                            // tab follows the rail's `deliveries` source.
+                            library={[
+                                Plan.library.series(),
+                                Plan.library.tab(deliveries.read(), {
+                                    name: "Deliveries", icon: "truck",
+                                    label: d => East.str`Delivery ${d.key}`,
+                                    meta: d => some(East.str`${d.hall} · ${d.risk}`),
+                                    group: d => d.hall,
+                                    source: "deliveries",
+                                }),
+                            ]}
                             ui={ui}
                             expandRender={expandRender}
                             expandGutter={expandGutter}
@@ -1507,8 +1534,31 @@ export const planMeasureReadings = e3.input("plan_measure_readings", DictType(St
       second: [], lo: [], hi: [], segments: [], children: new Map() }],
 ])));
 
-/** A week the canvas shows — the rows its slice narrows. */
-export const MeasureWeek = StructType({ week: DateTimeType });
+/** A week the readings cover: its first instant, and its name. */
+export const MeasureWeek = StructType({ week: DateTimeType, label: StringType });
+
+/**
+ * The twelve weeks the readings cover, W23–W34 — a record of their own, which
+ * the library's Weeks tab lists, the rail's `weeks` source holding the
+ * canvas's window in its range (#1344).
+ */
+export const planMeasureWeeks = e3.record("plan_measure_weeks", DictType(StringType, MeasureWeek), new Map([
+    ["W23", { week: new Date("2026-06-01T00:00:00Z"), label: "W23 · 1 Jun" }],
+    ["W24", { week: new Date("2026-06-08T00:00:00Z"), label: "W24 · 8 Jun" }],
+    ["W25", { week: new Date("2026-06-15T00:00:00Z"), label: "W25 · 15 Jun" }],
+    ["W26", { week: new Date("2026-06-22T00:00:00Z"), label: "W26 · 22 Jun" }],
+    ["W27", { week: new Date("2026-06-29T00:00:00Z"), label: "W27 · 29 Jun" }],
+    ["W28", { week: new Date("2026-07-06T00:00:00Z"), label: "W28 · 6 Jul" }],
+    ["W29", { week: new Date("2026-07-13T00:00:00Z"), label: "W29 · 13 Jul" }],
+    ["W30", { week: new Date("2026-07-20T00:00:00Z"), label: "W30 · 20 Jul" }],
+    ["W31", { week: new Date("2026-07-27T00:00:00Z"), label: "W31 · 27 Jul" }],
+    ["W32", { week: new Date("2026-08-03T00:00:00Z"), label: "W32 · 3 Aug" }],
+    ["W33", { week: new Date("2026-08-10T00:00:00Z"), label: "W33 · 10 Aug" }],
+    ["W34", { week: new Date("2026-08-17T00:00:00Z"), label: "W34 · 17 Aug" }],
+]));
+
+/** The weeks by their first instant: what the window narrows them through. */
+export const planMeasureWeeksByWeek = e3.recordIndex("plan_measure_weeks_by_week", planMeasureWeeks, { on: ["week"] });
 
 /**
  * Measure rows — the chart, heat and table grammars over weekly readings, and
@@ -1535,11 +1585,12 @@ export const MeasureWeek = StructType({ week: DateTimeType });
  *   emphasis with a negative and the em-dash, and multi-value positions —
  *   strong and muted, signed, `rollup` — in every split × gutter combination.
  *
- * The switch is the toolbar's (#1258): a slice bound over the weeks the
- * canvas shows declares the `resolution` affordance, and the axis the
- * resolutions it offers, so the toolbar's segment switches MONTH and WEEK. A
- * switch keeps the canvas's column count — three months, then the first three
- * weeks — and the horizon brush moves the window across the twelve.
+ * The switch is the toolbar's (#1258): the axis declares the resolutions it
+ * offers, so the toolbar's segment switches MONTH and WEEK, folding the
+ * window's weeks again. The window is one rail's (`Slice.bindRecords`,
+ * #1344): its `weeks` source — the weeks the readings cover, a record of
+ * their own, which the library's Weeks tab lists — holds it in its range, so
+ * the horizon brush moves it across the twelve, and holds the resolution.
  */
 export const planMeasures = example({
     keywords: [
@@ -1551,13 +1602,15 @@ export const planMeasures = example({
         "em-dash", "neg", "tableSeries", "split", "horizontal", "vertical", "multi-value", "multi-cell", "two-line",
         "strong", "muted", "rollup", "mirror", "position", "fold", "temporal fold", "resolution", "week", "month",
         "rebucket", "bucket", "max", "last", "count", "default", "override", "layer", "Plan.layer", "column",
-        "line", "Slice", "Slice.bind", "affordances", "toolbar", "range", "brush", "section", "match", "gutter",
-        "raw", "readings", "Reactive", "Data.bind", "bound", "e3.input", "#824", "#1258",
+        "line", "Slice", "Slice.bindRecords", "source", "Data.bindPaged", "recordIndex", "toolbar", "range", "brush", "section", "match", "gutter",
+        "raw", "readings", "Reactive", "Data.bind", "bound", "e3.input", "e3.record", "library", "Plan.library.tab", "#824", "#1258", "#1344",
     ],
-    description: "Measure rows over weekly readings bound from e3, at MONTH to start — chart rows (a line with its breach, an area, stacked columns, a scatter, every annotation, and a fixed dual-axis composition with its band and swatches), heat rows (colour depth under a hall averaging its presses on its scale with the no-data hatch, weight bars with a planned tail, status segments) and table rows (subtotals at every depth, footer emphasis with a negative and the em-dash, multi-value positions in every split × gutter combination); each row folds a month's weeks by what its values mean, or by its override (peak load by max, a running total and the paper stock by last, the dual chart's columns by mean), and the toolbar's resolution segment, over a slice of the weeks shown, switches MONTH and WEEK",
+    description: "Measure rows over weekly readings bound from e3, at MONTH to start — chart rows (a line with its breach, an area, stacked columns, a scatter, every annotation, and a fixed dual-axis composition with its band and swatches), heat rows (colour depth under a hall averaging its presses on its scale with the no-data hatch, weight bars with a planned tail, status segments) and table rows (subtotals at every depth, footer emphasis with a negative and the em-dash, multi-value positions in every split × gutter combination); each row folds a month's weeks by what its values mean, or by its override (peak load by max, a running total and the paper stock by last, the dual chart's columns by mean), the toolbar's resolution segment switches MONTH and WEEK, and one Slice.bindRecords rail's weeks source, which the Weeks tab lists, holds the window the horizon brush moves",
     fn: East.function([], UIComponentType, (_$) => {
         return (<Reactive>{$ => {
             const measures = $.let(Data.bind(planMeasureReadings));
+            // The weeks the readings cover, which the Weeks tab lists, read whole beside the rail's pages of them.
+            const weeks = $.let(Data.bind(planMeasureWeeks));
             // Monday of ISO week n, 2026 — twelve weeks, W23–W34.
             const week = $.const(East.function([IntegerType], DateTimeType, ($, n) => {
                 const w1 = $.const(new Date("2025-12-29T00:00:00Z"), DateTimeType);
@@ -1828,16 +1881,14 @@ export const planMeasures = example({
                     }),
                 ]),
             ], ArrayType(Plan.Types.Series(Measure)));
-            // The weeks the canvas shows — the rows its slice narrows.
-            const weeks = $.let(East.Array.generate(12n, MeasureWeek, (_$2, i) => ({ week: week(i.add(23n)) })));
-            // The resolution is the slice's, MONTH to start, and the window
-            // its range. A slice range is CLOSED — both ends inclusive — so
-            // the twelve weeks W23–W34 end the millisecond before W35.
-            const slice = $.let(Slice.bind("ex.plan.measures", weeks, {
-                fields: { week: { label: "Week", format: { date: "MMM D" } } },
-                range: "week",
-                initial: { week: { from: week(23n), to: week(35n).addMilliseconds(-1n) } },
-                view: { resolution: some(variant("month", null)) },
+            // One rail (#1344): its `weeks` source holds the window, W23 to
+            // W35 (half-open) as the axis states it, in its range, and the
+            // resolution, MONTH to start; the Weeks tab lists the weeks in it.
+            const slice = $.let(Slice.bindRecords("ex.plan.measures", {
+                weeks: {
+                    source: Data.bindPaged(planMeasureWeeks, { indexes: [planMeasureWeeksByWeek] }),
+                    label: "Weeks", fields: { week: { label: "Week", format: { date: "MMM D" } } }, range: "week",
+                },
             }));
             const axis = $.const(Plan.axis({
                 window: { min: week(23n), max: week(35n) },
@@ -1848,7 +1899,8 @@ export const planMeasures = example({
                     axis={axis}
                     data={measures}
                     series={series}
-                    slice={{ slice, affordances: ["range", "resolution", "brush"] }}
+                    slice={{ slice }}
+                    library={[Plan.library.tab(weeks.read(), { name: "Weeks", icon: "calendar-week", label: w => w.label, source: "weeks" })]}
                 />
             );
         }}</Reactive>);
@@ -2284,9 +2336,6 @@ export const planRowDrop = example({
 /** An order on the horizon — its day (an integer day index) and its hall. */
 export const NumberHorizonRow = StructType({ key: StringType, day: IntegerType, hall: StringType });
 
-/** How many orders the horizon holds; {@link planNumberHorizon} makes them. */
-export const planNumberHorizonCount = e3.input("plan_number_horizon_count", IntegerType, variant("value", 24n));
-
 /** The horizon's orders, generated from their count — two a day from day 1,
  *  the halls in turn: twelve days behind an eight-day window. */
 export const generateNumberHorizon = East.function([IntegerType], ArrayType(NumberHorizonRow), (_$, count) =>
@@ -2296,8 +2345,20 @@ export const generateNumberHorizon = East.function([IntegerType], ArrayType(Numb
         hall: i.remainder(2n).equal(0n).ifElse(() => "Hall 1", () => "Hall 2"),
     })));
 
-/** The task that generates the horizon. */
-export const planNumberHorizon = e3.task("plan_number_horizon", [planNumberHorizonCount], generateNumberHorizon);
+/**
+ * The horizon's 24 orders, a record seeded from the generator: what the
+ * number axis's Orders tab lists, the rail's `orders` source narrowing them by
+ * hall, its integer range the canvas's window (#1344).
+ */
+export const planNumberOrders = e3.record("plan_number_orders", DictType(StringType, NumberHorizonRow),
+    East.compile(East.function([IntegerType], DictType(StringType, NumberHorizonRow), ($, count) => {
+        const generate = $.const(generateNumberHorizon);
+        return generate(count).toDict((_$2, order) => order.key, (_$2, order) => order);
+    }), [])(24n));
+
+// The orders by their day, alone and after their hall: a hall's narrowing holds the window too.
+export const planNumberOrdersByDay = e3.recordIndex("plan_number_orders_by_day", planNumberOrders, { on: ["day"] });
+export const planNumberOrdersByHallDay = e3.recordIndex("plan_number_orders_by_hall_day", planNumberOrders, { on: ["hall", "day"] });
 
 /** A van drop — its day (a plain number), lane and lifecycle state. */
 export const NumberAlloc = StructType({ key: StringType, day: FloatType, lane: StringType, state: EventStateType });
@@ -2402,24 +2463,28 @@ export const planNumberOps = e3.input("plan_number_ops", DictType(StringType, Nu
  * through the element builders (`Plan.run({ start: j.start })`), a chart
  * layer's numeric x accessor lands its columns on the same arm, `Plan.tableCells`
  * reads a numeric `at`, and the heat cells stored as RECORDS spell it out with
- * the `number` arm. The slice's range field is an integer day, so the horizon
- * brush and the range chip ride the slice's `integer` arm exactly as they ride
- * `datetime` on a time axis — a closed range, so the eight days `[1, 9)` read
- * `1–8`; there is no resolution segment — `step` is the declaration.
+ * the `number` arm. One rail (`Slice.bindRecords`, #1344): its `orders`
+ * source — twelve days of orders behind the eight-day window, a record of
+ * their own — narrows the library's Orders tab by hall, and its range field is
+ * an integer day, so the horizon brush and the range chip ride its `integer`
+ * arm exactly as they ride `datetime` on a time axis — a half-open range, the
+ * eight days `[1, 9)`; there is no resolution segment — `step` is the
+ * declaration.
  */
 export const planNumberAxis = example({
     keywords: [
         "Plan", "axis", "number", "numeric", "step", "Plan.axis.number", "Plan.at", "instant",
-        "day", "AM", "PM", "lanes", "buckets", "Planner", "plannerPoint", "brush", "integer", "range", "inclusive",
-        "format", "now", "typed axis", "#631", "raw", "Data.bind", "bound", "e3.input", "e3.task",
+        "day", "AM", "PM", "lanes", "buckets", "Planner", "plannerPoint", "brush", "integer", "range", "half-open",
+        "format", "now", "typed axis", "#631", "raw", "Data.bind", "bound", "e3.input", "e3.record",
+        "Slice.bindRecords", "source", "Data.bindPaged", "recordIndex", "library", "Plan.library.tab", "#1344",
     ],
-    description: "The number axis over rows bound from e3 — day 1..8 at step 1 with AM/PM lanes (the retired Planner's plannerPoint), every row kind on the numeric scale, the horizon brush over the slice's integer range, read inclusive",
+    description: "The number axis over rows bound from e3 — day 1..8 at step 1 with AM/PM lanes (the retired Planner's plannerPoint), every row kind on the numeric scale; one Slice.bindRecords rail whose orders source narrows the Orders tab by hall and holds the window, the horizon brush over its integer range",
     fn: East.function([], UIComponentType, (_$) => {
         return (<Reactive>{$ => {
             const ops = $.let(Data.bind(planNumberOps));
-            // The slice's horizon — twelve days of orders behind an eight-day
-            // window, which a task generates.
-            const horizon = $.let(Data.bind(planNumberHorizon));
+            // The horizon's orders — twelve days of them behind an eight-day
+            // window, a record of their own, which the Orders tab lists.
+            const orders = $.let(Data.bind(planNumberOrders));
             const series = $.const([
                 Plan.series.section(NumberOpsRow, { key: "vans-local", title: "Deliveries · Local", meta: "2 rows" }, [
                     Plan.series.buckets(NumberOpsRow, {
@@ -2475,13 +2540,16 @@ export const planNumberAxis = example({
                     marks: r => r.marks.map((_$, m) => Plan.mark({ key: m.key, at: m.day, kind: "milestone", label: m.label })),
                 }),
             ], ArrayType(Plan.Types.Series(NumberOpsRow)));
-            // The horizon's range field is an INTEGER day, so the brush, the
-            // range chip and the window keys write the slice's `integer` arm:
-            // a closed range, both ends inclusive — the eight days `[1, 9)`
-            // are `1–8`.
-            const slice = $.let(Slice.bind("ex.plan.number", horizon.read(), {
-                fields: { day: { label: "Day" }, hall: { label: "Hall" } },
-                range: "day", initial: { day: { from: 1n, to: 8n } },
+            // The orders' range field is an INTEGER day, so the brush, the
+            // range chip and the window keys write its `integer` arm: a
+            // half-open range — the eight days `[1, 9)`.
+            const slice = $.let(Slice.bindRecords("ex.plan.number", {
+                orders: {
+                    source: Data.bindPaged(planNumberOrders, { indexes: [planNumberOrdersByDay, planNumberOrdersByHallDay] }),
+                    label: "Orders", icon: { prefix: "fas", name: "box" },
+                    fields: { hall: { label: "Hall", hints: ["Hall 1", "Hall 2"] }, day: { label: "Day" } },
+                    range: "day", search: [],
+                },
             }));
             // The declaration: `[1, 9)` ÷ 1 = eight day columns, the divider at 5.
             const axis = $.const(Plan.axis.number({
@@ -2492,7 +2560,15 @@ export const planNumberAxis = example({
                     axis={axis}
                     data={ops}
                     series={series}
-                    slice={{ slice, affordances: ["filter", "range", "brush", "summary"] }}
+                    slice={{ slice }}
+                    // The orders in the window: the tab follows the rail's `orders` source.
+                    library={[Plan.library.tab(orders.read(), {
+                        name: "Orders", icon: "box",
+                        label: o => East.str`Order ${o.key}`,
+                        meta: o => some(East.str`Day ${East.print(o.day)} · ${o.hall}`),
+                        group: o => o.hall,
+                        source: "orders",
+                    })]}
                     footer={[{ text: "8 STEPS · NOW 5" }]}
                 />
             );
@@ -2675,38 +2751,44 @@ export const planOrdinalAxis = example({
 });
 
 // ============================================================================
-// slicePlanChrome — a Plan with the `slice` chrome option
-//    Exercises: the rail on the timeline canvas (filter · search · range
-//    over the row type's datetime field) plus the horizon brush.
+// slicePlanChrome — a Plan narrowed through its one rail
+//    Exercises: the rail on the timeline canvas — its `rows` source the
+//    canvas's rows, by owner, over the tasks' interval index — plus the
+//    horizon brush over its range.
 // ============================================================================
 
 /** A task on the plan — its owner and its window. */
 export const SliceJob = StructType({ task: StringType, owner: StringType, start: DateTimeType, end: DateTimeType });
 
-/** The plan's tasks — the rows the slice narrows. */
-export const planSliceJobs = e3.input("plan_slice_jobs", ArrayType(SliceJob), variant("value", [
-    { task: "Planning",    owner: "Team A", start: new Date("2024-01-01T00:00:00Z"), end: new Date("2024-01-15T00:00:00Z") },
-    { task: "Design",      owner: "Team B", start: new Date("2024-01-10T00:00:00Z"), end: new Date("2024-02-01T00:00:00Z") },
-    { task: "Development", owner: "Team C", start: new Date("2024-01-20T00:00:00Z"), end: new Date("2024-03-15T00:00:00Z") },
-    { task: "Testing",     owner: "Team A", start: new Date("2024-03-01T00:00:00Z"), end: new Date("2024-03-30T00:00:00Z") },
+/** The plan's tasks, by name — a record of their own, the rows the slice's `rows` source narrows (#1344). */
+export const planSliceJobs = e3.record("plan_slice_jobs", DictType(StringType, SliceJob), new Map([
+    ["Planning",    { task: "Planning",    owner: "Team A", start: new Date("2024-01-01T00:00:00Z"), end: new Date("2024-01-15T00:00:00Z") }],
+    ["Design",      { task: "Design",      owner: "Team B", start: new Date("2024-01-10T00:00:00Z"), end: new Date("2024-02-01T00:00:00Z") }],
+    ["Development", { task: "Development", owner: "Team C", start: new Date("2024-01-20T00:00:00Z"), end: new Date("2024-03-15T00:00:00Z") }],
+    ["Testing",     { task: "Testing",     owner: "Team A", start: new Date("2024-03-01T00:00:00Z"), end: new Date("2024-03-30T00:00:00Z") }],
 ]));
 
+// The tasks over the interval each runs, alone and after its owner: the window reads every task overlapping it once,
+// and an owner's narrowing holds the window too.
+export const planSliceJobsByTime = e3.recordIndex("plan_slice_jobs_by_time", planSliceJobs, { interval: { from: "start", to: "end" } });
+export const planSliceJobsByOwnerTime = e3.recordIndex("plan_slice_jobs_by_owner_time", planSliceJobs, { on: ["owner"], interval: { from: "start", to: "end" } });
+
 export const slicePlanChrome = example({
-    keywords: ["Slice", "Plan", "slice", "chrome", "filter", "search", "range", "brush", "timeline", "Data.bind", "bound", "e3.input"],
-    description: "Ops plan — Plan with the `slice` chrome option over tasks bound from e3: a header rail (`filter`, `search`, `range`) plus the `brush` affordance — drag a window on the horizon strip to set the slice's range; rows fed explicitly via `Slice.rows` and re-keyed into the canvas's keyed collection",
+    keywords: ["Slice", "Slice.bindRecords", "rows", "Plan", "slice", "rail", "filter", "range", "brush", "timeline", "Data.bindPaged", "recordIndex", "interval", "e3.record", "#1344"],
+    description: "Ops plan — a Plan narrowed through one Slice.bindRecords rail over tasks bound from e3: its `rows` source gives the canvas its rows, paged through the tasks' interval index and narrowed by owner, and its range is the window — the toolbar's dates and the horizon brush write it",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                const tasks = $.let(Data.bind(planSliceJobs));
-                const slice = $.let(Slice.bind("ex.slice.plan.chrome", tasks.read(), {
-                    fields: { task: { label: "Task" }, owner: { label: "Owner" }, start: { label: "Start" } },
-                    search: ["task", "owner"], range: "start",
-                    initial: { owner: ["Team A"] },
+                // One rail: its `rows` source pages the tasks onto the canvas, each task overlapping the window once.
+                const slice = $.let(Slice.bindRecords("ex.slice.plan.chrome", {
+                    rows: {
+                        source: Data.bindPaged(planSliceJobs, { indexes: [planSliceJobsByTime, planSliceJobsByOwnerTime] }),
+                        label: "Tasks",
+                        fields: { owner: { label: "Owner", hints: ["Team A", "Team B", "Team C"] }, start: { label: "Start" } },
+                        range: "start", search: [],
+                        initial: { owner: ["Team A"] },
+                    },
                 }));
-                // The narrowed rows re-key into the canvas's keyed collection
-                // (#568) — the task name is the row identity here.
-                const narrowed = $.let(Slice.rows(slice));
-                const jobs = $.let(narrowed.toDict((_$, j) => j.task, (_$, j) => j));
                 const series = $.const([
                     Plan.series.span(SliceJob, {
                         key: "jobs", title: "Jobs",
@@ -2725,9 +2807,8 @@ export const slicePlanChrome = example({
                 return (
                     <Plan
                         axis={axis}
-                        data={jobs}
                         series={series}
-                        slice={{ slice, affordances: ["filter", "search", "range", "brush"] }}
+                        slice={{ slice, affordances: ["fields", "brush"] }}
                     />
                 );
             }}</Reactive>

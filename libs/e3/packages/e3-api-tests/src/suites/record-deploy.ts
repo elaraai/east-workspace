@@ -7,7 +7,9 @@
  * Record deploy test suite.
  *
  * A deploy decides for each record whether it mints, keeps, migrates, resets,
- * drops or refuses it, and a server runs the deploy as a job the client polls.
+ * drops or refuses it — or, for one declared with no initial value, leaves it
+ * unassigned until its first state is committed, its dependents waiting — and
+ * a server runs the deploy as a job the client polls.
  * This takes each decision through the API against a real server and runner:
  * what the job reports, the commits it leaves, the state it carries and what
  * the record's describe says of each step it applied — and, while the job
@@ -33,10 +35,13 @@ import {
   type RecordMigrationApplied,
 } from '@elaraai/e3-types';
 import {
+  ApiError,
+  dataflowExecute,
   packageImport,
   workspaceCreate,
   workspaceDeploy,
   workspaceLockStatus,
+  workspaceStatus,
   datasetGet,
   workspaceRecordDescribe,
   workspaceRecordMutate,
@@ -51,12 +56,18 @@ import {
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { TasksV2Type, createMigrationPackageZip, type MigrationFixtureVersion } from '../fixtures.js';
+import {
+  TasksV2Type, createMigrationPackageZip, createPendingRecordPackageZip, type MigrationFixtureVersion, type PendingFixtureVersion,
+} from '../fixtures.js';
 
 const PKG = 'migrating-pkg';
 const WS = 'migrating-ws';
 const RECORD = 'records/tasks';
 const tasksPath = [variant('field', 'records'), variant('field', 'tasks')];
+/** The pending-record fixture: its package, its record and the task over it. */
+const PENDING_PKG = 'pending-pkg';
+const CUSTOMERS = 'records/customers';
+const customersPath = [variant('field', 'records'), variant('field', 'customers')];
 const encodeStr = encodeBeast2For(StringType);
 const decodeTasks = decodeBeast2For(TasksV2Type);
 
@@ -120,6 +131,46 @@ export function recordDeployTests(setup: TestSetup<TestContext>): void {
   /** The record's state, as its bytes. */
   async function state(ctx: TestContext): Promise<Uint8Array> {
     return (await datasetGet(ctx.config.baseUrl, ctx.repoName, WS, tasksPath, await ctx.opts())).data as Uint8Array;
+  }
+
+  /** A fresh repository holding `versions` of the pending-record package, and
+   *  a workspace to deploy them to. */
+  async function holdingPending(t: NodeTestContext, versions: PendingFixtureVersion[]): Promise<TestContext> {
+    const ctx = await setup(t);
+    const opts = await ctx.opts();
+    for (const version of versions) {
+      const zip = await createPendingRecordPackageZip(ctx.tempDir, PENDING_PKG, version);
+      await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zip), opts);
+    }
+    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, WS, opts);
+    return ctx;
+  }
+
+  /** Deploy a version of the pending-record package: what the deploy decided. */
+  async function deployPending(
+    ctx: TestContext,
+    version: PendingFixtureVersion,
+    options: WorkspaceDeployOptions = {},
+  ): Promise<WorkspaceDeployResult> {
+    return workspaceDeploy(ctx.config.baseUrl, ctx.repoName, WS, `${PENDING_PKG}@${version}`, await ctx.opts(), options);
+  }
+
+  /** The pending record's commits, newest first, each by what made it. */
+  async function customersHistory(ctx: TestContext): Promise<string[]> {
+    const { commits } = await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'customers', undefined, await ctx.opts());
+    return commits.map((commit) => commit.mutation);
+  }
+
+  /** Whether the pending record is unassigned: a read of it says so. */
+  async function customersUnassigned(ctx: TestContext): Promise<boolean> {
+    try {
+      await datasetGet(ctx.config.baseUrl, ctx.repoName, WS, customersPath, await ctx.opts());
+      return false;
+    } catch (err) {
+      assert.ok(err instanceof ApiError, String(err));
+      assert.equal(err.code, 'dataset_unassigned');
+      return true;
+    }
   }
 
   describe('record deploys', { concurrency: false }, () => {
@@ -233,6 +284,49 @@ export function recordDeployTests(setup: TestSetup<TestContext>): void {
       await assert.rejects(deploy(ctx, '1.0.0'),
         /record 'records\/tasks' has had migrations 'add_owner' applied, and the package declares none: [\s\S]*the package is older than the workspace/);
       assert.deepEqual(await history(ctx), ['$migrate:add_owner', '$init']);
+    });
+
+    it('leaves a record declared with no initial value unassigned, refusing its writes, and a run leaves its dependents waiting', async (t) => {
+      const ctx = await holdingPending(t, ['2.0.0']);
+      const opts = await ctx.opts();
+      assert.deepEqual((await deployPending(ctx, '2.0.0')).records, [{ record: CUSTOMERS, action: variant('unassigned', null) }]);
+      assert.equal(await customersUnassigned(ctx), true);
+      assert.deepEqual(await customersHistory(ctx), [], 'no commit was written');
+
+      const added = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, WS, 'customers', 'add',
+        { args: [encodeStr('b'), encodeStr('B')], actor: none, limits: none }, opts);
+      assert.equal(added.outcome.type, 'invalid', inspect(added, { depth: 4 }));
+      assert.match(added.outcome.type === 'invalid' ? added.outcome.value.message : '', /has no state yet: it is unassigned until its first state is committed/);
+
+      // Its dependent waits, as it waits on an unset input: a run leaves it
+      // waiting and completes without it, so nothing runs on an empty state
+      const status = await workspaceStatus(ctx.config.baseUrl, ctx.repoName, WS, opts);
+      assert.equal(status.tasks.find((task) => task.name === 'count')?.status.type, 'waiting');
+      const run = await dataflowExecute(ctx.config.baseUrl, ctx.repoName, WS, {}, opts);
+      assert.equal(run.success, true, inspect(run, { depth: 3 }));
+      assert.deepEqual([run.executed, run.waiting, run.failed, run.skipped], [0n, 1n, 0n, 0n]);
+      assert.deepEqual(run.tasks, [], 'a task left waiting has no event');
+      assert.equal((await workspaceStatus(ctx.config.baseUrl, ctx.repoName, WS, opts)).tasks.find((task) => task.name === 'count')?.status.type, 'waiting');
+    });
+
+    it('sends a record declared with no initial value back to unassigned under --schema=reset, and says so', async (t) => {
+      const ctx = await holdingPending(t, ['1.0.0', '2.0.0']);
+      assert.deepEqual((await deployPending(ctx, '1.0.0')).records, [{ record: CUSTOMERS, action: variant('mint', null) }]);
+      const added = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, WS, 'customers', 'add',
+        { args: [encodeStr('b'), encodeStr('B')], actor: none, limits: none }, await ctx.opts());
+      assert.equal(added.outcome.type, 'committed');
+
+      // A type change with no migration, and no initial value to reset to
+      await assert.rejects(deployPending(ctx, '2.0.0'),
+        /record 'records\/customers' changed type with no migration[\s\S]*--schema=reset to unassign it, for its first state to be committed again/);
+      assert.deepEqual(await customersHistory(ctx), ['add', '$init'], 'a refused deploy writes nothing');
+
+      const { records } = await deployPending(ctx, '2.0.0', { schema: 'reset' });
+      assert.deepEqual(records.map((plan) => plan.action.type), ['unassign'], 'the plan says the record goes back to unassigned, not that it is reset to a value');
+      const action = records[0]!.action;
+      assert.ok(action.type === 'unassign' && /changed type with no migration/.test(action.value.reason), inspect(action, { depth: 3 }));
+      assert.equal(await customersUnassigned(ctx), true);
+      assert.deepEqual(await customersHistory(ctx), [], 'the chain went with the state');
     });
 
     it('refuses to drop a record the package no longer declares, and drops it when allowed', async (t) => {

@@ -77,6 +77,20 @@ interface History<W> {
 }
 
 /**
+ * Rows of the entries a request changes as the source holds them at one
+ * revision, each its entry's beast2 bytes: what the request began from, at its
+ * base, and what its confirmation read back exactly as the request left it, at
+ * the revision it committed. A Save's view confirmation checks their
+ * membership by these rows, never reading them again.
+ */
+export interface HeldRows {
+    /** The revision the source holds them at. */
+    readonly revision: string;
+    /** Each entry's row, by its id; an entry absent there is not among them. */
+    readonly rows: ReadonlyMap<string, Uint8Array>;
+}
+
+/**
  * What a session is bound to: its source and schemas, and the callbacks the
  * next request uses.
  *
@@ -98,10 +112,12 @@ export interface EditSessionBinding<W> {
      * an inline snapshot base is the source's `Dict<K, E>`, applied by key.
      */
     keyType?: EastType | undefined;
-    /** Prepare view-specific confirmation, before submitting any mutation.
-     * The returned observer runs once after the primary entries confirm.
+    /** Prepare view-specific confirmation, before submitting any mutation: given each entry
+     * the request changes and, over a source that names its revisions, the rows they began
+     * from at the request's base. The returned observer runs once after the primary entries
+     * confirm, given the rows the confirmation read back exactly, at the revision committed.
      * Preparation failures leave the drafts editable and the Save unsent. */
-    prepare?: ((targets: ReadonlyMap<string, Target>) => Promise<() => void>) | undefined;
+    prepare?: ((targets: ReadonlyMap<string, Target>, began: HeldRows | undefined) => Promise<(confirmed: HeldRows | undefined) => void>) | undefined;
     /** The authoritative apply, over the batch's bytes. */
     apply: ((payload: Uint8Array) => ApplyResult | Promise<ApplyResult>) | undefined;
     /** The patch observer, over the event's bytes. */
@@ -141,7 +157,7 @@ interface Conflicted {
 
 interface Submission<W> {
     prepare: EditSessionBinding<W>["prepare"];
-    confirmed?: (() => void) | undefined;
+    confirmed?: ((confirmed: HeldRows | undefined) => void) | undefined;
     payload: Uint8Array;
     apply: NonNullable<EditSessionBinding<W>["apply"]>;
     refresh: EditSessionBinding<W>["refresh"];
@@ -262,6 +278,8 @@ export class EditSession<W> {
     private readonly baseEqual: (a: Base, b: Base) => boolean;
     /** The source's whole collection, encoded — what an inline request's target is compared by. */
     private readonly encodeCollection: (value: unknown) => Uint8Array;
+    /** An entry, encoded — the rows a request's view confirmation is handed. */
+    private readonly encodeEntry: (value: unknown) => Uint8Array;
     /** Where the latest request stands. */
     status: "idle" | "applying" | "unknown" | "reconciling" | "rejected" | "conflict" = "idle";
     /** The source's issues with the latest request. */
@@ -314,6 +332,7 @@ export class EditSession<W> {
         this.cloneBase = value => decodeBase(encodeBase(value));
         this.baseEqual = equalFor(baseType) as (a: Base, b: Base) => boolean;
         this.encodeCollection = encodeBeast2For(keyType !== undefined ? DictType(keyType, entry) : ArrayType(entry)) as (value: unknown) => Uint8Array;
+        this.encodeEntry = encodeBeast2For(entry) as (value: unknown) => Uint8Array;
     }
 
     /**
@@ -592,7 +611,8 @@ export class EditSession<W> {
         this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
         if (request.prepare !== undefined) {
             try {
-                request.confirmed = await request.prepare(request.targets);
+                request.confirmed = await request.prepare(request.targets,
+                    request.base.type === "revision" ? this.heldAt(request.base.value, request.targets, "before") : undefined);
                 request.prepare = undefined;
             } catch (error) {
                 // No mutation was sent. Release the write gate and keep all
@@ -664,15 +684,32 @@ export class EditSession<W> {
      * @returns The next small batch needing confirmation or conflict naming
      */
     readIdsAt(revision: string): readonly string[] {
+        return this.idsAt(revision, 8);
+    }
+
+    /**
+     * Every identity still to confirm or name at this revision: what a reader
+     * whose own reads hold entries at the revision judges at once, with no
+     * request — {@link EditSession.readIdsAt} bounds those it reads by their
+     * keys.
+     * @param revision - The source revision currently available to the reader
+     * @returns Every identity needing confirmation or conflict naming there
+     */
+    unresolvedIdsAt(revision: string): readonly string[] {
+        return this.idsAt(revision, Infinity);
+    }
+
+    /** The identities still to confirm or name at a revision, at most `limit` of them. */
+    private idsAt(revision: string, limit: number): readonly string[] {
         const request = this.submission;
         if (request !== undefined && this.status === "reconciling") {
             if (request.revision === undefined || !stringEqual(revision, request.revision)) return [];
-            return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, 8);
+            return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, limit);
         }
         const conflict = this.conflicted;
         if (conflict === undefined || this.status !== "conflict" || stringEqual(revision, conflict.revision)) return [];
         const checked = conflict.checked !== undefined && stringEqual(revision, conflict.checked.revision) ? conflict.checked.matches : undefined;
-        return [...conflict.targets.keys()].filter(id => !checked?.has(id)).slice(0, 8);
+        return [...conflict.targets.keys()].filter(id => !checked?.has(id)).slice(0, limit);
     }
 
     /**
@@ -731,8 +768,33 @@ export class EditSession<W> {
             this.draftsChanged();
         }
         this.changed();
-        if (request.confirmed !== undefined) queueMicrotask(() => request.confirmed!());
+        if (request.confirmed !== undefined) {
+            const confirmed = request.base.type === "revision" && request.revision !== undefined
+                ? this.heldAt(request.revision, request.targets, "after", request.checked) : undefined;
+            queueMicrotask(() => request.confirmed!(confirmed));
+        }
         return true;
+    }
+
+    /**
+     * A request's entries as one side of their change holds them, at a
+     * revision: each present there, encoded — every one, or only those a
+     * confirmation read back exactly (`exact`).
+     *
+     * @param revision - The revision they are held at
+     * @param targets - The request's entries
+     * @param side - Before the change (its base) or after it (its commit)
+     * @param exact - Each entry the confirmation read, and whether exactly as the request left it
+     * @returns The rows
+     */
+    private heldAt(revision: string, targets: ReadonlyMap<string, Target>, side: "before" | "after", exact?: ReadonlyMap<string, boolean>): HeldRows {
+        const rows = new Map<string, Uint8Array>();
+        for (const [id, target] of targets) {
+            if (exact !== undefined && exact.get(id) !== true) continue;
+            const value = target[side];
+            if (value.type === "some") rows.set(id, this.encodeEntry(value.value));
+        }
+        return { revision, rows };
     }
 
     /**

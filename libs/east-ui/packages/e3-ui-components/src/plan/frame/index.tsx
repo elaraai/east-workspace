@@ -59,6 +59,22 @@
  * kinds' rows leave it out through the `blocks` seam, and the canvas leaves
  * out the Plan's own `rows` it hides.
  *
+ * The narrowing is the Plan's one `Slice.bindRecords` (#1344): the canvas
+ * reads its `rows` source and each event kind's through their parts
+ * (`root/sources.ts`), and the frame follows the others itself through the
+ * shared `FollowSources` — each resource kind's, whose shown resources are
+ * the rows its kind draws and the bulk edit's Chooser offers, each templates
+ * list's, and each an author's tab names. A source whose narrowing could not
+ * be read says so in a banner, with Retry, as a window that could not be
+ * written does; a resource kind's narrowing resolving keeps the rows it
+ * showed, busy. After a Save, the footer says what left each source's
+ * narrowing. What the event kinds read — the footer's counts, the overlaps,
+ * the backlog and what the rail hides of it — and the selected events are
+ * each read in a component of their own (`PlanKindsReader`,
+ * `PlanSelectionReader`), which hand the frame what they read only when it
+ * moves: a kind narrowed through an interval index lands some fifty-five key
+ * searches a window, and each would otherwise render the whole frame.
+ *
  * A declared `style.height` / `maxHeight` is the whole Plan's: the frame
  * takes it, and the canvas fills main. Without one, the frame fills its
  * parent when the parent gives it a height, the canvas filling main, and
@@ -68,26 +84,29 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
+import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
+import { SortedMap, StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
-    BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
+    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
+import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
+import type { KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import { usePlanCanvas } from "../canvas.js";
 import { usePlanSelector } from "../controller/react.js";
 import { removePlanEvents } from "../edit/events.js";
 import type { PlanCanvasParts } from "../root/chrome.js";
-import type { PlanEventRows } from "../root/events.js";
+import { ALL_SHOWN, type PlanEventRows, type PlanEventShownValue } from "../root/events.js";
+import { ROWS_SOURCE, planFollowedSources, planNouns, type PlanEventPart } from "../root/sources.js";
 import { usePlanToolbarItems } from "../shell/Toolbar.js";
-import { PlanFooter } from "../shell/Footer.js";
+import { PlanFooter, type PlanSaveNotice } from "../shell/Footer.js";
 import type { PlanRootValue } from "../model.js";
 import { PlanOverlapsContext } from "../rows/element-overlap.js";
-import { usePlanWords } from "../words.js";
-import { usePlanEventCounts, type PlanOverlaps } from "./counts.js";
+import { usePlanWords, useResolvedPlanWords } from "../words.js";
+import { PlanKindsReader, type PlanKindsRead, type PlanOverlaps } from "./counts.js";
 import { NONE_HIDDEN, hiddenOf, rowsHiddenOf } from "./hidden.js";
-import { usePlanInspector } from "./inspector.js";
+import { NO_INSPECTED, PlanSelectionReader, usePlanInspector, usePlanInspectorSelection, type PlanInspectedEvent } from "./inspector.js";
 import { tabLibrary, usePlanLibrary, type PlanPickValue } from "./library.js";
 
 /** The Plan's payload, decoded — what `<Plan>` returns through the `Plan` carrier (#1191). */
@@ -156,6 +175,62 @@ function sameEventRows(a: PlanEventRows | undefined, b: PlanEventRows | undefine
 /** No event in an overlap pair. */
 const NO_OVERLAPS: ReadonlySet<string> = new Set();
 
+/** No source of the slice the frame follows. */
+const NONE_FOLLOWED: FollowedSources = new Map();
+
+/** No event kind narrowed through a source of the slice. */
+const NO_PARTS: readonly PlanEventPart[] = [];
+
+/** No Save notice: a Plan whose slice has no source a Save could move records out of. */
+const NO_NOTICES: readonly PlanSaveNotice[] = [];
+
+/** What the event kinds read before their first read answers: no counts, and the rail hides nothing of the backlog. */
+const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [], hidden: undefined, clear: undefined } };
+
+const compareString = compareFor(StringType);
+const stringEqual = equalFor(StringType);
+
+/**
+ * Test-only render probe — lets "a landing key search re-renders the event kinds' reader, never the frame" be asserted
+ * deterministically (#1344), as the Calendar's is. `undefined` outside tests.
+ */
+let planFrameRenderProbe: (() => void) | undefined;
+
+/**
+ * Install (or clear) the test frame render probe. Test use only.
+ *
+ * @param fn - Called each time the frame renders; `undefined` clears it
+ */
+export function setPlanFrameRenderProbe(fn: (() => void) | undefined): void {
+    planFrameRenderProbe = fn;
+}
+
+/**
+ * The resources the rail shows (#1344): by each resource kind whose source
+ * narrows, the keys its source shows — the same object while each source's
+ * keys stand, so the event kinds' rows are read again only when one moves.
+ *
+ * @param resources - The resource kinds
+ * @param followed - What each source the frame follows shows
+ * @returns The shown resources, by resource kind; none narrowed, {@link ALL_SHOWN}
+ */
+function useShownResources(resources: PlanResourceKinds, followed: FollowedSources): PlanEventShownValue {
+    const held = useRef<{ entries: readonly (readonly [string, Set<string>])[]; shown: PlanEventShownValue }>({ entries: [], shown: ALL_SHOWN });
+    return useMemo(() => {
+        const entries = resources.flatMap((kind) => {
+            const keys = followed.get(kind.key)?.shown.keys;
+            return keys === undefined || keys.type === "none" ? [] : [[kind.key, keys.value] as const];
+        });
+        const was = held.current;
+        const same = entries.length === was.entries.length
+            && entries.every(([slot, keys], i) => stringEqual(slot, was.entries[i]![0]) && Object.is(keys, was.entries[i]![1]));
+        if (same) return was.shown;
+        const shown: PlanEventShownValue = entries.length === 0 ? ALL_SHOWN : new SortedMap(entries.map(([slot, keys]): [string, Set<string>] => [slot, keys]), compareString);
+        held.current = { entries, shown };
+        return shown;
+    }, [resources, followed]);
+}
+
 /**
  * The events in an overlap pair, by their elements' keys (#1198) — the same
  * set while its members hold, so a read that moved no pair renders no element.
@@ -194,15 +269,19 @@ export interface EastChakraPlanProps {
     applyMode?: "batch" | "auto" | undefined;
     /** The event kinds' drop veto (#1196) — the payload carries it: where a drop would put an event, to the refusal's message. */
     canDrop?: PlanEventCanDrop | undefined;
+    /** What each source of the slice the frame follows shows (#1344) — each resource kind's, templates list's and tab's; none, a Plan whose payload follows none. */
+    followed?: FollowedSources | undefined;
 }
 
 /**
  * Renders the Plan in its frame — see the module docs.
  *
- * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, whether it has its inspector, when the event kinds' drafts go, and their drop veto
+ * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, whether it has its inspector, when the event kinds' drafts go, their drop veto, and what each source the frame follows shows
  * @returns The Plan, in its frame
  */
-export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, events, kinds, resources, library: given, inspector, applyMode, canDrop }: EastChakraPlanProps) {
+export const EastChakraPlan = memo(function EastChakraPlan({
+    value, storageKey, events, kinds, resources, library: given, inspector, applyMode, canDrop, followed = NONE_FOLLOWED,
+}: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
     const keys = useMemo(() => planKeys(id), [id]);
@@ -222,15 +301,21 @@ export const EastChakraPlan = memo(function EastChakraPlan({ value, storageKey, 
     const panel = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tabLibrary(keys, tab.value)] : [])), [library, keys]);
     // Each event kind a session over its record, under one history with `data`'s (#1194), its drags on the canvas (#1196).
     const veto = useMemo(() => getSomeorUndefined(canDrop ?? NO_VETO), [canDrop]);
+    // Each resource kind's rows its source shows (#1344): what its kind draws, and the bulk edit's Chooser offers.
+    const resourceKinds = resources ?? NO_RESOURCES;
+    const shown = useShownResources(resourceKinds, followed);
+    // A resource kind's narrowing resolving, or failed: the rows it showed stay, busy.
+    const busy = resourceKinds.some((kind) => followed.get(kind.key)?.shown.busy === true);
     const canvas = usePlanCanvas({
         value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS, applyMode,
-        resources: resources ?? NO_RESOURCES, tabs: library, canDrop: veto,
+        resources: resourceKinds, tabs: library, canDrop: veto, shown, busy,
     });
     return <>{canvas.provide(
-        <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resources ?? NO_RESOURCES} library={library}
-            inspector={inspector === true} hidden={hidden} onHidden={onHidden} />,
+        <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resourceKinds} library={library}
+            inspector={inspector === true} hidden={hidden} onHidden={onHidden} followed={followed} shown={shown} />,
     )}</>;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey
+    && (prev.followed ?? NONE_FOLLOWED) === (next.followed ?? NONE_FOLLOWED)
     && (prev.inspector === true) === (next.inspector === true)
     && (prev.applyMode ?? "batch") === (next.applyMode ?? "batch")
     && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
@@ -257,31 +342,43 @@ interface PlanFrameProps {
     hidden: readonly string[];
     /** Replaces them. */
     onHidden: (next: readonly string[]) => void;
+    /** What each source of the slice the frame follows shows (#1344). */
+    followed: FollowedSources;
+    /** The resources the rail shows, by resource kind (#1344). */
+    shown: PlanEventShownValue;
 }
 
 /** The frame, its regions holding the canvas and its chrome — inside the canvas's contexts. */
-function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden, onHidden }: PlanFrameProps) {
+function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden, onHidden, followed, shown }: PlanFrameProps) {
+    planFrameRenderProbe?.();
     const { chrome, main, bound, vars } = canvas;
     const recipe = useSlotRecipe({ key: "plan" });
     const styles = useMemo(() => recipe() as unknown as Styles, [recipe]);
     const id = getSomeorUndefined(root.id);
     const keys = useMemo(() => planKeys(id), [id]);
     const words = usePlanWords();
+    const { m } = words;
     // The backlog's weeks count from the axis's now, or from the clock when the Plan mounted.
     const [mounted] = useState(() => new Date());
     const now = root.axis.type === "time" ? getSomeorUndefined(root.axis.value.now) ?? mounted : mounted;
     const pick = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
+    // What the event kinds read, counted with every kind's drafts in place (#1194) — the counts, the overlaps, the
+    // backlog — and what the rail hides of the backlog (#1344), reported by a component of its own.
+    const [kindsRead, setKindsRead] = useState<PlanKindsRead>(NOTHING_READ);
+    const counts = kinds.length > 0 ? kindsRead.counts : undefined;
     const start = usePlanLibrary({
         library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
-        drafts: chrome?.events?.drafts, takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
+        unscheduled: counts?.unscheduled, takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
+        followed, backlogNarrowing: kindsRead.backlog,
     });
-    // Counted with every kind's drafts in place (#1194).
-    const counts = usePlanEventCounts(kinds, chrome?.scale, chrome?.events?.drafts);
     // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
-    const overlaps = kinds.length > 0 ? counts?.overlaps : undefined;
+    const overlaps = counts?.overlaps;
     const items = usePlanToolbarItems(chrome, overlaps);
     const overlapKeys = useOverlapKeys(overlaps);
-    const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words });
+    // What is selected, and the selected events, read by a component of their own (#1344).
+    const selection = usePlanInspectorSelection(inspector);
+    const [selected, setSelected] = useState<readonly PlanInspectedEvent[]>(NO_INSPECTED);
+    const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words, selection, events: selected, shownResources: shown });
     // The Plan's one history (#1194): the history item reads it as one session.
     const history = chrome?.history;
     const session = history?.session;
@@ -304,25 +401,59 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     }, [onAction, selectedEvents, eventEditing, selectEvents]);
     // A Plan with no control to show — no slice, no search, no group to fold, no overlaps, no editing — draws no toolbar.
     const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
-    // Each session's banners, in the history's order: `data`'s, then each event kind's, named.
-    const banners = chrome !== undefined && history !== undefined && chrome.sessions.length > 0
-        ? (
-            <>
-                {chrome.sessions.map((held) => (
-                    <SessionBanners key={held.key} session={held.session} words={chrome.words} onAction={held.onAction}
-                        where={held.where} name={held.name} />
-                ))}
-            </>
-        )
-        : undefined;
+    // Each session's banners, in the history's order: `data`'s, then each event kind's, named — then each source the
+    // frame follows whose narrowing could not be read, with Retry, and a window that could not be written (#1344).
+    const bannerNodes: ReactNode[] = [];
+    if (chrome !== undefined && history !== undefined) {
+        for (const held of chrome.sessions) {
+            bannerNodes.push(<SessionBanners key={held.key} session={held.session} words={chrome.words} onAction={held.onAction}
+                where={held.where} name={held.name} />);
+        }
+    }
+    for (const [source, followedSource] of followed) {
+        if (followedSource.error === undefined) continue;
+        bannerNodes.push(
+            <Box key={`source:${source}`} data-plan-banner="source">
+                <BannerView status="error" title={m.narrowingUnavailable({ name: followedSource.name })} description={followedSource.error}
+                    actions={<Button size="xs" variant="outline" onClick={followedSource.retry}>{m.retry()}</Button>} />
+            </Box>,
+        );
+    }
+    if (chrome?.windowError !== undefined) {
+        bannerNodes.push(
+            <Box key="window" data-plan-banner="window">
+                <BannerView status="error" title={m.windowUnavailable({ axis: root.axis.type })} description={chrome.windowError} />
+            </Box>,
+        );
+    }
+    const banners = bannerNodes.length > 0 ? <>{bannerNodes}</> : undefined;
+    // After a Save, what left each source's narrowing (#1344): the `rows` source's rows, each event kind's events.
+    const rowsPart = chrome?.rowsPart;
+    const eventParts = chrome?.eventParts ?? NO_PARTS;
+    const notices = useMemo((): readonly PlanSaveNotice[] => {
+        const out: PlanSaveNotice[] = [];
+        if (rowsPart !== undefined) {
+            out.push({ key: ROWS_SOURCE, slice: rowsPart, singular: m.saveNoticeNoun({ kind: undefined, n: 1 }), plural: m.saveNoticeNoun({ kind: undefined, n: 2 }) });
+        }
+        for (const { kind, part } of eventParts) {
+            const name = kind.name.toLocaleLowerCase(words.locale);
+            out.push({ key: kind.key, slice: part, singular: m.saveNoticeNoun({ kind: name, n: 1 }), plural: m.saveNoticeNoun({ kind: name, n: 2 }) });
+        }
+        return out.length === 0 ? NO_NOTICES : out;
+    }, [rowsPart, eventParts, m, words.locale]);
     const footer = chrome !== undefined
         ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport}
-            counts={kinds.length > 0 ? counts : undefined} pending={session?.pending} narrow={chrome.narrow}
-            recordSlice={root.recordSlice?.type === "some" ? root.recordSlice.value.slice : undefined} />
+            counts={counts} pending={session?.pending} narrow={chrome.narrow} notices={notices} />
         : undefined;
     return (
         <Box css={styles.frame} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}
             style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }}>
+            {kinds.length > 0 && (
+                <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} onRead={setKindsRead} />
+            )}
+            {inspector && (
+                <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events} onRead={setSelected} />
+            )}
             <BuilderFrame
                 storageKey={keys.frame}
                 toolbar={toolbar}
@@ -351,8 +482,9 @@ export interface EastChakraPlanPayloadProps {
  * ({@link EastChakraPlan}), with its event kinds' rows ahead of the canvas's
  * own (#1192) — one block per resource kind, then the Unassigned rows', and a
  * paged kind's a window of its resources at a time (#1199) — its event kinds
- * counted in the footer, its library in the start pane (#1195), and its
- * inspector in the end pane (#1197).
+ * counted in the footer, its library in the start pane (#1195), its
+ * inspector in the end pane (#1197), and each source of its slice the frame
+ * follows read through the payload's `narrowed` keys (#1344).
  *
  * @param props - The payload and its storage key
  * @returns The Plan, in its frame
@@ -364,9 +496,23 @@ export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value
             ? { blocks: value.blocks.value, count: resourceKinds + 1, paged: getSomeorUndefined(value.paged) }
             : undefined),
         [value.blocks, value.paged, resourceKinds]);
-    return <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
-        resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type}
-        canDrop={value.canDrop} />;
+    // The sources the frame follows itself (#1344), each read once — one component each, so their hooks keep their
+    // order — in the Plan's words.
+    const { m, locale } = useResolvedPlanWords();
+    const chrome = getSomeorUndefined(value.plan.slice);
+    const sources = useMemo(() => planFollowedSources(value), [value]);
+    const nouns = useMemo(() => new Map(Object.entries(planNouns(value.events, value.resources, value.library, locale))),
+        [value.events, value.resources, value.library, locale]);
+    const said = useCallback((name: string): KeyVisibilityWords => ({ changed: m.narrowingChanged({ name }), failed: m.narrowingFailed({ name }) }), [m]);
+    return (
+        <FollowSources chrome={chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={said}>
+            {(followed) => (
+                <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
+                    resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type}
+                    canDrop={value.canDrop} followed={followed} />
+            )}
+        </FollowSources>
+    );
 }, (prev, next) => planPayloadEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(PlanComponent, EastChakraPlanPayload);

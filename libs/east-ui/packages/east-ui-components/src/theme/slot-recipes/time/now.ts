@@ -15,7 +15,9 @@
  *     timeline), across it for one on a vertical axis (`data-along="y"`: the
  *     Calendar's time grid). A host dims it or hides it with its own
  *     `data-axis` (`dim`, `off`), as Plan's expand render does.
- *   - Dot: 7px of the brand at the line's start.
+ *   - Dot: 7px of the brand at the line's start; on a vertical axis's line
+ *     wholly inside the box (ruled 20 Oct), so the sticky hour column beside a
+ *     time grid's day never covers it.
  *   - Chip: what the instant is called, mono 9.5 / 600 on the brand's one dark
  *     fill. On an axis band (Plan's ruler) it sits on the band's middle;
  *     beside a vertical axis (a time grid's hour gutter) at its right edge.
@@ -61,7 +63,7 @@ export const nowBase = {
         background: "{colors.brand.solid}",
         top: "-4px",
         left: "-4.5px",
-        "[data-along='y'] > &": { top: "-4.5px", left: "-4px" },
+        "[data-along='y'] > &": { top: "-4.5px", left: 0 },
     },
     nowChip: {
         position: "absolute",

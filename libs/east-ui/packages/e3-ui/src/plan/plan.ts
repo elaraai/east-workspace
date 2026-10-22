@@ -21,13 +21,22 @@
  * Pinned rows of any source sit under the ruler. An event is scheduled in
  * time, so event kinds need a time axis.
  *
+ * Its narrowing is one `Slice.bindRecords`, one rail on its toolbar (#1344):
+ * its `rows` source gives the canvas its rows, paged from it; a source named
+ * after an event kind narrows that kind's events and its backlog through its
+ * interval index; one named after a resource kind narrows its rows; and one a
+ * templates list or a tab names narrows its cards. Every source holding a
+ * `range` holds the window with the others. Templates are records, each list
+ * its own source (#1340).
+ *
  * The Plan is an interface. Its payload holds the canvas whole
- * ({@link PlanRootType}) beside the event kinds and resources as Plan takes
- * them (`PlanEventKindType`, `PlanResourcesType`, #1190), the resources' rows
- * over a window (`blocks`, #1192) and a paged resource kind's a window of its
- * resources at a time (`paged`, #1199), the event kinds' drop veto, the settings,
- * the library's tabs and whether it has an inspector. The `Plan` renderer in
- * `@elaraai/e3-ui-components` draws it.
+ * ({@link PlanRootType}, its narrowing's chrome among it) beside the event
+ * kinds and resources as Plan takes them (`PlanEventKindType`,
+ * `PlanResourcesType`, #1190), the resources' rows over a window (`blocks`,
+ * #1192) and a paged resource kind's a window of its resources at a time
+ * (`paged`, #1199), the event kinds' drop veto, the settings, the library's
+ * tabs, whether it has an inspector, and each source's narrowed keys. The
+ * `Plan` renderer in `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
  */
@@ -36,6 +45,7 @@ import {
     ArrayType,
     BooleanType,
     DateTimeType,
+    DictType,
     East,
     Expr,
     FunctionType,
@@ -55,12 +65,13 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { CanDropFnType, EastUI, type UIElement } from "@elaraai/east-ui";
-import { resolveRowSource } from "@elaraai/east-ui/internal";
+import { CanDropFnType, EastUI, RowSourceType, type UIElement } from "@elaraai/east-ui";
+import { resolveRowSource, type RecordSliceAffordance, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
 import { PlanEventKindType, PlanResourcesType, ScheduleCandidateType } from "../schedule/types.js";
-import { scheduleCheck } from "../schedule/index.js";
+import { scheduleCheck, scheduleTitled } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
+import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { PlanRootType } from "./ir.js";
 import { PlanAxisType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue } from "./types.js";
 import { axisKindOf, linkEventKinds } from "./builders.js";
@@ -70,7 +81,7 @@ import { planSeriesKeys } from "./series.js";
 import { PlanEventBlocksType, PlanEventPagedType, createEventBlocks, createEventPaged, eventDrawsOf } from "./event-rows.js";
 import { PlanLibraryTabType, buildLibrary, type PlanLibraryTab } from "./library.js";
 
-export { PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType } from "./event-rows.js";
+export { PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventShownType } from "./event-rows.js";
 
 // ============================================================================
 // The Plan's shared keys
@@ -143,6 +154,9 @@ export type PlanSettingsType = typeof PlanSettingsType;
  * @property settings - When the event kinds' drafts go, and the date brought into view first
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
  * @property inspector - Whether the Plan has an inspector pane, showing what is selected (#1197)
+ * @property narrowed - Each source of the slice's narrowed keys, paged through its own data, by the source's name
+ *   (#1344): what a resource kind's rows, a templates list's cards and an author's tab read to show a source's rows;
+ *   `rows` gives the canvas its rows, and an event kind reads its own narrowing through its part
  */
 export const PlanPayloadType = StructType({
     plan: PlanRootType,
@@ -154,6 +168,7 @@ export const PlanPayloadType = StructType({
     settings: PlanSettingsType,
     library: ArrayType(PlanLibraryTabType),
     inspector: BooleanType,
+    narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
 });
 
 /** Type representing the `Plan` renderer's payload. */
@@ -192,8 +207,20 @@ export type PlanRowsItem<K extends PlanAxisKindLiteral = never> = PlanRowsValue<
  * @typeParam K - The canvas's axis kind, inferred from `axis`
  */
 export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> extends Omit<PlanConfig<K>, "data" | "canDrop"> {
-    /** The rows' source — a keyed collection, a bind handle over one or a paged source of one, laid out by `series` or `pick` (see {@link PlanConfig}). Leave it out for a Plan of event kinds or `rows` alone. */
+    /** The rows' source — a keyed collection, a bind handle over one or a paged source of one, laid out by `series` or `pick` (see {@link PlanConfig}). Leave it out for a Plan of event kinds or `rows` alone, and beside `slice`'s `rows` source, which gives the rows. */
     data?: PlanConfig<K>["data"];
+    /**
+     * The narrowing (#1344): `slice={{ slice: Slice.bindRecords(key, { rows, … }) }}`, one rail on the toolbar, with
+     * its `affordances` and `persist`. Its `rows` source gives the canvas its rows, paged from it in its index's order —
+     * `data` then gives none — laid out by `series`, edits reaching the record through `editing.onApply`
+     * (`Record.onApply(record, { keyed: true })`). A source named after an event kind's slot narrows that kind's events
+     * and its backlog through the source's interval index, its `range` the kind's start field; one named after a
+     * resource kind's slot narrows that kind's rows; one a templates list or a library tab names narrows its cards.
+     * Every source holding a `range` holds the window with the others: the toolbar's navigation and range, the horizon
+     * brush and the resolution write them together. Calculations — the footer's counts, the overlaps — read every
+     * event. `Slice.bind`, a single `Slice.bindRecord` and a source nothing names are refused.
+     */
+    slice?: RecordSlicesChromeOptions;
     /** The resource kinds, by slot — `Schedule.resources(rows, { … })`, or a paged read of them: the rows events are placed on, in this order. */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     /** The event kinds, by slot — `Schedule.events(record, { … })`, each a record of its own: at least one, when given. An event is scheduled in time, so they need a time axis. */
@@ -235,6 +262,18 @@ type PlanAnyProps = PlanProps & Record<string, unknown>;
 
 /** The ways a Plan's event kinds' drafts go. */
 const APPLY_MODES: readonly string[] = ["batch", "auto"];
+
+/** The source of a Plan's slice that gives the canvas its rows (#1344). */
+const ROWS = "rows";
+
+/** The record rail's controls a Plan mounts unless its `slice` lists its own: the field chips, the presets, the summary and the horizon brush. */
+const PLAN_AFFORDANCES: readonly RecordSliceAffordance[] = ["fields", "presets", "summary", "brush"];
+
+/** What a Plan's slice narrows, as the refusal of a source nothing names says it. */
+const NARROWS = "its rows, its event kinds, its resource kinds, and the templates lists and tabs that name a source";
+
+/** Each source's narrowed keys on the wire, by the source's name. */
+const NarrowedType = PlanPayloadType.fields.narrowed;
 
 /**
  * A Plan's `rows` as fixed blocks: each hand-built stream one block, each
@@ -352,27 +391,73 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
  * @param props - The Plan's props, as `<Plan>` takes them
  * @returns An East expression of {@link PlanPayloadType}
  * @throws {Error} Naming the prop and the remedy: no rows from any source; `resources` without `events`; an event kind's
- *   resource naming a slot `resources` has not, or one not keyed by String; event kinds on a number or ordinal axis; a
+ *   resource naming a slot `resources` has not, or one not keyed by String; an event kind with no `title` (#1367); event
+ *   kinds on a number or ordinal axis; a
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `applyMode` that is neither
  *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
  *   placed on it and no measures; more than one paged resource kind, or one beside a paged `data` (#1199);
- *   a key the Plan gives its event rows that another series has; and everything the canvas
- *   refuses ({@link createPlanRoot}). An
- *   axis held in a variable, and links whose kinds are not known at build, are refused in the same words as the Plan
- *   is evaluated
+ *   a key the Plan gives its event rows that another series has; a `slice` that is not `{ slice: Slice.bindRecords(…) }`
+ *   — `Slice.bind`, a single `Slice.bindRecord`, the bare handle — or names a source nothing names, `data` beside its
+ *   `rows` source, a paged resource kind or one not keyed by String its source would narrow, and a kind's own `slice` or
+ *   `filter` (#1344); a templates list written in the code or naming no source of the slice (#1340); and everything the
+ *   canvas refuses ({@link createPlanRoot}). An axis held in a variable, and links whose kinds are not known at build,
+ *   are refused in the same words as the Plan is evaluated
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, applyMode, date, canDrop, library, inspector, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, applyMode, date, canDrop, library, inspector, slice, ...canvas } = props as PlanAnyProps;
+    // The narrowing's form #1344 retired, refused by name for an app that still passes it: the bare handle.
+    if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
+        throw new Error("Plan: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { rows, … }) }}: the bare handle is not taken");
+    }
+    const narrowing = slice as RecordSlicesChromeOptions | undefined;
     const kinds = events === undefined ? [] : Object.keys(events);
     if (events !== undefined) {
         scheduleCheck(resources ?? {}, events, "Plan");
+        // A Plan draws each event's title, which `Schedule.events` takes as optional (#1367).
+        scheduleTitled(events, "Plan");
     } else if (resources !== undefined) {
         throw new Error("Plan: `resources` are the rows events are placed on — declare `events`, the event kinds over records (Schedule.events)");
     }
-    if (canvas.data === undefined && events === undefined && rows === undefined) {
-        throw new Error("Plan: needs its rows — `data` and its `series`, event kinds (`events` over `resources`), or read-only `rows`");
+    const resourceKinds = Object.entries(resources ?? {});
+    const eventKinds = Object.entries(events ?? {});
+    // Templates are records (#1340): each event kind's list a `Schedule.templates` over its record, naming its source of
+    // the slice — one written in the code, or naming none the slice holds, refused before a source no list names is, so
+    // the refusal says the change to make. A slice of another kind is refused below, as such.
+    const sliceNames = sliceSourceNames(narrowing);
+    if (narrowing === undefined || sliceNames.length > 0) {
+        for (const [slot, kind] of eventKinds) {
+            if (kind.templatesList !== "none") templatesSource("Plan", `Schedule.templates(rows, { …, source: "${slot}Templates" })`, kind.templatesSource, sliceNames);
+        }
+    }
+    // The sources a Plan takes: `rows`, an event kind's or a resource kind's slot, or one a templates list or a tab names.
+    const named = new Set<string>([ROWS, ...kinds, ...resourceKinds.map(([slot]) => slot),
+        ...eventKinds.flatMap(([, kind]) => (kind.templatesSource === undefined ? [] : [kind.templatesSource])),
+        ...(library ?? []).flatMap((tab) => (tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : []))]);
+    const sources = recordSources(narrowing === undefined ? undefined : { ...narrowing, affordances: narrowing.affordances ?? PLAN_AFFORDANCES },
+        { builder: "Plan", names: [...named], what: NARROWS, takes: (name) => named.has(name) });
+    // A resource kind's source narrows its rows by key, the source's record keys Strings — over its resources read whole:
+    // a window of a paged kind's would hold only its share of the narrowing.
+    for (const [slot, kind] of resourceKinds) {
+        if (!sources.names.includes(slot)) continue;
+        if (kind.window !== undefined) {
+            throw new Error(`Plan: resources.${slot} pages its resources (Data.bindPaged), and the slice's source "${slot}" would narrow them — ` +
+                "a paged resource kind is not narrowed: read its resources whole, a record's read() (Data.bind), or leave the source out");
+        }
+        if (!isTypeEqual(kind.keyType, StringType)) {
+            throw new Error(`Plan: the slice's source "${slot}" narrows resources.${slot} by its resources' keys, Strings as its record's are — ` +
+                `and these are keyed by ${printType(kind.keyType)}`);
+        }
+    }
+    // The `rows` source gives the canvas its rows, paged from it in its index's order (#1344).
+    const pagesRows = sources.names.includes(ROWS);
+    if (pagesRows && canvas.data !== undefined) {
+        throw new Error("Plan: `slice`'s `rows` source gives the canvas its rows, paged from it — leave `data` out: " +
+            "data={Slice.rows(slice)} is gone, and the Plan reads its rows from the slice: slice={{ slice }}");
+    }
+    if (canvas.data === undefined && !pagesRows && events === undefined && rows === undefined) {
+        throw new Error("Plan: needs its rows — `data` and its `series`, `slice`'s `rows` source, event kinds (`events` over `resources`), or read-only `rows`");
     }
     // An event is scheduled in time. An axis Plan.axis built is checked here;
     // one held in a variable as the Plan is evaluated, in the same words.
@@ -419,10 +504,6 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
             throw new Error("Plan: `canDrop` vets a drop — Fn(DragEvent) → Boolean over a drag on `data`'s rows, or Fn(Schedule.Types.Candidate) → Option<String> over an event kind's drop, its message on the ghost — and this one is " + printType(type));
         }
     }
-    const plan = buildPlanRoot(
-        { ...canvas, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
-        rows === undefined ? (events !== undefined && canvas.data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),
-    );
     const veto = East.value(eventCanDrop === undefined ? none : some(eventCanDrop), OptionType(PlanEventCanDropType));
     const settings = East.value({
         applyMode: variant(applyMode ?? "batch", null),
@@ -430,44 +511,58 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     } as never, PlanSettingsType);
     // `data`'s series a viewer can hide are its picked ones, through the pick.
     const picked = canvas.pick !== undefined;
-    if (events === undefined) {
-        const tabs = buildLibrary(library, { resources: [], events: [], rows, picked });
-        return East.value({ plan, resources: [], events: [], blocks: none, paged: none, canDrop: veto, settings, library: tabs, inspector: false } as never, PlanPayloadType);
-    }
-    const resourceKinds = Object.entries(resources ?? {});
-    const eventKinds = Object.entries(events);
-    checkPagedKinds(resourceKinds, canvas.data);
-    checkEventRows(resourceKinds, eventKinds, canvas.series, rows);
-    const tabs = buildLibrary(library, { resources: resourceKinds, events: eventKinds, rows, picked });
-    // The payload is assembled in one function, so each kind is built once:
-    // the `blocks` seam made inside it captures the very array of event kinds
-    // the payload holds (#1192), and so do a paged kind's rows (#1199).
-    const assemble = East.function(
-        [PlanRootType, ArrayType(PlanResourcesType), ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), PlanSettingsType, ArrayType(PlanLibraryTabType)],
-        PlanPayloadType,
-        (_$, root, kinds, built, canDropFn, chosen, listed) => {
-            const paged = createEventPaged(resourceKinds, eventKinds, built);
-            return East.value({
-                plan: root,
-                resources: kinds,
-                events: built,
-                blocks: some(createEventBlocks(resourceKinds, eventKinds, built)),
-                paged: paged === undefined ? none : some(paged),
-                canDrop: canDropFn,
-                settings: chosen,
-                library: listed,
-                inspector: inspected,
-            } as never, PlanPayloadType);
-        },
-    );
-    return assemble(
-        plan,
-        resourceKinds.map(([slot, kind]) => kind.buildPlan(slot)),
-        eventKinds.map(([slot, kind]) => kind.buildPlan(slot)),
-        veto,
-        settings,
-        tabs,
-    );
+    return Expr.block(($) => {
+        const bound = sources.bind($);
+        // Each source's narrowed keys, paged through its own data: what the renderer reads to show a source's rows.
+        const narrowed = East.value(new Map(sources.names.map((name) => [name, bound.keys[name]])) as never, NarrowedType) as ExprType<typeof NarrowedType>;
+        const data = bound.data[ROWS] ?? canvas.data;
+        // The canvas first, then the event kinds' rows, then the library: each refuses in that order.
+        const plan = buildPlanRoot(
+            { ...canvas, data, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
+            rows === undefined ? (events !== undefined && data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),
+            sources.chrome,
+        );
+        if (events !== undefined) {
+            checkPagedKinds(resourceKinds, data);
+            checkEventRows(resourceKinds, eventKinds, canvas.series, rows);
+        }
+        const tabs = buildLibrary(library, { resources: resourceKinds, events: eventKinds, rows, picked, sources: sources.names });
+        if (events === undefined) {
+            return East.value({ plan, resources: [], events: [], blocks: none, paged: none, canDrop: veto, settings, library: tabs, inspector: false, narrowed } as never, PlanPayloadType);
+        }
+        // The payload is assembled in one function, so each kind is built once:
+        // the `blocks` seam made inside it captures the very array of event kinds
+        // the payload holds (#1192), and so do a paged kind's rows (#1199).
+        const assemble = East.function(
+            [PlanRootType, ArrayType(PlanResourcesType), ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), PlanSettingsType, ArrayType(PlanLibraryTabType), NarrowedType],
+            PlanPayloadType,
+            (_$, root, resolved, built, canDropFn, chosen, listed, keys) => {
+                const paged = createEventPaged(resourceKinds, eventKinds, built);
+                return East.value({
+                    plan: root,
+                    resources: resolved,
+                    events: built,
+                    blocks: some(createEventBlocks(resourceKinds, eventKinds, built)),
+                    paged: paged === undefined ? none : some(paged),
+                    canDrop: canDropFn,
+                    settings: chosen,
+                    library: listed,
+                    inspector: inspected,
+                    narrowed: keys,
+                } as never, PlanPayloadType);
+            },
+        );
+        return assemble(
+            plan,
+            resourceKinds.map(([slot, kind]) => kind.buildPlan(slot)),
+            // Each event kind narrowed through its own source of the slice, when the slice has one (#1344).
+            eventKinds.map(([slot, kind]) => kind.buildPlan(slot, bound.parts[slot])),
+            veto,
+            settings,
+            tabs,
+            narrowed,
+        );
+    }) as ExprType<PlanPayloadType>;
 }
 
 /**

@@ -9,7 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { I18nProvider } from "@react-aria/i18n";
 import { system } from "@elaraai/east-ui-components";
-import { act, settle } from "../builder-harness.test-utils.js";
+import { act, settle } from "../../e3-web-mount.test-utils.js";
 import { TimeNavigator, type TimeNavigatorProps } from "./navigation.js";
 
 afterEach(cleanup);
@@ -86,6 +86,24 @@ describe("Shared time navigation", () => {
         await press(within(popup()).getByRole("radio", { name: "Days" }));
         await press(popup().querySelector(`[data-time-day="${Date.UTC(2028, 1, 1)}"]`)!);
         expect(onChange.mock.lastCall).toEqual([Date.UTC(2028, 1, 1) + time]);
+    });
+    test("A2 — the day panel marks each day of its open month (dayMarker), reading only that month's weeks", async () => {
+        const onWeeks = vi.fn<(dates: readonly Date[]) => void>();
+        const marked = new Set([Date.UTC(2028, 0, 31), Date.UTC(2028, 0, 12)]);
+        const { container } = mount({ onWeeks, dayMarker: day => <span data-mark={marked.has(day.getTime()) ? "draft" : "none"} /> });
+        await open(container);
+        const days = popup().querySelectorAll("[data-time-day]");
+        expect(popup().querySelectorAll("[data-time-daymark]")).toHaveLength(days.length);
+        expect(popup().querySelector(`[data-time-day="${Date.UTC(2028, 0, 31)}"] [data-mark]`)!.getAttribute("data-mark")).toBe("draft");
+        expect(popup().querySelector(`[data-time-day="${Date.UTC(2028, 0, 30)}"] [data-mark]`)!.getAttribute("data-mark")).toBe("none");
+        // The weeks it reads are the open month's alone, and move with it.
+        const weeks = onWeeks.mock.lastCall![0];
+        expect(weeks.length).toBeLessThanOrEqual(6);
+        expect(weeks.every(week => week.getTime() >= Date.UTC(2027, 11, 27) && week.getTime() < Date.UTC(2028, 1, 1))).toBe(true);
+        await press(within(popup()).getByRole("button", { name: "Next month" }));
+        expect(onWeeks.mock.lastCall![0].every(week => week.getTime() >= Date.UTC(2028, 0, 31) && week.getTime() < Date.UTC(2028, 2, 1))).toBe(true);
+        // A day still reads its number, its mark out of its flow.
+        expect(popup().querySelector(`[data-time-day="${Date.UTC(2028, 1, 3)}"]`)!.textContent).toBe("3");
     });
     test("compact navigation keeps Today and only requests the currently browsed weeks", async () => {
         const onWeeks = vi.fn<(dates: readonly Date[]) => void>();

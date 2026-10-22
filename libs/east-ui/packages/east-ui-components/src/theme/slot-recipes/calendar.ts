@@ -10,7 +10,9 @@ import { INSPECTOR_STATUS } from "./inspector.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
+import { scheduleAgenda, scheduleAgendaGroup, scheduleAgendaHead, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
+import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
 import { rowsBase } from "./plan/rows.js";
 import { shellBase } from "./plan/shell.js";
 import { nowSlots, nowBase } from "./time/now.js";
@@ -25,14 +27,15 @@ export const calendarSlotRecipe = defineSlotRecipe({
         "timeGridContent", "timeGutter", "timeLabel", "columns", "column", "hour", "shade", "event", "ghost", "eventTitle",
         "eventTop", "eventIcon", "eventWarning", "eventDetail", "eventResource", ...scheduleGroupSlots, "title", "detail",
         "ruler", "rulerRow", "rulerTick", "rulerLabel", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
-        "timelineRow", "rowHead", "rowPlot", "agenda", "agendaDay", "agendaHead", "card", "cardHead", "cardTitle",
-        "actions", "pane", "paneFoot", "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
+        "timelineRow", "rowHead", "rowPlot", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle",
+        "actions", ...schedulePaneSlots, "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
         "form", "error", "empty", ...nowSlots,
     ],
     base: {
         ...moveGhostBase,
         ...nowBase,
         ...scheduleGroupBase,
+        ...schedulePaneBase,
         root: { ...shellBase.root, height: "100%", minHeight: 0 },
         main: { position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
         scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain", "&[data-calendar-month-grid]": { display: "flex", flexDirection: "column", "--calendar-month-min-width": "calc(var(--calendar-month-columns) * 104px)" } },
@@ -55,7 +58,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
         timeGutter: { ...timeAxisText, width: "56px", flexShrink: 0, position: "sticky", left: 0, zIndex: 4, background: "bg.surface", color: "fg.subtle" },
         timeLabel: { position: "absolute", right: "8px", transform: "translateY(-50%)" },
         columns: { display: "flex", flex: 1, minWidth: 0, position: "relative" },
-        column: { position: "relative", flex: 1, minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", touchAction: "pan-y" },
+        // A stacking context of its own: what a day column draws over itself — the now line, a drop's ghost, a dragged event —
+        // stays under the sticky head as the grid scrolls down, and under the hour column as it scrolls sideways.
+        column: { position: "relative", flex: 1, minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", touchAction: "pan-y", isolation: "isolate" },
         hour: { position: "absolute", left: 0, right: 0, borderTopWidth: "1px", borderColor: "border.subtle", pointerEvents: "none", "&[data-half]": { opacity: 0.45 } },
         shade: { position: "absolute", background: "bg.muted", opacity: 0.45, pointerEvents: "none", "&[data-along=y]": { left: 0, right: 0 }, "&[data-along=x]": { top: 0, bottom: 0 } },
         event: {
@@ -100,23 +105,20 @@ export const calendarSlotRecipe = defineSlotRecipe({
                 "&::after": { ...timeResizeEdge("x", "data-edge")["&::after"], right: "auto", height: "auto" },
             },
         },
-        month: { display: "grid", flex: 1, minHeight: 0, minWidth: "var(--calendar-month-min-width)", gridTemplateColumns: "repeat(var(--calendar-month-columns), minmax(104px, 1fr))", gridTemplateRows: "repeat(var(--calendar-month-rows), minmax(128px, 1fr))" },
+        // Its own stacking context too: a drop's ghost and a dragged chip stay under the sticky weekdays as a drag scrolls it.
+        month: { isolation: "isolate", display: "grid", flex: 1, minHeight: 0, minWidth: "var(--calendar-month-min-width)", gridTemplateColumns: "repeat(var(--calendar-month-columns), minmax(104px, 1fr))", gridTemplateRows: "repeat(var(--calendar-month-rows), minmax(128px, 1fr))" },
         monthDay: { position: "relative", minWidth: 0, minHeight: "128px", padding: "6px", borderRightWidth: "1px", borderBottomWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "&[data-outside]": { background: "bg.muted" }, "& [data-calendar-event]": { position: "relative", width: "100%" } },
         dayNumber: { ...timeHeaderText, textAlign: "left", minHeight: "24px", "&[data-today]": { color: "brand.fg" } },
         more: { textStyle: "mono.xs", color: "brand.fg", textAlign: "left", minHeight: "28px" },
         timeline: { minWidth: 0 },
         timelineRow: { display: "flex", borderBottomWidth: "1px", borderColor: "border.subtle" },
         rowHead: { ...rowsBase.gutterCell, position: "sticky", left: 0, width: "184px", flexShrink: 0, padding: "4px 12px", zIndex: 4, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", overflowWrap: "anywhere" },
-        rowPlot: { position: "relative", flex: 1 },
-        agenda: { minWidth: 0, padding: "12px", background: "bg.panel", display: "flex", flexDirection: "column", gap: "16px" },
-        agendaDay: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
-        agendaHead: { ...timeHeaderText },
-        card: { ...planElementDrafted, ...planElementSelected, ...planElementFocus, minWidth: 0, padding: "12px", borderWidth: "1px", borderColor: "border.subtle", borderRadius: "sm", background: "bg.surface", display: "flex", flexDirection: "column", gap: "8px", "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING } },
-        cardHead: { minWidth: 0, display: "flex", flexDirection: "column", gap: "4px", textAlign: "left" },
-        cardTitle: { textStyle: "title.row", overflowWrap: "anywhere", minWidth: 0 },
-        actions: { display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" },
-        pane: { display: "flex", flexDirection: "column", height: "100%", minHeight: 0, minWidth: 0 },
-        paneFoot: { flexShrink: 0, padding: "12px", borderTopWidth: "1px", borderColor: "border.subtle" },
+        // A stacking context of its own: its now line, a drop's ghost and a dragged event stay under the sticky resource column
+        // as the timeline scrolls right, and under the head as it scrolls down.
+        rowPlot: { position: "relative", flex: 1, isolation: "isolate" },
+        // The narrow agenda: the shared part the Roster and the Allocation take too, a card in an overlap pair ringed in warn.
+        agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, agendaHead: scheduleAgendaHead,
+        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING } }, cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,
         footer: builderFooter,

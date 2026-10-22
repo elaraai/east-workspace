@@ -17,22 +17,24 @@
  * record's one "+ New flow", main's; and no Flows tab, and no new flow, where
  * there are no flows by name to list or the flowchart does not edit.
  *
- * The record's tests run the flowchart through its carrier over a record in
- * memory, bound with its patch mutation, as an app binds one — its Save the
- * payload's, `Record.onApply`'s keyed form — so a commit is a real one
- * (`flowchart.test-utils.tsx`).
+ * The record's tests run the flowchart through its carrier over the depot's
+ * record on e3 itself, bound with its patch mutation, as an app binds one —
+ * its Save the payload's, `Record.onApply`'s keyed form — so a commit is a
+ * real one (`flowchart.test-utils.tsx`, #1376).
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { UIStore, editingMessages, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Flowchart } from "@elaraai/e3-ui/internal";
-import { commits, enabled, mountRecord, press, readRecord, recordHarness, settle } from "./flowchart.test-utils.js";
+import { act, enabled, flowchartHarness, press, settle } from "./flowchart.test-utils.js";
 import { EastChakraFlowchart, type FlowchartFlowValue, type FlowchartValue } from "./index.js";
 import { flowchartMessages } from "./messages.js";
+
+const h = flowchartHarness();
 
 // jsdom lacks the ResizeObserver the panes and the canvas reach for, and the matchMedia the popovers do.
 beforeAll(() => {
@@ -131,13 +133,15 @@ async function createFlow(container: HTMLElement, name: string) {
 function payload(source: FlowchartValue["source"], options: Partial<Pick<FlowchartValue, "library" | "readOnly" | "name" | "open">> = {}): FlowchartValue {
     return {
         canvas: {
-            orientation: none, freshness: none, minimap: none, legend: some(false), slice: none,
+            orientation: none, freshness: none, minimap: none, legend: some(false),
             onSelectState: none, onSelectLink: none, onSelectTrigger: none,
             onTracePath: none, canConnect: none,
         },
         source,
         open: options.open ?? none,
         library: options.library ?? [variant("flows", null)],
+        slice: none,
+        narrowed: new SortedMap([], compareFor(StringType)),
         inspector: none,
         readOnly: options.readOnly ?? false,
         name: options.name ?? none,
@@ -368,8 +372,9 @@ describe("no Flows tab where there are no flows by name (#1246, FB16)", () => {
 
 describe("a new flow over a record (#1246, FB14)", () => {
     test("opens empty, one lane, as a draft insert: Pending in the tab, and the history item's commit commits it to the record as one patch", async () => {
-        const harness = recordHarness(FLOWS);
-        const { container } = await mountRecord();
+        await h.commitFlows(FLOWS);
+        const before = await h.commits();
+        const { container } = await h.mountRecord();
         expect(cards(container).map((c) => c.name)).toEqual(["Inbound parcels", "Returns"]);
         expect(enabled(editingMessages.apply())).toBe(false);
         await createFlow(container, "Night shift");
@@ -382,14 +387,14 @@ describe("a new flow over a record (#1246, FB14)", () => {
             { name: "Returns", line: "1 lane · 2 states · 1 transition", placed: false, chip: null },
         ]);
         expect(flowsTab(container)).toBe(`${m.flowsTab()} 3`);
-        expect(readRecord(harness).has("Night shift")).toBe(false);
+        expect((await h.flows()).has("Night shift")).toBe(false);
         // The commit: one patch, the flow inserted by name.
         expect(enabled(editingMessages.apply())).toBe(true);
         await press(editingMessages.apply());
         const expected = new SortedMap(FLOWS, compareFor(StringType));
         expected.set("Night shift", NIGHT);
-        expect(flowsEqual(readRecord(harness), expected)).toBe(true);
-        expect((await commits(harness))).toEqual(["patch", "$init"]);
+        expect(flowsEqual(await h.flows(), expected)).toBe(true);
+        expect(await h.commits()).toEqual(["patch", ...before]);
         // Read back as the commit left it: no longer Pending, nothing to commit.
         expect(cards(container).find((c) => c.name === "Night shift")).toEqual({ name: "Night shift", line: "1 lane · 0 states · 0 transitions", placed: true, chip: null });
         expect(enabled(editingMessages.apply())).toBe(false);
@@ -397,8 +402,8 @@ describe("a new flow over a record (#1246, FB14)", () => {
     });
 
     test("a new flow's name, not yet committed, is refused for another, with the reason", async () => {
-        recordHarness(FLOWS);
-        const { container } = await mountRecord();
+        await h.commitFlows(FLOWS);
+        const { container } = await h.mountRecord();
         await createFlow(container, "Night shift");
         const { popover, name } = await newFlowPopover(container);
         await act(async () => { fireEvent.change(name, { target: { value: "Night shift" } }); });
@@ -407,22 +412,23 @@ describe("a new flow over a record (#1246, FB14)", () => {
     });
 
     test("Discard drops it: it leaves the tab, the record never held it, and the first flow by name is open again", async () => {
-        const harness = recordHarness(FLOWS);
-        const { container } = await mountRecord();
+        await h.commitFlows(FLOWS);
+        const before = await h.commits();
+        const { container } = await h.mountRecord();
         await createFlow(container, "Night shift");
         expect(cards(container).map((c) => c.name)).toContain("Night shift");
         await press(editingMessages.discard());
         expect(cards(container).map((c) => c.name)).toEqual(["Inbound parcels", "Returns"]);
         expect(stateKeys(container)).toEqual(["ARV", "SRT"]);
-        expect(flowsEqual(readRecord(harness), FLOWS)).toBe(true);
-        expect((await commits(harness))).toEqual(["$init"]);
+        expect(flowsEqual(await h.flows(), FLOWS)).toBe(true);
+        expect(await h.commits()).toEqual(before);
     });
 });
 
 describe("each flow its own session (#1246, FB15)", () => {
     test("a new flow left for another keeps its draft, and the history item acts on the open flow's alone", async () => {
-        const harness = recordHarness(FLOWS);
-        const { container } = await mountRecord();
+        await h.commitFlows(FLOWS);
+        const { container } = await h.mountRecord();
         await createFlow(container, "Night shift");
         await createFlow(container, "Day shift");
         // Both Pending, each in its own session; the open one is the last made.
@@ -437,18 +443,18 @@ describe("each flow its own session (#1246, FB15)", () => {
         expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
         expect(enabled(editingMessages.apply())).toBe(true);
         await press(editingMessages.apply());
-        expect([...readRecord(harness).keys()]).toEqual(["Inbound parcels", "Night shift", "Returns"]);
+        expect([...(await h.flows()).keys()]).toEqual(["Inbound parcels", "Night shift", "Returns"]);
         expect(cards(container).filter((c) => c.chip !== null).map((c) => c.name)).toEqual(["Day shift"]);
         // The other's draft is still its own, and Discard drops it alone.
         await openCard(container, "Day shift");
         await press(editingMessages.discard());
         expect(cards(container).map((c) => c.name)).toEqual(["Inbound parcels", "Night shift", "Returns"]);
-        expect([...readRecord(harness).keys()]).toEqual(["Inbound parcels", "Night shift", "Returns"]);
+        expect([...(await h.flows()).keys()]).toEqual(["Inbound parcels", "Night shift", "Returns"]);
     });
 
     test("an empty record: the Flows tab says so, with no button; main's empty state carries the one \"+ New flow\", and a flow made there opens", async () => {
-        const harness = recordHarness(new SortedMap([], compareFor(StringType)));
-        const { container } = await mountRecord();
+        await h.commitFlows(new SortedMap([], compareFor(StringType)));
+        const { container } = await h.mountRecord();
         const main = () => container.querySelector("[data-frame-slot='main']")!;
         expect(main().querySelector("[data-flowchart-no-flows]")).not.toBeNull();
         expect(main().textContent).toContain(m.flowsEmpty());
@@ -468,6 +474,6 @@ describe("each flow its own session (#1246, FB15)", () => {
         expect(main().querySelector("[data-flowchart-no-flows]")).toBeNull();
         expect(laneHeads(container)).toEqual([LANE_1.toUpperCase()]);
         await press(editingMessages.apply());
-        expect([...readRecord(harness).keys()]).toEqual(["Night shift"]);
+        expect([...(await h.flows()).keys()]).toEqual(["Night shift"]);
     });
 });

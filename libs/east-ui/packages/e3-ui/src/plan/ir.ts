@@ -21,7 +21,7 @@ import {
     StructType,
 } from "@elaraai/east";
 import { CanDropFnType, PickBindType, UIComponentType } from "@elaraai/east-ui";
-import { SliceChromeType, RecordSliceChromeType } from "@elaraai/east-ui/internal";
+import { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import {
     PlanAxisType,
     PlanGrainType,
@@ -44,8 +44,9 @@ import {
  * The Plan root IR — the whole canvas.
  *
  * @remarks
- * Window and resolution deliberately have **no callbacks**: they are slice
- * writes (`setRange` / `setResolution`) — hosts observe the slice. Row
+ * Window and resolution deliberately have **no callbacks**: they are writes to
+ * the ranges and resolutions of the slice's sources (#1344) — hosts observe
+ * the slice. Row
  * order is data (no sort callback), and element detail lives in the root
  * RESOLVERS: `popover` / `hover` over {@link PlanElementRefType} (a `none`
  * result opens nothing) and `expandRender` over the row ref (the R2
@@ -78,7 +79,10 @@ export const PlanRootType = StructType({
     // resized element (#825) is a draft, saved as one checked batch.
     editing: OptionType(PlanEditingType),
     pick: OptionType(PickBindType),
-    slice: OptionType(SliceChromeType),
+    // The narrowing (#1344): the chrome of the Plan's one `Slice.bindRecords`,
+    // one rail. Its `rows` source pages the canvas's rows; every source holding
+    // a `range` holds the window with the others.
+    slice: OptionType(RecordSlicesChromeType),
     footer: ArrayType(PlanFooterItemType),
     // DnD target role — the shared grammar (contracts/drag.ts); no id, no
     // library card lands (#824 — it used to be `""`), though the canvas's own
@@ -95,8 +99,6 @@ export const PlanRootType = StructType({
     // The interaction state a host holds — a bound `State.bind` handle (#824).
     ui: OptionType(PlanUiBindType),
     style: OptionType(PlanStyleType),
-    /** Record narrowing, appended separately from the local Slice wire. */
-    recordSlice: OptionType(RecordSliceChromeType),
 });
 /** Type alias for {@link PlanRootType}. */
 export type PlanRootType = typeof PlanRootType;

@@ -63,7 +63,7 @@ function fixture(fields: Field[]) {
             catch { return { ...value, selected: false, count: none, error: some("offline") }; }
         }); },
         replaces: () => [], togglePreset: () => null, setResolution: resolution => write({ ...read(), resolution }),
-        retry: vi.fn(() => { pulse(); return null; }), readEntry: () => some(none), contains: () => some(false),
+        retry: vi.fn(() => { pulse(); return null; }), readEntry: () => some(none), contains: () => some(false), containsRow: () => some(false),
     };
     const show = (id = fields[0]!.fieldId) => render(<ChakraProvider value={system}>
         <RecordSliceFieldEditor slice={slice} field={config.fields.find(f => f.fieldId === id)!} />

@@ -9,7 +9,7 @@
  * Flowchart renderer mount tests — prove the hook graph (declaration order /
  * TDZ), that every payload field decodes, that the flowchart is laid out in
  * its frame (#1245): its toolbar's items, the canvas in main, the footer's
- * counts — narrowed by the host's slice, the open flow's name, the last save
+ * counts — the flow's own transitions, the open flow's name, the last save
  * — the panes only when given, LR · TD and find state, each pick revealing
  * its state; and that the
  * canvas draws the flow its source holds (#1244): the host's one flow, the
@@ -26,9 +26,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { SortedMap, StringType, compareFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { UIStore, buildSliceHandle, formatters, system } from "@elaraai/east-ui-components";
+import { UIStore, formatters, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { sliceConfig } from "@elaraai/east-ui-components/testing";
 import { flowchartKeys, type FlowchartLibraryTabType } from "@elaraai/e3-ui/internal";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { EastChakraFlowchart, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./index.js";
@@ -98,7 +97,6 @@ const CANVAS: FlowchartCanvasValue = {
     freshness: some({ label: "evidence-2026.06", date: some(new Date("2026-06-30T00:00:00Z")) }),
     minimap: none,
     legend: some(true),
-    slice: none,
     onSelectState: none,
     onSelectLink: none,
     onSelectTrigger: none,
@@ -106,9 +104,9 @@ const CANVAS: FlowchartCanvasValue = {
     canConnect: none,
 };
 
-/** A payload over `source`, its canvas the one above, its inspector taken away (`inspector={false}`). */
+/** A payload over `source`, its canvas the one above, no slice narrowing it, its inspector taken away (`inspector={false}`). */
 function payload(source: FlowchartValue["source"], open: FlowchartValue["open"] = none): FlowchartValue {
-    return { canvas: CANVAS, source, open, library: [], inspector: none, readOnly: false, name: none };
+    return { canvas: CANVAS, source, open, library: [], slice: none, narrowed: new SortedMap([], compareFor(StringType)), inspector: none, readOnly: false, name: none };
 }
 
 /** The host's one flow. */
@@ -296,7 +294,7 @@ describe("the minimap (#1251)", () => {
 describe("the frame's panes and footer (#1245)", () => {
     const LIBRARY: ValueTypeOf<FlowchartLibraryTabType>[] = [
         variant("flows", null),
-        variant("states", { name: some("Steps"), icon: some("box"), cards: [] }),
+        variant("states", { name: some("Steps"), icon: some("box"), cards: [], source: "steps" }),
     ];
 
     it("a library that lists tabs is the start pane, its tabs in order; the inspector is the end pane", () => {
@@ -339,28 +337,6 @@ describe("the frame's panes and footer (#1245)", () => {
         const { container: hosts } = mount(payload(variant("data", variant("flows", { value: FLOWS, apply: none })), some("Sort")));
         expect(hosts.querySelector("[data-flowchart-flow]")!.textContent).toBe("Sort");
         expect(hosts.querySelector("[data-flowchart-saved]")).toBeNull();
-    });
-
-    it("while the host's slice narrows the transitions, the footer says from how many, and by what share", () => {
-        initializeStore(new UIStore());
-        const cfg = sliceConfig({
-            at: variant("datetime", { label: "At", accessor: (r: { at: Date }) => r.at, format: none }),
-        }, { rangeFieldId: some("at") });
-        const initial = {
-            range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-            breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
-        };
-        // The host's three scans; the flow it builds from the rows the slice keeps holds one transition.
-        const scans = [{ at: new Date("2026-05-04T00:00:00Z") }, { at: new Date("2026-06-01T00:00:00Z") }, { at: new Date("2026-07-15T00:00:00Z") }];
-        const handle = buildSliceHandle("flowchart.footer.narrowed", cfg, initial as never, scans as never, none) as never as { setRange(r: unknown): void };
-        const canvas: FlowchartCanvasValue = { ...CANVAS, slice: some({ slice: handle as never, affordances: [variant("filter", null)] }) };
-        const { container } = mount({ ...payload(hostFlow(sortFlow(LINKS.slice(0, 1)))), canvas });
-        expect(footerText(container)).not.toContain("narrowed");
-        act(() => {
-            handle.setRange(some(variant("datetime", { from: new Date("2026-07-01T00:00:00Z"), to: new Date("2026-08-01T00:00:00Z") })));
-        });
-        // One of three kept: two in three narrowed away.
-        expect(footerText(container)).toContain(`1link· narrowed from 3 ·−${formatters("en-US").percent(1 - 1 / 3)}`);
     });
 });
 

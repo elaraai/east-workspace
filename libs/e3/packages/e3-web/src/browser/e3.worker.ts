@@ -13,21 +13,19 @@
  * server's compliance run has, so the suites' uploads go through the
  * protocol's multi-part path and a polled commit, and an export resumes from
  * its checkpoint round after round. A piece size its URL gives is the one
- * split tasks are planned with, as `E3_TEST_PIECE_BYTES` sets the local
- * runner's.
+ * split tasks are planned with (`pieceBytes`), as `E3_TEST_PIECE_BYTES` sets
+ * the local runner's.
  *
  * The harness bundles it for Chromium; `e3.page.ts` starts it.
  *
  * @packageDocumentation
  */
 
-import { readTestPieceBytesFrom } from '@elaraai/e3-core/portable';
 import { identifyCaller } from '../testing/callers.js';
 import { oneShotAccessByRoles, serveE3 } from '../worker.js';
 
 const params = new URL(self.location.href).searchParams;
-const pieceBytes = params.get('pieceBytes') ?? undefined;
-readTestPieceBytesFrom(() => pieceBytes);
+const pieceBytes = params.get('pieceBytes');
 const hold = params.get('hold') === '1' ? '1' : '0';
 
 serveE3({
@@ -38,4 +36,5 @@ serveE3({
   transferPartBytes: 256 * 1024,
   transferCommitWaitMs: 0,
   transferExportRoundBytes: 64 * 1024,
+  ...(pieceBytes !== null && { pieceBytes: Number(pieceBytes) }),
 });

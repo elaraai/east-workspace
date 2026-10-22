@@ -4,9 +4,12 @@
  */
 
 /**
- * Exhaustive tests for `bind-runtime.ts`. Each `describe` block
- * constructs its own fresh `BindRuntime` instance + cache + staged
- * store — no module-state leaks across tests.
+ * Exhaustive tests for `bind-runtime.ts`, on e3 itself (#1378): each test
+ * constructs its own `BindRuntime` over a dataset cache over e3 and a staged
+ * store in memory, and binds the Data.bind examples' threshold and its patch.
+ * What a dataset holds is another session's write through e3's API; what the
+ * runtime wrote and launched is read from the harness's request log, and a
+ * write in flight or one that fails is held or failed at the harness's fetch.
  */
 
 import assert from "node:assert/strict";
@@ -23,42 +26,68 @@ import {
     diffFor,
     ConflictError,
 } from "@elaraai/east";
-import type { TreePath } from "@elaraai/e3-types";
+import type { E3Request } from "../src/e3-web.test-utils.js";
 
 import {
     BindRuntime,
     datasetCacheKey,
-    ReactiveDatasetCache,
 } from "../src/platform/index.js";
 import {
     StagedStore,
     MemoryStagedAdapter,
 } from "../src/platform/staged-store.js";
-import { createMockDatasetApi } from "./fixtures/mock-dataset-api.js";
-import { createFakeClock, settle } from "./fixtures/fake-clock.js";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import { e3Spec } from "./fixtures/e3.js";
 
-const path = (...segs: string[]): TreePath => segs.map(s => variant("field", s));
-const ws = "ws";
-const sourcePath = path("source");
-const patchPath = path("patch");
+const h = e3Spec({ "bind/data/data": ex });
+
+/** The source: the threshold, a Float. */
+const sourcePath = ex.thresholdInput.path;
+/** Its patch dataset: a Patch of a Float. */
+const patchPath = ex.thresholdPatchInput.path;
 
 const floatTypeValue = toEastTypeValue(FloatType);
 const intTypeValue = toEastTypeValue(IntegerType);
 const encodeFloat = encodeBeast2For(FloatType);
 const decodeFloat = decodeBeast2For(FloatType);
-const encodeFloatPatch = encodeBeast2For(PatchType(FloatType));
+const decodeFloatPatch = decodeBeast2For(PatchType(FloatType));
 const diffFloat = diffFor(FloatType);
 
+/** Whether a request writes the source, or its patch dataset. */
+const writesSource = (request: E3Request) => request.kind === "write" && request.dataset === "inputs.threshold";
+const writesPatch = (request: E3Request) => request.kind === "write" && request.dataset === "inputs.threshold_patch";
+/** The writes the test's code made, in order: which dataset each wrote. */
+const writes = () => h.requests("write").map((request) => request.dataset);
+/** The dataflow runs the test's code launched. */
+const launches = () => h.requests("dataflow").filter((request) => request.method === "POST");
+/** A fault e3 answers a write with, as its store would fail one. */
+const FAILED = { status: 500, type: "internal", message: "the store refused the write" } as const;
+
+/** A runtime over a dataset cache over e3 in the test's workspace, its staged store in memory. */
 async function newRuntime() {
     const adapter = new MemoryStagedAdapter();
     const staged = new StagedStore(adapter);
     await staged.ready();
-    const api = createMockDatasetApi();
-    const clock = createFakeClock();
-    const cache = new ReactiveDatasetCache({ workspace: ws }, api, clock);
+    const { cache, clock } = h.cache();
     const runtime = new BindRuntime(staged);
     runtime.initializeCache(cache);
-    return { runtime, cache, api, clock, staged };
+    return { runtime, cache, clock, staged };
+}
+
+/** A runtime over the test's workspace once another session has written the source, and the cache has loaded it. */
+async function seeded(source: number) {
+    await h.write(ex.thresholdInput, source);
+    const made = await newRuntime();
+    await made.cache.preload(h.workspace, sourcePath);
+    return made;
+}
+
+/** A runtime once another session has written the source and its patch, and the cache has loaded both. */
+async function seededWithPatch(source: number, patch: ReturnType<typeof decodeFloatPatch>) {
+    await h.write(ex.thresholdPatchInput, patch);
+    const made = await seeded(source);
+    await made.cache.preload(h.workspace, patchPath);
+    return made;
 }
 
 // =============================================================================
@@ -88,39 +117,39 @@ describe("BindRuntime — cache lifecycle", () => {
     });
 
     test("re-initialize with SAME cache does NOT clear queue", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime, cache } = await seeded(1);
 
-        // Pause an in-flight write
-        const pause = api.pauseNext("set");
+        // Hold an in-flight write, with another queued behind it.
+        const held = h.e3.hold(writesSource);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.write(2);
+        handle.write(3);
+        await held.holding;
 
         // Re-init with the SAME cache — must not clear the queue.
         runtime.initializeCache(cache);
-        pause.resume();
+        held.release();
         await runtime.awaitPendingWrites();
-        assert.equal(api.calls.set.length, 1);
+        assert.equal(h.requests().filter(writesSource).length, 2);
+        assert.equal(await h.read(ex.thresholdInput), 3);
     });
 
     test("re-initialize with DIFFERENT cache clears queue", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
 
-        const pause = api.pauseNext("set");
+        const held = h.e3.hold(writesSource);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
-        handle.write(2);
+        handle.write(2); // in flight, held
+        handle.write(3); // queued behind it
+        await held.holding;
 
-        // Switch caches — old queue dropped.
-        const api2 = createMockDatasetApi();
-        const cache2 = new ReactiveDatasetCache({ workspace: ws }, api2);
-        runtime.initializeCache(cache2);
-        pause.reject(new Error("dropped"));
+        // Switch caches — the queued write, which captured the old cache, is dropped.
+        runtime.initializeCache(h.cache().cache);
+        held.release();
         await runtime.awaitPendingWrites();
-        // The original queued write was dropped — nothing landed on cache2.
-        assert.equal(api2.calls.set.length, 0);
+        await h.settle();
+        assert.equal(h.requests().filter(writesSource).length, 1, "only the write already in flight was sent");
+        assert.equal(await h.read(ex.thresholdInput), 2);
     });
 
     test("clearCache clears singleton + queue", async () => {
@@ -137,7 +166,7 @@ describe("BindRuntime — cache lifecycle", () => {
 describe("BindRuntime — reactive tracking", () => {
     test("trackPath outside enableTracking is a no-op", async () => {
         const { runtime } = await newRuntime();
-        runtime.trackPath(ws, sourcePath);  // no throw, no state change
+        runtime.trackPath(h.workspace, sourcePath);  // no throw, no state change
         assert.equal(runtime.isTracking(), false);
     });
 
@@ -145,12 +174,12 @@ describe("BindRuntime — reactive tracking", () => {
         const { runtime } = await newRuntime();
         runtime.enableTracking();
         assert.equal(runtime.isTracking(), true);
-        runtime.trackPath(ws, sourcePath);
-        runtime.trackPath(ws, patchPath);
+        runtime.trackPath(h.workspace, sourcePath);
+        runtime.trackPath(h.workspace, patchPath);
         const keys = runtime.disableTracking();
         assert.deepEqual(keys.sort(), [
-            datasetCacheKey(ws, patchPath),
-            datasetCacheKey(ws, sourcePath),
+            datasetCacheKey(h.workspace, patchPath),
+            datasetCacheKey(h.workspace, sourcePath),
         ].sort());
         assert.equal(runtime.isTracking(), false);
     });
@@ -163,7 +192,7 @@ describe("BindRuntime — reactive tracking", () => {
             const handle = runtime.buildRawHandle(floatTypeValue, sourcePath, patch, mode);
             runtime.enableTracking();
             assert.equal(handle.has(), false);
-            assert.deepEqual(runtime.disableTracking(), [datasetCacheKey(ws, sourcePath)], `${mode}, ${patch ? "with" : "no"} patch`);
+            assert.deepEqual(runtime.disableTracking(), [datasetCacheKey(h.workspace, sourcePath)], `${mode}, ${patch ? "with" : "no"} patch`);
         }
     });
 });
@@ -176,71 +205,68 @@ describe("BindRuntime — pending writes queue", () => {
     test("awaitPendingWrites resolves immediately when empty", async () => {
         const { runtime } = await newRuntime();
         await runtime.awaitPendingWrites();
-        assert.ok(true);
+        assert.deepEqual(writes(), []);
     });
 
     test("awaitPendingWrites resolves after queued writes drain", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.write(2);
         handle.write(3);
         await runtime.awaitPendingWrites();
-        assert.equal(api.calls.set.length, 2);
+        assert.equal(h.requests().filter(writesSource).length, 2);
+        assert.equal(await h.read(ex.thresholdInput), 3);
     });
 
     test("failing write is logged + emitted via onWriteError", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
 
         const errors: unknown[] = [];
         runtime.onWriteError(err => errors.push(err));
 
-        api.failNext("set", new Error("boom"));
+        h.e3.fail(writesSource, FAILED);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.write(2);
         await runtime.awaitPendingWrites();
         assert.equal(errors.length, 1);
-        assert.match(String(errors[0]), /boom/);
+        assert.match(String(errors[0]), /Failed to set dataset: 500/);
+        assert.equal(await h.read(ex.thresholdInput), 1);
     });
 
     test("queue continues after a failing write", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
-        api.failNext("set", new Error("first fails"));
+        const { runtime } = await seeded(1);
+        let sent = 0;
+        h.e3.fail((request) => writesSource(request) && ++sent === 1, FAILED);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.write(2); // fails
         handle.write(3); // should still run
         await runtime.awaitPendingWrites();
-        assert.equal(api.calls.set.length, 2);
+        assert.equal(h.requests().filter(writesSource).length, 2);
+        assert.equal(await h.read(ex.thresholdInput), 3);
     });
 
     test("clearPendingWrites drops not-yet-run writes", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
-        const pause = api.pauseNext("set");
+        const { runtime } = await seeded(1);
+        const held = h.e3.hold(writesSource);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
-        handle.write(2); // first — paused
+        handle.write(2); // first — held
         handle.write(3); // second — queued behind
+        await held.holding;
         runtime.clearPendingWrites();
-        pause.resume();
+        held.release();
         await runtime.awaitPendingWrites();
+        await h.settle();
         // Only the first (already mid-flight) ran; the second was dropped.
-        assert.equal(api.calls.set.length, 1);
+        assert.equal(h.requests().filter(writesSource).length, 1);
+        assert.equal(await h.read(ex.thresholdInput), 2);
     });
 
     test("multiple onWriteError listeners — all called", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         let a = 0, b = 0;
         runtime.onWriteError(() => a++);
         runtime.onWriteError(() => b++);
-        api.failNext("set", new Error("nope"));
+        h.e3.fail(writesSource, FAILED);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.write(2);
         await runtime.awaitPendingWrites();
@@ -249,13 +275,11 @@ describe("BindRuntime — pending writes queue", () => {
     });
 
     test("onWriteError unsubscribe stops the listener", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         let calls = 0;
         const off = runtime.onWriteError(() => calls++);
         off();
-        api.failNext("set", new Error("nope"));
+        h.e3.fail(writesSource, FAILED);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.write(2);
         await runtime.awaitPendingWrites();
@@ -270,48 +294,44 @@ describe("BindRuntime — pending writes queue", () => {
 describe("BindRuntime — binding registry", () => {
     test("getBindingTypes returns undefined before any bind", async () => {
         const { runtime } = await newRuntime();
-        assert.equal(runtime.getBindingTypes(ws, sourcePath), undefined);
+        assert.equal(runtime.getBindingTypes(h.workspace, sourcePath), undefined);
     });
 
     test("buildBindHandle populates the registry", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
-        const info = runtime.getBindingTypes(ws, sourcePath);
+        const info = runtime.getBindingTypes(h.workspace, sourcePath);
         assert.ok(info);
-        assert.equal(info!.workspace, ws);
+        assert.equal(info!.workspace, h.workspace);
         assert.equal(info!.mode, "direct");
         assert.equal(info!.hasPatchDataset, false);
     });
 
     test("clearBindingRegistry() empties everything", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         runtime.clearBindingRegistry();
-        assert.equal(runtime.getBindingTypes(ws, sourcePath), undefined);
+        assert.equal(runtime.getBindingTypes(h.workspace, sourcePath), undefined);
     });
 
     test("clearBindingRegistry(ws) removes only that workspace", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed("alpha", sourcePath, encodeFloat(1));
-        api.seed("beta", sourcePath, encodeFloat(1));
-        await cache.preload("alpha", sourcePath);
-        await cache.preload("beta", sourcePath);
+        const { runtime } = await newRuntime();
+        const alpha = h.workspace;
+        const beta = await h.e3.workspace();
+        const cacheAlpha = h.cache({ workspace: alpha }).cache;
+        const cacheBeta = h.cache({ workspace: beta }).cache;
+        await cacheAlpha.preload(alpha, sourcePath);
+        await cacheBeta.preload(beta, sourcePath);
 
         // Build handles via two separate caches with different workspaces.
-        const cacheBeta = new ReactiveDatasetCache({ workspace: "beta" }, api);
         runtime.initializeCache(cacheBeta);
         runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
-        const cacheAlpha = new ReactiveDatasetCache({ workspace: "alpha" }, api);
         runtime.initializeCache(cacheAlpha);
         runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
 
-        runtime.clearBindingRegistry("alpha");
-        assert.equal(runtime.getBindingTypes("alpha", sourcePath), undefined);
-        assert.ok(runtime.getBindingTypes("beta", sourcePath));
+        runtime.clearBindingRegistry(alpha);
+        assert.equal(runtime.getBindingTypes(alpha, sourcePath), undefined);
+        assert.ok(runtime.getBindingTypes(beta, sourcePath));
     });
 });
 
@@ -321,9 +341,7 @@ describe("BindRuntime — binding registry", () => {
 
 describe("BindRuntime.buildBindHandle — direct, no patch", () => {
     test("read returns decoded source", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(7.5));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(7.5);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         assert.equal(handle.read(), 7.5);
     });
@@ -334,64 +352,57 @@ describe("BindRuntime.buildBindHandle — direct, no patch", () => {
         assert.throws(() => handle.read(), /Source dataset not loaded/);
     });
 
-    test("write queues a cache.write of encoded bytes", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+    test("write sends the encoded bytes to the source", async () => {
+        const { runtime } = await seeded(1);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.write(42);
         await runtime.awaitPendingWrites();
-        assert.equal(api.calls.set.length, 1);
-        assert.deepEqual(decodeFloat(api.calls.set[0]!.value!), 42);
+        const sent = h.requests().filter(writesSource);
+        assert.equal(sent.length, 1);
+        assert.equal(decodeFloat(sent[0]!.body!), 42);
+        assert.equal(await h.read(ex.thresholdInput), 42);
     });
 
-    test("writeAndStart queues cache.writeAndStart", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+    test("writeAndStart writes, then launches the dataflow", async () => {
+        const { runtime } = await seeded(1);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.writeAndStart(42);
         await runtime.awaitPendingWrites();
-        assert.equal(api.calls.launchDataflow.length, 1);
+        assert.deepEqual(writes(), ["inputs.threshold"]);
+        assert.equal(launches().length, 1);
     });
 
     test("start launches the dataflow without writing", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.start();
         await runtime.awaitPendingWrites();
-        assert.equal(api.calls.launchDataflow.length, 1);
-        assert.equal(api.calls.set.length, 0);
+        assert.equal(launches().length, 1);
+        assert.deepEqual(writes(), []);
     });
 
     test("write then start launches after the write lands", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         handle.write(42);
         handle.start();
         await runtime.awaitPendingWrites();
-        assert.equal(api.calls.set.length, 1);
-        assert.equal(api.calls.launchDataflow.length, 1);
+        const order = h.requests().filter((request) => writesSource(request) || launches().includes(request)).map((request) => request.kind);
+        assert.deepEqual(order, ["write", "dataflow"]);
     });
 
     test("pending always false; commit/discard are no-ops", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         assert.equal(handle.pending(), false);
         assert.equal(handle.commit(), null);
         assert.equal(handle.discard(), null);
+        await runtime.awaitPendingWrites();
+        assert.deepEqual(writes(), []);
     });
 
     test("binding descriptor shape", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
         assert.deepEqual(handle.binding.source, sourcePath);
         assert.equal(handle.binding.patch.type, "none");
@@ -414,78 +425,50 @@ describe("BindRuntime.buildBindHandle — direct, no patch", () => {
 
 describe("BindRuntime.buildBindHandle — direct, with patch", () => {
     test("read returns apply(source, patch) when patch is unchanged", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(variant("unchanged", null)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, variant("unchanged", null));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         assert.equal(handle.read(), 10);
     });
 
     test("read returns apply(source, patch) with active patch", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
         // Patch: source 10 → 25
-        const patch = diffFloat(10, 25);
-        api.seed(ws, patchPath, encodeFloatPatch(patch));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, diffFloat(10, 25));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         assert.equal(handle.read(), 25);
     });
 
-    test("write encodes diff(source, value) into patch dataset", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(variant("unchanged", null)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+    test("write sends diff(source, value) to the patch dataset", async () => {
+        const { runtime } = await seededWithPatch(10, variant("unchanged", null));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         handle.write(50);
         await runtime.awaitPendingWrites();
-        // The set was on the patch path
-        const lastSet = api.calls.set[api.calls.set.length - 1]!;
-        assert.equal(
-            (lastSet.path![0] as { value: string }).value,
-            "patch",
-        );
+        assert.deepEqual(writes(), ["inputs.threshold_patch"]);
+        assert.deepEqual(await h.read(ex.thresholdPatchInput), diffFloat(10, 50));
     });
 
     test("commit applies patch to source, clears patch", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(10, 99)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, diffFloat(10, 99));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         handle.commit();
         await runtime.awaitPendingWrites();
-        // Source written to 99
-        const sourceWrite = api.calls.set.find(c =>
-            (c.path![0] as { value: string }).value === "source");
-        assert.ok(sourceWrite);
-        assert.equal(decodeFloat(sourceWrite!.value!), 99);
+        // Source written to 99, the patch cleared.
+        assert.equal(await h.read(ex.thresholdInput), 99);
+        assert.equal((await h.read(ex.thresholdPatchInput)).type, "unchanged");
     });
 
     test("discard writes UNCHANGED to patch dataset", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(10, 99)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, diffFloat(10, 99));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         handle.discard();
         await runtime.awaitPendingWrites();
-        const patchWrite = api.calls.set[api.calls.set.length - 1]!;
-        assert.equal((patchWrite.path![0] as { value: string }).value, "patch");
+        assert.deepEqual(writes(), ["inputs.threshold_patch"]);
+        assert.equal(decodeFloatPatch(h.requests().find(writesPatch)!.body!).type, "unchanged");
+        assert.equal(await h.read(ex.thresholdInput), 10, "the source is untouched");
     });
 
     test("manifest scoping rejects unlisted patch path", async () => {
         const { runtime } = await newRuntime();
-        const allowed = new Set([
-            sourcePath.map(p => (p as { value: string }).value).join("."),
-        ]);
+        const allowed = new Set([sourcePath.map(p => p.value).join(".")]);
         assert.throws(
             () => runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct", allowed),
             /not declared in manifest/,
@@ -499,37 +482,33 @@ describe("BindRuntime.buildBindHandle — direct, with patch", () => {
 
 describe("BindRuntime.buildBindHandle — staged, no patch", () => {
     test("read returns buffered when staged, otherwise source", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        await cache.preload(ws, sourcePath);
+        const { runtime, staged } = await seeded(10);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
         assert.equal(handle.read(), 10);
         // Now stage a buffer
-        staged.write(ws, sourcePath, encodeFloat(10), encodeFloat(42));
+        staged.write(h.workspace, sourcePath, encodeFloat(10), encodeFloat(42));
         assert.equal(handle.read(), 42);
     });
 
     test("write stages with snapshot pinned on first write", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        await cache.preload(ws, sourcePath);
+        const { runtime, staged } = await seeded(10);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
         handle.write(50);
-        const entry = staged.getEntry(ws, sourcePath);
+        const entry = staged.getEntry(h.workspace, sourcePath);
         assert.ok(entry);
         assert.deepEqual(entry!.snapshot, encodeFloat(10));
         assert.deepEqual(entry!.buffered, encodeFloat(50));
         // Second write — snapshot stays pinned
         handle.write(60);
-        const entry2 = staged.getEntry(ws, sourcePath);
+        const entry2 = staged.getEntry(h.workspace, sourcePath);
         assert.deepEqual(entry2!.snapshot, encodeFloat(10));
         assert.deepEqual(entry2!.buffered, encodeFloat(60));
+        await runtime.awaitPendingWrites();
+        assert.deepEqual(writes(), [], "a staged write reaches no dataset");
     });
 
     test("pending reflects staged.hasPending", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(10);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
         assert.equal(handle.pending(), false);
         handle.write(50);
@@ -537,57 +516,51 @@ describe("BindRuntime.buildBindHandle — staged, no patch", () => {
     });
 
     test("commit writes buffer to source then drops buffer", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        await cache.preload(ws, sourcePath);
+        const { runtime, staged } = await seeded(10);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
         handle.write(50);
         handle.commit();
         await runtime.awaitPendingWrites();
-        assert.equal(staged.hasPending(ws, sourcePath), false);
-        const lastWrite = api.calls.set[api.calls.set.length - 1]!;
-        assert.deepEqual(lastWrite.value, encodeFloat(50));
+        assert.equal(staged.hasPending(h.workspace, sourcePath), false);
+        assert.equal(await h.read(ex.thresholdInput), 50);
     });
 
     test("commit retains buffer if concurrent edit landed during await (lost-edits guard)", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        await cache.preload(ws, sourcePath);
+        const { runtime, staged } = await seeded(10);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
         handle.write(50);
 
-        const pause = api.pauseNext("set");
+        const held = h.e3.hold(writesSource);
         handle.commit();
+        await held.holding;
         // Concurrent edit while commit is mid-flight
         handle.write(99);
-        pause.resume();
+        held.release();
         await runtime.awaitPendingWrites();
         // Buffer should still hold the in-flight edit (99)
-        assert.equal(staged.hasPending(ws, sourcePath), true);
-        assert.deepEqual(staged.getBuffered(ws, sourcePath), encodeFloat(99));
+        assert.equal(staged.hasPending(h.workspace, sourcePath), true);
+        assert.deepEqual(staged.getBuffered(h.workspace, sourcePath), encodeFloat(99));
+        assert.equal(await h.read(ex.thresholdInput), 50);
     });
 
-    test("commit retains buffer on cache.writeAndStart failure", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        await cache.preload(ws, sourcePath);
+    test("commit retains buffer on a failed write", async () => {
+        const { runtime, staged } = await seeded(10);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
         handle.write(50);
-        api.failNext("set", new Error("nope"));
+        h.e3.fail(writesSource, FAILED);
         handle.commit();
         await runtime.awaitPendingWrites();
         // Buffer retained because the write failed.
-        assert.equal(staged.hasPending(ws, sourcePath), true);
+        assert.equal(staged.hasPending(h.workspace, sourcePath), true);
+        assert.equal(await h.read(ex.thresholdInput), 10);
     });
 
     test("discard drops the buffer synchronously", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        await cache.preload(ws, sourcePath);
+        const { runtime, staged } = await seeded(10);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
         handle.write(50);
         handle.discard();
-        assert.equal(staged.hasPending(ws, sourcePath), false);
+        assert.equal(staged.hasPending(h.workspace, sourcePath), false);
     });
 });
 
@@ -597,48 +570,35 @@ describe("BindRuntime.buildBindHandle — staged, no patch", () => {
 
 describe("BindRuntime.buildBindHandle — staged, with patch", () => {
     test("read returns buffered when staged; overlaid source otherwise", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(10, 25)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime, staged } = await seededWithPatch(10, diffFloat(10, 25));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "staged");
         // No buffer yet — read returns apply(source, patch)
         assert.equal(handle.read(), 25);
         // Now stage a buffer
-        staged.write(ws, sourcePath, encodeFloat(10), encodeFloat(99));
+        staged.write(h.workspace, sourcePath, encodeFloat(10), encodeFloat(99));
         assert.equal(handle.read(), 99);
     });
 
     test("commit publishes diff(source, buffer) to patch dataset", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(variant("unchanged", null)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime, staged } = await seededWithPatch(10, variant("unchanged", null));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "staged");
         handle.write(50);
         handle.commit();
         await runtime.awaitPendingWrites();
-        assert.equal(staged.hasPending(ws, sourcePath), false);
-        const patchWrite = api.calls.set.find(c =>
-            (c.path![0] as { value: string }).value === "patch")!;
-        assert.ok(patchWrite);
+        assert.equal(staged.hasPending(h.workspace, sourcePath), false);
+        assert.deepEqual(writes(), ["inputs.threshold_patch"]);
+        assert.deepEqual(await h.read(ex.thresholdPatchInput), diffFloat(10, 50));
     });
 
     test("discard drops buffer; patch dataset untouched", async () => {
-        const { runtime, cache, api, staged } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(10, 25)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
-        const callsBefore = api.calls.set.length;
+        const { runtime, staged } = await seededWithPatch(10, diffFloat(10, 25));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "staged");
         handle.write(99);
         handle.discard();
         // No queued writes — discard is sync.
-        assert.equal(staged.hasPending(ws, sourcePath), false);
-        assert.equal(api.calls.set.length, callsBefore);
+        assert.equal(staged.hasPending(h.workspace, sourcePath), false);
+        await runtime.awaitPendingWrites();
+        assert.deepEqual(writes(), []);
     });
 });
 
@@ -661,17 +621,16 @@ describe("BindRuntime — a runtime given no staged store", () => {
         await installed.ready();
         initializeStagedStore(installed);
         try {
-            const api = createMockDatasetApi();
-            const cache = new ReactiveDatasetCache({ workspace: ws }, api, createFakeClock());
+            await h.write(ex.thresholdInput, 10);
+            const { cache } = h.cache();
             runtime.initializeCache(cache);
-            api.seed(ws, sourcePath, encodeFloat(10));
-            await cache.preload(ws, sourcePath);
+            await cache.preload(h.workspace, sourcePath);
             const errors: unknown[] = [];
             runtime.onWriteError((err) => errors.push(err));
 
             const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "staged");
             handle.write(50);
-            assert.deepEqual(installed.getBuffered(ws, sourcePath), encodeFloat(50));
+            assert.deepEqual(installed.getBuffered(h.workspace, sourcePath), encodeFloat(50));
             assert.equal(handle.read(), 50);
             await installed.flushPending();
             assert.equal(errors.length, 1);
@@ -699,22 +658,24 @@ describe("BindRuntime.buildPlatform", () => {
 // =============================================================================
 
 describe("BindRuntime — list cache", () => {
+    /** The listings of the workspace's datasets the test's code asked for. */
+    const listings = () => h.requests("dataset-status").filter((request) => request.dataset === undefined);
+
     test("preloadList caches the result; second call is a hit", async () => {
-        const { runtime, api } = await newRuntime();
-        api.seed(ws, path("foo"), encodeFloat(1));
-        await runtime.preloadList(ws, []);
-        const before = api.calls.listRoot.length;
-        await runtime.preloadList(ws, []);
-        assert.equal(api.calls.listRoot.length, before);
+        const { runtime } = await newRuntime();
+        const fields = await runtime.preloadList(h.workspace, []);
+        assert.ok(fields.includes("inputs"), "the workspace's root lists its inputs");
+        assert.equal(listings().length, 1);
+        await runtime.preloadList(h.workspace, []);
+        assert.equal(listings().length, 1);
     });
 
     test("clearListCache empties the cache", async () => {
-        const { runtime, api } = await newRuntime();
-        api.seed(ws, path("foo"), encodeFloat(1));
-        await runtime.preloadList(ws, []);
+        const { runtime } = await newRuntime();
+        await runtime.preloadList(h.workspace, []);
         runtime.clearListCache();
-        await runtime.preloadList(ws, []);
-        assert.equal(api.calls.listRoot.length, 2);
+        await runtime.preloadList(h.workspace, []);
+        assert.equal(listings().length, 2);
     });
 });
 
@@ -724,13 +685,8 @@ describe("BindRuntime — list cache", () => {
 
 describe("BindRuntime.buildBindHandle — overlaidSource error handling", () => {
     test("ConflictError → fall back to source value", async () => {
-        const { runtime, cache, api } = await newRuntime();
         // Source = 10, patch is "replace 99 → 25" which is stale (source isn't 99)
-        api.seed(ws, sourcePath, encodeFloat(10));
-        const stale = diffFloat(99, 25);
-        api.seed(ws, patchPath, encodeFloatPatch(stale));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, diffFloat(99, 25));
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         // Should NOT throw; falls back to source.
         assert.equal(handle.read(), 10);
@@ -743,9 +699,7 @@ describe("BindRuntime.buildBindHandle — overlaidSource error handling", () => 
 
 describe("BindRuntime — helpersCache (structural equality)", () => {
     test("two bindings on structurally-equal types share helpers", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         // Two distinct EastTypeValue identities for the same East type.
         const t1 = toEastTypeValue(FloatType);
         const t2 = toEastTypeValue(FloatType);
@@ -759,7 +713,7 @@ describe("BindRuntime — helpersCache (structural equality)", () => {
         assert.equal(h1.read(), 1);
         assert.equal(h2.read(), 1);
         // No registry warn fired (would mean structural mismatch detected).
-        const info = runtime.getBindingTypes(ws, sourcePath);
+        const info = runtime.getBindingTypes(h.workspace, sourcePath);
         assert.ok(info);
         assert.equal(info!.mode, "direct");
     });
@@ -778,9 +732,7 @@ describe("BindRuntime — registry warn paths", () => {
     }
 
     test("identity fast-path: no warn on identical re-bind", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const w = captureWarn();
         try {
             const t = toEastTypeValue(FloatType);
@@ -793,9 +745,7 @@ describe("BindRuntime — registry warn paths", () => {
     });
 
     test("warns on mode mismatch (direct → staged on same path)", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const w = captureWarn();
         try {
             runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
@@ -807,11 +757,7 @@ describe("BindRuntime — registry warn paths", () => {
     });
 
     test("warns on hasPatchDataset mismatch", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        api.seed(ws, patchPath, encodeFloatPatch(variant("unchanged", null)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(1, variant("unchanged", null));
         const w = captureWarn();
         try {
             runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
@@ -823,9 +769,7 @@ describe("BindRuntime — registry warn paths", () => {
     });
 
     test("warns on type mismatch (Float vs Integer on same path)", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const w = captureWarn();
         try {
             runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct");
@@ -837,9 +781,7 @@ describe("BindRuntime — registry warn paths", () => {
     });
 
     test("structurally-equal but identity-different types: no warn (silent overwrite)", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(1));
-        await cache.preload(ws, sourcePath);
+        const { runtime } = await seeded(1);
         const w = captureWarn();
         try {
             const t1 = toEastTypeValue(FloatType);
@@ -859,12 +801,8 @@ describe("BindRuntime — registry warn paths", () => {
 
 describe("BindRuntime — overlaidSource fallback warn dedup", () => {
     test("warning emitted at most once per binding key", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
         // Stale patch — replace 99 → 25 doesn't apply against source 10.
-        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(99, 25)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, diffFloat(99, 25));
 
         const messages: string[] = [];
         const original = console.warn;
@@ -887,11 +825,7 @@ describe("BindRuntime — overlaidSource fallback warn dedup", () => {
 
 describe("BindRuntime — direct+patch commit atomicity", () => {
     test("commits the source first, then clears the patch", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(10, 99)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, diffFloat(10, 99));
 
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         handle.commit();
@@ -900,33 +834,27 @@ describe("BindRuntime — direct+patch commit atomicity", () => {
         // Two sequential writes, IN ORDER: source := apply(source, patch),
         // THEN patch := unchanged. (Not one batched flush — the patch is
         // cleared only after the source write lands.)
-        assert.equal(api.calls.set.length, 2);
-        assert.equal((api.calls.set[0]!.path![0] as { value: string }).value, "source");
-        assert.equal(decodeFloat(api.calls.set[0]!.value!), 99);
-        assert.equal((api.calls.set[1]!.path![0] as { value: string }).value, "patch");
+        assert.deepEqual(writes(), ["inputs.threshold", "inputs.threshold_patch"]);
+        assert.equal(decodeFloat(h.requests().find(writesSource)!.body!), 99);
     });
 
     test("a failed source write leaves the patch intact (self-healing)", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
-        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(10, 99)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, diffFloat(10, 99));
 
         const errors: unknown[] = [];
         runtime.onWriteError(err => errors.push(err));
 
         // Fail the (first) source write. The patch-clear must NOT run, so the
         // commit never orphans a populated patch over a half-committed source.
-        api.failNext("set", new Error("source write failed"));
+        h.e3.fail(writesSource, FAILED);
         const handle = runtime.buildBindHandle(floatTypeValue, sourcePath, patchPath, "direct");
         handle.commit();
         await runtime.awaitPendingWrites();
 
         // Only the source write was attempted; the patch-clear was skipped.
-        assert.equal(api.calls.set.length, 1);
-        assert.equal((api.calls.set[0]!.path![0] as { value: string }).value, "source");
+        assert.deepEqual(writes(), ["inputs.threshold"]);
         assert.equal(errors.length, 1);
+        assert.deepEqual(await h.read(ex.thresholdPatchInput), diffFloat(10, 99), "the patch stands");
     });
 });
 
@@ -936,12 +864,8 @@ describe("BindRuntime — direct+patch commit atomicity", () => {
 
 describe("BindRuntime — stale-patch commit error surfacing", () => {
     test("apply() throwing ConflictError emits via onWriteError", async () => {
-        const { runtime, cache, api } = await newRuntime();
-        api.seed(ws, sourcePath, encodeFloat(10));
         // Stale patch that won't apply.
-        api.seed(ws, patchPath, encodeFloatPatch(diffFloat(99, 25)));
-        await cache.preload(ws, sourcePath);
-        await cache.preload(ws, patchPath);
+        const { runtime } = await seededWithPatch(10, diffFloat(99, 25));
 
         const errors: unknown[] = [];
         runtime.onWriteError(err => errors.push(err));
@@ -953,6 +877,7 @@ describe("BindRuntime — stale-patch commit error surfacing", () => {
         // surfaced via the error listener instead of crashing.
         assert.equal(errors.length, 1);
         assert.ok(errors[0] instanceof ConflictError);
+        assert.deepEqual(writes(), [], "nothing was written");
     });
 });
 
@@ -987,15 +912,15 @@ describe("module-load registrations", () => {
 describe("BindRuntime — combined reactive tracker behavior", () => {
     test("cache + staged store subscriber composition", async () => {
         const { cache, staged } = await newRuntime();
-        const key = datasetCacheKey(ws, sourcePath);
+        const key = datasetCacheKey(h.workspace, sourcePath);
 
         let cacheCalls = 0;
         let stagedCalls = 0;
         const offCache = cache.subscribe(key, () => cacheCalls++);
         const offStaged = staged.subscribe(key, () => stagedCalls++);
 
-        await cache.write(ws, sourcePath, encodeFloat(1));
-        staged.write(ws, sourcePath, encodeFloat(1), encodeFloat(2));
+        await cache.write(h.workspace, sourcePath, encodeFloat(1));
+        staged.write(h.workspace, sourcePath, encodeFloat(1), encodeFloat(2));
 
         assert.ok(cacheCalls >= 1);
         assert.ok(stagedCalls >= 1);
@@ -1006,11 +931,11 @@ describe("BindRuntime — combined reactive tracker behavior", () => {
 
     test("cache + staged versions sum monotonically", async () => {
         const { cache, staged } = await newRuntime();
-        const key = datasetCacheKey(ws, sourcePath);
+        const key = datasetCacheKey(h.workspace, sourcePath);
         const v0 = cache.getKeyVersion(key) + staged.getKeyVersion(key);
-        await cache.write(ws, sourcePath, encodeFloat(1));
+        await cache.write(h.workspace, sourcePath, encodeFloat(1));
         const v1 = cache.getKeyVersion(key) + staged.getKeyVersion(key);
-        staged.write(ws, sourcePath, encodeFloat(1), encodeFloat(2));
+        staged.write(h.workspace, sourcePath, encodeFloat(1), encodeFloat(2));
         const v2 = cache.getKeyVersion(key) + staged.getKeyVersion(key);
         assert.ok(v1 > v0);
         assert.ok(v2 > v1);
@@ -1032,8 +957,5 @@ describe("module exports — smoke", () => {
         assert.ok(a);
         assert.ok(b);
         assert.equal(intTypeValue, intTypeValue); // sanity
-    });
-    test("settle helper is importable", () => {
-        assert.equal(typeof settle, "function");
     });
 });

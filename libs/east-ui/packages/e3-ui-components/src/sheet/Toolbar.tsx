@@ -6,17 +6,19 @@
 /**
  * The toolbar's items (§7): the view tabs at left, then the lens's context
  * switch and its `n matches · m context` line, and hugging the row's right
- * edge the key search over a paged source's `seek` (in place of the rail's
- * search, which would only filter the loaded prefix), the slice rail (search
- * / filter / cohort on the bound slice), the paged scope badge *loaded rows
- * only*, and the history controls.
+ * edge the key search over a paged source's `seek`, the rail — one over the
+ * sheet's `Slice.bindRecords`, each source's fields in source order, the
+ * presets, and one summary counting each source (#1345) — the paged scope
+ * badge *loaded rows only* while nothing narrows the rows, and the history
+ * controls. The lens is switched off until #1349: its context switch and its
+ * count line are never given.
  *
  * ONE row, always — nothing wraps and nothing scrolls. They are the frame's
  * toolbar's items, the shared toolbar (#952), folded on one ladder, in this
  * order:
- *   1. the rail gives way first — its affordances fold into summary chips,
- *      then into one chip, then into its icon (every one of them opens the
- *      slice editor popover);
+ *   1. the rail gives way first — its fields fold into summary chips, then
+ *      into one chip, then into its icon (every one of them opens the slice
+ *      editor popover);
  *   2. the tabs fold into their `+n` menu, one tab at a time, the active tab
  *      always kept;
  *   3. the count line goes;
@@ -29,6 +31,10 @@
  *   9. the strip folds into one chip, the open view's tab, whose menu holds
  *      every view, `+ TAB` and the open view's close (#1221) — so a phone's
  *      row holds the views a planner has saved;
+ *  10. where the sheet has a key search, the chip folds into the key search's
+ *      popover, one move (#1345): its views, `+ TAB` and the open view's
+ *      close over the search box, as the Flowchart's orientation sits over
+ *      find state's — so a phone's row keeps the rail and Save beside it;
  * and the history item folds last, to its buttons.
  * Each is a form of an item, measured and chosen before paint: the toolbar's
  * configuration is a function of its width, whatever width it came from.
@@ -37,11 +43,11 @@
  * them, and the Sheet's frame places them in its one toolbar (#1216).
  */
 
-import { useCallback, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
-import type { RecordSliceChromeType, Slice } from "@elaraai/east-ui/internal";
-import { radioGroupKey, HOST_RANK, useSliceToolbarItems, useRecordSliceToolbarItems } from "@elaraai/east-ui-components/internal";
+import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
+import { radioGroupKey, HOST_RANK, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { type ToolbarItem, useKeySearchToolbarItem } from "@elaraai/east-ui-components";
 import type { SheetTabsFold } from "./Tabs.js";
 import type { LensContext } from "./sheet-types.js";
@@ -49,7 +55,6 @@ import type { SheetSearch } from "./use-seek.js";
 import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
-type SliceBindValue = ValueTypeOf<typeof Slice.Types.Bind>;
 
 /** The context switch's stops (B§8). */
 const CONTEXTS: readonly LensContext[] = [0, 1, 3];
@@ -65,7 +70,11 @@ const SHEET_RANK = {
     close: HOST_RANK + 5,
     seek: HOST_RANK + 6,
     tabsMenu: HOST_RANK + 7,
+    searchViews: HOST_RANK + 8,
 } as const;
+
+/** The bundle the views' chip and the key search fold into one popover by (#1345). */
+const SEARCH_VIEWS = "sheet.searchViews";
 
 /** The view tabs, as the toolbar folds them. */
 export interface SheetToolbarTabs {
@@ -82,22 +91,20 @@ export interface SheetToolbarTabs {
 
 export interface SheetToolbarProps {
     styles: Styles;
-    slice: SliceBindValue | undefined;
-    /** Indexed record controls share the same toolbar and keep their field search. */
-    recordChrome?: ValueTypeOf<RecordSliceChromeType> | undefined;
-    affordances: readonly string[];
+    /** The rail (#1345): one over the sheet's `Slice.bindRecords`, its affordances and its persistence; `undefined` with no slice. */
+    chrome?: ValueTypeOf<RecordSlicesChromeType> | undefined;
+    /** What each source is counted in on the rail's summary, by its name — `rows`, `orders`, `templates`. */
+    nouns?: Readonly<Record<string, string>> | undefined;
     /** The lens count line — empty without a narrowing. */
     count: string;
-    /** The paged scope badge. */
+    /** The paged scope badge: the rows still to load, and nothing narrowing them. */
     partial: boolean;
-    /** The view tabs — with a bound slice. */
+    /** The view tabs — while the slice narrows the rows. */
     tabs?: SheetToolbarTabs | undefined;
     /** The lens's context switch — while a narrowing is active. */
     context?: { value: LensContext; onChange: (c: LensContext) => void } | undefined;
-    /** Key search over the paged source's `seek` — replaces the rail's `search`. */
+    /** Key search over the paged source's `seek`. */
     search?: SheetSearch | undefined;
-    /** A key in the rail's search box the tabs claim (⏎ · esc); returns `true` when claimed. */
-    onSearchKey?: ((key: string) => boolean) | undefined;
     /** The editing session's history item (#988) — undo · redo · discard · apply at the row's end, right of the rail. */
     history?: ToolbarItem | undefined;
 }
@@ -109,41 +116,32 @@ export interface SheetToolbarProps {
  * @param props - What the items show and drive.
  * @returns The items, a falsy entry for each the sheet has no use for.
  */
-export function useSheetToolbarItemsFor({ styles, slice, recordChrome, affordances, count, partial, tabs, context, search, onSearchKey, history }: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial, tabs, context, search, history }: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
     // The toolbar's own words (#861).
     const words = useSheetWords();
     const { m } = words;
-    // A seek-capable source replaces `search` outright (the Plan's rule):
-    // filtering the loaded prefix and seeking the whole source are different
-    // operations, and one word for both would mislead.
-    const kinds = search !== undefined ? affordances.filter((k) => k !== "search") : affordances;
-    const onKeyDownCapture = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
-        if (onSearchKey === undefined || (e.key !== "Enter" && e.key !== "Escape")) return;
-        if (!(e.target instanceof HTMLInputElement)) return;
-        // A highlighted suggestion is the combobox's to take.
-        if (e.key === "Enter" && document.querySelector('[data-scope="combobox"][data-part="content"] [data-highlighted]') !== null) return;
-        if (onSearchKey(e.key)) { e.preventDefault(); e.stopPropagation(); }
-    }, [onSearchKey]);
 
-    // The key search over a seekable source: its box, or its icon on a row short of room.
-    const seek = useKeySearchToolbarItem(search, { side: "end", rank: SHEET_RANK.seek, label: m.keySearch() });
+    // The key search over a seekable source: its box, or its icon on a row short of room — and, where the sheet
+    // has views, last its popover holding them over its box, the views' chip gone in the same move (#1345).
+    const combine = tabs !== undefined && search !== undefined;
+    const keySearch = useKeySearchToolbarItem(search, {
+        side: "end", rank: SHEET_RANK.seek, label: m.keySearch(),
+        compact: combine ? { label: m.keySearchViews(), controls: (close) => tabs.render({ folded: tabs.maxFold, strip: "search", onDone: close }) } : undefined,
+    });
+    const seek: ToolbarItem | undefined = keySearch !== undefined && combine
+        ? { ...keySearch, rank: [SHEET_RANK.seek, SHEET_RANK.searchViews], bundle: [undefined, SEARCH_VIEWS] }
+        : keySearch;
 
-    // The rail — its forms wrapped so the tabs can claim the keys its search box takes.
-    const railItem = useSliceToolbarItems(slice, [{ key: "rail", kinds, side: "end" }])[0];
-    const rail: ToolbarItem | undefined = railItem === undefined ? undefined : {
-        ...railItem,
-        forms: railItem.forms.map((form) => (
-            <Box css={styles.toolbarRail} data-slot="toolbarRail" onKeyDownCapture={onKeyDownCapture}>{form}</Box>
-        )),
-    };
-
-    const recordItems = useRecordSliceToolbarItems(recordChrome?.slice, recordChrome === undefined ? {} : {
-        affordances: recordChrome.affordances.map(a => a.type),
-        ...(recordChrome.persist.type === "some" ? { persist: recordChrome.persist.value.type } : {}),
+    // The rail: one over every source of the sheet's slice, each counted in its own noun (#1345).
+    const rail = useRecordSlicesToolbarItems(chrome?.slice, {
+        ...(nouns === undefined ? {} : { nouns }),
+        ...(chrome === undefined ? {} : { affordances: chrome.affordances.map((a) => a.type) }),
+        ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
 
     // The tabs: one tab at a time into `+n`, then the strip's own closing up,
-    // and last the strip as one chip (#1221).
+    // then the strip as one chip (#1221) — and, with a key search, last into
+    // the search's popover, the chip gone in the move that folds it there (#1345).
     const tabsItem: ToolbarItem | undefined = tabs === undefined ? undefined : {
         key: "tabs",
         forms: [
@@ -152,11 +150,14 @@ export function useSheetToolbarItemsFor({ styles, slice, recordChrome, affordanc
             tabs.render({ folded: tabs.maxFold, strip: "capped" }),
             tabs.render({ folded: tabs.maxFold, strip: "closed" }),
             tabs.render({ folded: tabs.maxFold, strip: "menu" }),
+            ...(combine ? [null] : []),
         ],
         rank: [
             ...Array.from({ length: tabs.maxFold }, () => SHEET_RANK.tabFold),
             SHEET_RANK.stripCompact, SHEET_RANK.stripCapped, SHEET_RANK.close, SHEET_RANK.tabsMenu,
+            ...(combine ? [SHEET_RANK.searchViews] : []),
         ],
+        bundle: combine ? [...Array.from({ length: tabs.maxFold + 4 }, () => undefined), SEARCH_VIEWS] : undefined,
         version: tabs.version,
         held: tabs.held,
     };
@@ -203,9 +204,8 @@ export function useSheetToolbarItemsFor({ styles, slice, recordChrome, affordanc
             rank: SHEET_RANK.count,
         },
         seek,
-        rail,
-        ...recordItems,
-        partial && recordChrome === undefined && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
+        ...rail,
+        partial && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
         history,
     ];
 }

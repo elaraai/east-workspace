@@ -18,31 +18,36 @@
  * 1920px wide, where the rows unfold — the grain and resolution segments,
  * the key search's box, the rail's search pill, the view tabs — and there with
  * the controls a gesture brings: a key typed into the paged sheet's key search
- * (its steps and its clear), and on the workshop's sheet a query in its search
- * (the lens's context switch, the pill's clear), then view tabs of its own —
- * the active tab's × shown and another's hidden — and the frame narrowed until
- * a tab folds into `+n`. On the phone the workshop's two views fold the strip
- * into its one chip, and the row still fits. And a search's list closes when
- * the focus moves outside it, as on a desktop (#1228): ⏎ in the workshop's
- * rail search hands the focus to the sheet, and Tab leaves the paged sheet's
+ * (its steps and its clear); on the workshop's sheet a customer searched
+ * through its rail (#1345), then two view tabs of its own, named from the
+ * search — the frame narrowed until the second folds the first into `+n`,
+ * which picks it again — and
+ * on the stress sheet another of its views picked, the active tab's × shown
+ * and the others' hidden. On the phone the workshop's two views fold with the
+ * key search into its popover (#1345), and the row still fits. And a search's
+ * list closes when the focus moves outside it, as on a desktop (#1228): ⏎ in
+ * the workshop rail's Customer search applies its prefix, and Tab leaves the paged sheet's
  * key search, each leaving no list open over the sheet; the key search's box
  * blurred to nothing — the phone's keyboard dismissed — leaves its list open,
  * as a desktop does, and a Tab from there closes it. And in the rail's
  * sectioned editor the cohort's chip and the breakdown's are each one 44px
  * target (#1253), every chip there keeping its own width. And the
- * Flowchart's frame (#1245): on the phone its rail, LR · TD and find state
- * folded into their chips — LR · TD's menu turning the canvas, find state's
- * popover picking a state — and on the wide screen its row unfolded, a query
- * in find state stepped through its matches and cleared, then the frame
- * narrowed until LR · TD and find state fold; and over a record of flows
- * (#1246) its row ending with the history item.
+ * Flowchart's frame (#1245): over the host's tables, which no rail narrows
+ * (#1346), on the phone LR · TD and find state folded into their chips — LR ·
+ * TD's menu turning the canvas, find state's popover picking a state — and on
+ * the wide screen its row unfolded, a query in find state stepped through its
+ * matches and cleared, then the frame narrowed until LR · TD and find state
+ * fold; over a record of flows (#1246) its row ending with the history item;
+ * and over a record its `flows` source narrows (#1346), the rail and its
+ * summary in the row.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test toolbar-touch --project mobile`.
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, drawnSel } from "./plan-page";
+import { recordField } from "./record-slice";
 import { settled } from "./settle";
 
 /** A gesture that brings controls into the row. */
@@ -62,11 +67,50 @@ const viewTabs = (entry: Locator) => entry.locator("[data-frame-slot='toolbar'] 
 const tabChip = (entry: Locator) => entry.locator("[data-frame-slot='toolbar'] [data-slot='tabMenu']");
 
 /**
+ * The workshop rail's Customer search (#1345), open — its chip's editor, or
+ * the folded rail's — and its box: a prefix of the orders' customers, through
+ * the record's own index.
+ */
+async function customerSearch(entry: Locator, page: Page): Promise<Locator> {
+    const editor = await recordField(page, entry.locator("[data-builder-frame]").first(), "customer");
+    return editor.getByRole("combobox");
+}
+
+/** Closes a rail field's editor by Escape — its search's list first, while one is open — the focus inside them all along. */
+async function escapeEditor(page: Page): Promise<void> {
+    const editor = page.getByRole("dialog");
+    for (let i = 0; i < 2 && await editor.count() > 0; i++) {
+        await page.keyboard.press("Escape");
+        await expect.poll(async () => await openList(page).count() === 0).toBe(true);
+    }
+    await expect(editor).toHaveCount(0);
+}
+
+/** The views folded with the key search into its popover (#1345): its icon, in the row. */
+const searchViewsIcon = (entry: Locator) => entry.locator("[data-frame-slot='toolbar'] [data-toolbar-item='seek'] [data-key-search='icon'][aria-label='Views and search']");
+
+/**
  * A new view tab, from the sheet's narrowing as it stands — `+ TAB` tapped on
- * the strip, or picked from its chip's menu — once it is the open view, named
- * `name`: its tab the active one, or its name on the chip.
+ * the strip, picked from its chip's menu, or tapped in the key search's
+ * popover the views folded into (#1345), which closes it — once it is the
+ * open view, named `name`: its tab the active one, its name on the chip, or
+ * its choice the pressed one in the popover opened again.
  */
 async function newViewTab(entry: Locator, page: Page, name: string): Promise<void> {
+    if (await searchViewsIcon(entry).isVisible()) {
+        const icon = searchViewsIcon(entry);
+        const views = page.locator("[data-slot='searchViews']");
+        await icon.tap();
+        await views.getByRole("button", { name: "New tab from this view" }).tap();
+        // + TAB closes the popover, as an item closes the chip's menu; opened again, the new view's choice is the pressed one.
+        await expect(icon).toHaveAttribute("data-state", "closed");
+        await icon.tap();
+        await expect(views.locator("button[aria-pressed='true']")).toHaveText(new RegExp(`^${name}\\b`));
+        await icon.tap();
+        await expect(icon).toHaveAttribute("data-state", "closed");
+        await settled(page);
+        return;
+    }
     if (await tabChip(entry).isVisible()) {
         await tabChip(entry).tap();
         await page.getByRole("menuitem", { name: "New tab from this view" }).tap();
@@ -95,62 +139,77 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
             run: async (entry, page) => {
                 await newViewTab(entry, page, "view 1");
                 await newViewTab(entry, page, "view 2");
-                // The strip folds into its one chip, the open view's (#1221): the row still fits.
-                await expect(tabChip(entry)).toHaveAttribute("aria-label", "Views: view 2");
+                // The views fold with the key search into its popover (#1345), the open view's choice pressed there: the row still fits.
+                await expect(searchViewsIcon(entry)).toBeVisible();
+                await expect(tabChip(entry)).toHaveCount(0);
             },
         }],
         wide: [
             {
-                what: "a query in the rail's search",
+                what: "a customer searched through the rail",
                 run: async (entry, page) => {
-                    const box = entry.locator("[data-frame-slot='toolbar'] input[placeholder='Search…']");
-                    const context = entry.getByRole("radiogroup", { name: "Context rows either side of a hit" });
-                    await box.fill("oak");
-                    // The lens's context switch, and the pill's clear.
-                    await expect(context).toBeVisible();
-                    await expect(entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Clear search" })).toBeVisible();
-                    // A tap outside the box — on the footer — closes its list, the query kept.
-                    await entry.locator("[data-builder-frame] > [data-frame-slot='footer']").tap();
+                    const search = await customerSearch(entry, page);
+                    await search.fill("Quill");
+                    await search.press("Enter");
+                    // The prefix applied; Escape closes the search's list, then its editor, the focus inside them: no list
+                    // left open, the search kept on the rail.
+                    await escapeEditor(page);
                     await expect(openList(page)).toHaveCount(0);
-                    await expect(box).toHaveValue("oak");
-                    await expect(context).toBeVisible();
+                    // The one order whose customer starts so.
+                    await expect.poll(() => entry.locator("[data-frame-slot='main'] [data-slot='row'][data-band-row]")
+                        .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-row-id")))).toEqual(["WO-2201"]);
                     await settled(page);
                 },
             },
             {
                 what: "a view tab of its own",
                 run: async (entry, page) => {
-                    await newViewTab(entry, page, "oak");
+                    await newViewTab(entry, page, "Quill");
                     // The view's tab, active: its × shows.
                     await expect(entry.locator("[data-slot='tab'][data-active]:not([data-tab='all']) [data-slot='tabClose']")).toBeVisible();
                 },
             },
             {
-                what: "a second, and the first picked again",
+                // A second, then the frame narrowed until the strip has room for one view and folds the first into
+                // `+1` (#1345): that room is what the rail, the key search's box and the history leave it, so the
+                // frame is narrowed to find it, never a width assumed.
+                what: "a second, the frame narrowed until it folds the first into +1, and the first picked again from there",
                 run: async (entry, page) => {
-                    await newViewTab(entry, page, "oak");
-                    await expect(viewTabs(entry)).toHaveCount(2);
-                    await viewTabs(entry).first().tap();
+                    await newViewTab(entry, page, "Quill");
+                    const more = entry.locator("[data-frame-slot='toolbar'] [data-slot='tabMore']");
+                    await narrowUntil(entry, page, "[data-slot='tabMore']");
+                    await expect(more).toBeVisible();
+                    await expect(viewTabs(entry)).toHaveCount(1);
+                    await expect.poll(() => touchFaults(entry), { message: "with +1" }).toEqual([]);
+                    await more.tap();
+                    await page.getByRole("menuitem", { name: /^Quill/ }).tap();
+                    await expect(page.locator("[role='menu']")).toHaveCount(0);
+                    // The first open again, its × shown, the second in `+1` now.
+                    await expect(viewTabs(entry)).toHaveCount(1);
                     await expect(viewTabs(entry).first()).toHaveAttribute("data-active", "");
-                    // Only the active tab's × shows: the other's halo would take a tap that switches to it.
+                    await expect(viewTabs(entry).first()).toHaveAttribute("data-tab", "view-1");
                     await expect(viewTabs(entry).first().locator("[data-slot='tabClose']")).toBeVisible();
-                    await expect(viewTabs(entry).nth(1).locator("[data-slot='tabClose']")).toBeHidden();
                     await settled(page);
                 },
             },
-            {
-                what: "the frame narrowed until a tab folds into +n",
-                run: async (entry, page) => {
-                    const box = entry.locator("[data-builder-frame]").first().locator("xpath=..");
-                    const more = entry.locator("[data-frame-slot='toolbar'] [data-slot='tabMore']");
-                    for (let width = 1400; width >= 360 && !(await more.isVisible()); width -= 40) {
-                        await box.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
-                        await settled(page);
-                    }
-                    await expect(more).toBeVisible();
-                },
-            },
         ],
+    },
+    {
+        // Its three views on the strip, side by side: wide, the stress sheet has the room the workshop's frame has not.
+        name: "sheetStress", hash: "e3/sheet/sheet/sheetStress",
+        wide: [{
+            what: "another of its views picked",
+            run: async (entry, page) => {
+                await expect(viewTabs(entry)).toHaveCount(3);
+                await viewTabs(entry).nth(1).tap();
+                await expect(viewTabs(entry).nth(1)).toHaveAttribute("data-active", "");
+                // Only the active tab's × shows: another's halo would take a tap that switches to it.
+                await expect(viewTabs(entry).nth(1).locator("[data-slot='tabClose']")).toBeVisible();
+                await expect(viewTabs(entry).first().locator("[data-slot='tabClose']")).toBeHidden();
+                await expect(viewTabs(entry).nth(2).locator("[data-slot='tabClose']")).toBeHidden();
+                await settled(page);
+            },
+        }],
     },
     {
         name: "sheetPaged", hash: "e3/sheet/sheet/sheetPaged",
@@ -172,6 +231,9 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
     { name: "sheetBatches", hash: "e3/sheet/sheet/sheetBatches" },
     // Over a record of flows, the history item ends the Flowchart's row (#1246).
     { name: "flowchartFlows", hash: "e3/flowchart/flowchart/flowchartFlows" },
+    // Over a record its `flows` source narrows, the rail and its summary fold first, and on the phone LR · TD and find
+    // state bundle into the key search's popover (#1346).
+    { name: "flowchartRecordIndexes", hash: "e3/flowchart/flowchart/flowchartRecordIndexes" },
 ];
 
 /** Open an example's page at rest and return its entry. */
@@ -259,20 +321,6 @@ async function touchFaults(entry: Locator): Promise<string[]> {
 /** The slice's edit popover, open: a compact trigger's editor, or the rail's sectioned one. */
 const openEditor = (page: Page) => page.locator("[data-scope='popover'][data-part='content'][data-state='open']");
 
-/**
- * A filter on the first field the open editor's clause builder offers — the
- * workshop's activity, the plan's task — its value typed, then Add (not
- * `+ filter`, named Add filter): `<field> contains <word>`.
- */
-async function buildFilter(page: Page, word: string): Promise<void> {
-    const editor = openEditor(page);
-    await editor.locator("[data-clause-stacked]").getByRole("textbox").fill(word);
-    await editor.getByRole("button", { name: "Add", exact: true }).tap();
-}
-
-/** The row's clause chip, by its words. */
-const clauseChip = (entry: Locator, words: string) => entry.locator("[data-frame-slot='toolbar']").getByText(words);
-
 /** Sizes the box a builder frame fills: its nearest ancestor that lays out — the Plan's `display: contents` wrapper does not. */
 async function sizeFrame(entry: Locator, width: number): Promise<void> {
     await entry.locator("[data-builder-frame]").first().evaluate((frame, w) => {
@@ -283,67 +331,81 @@ async function sizeFrame(entry: Locator, width: number): Promise<void> {
 }
 
 /**
- * The builders' rails filtered (#1231): every clause chip and `+N more` one
- * button, and every control in the row still a 44px tap target. The
- * workshop's rail is filtered on the phone in its editor — the trigger the
- * editor hangs from keeping its form while it is open, the row folding back
- * once it closes — and the clause then removed from its own editor, a touch
- * screen drawing its chip no ×; on the wide screen from its `+ filter`, the
- * row, short of room once the lens's context switch and count join it,
- * folding the chips into `+2 more` first (#952). The slice-chrome plan's row
- * has the room for clause chips: the one it starts with, a second set from
- * `+ filter`, then the frame narrowed until one folds into `+N more`.
+ * Team B chosen in the slice-chrome plan rail's Owner editor (#1344), beside
+ * the Team A its tasks start narrowed to: Team B's Design draws — its row, or
+ * on a phone its card.
+ */
+const ownerChosen: Gesture = {
+    what: "Team B chosen in the rail's Owner editor",
+    run: async (entry, page) => {
+        const editor = await recordField(page, entry.locator("[data-builder-frame]").first(), "owner");
+        await editor.getByRole("button", { name: /^Team B/ }).tap();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await expect(entry.locator(`[data-frame-slot='main'] ${drawnSel("jobs", "Design")}`)).toHaveCount(1);
+        await settled(page);
+    },
+};
+
+/**
+ * The frame narrowed until the plan's rail folds its one field, Owner, to its
+ * chip (#1344): a rail of one field has no icon rung, and the tasks' start is
+ * the date navigator's, never the rail's.
+ */
+const railFolded: Gesture = {
+    what: "the frame narrowed until the rail folds its Owner to its chip",
+    run: (entry, page) => narrowUntil(entry, page, "[data-toolbar-item='record-slices'] [data-slice-fold='field:rows.owner']"),
+};
+
+/**
+ * The builders' rails filtered (#1231): every control in the row still a 44px
+ * tap target. The workshop's rail is its records' (#1345): on the phone an
+ * order status is chosen in its editor and then cleared from it; on the wide
+ * screen two sources are chosen from their chips — an order status and the
+ * operation templates' group — and the row holds the chips it shows chosen.
+ * The slice-chrome plan's rail is its tasks' record's (#1344): Team B is
+ * chosen in its Owner editor, beside the Team A it starts with, and on the
+ * wide screen the frame is then narrowed until the rail folds Owner to its
+ * chip.
  */
 const FILTERED: ReadonlyArray<{ name: string; hash: string; phone: readonly Gesture[]; wide: readonly Gesture[] }> = [
     {
         name: "sheetWorkshop", hash: "e3/sheet/sheet/sheetWorkshop",
         phone: [
             {
-                what: "a filter set from the rail's editor",
+                what: "an order status chosen in the rail's editor",
                 run: async (entry, page) => {
-                    const editor = openEditor(page);
-                    const trigger = entry.locator("[data-frame-slot='toolbar'] [data-slot='railTrigger']");
-                    await trigger.tap();
-                    const folds = await trigger.locator("[data-slice-fold]").count();
-                    await editor.locator("[data-slice-add='filter']").tap();
-                    await buildFilter(page, "Panel");
-                    await expect(editor.getByText("contains Panel")).toBeVisible();
-                    // The rail its open editor holds keeps its form: the trigger the editor hangs from folds as it did.
-                    await expect(trigger.locator("[data-slice-fold]")).toHaveCount(folds);
-                    await editor.getByRole("button", { name: "Done" }).tap();
-                    await expect(openEditor(page)).toHaveCount(0);
+                    const editor = await recordField(page, entry.locator("[data-builder-frame]").first(), "status");
+                    await editor.getByRole("button", { name: /^PLANNED/ }).tap();
+                    await page.keyboard.press("Escape");
+                    await expect(page.getByRole("dialog")).toHaveCount(0);
+                    await expect(entry.locator("[data-frame-slot='main'] [data-slot='row'][data-band-row][data-row-id='WO-2201']")).toHaveCount(0);
                     await settled(page);
                 },
             },
             {
-                what: "the filter removed from its clause's editor — a touch screen draws its chip no ×",
+                what: "the status cleared from its own editor",
                 run: async (entry, page) => {
-                    const editor = openEditor(page);
-                    await entry.locator("[data-frame-slot='toolbar'] [data-slot='railTrigger']").tap();
-                    const clause = editor.getByText("contains Panel");
-                    await expect(clause).toBeVisible();
-                    await expect(editor.locator("[data-chip-remove]")).toHaveCount(0);
-                    await clause.tap();
-                    await editor.getByRole("button", { name: "Remove filter" }).tap();
-                    await expect(clause).toHaveCount(0);
-                    await editor.getByRole("button", { name: "Done" }).tap();
-                    await expect(openEditor(page)).toHaveCount(0);
+                    const editor = await recordField(page, entry.locator("[data-builder-frame]").first(), "status");
+                    await editor.getByRole("button", { name: /^Clear / }).tap();
+                    await page.keyboard.press("Escape");
+                    await expect(page.getByRole("dialog")).toHaveCount(0);
+                    await expect(entry.locator("[data-frame-slot='main'] [data-slot='row'][data-band-row][data-row-id='WO-2201']")).toHaveCount(1);
                     await settled(page);
                 },
             },
         ],
         wide: [
             {
-                what: "two filters set from the rail's + filter",
+                what: "two sources chosen from their chips",
                 run: async (entry, page) => {
-                    const toolbar = entry.locator("[data-frame-slot='toolbar']");
-                    for (const word of ["Panel", "Edge"]) {
-                        await toolbar.locator("[data-slice-add='filter']").tap();
-                        await buildFilter(page, word);
-                        await expect(openEditor(page)).toHaveCount(0);
+                    for (const [source, field, value] of [["rows", "status", /^PLANNED/], ["rowTemplates", "group", /^Dispatch/]] as const) {
+                        const editor = await recordField(page, entry.locator("[data-builder-frame]").first(), field, source);
+                        await editor.getByRole("button", { name: value }).first().tap();
+                        await page.keyboard.press("Escape");
+                        await expect(page.getByRole("dialog")).toHaveCount(0);
                     }
-                    // The row short of room folds the clause chips first (rank 0), into `+2 more`.
-                    await expect(toolbar.getByText("+2 more", { exact: true })).toBeVisible();
+                    await expect(entry.locator("[data-frame-slot='start'] [role='tab']").first()).toHaveText("Rows 5 of 11");
                     await settled(page);
                 },
             },
@@ -351,32 +413,8 @@ const FILTERED: ReadonlyArray<{ name: string; hash: string; phone: readonly Gest
     },
     {
         name: "slicePlanChrome", hash: `${PLAN_EXAMPLES}/slicePlanChrome`,
-        phone: [],
-        wide: [
-            {
-                what: "a second filter set from the rail's + filter",
-                run: async (entry, page) => {
-                    await entry.locator("[data-frame-slot='toolbar'] [data-slice-add='filter']").tap();
-                    await buildFilter(page, "Design");
-                    await expect(openEditor(page)).toHaveCount(0);
-                    await expect(clauseChip(entry, "contains Design")).toBeVisible();
-                    await expect(clauseChip(entry, "owner = Team A")).toBeVisible();
-                    await settled(page);
-                },
-            },
-            {
-                what: "the frame narrowed until a clause folds into +N more",
-                run: async (entry, page) => {
-                    const more = entry.locator("[data-frame-slot='toolbar']").getByText(/^\+\d+ more$/);
-                    for (let width = 960; width >= 360 && !(await more.isVisible()); width -= 40) {
-                        await sizeFrame(entry, width);
-                        await settled(page);
-                    }
-                    await expect(more).toBeVisible();
-                    await expect(entry.locator("[data-frame-slot='toolbar'] [data-slice-clause]")).not.toHaveCount(0);
-                },
-            },
-        ],
+        phone: [ownerChosen],
+        wide: [ownerChosen, railFolded],
     },
 ];
 
@@ -527,27 +565,43 @@ const findStepped: Gesture = {
     },
 };
 
-/** The frame narrowed until find state folds to its icon (#1245): past the phone's width the row still holds its box, so the frame narrows below it. */
-const findToIcon: Gesture = {
-    what: "the frame narrowed until find state folds to its icon",
-    run: async (entry, page) => {
-        const icon = inRow(entry, "[data-toolbar-item='seek'] [data-key-search='icon']");
-        for (let width = 420; width >= 260 && !(await icon.isVisible()); width -= 10) {
-            await sizeFrame(entry, width);
-            await settled(page);
-        }
-        await expect(icon).toBeVisible();
-    },
-};
+/**
+ * The frame narrowed, 10px at a time from 420px, until what `selector` names
+ * draws in the row (#1245): past the phone's width the row still holds LR ·
+ * TD's segment and find state's box — over the host's tables, which no rail
+ * narrows (#1346), down to some 300px — so the frame narrows below it.
+ */
+function narrowedUntil(what: string, selector: string): Gesture {
+    return {
+        what,
+        run: async (entry, page) => {
+            const target = inRow(entry, selector);
+            for (let width = 420; width >= 240 && !(await target.isVisible()); width -= 10) {
+                await sizeFrame(entry, width);
+                await settled(page);
+            }
+            await expect(target).toBeVisible();
+        },
+    };
+}
+
+/** The frame narrowed until LR · TD folds into its chip (#1245). */
+const orientationToChip = narrowedUntil("the frame narrowed until LR · TD folds into its chip", "[data-flowchart-segmenu]");
+
+/** The frame narrowed until find state folds to its icon (#1245), LR · TD folded into its chip before it. */
+const findToIcon = narrowedUntil("the frame narrowed until find state folds to its icon", "[data-toolbar-item='seek'] [data-key-search='icon']");
 
 /**
  * The builders whose rows fold into chips (#1229), each with the chips its
  * row draws at the phone's width — Studio's View chip and ⋯ chip, the SnapGrid
- * editor's View chip, the query builder's ⋯ chip, the Flowchart's LR · TD chip
- * and find state's icon (#1245) — and the gestures that use them by touch
- * there; on the wide touch screen, where the rows unfold, the frame narrowed
- * until the design widths fold to their icons, which the edge check reaches,
- * and then until the chips draw.
+ * editor's View chip, the query builder's ⋯ chip — and the gestures that use
+ * them by touch there; on the wide touch screen, where the rows unfold, the
+ * frame narrowed until the design widths fold to their icons, which the edge
+ * check reaches, and then until the chips draw. The Flowchart's LR · TD chip
+ * and find state's icon (#1245) draw in a frame narrower than the phone's:
+ * over the host's tables, which no rail narrows (#1346), the phone's row holds
+ * LR · TD's segment and find state's box, so there the frame narrows until
+ * both fold, and the gestures use them by touch.
  */
 const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[]; phone: readonly Gesture[]; wide: readonly Gesture[] }> = [
     {
@@ -575,14 +629,12 @@ const CHIPS: ReadonlyArray<{ name: string; hash: string; chips: readonly string[
         wide: [{ what: "the frame narrowed until the ⋯ chip draws", run: (entry, page) => narrowUntil(entry, page, "[data-query-more]") }],
     },
     {
+        // Over the host's tables, which no rail narrows (#1346), the phone's row folds no chip: the frame narrows until
+        // LR · TD's chip and find state's icon draw.
         name: "flowchartDepot", hash: "e3/flowchart/flowchart/flowchartDepot",
-        chips: ["[data-flowchart-segmenu]", "[data-toolbar-item='seek'] [data-key-search='icon']", "[data-toolbar-item='rail'] [data-slot='railTrigger']"],
-        phone: [orientationByTouch, findByTouch],
-        wide: [
-            findStepped,
-            { what: "the frame narrowed until LR · TD folds into its chip", run: (entry, page) => narrowUntil(entry, page, "[data-flowchart-segmenu]") },
-            findToIcon,
-        ],
+        chips: [],
+        phone: [findToIcon, orientationByTouch, findByTouch],
+        wide: [findStepped, orientationToChip, findToIcon],
     },
 ];
 
@@ -646,16 +698,21 @@ test.describe("a search's list on a touch screen (#1228)", () => {
     /** Two animation frames: a search looks at a focus a frame after it moves, as Zag does on a desktop. */
     const frames = (page: Page) => page.evaluate(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
 
-    test("⏎ in the workshop sheet's rail search hands the focus to the sheet, and leaves no list open", async ({ page }) => {
+    test("⏎ in the workshop sheet rail's Customer search applies its prefix, and Escape leaves no list open; the grid shows the one order whose customer starts so (#1345)", async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1000 });
         const entry = await openToolbar(page, "e3/sheet/sheet/sheetWorkshop");
-        const box = entry.locator("[data-frame-slot='toolbar'] input[placeholder='Search…']");
-        await box.fill("oak");
-        await expect(openList(page)).toHaveCount(1);
-        await box.press("Enter");
+        const search = await customerSearch(entry, page);
+        await search.fill("Quill");
+        await search.press("Enter");
+        // Escape closes the search's list, then its editor, the focus inside them: no list left open over the sheet.
+        await escapeEditor(page);
+        await expect(openList(page)).toHaveCount(0);
+        await expect.poll(() => entry.locator("[data-frame-slot='main'] [data-slot='row'][data-band-row]")
+            .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-row-id")))).toEqual(["WO-2201"]);
+        // The sheet takes the focus again at a tap, nothing left open over it.
+        await entry.locator("[data-frame-slot='main'] [data-sheet-card]").tap();
         await expect.poll(() => focusInMain(entry)).toBe(true);
         await expect(openList(page)).toHaveCount(0);
-        await expect(box).toHaveValue("oak");
     });
 
     test("Tab out of the paged sheet's key search leaves no list open", async ({ page }) => {

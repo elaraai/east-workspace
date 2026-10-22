@@ -327,16 +327,19 @@ export {
 } from './record-apply.js';
 
 // A delivery the store holds, or a value it holds as it is, taken into a
-// workspace as a dataset value
+// workspace as a dataset value; and a delivery taken in as a stored value
+// naming no dataset, for a record's first state
 export {
   datasetAdoptObject,
   datasetAdoptKnown,
   datasetSetStored,
+  deliveryAdoptStored,
   adoptProgressToIntakeFile,
   type DatasetAdoptObjectOptions,
   type DatasetAdoptProgress,
   type DatasetAdoptResult,
   type DatasetTaken,
+  type DeliveryAdoptStoredOptions,
   type ObjectAdoptResult,
 } from './dataset-adopt.js';
 
@@ -545,9 +548,11 @@ export type {
   DataflowGraphTask as DataflowGraphTaskType,
   InitializeResult,
   PrepareTaskResult,
+  PrepareTaskWaiting,
   TaskExecuteResult,
   TaskCompletedResult,
   TaskFailedResult,
+  TasksWaitingResult,
   FinalizeResult,
 } from './dataflow/types.js';
 
@@ -565,6 +570,8 @@ export {
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,
+  stepTasksWaiting,
+  waitingTasks,
   stepIsComplete,
   stepFinalize,
   stepCancel,

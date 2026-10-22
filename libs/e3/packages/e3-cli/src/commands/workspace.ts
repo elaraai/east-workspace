@@ -512,9 +512,31 @@ export function recordPlanLine(plan: RecordPlan): string {
     case 'keep': return `keep record ${plan.record}${action.value.deploy ? ', with a $deploy commit: the package under it changed' : ''}`;
     case 'migrate': return `migrate record ${plan.record}: ${action.value.steps.join(', ')}`;
     case 'reset': return `reset record ${plan.record}: it ${action.value.reason}`;
+    case 'unassign': return `unassign record ${plan.record}, for its first state to be committed again: it ${action.value.reason}`;
     case 'drop': return `drop record ${plan.record}, with its state and history`;
     case 'refused': return `refuse record ${plan.record}: it ${action.value.reason}`;
+    case 'unassigned': return `leave record ${plan.record} unassigned: the package declares no initial value, so its first state is committed from outside`;
   }
+}
+
+/**
+ * How a record a deploy left unassigned gets its first state, where the deploy
+ * went: `e3 seed` for a local repository, which takes a local one; a server's
+ * host commits it through its own intake.
+ *
+ * @param target - The deploy
+ * @param records - The records' ref paths, such as `records/orders`
+ * @returns The lines to print
+ */
+export function seedHint(target: Pick<DeployTarget, 'location' | 'repoArg' | 'ws'>, records: readonly string[]): string[] {
+  if (records.length === 0) return [];
+  if (target.location.type === 'remote') {
+    return [`A server's host commits a record's first state through its own intake (e3 seed takes a local repository).`];
+  }
+  return records.map((record) => {
+    const name = record.split('/').pop() ?? record;
+    return `Commit ${name}'s first state with: e3 seed ${target.repoArg} ${name} <file.beast2> -w ${target.ws}`;
+  });
 }
 
 /** What a deploy decided for an input, as a line the CLI prints. */
@@ -541,7 +563,8 @@ export function inputPlanLine(plan: InputPlan): string {
  * build it names runs, since those are the parts of a deploy that take
  * minutes. A server's job reports them all once it has finished. Once it has
  * said them, an input someone set that only `--inputs reset` resets names the
- * flag that keeps it.
+ * flag that keeps it, and a record left unassigned, or sent back to it, names
+ * how its first state is committed where the deploy went ({@link seedHint}).
  *
  * @param target - The deploy
  * @returns Where the deploy's decisions go, the end of a deploy, and the end of
@@ -556,14 +579,17 @@ function deployReporter(target: DeployTarget): {
 } {
   let refused = 0;
   let resetByPolicy = 0;
+  const unassigned: string[] = [];
   const endDeploy = (): void => {
     if (resetByPolicy > 0) console.log('Deploy with --inputs keep-edited to keep the inputs people set.');
+    for (const line of seedHint(target, unassigned)) console.log(line);
   };
   return {
     onRecordPlan: (plan) => {
       const action = plan.action.type;
       if (action === 'refused') refused++;
-      if (target.plan || action === 'migrate' || action === 'reset' || action === 'drop') {
+      if (action === 'unassigned' || action === 'unassign') unassigned.push(plan.record);
+      if (target.plan || action === 'migrate' || action === 'reset' || action === 'unassign' || action === 'drop' || action === 'unassigned') {
         console.log(`  ${recordPlanLine(plan)}`);
       }
     },

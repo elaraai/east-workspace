@@ -22,7 +22,9 @@ answers e3's whole API with e3-api-server's own routes; its unit workers
   message, its lifeline freed, or the port's close event where one fires
   (Node's; a browser's port fires none). `identify` set, an unidentified
   request to a repository is answered 401, and `access` defaults to
-  `oneShotAccessByRoles()`.
+  `oneShotAccessByRoles()`. A `pieceBytes` given is the size the thread's
+  split tasks and intakes are cut at (e3-core's `readTestPieceBytesFrom`,
+  which `E3_TEST_PIECE_BYTES` sets for a local runner), checked as it boots.
 - `src/app.ts` — `createWebApp`: every route factory of
   `@elaraai/e3-api-server/portable`, mounted in multi-repository mode in the
   local server's order (`server.ts`), with an optional `identify` that sets

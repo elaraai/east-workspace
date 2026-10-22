@@ -44,6 +44,7 @@ import {
 } from "@elaraai/east";
 import { SheetCellType, SheetPatchTypeFor } from "./types.js";
 import { SheetCellsType, buildPatchCells, type SheetBridge } from "./bridge.js";
+import { tabSource } from "../utils/record-sources.js";
 
 // ============================================================================
 // The wire
@@ -78,9 +79,9 @@ export type SheetLibraryDropType = typeof SheetLibraryDropType;
 /**
  * One tab of the library pane on the wire, in the order `library` lists them.
  *
- * - `rows` — the templates (`templates`), by their group;
+ * - `rows` — the templates (`templates`), by their group, each list's cards narrowed by the source it names;
  * - `columns` — the declared columns, each with an eye;
- * - `tab` — the author's own: its name, its icon, where its cards land, and its cards.
+ * - `tab` — the author's own: its name, its icon, where its cards land, its cards, and the source of the sheet's slice whose shown keys filter them (#1345; none, its cards whole).
  */
 export const SheetLibraryTabType = VariantType({
     rows: NullType,
@@ -90,6 +91,7 @@ export const SheetLibraryTabType = VariantType({
         icon: OptionType(StringType),
         drop: OptionType(SheetLibraryDropType),
         cards: ArrayType(SheetLibraryCardType),
+        source: OptionType(StringType),
     }),
 });
 
@@ -124,6 +126,13 @@ export interface SheetLibraryTabConfig<T extends EastType, P extends EastType = 
     group?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
     /** What a dropped card sets: `Sheet.patch(RowType, …)` lands on a row, `Sheet.patch(GroupType, …)` on a grouped sheet's band. */
     drop?: (value: ExprType<T>, key: ExprType<StringType>) => ExprType<P>;
+    /**
+     * The source of the sheet's `Slice.bindRecords` whose shown keys filter
+     * this tab's cards (#1345), its cards' keys that record's keys; omitted,
+     * the tab lists its cards whole. It counts what it shows, and says so when
+     * the rail leaves it none.
+     */
+    source?: string;
 }
 
 /** One tab of the library pane — what each `Sheet.library.*` call returns, and `library` lists. */
@@ -252,11 +261,13 @@ function tabName(tab: SheetLibraryTab): string {
  *
  * @param tab - The tab
  * @param bridge - The sheet's bridge, as its root compiled it
+ * @param sources - The sources of the sheet's slice, which the tab's `source` must be one of
  * @returns The tab's wire value
- * @throws Error naming the tab: data that is not an Array or a `Dict<String, T>`, or a `drop` over neither the row type nor the group type
+ * @throws Error naming the tab: data that is not an Array or a `Dict<String, T>`, a `drop` over neither the row type nor the group type, or a `source` the slice lacks
  */
-function buildTab(tab: Extract<SheetLibraryTab, { kind: "tab" }>, bridge: SheetBridge): ExprType<SheetLibraryTabType> {
+function buildTab(tab: Extract<SheetLibraryTab, { kind: "tab" }>, bridge: SheetBridge, sources: readonly string[]): ExprType<SheetLibraryTabType> {
     const cfg = tab.config;
+    const source = tabSource("Sheet", `"${cfg.name}"`, cfg.source, sources);
     const expr = East.value(tab.data as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
     // The data is an Array or a Dict whatever the cast above says: widen to read its real East type.
     const t = Expr.type(expr) as EastType;
@@ -308,7 +319,20 @@ function buildTab(tab: Extract<SheetLibraryTab, { kind: "tab" }>, bridge: SheetB
         icon: cfg.icon === undefined ? none : some(cfg.icon),
         drop: landing === undefined ? none : some(variant(landing, null)),
         cards: dedupeCards(list as ExprType<ArrayType<SheetLibraryCardType>>),
+        source,
     }), SheetLibraryTabType);
+}
+
+/**
+ * The sources the library's own tabs name (#1345): what the sheet's slice may
+ * hold for them.
+ *
+ * @param tabs - The tabs, each a `Sheet.library.*` call
+ * @returns Each author's tab's `source`, where it names one
+ * @internal
+ */
+export function librarySources(tabs: readonly SheetLibraryTab[] | undefined): string[] {
+    return (tabs ?? []).flatMap((tab) => (tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : []));
 }
 
 /**
@@ -317,11 +341,12 @@ function buildTab(tab: Extract<SheetLibraryTab, { kind: "tab" }>, bridge: SheetB
  *
  * @param tabs - The tabs, each a `Sheet.library.*` call
  * @param bridge - The sheet's bridge, as its root compiled it
+ * @param sources - The sources of the sheet's slice, which an author's tab's `source` must be one of
  * @returns The tabs on the wire
  * @throws Error naming the tab: a tab listed twice (an author's tab by its name), and each of an author's tab's refusals
  * @internal
  */
-export function buildLibrary(tabs: readonly SheetLibraryTab[] | undefined, bridge: SheetBridge): ExprType<ArrayType<SheetLibraryTabType>> {
+export function buildLibrary(tabs: readonly SheetLibraryTab[] | undefined, bridge: SheetBridge, sources: readonly string[] = []): ExprType<ArrayType<SheetLibraryTabType>> {
     const seen = new Set<string>();
     for (const tab of tabs ?? []) {
         const id = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind;
@@ -333,7 +358,7 @@ export function buildLibrary(tabs: readonly SheetLibraryTab[] | undefined, bridg
         seen.add(id);
     }
     const wires = (tabs ?? []).map((tab): ExprType<SheetLibraryTabType> => tab.kind === "tab"
-        ? buildTab(tab, bridge)
+        ? buildTab(tab, bridge, sources)
         : East.value(variant(tab.kind, null), SheetLibraryTabType));
     return East.value(wires, ArrayType(SheetLibraryTabType));
 }

@@ -65,6 +65,7 @@ import {
   stepTaskCompleted,
   stepTaskFailed,
   stepTasksSkipped,
+  stepTasksWaiting,
   stepIsComplete,
   stepFinalize,
   stepCancel,
@@ -76,6 +77,7 @@ import {
   stepTaskResultStale,
   stepGetRunSet,
   stepTaskForced,
+  waitingTasks,
 } from '../steps.js';
 import type { Mutable } from '../types.js';
 
@@ -929,6 +931,8 @@ export class LocalOrchestrator implements DataflowOrchestrator {
             !taskState ||
             taskState.status === 'in_progress' ||
             taskState.status === 'completed' ||
+            // Left waiting since the ready list was taken
+            taskState.status === 'waiting' ||
             execution.runningTasks.has(taskName) ||
             execution.splits.has(taskName)
           ) {
@@ -959,6 +963,19 @@ export class LocalOrchestrator implements DataflowOrchestrator {
 
           // Prepare task (resolve inputs, check cache)
           const prepared = await stepPrepareTask(storage, state, taskName);
+
+          // An input of it is unassigned: the task waits for it, and its
+          // dependents with it, and the run goes on without them. Their
+          // statuses may have ended the run: the top of the loop checks.
+          if (prepared.kind === 'waiting') {
+            hadSyncCompletion = true;
+            await execution.mutex.runExclusive(async () => {
+              const { waiting } = stepTasksWaiting(state, taskName, prepared.unassigned);
+              await this.persistState(execution, state);
+              for (const each of waiting) options.onTaskWaiting?.(each.task, each.inputs);
+            });
+            continue;
+          }
 
           // Check cache
           const cached = prepared.cached;
@@ -1164,12 +1181,12 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       // abort is what wait() answers.
       if (err instanceof DataflowAbortedError || err instanceof DataflowSupersededError) throw err;
 
-      // An unexpected error escaped the execution loop (e.g. a task has an
-      // unassigned input). The success-path finalization above is skipped, so
-      // without this the run's persisted status stays 'running' forever — any
-      // client polling it (e.g. a remote `dataflow run` over the API) then hangs
-      // until timeout instead of seeing the failure. Persist a terminal 'failed'
-      // status so pollers observe the error promptly.
+      // An unexpected error escaped the execution loop (e.g. a store refused
+      // a read the loop made). The success-path finalization above is skipped,
+      // so without this the run's persisted status stays 'running' forever —
+      // any client polling it (e.g. a remote `dataflow run` over the API) then
+      // hangs until timeout instead of seeing the failure. Persist a terminal
+      // 'failed' status so pollers observe the error promptly.
       //
       // What the loop launched is stopped and settled first, as a cancel
       // stops it, while the run still holds its locks: a completion landing
@@ -1375,6 +1392,7 @@ export class LocalOrchestrator implements DataflowOrchestrator {
       cached: Number(state.cached),
       failed: Number(state.failed),
       skipped: Number(state.skipped),
+      waiting: waitingTasks(state).length,
       reexecuted: Number(state.reexecuted),
       duration: Date.now() - state.startedAt.getTime(),
       yielded: true,

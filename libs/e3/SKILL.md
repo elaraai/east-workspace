@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -511,7 +511,7 @@ await e3.export(e3.package('tools', '1.0.0', process, add), '/tmp/tools.zip');
 
 ### Records — audited state, written only through mutations
 
-`e3.record(name, type, initialValue)` is a dataset at `.records.<name>` that
+`e3.record(name, type, initialValue?)` is a dataset at `.records.<name>` that
 tasks read and react to like any input, but that only its **mutations** write:
 a raw `dataset set` is refused. A mutation is pure, synchronous East — no async
 body and no platform call, since the compare-and-swap retry runs it again
@@ -520,6 +520,15 @@ the state, the mutation, its arguments, the actor and the time. Deploy mints a
 `$init` commit from the initial value, and a redeploy keeps state and history.
 The record's version vector carries the commit hash, so even a mutation that
 leaves the state unchanged triggers downstream tasks.
+
+Declared with no initial value, a record is **unassigned** until its first
+state is committed — `e3 seed <repo> <record> <file.beast2> -w <ws>` from a
+beast2 file, or a host's file intake — which is then its `$init`: the deploy
+writes no commit for it, its dependents wait as they wait on an unset input —
+a run leaves them waiting, counts them (`Waiting:`) and goes on without them —
+and a mutation on it is refused until then. So a record whose first state is
+data that arrives after the deploy — a customer list, a reference table —
+never runs its dependents on an empty value first.
 
 | Form | Body | Use it when |
 |---|---|---|
@@ -654,7 +663,7 @@ What a deploy does with each record, decided before it writes anything:
 
 | The workspace holds | Against the package's chain | The deploy |
 |---|---|---|
-| no state | — | mints `$init`; the whole chain counts as applied |
+| no state | — | mints `$init` from the initial value, the whole chain counted applied; declared with no initial value, leaves it unassigned (`unassigned`) for `e3 seed` |
 | state | every step applied, the type unchanged | keeps it, with a `$deploy` commit when the package changed |
 | state | a proper prefix applied | runs the rest, a `$migrate:<name>` commit each |
 | state | every step applied, but the type changed | refused: a type change needs a migration, or `--schema reset` |
@@ -663,7 +672,8 @@ What a deploy does with each record, decided before it writes anything:
 
 `--schema <policy>` on `e3 workspace deploy` and `e3 watch`: `migrate` (the
 default), `fail` (run no migration; refuse) or `reset` (reset the record to its
-initial value, with a `$reset` commit). `--plan` prints what the deploy would do
+initial value, with a `$reset` commit (`reset`); one declared with no initial
+value goes back to unassigned (`unassign`), for `e3 seed` again). `--plan` prints what the deploy would do
 to each record, index and input and writes nothing — from a zip or a source it
 imports nothing, and a server plans only a package it holds. The steps run
 before the deploy writes: a failed step leaves the workspace as it was, and a
@@ -712,13 +722,14 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | `e3 dataset set [repo] <ws.name> --from-file <path.beast2> [-j <n>] [--memory <size>]` | Take a beast2 file in as the value, as a deploy takes a `file` source in, saying how far it has got; `-j`, `--memory`: the budget its intake units run under (local). |
 | `e3 dataset list [repo] <ws> [-l]` · `status [repo] <ws.name>` · `find [repo] <ws> <pattern>` | Paths (`-l`: kind, type, status, size) · one dataset · by substring or glob. |
 | **Running** | |
-| `e3 dataflow run [repo] <ws> [--filter <task>] [--force \| --force-task <task>…] [-j <n>] [--memory <size>] [-v]` | Run what is stale, then print the outputs' paths. `--filter`: one task, by its exact name, and the tasks it depends on. `--force`: re-run every task the run runs (under `--filter`, its task); `--force-task`, repeated for each: re-run the tasks it names, whose dependents re-run when an output changes. A task the graph lacks, or one `--filter` leaves out, refuses the run. |
+| `e3 dataflow run [repo] <ws> [--filter <task>] [--force \| --force-task <task>…] [-j <n>] [--memory <size>] [-v]` | Run what is stale, then print the outputs' paths. `--filter`: one task, by its exact name, and the tasks it depends on. `--force`: re-run every task the run runs (under `--filter`, its task); `--force-task`, repeated for each: re-run the tasks it names, whose dependents re-run when an output changes. A task the graph lacks, or one `--filter` leaves out, refuses the run. A task whose input nothing has set — an input never set, or a record declared with no initial value and not yet seeded — is left waiting, with its dependents (`[WAIT]`, `Waiting:`), and the run completes without them; they run once it is set. |
 | `e3 task list [repo] <ws>` | Tasks with the status of each one's latest run. |
 | `e3 task logs [repo] <ws.task> [-n <lines>] [--all] [--follow] [--execution <task>/<inputs>/<id>]` | The last 200 lines by default, of the latest attempt over the task's current inputs, or its latest run; `--follow` stays on that execution; `--execution`: one unit's log, as a split task's log names it (local). |
 | `e3 run <repo> <pkg[@ver].task> [inputs.beast2…] -o <out> [--force] [-v] [-j <n>] [--memory <size>]` | Run one task ad hoc. |
 | `e3 call <repo> <pkg[@ver].fn> [args…] [-o <out.beast2>] [-j <n>] [--memory <size>] [-v]` · `e3 call <repo> -w <ws> <fn> [args…]` | Call a function; each argument is an `.east` literal or a `.beast2`/`.json`/`.east` file, and with `-w` one written `@<keypath>` (`@.inputs.sales`) is that dataset of the workspace, pinned at its hash when the call starts. |
 | **Records** (`-w <ws>` required) | |
 | `e3 mutate <repo> <record.mutation> [args…] -w <ws> [-j <n>] [--memory <size>] [-v]` | Apply a mutation. |
+| `e3 seed <repo> <record> <file.beast2> -w <ws> [-j <n>] [--memory <size>]` | Commit a record's first state from a beast2 file, as its `$init`: for a record declared with no initial value, unassigned until then (local). The file is taken in as a `file` source is, never read whole; a record that holds a state is refused. |
 | `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first (`--delta`: what each changed, per target; local). |
 | `e3 reindex <repo> <record> -w <ws> [--index <name>] [-j <n>] [--memory <size>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes (local) · collapse the history to a `$compact` root, the state kept. |
 | **Development** | |
@@ -738,8 +749,8 @@ alone and then fans out; on Linux and macOS a guard stops the newest unit when
 the runners together pass the budget, and runs it again once it fits. A deploy
 takes its `file` sources in `-j` at a time, their pieces' intake units running
 under the same budget. The commands that run East — `workspace deploy`,
-`dataset set --from-file`, `dataflow run`, `run`, `call`, `mutate`, `reindex`
-and `watch` — take the flags for a local repository; against a server the CLI
+`dataset set --from-file`, `dataflow run`, `run`, `call`, `mutate`, `seed`,
+`reindex` and `watch` — take the flags for a local repository; against a server the CLI
 refuses them, since the server runs the work under its own budget
 (`e3-api-server -j`, `--memory`).
 
@@ -828,9 +839,9 @@ takes a runner, `new LocalTaskRunner(repo)`.
 | Repositories | `repoInit(path)`, `repoFind(startPath?)`, `repositoryOpen(storage, repo)` (checks the repository and applies the upgrades it owes), `repositoryUpgradeStep(storage, repo, { budgetMs, waitMs? })` → `{ owed }` — a host's job applies them so, a part per run under its time limit, each part taking a step up where the last stopped, `repoGc(storage, repo, { dryRun?, minAge?, keepRuns?, keepDays?, retention?, executionAlive? })` — holding the repository still, or, with `retention: { windowMs }`, beside running work: an object goes once unreachable for the window and not written or re-referenced since; given a runner's `executionAlive`, an attempt recorded running that cannot finish is recorded interrupted and pruned; `repoGcStep(storage, repo, step, { windowMs, pruneMs?, markMs?, concurrency?, executionAlive?, … })` runs that one step at a time, each returning the next (`GcStepType`), `pruneMs` and `markMs` bounding a prune step and a mark step for a host with a time limit |
 | Packages | `packageImport(storage, repo, zipPath)`, `packageExport(storage, repo, name, version, zipPath)`, `packageList`, `packageRemove` |
 | Workspaces | `workspaceCreate(storage, repo, ws)`, `workspaceCopy(storage, repo, from, to)`, `workspaceDeploy(storage, repo, ws, pkgName, pkgVersion, options?)` (`runner`: its migrations, index builds and intake units; `schema` and `inputs`: its policies; `onRecordPlan`, `onRecordIndex`, `onInputPlan`: what it decided; `sourceConcurrency`: the `file` sources taken in at once; `onSourceProgress`, `onDeployProgress`: how far it has got), `workspaceExport(storage, repo, ws, zipPath, name?, version?)`, `workspaceStatus(storage, runner, repo, ws)`, `workspaceStatusRevision(storage, repo, ws)` — a token that moves whenever the status might, which the API's `ETag` names, `workspaceLockStatus(storage, repo, ws)`, `workspaceListStates(storage, repo)` — every workspace with its state in one read of the store, `workspaceRemove(storage, repo, ws, { sweep? })` — the record and what a store removes at once go in one call, and the rest is swept in bounded batches unless `sweep: false` leaves them to `workspaceSweep(storage, repo, cursor?)`, which a host with a time limit runs from a job |
-| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named) |
+| Datasets | `workspaceGetDataset(storage, repo, ws, treePath)`, `workspaceSetDataset(storage, repo, ws, treePath, value, type)`, `datasetAdoptFile(storage, repo, ws, treePath, file, { runner, onProgress? })` → `{ hash, size, segments, rows, taken, runners? }`, `taken` being `known`, `carried` or `taken` (by the `runners` named); `deliveryAdoptStored(storage, repo, ws, { address, type }, sha256, { runner?, onProgress?, signal? })` — a delivery the store holds taken in as a stored value of the type, naming no dataset, for a record's first state |
 | Runs | `dataflowExecute(storage, repo, ws, options?)`; `LocalOrchestrator` to start, poll and cancel a run |
-| Records | `recordMutate(storage, runner, repo, ws, record, mutation, args, { actor })`, `recordHistory`, `recordDescribe`, `recordCompact`, `recordReindex` |
+| Records | `recordMutate(storage, runner, repo, ws, record, mutation, args, { actor })`, `recordHistory`, `recordDescribe`, `recordCompact`, `recordReindex`; `recordSystemCommit(storage, runner, repo, ws, record, { name, target, actor, args? })` — `$rollback` to a commit, `$restore` of a state at the record's migrations, and `$init` on a record declared with no initial value: its first state, from a stored value, with the whole chain applied |
 
 `@elaraai/e3-core/test` exports the contract suites another storage backend runs
 over itself.

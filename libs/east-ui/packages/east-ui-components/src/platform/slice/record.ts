@@ -5,14 +5,14 @@
 
 /** Serializable record Slice handles over the shared UI store. */
 import {
-    East, StringType, IntegerType, FunctionType, OptionType, fromEastTypeValue,
-    encodeBeast2For, decodeBeast2For, printFor, printType, some, none, variant,
-    type EastType, type EastTypeValue, type ExprType, type ValueTypeOf, type option,
+    East, StringType, IntegerType, FunctionType, OptionType, RefType, StructType, fromEastTypeValue,
+    encodeBeast2For, decodeBeast2For, printFor, printType, ref, some, none, variant,
+    type EastType, type EastTypeValue, type ExprType, type ValueTypeOf, type option, type ref as Ref,
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
-    RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, PinnedSourceType,
+    RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType,
     recordSliceReadPlatform, type RecordSliceBinding,
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType } from "@elaraai/east-ui";
@@ -45,14 +45,27 @@ function name<T extends object>(cache: WeakMap<T, string>, value: T, print: (val
 interface BindingEntry {
     controller: RecordSliceController;
     descriptor: Descriptor;
-    handles: Map<string, Record<string, unknown>>;
-    methods?: Record<string, unknown>;
+    /** The descriptor every method of the binding captures: one Ref, so a payload writes it once and back-references it from each (#1352). */
+    shared: Ref<{ key: string; source: RecordSliceBinding; config: Config; initial: State }>;
+    /** The binding's one handle, whatever its narrowing (#1354). */
+    handle?: Record<string, unknown>;
     factories: Map<string, (...args: never[]) => unknown>;
 }
 // Store lifetime scopes the cache; visiting many tasks cannot retain unbounded
 // compiled handles or source caches. Serialization carries a complete descriptor
 // so a decoded handle also works without re-running its original bind.
 const bindings = new WeakMap<UIStoreInterface, Map<string, BindingEntry>>();
+/**
+ * What each store's record Slices were seeded with, by key: the bytes their first binding wrote from the slice's
+ * `initial`. The store keeps the bytes it holds until other bytes are written, so a source still holding these holds
+ * the author's start, which nothing has written over: not the reader, a host, a link or storage.
+ */
+const seeds = new WeakMap<UIStoreInterface, Map<string, Uint8Array>>();
+
+/** The descriptor's East type over a source of type `source`: what one binding's methods share, in a Ref. */
+function descriptorType(source: EastType) {
+    return StructType({ key: StringType, source, config: RecordSliceConfigType, initial: RecordSliceStateType });
+}
 // Gestures read the same query outside a tracked evaluation. They may reuse
 // an active reader's scan, but these weak references never keep its rows alive
 // after that reader changes query or unmounts. Even the lookup keys are bounded.
@@ -97,8 +110,13 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     const metadata = types[0]?.type === "Struct" ? types[0].fields.indexes : undefined;
     const controller = new RecordSliceController(source, config, row, read, write, collection.value.fields.key!,
         metadata?.type === "Struct" ? metadata : undefined);
-    if (!store.has(key)) controller.write(initial);
-    entry = { controller, descriptor, handles: new Map(), factories: new Map() };
+    if (!store.has(key)) {
+        controller.write(initial);
+        let seeded = seeds.get(store);
+        if (seeded === undefined) { seeded = new Map(); seeds.set(store, seeded); }
+        seeded.set(key, store.read(key)!);
+    }
+    entry = { controller, descriptor, shared: ref({ key, source, config, initial }), factories: new Map() };
     entries.set(identity, entry);
     if (entries.size > 64) entries.delete(entries.keys().next().value!);
     return entry;
@@ -122,15 +140,17 @@ const operations: Record<keyof typeof RecordSlicePrimitives, Operation> = {
     replaces: (c, field) => c.replaces(field as string),
     togglePreset: (c, id) => c.togglePreset(id as string),
     setResolution: (c, resolution) => c.write({ ...c.readState(), resolution: resolution as State["resolution"] }),
-    page: (c, where, offset, limit) => c.windows.page(c.plan(where as Where), offset as bigint, limit as bigint),
     pageWhere: (c, where, offset, limit) => c.windows.page(c.plan(where as Where), offset as bigint, limit as bigint),
-    seek: (c, where, query) => c.windows.seek(c.plan(where as Where), query as Query),
-    dataCount: (c, where) => c.count(where as Where),
+    // The narrowed data's reads read the narrowing as it stands, tracked in the evaluation that reads them (#1354).
+    dataPage: (c, offset, limit) => c.windows.page(c.plan(c.readState().where), offset as bigint, limit as bigint),
+    dataSeek: (c, query) => c.windows.seek(c.plan(c.readState().where), query as Query),
+    dataQuery: c => printWhere(c.readState().where),
     revision: c => c.source.revision(),
     refresh: (c, hash) => c.source.refresh(hash as option<string>),
     retry: c => c.source.refresh(none),
     readEntry: (c, id) => c.readEntry(id as string),
     contains: (c, where, id) => c.contains(where as Where, id as string),
+    containsRow: (c, where, id, row) => c.containsRow(where as Where, id as string, row as Uint8Array),
 };
 
 const primitives: PlatformFunction[] = Object.entries(RecordSlicePrimitives).map(([name, primitive]) => primitive.implement(
@@ -152,56 +172,51 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
         const types = values.map(fromEastTypeValue);
         return (...args: unknown[]) => {
             const entry = bind(types, args as Descriptor);
-            const controller = entry.controller;
-            const state = controller.readState();
-            const identity = printWhere(state.where);
-            const existing = entry.handles.get(identity);
-            if (existing !== undefined) return existing;
+            // One handle per binding, whatever its narrowing (#1354): the bind reads no state, so the builder that binds
+            // it is not built again when a choice changes. Its narrowed data reads the narrowing when its reads run.
+            if (entry.handle !== undefined) return entry.handle;
             const [key, source, config] = entry.descriptor;
-            const compile = (name: keyof typeof RecordSlicePrimitives, inputs: EastType[], output: EastType, capture?: Where) => {
+            const compile = (name: keyof typeof RecordSlicePrimitives, inputs: EastType[], output: EastType) => {
                 let factory = entry.factories.get(name);
                 if (factory === undefined) {
                     // Capture a decoded source as a function argument. East.value
                     // interprets functions as authoring callbacks; it cannot lift
                     // a compiled handle. The returned closure serializes its real
                     // source, so decoding in another host uses that host's runtime.
-                    const descriptorTypes = [StringType, types[0]!, RecordSliceConfigType, RecordSliceStateType];
-                    if (capture !== undefined) descriptorTypes.push(RecordSliceWhereType);
+                    // Every method captures the binding's one descriptor Ref (#1352):
+                    // a payload writes it once and back-references it from the
+                    // others, and a decode makes one descriptor they all read.
                     const primitive = RecordSlicePrimitives[name] as unknown as (...args: unknown[]) => ExprType<EastType>;
-                    factory = East.compile(East.function(descriptorTypes, FunctionType(inputs, output), (_$, ...descriptor) =>
-                        East.function(inputs, output, (_$, ...params) =>
-                            primitive(types, ...descriptor, ...params))), platforms()) as (...args: never[]) => unknown;
+                    factory = East.compile(East.function([RefType(descriptorType(types[0]!))], FunctionType(inputs, output), (_$, shared) =>
+                        East.function(inputs, output, ($, ...params) => {
+                            const descriptor = $.let((shared as unknown as { get(): ExprType<EastType> }).get()) as unknown as
+                                { key: unknown; source: unknown; config: unknown; initial: unknown };
+                            return primitive(types, descriptor.key, descriptor.source, descriptor.config, descriptor.initial, ...params);
+                        })), platforms()) as (...args: never[]) => unknown;
                     entry.factories.set(name, factory);
                 }
-                const values: unknown[] = [...entry.descriptor];
-                if (capture !== undefined) values.push(capture);
-                return factory(...values as never[]);
+                return factory(entry.shared as never);
             };
-            let methods = entry.methods;
-            if (methods === undefined) {
-                methods = { key, config, sourceId: source.recordId };
-                for (const [name, type] of Object.entries(RecordSliceBindType.fields)) {
-                    if (type.type === "Function") methods[name] = compile(name as keyof typeof RecordSlicePrimitives, type.inputs, type.output);
-                }
-                entry.methods = methods;
+            const methods: Record<string, unknown> = { key, config, sourceId: source.recordId };
+            for (const [name, type] of Object.entries(RecordSliceBindType.fields)) {
+                if (type.type === "Function") methods[name] = compile(name as keyof typeof RecordSlicePrimitives, type.inputs, type.output);
             }
-            const dataType = PinnedSourceType(types[1]!);
-            const where = state.where;
+            const dataType = LiveSourceType(types[1]!);
             const handle = { ...methods,
                 pageWhere: compile("pageWhere", [RecordSliceWhereType, IntegerType, IntegerType], dataType.fields.page.output),
                 data: {
-                // A narrowing names its own source; its closures capture those
-                // choices. Revision remains the record's real state hash, so
-                // existing optimistic editing and confirmed Save still agree.
-                id: `${source.id}@slice:${key}:${identity}`,
-                page: compile("page", [IntegerType, IntegerType], dataType.fields.page.output, where),
-                total: compile("dataCount", [], dataType.fields.total.output, where),
-                seek: some(compile("seek", [SeekQueryType], dataType.fields.seek.cases.some.output, where)),
-                revision: compile("revision", [], dataType.fields.revision.output),
-                refresh: compile("refresh", [OptionType(StringType)], dataType.fields.refresh.output),
-            } };
-            entry.handles.set(identity, handle);
-            if (entry.handles.size > 16) entry.handles.delete(entry.handles.keys().next().value!);
+                    // The source, never its narrowing: its reads read the narrowing as it stands, and `query` names it,
+                    // so a reader keys its windows by it as by the revision. Revision remains the record's real state
+                    // hash, so optimistic editing and a confirmed Save still agree.
+                    id: `${source.id}@slice:${key}`,
+                    page: compile("dataPage", [IntegerType, IntegerType], dataType.fields.page.output),
+                    total: methods["count"],
+                    seek: some(compile("dataSeek", [SeekQueryType], dataType.fields.seek.cases.some.output)),
+                    revision: compile("revision", [], dataType.fields.revision.output),
+                    refresh: compile("refresh", [OptionType(StringType)], dataType.fields.refresh.output),
+                    query: compile("dataQuery", [], dataType.fields.query.output),
+                } };
+            entry.handle = handle;
             return handle;
         };
     }),
@@ -224,6 +239,20 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
 export const RecordSliceImpl = createRecordSliceImplementation();
 
 registerPlatformImplementation(RecordSliceImpl);
+
+/**
+ * Whether a record Slice still holds what its binding seeded it with: its `initial`, which nothing has written over
+ * since — not the reader, a host, nor a narrowing a link or storage restored. A builder whose own view a reload keeps
+ * reads its window from such a source as the author's start, which the view it restores replaces.
+ *
+ * @param slice - The record Slice
+ * @returns Whether its state is still its seed
+ */
+export function recordSliceSeeded(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): boolean {
+    const store = getStore();
+    const seed = seeds.get(store)?.get(slice.key);
+    return seed !== undefined && store.read(slice.key) === seed;
+}
 
 /** Persist through the same store-key mechanism as local Slice, validating
  * the record's complete narrowing before replacing its seed. */

@@ -4,45 +4,35 @@
  *
  * @vitest-environment jsdom
  *
- * `<Studio.Builder>` rendered (#1000) over a pages record in memory, whose
- * patch door applies each patch with East's own checks — every part drawn by
- * the builder's renderer. The palette (#994): its tabs and rail (B1), the
- * search, the grouping and the Filter menu (B2), the cards by category (B3),
- * the placed component (B4), a card's click and the drag source (B5), the
- * Pages tab (B6), what is hidden and narrowed (B7). The canvas (#995): the one
- * toolbar and the page's status (B8), the selection bar (B9), the grid panel
- * (B10), a dropped card's cell (B11), Save as one patch commit and a conflict
- * (B12), the panes (B13), Preview, Publish, Desktop and Tablet (B14). The
- * inspector (#996): its pane and rail (B15), the selected placement
- * (B16–B18), its layout edits (B20, B12) — the height select's chevron and
- * check Font Awesome's (#1263) — nothing selected (B21), and the
- * palette counting unsaved drafts. Save as template (D7, #997). The publish
- * preview (#998), in the canvas's place: its bar (E1), the page (E2), the
- * aside (E3–E5) — every mark in it Font Awesome's (#1263) — and the footer
- * (E6). The toolbar on a row short of room
- * (#1229): its ladder, the ⋯ chip's bundle and menu, and Save as template
- * hung from the chip.
+ * `<Studio.Builder>` rendered (#1000) over the studio examples' pages record on
+ * e3 (#1376), its patch door e3's own and its pages the test's, committed as
+ * another session's — every part drawn by the builder's renderer. The palette
+ * (#994): its tabs and rail (B1), the search, the grouping and the Filter menu
+ * (B2), the cards by category (B3), the placed component (B4), a card's click
+ * and the drag source (B5), the Pages tab (B6), what is hidden and narrowed
+ * (B7). The canvas (#995): the one toolbar and the page's status (B8), the
+ * selection bar (B9), the grid panel (B10), a dropped card's cell (B11), Save
+ * as one patch commit and a save another session's overtakes (B12), the panes
+ * (B13), Preview, Publish, Desktop and Tablet (B14). The inspector (#996): its
+ * pane and rail (B15), the selected placement (B16–B18), its layout edits
+ * (B20, B12) — the height select's chevron and check Font Awesome's (#1263) —
+ * nothing selected (B21), and the palette counting unsaved drafts. Save as
+ * template (D7, #997). The publish preview (#998), in the canvas's place: its
+ * bar (E1), the page (E2), the aside (E3–E5) — every mark in it Font Awesome's
+ * (#1263) — and the footer (E6). The toolbar on a row short of room (#1229):
+ * its ladder, the ⋯ chip's bundle and menu, and Save as template hung from the
+ * chip.
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import {
-    East, PatchType, SortedMap, applyFor, compareFor, decodeBeast2For, diffFor, encodeBeast2For, none, some, variant,
-    type ValueTypeOf,
-} from "@elaraai/east";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { East, SortedMap, applyFor, compareFor, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Text, UIComponentType } from "@elaraai/east-ui/internal";
-import {
-    DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system,
-} from "@elaraai/east-ui-components";
+import { StateRuntime } from "@elaraai/east-ui-components";
 import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
-import {
-    RecordBindHandleType, Studio, StudioKeyType, StudioPagesType, builderKeys, fingerprintOf, recordBindPlatformFn,
-} from "@elaraai/e3-ui/internal";
-import {
-    ReactiveDatasetCache, createInMemoryRecordApi, datasetCacheKey, initializeReactiveDatasetCache, initializeRecordApi,
-    type DatasetApi, type RecordApi,
-} from "../platform/index.js";
+import { Record, Studio, StudioKeyType, StudioPagesType, builderKeys, fingerprintOf } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/studio/studio";
+import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { studioMessages } from "./messages.js";
 // The builder is an extension: its renderer registers as it loads.
 import "./builder.js";
@@ -51,28 +41,15 @@ type Key = ValueTypeOf<typeof Studio.Types.Key>;
 type Entry = ValueTypeOf<typeof Studio.Types.Entry>;
 type Pages = ValueTypeOf<typeof Studio.Types.Pages>;
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
-(globalThis as { matchMedia?: unknown }).matchMedia ??= (query: string) => ({
-    matches: false, media: query, onchange: null,
-    addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
-});
-// The height select scrolls its open listbox to the chosen option; jsdom does not scroll.
-Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
-(globalThis as { CSS?: { escape?: (s: string) => string } }).CSS ??= {};
-(globalThis as { CSS: { escape?: (s: string) => string } }).CSS.escape ??= (s: string) => s.replace(/[^\w-]/g, "\\$&");
-
-const WORKSPACE = "builder-test";
-const RECORD = "builder_pages";
+/** The pages record the builder reads and saves: the studio examples', by its name. */
+const RECORD = ex.studioPages.name;
 const keys = compareFor(StudioKeyType);
-const diffPages = diffFor(StudioPagesType);
-const encodePatch = encodeBeast2For(PatchType(StudioPagesType));
-const HandleType = RecordBindHandleType(StudioPagesType, { patch: [PatchType(StudioPagesType)] });
+const applyPages = applyFor(StudioPagesType);
 
 /** The components' code — the fingerprints a live version's cells store. */
 const kpiFn = East.function([], UIComponentType, (_$) => Text.Root("KPIs"));
 const trendFn = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const pages = $.let(recordBindPlatformFn([HandleType], RECORD));
+    const pages = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
     return Text.Root(East.str`${East.print(pages.read().size())} pages`);
 })));
 const ordersFn = East.function([], UIComponentType, (_$) => Text.Root("Orders"));
@@ -163,66 +140,33 @@ const PAGES: Pages = new SortedMap<Key, Entry>([
     })],
 ], keys);
 
-let memory: RecordApi;
-let cache: ReactiveDatasetCache;
+const h = e3Harness({ "studio/studio": ex }, { measure: false });
 
-beforeEach(() => {
-    StateRuntime.initializeStore(new UIStore());
-    const store = new Map<string, Uint8Array>();
-    const api: DatasetApi = {
-        async get(ws, path) {
-            const bytes = store.get(datasetCacheKey(ws, path));
-            if (!bytes) throw new Error(`no dataset ${datasetCacheKey(ws, path)}`);
-            return { data: bytes, hash: null };
-        },
-        async set(ws, path, value) { store.set(datasetCacheKey(ws, path), value); },
-        async launchDataflow() { /* in memory — nothing to launch */ },
-        async listRoot() { return []; },
-        async listAt() { return []; },
-        async workspaceStatus() { return { datasets: [] }; },
-    };
-    cache = new ReactiveDatasetCache({ workspace: WORKSPACE }, api);
-    cache.setScheduler((notify) => queueMicrotask(notify));
-    initializeReactiveDatasetCache(cache);
-    const applyPatch = applyFor(StudioPagesType);
-    memory = createInMemoryRecordApi(cache, WORKSPACE, [{
-        name: RECORD, stateType: StudioPagesType, initial: PAGES,
-        mutations: [{ name: "patch", argTypes: [PatchType(StudioPagesType)], reduce: (state, patch) => applyPatch(state as never, patch as never) }],
-    }]);
-    initializeRecordApi(memory, cache, WORKSPACE);
-});
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
+/** The pages record's commits once the test's own pages were made: what a save adds to. */
+let before: string[] = [];
+
+beforeEach(async () => {
+    await h.patch(ex.studioPages, PAGES);
+    before = await commits();
 });
 
-/** Mount the builder over the record, as a surface mounts it, and let the record load. */
-async function mountBuilder() {
-    const program = East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+/** The builder over the record, as a surface mounts it: the record bound with its patch door, and the listed components. */
+const builder = {
+    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
-        const record = $.let(recordBindPlatformFn([HandleType], RECORD));
+        const record = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
         return Studio.Builder({
-            pages: record as never, components: listed, project: "ops",
+            pages: record, components: listed, project: "ops",
             env: "Staging", audience: "Field ops · 24 users", rollout: "Immediate",
         });
-    }))), getRegisteredPlatformImplementations()) as () => ValueTypeOf<typeof UIComponentType>;
-    const utils = render(
-        <ChakraProvider value={system}>
-            <DragLayerProvider>
-                <EastChakraComponent value={program()} storageKey="studio-builder" />
-            </DragLayerProvider>
-        </ChakraProvider>,
-    );
-    await settle();
-    return utils;
-}
+    }))),
+};
 
-/** Let the record's reads, the session, the writes and the renders settle. */
-async function settle() {
-    await act(async () => {
-        for (let i = 0; i < 8; i++) await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
-    });
-}
+/** Mount the builder over the record, under the page's drag layer, once what it reads has loaded. */
+const mountBuilder = () => h.mount(builder, { storageKey: "studio-builder" });
+
+/** The pages as another session's write leaves them: one entry set, the others as they stand. */
+const withEntry = (key: Key, entry: Entry) => (now: Pages): Pages => new SortedMap([...now].filter(([k]) => keys(k, key) !== 0).concat([[key, entry]]), keys);
 
 /** Open a page, as the page library does. */
 async function openPage(page: string) {
@@ -232,16 +176,18 @@ async function openPage(page: string) {
     await settle();
 }
 
-/** The record as it stands — what its patch door last wrote. */
-async function readRecord(): Promise<Pages> {
-    const bytes = cache.read(WORKSPACE, [variant("field", "records"), variant("field", RECORD)]);
-    if (bytes === undefined) throw new Error("the record has not loaded");
-    return decodeBeast2For(StudioPagesType)(bytes);
-}
+/** The record as e3 holds it now. */
+const readRecord = (): Promise<Pages> => h.read(ex.studioPages);
 
 /** The mutations the record committed, newest first. */
 async function commits(): Promise<string[]> {
-    return (await memory.history(WORKSPACE, RECORD, undefined)).commits.map((c) => c.mutation);
+    return (await h.history(ex.studioPages)).commits.map((c) => c.mutation);
+}
+
+/** Presses a button as a pointer does, with no wait: what a race sends. */
+function click(button: HTMLElement) {
+    fireEvent.mouseDown(button, { button: 0 });
+    fireEvent.click(button);
 }
 
 /** The toolbar's items, by key, in their order along the row. */
@@ -482,7 +428,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         await keyOn(container, "c-trend", { key: "]" });
         expect(spanOf(container, "c-trend")).toBe("9");
         await press("Save");
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         expect(overview.value.draft.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 9n]]);
@@ -490,29 +436,18 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     });
 
-    test("B12: a save another landed first is a conflict, in the history item's words — and the other save stands", async () => {
+    test("B12: a save another session's overtakes is a conflict, in the history item's words — and the other save stands", async () => {
         const { container } = await mountBuilder();
         await keyOn(container, "c-trend", { key: "[" });
-        // Another operator's save lands between this Save's read and its commit.
-        const other = await readRecord();
-        const before = other.get(OVERVIEW)!;
-        if (before.type !== "page") throw new Error("expected a page");
-        const after: Entry = variant("page", { draft: { title: before.value.draft.title, cells: before.value.draft.cells.slice(0, 1) }, live: before.value.live });
-        const forward = memory.mutate.bind(memory);
-        let raced = false;
-        memory.mutate = async (ws, record, mutation, request) => {
-            if (!raced) {
-                raced = true;
-                const patch = diffPages(new SortedMap([[OVERVIEW, before]], keys), new SortedMap([[OVERVIEW, after]], keys));
-                await forward(ws, record, mutation, { args: [encodePatch(patch)] });
-            }
-            return forward(ws, record, mutation, request);
-        };
-        await press("Save");
+        // Another operator's save lands between this Save's read and its commit: the Overview's trend removed.
+        const stored = (await readRecord()).get(OVERVIEW)!;
+        if (stored.type !== "page") throw new Error("expected a page");
+        const after: Entry = variant("page", { draft: { title: stored.value.draft.title, cells: stored.value.draft.cells.slice(0, 1) }, live: stored.value.live });
+        await h.race(ex.studioPages, () => click(screen.getByRole("button", { name: "Save" })), withEntry(OVERVIEW, after));
         // The commit is refused, and the canvas, reading the page back, finds its source moved under its drafts.
         expect(container.querySelector("[data-slot=history]")!.textContent).toContain("Source changed — review or discard these drafts");
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         expect(overview.value.draft.cells.map((c) => c.key)).toEqual(["c-kpi"]);
@@ -676,7 +611,7 @@ describe("<Studio.Builder> — the inspector (#996)", () => {
         await press("Increase span");
         await press("Stretch");
         await press("Save");
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;
         if (overview.type !== "page") throw new Error("expected a page");
         const trend = overview.value.draft.cells.find((c) => c.key === "c-trend")!;
@@ -720,7 +655,7 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         await act(async () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); });
         await settle();
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
         const template = (await readRecord()).get(TEMPLATE)!;
         if (template.type !== "template") throw new Error("expected a template");
         expect(template.value.title).toBe("Overview template");
@@ -743,30 +678,20 @@ describe("<Studio.Builder> — Save as template (#997)", () => {
         await act(async () => { fireEvent.click(popover.getByRole("button", { name: "Cancel" })); });
         await settle();
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-        expect(await commits()).toEqual(["$init"]);
+        expect(await commits()).toEqual(before);
     });
 
     test("D7: a name another write took first is refused in the popover, in its words, and the other write stands", async () => {
         await mountBuilder();
         const popover = await openPopover();
         // Another operator saves a template under the same name between this popover's read and its commit.
-        const forward = memory.mutate.bind(memory);
-        let raced = false;
-        memory.mutate = async (ws, record, mutation, request) => {
-            if (!raced) {
-                raced = true;
-                const other = diffPages(new SortedMap([], keys), new SortedMap([[TEMPLATE, variant("template", { title: "Theirs", cells: [] })]], keys));
-                await forward(ws, record, mutation, { args: [encodePatch(other)] });
-            }
-            return forward(ws, record, mutation, request);
-        };
-        await act(async () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); });
-        await settle();
+        await h.race(ex.studioPages, () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); },
+            withEntry(TEMPLATE, variant("template", { title: "Theirs", cells: [] })));
         expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe("Another write took the name Overview template first — choose another");
         const template = (await readRecord()).get(TEMPLATE)!;
         if (template.type !== "template") throw new Error("expected a template");
         expect(template.value.title).toBe("Theirs");
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
     });
 
     test("D7: while a template is open it is disabled, and says why", async () => {
@@ -932,7 +857,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await settle();
         await waitFor(() => expect(part(container, "head")!.textContent).toBe("Up to date"));
         expect(part(container, "refused")).toBeNull();
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
         const regional = (await readRecord()).get(REGIONAL)!;
         if (regional.type !== "page" || regional.value.live.type !== "some") throw new Error("expected a published page");
         expect(regional.value.live.value.version).toBe(4n);
@@ -953,7 +878,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await settle();
         await waitFor(() => expect(part(container, "head")!.textContent).toBe("Up to date"));
         expect(part(container, "refused")).toBeNull();
-        expect(await commits()).toEqual(["patch", "patch", "$init"]);
+        expect(await commits()).toEqual(["patch", "patch", ...before]);
         const regional = (await readRecord()).get(REGIONAL)!;
         if (regional.type !== "page" || regional.value.live.type !== "some") throw new Error("expected a published page");
         expect(regional.value.live.value.version).toBe(4n);
@@ -969,7 +894,7 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await act(async () => { fireEvent.click(saveButton(container)); });
         await settle();
         await waitFor(() => expect(saveButton(container).disabled).toBe(true));
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
         const regional = (await readRecord()).get(REGIONAL)!;
         if (regional.type !== "page" || regional.value.live.type !== "some") throw new Error("expected a page");
         expect(regional.value.draft.cells.find((c) => c.key === "p-trend")!.span).toBe(7n);
@@ -982,22 +907,11 @@ describe("<Studio.Builder> — the publish preview (#998)", () => {
         await previewPage("f-regional");
         // Another operator publishes between this publish's read and its commit.
         const publish = East.compile(Studio.publish, []);
-        const forward = memory.mutate.bind(memory);
-        let raced = false;
-        memory.mutate = async (ws, record, mutation, request) => {
-            if (!raced) {
-                raced = true;
-                const other = publish(await readRecord(), REGIONAL, []);
-                await forward(ws, record, mutation, { args: [encodePatch(other)] });
-            }
-            return forward(ws, record, mutation, request);
-        };
-        await act(async () => { fireEvent.click(publishButton(container)); });
-        await settle();
+        await h.race(ex.studioPages, () => { fireEvent.click(publishButton(container)); }, (now) => applyPages(now, publish(now, REGIONAL, [])));
         await waitFor(() => expect(part(container, "refused")).not.toBeNull());
         expect(part(container, "refused")!.getAttribute("role")).toBe("alert");
         expect(part(container, "refused")!.textContent).toBe("Another write changed this page first — review it and publish again");
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
     });
 });
 
@@ -1161,7 +1075,7 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         await act(async () => { fireEvent.click(popover.getByRole("button", { name: "Save template" })); });
         await settle();
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-        expect(await commits()).toEqual(["patch", "$init"]);
+        expect(await commits()).toEqual(["patch", ...before]);
         const template = (await readRecord()).get({ project: "ops", page: "Overview template" })!;
         if (template.type !== "template") throw new Error("expected a template");
         expect(template.value.cells.map((c) => [c.key, c.span])).toEqual([["c-kpi", 12n], ["c-trend", 8n]]);
@@ -1195,6 +1109,6 @@ describe("<Studio.Builder> — the toolbar on a row short of room (#1229)", () =
         await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
         await waitFor(() => expect(stateOf(container).get("more")).toBe(0));
         expect(["save-template", "preview", "publish"].map((key) => stateOf(container).get(key))).toEqual([0, 0, 0]);
-        expect(await commits()).toEqual(["$init"]);
+        expect(await commits()).toEqual(before);
     });
 });

@@ -17,10 +17,15 @@
  *     `fg.subtle`; sub mono 9 `fg.subtle` ellipsised; 1 px `border.subtle`
  *     column dividers; `border.strong` bottom.
  *   - Gutter: 128 px = rail 28 ·
- *     number 36 · actions 64, the gutter edge `border.strong`. Rail: a 14 px
+ *     number 36 · actions 64, the gutter edge `border.strong`. The number
+ *     column grows to the widest number the sheet shows, measured in the
+ *     number's own face (`--sheet-number`, the renderer's geometry), and
+ *     every width built on the gutter grows with it — the rows, the header,
+ *     the sub rows, the seam lines, the bands and the fold. Rail: a 14 px
  *     r-3 checkbox (1 px ink-5, hover ink-3, checked `brand.solid`, mixed
  *     ink-4) on a 1 px ink-5 connector that turns brand through picked rows.
- *     Number: mono 11/500 right-aligned, ink-4 (ink 600 when picked). Actions:
+ *     Number: mono 11/500 right-aligned, ink-4 (ink 600 when picked); a
+ *     line's number keeps 18 px clear of its sub rows' chevron. Actions:
  *     24 px ghost buttons, Font Awesome 13 px ink-4, colour only on hover as an
  *     8 % wash (check pos · xmark neg · arrow-right brand). Inserts are not
  *     gutter content: a seam in the gutter is only a hit strip; the hovered
@@ -126,7 +131,7 @@
  *     red frame. The row a drag rests on takes no hover — not its cells,
  *     its gutter, its checkbox or its grip — so what it says is the drop's.
  *   - A folded gutter (#1215): on a coarse pointer, a frame too narrow for
- *     the touch gutter beside a cell folds it to rail 28 · number 36 · one
+ *     the touch gutter beside a cell folds it to rail 28 · number · one
  *     44 px row-actions button (`data-gutter="folded"` on the card) — a
  *     `ellipsis-vertical` ghost, brand on the copilot's anchor and while its
  *     menu is open, and the row's grip at once: it takes no scroll gesture.
@@ -138,17 +143,20 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { fieldInRingedControl } from "../field-chrome.js";
+import { schedulePaneBase } from "./schedule-pane.js";
 
 export const sheetSlotRecipe = defineSlotRecipe({
     className: "elara-sheet",
     slots: [
         "root", "frame", "card", "body",
         "insertPoint", "insertLayer", "insertChips", "insertButton", "insertStrip", "insertChoice",
-        "toolbarRail", "toolbarCount", "toolbarBadge",
+        "pane", "toolbarCount", "toolbarBadge",
         "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabMenu", "tabRename",
+        "searchViews", "searchViewsActions",
         "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
-        "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "gutterButton", "gutterBar", "rowGrip", "rowActions", "dragGhost",
+        "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "numberMeasure", "gutterButton", "gutterBar", "rowGrip", "rowActions", "dragGhost",
         "cell", "cellIssue", "cellText", "cellMono", "cellWord", "cellNum", "cellUnit", "cellRes", "cellGhost", "cellDot",
         "ring", "rangeWash", "hatch", "nextTarget", "takeButton",
         "editor", "editorField", "editorMirror", "editorGhost", "editorInput", "editorResolve", "editorBadge", "editorError",
@@ -212,7 +220,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // The insertion layer: one per sheet, over the rows (each an isolated
         // stacking context, so z 1 clears them all) and under the pinned
         // header (z 6). Its top is the seam and its left the chips' start —
-        // the gutter's actions column (x 72), or, when an action button holds
+        // 8 px into the gutter's actions column, or, when an action button holds
         // that column on either row of the seam, the gutter edge; there the
         // box starts at the edge (12 px of padding before the chips) so the
         // pointer never leaves the seam on the way to them.
@@ -258,11 +266,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
         body: {
             paddingBottom: "120px",
         },
-        // The rail's forms, each wrapped so the tabs can claim the keys its
-        // search box takes — a wrapper that lays out nothing of its own.
-        toolbarRail: {
-            display: "contents",
-        },
+        // A library tab's body over a source of the rail (#1345): it fills the
+        // tab, and takes no gesture while its source resolves — the shared
+        // Library pane's part.
+        pane: schedulePaneBase.pane,
         toolbarCount: {
             fontFamily: "mono",
             fontSize: "10.5px",
@@ -468,6 +475,22 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // A phone zooms into type under 16 px.
             _coarse: { fontSize: "16px" },
         },
+        // The views, folded with the key search into its popover — the strip's
+        // last rung where the sheet has a key search (#1345): every view a
+        // choice over the search box, as the Flowchart's orientation sits over
+        // find state's; then `+ TAB` and the open view's close.
+        searchViews: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "2",
+            marginBottom: "3",
+        },
+        searchViewsActions: {
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: "1",
+        },
         // the switch is the `+ TAB` button's size and idiom
         // (22 px, r-sm, `border.strong`, mono 9.5/600 uppercase), not a taller
         // box of its own — on a coarse pointer too, where its options take
@@ -532,7 +555,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         // The gutter's corner — rail · number · actions like every row; the gutters stay put while the grid scrolls sideways.
         headerGutter: {
-            display: "grid", gridTemplateColumns: "28px 36px 1fr", alignItems: "stretch",
+            display: "grid", gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr", alignItems: "stretch",
             background: "bg.panel",
             borderRightWidth: "1px",
             borderRightColor: "border.strong",
@@ -617,12 +640,13 @@ export const sheetSlotRecipe = defineSlotRecipe({
             },
         },
         rowBlank: {},
-        // the gutter: three columns, three jobs. It is sticky,
+        // the gutter: three columns, three jobs — the number column as wide as
+        // the widest number the sheet shows (`--sheet-number`). It is sticky,
         // so it paints its row's own surface (rest · hover · picked · band ·
         // dirty), and its right edge is the gutter edge, `border.strong`.
         gutter: {
             display: "grid",
-            gridTemplateColumns: "28px 36px 1fr",
+            gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr",
             alignItems: "stretch",
             position: "sticky",
             left: "0",
@@ -708,6 +732,22 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-blank]": { color: "fg.faint" },
             "&[data-hit]": { color: "brand.solid", fontWeight: "600" },
             "[data-row][data-picked] &": { color: "fg", fontWeight: "600" },
+            // A line's number beside its sub rows' chevron (16 px at the column's start) keeps clear of it.
+            "&[data-chevron]": { paddingLeft: "18px" },
+        },
+        // What the number column is measured by: the widest numbers, each laid
+        // out at its natural width as a row draws it — never shown, never hit.
+        numberMeasure: {
+            position: "absolute",
+            left: "0",
+            top: "0",
+            height: "0",
+            overflow: "hidden",
+            visibility: "hidden",
+            pointerEvents: "none",
+            display: "flex",
+            alignItems: "flex-start",
+            width: "max-content",
         },
         // Decisions: one style for all four — a 24 px ghost, Font Awesome 13 px, ink-4; colour only on hover as an 8 % wash.
         gutterButton: {
@@ -1025,7 +1065,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
         editorGhost: {
             color: "fg.subtle",
         },
+        // The text a cell edits — a text's, a choice's, a reference's, a set's and a band title's: the ring is its chrome,
+        // so it casts neither the page's focus ring nor Chakra's.
         editorInput: {
+            ...fieldInRingedControl,
             width: "100%",
             border: "none",
             outline: "none",
@@ -1060,7 +1103,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         editorStepper: {
             marginLeft: "6px",
         },
-        // The common date field inside the ring: the segments in the sheet's mono.
+        // The common date field inside the ring: the segments in the sheet's mono. The ring is its chrome: a segment draws
+        // no box and no focus ring of its own, and the one being typed into is tinted.
         editorDate: {
             flex: "1",
             minWidth: "0",
@@ -1069,6 +1113,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             gap: "6px",
             fontFamily: "mono",
             color: "fg",
+            "& [role=spinbutton]": { ...fieldInRingedControl, borderColor: "transparent" },
+            "& [role=spinbutton]:focus:not([data-readonly])": { background: "brandTint", color: "fg", borderColor: "transparent" },
         },
         // the common combobox inside the ring: the root and the
         // control are chromeless (the ring is the chrome), the list is the
@@ -1281,8 +1327,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             justifyContent: "flex-start",
-            paddingLeft: "138px",
-            _coarse: { height: "32px", paddingLeft: "138px" },
+            // Past the fine gutter — rail 28 · number · actions 64 — and 10 px: 138 beside the least number column.
+            paddingLeft: "calc(var(--sheet-number, 36px) + 102px)",
+            _coarse: { height: "32px", paddingLeft: "calc(var(--sheet-number, 36px) + 102px)" },
         },
         bandRule: {
             position: "absolute",
@@ -1343,7 +1390,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         rowError: {
             display: "flex",
             alignItems: "center",
-            paddingLeft: "138px",
+            // Past the fine gutter and 10 px, as a band's pill.
+            paddingLeft: "calc(var(--sheet-number, 36px) + 102px)",
             fontFamily: "mono",
             fontSize: "10px",
             letterSpacing: "0.06em",

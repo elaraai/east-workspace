@@ -2,15 +2,16 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Licensed under AGPL-3.0. See LICENSE file for details.
  *
- * The showcase's e3 package (#849), as the page takes it in: the zip the
- * package step writes, built as the Vite plugin builds it and imported into
- * an in-memory e3. Every e3 definition each e3-ui example module exports is
- * in the package, and every example finds what it binds there — its
- * datasets, paged sources, functions and records.
+ * The showcase's e3 package (#849), as the page takes it in: the zip e3-ui's
+ * examples' package step writes (#1375), built as the Vite plugin builds it
+ * and imported into an in-memory e3. Every e3 definition each e3-ui example
+ * module exports is in the package, and every example finds what it binds
+ * there — its datasets, paged sources, functions and records.
  *
  * The modules are found here, as the source-extraction plugin finds them,
  * rather than taken from the step, so a module the step leaves out fails.
- * Two modules declaring one dataset, task or function fail the step.
+ * The step's refusals of two modules declaring one dataset, task or function
+ * are e3-ui's (`test/examples-package.spec.ts`).
  */
 
 import { before, describe, test } from "node:test";
@@ -20,10 +21,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-    East, FloatType, IntegerType, equalFor, isTypeValueEqual, toEastTypeValue, variant,
+    equalFor, isTypeValueEqual, toEastTypeValue,
     type EastType, type EastTypeValue, type ExampleDef,
 } from "@elaraai/east";
-import e3, { type DatasetDef, type FunctionDef, type MigrationDef, type MutationDef, type RecordDef, type RecordIndexDef, type TaskDef } from "@elaraai/e3";
+import type { DatasetDef, FunctionDef, MigrationDef, MutationDef, RecordDef, RecordIndexDef, TaskDef } from "@elaraai/e3";
 import { InMemoryStorage, keypathToRefPath, packageImport, packageRead } from "@elaraai/e3-core";
 import {
     TreePathType, decodeFunctionObject, decodeMutationObject, decodeRecordIndexObject, decodeRecordObject,
@@ -31,11 +32,13 @@ import {
 } from "@elaraai/e3-types";
 import { deriveManifest } from "@elaraai/e3-ui";
 import { discoverExampleFiles } from "../../scripts/discover-example-files";
-import { showcasePackage } from "../../scripts/e3-showcase-package";
 import { buildE3ShowcaseZip } from "../../scripts/vite-plugin-e3-showcase";
 
 /** The showcase package's root. */
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+/** e3-ui's root, where the package step is. */
+const E3_UI = path.resolve(ROOT, "../e3-ui");
 
 /** The repository the zip is imported into. */
 const REPO = "showcase";
@@ -53,7 +56,7 @@ interface ExampleModule {
 
 /** Every e3-ui example module, compiled, as e3-ui exports it. */
 async function exampleModules(): Promise<ExampleModule[]> {
-    const files = await discoverExampleFiles({ testDir: path.resolve(ROOT, "../e3-ui/test"), includeTopLevel: true });
+    const files = await discoverExampleFiles({ testDir: path.resolve(E3_UI, "test"), includeTopLevel: true });
     const modules: ExampleModule[] = [];
     for (const { pathKey } of files) {
         modules.push({ pathKey, exports: await import(`@elaraai/e3-ui/examples/${pathKey}`) });
@@ -98,7 +101,7 @@ describe("the showcase's e3 package", () => {
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), "e3-showcase-spec-"));
         try {
             const zip = path.join(dir, "e3-showcase.zip");
-            await fs.writeFile(zip, await buildE3ShowcaseZip(ROOT));
+            await fs.writeFile(zip, await buildE3ShowcaseZip(E3_UI));
             await storage.repos.create(REPO);
             const imported = await packageImport(storage, REPO, zip);
             pkg = await packageRead(storage, REPO, imported.name, imported.version);
@@ -227,55 +230,5 @@ describe("the showcase's e3 package", () => {
             }
         }
         assert.ok(examples > 0, "the example modules export no example");
-    });
-});
-
-// `e3.package` keeps the last definition it meets at a path or name, so the
-// step refuses two, naming the modules.
-describe("the package step", () => {
-    const count = (value: bigint) => e3.input("count", IntegerType, variant("value", value));
-    const double = East.function([IntegerType], IntegerType, (_$, n) => n.multiply(2n));
-
-    test("takes a definition two modules both export once", () => {
-        const shared = count(1n);
-        const pkg = showcasePackage([
-            { pathKey: "one/first", definitions: [["countInput", shared]] },
-            { pathKey: "two/second", definitions: [["countInput", shared]] },
-        ]);
-        assert.equal(pkg.contents.filter((item) => item.kind === "dataset").length, 1);
-    });
-
-    test("refuses two modules declaring different datasets at one path", () => {
-        assert.throws(
-            () => showcasePackage([
-                { pathKey: "one/first", definitions: [["countInput", count(1n)]] },
-                { pathKey: "two/second", definitions: [["otherCount", count(2n)]] },
-            ]),
-            /one\/first \(countInput\) and two\/second \(otherCount\) both declare the path '\.inputs\.count'/,
-        );
-    });
-
-    test("refuses a dataset another module's task reads at the same path", () => {
-        const doubled = e3.task("doubled", [count(1n)], double);
-        assert.throws(
-            () => showcasePackage([
-                { pathKey: "one/first", definitions: [["doubledTask", doubled]] },
-                { pathKey: "two/second", definitions: [["countInput", count(2n)]] },
-            ]),
-            /one\/first \(through doubledTask\) and two\/second \(countInput\) both declare the path '\.inputs\.count'/,
-        );
-    });
-
-    test("refuses two modules declaring different functions of one name", () => {
-        const half = East.function([FloatType], FloatType, (_$, x) => x.divide(2.0));
-        // Two definitions, one name: each module makes its own.
-        const halveNamed = (name: string) => e3.function(name, half);
-        assert.throws(
-            () => showcasePackage([
-                { pathKey: "one/first", definitions: [["halveFn", halveNamed("halve")]] },
-                { pathKey: "two/second", definitions: [["halfFn", halveNamed("halve")]] },
-            ]),
-            /one\/first \(halveFn\) and two\/second \(halfFn\) both declare the function 'halve'/,
-        );
     });
 });

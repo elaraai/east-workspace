@@ -92,6 +92,8 @@ export interface InitializeResult {
  * Result of stepPrepareTask - information needed to execute a task.
  */
 export interface PrepareTaskResult {
+  /** The task is prepared: every input is assigned */
+  kind: 'prepared';
   /** Task name */
   task: string;
   /** Task object hash */
@@ -103,6 +105,32 @@ export interface PrepareTaskResult {
   /** The execution the cache serves the task from — its output and its id —
    *  or `null` when the task must run */
   cached: { outputHash: string; executionId: string } | null;
+}
+
+/**
+ * What stepPrepareTask answers for a task that cannot run yet: an input of it
+ * is unassigned — one nothing has set, or a record whose first state is not
+ * yet committed — so the task is left waiting (stepTasksWaiting) and the run
+ * goes on without it.
+ */
+export interface PrepareTaskWaiting {
+  /** The task waits */
+  kind: 'waiting';
+  /** Task name */
+  task: string;
+  /** The task's inputs that are unassigned, as keypaths, in the task's input
+   *  order */
+  unassigned: string[];
+}
+
+/**
+ * Result of stepTasksWaiting.
+ */
+export interface TasksWaitingResult {
+  /** Each task left waiting, the one whose input is unassigned first and its
+   *  dependents after it, with the inputs each waits on: a dependent waits on
+   *  the outputs of the waiting tasks it reads */
+  waiting: Array<{ task: string; inputs: string[] }>;
 }
 
 /**
@@ -153,6 +181,10 @@ export interface FinalizeResult {
   failed: number;
   /** Number of tasks skipped due to upstream failure */
   skipped: number;
+  /** Number of tasks left waiting on an unassigned input, and of their
+   *  dependents, which the run went on without: they run once the input is
+   *  assigned */
+  waiting: number;
   /** Number of tasks re-executed due to input changes */
   reexecuted: number;
   /** Total duration in milliseconds */

@@ -651,28 +651,29 @@ describe("the copilot", () => {
 });
 
 // ── The lens and the view tabs (B§8 — Sheet Spec §5 rows 16–17) ─────────────
+// A view's narrowing is every source's of the sheet's `Slice.bindRecords`, by
+// name (#1345): here the `rows` source's search, a prefix of the notes.
 
-import { none, some } from "@elaraai/east";
-import type { SliceStateValue } from "./sheet-state.js";
-import type { SheetViewValue } from "./values.js";
+import { SortedMap, StringType, compareFor, none } from "@elaraai/east";
+import type { SheetNarrowing, SheetSavedView } from "./values.js";
+import { narrowingEqual } from "./view-state.js";
 
-const narrowingOf = (search: string | undefined): SliceStateValue => ({
-    range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-    breakdown: none, search: search === undefined ? none : some(search), visible: none, selectedIndex: none, resolution: none,
-} as SliceStateValue);
+const narrowingOf = (search: string | undefined): SheetNarrowing => new SortedMap([["rows", {
+    where: search === undefined ? new Map() : new Map([["notes", variant("prefix", search)]]), preset: none, resolution: none,
+}]], compareFor(StringType));
 const EMPTY = narrowingOf(undefined);
 const SPRAY = narrowingOf("spray");
 const ROUTER = narrowingOf("router");
-const view = (id: string, name: string, narrowing: SliceStateValue, context = 0n, reveals: bigint[] = []): SheetViewValue => ({ id, name, narrowing, context, reveals, folds: new Map() });
+const view = (id: string, name: string, narrowing: SheetNarrowing, context = 0n, reveals: bigint[] = []): SheetSavedView => ({ id, name, narrowing, context, reveals, folds: new Map() });
 const VIEWS = [view("spray", "SPRAY", SPRAY, 1n, [4n]), view("router", "ROUTER", ROUTER)];
 
 /** A sheet on the SPRAY tab, the slice at `narrowing`, the views as given. */
-function lensCtxOf(narrowing: SliceStateValue, views: readonly SheetViewValue[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
+function lensCtxOf(narrowing: SheetNarrowing, views: readonly SheetSavedView[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
     return ctxOf({ rowCount: 6, lensActive: true, views, narrowing, emptyNarrowing: EMPTY, dirty, ...over });
 }
 const onSpray = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "spray"), lens: { context: 1, reveals: new Set([4, 5]), steps: new Map([["a_b:top", 2]]), folds: new Map() } });
-const viewsOf = (t: { effects: SheetEffect[] }): SheetViewValue[] | undefined => (t.effects.find((e) => e.t === "emit.views") as { views: SheetViewValue[] } | undefined)?.views;
-const written = (t: { effects: SheetEffect[] }): SliceStateValue | undefined => (t.effects.find((e) => e.t === "slice.write") as { state: SliceStateValue } | undefined)?.state;
+const viewsOf = (t: { effects: SheetEffect[] }): SheetSavedView[] | undefined => (t.effects.find((e) => e.t === "emit.views") as { views: SheetSavedView[] } | undefined)?.views;
+const written = (t: { effects: SheetEffect[] }): SheetNarrowing | undefined => (t.effects.find((e) => e.t === "slice.write") as { state: SheetNarrowing } | undefined)?.state;
 
 describe("the lens", () => {
     test("band controls reveal positions as a merged set and escalate; the context switch and a narrowing change reset them", () => {
@@ -767,8 +768,9 @@ describe("the view tabs", () => {
         const clean = run(onSpray(), [{ t: "search.key", key: "Escape" }], lensCtxOf(SPRAY));
         expect(clean.state.tabs.active).toBeNull();
         expect(written(clean)).toBe(EMPTY);
+        // Esc on the whole sheet drops every source's search, each keeping its other choices — compared as East compares them.
         const sheet = run(initialSheetState(), [{ t: "search.key", key: "Escape" }], lensCtxOf(ROUTER));
-        expect(written(sheet)).toEqual({ ...ROUTER, search: none });
+        expect(narrowingEqual(written(sheet)!, EMPTY)).toBe(true);
         expect(run(initialSheetState(), [{ t: "search.key", key: "Enter" }], lensCtxOf(EMPTY)).effects).toEqual([{ t: "focus.sheet" }]);
         // The sheet's esc: the range first, then the dirty tab, then the clean tab.
         const ranged = { ...onSpray(), selEnd: { r: 4, c: 1 } };

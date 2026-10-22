@@ -9,9 +9,10 @@
  *
  * What the Plan's footer counts of its event kinds (#1193, PB23): every kind's
  * events in the window the canvas shows and how long they run (#1197), the
- * backlog of the kinds that keep one, and the newest commit to any kind's
- * record; the last counts while a read is in flight or has failed. The same read finds the
- * overlaps among the window's events of the kinds that warn of them (#1198).
+ * backlog of the kinds that keep one — its events the Backlog tab's cards
+ * (#1344) — and the newest commit to any kind's record; the last counts while
+ * a read is in flight or has failed. The same read finds the overlaps among
+ * the window's events of the kinds that warn of them (#1198).
  */
 
 import { describe, test, expect, vi, beforeEach } from "vitest";
@@ -78,14 +79,19 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
             kind({ items: () => some([item(), item()]) as never, commits: [utcAt("2026-10-12T08:30:00")] }),
         ];
         const { result } = renderHook(() => usePlanEventCounts(kinds, scale));
-        expect(result.current).toEqual({ events: 5, minutes: 300, backlog: 2, saved: utcAt("2026-10-12T08:30:00"), overlaps: NO_OVERLAPS });
+        // The backlog's events are the Backlog tab's cards, each with its kind, in the kinds' order (#1344).
+        expect(result.current).toEqual({
+            events: 5, minutes: 300, backlog: 2, saved: utcAt("2026-10-12T08:30:00"), overlaps: NO_OVERLAPS,
+            unscheduled: [{ kind: kinds[0], item: item() }, { kind: kinds[0], item: item() }],
+        });
+        expect(result.current!.unscheduled[0]!.kind).toBe(kinds[0]);
         // Read over the window the canvas shows.
         expect(asked[0]).toEqual([utcAt("2026-10-05T00:00:00"), utcAt("2026-11-02T00:00:00")]);
     });
 
     test("no kind keeps a backlog: none is counted; no commit, no last save; no kinds, no counts", () => {
         const plain = renderHook(() => usePlanEventCounts([kind({ items: () => some([item()]) as never })], scale));
-        expect(plain.result.current).toEqual({ events: 1, minutes: 60, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS });
+        expect(plain.result.current).toEqual({ events: 1, minutes: 60, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         const bare = renderHook(() => usePlanEventCounts([], scale));
         expect(bare.result.current).toBeUndefined();
     });
@@ -96,7 +102,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         const kindsNow = () => [kind({ items: () => answer() })];
         const { result, rerender } = renderHook(({ kinds }) => usePlanEventCounts(kinds, scale), { initialProps: { kinds: kindsNow() } });
         const first = result.current;
-        expect(first).toEqual({ events: 1, minutes: 60, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS });
+        expect(first).toEqual({ events: 1, minutes: 60, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         // In flight: the last counts stand.
         answer = () => none;
         rerender({ kinds: kindsNow() });
@@ -114,7 +120,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         // An answer moves them.
         answer = () => some([item(), item()]) as never;
         rerender({ kinds: kindsNow() });
-        expect(result.current).toEqual({ events: 2, minutes: 120, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS });
+        expect(result.current).toEqual({ events: 2, minutes: 120, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         // No event kinds: nothing to count, and nothing held.
         rerender({ kinds: [] });
         expect(result.current).toBeUndefined();

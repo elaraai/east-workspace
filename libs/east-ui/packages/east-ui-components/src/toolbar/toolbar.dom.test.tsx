@@ -167,6 +167,29 @@ describe("the toolbar's one ladder", () => {
         expect(shown(container)).toEqual(["rail-chip", "tabs-folded", "history"]);
     });
 
+    test("a tooltip showing on an item holds nothing: the row folds as its width says, and stays folded as the tooltip comes and goes", async () => {
+        // A tooltip shows wherever the pointer rests — on an item a narrowing row moved under it, too.
+        const list = items({
+            rail: { forms: [<span data-w={300} data-form-name="rail-live"><span data-scope="tooltip" data-part="trigger" data-state="open" /></span>, form("rail-chip", 120), form("rail-icon", 40)] },
+        });
+        const { container } = mount(list, 620);
+        resize(300);
+        // 40 + 90 + 100 + 20 = 250 fits 300: the rail folds to its icon, its tooltip notwithstanding.
+        expect(shown(container)).toEqual(["rail-icon", "tabs-folded", "history"]);
+        cleanup();
+        // A tooltip opening later, on an item the row then narrows past, holds it no more than one open from the start.
+        const tipped = mount(items({
+            rail: { forms: [<span data-w={300} data-form-name="rail-live"><span data-scope="tooltip" data-part="trigger" data-state="closed" /></span>, form("rail-chip", 120), form("rail-icon", 40)] },
+        }), 620);
+        expect(shown(tipped.container)).toEqual(["rail-live", "tabs-all", "history"]);
+        await act(async () => {
+            tipped.container.querySelector("[data-scope='tooltip']")!.setAttribute("data-state", "open");
+            await Promise.resolve();
+        });
+        resize(300);
+        expect(shown(tipped.container)).toEqual(["rail-icon", "tabs-folded", "history"]);
+    });
+
     test("an item marked held keeps its form", () => {
         const { container } = mount(items({ tabs: { held: true } }), 620);
         resize(300);

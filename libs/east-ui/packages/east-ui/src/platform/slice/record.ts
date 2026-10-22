@@ -56,7 +56,7 @@ export interface RecordSliceOptions<R extends StructType, M extends StructType> 
     fields?: { [F in Field<M>]?: { label?: string; format?: SliceFieldFormat; hints?: readonly RecordSliceValue<FieldType<R, M, F>>[] } };
     /** Ranged field shared by the range control and a Plan's window. */
     range?: RangeField<R, M>;
-    /** Prefix-search fields; omitted means all offered String fields. */
+    /** Prefix-search fields; omitted means all offered String fields. A String field with no hints is refused unless it is one of them: it would offer nothing to choose. */
     search?: SearchField<R, M> | readonly SearchField<R, M>[];
     /** Narrowing seeded on first bind. */
     initial?: RecordSliceWhere<R, M>;
@@ -239,6 +239,12 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     }
     const search = options.search === undefined ? fields.filter(field => field.kind === "string").map(field => field.fieldId) : typeof options.search === "string" ? [options.search] : [...options.search];
     for (const field of search) if (getField(field).kind !== "string") throw new Error(`Slice.bindRecord: search '${field}' must be String`);
+    // A String field's editor offers its hints and, when searched, what a search finds: with neither it offers nothing to choose.
+    for (const field of fields) {
+        if (field.kind === "string" && (options.fields?.[field.fieldId as Field<M>]?.hints?.length ?? 0) === 0 && !search.includes(field.fieldId)) {
+            throw new Error(`Slice.bindRecord: '${field.label}' offers nothing to choose — give it hints, or list '${field.fieldId}' in search`);
+        }
+    }
     const initial = { where: makeWhere(options.initial ?? {}), preset: none, resolution: none };
     const presetIds = new Set<string>();
     const presets = (options.presets ?? []).map(preset => {

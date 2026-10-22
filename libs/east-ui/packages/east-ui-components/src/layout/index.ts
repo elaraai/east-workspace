@@ -60,7 +60,7 @@ export {
     type SnapGridEditorValue,
     type EastChakraSnapGridProps,
 } from "./snap-grid/index.js";
-export { DockPane, type DockPaneProps } from "./dock/index.js";
+export { DockPane, type DockPaneProps, type DockRailMark } from "./dock/index.js";
 export {
     BuilderFrame,
     placePanes,

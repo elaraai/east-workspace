@@ -28,18 +28,28 @@
  * beside one, and the keys are Strings, as the canvas seeks them. The Calendar
  * reads a kind's resources whole, and refuses a paged one.
  *
+ * The builders over the app's own records read their resources through
+ * accessors beside Plan's (#1367, `Builder Interfaces Spec.md` §4.2): the
+ * Roster's people — a person's position, skills, contract hours, and whether
+ * they are an agency's, a trainer or a trainee, and their usual shift — and
+ * the Allocation's lanes (`offset`) and resources (`min`, `max`, `note`,
+ * `hold`, `jobs`). Each accessor is reified once, held to the type it returns,
+ * and the kind carries them all (`accessors`) for its builder to call per row.
+ *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BooleanType, DictType, East, FunctionType, OptionType, StringType, isTypeEqual, none, printType, some,
+    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, OptionType, SetType, StringType, isTypeEqual, none, printType, some,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { StatusValueType } from "@elaraai/east-ui";
+import { StatusValueType, TimeStepType } from "@elaraai/east-ui";
 import { resolveRowSource, resolveTag } from "@elaraai/east-ui/internal";
+import { AllocationJobType } from "../allocation/types.js";
 import type { PagedValue } from "../bind/data.js";
 import { planSeriesFacts, type PlanSeriesValue } from "../plan/series.js";
 import { PlanRollupType, type PlanAxisKindLiteral, type PlanRollupLiteral } from "../plan/types.js";
+import { scheduleAccessor } from "./accessor.js";
 import { PlanResourceRowType, PlanResourcesType, ScheduleResourceRowType, ScheduleResourcesType } from "./types.js";
 import { scheduleEntryByKey } from "./window.js";
 
@@ -77,6 +87,75 @@ export interface ScheduleResourcesConfig<K extends EastType, R extends EastType>
     collapsed?: boolean | ((row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>);
     /** Plan: the read-only rows under each resource, in order — `Plan.series.heat`, `table` or `chart` over the resources' rows. */
     measures?: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
+    /** The Roster's people: a person's default position, a key of its `positions`. */
+    position?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
+    /** The Roster's people: the skills a person holds, keys of its `activities`. */
+    skills?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<SetType<StringType>>;
+    /** The Roster's people: a person's contracted weekly hours. */
+    contract?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<FloatType>;
+    /** The Roster's people: whether a person is a named agency worker. */
+    agency?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
+    /** The Roster's people: whether a person trains others. */
+    trainer?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
+    /** The Roster's people: whether a person needs a trainer beside them. */
+    trainee?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
+    /** The Roster's people: a person's usual shift, a key of its `shifts`, or none. */
+    usual?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
+    /** The Allocation's lanes: how far past each slot's start a lane's bins are booked (`variant("minutes", 15)`). */
+    offset?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<TimeStepType>;
+    /** The Allocation's resources: a resource's minimum, in the quantity's unit. The Allocation requires it. */
+    min?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<FloatType>;
+    /** The Allocation's resources: a resource's maximum, in the quantity's unit. The Allocation requires it. */
+    max?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<FloatType>;
+    /** The Allocation's resources: a line about a resource's next job. */
+    note?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
+    /** The Allocation's resources: how long a reservation on a resource is checked for, and held while it holds only reservations. */
+    hold?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<TimeStepType>;
+    /** The Allocation's resources: the other work on a resource. */
+    jobs?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<ArrayType<AllocationJobType>>;
+}
+
+/** One of a resource kind's accessors, reified: an East function over a resource's row and its key, erased over both. */
+export type ScheduleResourceAccessor<T extends EastType> = ExprType<FunctionType<[EastType, EastType], T>>;
+
+/**
+ * A resource kind's accessors, each reified once (#1367): what a builder over
+ * the app's own records calls per row. One the kind was not given is
+ * `undefined`.
+ */
+export interface ScheduleResourceAccessors {
+    /** A resource's name. */
+    readonly label: ScheduleResourceAccessor<StringType>;
+    /** A resource's second line: `none` for a kind with no `meta`. */
+    readonly meta: ScheduleResourceAccessor<OptionType<StringType>>;
+    /** The group a resource sits under: a person's home group, a resource's group. */
+    readonly group: ScheduleResourceAccessor<StringType> | undefined;
+    /** The Roster's people: a person's default position. */
+    readonly position: ScheduleResourceAccessor<StringType> | undefined;
+    /** The Roster's people: the skills a person holds. */
+    readonly skills: ScheduleResourceAccessor<SetType<StringType>> | undefined;
+    /** The Roster's people: a person's contracted weekly hours. */
+    readonly contract: ScheduleResourceAccessor<FloatType> | undefined;
+    /** The Roster's people: whether a person is a named agency worker. */
+    readonly agency: ScheduleResourceAccessor<BooleanType> | undefined;
+    /** The Roster's people: whether a person trains others. */
+    readonly trainer: ScheduleResourceAccessor<BooleanType> | undefined;
+    /** The Roster's people: whether a person needs a trainer beside them. */
+    readonly trainee: ScheduleResourceAccessor<BooleanType> | undefined;
+    /** The Roster's people: a person's usual shift. */
+    readonly usual: ScheduleResourceAccessor<OptionType<StringType>> | undefined;
+    /** The Allocation's lanes: how far past each slot's start a lane's bins are booked. */
+    readonly offset: ScheduleResourceAccessor<TimeStepType> | undefined;
+    /** The Allocation's resources: a resource's minimum. */
+    readonly min: ScheduleResourceAccessor<FloatType> | undefined;
+    /** The Allocation's resources: a resource's maximum. */
+    readonly max: ScheduleResourceAccessor<FloatType> | undefined;
+    /** The Allocation's resources: a line about a resource's next job. */
+    readonly note: ScheduleResourceAccessor<OptionType<StringType>> | undefined;
+    /** The Allocation's resources: how long a reservation on a resource is held. */
+    readonly hold: ScheduleResourceAccessor<TimeStepType> | undefined;
+    /** The Allocation's resources: the other work on a resource. */
+    readonly jobs: ScheduleResourceAccessor<ArrayType<AllocationJobType>> | undefined;
 }
 
 /**
@@ -116,6 +195,8 @@ export interface ScheduleResourceKind<K extends EastType, R extends EastType> {
     readonly nested: boolean;
     /** Plan: how a parent's bands roll its children's events up. */
     readonly rollup: ExprType<PlanRollupType>;
+    /** Its accessors, each reified once: what a builder over the app's own records calls per row (#1367). */
+    readonly accessors: ScheduleResourceAccessors;
     /**
      * The kind on the wire, under its slot: the Calendar's.
      *
@@ -154,9 +235,9 @@ const ByKeyFunctionType = FunctionType([StringType], ByKeyType);
  * @param config - Its name, its icon, each resource's label and second line, and Plan's options
  * @returns The kind, for a builder's `resources`
  * @throws {Error} When `rows` is not a `Dict`, or a paged read of one (#1199) keyed by anything but a String or
- *   beside `group` or `parent`; a `window`, which is gone; a `rollup` that is not a way to roll up; and a measure that
+ *   beside `group` or `parent`; a `window`, which is gone; a `rollup` that is not a way to roll up; a measure that
  *   is not a `Plan.series.heat`, `table` or `chart` over the resources' rows written in place, that nests, or whose
- *   key another measure has
+ *   key another measure has; and an accessor returning another type than it takes, naming what it returns (#1367)
  * @example
  * ```tsx
  * import { DictType, East, StringType, StructType, some } from "@elaraai/east";
@@ -218,11 +299,13 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
     const keyType = (type as DictType<EastType, EastType>).key;
     const rowType = (type as DictType<EastType, EastType>).value;
     const optString = OptionType(StringType);
-    // Each accessor, one East function, called per row (`shared/reify.ts`'s rule).
-    const label = East.function([rowType, keyType], StringType, (_$, row, key) => config.label(row, key));
-    const author = config.meta;
-    const meta = East.function([rowType, keyType], optString, (_$, row, key) =>
-        author === undefined ? East.value(none, optString) : author(row, key));
+    // Each accessor, one East function, called per row (`shared/reify.ts`'s rule), held to the type it returns (#1367).
+    const accessor = <T extends EastType>(prop: string, out: T, what: string,
+        fn: ((row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<NoInfer<T>>) | undefined) =>
+        fn === undefined ? undefined
+            : scheduleAccessor(rowType, keyType, out, fn, (returns) => `${where}: \`${prop}\` returns ${what} — and this one returns ${returns}`);
+    const label = accessor("label", StringType, "a String, a resource's name", config.label)!;
+    const meta = accessor("meta", optString, "an Option of a String, a resource's second line", config.meta ?? (() => East.value(none, optString)))!;
     // A String key is its own text; any other key as East prints it.
     const text = keyType.type === "String"
         ? East.function([StringType], StringType, (_$, key) => key)
@@ -275,16 +358,33 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
             }
         }
     }
-    // Plan's accessors, each one East function, called per row.
-    const accessor = <T extends EastType>(out: T, fn: ((row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<T>) | undefined) =>
-        fn === undefined ? undefined : East.function([rowType, keyType], out, (_$, row, key) => fn(row, key));
-    const groupOf = accessor(StringType, config.group);
-    const parentOf = accessor(optString, config.parent);
-    const subOf = accessor(optString, config.sub);
-    const valueOf = accessor(optString, config.value);
-    const statusOf = accessor(OptionType(StatusValueType), config.status);
+    // Plan's accessors.
+    const groupOf = accessor("group", StringType, "a String, the group a resource sits under", config.group);
+    const parentOf = accessor("parent", optString, "an Option of a String, the key's text of the resource it nests under", config.parent);
+    const subOf = accessor("sub", optString, "an Option of a String, the gutter's sub line", config.sub);
+    const valueOf = accessor("value", optString, "an Option of a String, the gutter's value slot", config.value);
+    const statusOf = accessor("status", OptionType(StatusValueType), "an Option of a StatusValue, the gutter's status dot", config.status);
     const collapsed = config.collapsed;
-    const collapsedOf = typeof collapsed === "function" ? accessor(BooleanType, collapsed) : undefined;
+    const collapsedOf = typeof collapsed === "function" ? accessor("collapsed", BooleanType, "a Boolean, whether a resource starts folded", collapsed) : undefined;
+    // The builders' over the app's own records (#1367): the Roster's people, the Allocation's lanes and resources.
+    const accessors: ScheduleResourceAccessors = {
+        label,
+        meta,
+        group: groupOf,
+        position: accessor("position", StringType, "a String, a person's default position", config.position),
+        skills: accessor("skills", SetType(StringType), "a Set of String, the skills a person holds", config.skills),
+        contract: accessor("contract", FloatType, "a Float, a person's contracted weekly hours", config.contract),
+        agency: accessor("agency", BooleanType, "a Boolean, whether a person is a named agency worker", config.agency),
+        trainer: accessor("trainer", BooleanType, "a Boolean, whether a person trains others", config.trainer),
+        trainee: accessor("trainee", BooleanType, "a Boolean, whether a person needs a trainer beside them", config.trainee),
+        usual: accessor("usual", optString, "an Option of a String, a person's usual shift", config.usual),
+        offset: accessor("offset", TimeStepType, "a TimeStep, how far past each slot's start a lane's bins are booked", config.offset),
+        min: accessor("min", FloatType, "a Float, a resource's minimum", config.min),
+        max: accessor("max", FloatType, "a Float, a resource's maximum", config.max),
+        note: accessor("note", optString, "an Option of a String, a line about a resource's next job", config.note),
+        hold: accessor("hold", TimeStepType, "a TimeStep, how long a reservation on a resource is held", config.hold),
+        jobs: accessor("jobs", ArrayType(AllocationJobType), "an Array of Allocation.Types.Job, the other work on a resource", config.jobs),
+    };
     // One resource as Plan's builder takes it.
     const planRow = East.function([rowType, keyType], PlanResourceRowType, ($, row, key) => {
         const keyText = $.const(text as ExprType<FunctionType<[EastType], StringType>>);
@@ -336,6 +436,7 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
         grouped: config.group !== undefined,
         nested: config.parent !== undefined,
         rollup,
+        accessors,
         build(slot: string): ExprType<ScheduleResourcesType> {
             // The Calendar reads a kind's resources whole, and pages none.
             if (source === undefined) {

@@ -406,13 +406,13 @@ describe("what the canvas takes dropped", () => {
     test("each tab whose cards drop, under the library its cards drag from: the templates', and an author's tab by what its drop's type names — never the Flows tab, nor an author's tab without a drop", () => {
         const host = dropHostOf("flowchart.surface", [
             ["lib:flows", variant("flows", null)],
-            ["lib:states", variant("states", { name: none, icon: none, cards: [{ key: "HLD", label: "Held", meta: none, group: none, sets: HELD.sets }] })],
-            ["lib:transitions", variant("transitions", { name: none, icon: none, cards: [{ key: "obs", label: "Observed", meta: none, group: none, sets: OBSERVED.sets }] })],
-            ["lib:tab:Notes", variant("tab", { name: "Notes", icon: none, lands: variant("state", [{ key: "n", label: "Checked", meta: none, group: none, sets: NOTE.sets }]) })],
-            ["lib:tab:Lanes", variant("tab", { name: "Lanes", icon: none, lands: variant("lane", [{ key: "s", label: "Sortation", meta: none, group: none, sets: SORTATION.sets }]) })],
-            ["lib:tab:Owners", variant("tab", { name: "Owners", icon: none, lands: variant("decision", [{ key: "c", label: "Customs desk", meta: none, group: none, sets: CUSTOMS.sets }]) })],
-            ["lib:tab:Moves", variant("tab", { name: "Moves", icon: none, lands: variant("transition", [{ key: "m", label: "Observed", meta: none, group: none, sets: OBSERVED.sets }]) })],
-            ["lib:tab:Desks", variant("tab", { name: "Desks", icon: none, lands: variant("none", [{ key: "d", label: "Hold bay", meta: none, group: none }]) })],
+            ["lib:states", variant("states", { name: none, icon: none, cards: [{ key: "HLD", label: "Held", meta: none, group: none, sets: HELD.sets }], source: "steps" })],
+            ["lib:transitions", variant("transitions", { name: none, icon: none, cards: [{ key: "obs", label: "Observed", meta: none, group: none, sets: OBSERVED.sets }], source: "moves" })],
+            ["lib:tab:Notes", variant("tab", { name: "Notes", icon: none, lands: variant("state", [{ key: "n", label: "Checked", meta: none, group: none, sets: NOTE.sets }]), source: none })],
+            ["lib:tab:Lanes", variant("tab", { name: "Lanes", icon: none, lands: variant("lane", [{ key: "s", label: "Sortation", meta: none, group: none, sets: SORTATION.sets }]), source: none })],
+            ["lib:tab:Owners", variant("tab", { name: "Owners", icon: none, lands: variant("decision", [{ key: "c", label: "Customs desk", meta: none, group: none, sets: CUSTOMS.sets }]), source: some("owners") })],
+            ["lib:tab:Moves", variant("tab", { name: "Moves", icon: none, lands: variant("transition", [{ key: "m", label: "Observed", meta: none, group: none, sets: OBSERVED.sets }]), source: none })],
+            ["lib:tab:Desks", variant("tab", { name: "Desks", icon: none, lands: variant("none", [{ key: "d", label: "Hold bay", meta: none, group: none }]), source: none })],
         ]);
         expect(host.surface).toBe("flowchart.surface");
         expect([...host.libraries.keys()]).toEqual(["lib:states", "lib:transitions", "lib:tab:Notes", "lib:tab:Lanes", "lib:tab:Owners", "lib:tab:Moves"]);

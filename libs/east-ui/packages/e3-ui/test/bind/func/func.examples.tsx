@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { East, FloatType, IntegerType, NullType, example } from "@elaraai/east";
+import { ArrayType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example } from "@elaraai/east";
 import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Func } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -14,6 +14,15 @@ import e3 from "@elaraai/e3";
 // example binds is: the package these examples deploy in carries them.
 export const forecastFn = e3.function("forecast", East.function([IntegerType, FloatType], FloatType, (_$, _periods, growth) => growth));
 export const rebalanceFn = e3.function("rebalance", East.function([FloatType], FloatType, (_$, target) => target));
+
+// What the function runtime's specs call beside them (#1378): a forecast that
+// refuses a negative growth, so a call fails as a runner's program does; and a
+// count over a recursive tree, whose type the deployed list names with its
+// wrappers numbered as it reads them off the wire.
+export const checkedForecastFn = e3.function("checked_forecast", East.function([IntegerType, FloatType], FloatType, (_$, periods, growth) =>
+    East.less(growth, 0.0).ifElse(() => East.error("growth must not be negative"), () => growth.multiply(periods.toFloat()))));
+export const TreeType = RecursiveType(self => StructType({ label: StringType, children: ArrayType(self) }));
+export const countTreeFn = e3.function("count_tree", East.function([TreeType], IntegerType, (_$, tree) => tree.unwrap().children.size().add(1n)));
 
 export const funcBindCall = example({
     keywords: ["Func", "bind", "call", "Reactive", "Button", "pending", "read", "RPC", "FunctionDef"],

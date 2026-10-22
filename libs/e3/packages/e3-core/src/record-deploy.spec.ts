@@ -43,6 +43,8 @@ import { workspaceGetDataset, workspaceResolveDataset, workspaceSetDataset } fro
 import { packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage, type WorkspaceDeployOptions } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
+import { workspaceStatus } from './workspaceStatus.js';
+import { dataflowExecute } from './execution/local-orchestrator.js';
 import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -816,5 +818,192 @@ describe('a deploy\'s record migrations', () => {
     assert.deepEqual((await recordHistory(storage, repo, ws, 'tree')).map((entry) => entry.commit.mutation), ['$reset']);
     assert.deepEqual(await workspaceGetDataset(storage, repo, ws, pinned), { title: 'root', owner: '', kids: [] },
       'the tree pinned at 1.0.0\'s type takes 2.0.0\'s value');
+  });
+
+  describe('a record declared with no initial value', () => {
+    const countPath: TreePath = [variant('field', 'tasks'), variant('field', 'count'), variant('field', 'output')];
+
+    /** v1 with no initial value, `seed(n)` as v1 has it, and a task over the record. */
+    function unseeded(version = '1.0.0'): PackageDef<Record<string, unknown>> {
+      const plans = e3.record('plans', PlansV1Type);
+      const seed = e3.mutation.reduce('seed', plans, East.function([PlansV1Type, IntegerType], PlansV1Type, ($, _state, n) => {
+        const out = $.let(new Map(), PlansV1Type);
+        $.for(East.Array.range(0n, n), ($, i) => {
+          $(out.insert(East.str`p-${i}`, { title: East.str`Plan ${i}` }));
+        });
+        return out;
+      }));
+      const count = e3.task('count', [plans], East.function([PlansV1Type], IntegerType, ($, plans) => plans.size()));
+      return e3.package('planning', version, plans, seed, count);
+    }
+
+    /** A v1 state of `n` rows, stored through the door as a delivery is taken in. */
+    async function stored(n: number): Promise<string> {
+      const rows: [string, ValueTypeOf<typeof RowV1Type>][] = [];
+      for (let i = 0; i < n; i++) rows.push([`p-${i}`, { title: `Plan ${i}` }]);
+      return storeDatasetBytes(storage, repo, encodeBeast2For(PlansV1Type)(new SortedMap(rows, compareFor(StringType))));
+    }
+
+    /** The record's first state, committed as a host's file intake commits it. */
+    const genesis = (state: string, applied: readonly string[] = []) => recordSystemCommit(storage, runner, repo, ws, 'plans',
+      { name: '$init', target: { state, applied }, actor: 'files:test', args: [encodeStr('plans.beast2')] });
+
+    it('is unassigned after the deploy, its dependents waiting, and refuses every write until its first state is committed', async () => {
+      const plans: RecordPlan[] = [];
+      await deploy(unseeded(), { onRecordPlan: (plan) => plans.push(plan) });
+      assert.deepEqual(plans, [{ record: 'records/plans', action: variant('unassigned', null) }]);
+      assert.equal((await storage.datasets.read(repo, ws, 'records/plans'))?.type, 'unassigned', 'no commit was written');
+      assert.deepEqual(await history(), []);
+      assert.ok((await recordDescribe(storage, repo, ws, 'plans')) !== null, 'the record is declared');
+
+      // Its dependents wait, as they wait on an unset input: a run leaves
+      // them waiting, naming the record, and goes on without them, so nothing
+      // ever runs on an empty state
+      const status = await workspaceStatus(storage, runner, repo, ws);
+      assert.equal(status.tasks.find((task) => task.name === 'count')?.status.type, 'waiting');
+      const waiting: [string, string[]][] = [];
+      const run = await dataflowExecute(storage, repo, ws, { onTaskWaiting: (task, inputs) => waiting.push([task, inputs]) });
+      assert.deepEqual([run.success, run.executed, run.waiting], [true, 0, 1], JSON.stringify(run));
+      assert.deepEqual(waiting, [['count', ['.records.plans']]]);
+      assert.equal((await storage.datasets.read(repo, ws, 'tasks/count/output'))?.type ?? 'unassigned', 'unassigned');
+
+      const refused = [
+        await recordMutate(storage, runner, repo, ws, 'plans', 'seed', [encodeInt(3n)], { actor: 'cli:test' }),
+        await recordCompact(storage, repo, ws, 'plans', { actor: 'cli:test' }),
+        await recordReindex(storage, runner, repo, ws, 'plans', { actor: 'cli:test' }),
+        await recordSystemCommit(storage, runner, repo, ws, 'plans', { name: '$restore', target: { state: await stored(1), applied: [] }, actor: 'ops:test' }),
+      ];
+      for (const outcome of refused) {
+        assert.equal(outcome.kind, 'invalid', JSON.stringify(outcome));
+        assert.match((outcome as { message: string }).message, /record 'plans' has no state yet: it is unassigned until its first state is committed/);
+      }
+      assert.deepEqual(await history(), [], 'nothing was written');
+    });
+
+    it('commits its first state from a stored delivery as its $init, and runs its dependents once, on it', async () => {
+      await deploy(unseeded());
+      const state = await stored(4);
+      const seeded = await genesis(state);
+      assert.equal(seeded.kind, 'committed', JSON.stringify(seeded));
+      assert.deepEqual(await history(), ['$init']);
+      const [head] = await recordHistory(storage, repo, ws, 'plans', { args: true });
+      assert.equal(head!.commit.actor, 'files:test');
+      assert.equal(head!.commit.parent.type, 'none', 'a root commit');
+      assert.match(head!.args?.values[0]?.text ?? '', /plans\.beast2/, 'the commit carries its arguments');
+      const held = await ref();
+      assert.equal(held.hash, state);
+      assert.deepEqual(appliedMigrations(held.versions), []);
+      assert.equal(held.versions.get('$idem'), undefined);
+      assert.equal((await workspaceGetDataset(storage, repo, ws, plansPath) as Map<string, unknown>).size, 4);
+
+      // Its dependents run once, on the first state, never on an empty one
+      const run = await dataflowExecute(storage, repo, ws, {});
+      assert.equal(run.executed, 1, JSON.stringify(run));
+      assert.equal(await workspaceGetDataset(storage, repo, ws, countPath), 4n);
+      assert.equal((await dataflowExecute(storage, repo, ws, {})).executed, 0, 'and are served from the cache after');
+
+      // From then on it is a record like any other
+      const added = await recordMutate(storage, runner, repo, ws, 'plans', 'seed', [encodeInt(2n)], { actor: 'cli:test' });
+      assert.equal(added.kind, 'committed', JSON.stringify(added));
+      assert.deepEqual(await history(), ['seed', '$init']);
+    });
+
+    it("refuses a first state at other migrations than the chain, of another type, named by a commit, or not in the store, and a second one", async () => {
+      // v2's chain is add_owner: a first state is at v2's type, with the chain applied
+      const v2Unseeded = (() => {
+        const plans = e3.record('plans', PlansV2Type);
+        return e3.package('planning', '2.0.0', plans, addOwner(plans), ...v2Declarations(plans));
+      })();
+      await deploy(v2Unseeded);
+      const message = (outcome: Awaited<ReturnType<typeof genesis>>): string => {
+        assert.equal(outcome.kind, 'invalid', JSON.stringify(outcome));
+        return (outcome as { message: string }).message;
+      };
+      const v1State = await stored(2);
+      assert.match(message(await genesis(v1State)),
+        /record 'plans' declares migrations 'add_owner', and the state to commit had had none: a first state is at the package's type, with the whole chain applied/);
+      assert.match(message(await genesis(v1State, ['add_owner'])), /is declared as .*, and the state [0-9a-f]+ holds /);
+      assert.match(message(await recordSystemCommit(storage, runner, repo, ws, 'plans', { name: '$init', target: { commit: 'f'.repeat(64) }, actor: 'ops:test' })),
+        /has no history to roll back to: its first state names a state/);
+      assert.match(message(await genesis('f'.repeat(64), ['add_owner'])), /is not in the repository, whole/);
+      assert.deepEqual(await history(), [], 'nothing was written');
+
+      const v2State = await storeDatasetBytes(storage, repo, encodeBeast2For(PlansV2Type)(
+        new SortedMap([['p-0', { title: 'Plan 0', owner: 'me' }]], compareFor(StringType))));
+      const seeded = await genesis(v2State, ['add_owner']);
+      assert.equal(seeded.kind, 'committed', JSON.stringify(seeded));
+      assert.deepEqual(await history(), ['$init']);
+      const held = await ref();
+      assert.deepEqual(appliedMigrations(held.versions), ['add_owner'], 'the whole chain counts as applied');
+      assert.deepEqual([...(await readRecordState(storage, repo, held.hash)).indexes.keys()], ['by_owner'], 'its indexes are built under the declaration');
+      const [owned] = (await described()).migrations;
+      assert.ok(sameApplied(owned!.applied, appliedBy(await committed(ws, '$init'))), 'applied by the $init commit, when it was made');
+
+      assert.match(message(await genesis(v2State, ['add_owner'])),
+        /record 'plans' has a state already, its head [0-9a-f]+: a later state is a system commit of another name over it/);
+      assert.deepEqual(await history(), ['$init']);
+    });
+
+    it('is kept with its state by a redeploy, and sent back to unassigned under --schema=reset, for its first state to be committed again', async () => {
+      await deploy(unseeded());
+      assert.equal((await genesis(await stored(3))).kind, 'committed');
+      const plans: RecordPlan[] = [];
+      await deploy(unseeded('1.0.1'), { onRecordPlan: (plan) => plans.push(plan) });
+      assert.deepEqual(plans, [{ record: 'records/plans', action: variant('keep', { deploy: true }) }]);
+      assert.deepEqual(await history(), ['$deploy', '$init']);
+
+      // A type change with no migration: the package declares no initial
+      // value, so a reset sends the record back to unassigned
+      const retyped = (() => {
+        const plans = e3.record('plans', PlansV2Type);
+        return e3.package('planning', '2.0.1', plans);
+      })();
+      await assert.rejects(deploy(retyped), /changed type with no migration[\s\S]*--schema=reset to unassign it, for its first state to be committed again/);
+      const reset: RecordPlan[] = [];
+      await deploy(retyped, { schema: 'reset', onRecordPlan: (plan) => reset.push(plan) });
+      const action = reset[0]!.action;
+      assert.equal(action.type, 'unassign', 'the plan says the record goes back to unassigned, not that it is reset to a value');
+      assert.ok(action.type === 'unassign' && /changed type with no migration/.test(action.value.reason), 'and why');
+      assert.equal((await storage.datasets.read(repo, ws, 'records/plans'))?.type, 'unassigned');
+      assert.deepEqual(await history(), [], 'the chain went with the state');
+
+      const again = await genesis(await storeDatasetBytes(storage, repo, encodeBeast2For(PlansV2Type)(new SortedMap([], compareFor(StringType)))));
+      assert.equal(again.kind, 'committed', JSON.stringify(again));
+      assert.deepEqual(await history(), ['$init']);
+    });
+
+    it('plans every index of a migrated record as built, having no initial value to plan them over, and builds them as it migrates', async () => {
+      await deploy(unseeded());
+      assert.equal((await genesis(await stored(3))).kind, 'committed');
+      const v2Unseeded = (() => {
+        const plans = e3.record('plans', PlansV2Type);
+        return e3.package('planning', '2.0.0', plans, addOwner(plans), ...v2Declarations(plans));
+      })();
+      const records: RecordPlan[] = [];
+      const indexes: RecordIndexPlan[] = [];
+      await deploy(v2Unseeded, { plan: true, onRecordPlan: (plan) => records.push(plan), onRecordIndex: (plan) => indexes.push(plan) });
+      assert.deepEqual(records, [{ record: 'records/plans', action: variant('migrate', { steps: ['add_owner'] }) }]);
+      assert.deepEqual(indexes, [{ record: 'records/plans', index: 'by_owner', action: variant('build', null) }]);
+      assert.deepEqual(await history(), ['$init'], 'a plan writes nothing');
+
+      await deploy(v2Unseeded);
+      assert.deepEqual(await history(), ['$reindex', '$migrate:add_owner', '$init']);
+      assert.deepEqual([...(await readRecordState(storage, repo, (await ref()).hash)).indexes.keys()], ['by_owner']);
+    });
+
+    it('refuses a first state, or a restored one, the store holds whole rather than as the manifest of its segments', async () => {
+      await deploy(unseeded());
+      const whole = await storage.objects.write(repo, encodeBeast2For(PlansV1Type)(new SortedMap([['p-0', { title: 'Plan 0' }]], compareFor(StringType))));
+      const refused = await genesis(whole);
+      assert.equal(refused.kind, 'invalid', JSON.stringify(refused));
+      assert.match((refused as { message: string }).message, /holds record 'plans' whole, not as the manifest of its segments: take it in first/);
+      assert.deepEqual(await history(), [], 'nothing was written');
+
+      assert.equal((await genesis(await stored(2))).kind, 'committed');
+      const restored = await recordSystemCommit(storage, runner, repo, ws, 'plans', { name: '$restore', target: { state: whole, applied: [] }, actor: 'ops:test' });
+      assert.equal(restored.kind, 'invalid', JSON.stringify(restored));
+      assert.match((restored as { message: string }).message, /holds record 'plans' whole, not as the manifest of its segments/);
+      assert.deepEqual(await history(), ['$init']);
+    });
   });
 });

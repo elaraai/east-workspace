@@ -514,7 +514,7 @@ Task → Which tag?
 │   │       ├─ TreeView.Item(value, label, indicator?) — leaf node (indicator = a Font Awesome solid icon + style)
 │   │       └─ TreeView.Branch(value, label, children, indicator?, disabled?) — expandable node
 │   ├─ <Plan> — the planning canvas (ONE shared time | number | ordinal axis over heterogeneous rows: event kinds over records, rows laid out by a series list over data, and read-only rows) is e3-ui's (#1177, #1191): `import { Plan } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
-│   ├─ <Sheet> — the planning spreadsheet, always in its builder frame (typed columns over an e3 record's rows or the host's, a blank tail that invites the next row, typed grammars, an East-function copilot, a slice lens, an editing session, and a library and an inspector pane, each an optional prop) is e3-ui's (#1179, #1216): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
+│   ├─ <Sheet> — the planning spreadsheet, always in its builder frame (typed columns over an e3 record's rows, the host's or its rail's `rows` source, a blank tail that invites the next row, typed grammars, an East-function copilot, one `Slice.bindRecords` rail with saved views, an editing session, and a library and an inspector pane, each an optional prop) is e3-ui's (#1179, #1216): `import { Sheet } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Matrix data={…} columns={…} cell={(r, col) => Matrix.cell({…})} /> — rows × columns of status-coloured segment bars
 │   │   ├─ Props:
 │   │   │   ├─ data (required) — row structs, or RecursiveType rows whose node is a struct (nested with `tree`); columns (required) — array of Matrix.column(…) (data-drivable with .map)
@@ -662,8 +662,9 @@ Task → Which tag?
 │   │   └─ Factories:
 │   │       ├─ Slice.bind(key, rows, options?) — local Array rows; infers the row type. Options: fields (label/hints/format), range, search, initial, presets, breakdown and match. Initial/preset clauses name typed fields; local operators include gte/contains. The positional form is removed.
 │   │       ├─ Slice.bindRecord(key, indexed, options?) — Data.bindPaged(record, { indexes }) from e3-ui; fields/range/search/initial/presets come from declared field indexes. No browser predicate, local operators, match or breakdown. Several exact values then one range/prefix must follow one index; a Set field takes one exact member.
+│   │       ├─ Slice.bindRecords(key, { name: { source: indexed, fields?, range?, search?, initial? }, … }, { presets? }) — several records narrowed from ONE rail: one Slice.bindRecord per named source under `${key}.${name}`; a choice in one source never changes another's rows or counts (no index relates two records). Presets narrow any sources at once (a source a preset doesn't name is cleared); slice.togglePreset(id) / slice.clearAll() act on every part. A component that narrows several kinds of row takes it as slice={{ slice }} with its sources named after them (the e3-ui Allocation's `lanes` and `resources`) and reads each source itself.
 │   │       ├─ Slice.config(Row, { fields, rangeFieldId?, searchFieldIds?, breakdownFieldIds? }) / Slice.state({…}) — low-level config/state for pure Slice.apply and state operations; bind options infer and seed these automatically.
-│   │       ├─ Slice.rows(slice) — the narrowed Array for local rows, or a pinned ordered source for records; record entries retain original key beside tagged ik, covering value and optional joined row.
+│   │       ├─ Slice.rows(slice) — the narrowed Array for local rows, or for records a live ordered source: one per binding whatever the narrowing, its windows read under the narrowing as it stands, its `query()` naming it (#1354); record entries retain original key beside tagged ik, covering value and optional joined row. Slice.rows(slice, source) reads one source of a Slice.bindRecords handle.
 │   │       ├─ Slice.partition([Row], slice) — the FULL set tagged [{value, matched}] (the "keep the excluded" feed — drive a de-emphasis effect from `matched`)
 │   │       ├─ Slice.apply.where / .matches / .breakdown — the pure filter engine (string ops eq/neq/in/notIn/contains/matches/startsWith/endsWith/isEmpty/isNotEmpty; integer in; datetime between)
 │   │       └─ slice.toggleFilter(pred) — idempotent single-predicate toggle for custom wiring; Range picker presets anchor to the DATA's date extent (clamped to now for live data) and pin concrete windows; an All chip clears the range; programmatic datetimePreset seeds stay rolling/wall-clock
@@ -1046,9 +1047,10 @@ expression, or a whole-value `Data.bind` / `State.bind` handle — or a paged
 source from the platform that owns the data, e3-ui's `Data.bindPaged`. east-ui
 produces no paged source; a collection already in hand is local data. A
 component recognises a paged source by its East type, a subtype of
-`Paged.Types.PinnedSource(C)` or `Paged.Types.Source(C)` over the collection
-`C` its `page` serves, and refuses a struct with `page` / `total` that is
-neither, naming the contract's fields.
+`Paged.Types.PinnedSource(C)`, `Paged.Types.LiveSource(C)` or
+`Paged.Types.Source(C)` over the collection `C` its `page` serves, and refuses
+a struct with `page` / `total` that is none of them, naming the contract's
+fields.
 
 The contract is a PINNED source: `{ id, page, total, seek, revision, refresh }`
 — the `pinned` arm. `id` names the logical source; `revision()` names the
@@ -1066,6 +1068,15 @@ The same struct without `revision` and `refresh` — `{ id, page, total, seek }`
 the `paged` arm — is the handle a UI exported before them carries. It names no
 snapshot: a component reads each window once, and the same `id` serves the
 same rows for as long as the component holds it.
+
+A rail's narrowed source — `Slice.rows(slice, source)` over records — is a
+pinned source that names its narrowing too: `{ id, page, total, seek,
+revision, refresh, query }`, `Paged.Types.LiveSource(C)`, the `live` arm. Its
+`id` names the source under every narrowing, its reads read the narrowing as
+it stands when they run, and `query()` names it, so a component built over it
+is not built again when a choice changes (#1354). A component keys its windows
+by `query()` as by `revision()`, reading them again when either moves; editing
+keeps the revision alone, so a Save confirms against the record's state.
 
 `Data.bindPaged` also follows its dataset without a call: the workspace
 status poll reports each new content hash and the source moves to that
@@ -1494,8 +1505,8 @@ tier so they stay subordinate to tags at every density.
   e3-ui's `<Sheet>` (#1179, #1216) is where a planner TYPES
   them, in its builder frame: typed cells with grammars (dates, quantities,
   register lookups, a directed link), a blank tail that inserts rows, an
-  East-function copilot, and a slice lens drawn as context bands rather than
-  a filtered row set. Reach for `<Sheet>` when the rows are authored in place
+  East-function copilot, and one rail narrowing its rows, its templates and
+  its tabs, with saved views. Reach for `<Sheet>` when the rows are authored in place
   and written back (through an e3 record's patch, or `onUpdate` / `onApply`)
   — the e3-ui skill documents it; for reading, sorting and reviewing a
   dataset, `<Table>`.

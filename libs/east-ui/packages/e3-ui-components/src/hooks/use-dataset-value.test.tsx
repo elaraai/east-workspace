@@ -7,52 +7,56 @@
  * A value read after its dataset moved on — the status named one hash, and the
  * read answered another's value — is kept under the hash the response names,
  * and never shown as the hash that was asked for: a return to that hash (a
- * toggled input) would show the other value.
+ * toggled input) would show the other value. On e3 itself (#1377): the
+ * dataset moves on as another session writes it.
  */
 
-import { describe, test, expect, afterEach, vi } from "vitest";
-import { renderHook, cleanup } from "@testing-library/react";
+import { describe, test, expect, vi } from "vitest";
+import { renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { IntegerType, encodeBeast2For, toEastTypeValue } from "@elaraai/east";
+import { IntegerType, toEastTypeValue } from "@elaraai/east";
 import { datasetGet } from "@elaraai/e3-api-client";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import { e3Harness } from "../e3-web-mount.test-utils.js";
 import { useDatasetValue } from "./useDatasetValue.js";
 
-vi.mock("@elaraai/e3-api-client", async (importOriginal) => ({
-    ...await importOriginal<typeof import("@elaraai/e3-api-client")>(),
-    datasetGet: vi.fn(),
-}));
+const h = e3Harness({ "bind/data/data": ex }, { measure: false });
 
-afterEach(() => {
-    cleanup();
-    vi.mocked(datasetGet).mockReset();
-});
-
-const API = "http://e3.test";
-const ASKED = "1".repeat(64);
-const HELD = "2".repeat(64);
-const key = (hash: string) => ["datasetValue", API, "default", "w", "x", hash];
+/** The count's dotted path, as a preview names it. */
+const COUNT = "inputs.count";
+const valueKey = (hash: string) => ["datasetValue", h.e3.apiUrl, h.e3.repo, h.workspace, COUNT, hash];
+const statusKey = () => ["datasetStatus", h.e3.apiUrl, h.e3.repo, h.workspace, COUNT];
+/** The hash of what e3 holds of the count now, read as another session would. */
+const heldHash = async () => (await datasetGet(h.e3.apiUrl, h.e3.repo, h.workspace, ex.countInput.path, h.e3.direct)).hash;
 
 describe("useDatasetValue", () => {
     test("keeps a value under the hash its response names, and fetches the status again", async () => {
-        vi.mocked(datasetGet).mockResolvedValue({ data: encodeBeast2For(IntegerType)(7n), hash: HELD } as never);
+        // The status named the count as deployed; another session has written 7 since.
+        const asked = await heldHash();
+        await h.write(ex.countInput, 7n);
+        const held = await heldHash();
+        expect(held).not.toBe(asked);
         const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-        client.setQueryData(["datasetStatus", API, "default", "w", "x"], { hash: ASKED });
+        client.setQueryData(statusKey(), { hash: asked });
         const { result, rerender } = renderHook(
-            ({ hash }: { hash: string }) => useDatasetValue(API, "default", "w", "x", { type: toEastTypeValue(IntegerType), hash }),
+            ({ hash }: { hash: string }) => useDatasetValue(h.e3.apiUrl, h.e3.repo, h.workspace, COUNT, {
+                type: toEastTypeValue(IntegerType), hash, requestOptions: { token: null, fetch: h.e3.fetch },
+            }),
             {
-                initialProps: { hash: ASKED },
+                initialProps: { hash: asked },
                 wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
             },
         );
         await vi.waitFor(() => expect(result.current.isSuccess).toBe(true));
 
         expect(result.current.data).toBe(undefined);
-        expect((client.getQueryData(key(HELD)) as { decoded: unknown }).decoded).toBe(7n);
-        expect(client.getQueryState(["datasetStatus", API, "default", "w", "x"])?.isInvalidated).toBe(true);
+        expect((client.getQueryData(valueKey(held)) as { decoded: unknown }).decoded).toBe(7n);
+        expect(client.getQueryState(statusKey())?.isInvalidated).toBe(true);
+        expect(h.requests("read", COUNT)).toHaveLength(1);
 
         // The status, fetched again, names the value that was read, which is
         // served from the cache at once.
-        rerender({ hash: HELD });
+        rerender({ hash: held });
         expect(result.current.data?.decoded).toBe(7n);
     });
 });

@@ -4,7 +4,7 @@
  */
 
 import {
-    ArrayType, DictType, East, Expr, OptionType, StringType, isTypeEqual, none, printType,
+    ArrayType, DictType, East, Expr, OptionType, StringType, isTypeEqual, none, printType, variant,
     type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { ScheduleClockType, ScheduleDurationType, ScheduleTemplateType } from "./types.js";
@@ -20,6 +20,10 @@ export interface ScheduleTemplates<V extends StructType> {
     readonly valuesType: V;
     /** The templates, with each initial value encoded at its own type. */
     readonly items: ExprType<ArrayType<ScheduleTemplateType>>;
+    /** The builder's Slice source whose shown keys filter these templates, by their record keys; `undefined`, every one shows (#1343). */
+    readonly source: string | undefined;
+    /** Whether each gives how long its event runs (`duration`): a span kind's templates do, an instant kind's do not (#1344). */
+    readonly timed: boolean;
 }
 
 /** Accessors describing one template record row. Each receives the row and its key. */
@@ -30,10 +34,18 @@ export interface ScheduleTemplatesConfig<K extends EastType, R extends EastType,
     group?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
     /** Its optional start time for a drop onto a whole day. */
     at?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<ScheduleClockType>>;
-    /** The length of an event made from this template. */
-    duration: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<ScheduleDurationType>;
+    /**
+     * The length of an event made from this template: a span kind's templates give it, and an instant kind's
+     * (`at`), whose events are one time, give none (#1344).
+     */
+    duration?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<ScheduleDurationType>;
     /** Every initial event field except its start, end and resource. */
     values: (row: ExprType<R>, key: ExprType<K>) => ExprType<V>;
+    /**
+     * The builder's `Slice.bindRecords` source over these templates' record (`jobTemplates`): its shown keys filter
+     * the Templates tab's cards, each template's key its record key. Omitted, every template shows (#1343).
+     */
+    source?: string;
 }
 
 /**
@@ -63,6 +75,7 @@ export function scheduleTemplates<K extends EastType, R extends EastType, V exte
     const keyText = keyType.type === "String"
         ? East.function([StringType], StringType, (_$, key) => key)
         : East.function([keyType], StringType, (_$, key) => East.print(key));
+    const duration = config.duration;
     const describe = East.function([rowType, keyType], ScheduleTemplateType, ($, row, key) => {
         const text = $.const(keyText as unknown as ExprType<FunctionType<[K], StringType>>);
         const initial = $.const(values);
@@ -70,7 +83,8 @@ export function scheduleTemplates<K extends EastType, R extends EastType, V exte
             key: text(key as never), name: config.name(row, key),
             group: config.group === undefined ? none : config.group(row, key),
             at: config.at === undefined ? none : config.at(row, key),
-            duration: config.duration(row, key),
+            // An instant kind's template is one time: it lasts no time, as one written in the code does.
+            duration: duration === undefined ? variant("minutes", 0) : duration(row, key),
             values: East.Blob.encodeBeast(initial(row as never, key as never), "v2"),
         };
     });
@@ -78,7 +92,7 @@ export function scheduleTemplates<K extends EastType, R extends EastType, V exte
         const describeRow = $.const(describe);
         return describeRow(row as never, key as never);
     });
-    return { [SCHEDULE_TEMPLATES]: true, valuesType, items };
+    return { [SCHEDULE_TEMPLATES]: true, valuesType, items, source: config.source, timed: duration !== undefined };
 }
 
 /** Checks a bound template's initial values against the fields its kind requires. */

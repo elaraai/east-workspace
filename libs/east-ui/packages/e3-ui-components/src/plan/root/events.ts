@@ -15,7 +15,13 @@
  * commit to one reads the rows again, as a new draft does. A read whose kinds are still in flight leaves the
  * last rows standing; one that throws leaves them too, and says why. The rows
  * move only when they differ, so a write that changes none of them redraws
- * nothing.
+ * nothing. A resource kind the rail narrows draws the resources its source
+ * shows (#1344).
+ *
+ * The read runs in a component of its own, {@link PlanEventsReader}, which
+ * hands the canvas its rows only when they move: a kind narrowed through an
+ * interval index lands some fifty-five key searches a window, and each would
+ * otherwise render the whole canvas (#1343, #1344).
  *
  * # Ahead of every other row
  *
@@ -63,20 +69,20 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import {
     SortedMap, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    Plan, PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, ScheduleEventRefType,
+    Plan, PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventShownType, ScheduleEventRefType,
 } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
-import type { PlanPagedSourceValue } from "../use-plan-paging.js";
+import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 
 /** The payload's `blocks` seam, decoded: the resources' rows over a window, every kind's drafts in place. */
 export type PlanEventBlocksValue = ValueTypeOf<typeof PlanEventBlocksType>;
@@ -86,6 +92,9 @@ export type PlanEventPagedValue = ValueTypeOf<typeof PlanEventPagedType>;
 
 /** The events placed on a paged resource kind's resources, by way of drawing and by the resource's key (#1199). */
 export type PlanEventPlacedValue = ValueTypeOf<typeof PlanEventPlacedType>;
+
+/** The resources the rail shows (#1344): by a resource kind's slot, the keys of those its source shows. */
+export type PlanEventShownValue = ValueTypeOf<typeof PlanEventShownType>;
 
 /** What a Plan of event kinds hands its canvas (#1192). */
 export interface PlanEventRows {
@@ -119,6 +128,8 @@ interface LeadRead {
 
 /** No drafts: a Plan whose event kinds hold none. */
 const NO_DRAFTS: ValueTypeOf<typeof PlanEventDraftsType> = new SortedMap([], compareFor(StringType));
+/** The rail narrows no resource kind: each draws every resource. */
+export const ALL_SHOWN: PlanEventShownValue = new SortedMap([], compareFor(StringType));
 /** Nothing hidden: every kind, resource kind and measure draws. */
 const NONE_HIDDEN: readonly string[] = [];
 const blocksEqual = equalFor(Plan.Types.Blocks);
@@ -174,11 +185,12 @@ export function eventReadRange(scale: PlanScale | undefined): PlanEventRange | u
  * @param scale - The shared scale — a time scale, beside event kinds
  * @param hidden - The ids the viewer hides in the library's Series tab (#1195)
  * @param drafts - Every kind's drafts, by kind then by entry id — the same object while they hold
+ * @param shown - The resources the rail shows, by resource kind (#1344) — the same object while they hold
  * @returns The rows as the canvas draws them now
  */
 export function usePlanEventBlocks(
     events: PlanEventRows | undefined, scale: PlanScale | undefined, hidden: readonly string[] = NONE_HIDDEN,
-    drafts: ValueTypeOf<typeof PlanEventDraftsType> = NO_DRAFTS,
+    drafts: ValueTypeOf<typeof PlanEventDraftsType> = NO_DRAFTS, shown: PlanEventShownValue = ALL_SHOWN,
 ): PlanEventLead {
     const blocks = events?.blocks;
     const paged = events?.paged;
@@ -189,12 +201,12 @@ export function usePlanEventBlocks(
     // One read: the rows, and a paged kind's events with them — `undefined` while either is in flight.
     const read = useCallback((): LeadRead | undefined => {
         if (blocks === undefined || from === undefined || to === undefined) return undefined;
-        const rows = blocks(new Date(from), new Date(to), drafts, [...hidden]);
+        const rows = blocks(new Date(from), new Date(to), drafts, [...hidden], shown);
         if (rows.type !== "some") return undefined;
         if (paged === undefined) return { blocks: rows.value, placed: undefined };
         const placed = paged.placed(new Date(from), new Date(to), drafts, [...hidden]);
         return placed.type === "some" ? { blocks: rows.value, placed: placed.value } : undefined;
-    }, [blocks, paged, from, to, hidden, drafts]);
+    }, [blocks, paged, from, to, hidden, drafts, shown]);
     const { result } = useTrackedEvaluation(read);
     const empty = useMemo(() => emptyBlocks(count), [count]);
     // The last rows read, held while a read is in flight or failed: kept by
@@ -219,6 +231,57 @@ export function usePlanEventBlocks(
         return held.current;
     }, [result, paged, hidden]);
     return useMemo(() => ({ blocks: now.blocks ?? empty, placed: now.placed, version: now.version, error }), [now, empty, error]);
+}
+
+/**
+ * The event kinds' rows before their first read: as many empty fixed blocks as
+ * the read answers, so the canvas's blocks are laid out alike from the first
+ * window.
+ *
+ * @param events - The Plan's event rows, when it has event kinds
+ * @returns The rows to stand in
+ */
+export function initialEventLead(events: PlanEventRows | undefined): PlanEventLead {
+    return { blocks: emptyBlocks(events?.count ?? 0), placed: undefined, version: 0, error: undefined };
+}
+
+/** Props of {@link PlanEventsReader}. */
+export interface PlanEventsReaderProps {
+    /** The Plan's event rows, when it has event kinds. */
+    events: PlanEventRows | undefined;
+    /** The shared scale. */
+    scale: PlanScale | undefined;
+    /** The ids the viewer hides in the library's Series tab. */
+    hidden: readonly string[] | undefined;
+    /** Every kind's drafts. */
+    drafts: ValueTypeOf<typeof PlanEventDraftsType>;
+    /** The resources the rail shows, by resource kind. */
+    shown: PlanEventShownValue;
+    /** Where the rows go: called only when they move. */
+    onLead: (lead: PlanEventLead) => void;
+}
+
+/**
+ * The event kinds' rows, read in a component of its own (#1343, #1344): each
+ * search that lands re-runs it alone, and it hands the canvas its rows only
+ * when they move — a kind narrowed through an interval index lands some
+ * fifty-five searches before its window is read, and each would otherwise
+ * render the whole canvas.
+ *
+ * @param props - What the rows are read over, and where they go
+ * @returns Nothing: it reads
+ */
+export function PlanEventsReader({ events, scale, hidden, drafts, shown, onLead }: PlanEventsReaderProps): null {
+    const lead = usePlanEventBlocks(events, scale, hidden, drafts, shown);
+    // What the canvas holds: its stand-in rows until the first read lands.
+    const reported = useRef<{ version: number; error: string | undefined }>({ version: 0, error: undefined });
+    useLayoutEffect(() => {
+        // The same rows, in the same state — each move of them moves the version: nothing the canvas draws has moved.
+        if (reported.current.version === lead.version && reported.current.error === lead.error) return;
+        reported.current = { version: lead.version, error: lead.error };
+        onLead(lead);
+    });
+    return null;
 }
 
 /** A block that every window serves alike, drawn once. */
@@ -282,8 +345,14 @@ export function usePlanEventRoot(
                     return s !== undefined && s.type === "some" ? s.value(query) : none;
                 })
                 : none,
-            // The snapshot of `data` itself (#1199): its own revision, which new rows over it leave.
-            snapshot: () => latest.current.src?.revision?.() ?? none,
+            // The snapshot of `data` itself (#1199): its own revision — and a live source's narrowing with it, whose
+            // rows a key search's answer names (#1354) — which new rows over it leave.
+            snapshot: () => {
+                const src = latest.current.src;
+                return src === undefined ? none : snapshotOf(src) ?? none;
+            },
+            // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
+            ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
         };
         wrapperOf.current = { src: paged, wrapped: next };
         return next;
@@ -354,7 +423,7 @@ export function usePlanEventRoot(
     const rowsOf = useCallback((root: PlanRootValue): PlanRootValue["rows"] => {
         if (composed !== undefined) return variant("pinned", composed) as PlanRootValue["rows"];
         if (inline !== undefined) return variant("inline", inline) as PlanRootValue["rows"];
-        if (wrapped !== undefined) return variant(root.rows.type === "pinned" ? "pinned" : "paged", wrapped) as PlanRootValue["rows"];
+        if (wrapped !== undefined) return variant(windowedArm(root.rows), wrapped) as PlanRootValue["rows"];
         return root.rows;
     }, [composed, inline, wrapped]);
     const active = lead !== undefined;

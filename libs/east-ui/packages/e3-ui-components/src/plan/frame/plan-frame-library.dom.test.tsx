@@ -23,7 +23,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { EastChakraPlan, type PlanRootValue, type PlanValue } from "../index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
-import { act, entry, mount, planHarness, programOf, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, entry, planHarness, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness();
 
@@ -106,7 +106,7 @@ type TabName = "events" | "backlog" | "series" | "customers";
 
 /** The presses and the print jobs on them, with a backlog and no templates, the library the tabs named and the Plan the id given. */
 function jobsPlan(tabs: readonly TabName[], id?: string, customerDrop = false) {
-    return East.compile(East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
         const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
         const customers = $.let(Record.bind(ex.planPrintCustomers, []));
@@ -129,7 +129,7 @@ function jobsPlan(tabs: readonly TabName[], id?: string, customerDrop = false) {
             library,
             ...(id !== undefined ? { id } : {}),
         });
-    }))), getRegisteredPlatformImplementations());
+    }))) };
 }
 
 /** The print works' jobs, every one of them scheduled. */
@@ -145,7 +145,7 @@ function allScheduled(): Map<string, Job> {
 
 describe("Plan library integration", () => {
     test("the showcase exposes its templates, search and backlog rail", async () => {
-        const { container } = mount(programOf(ex.planPrintWorks), DRAG);
+        const { container } = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         expect(tabs(pane(container))).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 16"]);
         await openTab(container, "Events");
@@ -153,11 +153,12 @@ describe("Plan library integration", () => {
             ["Print job · Jobs", "4"], ["Stop · Stops", "2"], ["Crew shift · Shifts", "3"],
             ["Plates · Plate room", "1"], ["Bindery job · Bindery", "1"], ["Delivery · Dispatch", "1"],
         ]);
+        // Each kind's templates in its record's key order (#1344): board, brochure, catalogue, poster.
         expect(cards(container)).toEqual([
+            ["Board run", "Print job · 8 h · presses"],
             ["Brochure run", "Print job · 6 h · presses"],
             ["Catalogue run", "Print job · 12 h · presses"],
             ["Poster run", "Print job · 4 h · presses"],
-            ["Board run", "Print job · 8 h · presses"],
             // A stop is an instant: it runs for no time.
             ["Plate change", "Stop · presses"],
             ["Service", "Stop · presses"],
@@ -186,13 +187,13 @@ describe("Plan library integration", () => {
     });
 
     test("optional tabs and cards without a drop action", async () => {
-        const bare = mount(jobsPlan([]), DRAG);
+        const bare = await h.mount(jobsPlan([]), DRAG);
         await settle();
         // The frame is drawn, main beside no pane.
         expect(slot(bare.container, "main")).not.toBeNull();
         expect(slot(bare.container, "start")).toBeNull();
         cleanup();
-        const { container } = mount(jobsPlan(["customers", "events"]), DRAG);
+        const { container } = await h.mount(jobsPlan(["customers", "events"]), DRAG);
         await settle();
         expect(tabs(pane(container))).toEqual(["Customers 16", "Events 0"]);
         await openTab(container, "Customers");
@@ -205,7 +206,7 @@ describe("Plan library integration", () => {
     });
 
     test("backlog due groups follow record commits", async () => {
-        const { container } = mount(jobsPlan(["backlog"]), DRAG);
+        const { container } = await h.mount(jobsPlan(["backlog"]), DRAG);
         await settle();
         await openTab(container, "Backlog");
         // Now is Wednesday 14 October: this week runs to Sunday 18.
@@ -236,7 +237,7 @@ describe("Plan library integration", () => {
     });
 
     test("hiding events, resources, measures and read-only rows survives a remount", async () => {
-        const first = mount(programOf(ex.planPrintWorks), DRAG);
+        const first = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         const marks = entry("presses.marks", "Hall A", "a1");
         expect(draws(first.container, marks)).toBe(true);
@@ -254,7 +255,7 @@ describe("Plan library integration", () => {
         first.unmount();
 
         // Kept for the viewer, under the Plan's id.
-        const again = mount(programOf(ex.planPrintWorks), DRAG);
+        const again = await h.mount(ex.planPrintWorks, DRAG);
         await settle();
         expect(draws(again.container, marks)).toBe(false);
         await openTab(again.container, "Series");
@@ -281,7 +282,7 @@ describe("Plan library integration", () => {
     });
 
     test("an authored tab wires its grouping, card metadata, drop action and selection", async () => {
-        const { container } = mount(jobsPlan(["customers"], "cards", true), DRAG);
+        const { container } = await h.mount(jobsPlan(["customers"], "cards", true), DRAG);
         await settle();
         await openTab(container, "Customers");
         expect(heads(container)).toEqual([["Old Town", "6"], ["North Quay", "5"], ["Riverside", "5"]]);
@@ -314,7 +315,7 @@ describe("Plan library integration", () => {
     test("empty source tabs explain what is missing", async () => {
         await h.commit(ex.planPrintJobs, allScheduled());
         await h.commit(ex.planPrintCustomers, new Map() as unknown as Customers);
-        const { container } = mount(jobsPlan(["backlog", "customers", "events"]), DRAG);
+        const { container } = await h.mount(jobsPlan(["backlog", "customers", "events"]), DRAG);
         await settle();
         expect(tabs(pane(container))).toEqual(["Backlog 0", "Customers 0", "Events 0"]);
         await openTab(container, "Backlog");
@@ -326,7 +327,7 @@ describe("Plan library integration", () => {
     });
 
     test("pane state persists per Plan id", async () => {
-        const first = mount(jobsPlan(["events", "backlog"], "ops"), DRAG);
+        const first = await h.mount(jobsPlan(["events", "backlog"], "ops"), DRAG);
         await settle();
         await openTab(first.container, "Backlog");
         fireEvent.click(within(pane(first.container)).getByRole("button", { name: "Collapse Library" }));
@@ -334,7 +335,7 @@ describe("Plan library integration", () => {
         first.unmount();
 
         // The same Plan, again: collapsed, and on its Backlog tab once opened.
-        const again = mount(jobsPlan(["events", "backlog"], "ops"), DRAG);
+        const again = await h.mount(jobsPlan(["events", "backlog"], "ops"), DRAG);
         await settle();
         expect(pane(again.container).hasAttribute("data-collapsed")).toBe(true);
         fireEvent.click(within(pane(again.container)).getByRole("button", { name: "Expand Library" }));
@@ -343,7 +344,7 @@ describe("Plan library integration", () => {
         again.unmount();
 
         // Another Plan keeps its own.
-        const other = mount(jobsPlan(["events", "backlog"], "night"), DRAG);
+        const other = await h.mount(jobsPlan(["events", "backlog"], "night"), DRAG);
         await settle();
         expect(pane(other.container).hasAttribute("data-collapsed")).toBe(false);
         expect(panel(other.container).querySelector("[data-library]")!.getAttribute("data-library")).toBe("plan.library.night:events");
@@ -351,12 +352,12 @@ describe("Plan library integration", () => {
 
     test("hidden state is ignored without its tab or with invalid storage", async () => {
         localStorage.setItem("plan.series", JSON.stringify(["resources.presses"]));
-        const { container } = mount(jobsPlan(["events"]), DRAG);
+        const { container } = await h.mount(jobsPlan(["events"]), DRAG);
         await settle();
         expect(draws(container, entry("presses.span", "a1"))).toBe(true);
         cleanup();
         localStorage.setItem("plan.series", JSON.stringify({ "resources.presses": true }));
-        const odd = mount(jobsPlan(["series"]), DRAG);
+        const odd = await h.mount(jobsPlan(["series"]), DRAG);
         await settle();
         expect(draws(odd.container, entry("presses.span", "a1"))).toBe(true);
     });

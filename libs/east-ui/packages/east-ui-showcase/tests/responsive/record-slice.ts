@@ -5,15 +5,20 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 
-/** Open the same field editor through whichever rung the shared rail exposes. */
-export async function recordField(page: Page, frame: Locator, name: string) {
-    const trigger = frame.locator(`[data-record-slice-field="${name}"]:visible`);
+/**
+ * Open the same field editor through whichever rung the shared rail exposes —
+ * the field of `source`, given, on a rail whose sources share a field's name
+ * (a Sheet's templates records, each with its `group`, #1345).
+ */
+export async function recordField(page: Page, frame: Locator, name: string, source?: string) {
+    const field = source === undefined ? `[data-record-slice-field="${name}"]` : `[data-record-slice-source="${source}"][data-record-slice-field="${name}"]`;
+    const trigger = frame.locator(`${field}:visible`);
     if (await trigger.count()) {
         if (await trigger.getAttribute("aria-expanded") !== "true") await trigger.click();
     }
     else {
         await frame.getByRole("button", { name: /^Filters:/ }).click();
-        const disclosure = page.getByRole("dialog").locator(`[data-record-slice-field="${name}"]`);
+        const disclosure = page.getByRole("dialog").locator(field);
         // The shared editor retains its disclosure when closed and reopened.
         if (await disclosure.getAttribute("aria-expanded") !== "true") await disclosure.click();
     }
@@ -23,7 +28,7 @@ export async function recordField(page: Page, frame: Locator, name: string) {
     const sections = page.getByRole("dialog").locator("[data-slice-section]");
     if (await sections.count()) {
         await expect(page.getByRole("dialog").locator("[data-record-slice-editor]:visible")).toHaveCount(1);
-        await expect(page.getByRole("dialog").locator(`[data-record-slice-field="${name}"]`)).toHaveCount(1);
+        await expect(page.getByRole("dialog").locator(field)).toHaveCount(1);
     }
     return editor;
 }

@@ -153,12 +153,14 @@ function buildDataflowResult(state: DataflowExecutionState): DataflowResult {
     }
   }
 
-  // Get summary from state or calculate from tasks
+  // Get summary from state or calculate from tasks: a task left waiting on an
+  // unassigned input has no event, so only the summary counts it
   const summary = state.summary.type === 'some' ? state.summary.value : {
     executed: BigInt(tasks.filter(t => !t.cached && t.state.type === 'success').length),
     cached: BigInt(tasks.filter(t => t.cached).length),
     failed: BigInt(tasks.filter(t => t.state.type === 'failed' || t.state.type === 'error').length),
     skipped: BigInt(tasks.filter(t => t.state.type === 'skipped').length),
+    waiting: 0n,
     duration: 0,
   };
 
@@ -168,6 +170,7 @@ function buildDataflowResult(state: DataflowExecutionState): DataflowResult {
     cached: summary.cached,
     failed: summary.failed,
     skipped: summary.skipped,
+    waiting: summary.waiting,
     tasks,
     duration: summary.duration,
   };

@@ -3,10 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SetType, StringType, PatchType, StructType, none, some, variant, example } from "@elaraai/east";
 import { Box, Button, EventStateType, Format, Input, Reactive, Separator, Slider, Stat, Table, Text, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Data, Plan, Sheet } from "@elaraai/e3-ui";
+import { Data, Plan, Record, Sheet, ui } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
+import { Console } from "@elaraai/east-web-std";
 
 export const thresholdInput      = e3.input('threshold',       FloatType, variant('value', 50.0));
 export const thresholdPatchInput = e3.input('threshold_patch', PatchType(FloatType), variant('value', variant("unchanged", null)));
@@ -191,6 +192,9 @@ export const workQueue = e3.recordIndex('by_status', workOrders, {
     key:   East.function([StringType, WorkOrderRow], WorkQueueKey, ($, _id, order) => ({ status: order.status, due: order.due })),
     value: East.function([StringType, WorkOrderRow], StringType, ($, _id, order) => order.title),
 });
+
+/** The work orders' patch door: another session's change to an order commits through it, and moves the queue with it. */
+export const workOrdersPatch = e3.mutation.patch(workOrders);
 
 export const dataBindFloat = example({
     keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],
@@ -681,4 +685,169 @@ export const dataBindPagedSheet = example({
         }}</Reactive>
     )),
     inputs: [],
+});
+
+// ── What e3's previews show ─────────────────────────────────────────────────
+// A dataset's preview, a task's and a ui task's read a workspace's datasets
+// and tasks as these, and e3-ui-components' tests of the previews read them on
+// e3 itself.
+
+/** Counts by key: a collection a preview shows whole while it edits it, and a page at a time while it only reads it. */
+export const previewCountsInput = e3.input('preview_counts', DictType(StringType, IntegerType), variant('value', new Map([
+    ["a", 1n], ["b", 2n], ["c", 3n],
+])));
+
+/** A value nested three deep: a preview's tree opens one level of it, so `deep` starts hidden. */
+export const PreviewNested = StructType({ outer: StructType({ inner: StructType({ deep: IntegerType }) }) });
+export const previewNestedInput = e3.input('preview_nested', PreviewNested, variant('value', { outer: { inner: { deep: 7n } } }));
+
+/** A row of a collection a preview pages: its `inner` starts collapsed. */
+export const PreviewRow = StructType({ inner: StructType({ deep: IntegerType }) });
+export const previewNestedRowsInput = e3.input('preview_nested_rows', DictType(StringType, PreviewRow), variant('value', new Map([
+    ["a", { inner: { deep: 1n } }], ["b", { inner: { deep: 2n } }],
+])));
+
+/** Integers a preview pages, as many as another session writes. */
+export const previewRowsInput = e3.input('preview_rows', ArrayType(IntegerType), variant('value', [0n, 1n, 2n]));
+
+/** Lines of text a preview pages, as wide as another session writes them. */
+export const previewLinesInput = e3.input('preview_lines', ArrayType(StringType), variant('value', []));
+
+/** A machine, and the label its row shows. */
+export const PreviewMachine = StructType({ label: StringType });
+/** Machines by key, which a canvas and a sheet page and follow as another session writes them. */
+export const previewMachinesInput = e3.input('preview_machines', DictType(StringType, PreviewMachine), variant('value', new Map([
+    ["m1", { label: "A-M1" }], ["m2", { label: "A-M2" }],
+])));
+
+/** A data task reporting the counts' total: its output is what a task's preview shows. */
+export const previewReportTask = e3.task('preview_report', [previewCountsInput],
+    East.function([DictType(StringType, IntegerType)], IntegerType, (_$, counts) => counts.reduce((_$2, total, count) => total.add(count), 0n)));
+
+/** The lines a task writes to its log, as many as another session writes. */
+export const previewLogLinesInput = e3.input('preview_log_lines', ArrayType(StringType), variant('value', ["one", "two"]));
+
+/**
+ * A task that writes each of its lines to its log as it runs — standard
+ * output — and how many there were to standard error: what a task's log
+ * preview polls. Run over other lines, it is another execution, with a log of
+ * its own.
+ */
+export const previewLogTask = e3.task('preview_log', [previewLogLinesInput],
+    East.function([ArrayType(StringType)], IntegerType, ($, lines) => {
+        $.for(lines, ($2, line) => {
+            $2(Console.log(line));
+        });
+        $(Console.error(East.str`${lines.size()} lines`));
+        return lines.size();
+    }));
+
+/** A ui task binding nothing: its output is the view a ui task's preview draws. */
+export const previewView = ui('preview_view', [], East.function([], UIComponentType, (_$) => <Text>the view</Text>));
+
+/** How many counts there are, as a view. */
+export const countsSaid = East.function([DictType(StringType, IntegerType)], UIComponentType, (_$, counts) => <Text>{East.str`${counts.size()} counts`}</Text>);
+/** A ui task over the counts, which its preview loads before it draws. */
+export const previewCountsView = ui('preview_counts_view', [previewCountsInput], countsSaid);
+
+/** A ui task over the work orders, their queue read a window at a time beside the commits of their record, which is never read whole. */
+export const previewOrdersView = ui('preview_orders_view', [], East.function([], UIComponentType, (_$) => (
+    <Reactive>{$ => {
+        const orders = $.let(Data.bindPaged(workOrders, { index: workQueue }));
+        const record = $.let(Record.bind(workOrders, []));
+        const commits = $.let(record.history().match({
+            some: (_$2, history) => history.size(),
+            none: (_$2) => 0n,
+        }));
+        return (
+            <VStack gap="3" align="stretch">
+                <Table data={orders} columns={{ value: { header: "Work order" }, key: { header: "Order" } }} />
+                <Text.MonoLabel>{East.str`${commits} COMMITS`}</Text.MonoLabel>
+            </VStack>
+        );
+    }}</Reactive>
+)));
+
+// ── What the indexed bindings' specs read ───────────────────────────────────
+// e3-ui-components' specs of a record bound with its indexes
+// (`Data.bindPaged(record, { indexes })`) and narrowed by a record Slice read
+// these on e3 itself: each small enough that what a narrowing shows, counts
+// and finds can be read off its rows. Each has a patch door, which another
+// session's change commits through.
+
+/** A person and the skills they hold: a Set field, which an index lists once under each skill. */
+export const IndexedPerson = StructType({ name: StringType, skills: SetType(StringType) });
+/** People by key: Ada and Amy share skill `b`, and Abe holds none, so the skills index lists him nowhere. */
+export const indexedPeople = e3.record('indexed_people', DictType(StringType, IndexedPerson), new Map([
+    ["p1", { name: "Ada", skills: new Set(["a", "b"]) }],
+    ["p2", { name: "Abe", skills: new Set<string>() }],
+    ["p3", { name: "Amy", skills: new Set(["b"]) }],
+]));
+export const indexedPeoplePatch = e3.mutation.patch(indexedPeople);
+export const peopleByName = e3.recordIndex('by_name', indexedPeople, { on: ["name"] });
+export const peopleBySkill = e3.recordIndex('by_skill', indexedPeople, { on: ["skills"] });
+
+/** An event of a status over a span of time: no end is an instant, and no start the backlog. */
+export const IntervalEvent = StructType({ status: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+/**
+ * Events about one day, 2 October 2026: one carried in from the night before,
+ * one spanning it, one inside it, one ending as it starts and one starting as
+ * it ends, an instant at each of its bounds, one cancelled and one in the
+ * backlog — what an overlap with `[2 Oct, 3 Oct)` takes and what it leaves.
+ */
+export const indexedIntervals = e3.record('indexed_intervals', DictType(StringType, IntervalEvent), new Map([
+    ["backlog",         { status: "Ready",     start: none, end: none }],
+    ["carry",           { status: "Ready",     start: some(new Date("2026-10-01T22:00:00Z")), end: some(new Date("2026-10-02T06:00:00Z")) }],
+    ["span",            { status: "Ready",     start: some(new Date("2025-01-01T00:00:00Z")), end: some(new Date("2027-01-01T00:00:00Z")) }],
+    ["inside",          { status: "Ready",     start: some(new Date("2026-10-02T10:00:00Z")), end: some(new Date("2026-10-02T11:00:00Z")) }],
+    ["ends-at-from",    { status: "Ready",     start: some(new Date("2026-10-01T12:00:00Z")), end: some(new Date("2026-10-02T00:00:00Z")) }],
+    ["starts-at-to",    { status: "Ready",     start: some(new Date("2026-10-03T00:00:00Z")), end: some(new Date("2026-10-03T01:00:00Z")) }],
+    ["instant-at-from", { status: "Ready",     start: some(new Date("2026-10-02T00:00:00Z")), end: none }],
+    ["instant-at-to",   { status: "Ready",     start: some(new Date("2026-10-03T00:00:00Z")), end: none }],
+    ["cancelled",       { status: "Cancelled", start: some(new Date("2026-01-01T00:00:00Z")), end: some(new Date("2027-01-01T00:00:00Z")) }],
+]));
+export const indexedIntervalsPatch = e3.mutation.patch(indexedIntervals);
+// The start alone is listed first: a declared overlap must never be read as a start range because its index came first.
+export const intervalsByStart = e3.recordIndex('by_start', indexedIntervals, { on: ["start"] });
+export const intervalsByStatusTime = e3.recordIndex('by_status_time', indexedIntervals, { on: ["status"], interval: { from: "start", to: "end" } });
+export const intervalsByTime = e3.recordIndex('by_time', indexedIntervals, { interval: { from: "start", to: "end" } });
+
+/** A step of a flow: its lane, and who owns it, if anyone. */
+export const ComputedStep = StructType({ lane: StringType, owner: OptionType(StringType) });
+/** A flow: what it is, and its steps. */
+export const ComputedFlow = StructType({ description: StringType, states: ArrayType(ComputedStep) });
+/** Flows whose indexes are computed from their steps: `a` has two steps in one lane, `c` a step no one owns, and `d` none at all. */
+export const computedFlows = e3.record('computed_flows', DictType(StringType, ComputedFlow), new Map([
+    ["a", { description: "Inbound", states: [{ lane: "load", owner: some("team-a") }, { lane: "load", owner: some("team-a") }, { lane: "review", owner: none }] }],
+    ["b", { description: "Inbound", states: [{ lane: "load", owner: some("team-b") }] }],
+    ["c", { description: "Returns", states: [{ lane: "review", owner: none }] }],
+    ["d", { description: "Empty",   states: [] }],
+]));
+export const computedFlowsPatch = e3.mutation.patch(computedFlows);
+export const computedByDescription = e3.recordIndex('description', computedFlows, { on: ["description"] });
+export const computedByStateCount = e3.recordIndex('state_count', computedFlows, {
+    key: East.function([StringType, ComputedFlow], StructType({ stateCount: IntegerType }), (_$, _id, flow) => ({ stateCount: flow.states.size() })),
+});
+export const computedByDescriptionCount = e3.recordIndex('description_count', computedFlows, {
+    key: East.function([StringType, ComputedFlow], StructType({ description: StringType, stateCount: IntegerType }),
+        (_$, _id, flow) => ({ description: flow.description, stateCount: flow.states.size() })),
+});
+export const computedByLane = e3.recordIndex('lane', computedFlows, {
+    keys: East.function([StringType, ComputedFlow], SetType(StructType({ lane: StringType })),
+        (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane }))),
+});
+export const computedByOwner = e3.recordIndex('owner', computedFlows, {
+    keys: East.function([StringType, ComputedFlow], SetType(StructType({ owner: OptionType(StringType) })),
+        (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ owner: state.owner }))),
+});
+// Scalar computed keys, each a field by its index's name.
+export const computedByLabel = e3.recordIndex('label', computedFlows, {
+    key: East.function([StringType, ComputedFlow], StringType, (_$, _id, flow) => flow.description),
+});
+export const computedBySize = e3.recordIndex('size', computedFlows, {
+    key: East.function([StringType, ComputedFlow], IntegerType, (_$, _id, flow) => flow.states.size()),
+});
+export const computedByDecisionOwner = e3.recordIndex('decisionOwner', computedFlows, {
+    keys: East.function([StringType, ComputedFlow], SetType(OptionType(StringType)),
+        (_$, _id, flow) => flow.states.toSet((_$2, state) => state.owner)),
 });

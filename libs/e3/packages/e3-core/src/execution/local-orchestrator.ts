@@ -122,6 +122,7 @@ export async function dataflowExecute(
     onInputChanged: options.onInputChanged,
     onTaskInvalidated: options.onTaskInvalidated,
     onTaskDeferred: options.onTaskDeferred,
+    onTaskWaiting: options.onTaskWaiting,
   });
 
   const result = await orchestrator.wait(handle);
@@ -133,6 +134,7 @@ export async function dataflowExecute(
     cached: result.cached,
     failed: result.failed,
     skipped: result.skipped,
+    waiting: result.waiting,
     reexecuted: result.reexecuted,
     tasks: taskResults,
     duration: result.duration,

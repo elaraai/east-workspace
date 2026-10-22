@@ -390,6 +390,18 @@ export const WorkspaceDeployRequestType = StructType({
  *   - `drop`: the package does not declare it, so it is dropped, with its
  *     state and history
  *   - `refused`: refused, and why, with the fix: the deploy writes nothing
+ *   - `unassign`: sent back to unassigned under the `reset` policy, and why
+ *     it could not be kept or migrated: the package declares no initial value
+ *     for it, so its state and history are dropped, and its first state is
+ *     committed again from outside
+ *   - `unassigned`: the workspace does not hold it, and the package declares
+ *     no initial value for it: nothing is written, and the record is
+ *     unassigned until its first state is committed, its dependents waiting
+ *     as they wait on an unset input
+ *
+ * `unassign` and `unassigned` are named to sort after every case before
+ * them, so their tags are the last and a plan a server answered before them
+ * reads as itself.
  */
 export const RecordPlanType = StructType({
   record: StringType,
@@ -400,6 +412,8 @@ export const RecordPlanType = StructType({
     reset: StructType({ reason: StringType }),
     drop: NullType,
     refused: StructType({ reason: StringType }),
+    unassign: StructType({ reason: StringType }),
+    unassigned: NullType,
   }),
 });
 
@@ -838,6 +852,8 @@ export const TaskExecutionResultType = StructType({
  * @property cached - Number of tasks that used cached results
  * @property failed - Number of tasks that failed
  * @property skipped - Number of tasks that were skipped
+ * @property waiting - Number of tasks left waiting on an unassigned input,
+ *   and of their dependents, which the run went on without
  * @property tasks - Per-task execution results
  * @property duration - Total execution time in seconds
  */
@@ -847,6 +863,7 @@ export const DataflowResultType = StructType({
   cached: IntegerType,
   failed: IntegerType,
   skipped: IntegerType,
+  waiting: IntegerType,
   tasks: ArrayType(TaskExecutionResultType),
   duration: FloatType,
 });
@@ -936,12 +953,23 @@ export const ApiExecutionStatusType = VariantType({
 
 /**
  * Summary of dataflow execution results.
+ *
+ * @property executed - Tasks that ran
+ * @property cached - Tasks served from the execution cache
+ * @property failed - Tasks that failed
+ * @property skipped - Tasks skipped because a task they depend on failed
+ * @property waiting - Tasks left waiting on an unassigned input — one nothing
+ *   has set, or a record whose first state is not yet committed — and their
+ *   dependents, which the run went on without: they run once the input is
+ *   assigned
+ * @property duration - Total execution time in milliseconds
  */
 export const DataflowExecutionSummaryType = StructType({
   executed: IntegerType,
   cached: IntegerType,
   failed: IntegerType,
   skipped: IntegerType,
+  waiting: IntegerType,
   duration: FloatType,
 });
 

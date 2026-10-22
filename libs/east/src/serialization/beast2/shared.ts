@@ -219,12 +219,117 @@ export function describeNoIrValue(value: unknown): string {
   return parts.join(" ");
 }
 
+/** The platform list of a decode given none: one list, so that such decodes
+ *  share their compiled bodies ({@link CompiledBodies}). */
+const NO_PLATFORM = Object.freeze([]) as unknown as PlatformFunction[];
+
+/** At most this many compiled bodies are kept per platform list, the least
+ *  recently used going first: the print works Plan's payload compiles 552,
+ *  the operations Calendar's 352 (#1353). */
+export const COMPILED_BODY_LIMIT = 4096;
+
+/**
+ * The bodies compiled against one platform list, by their functions' content
+ * key (#1353): a decoded function whose key is here runs the body already
+ * compiled, over its own captures, so a payload holding a body at many places
+ * compiles it once, and decoding it again compiles nothing.
+ *
+ * @remarks
+ * A compiled body is the closure tree the compiler builds from an IR. It
+ * takes its variables when it runs, a literal it returns is a primitive, and
+ * it binds the platform's functions as it compiles — so one body serves every
+ * function of its content under one platform list, and a changed list compiles
+ * again ({@link compiledBodiesFor}).
+ *
+ * @internal
+ */
+export class CompiledBodies {
+  /** The bodies by content key, the least recently used first. */
+  private readonly bodies = new Map<string, (ctx: RuntimeContext) => any>();
+  /** The list's entries these compiled against, in order. */
+  private readonly entries: readonly PlatformFunction[];
+  private compiles = 0;
+
+  /** @param platform - the platform list the bodies compile against */
+  constructor(platform: readonly PlatformFunction[]) {
+    this.entries = [...platform];
+  }
+
+  /**
+   * Whether `platform` holds the entries these bodies compiled against.
+   *
+   * @param platform - the list a decode was given
+   * @returns whether it holds the same platform functions, in order
+   */
+  compiledAgainst(platform: readonly PlatformFunction[]): boolean {
+    if (platform.length !== this.entries.length) return false;
+    for (let i = 0; i < platform.length; i++) {
+      if (platform[i] !== this.entries[i]) return false;
+    }
+    return true;
+  }
+
+  /**
+   * The body of the functions of content `key`, compiled the first time it is
+   * asked for.
+   *
+   * @param key - the functions' content key
+   * @param compile - compiles the body
+   * @returns the compiled body
+   */
+  bodyFor(key: string, compile: () => (ctx: RuntimeContext) => any): (ctx: RuntimeContext) => any {
+    const held = this.bodies.get(key);
+    if (held !== undefined) {
+      this.bodies.delete(key);
+      this.bodies.set(key, held);
+      return held;
+    }
+    const body = compile();
+    this.compiles++;
+    this.bodies.set(key, body);
+    if (this.bodies.size > COMPILED_BODY_LIMIT) this.bodies.delete(this.bodies.keys().next().value!);
+    return body;
+  }
+
+  /** How many bodies are kept. */
+  get size(): number {
+    return this.bodies.size;
+  }
+
+  /** How many bodies have been compiled. */
+  get compiled(): number {
+    return this.compiles;
+  }
+}
+
+/** The compiled bodies of each platform list, while the list lives. */
+const compiledBodiesOf = new WeakMap<readonly PlatformFunction[], CompiledBodies>();
+
+/**
+ * The bodies compiled against a platform list: kept with the list, and started
+ * afresh once the list holds other functions.
+ *
+ * @param platform - the list a decode was given
+ * @returns its compiled bodies
+ * @internal
+ */
+export function compiledBodiesFor(platform: readonly PlatformFunction[]): CompiledBodies {
+  const held = compiledBodiesOf.get(platform);
+  if (held !== undefined && held.compiledAgainst(platform)) return held;
+  const fresh = new CompiledBodies(platform);
+  compiledBodiesOf.set(platform, fresh);
+  return fresh;
+}
+
 /** Platform bindings threaded through a decode pass, pre-resolved from
  *  {@link Beast2DecodeOptions} so per-function compiles don't re-derive them. */
 export interface PlatformDecodeContext {
   platform: PlatformFunction[];
   platformFns: Record<string, any>;
   asyncPlatformFns: Set<string>;
+  /** The bodies compiled against `platform`, which a keyed function compiles once into (#1353); found
+   *  when the decode meets its first keyed function, so a decode of data pays nothing for them. */
+  compiled?: CompiledBodies;
 }
 
 /**
@@ -235,7 +340,7 @@ export interface PlatformDecodeContext {
  * @returns the pre-resolved platform context
  */
 export function buildPlatformContext(options?: Beast2DecodeOptions): PlatformDecodeContext {
-  const platform = options?.platform ?? [];
+  const platform = options?.platform ?? NO_PLATFORM;
   return {
     platform,
     platformFns: Object.fromEntries(platform.map(fn => [fn.name, fn.fn])),
@@ -259,12 +364,19 @@ export function buildPlatformContext(options?: Beast2DecodeOptions): PlatformDec
  * decode was not given is stubbed by the compiler, so the value decodes
  * wherever it is read, and only a call needs the platform.
  *
- * @param ir - the decoded Function or AsyncFunction IR, whose nodes are marked in place
+ * A function with a content key runs the body compiled for its key under the
+ * decode's platform list, compiling it only the first time (#1353,
+ * {@link CompiledBodies}). It keeps the IR it was decoded with, unmarked when
+ * its body was compiled before: that IR is what it re-encodes and compares as,
+ * so a decode then an encode gives back the bytes it was read from.
+ *
+ * @param ir - the decoded Function or AsyncFunction IR, whose nodes are marked in place when it compiles
  * @param isAsync - whether the declared type is AsyncFunction
  * @param captureContext - decoded capture values keyed by capture name
  * @param typeContext - capture types keyed by capture name
  * @param platformCtx - pre-resolved platform bindings
  * @param sourceMap - the source map to attach, if the blob carried one
+ * @param key - the function's content key: its IR's and its stream's source map's, when the codec keys it
  * @returns the compiled callable with re-serialization symbols attached
  */
 export function finishDecodedFunction(
@@ -274,17 +386,22 @@ export function finishDecodedFunction(
   typeContext: Record<string, EastTypeValue>,
   platformCtx: PlatformDecodeContext,
   sourceMap: SourceMap | null,
+  key?: string,
 ): (...inputs: any[]) => any {
-  markAsync(ir, platformCtx.asyncPlatformFns);
-  // The compile snapshots the AMBIENT source map (compile_internal's
-  // fresh_ctx), so it must run under the map the blob carried: that is the
-  // map the IR's loc_ids index, and the only one that makes a runtime error
-  // inside the decoded function name its authoring site. Outside a scope the
-  // ambient map is null — or, decoding inside a build, that build's map,
-  // against which the blob's ids mean nothing. A blob without a map compiles
-  // under an empty one for the same reason (#626).
-  const compiled = with_source_map(sourceMap ?? new SourceMap(), () =>
-    compile_internal(ir as AnalyzedIR, typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET));
+  const compile = () => {
+    markAsync(ir, platformCtx.asyncPlatformFns);
+    // The compile snapshots the AMBIENT source map (compile_internal's
+    // fresh_ctx), so it must run under the map the blob carried: that is the
+    // map the IR's loc_ids index, and the only one that makes a runtime error
+    // inside the decoded function name its authoring site. Outside a scope the
+    // ambient map is null — or, decoding inside a build, that build's map,
+    // against which the blob's ids mean nothing. A blob without a map compiles
+    // under an empty one for the same reason (#626). A key holds the map, so a
+    // body compiled under one serves only functions read under its like.
+    return with_source_map(sourceMap ?? new SourceMap(), () =>
+      compile_internal(ir as AnalyzedIR, typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET));
+  };
+  const compiled = key === undefined ? compile() : (platformCtx.compiled ??= compiledBodiesFor(platformCtx.platform)).bodyFor(key, compile);
   const rawFn = compiled(captureContext);
 
   const fn = isAsync

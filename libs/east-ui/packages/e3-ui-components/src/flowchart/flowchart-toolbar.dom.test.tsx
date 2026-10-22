@@ -6,21 +6,27 @@
  *
  * The Flowchart's toolbar items on its frame's one row under width pressure
  * (#1245, `Flowchart Builder Spec.md` §7.1, FB8, FB9): one ladder over its
- * items — the slice's rail first, in the rail's order (its search, its
- * filter, the terminal chip, the icon), then the flowchart's own: the
- * freshness chip goes, LR · TD folds into its one chip, and find state's box
- * folds to its icon. jsdom lays nothing out, so each item's width is stubbed
- * by the form it shows, every fold giving room back; the gap is 10px.
+ * items — the rail over its `Slice.bindRecords` first (#1346), in the rail's
+ * order (its search field, its filter field, the terminal chip, the icon),
+ * then its summary, then the flowchart's own: the freshness chip goes, LR · TD
+ * folds into its one chip, find state's box folds to its icon, and last LR ·
+ * TD folds into find state's popover, one move, so a phone's row keeps the
+ * rail. jsdom lays nothing out, so each item's width is stubbed by the form
+ * it shows, every fold giving room back; the gap is 10px. The rail is decoded
+ * wire values over the shared store: one source's part, as the shared rail's
+ * own tests build one.
  */
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { act, render, cleanup } from "@testing-library/react";
 import { ChakraProvider, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, none, toEastTypeValue, type ValueTypeOf } from "@elaraai/east";
-import type { Slice } from "@elaraai/east-ui/internal";
-import { system, formatters, buildSliceHandle, UIStore, Toolbar, type KeySearchSource } from "@elaraai/east-ui-components";
-import { sliceConfig, stringField } from "@elaraai/east-ui-components/testing";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { StringType, decodeBeast2For, encodeBeast2For, none, printFor, some, toEastTypeValue, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    RecordSliceConfigType, RecordSliceStateType, recordChoiceWhere,
+    type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceFieldType, type RecordSlicesChromeType,
+} from "@elaraai/east-ui/internal";
+import { system, formatters, UIStore, Toolbar, type KeySearchSource } from "@elaraai/east-ui-components";
+import { getStore, initializeStore, trackKey } from "@elaraai/east-ui-components/internal";
 import { useFlowchartToolbarItems, type FlowchartToolbarProps } from "./toolbar.js";
 
 afterEach(cleanup);
@@ -33,10 +39,11 @@ const row = { px: 0 };
 
 /** Each item's width in each of its forms, widest first (a hidden form has no box). */
 const FORM_PX: Record<string, readonly number[]> = {
-    seek: [200, 44],
+    seek: [200, 44, 44],
     orientation: [80, 56],
     freshness: [150],
-    rail: [300, 240, 160, 110, 40],
+    "record-slices": [300, 240, 160, 110, 40],
+    "record-summary": [120],
 };
 
 function widthOf(el: Element): number {
@@ -67,15 +74,62 @@ afterAll(() => {
     vi.restoreAllMocks();
 });
 
-/** A slice over two transitions, with nothing narrowed — what the rail mounts. */
-function sliceHandle(): ValueTypeOf<typeof Slice.Types.Bind> {
+type Bind = ValueTypeOf<RecordSliceBindType>;
+type State = ValueTypeOf<RecordSliceStateType>;
+type Field = ValueTypeOf<RecordSliceFieldType>;
+const encodeState = encodeBeast2For(RecordSliceStateType);
+const decodeState = decodeBeast2For(RecordSliceStateType);
+const printText = printFor(StringType);
+
+/** A String field: searched by its values with none of its own, or offering the hints given. */
+const field = (fieldId: string, label: string, hints: readonly string[]): Field => ({
+    fieldId, label, kind: "string", optional: false, multiple: true, set: false,
+    values: hints.map((hint) => ({ value: printText(hint), label: hint })), format: none,
+});
+
+/**
+ * The `flows` source's part, over the shared store: its name searched, its
+ * lane chosen from its hints — what the rail mounts; 20 flows, 7 of them
+ * while a choice narrows it.
+ */
+function flowsPart(): Bind {
     initializeStore(new UIStore());
-    const cfg = sliceConfig({ src: stringField((r: { src: string }) => r.src) }, { searchFieldIds: ["src"] });
-    const initial = {
-        range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(),
-        breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none,
+    const key = "flowchart.toolbar.ladder.flows";
+    const fields = [field("name", "Name", []), field("lane", "Lane", ["intake", "review"])];
+    const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
+        fields, indexes: fields.map((f) => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none })),
+        range: none, search: ["name"], presets: [],
+    }));
+    getStore().write(key, encodeState({ where: new Map(), preset: none, resolution: none }));
+    const read = (): State => { trackKey(key); return decodeState(getStore().read(key)!); };
+    const write = (state: State) => { getStore().write(key, encodeState(state)); return null; };
+    const choose = (id: string, choice: ValueTypeOf<RecordSliceChoiceType> | undefined) => {
+        const where = recordChoiceWhere(config.indexes, read().where, id, choice);
+        if (where === null) throw new Error("Choose a preceding field");
+        return write({ ...read(), where, preset: none });
     };
-    return buildSliceHandle("flowchart.toolbar.ladder", cfg, initial as never, [{ src: "ARV" }, { src: "SCN" }] as never, none) as never;
+    const clearAll = () => write({ ...read(), where: new Map(), preset: none });
+    return {
+        key, config, sourceId: "flows", read, write,
+        choose: (id, values) => choose(id, values.length === 0 ? undefined : variant("values", values)),
+        range: (id, from, to) => choose(id, variant("range", { from, to })), prefix: (id, value) => choose(id, variant("prefix", value)),
+        clear: (id) => choose(id, undefined), clearAll,
+        count: () => some(read().where.size === 0 ? 20n : 7n), countWhere: () => some(7n), total: () => some(20n), domain: () => none, suggest: () => none,
+        values: (id) => config.fields.find((f) => f.fieldId === id)!.values.map((value) => ({ ...value, selected: false, count: some(3n), error: none })),
+        replaces: () => [], togglePreset: () => null, setResolution: (resolution) => write({ ...read(), resolution }), retry: () => null,
+        readEntry: () => some(none), contains: () => some(false), containsRow: () => some(false),
+    };
+}
+
+/** The rail over the flowchart's `Slice.bindRecords`: its one `flows` source, its fields and its summary. */
+function chrome(): ValueTypeOf<typeof RecordSlicesChromeType> {
+    const part = flowsPart();
+    return {
+        slice: { key: "flowchart.toolbar.ladder", parts: [{ source: "flows", label: none, icon: none, slice: part }], presets: [],
+            clearAll: () => { part.clearAll(); return null; }, togglePreset: () => null },
+        affordances: [variant("fields", null), variant("summary", null)],
+        persist: none,
+    };
 }
 
 /** Find state over a flow's states — the toolbar mounts it; nothing here searches. */
@@ -92,7 +146,7 @@ function everything(): Parts {
     return {
         find: FIND, orientation: "LR", onOrientation: () => {},
         freshness: { label: "scans-2026.09", date: undefined },
-        slice: sliceHandle(), affordances: ["filter", "search"], words: formatters("en-US"),
+        chrome: chrome(), nouns: { flows: "flows" }, words: formatters("en-US"),
     };
 }
 
@@ -111,11 +165,16 @@ function stateOf(container: HTMLElement): Map<string, number> {
     }));
 }
 
-/** The flowchart's ladder, step by step: the rail's (its search, its filter,
- *  the terminal chip, the icon), then its own — the freshness chip, LR · TD,
- *  find state. */
-const LADDER: ReadonlyArray<readonly [string, number]> = [
-    ["rail", 1], ["rail", 2], ["rail", 3], ["rail", 4], ["freshness", 1], ["orientation", 1], ["seek", 1],
+/** One step of the ladder: the items it folds, each to the form it leaves it in. */
+type Step = ReadonlyArray<readonly [string, number]>;
+
+/** The flowchart's ladder, step by step: the rail's (its search field, its filter field, the terminal chip, the icon), its
+ *  summary, then its own — the freshness chip, LR · TD, find state — and last LR · TD into find state's popover, one move. */
+const LADDER: readonly Step[] = [
+    [["record-slices", 1]], [["record-slices", 2]], [["record-slices", 3]], [["record-slices", 4]],
+    [["record-summary", 1]],
+    [["freshness", 1]], [["orientation", 1]], [["seek", 1]],
+    [["seek", 2], ["orientation", 2]],
 ];
 
 /** The row a configuration needs: every drawn form's width, and a 10px gap between drawn items. */
@@ -129,7 +188,7 @@ function needs(forms: ReadonlyMap<string, number>): number {
 
 /** Walks the ladder: each configuration on it holds in exactly the row it needs,
  *  and a pixel less takes the next step — and only that one. */
-function walk(parts: Parts, start: ReadonlyMap<string, number>, ladder: ReadonlyArray<readonly [string, number]>) {
+function walk(parts: Parts, start: ReadonlyMap<string, number>, ladder: readonly Step[]) {
     let forms = new Map(start);
     row.px = needs(forms);
     const ui = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
@@ -139,49 +198,61 @@ function walk(parts: Parts, start: ReadonlyMap<string, number>, ladder: Readonly
         ui.rerender(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
         return stateOf(ui.container);
     };
-    for (const [key, form] of ladder) {
+    for (const step of ladder) {
         const room = needs(forms);
         expect(at(room), `${room}px`).toEqual(forms);
-        forms = new Map(forms).set(key, form);
-        expect(at(room - 1), `${room - 1}px, the step ${key}→${form}`).toEqual(forms);
+        forms = new Map(forms);
+        for (const [key, form] of step) forms.set(key, form);
+        expect(at(room - 1), `${room - 1}px, the step ${step.map(([key, form]) => `${key}→${form}`).join(" ")}`).toEqual(forms);
     }
     return ui.container;
 }
 
 describe("the Flowchart's toolbar items (#1245)", () => {
-    test("they are one row in §7.1's order: find state, LR · TD and the freshness chip at its start, the slice's rail at its end (FB8)", () => {
+    test("they are one row in §7.1's order: find state, LR · TD and the freshness chip at its start, the rail and its summary at its end (FB8, #1346)", () => {
         row.px = 4000;
         const { container } = render(<ChakraProvider value={system}><Harness parts={everything()} /></ChakraProvider>);
-        expect([...stateOf(container).keys()]).toEqual(["seek", "orientation", "freshness", "rail"]);
+        expect([...stateOf(container).keys()]).toEqual(["seek", "orientation", "freshness", "record-slices", "record-summary"]);
         const end = [...container.querySelectorAll("[data-toolbar-item][data-toolbar-end]")].map((el) => el.getAttribute("data-toolbar-item"));
-        expect(end).toEqual(["rail"]);
-        // Each in its widest form: find state's box, LR · TD's strip, the chip, the rail's live affordances.
+        expect(end).toEqual(["record-summary"]);
+        // Each in its widest form: find state's box, LR · TD's strip, the chip, each of the rail's fields.
         expect(container.querySelector("[data-toolbar-item='seek'] [data-part='dataset-key-search']")).not.toBeNull();
         expect(container.querySelector("[data-toolbar-item='orientation'] [data-flowchart-seg='orientation']")).not.toBeNull();
         expect(container.querySelector("[data-toolbar-item='freshness'] [data-flowchart-freshness]")!.textContent).toBe("scans-2026.09");
-        expect(container.querySelector("[data-toolbar-item='rail'] [data-slice-rail='rail']")).not.toBeNull();
+        expect([...container.querySelectorAll("[data-toolbar-item='record-slices'] [data-record-slice-field]")].map((chip) => chip.getAttribute("data-record-slice-field")))
+            .toEqual(["name", "lane"]);
+        // Nothing narrows the flows: the summary names no source; a narrowing that hides some of them names them, counted (#1358).
+        expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")).toBeNull();
+        act(() => { getStore().write("flowchart.toolbar.ladder.flows", encodeState({ where: new Map([["lane", variant("values", [printText("intake")])]]), preset: none, resolution: none })); });
+        expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent).toBe("7 of 20 flows");
     });
 
-    test("a narrowing row folds the rail first, in its order, then the freshness chip goes, LR · TD folds into its chip and find state into its icon (FB9)", () => {
-        const start = new Map([["seek", 0], ["orientation", 0], ["freshness", 0], ["rail", 0]]);
+    test("a narrowing row folds the rail first, in its order, then its summary; then the freshness chip goes, LR · TD folds into its chip, find state into its icon, and last LR · TD into find state's popover (FB9, #1346)", () => {
+        const start = new Map([["seek", 0], ["orientation", 0], ["freshness", 0], ["record-slices", 0], ["record-summary", 0]]);
         const c = walk(everything(), start, LADDER);
-        // Folded all the way: the rail's icon, no freshness chip, LR · TD's one
-        // chip naming the orientation, and find state's icon, named for it.
-        expect(c.querySelector("[data-toolbar-item='rail'] [data-rail-rung='icon']")).not.toBeNull();
+        // Folded all the way: the rail's icon, no summary and no freshness chip, find state's popover holding LR · TD.
+        expect(c.querySelector("[data-toolbar-item='record-slices'] [data-rail-rung='icon']")).not.toBeNull();
+        expect(c.querySelector("[data-record-slices-summary]")).toBeNull();
         expect(c.querySelector("[data-flowchart-freshness]")).toBeNull();
+        expect(c.querySelector("[data-flowchart-seg], [data-flowchart-segmenu]")).toBeNull();
+        expect(c.querySelector("[data-toolbar-item='seek'] [data-key-search='icon']")!.getAttribute("aria-label")).toBe("View");
+        expect(c.querySelector("[data-part='dataset-key-search']")).toBeNull();
+    });
+
+    test("with no rail, LR · TD folds into its chip, its caret Font Awesome's, and find state into its icon, named for it", () => {
+        const start = new Map([["seek", 0], ["orientation", 0], ["freshness", 0]]);
+        const c = walk({ ...everything(), chrome: undefined }, start, [[["freshness", 1]], [["orientation", 1]], [["seek", 1]]]);
         // The chip says its orientation and no more: its caret is Font Awesome's solid caret-down, never a glyph.
         expect(c.querySelector("[data-flowchart-segmenu='orientation']")!.textContent).toBe("LR");
         expect(c.querySelector("[data-flowchart-segmenu='orientation'] svg[data-chip-caret][data-prefix='fas'][data-icon='caret-down']")).not.toBeNull();
         expect(c.querySelector("[data-flowchart-seg]")).toBeNull();
         expect(c.querySelector("[data-toolbar-item='seek'] [data-key-search='icon']")!.getAttribute("aria-label")).toBe("Find state");
-        expect(c.querySelector("[data-part='dataset-key-search']")).toBeNull();
     });
 
     test("over a flow with no state there is no find state, and with no slice or freshness LR · TD is the row", () => {
         row.px = 4000;
         const { container } = render(<ChakraProvider value={system}><Harness parts={{
-            find: undefined, orientation: "TD", onOrientation: () => {}, freshness: undefined,
-            slice: undefined, affordances: [], words: formatters("en-US"),
+            find: undefined, orientation: "TD", onOrientation: () => {}, freshness: undefined, words: formatters("en-US"),
         }} /></ChakraProvider>);
         expect([...stateOf(container).keys()]).toEqual(["orientation"]);
         expect(container.querySelector("[data-flowchart-seg='orientation'] [aria-checked='true']")!.textContent).toBe("TD");

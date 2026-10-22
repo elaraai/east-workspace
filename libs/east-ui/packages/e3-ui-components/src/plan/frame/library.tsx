@@ -15,7 +15,8 @@
  *   kind, how long it runs and the resource kinds it is placed on (PB27).
  * - **Backlog** (`Plan.library.backlog()`) — every event kind's unscheduled
  *   events (a kind whose times are Options), read through the kind's own seam
- *   with its drafts in place (#1196) and read again when its record commits,
+ *   with its drafts in place (#1196) and read again when its record commits —
+ *   the footer's counts' read (`counts.ts`), which hands the pane them —
  *   so a card scheduled leaves it and an event unscheduled joins it at once:
  *   each card its kind's icon, its
  *   title and `6 h · Press A · due Fri 16`, grouped by when it is due — Due
@@ -37,6 +38,15 @@
  *   pane is a rail with the backlog's count, or the first tab's when the
  *   library lists no Backlog tab (PB26).
  *
+ * Each tab follows its source of the Plan's slice (#1344), as the Calendar's
+ * do: the Events tab each templates list's, by template key; the Backlog its
+ * kinds' own narrowing, counting `N of M` — what shows beside the stored
+ * events their choices hide — with a Clear filters that keeps each window; an
+ * author's tab the source it names, by its rows' keys. Each counts what it
+ * shows, says so when the rail leaves it none, with Clear filters, and takes
+ * no gesture while its source resolves. The Series tab stays as it is: show
+ * and hide switches.
+ *
  * Templates, backlog events, and the cards of an author's tab are drag
  * sources from the libraries `${planKeys(id).library}:events`, `…:backlog` and
  * `…:tab:<its name>`: a template's or an event's card keyed by its kind and key
@@ -50,19 +60,25 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
-import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { DateTimeType, StringType, compareFor, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
 import type { PickBindType } from "@elaraai/east-ui";
-import { ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
+import { ScheduleEventRefType, ScheduleResourceRefType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined, useTrackedEvaluation,
-    type BuilderFrameDock, type LibraryValue,
+    EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined,
+    type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
 } from "@elaraai/east-ui-components";
-import { SliceDensityContext } from "@elaraai/east-ui-components/internal";
+import { SliceDensityContext, narrowedCount } from "@elaraai/east-ui-components/internal";
 import { scheduleLibraryCard as card, scheduleLibrary as libraryOf } from "../../shared/schedule/library.js";
 import { DUE_GROUPS, dueGroupOf, durationMinutes, type DueGroup } from "../../shared/schedule/due.js";
+import type { BacklogNarrowing } from "../../shared/schedule/backlog.js";
+import type { FollowedSources } from "../../shared/schedule/follow-sources.js";
+import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../../shared/schedule/source-tab.js";
 import type { PlanLibraryTabWord } from "../messages.js";
+import type { PlanEventPart } from "../root/sources.js";
 import type { PlanWords } from "../words.js";
+import type { PlanBacklogEntry } from "./counts.js";
 import type { PlanValue } from "./index.js";
 import { usePlanResourceRows, type PlanResourceRefValue } from "./resources.js";
 
@@ -79,11 +95,14 @@ type PlanAuthorTabValue = Extract<PlanValue["library"][number], { type: "tab" }>
 /** A pick, decoded: the canvas's own over `data`'s series, and the Series tab's. */
 export type PlanPickValue = ValueTypeOf<typeof PickBindType>;
 
-/** One unscheduled event, with the kind it is of. */
-interface BacklogEntry {
+/** One template of a kind: its card in the Events tab. */
+interface TemplateEntry {
     readonly kind: PlanEventKindValue;
-    readonly item: PlanEventItemValue;
+    readonly template: PlanEventKindValue["templates"][number];
 }
+
+/** One card of an author's tab, as the payload carries it. */
+type PlanAuthorCardValue = PlanAuthorTabValue["cards"][number];
 
 const stringEqual = equalFor(StringType);
 const compareDateTime = compareFor(DateTimeType);
@@ -95,22 +114,17 @@ const printResource = printFor(ScheduleResourceRefType);
 /** The library open: the Calendar's 272px (§8). */
 const LIBRARY_SIZE = "272px";
 
-/** One kind's drafts, by entry id, as its seams take them. */
-type PlanKindDraftsValue = Parameters<PlanEventKindValue["planUnscheduled"]>[0];
-
-/** Every kind's drafts, by kind then by entry id (#1194). */
-type PlanEventDraftsValue = ValueTypeOf<typeof PlanEventDraftsType>;
-
-/** A kind with no drafts. */
-const NO_DRAFTS: PlanKindDraftsValue = new SortedMap([], compareFor(StringType));
-/** No kind holds a draft. */
-const NONE_DRAFTED: PlanEventDraftsValue = new SortedMap([], compareFor(StringType));
-
-/** A read whose kinds are still in flight: the backlog stands as it was. */
-const READING = "reading";
-
 /** No unscheduled event. */
-const NO_BACKLOG: readonly BacklogEntry[] = [];
+const NO_BACKLOG: readonly PlanBacklogEntry[] = [];
+
+/** The rail hides nothing of the backlog. */
+const NO_BACKLOG_NARROWING: BacklogNarrowing<PlanEventPart> = { narrowing: [], hidden: undefined, clear: undefined };
+
+/** No source of the slice the tabs follow. */
+const NONE_FOLLOWED: FollowedSources = new Map();
+
+/** What a tab that follows no source shows: its cards whole. */
+const WHOLE: SourceShown = { keys: none, busy: false, ready: true, clear: undefined };
 
 /** The shared empty state's icon: an empty box, as a Library's — Font Awesome's open box (#1263). */
 const EMPTY_ICON = { prefix: "fas", name: "box-open" } as const;
@@ -137,12 +151,16 @@ export interface PlanLibraryProps {
     words: PlanWords;
     /** Whether a row of the canvas takes a card from an author's tab (#1259): its cards drag then. */
     takesCards: boolean;
-    /** Every event kind's drafts (#1194): the backlog is read with them in place (#1196). */
-    drafts?: PlanEventDraftsValue | undefined;
+    /** Every kind's unscheduled events, in the kinds' order, read with the drafts in place (#1196): the counts' read's (`counts.ts`). */
+    unscheduled?: readonly PlanBacklogEntry[] | undefined;
     /** Whether the canvas draws an event kind's row to drop a template or a backlog event on (#1196): their cards drag then. */
     takesEvents?: boolean | undefined;
     /** The event kinds with an event on the canvas (#1196): an author's tab whose patch lands on one lets its cards drag. */
     patchKinds?: ReadonlySet<string> | undefined;
+    /** The sources of the slice the tabs follow (#1344): each templates list's, and each an author's tab names. */
+    followed?: FollowedSources | undefined;
+    /** What the rail hides of the backlog (#1344): the Backlog tab's `N of M`, and its Clear filters. */
+    backlogNarrowing?: BacklogNarrowing<PlanEventPart> | undefined;
 }
 
 /** No event kind has an event on the canvas. */
@@ -237,27 +255,69 @@ function seriesPickOf(
 }
 
 /**
+ * The Events tab's templates (#1344): every kind's, in the kinds' order, each
+ * following the source its templates list names, by its key in that list's
+ * record — the shared {@link sourcesTab}, as the Calendar's Templates tab.
+ *
+ * @param kinds - The event kinds
+ * @param followed - What each source the tabs follow shows
+ * @param words - The Plan's words
+ * @returns The tab's templates, its count, its narrowed and its own empty states, and its pane's attributes
+ */
+function templatesTab(kinds: PlanValue["events"], followed: FollowedSources, words: PlanWords): SourceTab<TemplateEntry> {
+    const entries = kinds.flatMap((kind) => kind.templates.map((template): TemplateEntry => ({ kind, template })));
+    const sourceOf = (kind: PlanEventKindValue): SourceShown | undefined =>
+        (kind.templatesSource.type === "some" ? followed.get(kind.templatesSource.value)?.shown : undefined);
+    const sources = kinds.flatMap((kind) => { const shown = sourceOf(kind); return shown === undefined ? [] : [shown]; })
+        .filter((shown, i, all) => all.indexOf(shown) === i);
+    return sourcesTab({ cards: entries, keyOf: (entry) => entry.template.key, sources, sourceOf: (entry) => sourceOf(entry.kind), noun: words.m.libraryNoun({ tab: "events", n: 2 }), words });
+}
+
+/**
+ * A tab's narrowing in the Plan's words (#1344): the shared narrowing, its
+ * empty state said by the Plan's message table.
+ *
+ * @param narrowing - The tab's narrowing, as its source tab reads it
+ * @param tab - The tab
+ * @param name - An author's tab's name, as running text writes it
+ * @param words - The Plan's words
+ * @returns It, in the Plan's words; `undefined` while its sources narrow nothing
+ */
+function narrowingOf(narrowing: LibraryNarrowing | undefined, tab: PlanLibraryTabWord, name: string, words: PlanWords): LibraryNarrowing | undefined {
+    return narrowing === undefined ? undefined
+        : { ...narrowing, empty: { title: words.m.libraryNarrowed({ tab, name }), description: words.m.libraryNarrowedHint({ tab, name }) } };
+}
+
+/** A tab's body: its Library in the pane's body, busy and taking no gesture while its sources resolve. */
+function tabBody(styles: Record<string, Record<string, unknown>>, tab: string, pane: SourceTab<unknown>["pane"], library: ReactNode): ReactNode {
+    return <Box css={styles.libraryPane} data-plan-library={tab} {...pane}>{library}</Box>;
+}
+
+/**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, whether a row takes an author's card, the kinds' drafts, whether the canvas takes the event kinds' cards, and the kinds with an event on it
+ * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, whether a row takes an author's card, the kinds' unscheduled events, whether the canvas takes the event kinds' cards, the kinds with an event on it, what each source the tabs follow shows, and what the rail hides of the backlog
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
 export function usePlanLibrary({
     library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards,
-    drafts = NONE_DRAFTED, takesEvents = false, patchKinds = NO_PATCH_KINDS,
+    unscheduled = NO_BACKLOG, takesEvents = false, patchKinds = NO_PATCH_KINDS, followed = NONE_FOLLOWED, backlogNarrowing = NO_BACKLOG_NARROWING,
 }: PlanLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
+    const styles = useSlotRecipe({ key: "plan" })() as Record<string, Record<string, unknown>>;
     const noun = useCallback((tab: PlanLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
-    const empty = useCallback((tab: PlanLibraryTabWord, name: string) => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
+    const empty = useCallback((tab: PlanLibraryTabWord, name: string): LibraryEmpty => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
     const listsBacklog = library.some((tab) => tab.type === "backlog");
 
     // Each resource kind's name, by slot.
     const resourceKinds = useMemo(() => new Map(resources.map((kind) => [kind.key, { name: kind.name }] as const)), [resources]);
 
     // ── Events: every kind's templates, under its name, then their group (PB27) ──
+    // Each kind's list following its source of the rail (#1344).
+    const templatesFollow = useMemo(() => templatesTab(kinds, followed, words), [kinds, followed, words]);
     const templates = useMemo(() => libraryOf({
         id: eventsLibrary(keys),
-        items: kinds.flatMap((kind) => kind.templates.map((template) => {
+        items: templatesFollow.cards.map(({ kind, template }) => {
             const group = getSomeorUndefined(template.group);
             const takes = kind.takes.map((slot) => (resourceKinds.get(slot)?.name ?? slot).toLocaleLowerCase(words.locale));
             const line = m.templateLine({
@@ -279,48 +339,28 @@ export function usePlanLibrary({
                 search: some([template.name, group ?? "", line].join(" · ")),
                 groups: new Map([["kind", m.templateGroup({ kind: kind.name, group })]]),
             });
-        })),
+        }),
         groupOptions: [{ key: "kind", label: m.libraryGroupBy({ tab: "events" }) }],
         noun: noun("events"),
         onCardClick: none,
-    }), [keys, kinds, resourceKinds, words, m, noun, takesEvents]);
+    }), [keys, templatesFollow, resourceKinds, words, m, noun, takesEvents]);
 
     // ── Backlog: every kind's unscheduled events, by when they are due (PB28) ──
-    // Read through each kind's seam with its drafts in place, as the footer
-    // counts it (#1196): a card scheduled leaves, an event unscheduled joins.
-    // Tracked, so a commit to a kind's record reads it again; the last read
-    // stands while one is in flight or has failed.
-    const readBacklog = useCallback((): readonly BacklogEntry[] | typeof READING | undefined => {
-        if (!listsBacklog) return undefined;
-        const out: BacklogEntry[] = [];
-        for (const kind of kinds) {
-            if (!kind.backlog) continue;
-            const read = kind.planUnscheduled(drafts.get(kind.key) ?? NO_DRAFTS);
-            if (read.type === "none") return READING;
-            for (const item of read.value) out.push({ kind, item });
-        }
-        return out;
-    }, [listsBacklog, kinds, drafts]);
-    const { result } = useTrackedEvaluation(readBacklog);
-    const heldBacklog = useRef<readonly BacklogEntry[]>(NO_BACKLOG);
-    const unscheduled = useMemo(() => {
-        if (!result.ok) {
-            console.error("[Plan] the backlog could not be read:", result.error);
-            return heldBacklog.current;
-        }
-        if (result.value === READING || result.value === undefined) return heldBacklog.current;
-        heldBacklog.current = result.value;
-        return result.value;
-    }, [result]);
+    // Read through each kind's seam with its drafts in place, with the footer's
+    // counts (#1196, `counts.ts`): a card scheduled leaves, an event unscheduled
+    // joins. Tracked there, so a commit to a kind's record reads it again; the
+    // last read stands while one is in flight or has failed.
+    // What the tab lists: the kinds' unscheduled events, while the library lists the tab.
+    const listed = listsBacklog ? unscheduled : NO_BACKLOG;
     // The resources its cards are on, by name: a listed kind's at once, a paged kind's read by its key (#1199).
     const named = useMemo(() => {
         const out = new Map<string, PlanResourceRefValue>();
-        for (const { item } of unscheduled) {
+        for (const { item } of listed) {
             const at = getSomeorUndefined(item.resource);
             if (at !== undefined) out.set(printResource(at), at);
         }
         return [...out.values()];
-    }, [unscheduled]);
+    }, [listed]);
     const resourceRows = usePlanResourceRows(resources, named);
     const resourceName = useCallback((ref: PlanResourceOptionValue): string | undefined => {
         const at = getSomeorUndefined(ref);
@@ -328,7 +368,7 @@ export function usePlanLibrary({
     }, [resourceRows]);
     const backlog = useMemo(() => {
         const rank = (group: DueGroup): number => DUE_GROUPS.indexOf(group);
-        const dated = unscheduled.map((entry) => {
+        const dated = listed.map((entry) => {
             const due = getSomeorUndefined(entry.item.due);
             return { ...entry, due, group: dueGroupOf(due, now) };
         });
@@ -364,7 +404,20 @@ export function usePlanLibrary({
             noun: noun("backlog"),
             onCardClick: none,
         });
-    }, [unscheduled, now, keys, words, m, resourceName, noun, takesEvents]);
+    }, [listed, now, keys, words, m, resourceName, noun, takesEvents]);
+    // The backlog is each kind's own narrowing (#1344): it shows what its kinds read, and counts beside it the
+    // stored events their choices hide — `3 of 5` — its Clear filters keeping each window.
+    const backlogFollow = useMemo((): { count: string | number | undefined; narrowing: LibraryNarrowing | undefined } => {
+        const { narrowing, hidden: hiddenByRail, clear } = backlogNarrowing;
+        const shown = backlog.items.length;
+        if (narrowing.length === 0 || clear === undefined) return { count: shown, narrowing: undefined };
+        const held = listed.filter(({ kind }) => narrowing.some((part) => stringEqual(part.kind.key, kind.key))).length;
+        const said: LibraryEmpty = { title: m.libraryNarrowed({ tab: "backlog", name: "" }), description: m.libraryNarrowedHint({ tab: "backlog", name: "" }) };
+        return {
+            count: hiddenByRail === undefined ? undefined : narrowedCount(words, shown, shown + hiddenByRail, true),
+            narrowing: { empty: said, onClear: clear, emptied: held === 0 },
+        };
+    }, [backlogNarrowing, backlog, listed, words, m]);
 
     // ── Series: what the canvas shows that the viewer can hide (PB29) ──
     // A new set is a new pick, so the panel draws its eyes again.
@@ -391,13 +444,20 @@ export function usePlanLibrary({
         });
     }, []);
     const authorTabs = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tab.value] : [])), [library]);
+    // Each follows the source it names, by its rows' keys (#1344); one that names none lists its cards whole.
+    const authorFollows = useMemo(() => new Map(authorTabs.map((tab): [string, SourceTab<PlanAuthorCardValue>] => {
+        const source = getSomeorUndefined(tab.source);
+        const shown = source === undefined ? WHOLE : followed.get(source)?.shown ?? WHOLE;
+        const follows = sourceTab<PlanAuthorCardValue>({ cards: tab.cards, keyOf: (c) => c.key, shown, noun: tab.name.toLocaleLowerCase(words.locale), words });
+        return [`tab:${tab.name}`, follows];
+    })), [authorTabs, followed, words]);
     const authorLibraries = useMemo(() => new Map(authorTabs.map((tab): [string, LibraryValue] => {
         const tabKey = `tab:${tab.name}`;
         const chosen = picked.get(tabKey);
         const icon = getSomeorUndefined(tab.icon);
         return [tabKey, libraryOf({
             id: tabLibrary(keys, tab),
-            items: tab.cards.map((c) => {
+            items: (authorFollows.get(tabKey)?.cards ?? tab.cards).map((c) => {
                 const meta = getSomeorUndefined(c.meta);
                 const group = getSomeorUndefined(c.group);
                 return card({
@@ -418,7 +478,7 @@ export function usePlanLibrary({
             noun: noun("tab"),
             onCardClick: some((key: string) => { onAuthorCard(tabKey, key); return null; }),
         })];
-    })), [authorTabs, picked, keys, m, noun, onAuthorCard, takesCards, patchKinds]);
+    })), [authorTabs, authorFollows, picked, keys, m, noun, onAuthorCard, takesCards, patchKinds]);
 
     return useMemo((): BuilderFrameDock | undefined => {
         // No tab listed: no pane (PB61).
@@ -426,15 +486,22 @@ export function usePlanLibrary({
         const tabs = library.map((tab) => {
             switch (tab.type) {
                 case "events":
-                    return { key: "events", label: m.libraryTab({ tab: "events" }), count: words.number(templates.items.length),
-                        body: <EastChakraLibrary value={templates} storageKey={`${keys.library}.events`} empty={empty("events", "")} /> };
+                    // Its templates the rail shows, counted, and what it says when the rail leaves it none (#1344).
+                    return { key: "events", label: m.libraryTab({ tab: "events" }), count: templatesFollow.count, shown: templates.items.length,
+                        body: tabBody(styles, "events", templatesFollow.pane, (
+                            <EastChakraLibrary value={templates} storageKey={`${keys.library}.events`}
+                                empty={templatesFollow.empty === undefined ? undefined : empty("events", "")}
+                                narrowing={narrowingOf(templatesFollow.narrowing, "events", "", words)} />
+                        )) };
                 case "backlog":
-                    return { key: "backlog", label: m.libraryTab({ tab: "backlog" }), count: words.number(backlog.items.length),
-                        body: <EastChakraLibrary value={backlog} storageKey={`${keys.library}.backlog`} empty={empty("backlog", "")} /> };
+                    return { key: "backlog", label: m.libraryTab({ tab: "backlog" }), count: backlogFollow.count, shown: backlog.items.length,
+                        body: tabBody(styles, "backlog", {}, (
+                            <EastChakraLibrary value={backlog} storageKey={`${keys.library}.backlog`} empty={empty("backlog", "")} narrowing={backlogFollow.narrowing} />
+                        )) };
                 case "series": {
                     const lines = seriesPick?.items.length ?? 0;
                     const nothing = empty("series", "");
-                    return { key: "series", label: m.libraryTab({ tab: "series" }), count: words.number(lines),
+                    return { key: "series", label: m.libraryTab({ tab: "series" }), count: lines, shown: lines,
                         body: seriesPick === undefined || lines === 0
                             ? <EmptyStateView icon={EMPTY_ICON} title={nothing.title} description={nothing.description} />
                             : (
@@ -446,19 +513,25 @@ export function usePlanLibrary({
                 case "tab": {
                     const tabKey = `tab:${tab.value.name}`;
                     const cards = authorLibraries.get(tabKey)!;
-                    return { key: tabKey, label: tab.value.name, count: words.number(cards.items.length),
-                        body: <EastChakraLibrary value={cards} storageKey={`${keys.library}.${tabKey}`} empty={empty("tab", tab.value.name)} /> };
+                    const follows = authorFollows.get(tabKey)!;
+                    const name = tab.value.name.toLocaleLowerCase(words.locale);
+                    return { key: tabKey, label: tab.value.name, count: follows.count, shown: cards.items.length,
+                        body: tabBody(styles, tabKey, follows.pane, (
+                            <EastChakraLibrary value={cards} storageKey={`${keys.library}.${tabKey}`}
+                                empty={follows.empty === undefined ? undefined : empty("tab", tab.value.name)}
+                                narrowing={narrowingOf(follows.narrowing, "tab", name, words)} />
+                        )) };
                 }
             }
         });
-        // Collapsed, the rail counts the backlog — or, with no Backlog tab, the first tab's cards (PB26).
+        // Collapsed, the rail counts the backlog — or, with no Backlog tab, the first tab's cards (PB26): what each shows.
         return {
             label: m.libraryPane(),
             icon: "layer-group",
-            badge: listsBacklog ? words.number(backlog.items.length) : tabs[0]!.count,
+            badge: listsBacklog ? backlog.items.length : tabs[0]!.shown,
             size: LIBRARY_SIZE,
             persist: "local",
-            tabs,
+            tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
-    }, [library, m, words, templates, backlog, seriesPick, authorLibraries, keys, empty, listsBacklog]);
+    }, [library, m, words, templates, templatesFollow, backlog, backlogFollow, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles]);
 }

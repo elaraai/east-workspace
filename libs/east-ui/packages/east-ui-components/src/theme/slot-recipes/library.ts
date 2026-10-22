@@ -14,7 +14,9 @@
  * already on the target — is drawn in the brand: its border, a tint, and the
  * brand ink through it. Narrow, the cards stack in one column, the mock's
  * palette, none wider than it; wide, the same cards pack a grid. Filtered
- * cards dim rather than unmount.
+ * cards dim rather than unmount. A host may add what its domain shows (#1330):
+ * a figure at the end of the name's line, a note line in a tone, a dashed or
+ * sunken look, an × at the card's end, and a mark on a group's head.
  *
  * The gallery draws the Studio mock's page library and component library
  * cards: the media on the sunken paper, above the face or at its start; the
@@ -44,10 +46,10 @@ export const librarySlotRecipe = defineSlotRecipe({
         "root", "hint",
         "toolbar", "searchBox", "searchIcon", "searchInput", "searchClear", "searchKbd",
         "groupTrigger", "dimTrigger", "menuCheck",
-        "group", "groupHead", "groupLabel", "groupSummary", "grid",
+        "group", "groupHead", "groupLabel", "groupMark", "groupSummary", "grid",
         "body", "canvas", "row", "rowGrid", "pagedRoot", "pagedRow", "pagedSkeleton",
-        "card", "grip", "iconTile", "cardBody", "cardHead", "cardLabel",
-        "cardSublabel", "trailing", "statusPill", "glyph",
+        "card", "grip", "iconTile", "cardBody", "cardHead", "cardLabel", "cardFigure",
+        "cardSublabel", "cardNote", "cardRemove", "trailing", "statusPill", "glyph",
         "meter", "meterTrack", "meterFill", "meterText",
         "chips", "chip", "dimText",
         "footer", "hiddenNote", "showAll", "addAction", "ghost",
@@ -243,6 +245,18 @@ export const librarySlotRecipe = defineSlotRecipe({
         groupLabel: {
             ...CAPS,
             color: "fg.subtle",
+            /* A group that warns, in its tone (a host's mark, #1330). */
+            "[data-tone=warning] > &": { color: "fg.warning" },
+            "[data-tone=danger] > &": { color: "fg.danger" },
+        },
+        /* A group head's mark before its label: the tone's icon. */
+        groupMark: {
+            display: "inline-block",
+            marginRight: "6px",
+            verticalAlign: "-1px",
+            "& svg": { fontSize: "10px" },
+            "[data-tone=warning] &": { color: "status.warn" },
+            "[data-tone=danger] &": { color: "status.neg" },
         },
         groupSummary: {
             fontFamily: "mono",
@@ -283,6 +297,10 @@ export const librarySlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "none", boxShadow: "focus" },
             /* Secondary facts under the meta: the grip and tile top-align. */
             "&[data-tall]": { alignItems: "flex-start" },
+            /* A host's look (#1330): dashed, taken off the target and kept to
+             * put back; sunken, on the paper below, already on it. */
+            "&[data-look=dashed]": { borderStyle: "dashed", borderColor: "border.strong" },
+            "&[data-look=sunken]": { background: "bg.canvas" },
             /* Placed — the item already on the target: the brand border and
              * tint, and the brand ink through the grip, the tile, the name,
              * the meta and the glyph. */
@@ -343,6 +361,19 @@ export const librarySlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             "[data-placed] &": { color: "brand.fg" },
         },
+        /* A host's figure at the end of the name's line: a quantity, a range, in tabular figures. */
+        cardFigure: {
+            flexShrink: "0",
+            marginLeft: "auto",
+            fontFamily: "mono",
+            fontSize: "label.lg",
+            fontWeight: "500",
+            lineHeight: "1.2",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg",
+            whiteSpace: "nowrap",
+            "[data-placed] &": { color: "brand.fg" },
+        },
         cardSublabel: {
             fontFamily: "mono",
             fontSize: "10px",
@@ -352,6 +383,40 @@ export const librarySlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             textOverflow: "ellipsis",
             "[data-placed] &": { color: "brand.solid" },
+        },
+        /* A host's line under the meta, in the meta's voice; a warning's or
+         * a danger's in its ink, heavier. */
+        cardNote: {
+            fontFamily: "mono",
+            fontSize: "10px",
+            lineHeight: "1.2",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg.subtle",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            "&[data-tone=warning]": { color: "fg.warning", fontWeight: "600" },
+            "&[data-tone=danger]": { color: "fg.danger", fontWeight: "600" },
+            "[data-placed] &": { "&:not([data-tone])": { color: "brand.solid" } },
+        },
+        /* A host's × at the card's end: a 20px target of its own, 44px on touch. */
+        cardRemove: {
+            flexShrink: "0",
+            alignSelf: "center",
+            display: "grid",
+            placeItems: "center",
+            width: "{spacing.5}",
+            height: "{spacing.5}",
+            padding: "0",
+            background: "transparent",
+            border: "none",
+            borderRadius: "{radii.sm}",
+            color: "fg.muted",
+            fontSize: "10px",
+            cursor: "pointer",
+            _hover: { color: "fg", background: "bg.subtle" },
+            _focusVisible: { outline: "none", boxShadow: "focus" },
+            ...coarseHitArea({ position: true }),
         },
         /* The card's right edge — its status, then its glyph. */
         trailing: {

@@ -71,8 +71,9 @@ import type { TreePath } from "@elaraai/e3-types";
 
 // =============================================================================
 // API seam — the narrow surface the runtime talks through for the WRITE side.
-// (The read side goes through the dataset cache, not this.) Tests stub it; the
-// snapshot harness swaps in an in-memory implementation.
+// (The read side goes through the dataset cache, not this.) e3's record routes,
+// over the fetch a host gives (e3-web's, in a test); the snapshot harness swaps
+// in an in-memory implementation.
 // =============================================================================
 
 /** Request shape for {@link RecordApi.mutate} — beast2-encoded positional
@@ -731,10 +732,10 @@ export function createScopedRecordPlatform(records: readonly string[]): Platform
 }
 
 // =============================================================================
-// In-memory RecordApi — offline harnesses (the snapshot harness, tests) register
-// deterministic implementations; `mutate` writes the new state straight into
-// the dataset cache (so `read()` re-renders offline without a poller) and
-// appends a synthetic commit.
+// In-memory RecordApi — for a host with no server (the snapshot harness), never
+// a test, whose records are e3's own (#1380): deterministic implementations;
+// `mutate` writes the new state straight into the dataset cache (so `read()`
+// re-renders offline without a poller) and appends a synthetic commit.
 // =============================================================================
 
 /** One offline record implementation for {@link createInMemoryRecordApi}. */
@@ -743,8 +744,11 @@ export interface InMemoryRecordDef {
     name: string;
     /** The record's state type. */
     stateType: EastType | EastTypeValue;
-    /** Initial state value (seeds the dataset cache). */
-    initial: unknown;
+    /** Initial state value (seeds the dataset cache); absent for a record
+     *  declared with no initial value, which holds no state — and refuses
+     *  every mutation — until its first state is committed, as a deployed one
+     *  does. */
+    initial?: unknown;
     /** Mutations — each a reducer over the decoded state + decoded args. */
     mutations: {
         name: string;
@@ -795,8 +799,9 @@ export function createInMemoryRecordApi(
             delta: none,
         };
         compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0 });
-        // Seed the record's current value into the dataset cache.
-        void cache.write(workspace, recordPath(def.name), encodeBeast2For(stateType)(def.initial));
+        // Seed the record's current value into the dataset cache; a record
+        // declared with no initial value holds none
+        if (def.initial !== undefined) void cache.write(workspace, recordPath(def.name), encodeBeast2For(stateType)(def.initial));
     }
 
     return {
@@ -815,7 +820,11 @@ export function createInMemoryRecordApi(
             if (!m) return { outcome: variant("invalid", { message: `no mutation "${mutation}"` }) } as MutationResult;
             if (req.idempotencyKey !== undefined && c.keyed?.key === req.idempotencyKey) return c.keyed.result;
             const current = cache.read(ws, recordPath(record));
-            const state = current !== undefined ? decodeBeast2For(c.stateType)(current) : undefined;
+            // A record that holds no state yet refuses the write, as the server does
+            if (current === undefined) {
+                return { outcome: variant("invalid", { message: `record '${record}' has no state yet: it is unassigned until its first state is committed` }) } as MutationResult;
+            }
+            const state = decodeBeast2For(c.stateType)(current);
             const args = req.args.map((bytes, i) => decodeBeast2For(m.argTypes[i]!)(bytes));
             let next: unknown;
             try {

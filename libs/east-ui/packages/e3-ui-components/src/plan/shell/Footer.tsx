@@ -18,6 +18,11 @@
  * `data-slot="footerTransport"` so it is distinguishable from the
  * author-supplied items it sits beside. A canvas showing a prefix must say
  * so, whether or not the author supplied any items.
+ *
+ * After a Save, each source of the Plan's slice that a Save moved records out
+ * of says so, in its own words (#1344) — the `rows` source's rows, an event
+ * kind's events: `1 print job event left this view`, the shared
+ * `RecordSliceSaveNotice`.
  */
 
 import { Box } from "@chakra-ui/react";
@@ -31,6 +36,18 @@ import type { PlanEventCounts } from "../frame/counts.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type FooterItemValue = ValueTypeOf<typeof Plan.Types.FooterItem>;
+
+/** A source whose Save notice the footer shows: its part, and the words it counts in. */
+export interface PlanSaveNotice {
+    /** The source's name: the notice's key. */
+    readonly key: string;
+    /** Its part of the slice. */
+    readonly slice: ValueTypeOf<RecordSliceBindType>;
+    /** One of what it counts (`row`, `print job event`). */
+    readonly singular: string;
+    /** More than one (`rows`, `print job events`). */
+    readonly plural: string;
+}
 
 const stringEqual = equalFor(StringType);
 
@@ -46,12 +63,12 @@ export interface PlanFooterProps {
     pending?: number | undefined;
     /** Whether the canvas draws its narrow layout: the items then wrap. */
     narrow?: boolean | undefined;
-    /** Exact, confirmed feedback when saved rows leave the indexed query. */
-    recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
+    /** Exact, confirmed feedback when saved records leave a source's narrowing — one per source (#1344). */
+    notices?: readonly PlanSaveNotice[] | undefined;
 }
 
 /** The 28px footer band (renders nothing with nothing to say). */
-export function PlanFooter({ styles, items, transport, counts, pending, narrow, recordSlice }: PlanFooterProps) {
+export function PlanFooter({ styles, items, transport, counts, pending, narrow, notices }: PlanFooterProps) {
     const words = usePlanWords();
     const { m } = words;
     // The Plan's own counts, in the order the footer reads them.
@@ -65,7 +82,7 @@ export function PlanFooter({ styles, items, transport, counts, pending, narrow, 
         const today = stringEqual(words.date(saved), words.date(new Date()));
         own.push({ key: "saved", text: m.footerSaved({ when: today ? words.time(saved) : words.dateTime(saved) }) });
     }
-    if (own.length === 0 && items.length === 0 && transport === undefined && recordSlice === undefined) return null;
+    if (own.length === 0 && items.length === 0 && transport === undefined && (notices?.length ?? 0) === 0) return null;
     return (
         <Box css={styles.footer} data-slot="footer" data-builder-narrow={narrow === true ? "" : undefined} data-plan-narrow={narrow === true ? "" : undefined}>
             {own.map((count) => (
@@ -79,7 +96,7 @@ export function PlanFooter({ styles, items, transport, counts, pending, narrow, 
                     </Box>
                 );
             })}
-            {recordSlice !== undefined && <RecordSliceSaveNotice slice={recordSlice} />}
+            {notices?.map((notice) => <RecordSliceSaveNotice key={notice.key} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
             {transport !== undefined && (
                 <Box css={styles.footerItem} data-end="" data-slot="footerTransport"
                     data-partial={transport.partial ? "" : undefined}>

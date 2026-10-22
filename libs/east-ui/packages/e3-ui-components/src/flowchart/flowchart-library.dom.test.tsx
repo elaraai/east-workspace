@@ -17,20 +17,29 @@
  * from the flows and from the other tabs (the user, 2026-10-08) — a template
  * record committed to moves its tab's cards alone, the open flow's drafts
  * kept, and a Save of the flows moves no tab's cards.
+ *
+ * Templates are records (#1346): each templates list's rows are a Dict, each
+ * card keyed by its row's key, and each list names its source of the
+ * flowchart's one `Slice.bindRecords`, here over the examples' templates
+ * records, paged through their indexes on e3 (#1376). Nothing narrows them
+ * here, so each list shows the rows it is given whole; the narrowing's own
+ * tests are `flowchart-narrowing.dom.test.tsx`'s.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render, within, type RenderResult } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
+import { cleanup, fireEvent, within, type RenderResult } from "@testing-library/react";
 import {
     ArrayType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { DragLayerProvider, UIStore, editingMessages, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import { Slice } from "@elaraai/east-ui/internal";
+import { UIStore, editingMessages } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
-import { Flowchart } from "@elaraai/e3-ui/internal";
-import { bindOther, commitOther, enabled, mountRecord, press, readRecord, recordHarness, settle, type OtherRecord } from "./flowchart.test-utils.js";
-import { EastChakraFlowchart, type FlowchartValue } from "./index.js";
+import { Data, Flowchart } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
+import { act, enabled, flowchartHarness, press, settle, type PayloadFunction } from "./flowchart.test-utils.js";
 import { flowchartMessages } from "./messages.js";
+
+const h = flowchartHarness();
 
 // jsdom lacks the ResizeObserver the panes and the canvas reach for, and the matchMedia the popovers do.
 beforeAll(() => {
@@ -42,7 +51,7 @@ beforeAll(() => {
     });
 });
 
-// Each test its own UI store: the flow it opens, its sessions and its panes stay its own.
+// Each test its own UI store — the flow it opens, its sessions and its panes stay its own — and its own workspace on e3.
 beforeEach(() => {
     initializeStore(new UIStore());
 });
@@ -71,14 +80,15 @@ const FLOWS: Flows = Flowchart.values({
     },
 });
 
-/** A step type: the state templates' row. */
+/** A step type: the state templates' row, keyed by its code in its templates record. */
 const StepRow = StructType({ code: StringType, name: StringType, kind: StringType, slots: OptionType(IntegerType) });
 type Step = ValueTypeOf<typeof StepRow>;
-const STEPS: Step[] = [
-    { code: "HLD", name: "Held", kind: "Hold", slots: none },
-    { code: "CH*", name: "Sort chutes", kind: "Sort", slots: some(14n) },
-    { code: "CLR", name: "Cleared", kind: "Hold", slots: none },
-];
+/** The step types, by code: in the record's key order. */
+const STEPS = new SortedMap<string, Step>([
+    ["HLD", { code: "HLD", name: "Held", kind: "Hold", slots: none }],
+    ["CH*", { code: "CH*", name: "Sort chutes", kind: "Sort", slots: some(14n) }],
+    ["CLR", { code: "CLR", name: "Cleared", kind: "Hold", slots: none }],
+], compareFor(StringType));
 /** A transition type, by name. */
 const MoveRow = StructType({ kind: Flowchart.Types.Kind, note: StringType });
 type Move = ValueTypeOf<typeof MoveRow>;
@@ -92,7 +102,7 @@ const OWNERS: ValueTypeOf<typeof OwnerRow>[] = [{ role: "customs-desk", desk: "H
 
 /** What a payload's library reads: each data tab's rows, or none. */
 interface Rows {
-    readonly steps?: readonly Step[];
+    readonly steps?: SortedMap<string, Step>;
     readonly moves?: SortedMap<string, Move>;
     readonly owners?: readonly ValueTypeOf<typeof OwnerRow>[];
 }
@@ -103,24 +113,30 @@ type TabName = "flows" | "steps" | "moves" | "owners" | "desks";
 /**
  * A flowchart's payload as e3-ui builds it, over the host's flows by name or a
  * record of none: its library the tabs named, in that order, each over the
- * rows given.
+ * rows given, each templates list naming its source of the one rail.
  */
-function payload(tabs: readonly TabName[], rows: Rows = {}, flows: Flows = FLOWS): FlowchartValue {
-    return East.compile(East.function([], Flowchart.Types.Payload, ($) => {
-        const steps = $.const([...(rows.steps ?? STEPS)], ArrayType(StepRow));
+function payload(tabs: readonly TabName[], rows: Rows = {}, flows: Flows = FLOWS): PayloadFunction {
+    return East.function([], Flowchart.Types.Payload, ($) => {
+        const steps = $.const(rows.steps ?? STEPS, DictType(StringType, StepRow));
         const moves = $.const(rows.moves ?? MOVES, DictType(StringType, MoveRow));
         const owners = $.const([...(rows.owners ?? OWNERS)], ArrayType(OwnerRow));
+        // The rail holds a source for each templates list listed, and no other: a source nothing names is refused.
+        const named = [
+            ...(tabs.includes("steps") ? [["steps", { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) }] as const] : []),
+            ...(tabs.includes("moves") ? [["moves", { source: Data.bindPaged(ex.moveTemplates, { indexes: [ex.movesByKind] }) }] as const] : []),
+        ];
+        const slice = named.length === 0 ? undefined : { slice: $.let(Slice.bindRecords("flowchart.library", Object.fromEntries(named) as never)) };
         const tab = (name: TabName) => {
             switch (name) {
                 case "flows": return Flowchart.library.flows();
                 case "steps": return Flowchart.library.states(steps, {
-                    name: "Steps", icon: "box",
-                    key: (s) => s.code, label: (s) => s.name, meta: (s) => some(s.code), group: (s) => s.kind,
+                    name: "Steps", icon: "box", source: "steps",
+                    label: (s) => s.name, meta: (s) => some(s.code), group: (s) => s.kind,
                     drop: (s) => Flowchart.patch(Flowchart.Types.State, { key: s.code, label: some(s.name), members: s.slots }),
                 });
                 case "moves": return Flowchart.library.transitions(moves, {
-                    icon: "arrow-right",
-                    key: (_m, name) => name, label: (_m, name) => name, meta: (mv) => some(mv.note),
+                    icon: "arrow-right", source: "moves",
+                    label: (_m, name) => name, meta: (mv) => some(mv.note),
                     drop: (mv) => Flowchart.patch(Flowchart.Types.Link, { kind: some(mv.kind) }),
                 });
                 case "owners": return Flowchart.library.tab(owners, {
@@ -131,19 +147,13 @@ function payload(tabs: readonly TabName[], rows: Rows = {}, flows: Flows = FLOWS
                 case "desks": return Flowchart.library.tab(owners, { name: "Desks", key: (o) => o.role, label: (o) => o.desk });
             }
         };
-        return Flowchart.Payload({ data: flows, library: tabs.map(tab) });
-    }), getRegisteredPlatformImplementations())() as FlowchartValue;
+        return Flowchart.Payload({ data: flows, library: tabs.map(tab), ...(slice === undefined ? {} : { slice }) });
+    });
 }
 
 /** The flowchart over a payload, under the drag layer an app mounts once at its root, as the showcase does. */
-function mount(value: FlowchartValue): RenderResult {
-    return render(
-        <ChakraProvider value={system}>
-            <DragLayerProvider>
-                <EastChakraFlowchart value={value} storageKey="flowchart.library" />
-            </DragLayerProvider>
-        </ChakraProvider>,
-    );
+function mount(payload: PayloadFunction): Promise<RenderResult> {
+    return h.mountPayload(payload, { drag: true, storageKey: "flowchart.library" });
 }
 
 /** The library pane. */
@@ -205,8 +215,7 @@ const emptyState = (container: HTMLElement) => {
 
 describe("the library's tabs (#1248, FB25, FB29)", () => {
     test("the library holds the tabs `library` lists, in its order, each with its count; collapsed, it is a rail with the first tab's count", async () => {
-        const { container } = mount(payload(["flows", "steps", "moves", "owners"]));
-        await settle();
+        const { container } = await mount(payload(["flows", "steps", "moves", "owners"]));
         expect(tabs(container)).toEqual([`${m.flowsTab()} 2`, "Steps 3", `${m.libraryTab({ tab: "transitions" })} 2`, "Owners 2"]);
         fireEvent.click(within(pane(container)!).getByRole("button", { name: `Collapse ${m.libraryPane()}` }));
         await settle();
@@ -216,8 +225,7 @@ describe("the library's tabs (#1248, FB25, FB29)", () => {
     });
 
     test("in another order, the tabs follow it, and the rail counts the first tab's cards — a template tab's", async () => {
-        const { container } = mount(payload(["owners", "flows", "steps"], { owners: OWNERS.slice(0, 1) }));
-        await settle();
+        const { container } = await mount(payload(["owners", "flows", "steps"], { owners: OWNERS.slice(0, 1) }));
         expect(tabs(container)).toEqual(["Owners 1", `${m.flowsTab()} 2`, "Steps 3"]);
         fireEvent.click(within(pane(container)!).getByRole("button", { name: `Collapse ${m.libraryPane()}` }));
         await settle();
@@ -225,8 +233,7 @@ describe("the library's tabs (#1248, FB25, FB29)", () => {
     });
 
     test("a library left out or empty draws no start pane; main and the footer are where they were", async () => {
-        const { container } = mount(payload([]));
-        await settle();
+        const { container } = await mount(payload([]));
         expect(pane(container)).toBeNull();
         expect(container.querySelector("[data-frame-slot='main'] [data-flowchart-canvas]")).not.toBeNull();
         expect(container.querySelector("[data-frame-slot='footer']")).not.toBeNull();
@@ -234,21 +241,20 @@ describe("the library's tabs (#1248, FB25, FB29)", () => {
 });
 
 describe("each data tab's cards (#1248, FB26, FB27)", () => {
-    test("the state templates list one card per row: its label, its meta under it, the tab's icon, grouped by its group", async () => {
-        const { container } = mount(payload(["flows", "steps"]));
-        await settle();
+    test("the state templates list one card per row of their record, in its keys' order: its label, its meta under it, the tab's icon, grouped by its group", async () => {
+        const { container } = await mount(payload(["flows", "steps"]));
         await openTab(container, "Steps");
-        expect(heads(container)).toEqual([["Hold", "2"], ["Sort", "1"]]);
+        // The groups in the order their first cards come: the chutes' key first.
+        expect(heads(container)).toEqual([["Sort", "1"], ["Hold", "2"]]);
         expect(cards(container)).toEqual([
-            { key: "HLD", label: "Held", meta: "HLD", icon: "fas box", drags: true, grip: "grip-vertical", placed: false },
-            { key: "CLR", label: "Cleared", meta: "CLR", icon: "fas box", drags: true, grip: "grip-vertical", placed: false },
             { key: "CH*", label: "Sort chutes", meta: "CH*", icon: "fas box", drags: true, grip: "grip-vertical", placed: false },
+            { key: "CLR", label: "Cleared", meta: "CLR", icon: "fas box", drags: true, grip: "grip-vertical", placed: false },
+            { key: "HLD", label: "Held", meta: "HLD", icon: "fas box", drags: true, grip: "grip-vertical", placed: false },
         ]);
     });
 
     test("an unnamed template tab is named in the flowchart's words; its cards, a Dict's rows, in their keys' order, each a drag source", async () => {
-        const { container } = mount(payload(["moves"]));
-        await settle();
+        const { container } = await mount(payload(["moves"]));
         expect(tabs(container)).toEqual([`${m.libraryTab({ tab: "transitions" })} 2`]);
         expect(heads(container)).toEqual([]);
         expect(cards(container)).toEqual([
@@ -258,8 +264,7 @@ describe("each data tab's cards (#1248, FB26, FB27)", () => {
     });
 
     test("an author's card is a drag source when its tab declares a drop; without one it is read, never dragged — no grip, no icon unless the tab gives one", async () => {
-        const { container } = mount(payload(["owners", "desks"]));
-        await settle();
+        const { container } = await mount(payload(["owners", "desks"]));
         expect(cards(container)).toEqual([
             { key: "customs-desk", label: "customs-desk", meta: "Hold bay", icon: "fas user-tie", drags: true, grip: "grip-vertical", placed: false },
             { key: "sort-planner", label: "sort-planner", meta: "Sort hall", icon: "fas user-tie", drags: true, grip: "grip-vertical", placed: false },
@@ -272,8 +277,7 @@ describe("each data tab's cards (#1248, FB26, FB27)", () => {
     });
 
     test("a click selects a card, a click on another moves the selection, and a click on the selected card lets it go — each tab its own selection", async () => {
-        const { container } = mount(payload(["steps", "owners"]));
-        await settle();
+        const { container } = await mount(payload(["steps", "owners"]));
         const placed = () => cards(container).filter((c) => c.placed).map((c) => c.key);
         await act(async () => { fireEvent.click(card(container, "HLD")); });
         expect(placed()).toEqual(["HLD"]);
@@ -291,8 +295,7 @@ describe("each data tab's cards (#1248, FB26, FB27)", () => {
     });
 
     test("a tab's search reads each card's key, label and meta, its box counting the cards in the tab's noun", async () => {
-        const { container } = mount(payload(["steps", "owners"]));
-        await settle();
+        const { container } = await mount(payload(["steps", "owners"]));
         const box = within(panel(container)).getByRole("textbox", { name: "Search library" }) as HTMLInputElement;
         expect(box.placeholder).toBe(`Search 3 ${m.libraryNoun({ tab: "states", n: 3 })}…`);
         await search(container, "chutes");
@@ -309,9 +312,8 @@ describe("each data tab's cards (#1248, FB26, FB27)", () => {
 
 describe("an empty tab says so (#1248, FB28)", () => {
     test("in the shared empty state: No flows, No templates for either template tab, Nothing in an author's tab — each with Font Awesome's open box, or the flow's icon — and No matches for a search that hides every card", async () => {
-        const { container } = mount(payload(["flows", "steps", "moves", "owners"], { steps: [], moves: new SortedMap([], compareFor(StringType)), owners: [] },
+        const { container } = await mount(payload(["flows", "steps", "moves", "owners"], { steps: new SortedMap([], compareFor(StringType)), moves: new SortedMap([], compareFor(StringType)), owners: [] },
             new SortedMap([], compareFor(StringType))));
-        await settle();
         expect(tabs(container)).toEqual([`${m.flowsTab()} 0`, "Steps 0", `${m.libraryTab({ tab: "transitions" })} 0`, "Owners 0"]);
         expect(emptyState(container)).toEqual(["fas diagram-project", m.flowsEmpty(), m.flowsEmptyHint({ canAdd: false })]);
         await openTab(container, "Steps");
@@ -322,8 +324,7 @@ describe("an empty tab says so (#1248, FB28)", () => {
         await openTab(container, "Owners");
         expect(emptyState(container)).toEqual(["fas box-open", "Nothing in Owners", m.libraryEmptyHint({ tab: "tab", name: "Owners" })]);
         cleanup();
-        const full = mount(payload(["steps"]));
-        await settle();
+        const full = await mount(payload(["steps"]));
         expect(emptyState(full.container)).toBeNull();
         await search(full.container, "zz");
         expect(emptyState(full.container)).toEqual(["fas box-open", "No matches", 'Nothing matches "zz".']);
@@ -332,25 +333,28 @@ describe("an empty tab says so (#1248, FB28)", () => {
 
 // ── Each tab its own bound data, apart from the flows and the other tabs ──
 
-/** The step types, a record of their own beside the flows: by key. */
-const STEP_RECORD: OtherRecord<DictType<StringType, typeof StepRow>> = {
-    name: "flowchart_steps",
-    type: DictType(StringType, StepRow),
-    initial: new SortedMap([["hold", STEPS[0]!], ["chutes", STEPS[1]!]], compareFor(StringType)),
-};
+/** The step types as the examples' templates record holds them for this test, another session's commit leaving two: by key. */
+const STEP_ROWS = new SortedMap([
+    ["hold", { name: "Held", kind: "Hold", slots: none }],
+    ["chutes", { name: "Sort chutes", kind: "Sort", slots: some(14n) }],
+], compareFor(StringType));
 
 describe("each tab its own bound data (#1248, the user, 2026-10-08)", () => {
     test("a template record committed to moves its tab's cards alone: the open flow's drafts, the Flows tab and the other tabs stay; a Save of the flows moves no tab's cards", async () => {
-        const harness = recordHarness(FLOWS, [STEP_RECORD]);
-        const { container } = await mountRecord(($) => {
-            const steps = bindOther($, STEP_RECORD);
+        await h.commitFlows(FLOWS);
+        await h.patch(ex.stepTemplates, STEP_ROWS);
+        const { container } = await h.mountRecord(($) => {
+            // The step types read whole, as a tab its own bound data — beside its source's pages.
+            const steps = $.let(Data.bind(ex.stepTemplates));
             const owners = $.const([...OWNERS], ArrayType(OwnerRow));
+            const slice = $.let(Slice.bindRecords("flowchart.library.own", { steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) } }));
             return {
+                slice: { slice },
                 library: [
                     Flowchart.library.flows(),
                     Flowchart.library.states(steps.read(), {
-                        name: "Steps", icon: "box", key: (s) => s.code, label: (s) => s.name,
-                        drop: (s) => Flowchart.patch(Flowchart.Types.State, { key: s.code }),
+                        name: "Steps", icon: "box", source: "steps", label: (s) => s.name,
+                        drop: (_s, code) => Flowchart.patch(Flowchart.Types.State, { key: code }),
                     }),
                     Flowchart.library.tab(owners, { name: "Owners", key: (o) => o.role, label: (o) => o.role }),
                 ],
@@ -359,7 +363,8 @@ describe("each tab its own bound data (#1248, the user, 2026-10-08)", () => {
         const stepKeys = async () => { await openTab(container, "Steps"); return cards(container).map((c) => c.key); };
         const ownerKeys = async () => { await openTab(container, "Owners"); return cards(container).map((c) => c.key); };
         expect(tabs(container)).toEqual([`${m.flowsTab()} 2`, "Steps 2", "Owners 2"]);
-        expect(await stepKeys()).toEqual(["CH*", "HLD"]);
+        // Each card keyed by its row's key in the templates record (#1346).
+        expect(await stepKeys()).toEqual(["chutes", "hold"]);
         // A draft on the open flow: a lane added.
         await act(async () => { fireEvent.click(container.querySelector("[data-flowchart-addlane]")!); });
         await settle();
@@ -367,18 +372,19 @@ describe("each tab its own bound data (#1248, the user, 2026-10-08)", () => {
         expect(lanes()).toEqual(["intake", "sort", "lane-3"]);
         expect(enabled(editingMessages.apply())).toBe(true);
         // Another writer adds a step type: the Steps tab lists it — and only it moves.
-        expect(await commitOther(harness, STEP_RECORD, variant("patch", new SortedMap([["cleared", variant("insert", STEPS[2]!)]], compareFor(StringType))))).toBe("committed");
-        await settle();
+        const added = new SortedMap([...await h.read(ex.stepTemplates)], compareFor(StringType));
+        added.set("cleared", { name: "Cleared", kind: "Hold", slots: none });
+        await h.patch(ex.stepTemplates, added);
         expect(tabs(container)).toEqual([`${m.flowsTab()} 2`, "Steps 3", "Owners 2"]);
-        expect(await stepKeys()).toEqual(["CH*", "CLR", "HLD"]);
+        expect(await stepKeys()).toEqual(["chutes", "cleared", "hold"]);
         expect(await ownerKeys()).toEqual(["customs-desk", "sort-planner"]);
         // The open flow's draft is still there, and still waits on Save.
         expect(lanes()).toEqual(["intake", "sort", "lane-3"]);
         expect(enabled(editingMessages.apply())).toBe(true);
         // Saved: the flows record takes the lane; no tab's cards move.
         await press(editingMessages.apply());
-        expect(readRecord(harness).get("Inbound parcels")!.lanes.map((l) => l.key)).toEqual(["intake", "sort", "lane-3"]);
+        expect((await h.flows()).get("Inbound parcels")!.lanes.map((l) => l.key)).toEqual(["intake", "sort", "lane-3"]);
         expect(tabs(container)).toEqual([`${m.flowsTab()} 2`, "Steps 3", "Owners 2"]);
-        expect(await stepKeys()).toEqual(["CH*", "CLR", "HLD"]);
+        expect(await stepKeys()).toEqual(["chutes", "cleared", "hold"]);
     });
 });

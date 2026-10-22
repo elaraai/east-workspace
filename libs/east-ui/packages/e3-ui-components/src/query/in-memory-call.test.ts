@@ -4,8 +4,8 @@
  *
  * @vitest-environment jsdom
  *
- * A query's calls answered in memory (#940, #941), as the showcase and the
- * builder's tests make them. A one-shot call: what a run reads and the hash it
+ * A query's calls answered in memory (#940, #941), as a host with no server
+ * makes them. A one-shot call: what a run reads and the hash it
  * pins it at; an argument naming nothing, refused as e3 refuses an unassigned
  * dataset; the size limit; and a runtime error, failed as a runner fails it,
  * placed in the jq. A split call: the dataset cut into pieces, each reported
@@ -30,7 +30,7 @@ import { SplitCallPlanType, type SplitCallPlan, type SplitCallProgress } from "@
 import { createInMemoryQueryCall, createInMemorySourceStatus, createInMemorySplitCall } from "./in-memory-call.js";
 import { prepareQuery, queryResultOf, queryRoot, type QueryResult } from "./one-shot.js";
 import { planQuery, type QueryPlan } from "./plan.js";
-import { CUSTOMERS, CustomersType, FIXTURE_VALUE, ORDERS, OrdersType } from "./query.test-utils.js";
+import { CUSTOMERS, CustomersType, FIXTURE_VALUE, ORDERS, OrdersType } from "./fixture.test-utils.js";
 
 const orders = (FIXTURE_VALUE as Readonly<Record<string, unknown>>)["orders"];
 const customers = (FIXTURE_VALUE as Readonly<Record<string, unknown>>)["customers"];

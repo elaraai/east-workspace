@@ -29,7 +29,7 @@ import type { TreePath } from '@elaraai/e3-types';
 // a `Runner` the snapshot never inspects.
 type DatasetDef = { kind: 'dataset'; path: TreePath; type: EastType; default?: unknown };
 type FunctionDef = { kind: 'function'; name: string; inputTypes: readonly EastType[]; outputType: EastType; body: unknown };
-type RecordDef = { recordKind: 'record'; name: string; type: EastType; default: unknown };
+type RecordDef = { recordKind: 'record'; name: string; type: EastType; default?: unknown };
 type MutationDef = { kind: 'mutation'; name: string; argTypes: readonly EastType[]; body: unknown; record: { name: string } };
 import {
     ReactiveDatasetCache,
@@ -120,7 +120,10 @@ function seedRecords(mod: Record<string, unknown>): InMemoryRecordDef[] {
                 console.warn(`[snapshot] could not compile mutation "${m.name}":`, err);
             }
         }
-        defs.push({ name: rec.name, stateType: rec.type, initial: rec.default, mutations: recMutations });
+        // A record declared with no initial value holds no state until its
+        // first is committed, which the snapshot has no door for: it is left
+        // unassigned, as a deploy leaves it
+        defs.push({ name: rec.name, stateType: rec.type, ...(rec.default !== undefined && { initial: rec.default }), mutations: recMutations });
     }
     return defs;
 }

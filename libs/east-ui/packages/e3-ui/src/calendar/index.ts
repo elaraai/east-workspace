@@ -4,12 +4,13 @@
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FunctionType, IntegerType, NullType, OptionType, StringType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, Expr, FunctionType, IntegerType, NullType, OptionType, StringType,
     StructType, VariantType, none, some, variant, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { EastUI, type UIElement } from "@elaraai/east-ui";
-import { localSliceHandle, isRecordSlice, recordSliceChrome, RecordSliceChromeType, SliceAffordanceType, SliceBindType, SliceChromeType, type RecordSliceChromeOptions, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
-import { Schedule, scheduleCheck, type ScheduleNamespace } from "../schedule/index.js";
+import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
+import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { Schedule, scheduleCheck, scheduleTitled, type ScheduleNamespace } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleAuthorTabType, buildScheduleTab, type ScheduleTabDeclaration, type ScheduleLibraryTabConfig } from "../schedule/library.js";
@@ -31,13 +32,19 @@ export const CalendarSettingsType = StructType({
     density: VariantType({ compact: NullType, comfortable: NullType, spacious: NullType }),
     now: OptionType(DateTimeType), readOnly: BooleanType,
 });
-/** Calendar's closed interface to its React renderer. The frame is a renderer detail. */
+/**
+ * Calendar's closed interface to its React renderer. The frame is a renderer detail.
+ * @property slice - The narrowing's chrome: a Slice over the event kinds', the resource kinds' and the templates' records, one rail (#1343)
+ * @property narrowed - Each source's narrowed keys, paged through its own data, by the source's name — a resource
+ *   kind's narrow its columns, rows and Choosers, a templates list's and a tab's their cards; an event kind reads its
+ *   own narrowing through its part
+ */
 export const CalendarPayloadType = StructType({
     events: ArrayType(ScheduleKindType), resources: ArrayType(ScheduleResourcesType), settings: CalendarSettingsType,
-    library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, slice: OptionType(SliceChromeType),
+    library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, slice: OptionType(RecordSlicesChromeType),
+    narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
     canDrop: OptionType(FunctionType([ScheduleCandidateType], OptionType(StringType))),
     onSelect: OptionType(FunctionType([ScheduleEventRefType], NullType)), id: OptionType(StringType),
-    recordSlice: OptionType(RecordSliceChromeType),
 });
 /** The extension carrier registered by e3-ui-components. */
 export const CalendarComponent = EastUI.component("Calendar", CalendarPayloadType, { optional: true });
@@ -67,17 +74,14 @@ export interface CalendarProps {
     /** Resource kinds read from keyed data, commonly bound records. */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     /**
-     * Author-bound Slice, as in Plan. Its datetime range and navigation share
-     * one state. With Slice.bindRecord, pass the same handle to each relevant
-     * event kind's slice option; interval indexes preserve overlapping events.
-     * Local slices use the kind's filter accessor. Omitted, no Slice controls.
+     * The narrowing: `Slice.bindRecords(key, { … })`, one rail, a source per record it narrows (#1343). A source named
+     * after an event kind's slot (`job`) narrows that kind's events in every layout, its backlog and its choices,
+     * through its interval index — its `range` the kind's start field, which the Calendar's navigation writes in
+     * every event source at once — and the kind gives `entries` beside it. A source named after a resource kind's slot
+     * (`machines`) narrows its columns, rows and choices. A source a templates list or a tab names narrows its cards.
+     * Overlaps and checks read every event. Omitted, no Slice controls.
      */
-    slice?: {
-        /** The handle declared with Slice.bind in the authoring Reactive block. */
-        slice: SubtypeExprOrValue<SliceBindType>;
-        /** Shared controls to mount, in order; defaults to filter and search. */
-        affordances?: SliceAffordanceLiteral[];
-    } | RecordSliceChromeOptions;
+    slice?: RecordSlicesChromeOptions;
     /** The library's tabs, in order; omitted or empty, no start pane. */
     library?: readonly CalendarLibraryTab[];
     /** Shows the inspector pane. */
@@ -107,46 +111,65 @@ export interface CalendarProps {
  * interaction behavior belongs to the renderer, not this factory.
  * @param props - Calendar's props
  * @returns The closed payload
- * @throws {Error} When kinds or library tabs are invalid, or working hours are outside the day
+ * @throws {Error} When kinds or library tabs are invalid, a kind has no `title` (#1367), working hours are outside the
+ *   day, `slice` is not `Slice.bindRecords` or names a source no kind, templates list or tab names, a templates list is
+ *   written in the code or names no source of the slice (templates are records, #1340), or a tab names a source the
+ *   slice lacks
  * @internal
  */
 export function createCalendarPayload(props: CalendarProps): ExprType<typeof CalendarPayloadType> {
     const resources = props.resources ?? {};
     scheduleCheck(resources, props.events, "Calendar");
+    // The Calendar draws each event's title, which `Schedule.events` takes as optional.
+    scheduleTitled(props.events, "Calendar");
     if (Object.keys(props.events).length === 0) throw new Error("Calendar: declare at least one event kind");
     const hours = props.hours ?? { from: 6n, to: 22n };
     if (hours.from < 0n || hours.to > 24n || hours.from >= hours.to) throw new Error("Calendar: hours must satisfy 0 <= from < to <= 24");
     const events = Object.entries(props.events);
+    // Every templates list is a record of its own, naming its source of the slice (#1340): one written in the code,
+    // or naming none the slice holds, is refused before a source no list names is, so the refusal says the change. A
+    // slice of another kind is refused below, as such.
+    const sliceNames = sliceSourceNames(props.slice);
+    if (props.slice === undefined || sliceNames.length > 0) {
+        for (const [slot, kind] of events) {
+            if (kind.templatesList !== "none") templatesSource("Calendar", `Calendar.templates(rows, { …, source: "${slot}Templates" })`, kind.templatesSource, sliceNames);
+        }
+    }
+    // The sources a Calendar takes: an event kind's or a resource kind's slot, or one a templates list or a tab names.
+    const named = new Set([...Object.keys(props.events), ...Object.keys(resources),
+        ...events.flatMap(([, kind]) => kind.templatesSource === undefined ? [] : [kind.templatesSource]),
+        ...(props.library ?? []).flatMap(tab => tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : [])]);
+    const narrowing = recordSources(props.slice, { builder: "Calendar", names: [...named], what: "its event kinds, its resource kinds and the templates and tabs that name a source",
+        takes: name => named.has(name) });
     const seen = new Set<string>();
     const library = (props.library ?? []).map(tab => {
         const name = tab.kind === "tab" ? "tab:" + tab.config.name : tab.kind;
         if (seen.has(name)) throw new Error("Calendar: library tab " + name + " is listed twice");
         seen.add(name);
         return tab.kind === "tab"
-            ? East.value(variant("tab", buildScheduleTab(tab, events, "Calendar")), CalendarLibraryTabType)
+            ? East.value(variant("tab", buildScheduleTab(tab, events, "Calendar", narrowing.names)), CalendarLibraryTabType)
             : East.value(variant(tab.kind, null), CalendarLibraryTabType);
     });
-    const record = props.slice !== undefined && isRecordSlice(props.slice.slice);
-    const local = record ? undefined : props.slice as { slice: SubtypeExprOrValue<SliceBindType>; affordances?: SliceAffordanceLiteral[] } | undefined;
-    return East.value({
-        events: events.map(([slot, kind]) => kind.build(slot)),
-        resources: Object.entries(resources).map(([slot, kind]) => kind.build(slot)),
-        settings: {
-            layout: variant(props.view?.layout ?? "calendar", null), period: variant(props.view?.period ?? "week", null),
-            date: props.view?.date === undefined ? none : some(props.view.date), hours,
-            weekStart: variant(props.week?.start ?? "monday", null), weekends: props.week?.weekends ?? true,
-            density: variant(props.density ?? "comfortable", null), now: props.now === undefined ? none : some(props.now),
-            readOnly: props.readOnly ?? false,
-        },
-        library, inspector: props.inspector ?? false,
-        slice: local === undefined ? none : some(East.value({
-            slice: localSliceHandle(local.slice),
-            affordances: East.value((local.affordances ?? ["filter", "search"]).map(a => variant(a, null)), ArrayType(SliceAffordanceType)),
-        }, SliceChromeType)),
-        canDrop: props.canDrop === undefined ? none : some(props.canDrop),
-        onSelect: props.onSelect === undefined ? none : some(props.onSelect), id: props.id === undefined ? none : some(props.id),
-        recordSlice: record ? some(recordSliceChrome(props.slice as RecordSliceChromeOptions)) : none,
-    }, CalendarPayloadType);
+    return Expr.block($ => {
+        const bound = narrowing.bind($);
+        return East.value({
+            // Each event kind narrowed through its own source of the slice, when the slice has one.
+            events: events.map(([slot, kind]) => kind.build(slot, bound.parts[slot])),
+            resources: Object.entries(resources).map(([slot, kind]) => kind.build(slot)),
+            settings: {
+                layout: variant(props.view?.layout ?? "calendar", null), period: variant(props.view?.period ?? "week", null),
+                date: props.view?.date === undefined ? none : some(props.view.date), hours,
+                weekStart: variant(props.week?.start ?? "monday", null), weekends: props.week?.weekends ?? true,
+                density: variant(props.density ?? "comfortable", null), now: props.now === undefined ? none : some(props.now),
+                readOnly: props.readOnly ?? false,
+            },
+            library, inspector: props.inspector ?? false,
+            slice: narrowing.chrome,
+            narrowed: new Map(narrowing.names.map(source => [source, bound.keys[source] as never])),
+            canDrop: props.canDrop === undefined ? none : some(props.canDrop),
+            onSelect: props.onSelect === undefined ? none : some(props.onSelect), id: props.id === undefined ? none : some(props.id),
+        }, CalendarPayloadType);
+    }) as ExprType<typeof CalendarPayloadType>;
 }
 
 /** The tag and the shared Schedule authoring helpers. */

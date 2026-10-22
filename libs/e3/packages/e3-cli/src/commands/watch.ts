@@ -34,6 +34,7 @@ import { openRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 import { inputPlanLine, inputPolicy, recordPlanLine, schemaPolicy } from './workspace.js';
+import { describeUnset } from './start.js';
 import { formatSize } from '../format.js';
 import type { RackRunnerHandle } from '@elaraai/e3-rack';
 import { openRack, rackEnabled, refuseRemoteRack, printRackPlacement, type RackFlags } from './rack-options.js';
@@ -173,9 +174,12 @@ export async function watchCommand(
         ...(inputs !== undefined && { inputs }),
         // A migration, and a changed index declaration's rebuild, run on this
         // save — the parts of a redeploy that can take minutes, so each is
-        // said up front.
+        // said up front — and so is a record left, or sent back to,
+        // unassigned, whose dependents wait until its first state is
+        // committed.
         onRecordPlan: (plan) => {
-          if (plan.action.type === 'migrate' || plan.action.type === 'reset') console.log(`[${timestamp()}] ${recordPlanLine(plan)}`);
+          const { type } = plan.action;
+          if (type === 'migrate' || type === 'reset' || type === 'unassign' || type === 'unassigned') console.log(`[${timestamp()}] ${recordPlanLine(plan)}`);
         },
         onRecordIndex: (plan) => {
           if (plan.action.type !== 'keep') console.log(`[${timestamp()}] ${plan.action.type} index ${plan.record}.${plan.index}`);
@@ -240,12 +244,16 @@ export async function watchCommand(
           const duration = taskResult.duration > 0 ? ` [${taskResult.duration}ms]` : '';
           console.log(`  [${status}] ${taskResult.name}${cached}${duration}`);
         },
+        onTaskWaiting: (name, inputs) => {
+          console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
+        },
       });
 
       const result = await orchestrator.wait(handle);
 
       if (result.success) {
-        console.log(`[${timestamp()}] Dataflow complete (${result.executed} executed, ${result.cached} cached)`);
+        const waiting = result.waiting > 0 ? `, ${result.waiting} waiting on an input that is not set` : '';
+        console.log(`[${timestamp()}] Dataflow complete (${result.executed} executed, ${result.cached} cached${waiting})`);
       } else {
         console.log(`[${timestamp()}] Dataflow failed (${result.failed} failed)`);
       }

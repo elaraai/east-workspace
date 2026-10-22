@@ -255,9 +255,30 @@ export class RecordSliceController {
      * no predicate is evaluated over the row or a fetched run.
      */
     contains(where: Where, id: string): option<boolean> {
+        return this.membership(where, id, () => this.readEntry(id));
+    }
+
+    /**
+     * Exact membership of an entry whose row the caller holds at the record's
+     * current revision — a Save's: the row its request began from, or the one
+     * its confirmation read back — its maintained keys sought against the
+     * selected server bounds, as {@link RecordSliceController.contains} seeks
+     * them, without reading the row again.
+     *
+     * @param where - The narrowing
+     * @param id - The entry's primary identity
+     * @param row - Its row as the record holds it now: beast2 of the record's row type
+     * @returns Whether the narrowing holds it; none while its bounds or a seek are pending
+     */
+    containsRow(where: Where, id: string, row: Uint8Array): option<boolean> {
+        return this.membership(where, id, () => some(some(row)));
+    }
+
+    /** An entry's membership, its row read or held: the row read once, its maintained keys sought. */
+    private membership(where: Where, id: string, readRow: () => option<option<Uint8Array>>): option<boolean> {
         const plan = this.plan(where);
         const runs = this.windows.resolve(plan);
-        const row = this.readEntry(id);
+        const row = readRow();
         if (runs.type === "none" || row.type === "none") return none;
         const current = this.source.revision();
         if (current.type === "none" || current.value !== runs.value.revision) return none;

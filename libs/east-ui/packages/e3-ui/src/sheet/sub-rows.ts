@@ -88,8 +88,8 @@ export interface SheetSubRowsValue<R extends StructType> {
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
- * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
  * export const BatchPart = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
@@ -122,16 +122,38 @@ export interface SheetSubRowsValue<R extends StructType> {
  *     ] }],
  * ]));
  * export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
+ * export const BatchStepTemplate = StructType({ name: StringType, group: StringType, task: StringType });
+ * export const sheetBatchStepTemplates = e3.record("sheet_batch_step_templates", DictType(StringType, BatchStepTemplate), new Map([
+ *     ["sand", { name: "Sand", group: "Steps", task: "Sand" }],
+ *     ["seal", { name: "Seal", group: "Steps", task: "Seal" }],
+ * ]));
+ * export const sheetBatchStepTemplatesByGroup = e3.recordIndex("sheet_batch_step_templates_by_group", sheetBatchStepTemplates, { on: ["group"] });
+ * export const BatchTemplate = StructType({ name: StringType, group: StringType, batch: StringType, steps: ArrayType(BatchStep) });
+ * export const sheetBatchTemplates = e3.record("sheet_batch_templates", DictType(StringType, BatchTemplate), new Map([
+ *     ["finishing", { name: "Finishing batch", group: "Batches", batch: "Finishing", steps: [
+ *         { task: "Sand", qty: none, parts: [], bookings: [] },
+ *         { task: "Seal", qty: none, parts: [], bookings: [] },
+ *         { task: "Spray", qty: none, parts: [], bookings: [] },
+ *     ] }],
+ * ]));
+ * export const sheetBatchTemplatesByGroup = e3.recordIndex("sheet_batch_templates_by_group", sheetBatchTemplates, { on: ["group"] });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const days = $.let(Record.bind(sheetBatchDays, [sheetBatchDaysPatch]));
- *         // The steps a finishing batch starts with: the batch template's lines.
- *         const finishing = $.let([
- *             { task: "Sand", qty: none, parts: [], bookings: [] },
- *             { task: "Seal", qty: none, parts: [], bookings: [] },
- *             { task: "Spray", qty: none, parts: [], bookings: [] },
- *         ], ArrayType(BatchStep));
+ *         const stepTemplates = $.let(Data.bind(sheetBatchStepTemplates));
+ *         const batchTemplates = $.let(Data.bind(sheetBatchTemplates));
+ *         // One rail over the templates records, each its own source: they narrow the Rows tab's cards.
+ *         const slice = $.let(Slice.bindRecords("sheet.batches", {
+ *             rowTemplates: {
+ *                 source: Data.bindPaged(sheetBatchStepTemplates, { indexes: [sheetBatchStepTemplatesByGroup] }),
+ *                 label: "Step templates", fields: { group: { label: "Group", hints: ["Steps"] } },
+ *             },
+ *             groupTemplates: {
+ *                 source: Data.bindPaged(sheetBatchTemplates, { indexes: [sheetBatchTemplatesByGroup] }),
+ *                 label: "Batch templates", fields: { group: { label: "Group", hints: ["Batches"] } },
+ *             },
+ *         }));
  *         // A batch needs a name before Save.
  *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
  *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
@@ -168,12 +190,13 @@ export interface SheetSubRowsValue<R extends StructType> {
  *                     // The sub rows show a step's parts and bookings; the inspector's form leaves them out.
  *                     inspector
  *                     fields={{ parts: Sheet.field.hidden(), bookings: Sheet.field.hidden() }}
- *                     templates={{
- *                         groups: [{ key: "finishing", name: "Finishing batch", group: "Batches",
- *                                    values: Sheet.patch(Batch, { name: "Finishing", steps: finishing }) }],
- *                         rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BatchStep, { task: "Sand", qty: none }) },
- *                                  { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BatchStep, { task: "Seal", qty: none }) }],
- *                     }}
+ *                     slice={{ slice }}
+ *                     templates={[
+ *                         Sheet.templates(stepTemplates.read(), { name: t => t.name, group: t => some(t.group),
+ *                             values: t => Sheet.patch(BatchStep, { task: t.task, qty: none }), source: "rowTemplates" }),
+ *                         Sheet.templates(batchTemplates.read(), { name: t => t.name, group: t => some(t.group),
+ *                             values: t => Sheet.patch(Batch, { name: t.batch, steps: t.steps }), source: "groupTemplates" }),
+ *                     ]}
  *                     library={[Sheet.library.rows(), Sheet.library.columns()]}
  *                     ready={{ group: readyBatch }}
  *                     newRow={newStep}
@@ -241,8 +264,8 @@ function textOrBlank(v: SubtypeExprOrValue<StringType | OptionType<StringType>> 
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
  * import { ArrayType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, VariantType, none, some, variant } from "@elaraai/east";
- * import { Box, Reactive, UIComponentType } from "@elaraai/east-ui";
- * import { Record, Sheet } from "@elaraai/e3-ui";
+ * import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+ * import { Data, Record, Sheet } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
  * export const BatchPart = StructType({ id: StringType, code: StringType, name: StringType, materials: ArrayType(StringType), station: OptionType(StringType) });
@@ -275,16 +298,38 @@ function textOrBlank(v: SubtypeExprOrValue<StringType | OptionType<StringType>> 
  *     ] }],
  * ]));
  * export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
+ * export const BatchStepTemplate = StructType({ name: StringType, group: StringType, task: StringType });
+ * export const sheetBatchStepTemplates = e3.record("sheet_batch_step_templates", DictType(StringType, BatchStepTemplate), new Map([
+ *     ["sand", { name: "Sand", group: "Steps", task: "Sand" }],
+ *     ["seal", { name: "Seal", group: "Steps", task: "Seal" }],
+ * ]));
+ * export const sheetBatchStepTemplatesByGroup = e3.recordIndex("sheet_batch_step_templates_by_group", sheetBatchStepTemplates, { on: ["group"] });
+ * export const BatchTemplate = StructType({ name: StringType, group: StringType, batch: StringType, steps: ArrayType(BatchStep) });
+ * export const sheetBatchTemplates = e3.record("sheet_batch_templates", DictType(StringType, BatchTemplate), new Map([
+ *     ["finishing", { name: "Finishing batch", group: "Batches", batch: "Finishing", steps: [
+ *         { task: "Sand", qty: none, parts: [], bookings: [] },
+ *         { task: "Seal", qty: none, parts: [], bookings: [] },
+ *         { task: "Spray", qty: none, parts: [], bookings: [] },
+ *     ] }],
+ * ]));
+ * export const sheetBatchTemplatesByGroup = e3.recordIndex("sheet_batch_templates_by_group", sheetBatchTemplates, { on: ["group"] });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const days = $.let(Record.bind(sheetBatchDays, [sheetBatchDaysPatch]));
- *         // The steps a finishing batch starts with: the batch template's lines.
- *         const finishing = $.let([
- *             { task: "Sand", qty: none, parts: [], bookings: [] },
- *             { task: "Seal", qty: none, parts: [], bookings: [] },
- *             { task: "Spray", qty: none, parts: [], bookings: [] },
- *         ], ArrayType(BatchStep));
+ *         const stepTemplates = $.let(Data.bind(sheetBatchStepTemplates));
+ *         const batchTemplates = $.let(Data.bind(sheetBatchTemplates));
+ *         // One rail over the templates records, each its own source: they narrow the Rows tab's cards.
+ *         const slice = $.let(Slice.bindRecords("sheet.batches", {
+ *             rowTemplates: {
+ *                 source: Data.bindPaged(sheetBatchStepTemplates, { indexes: [sheetBatchStepTemplatesByGroup] }),
+ *                 label: "Step templates", fields: { group: { label: "Group", hints: ["Steps"] } },
+ *             },
+ *             groupTemplates: {
+ *                 source: Data.bindPaged(sheetBatchTemplates, { indexes: [sheetBatchTemplatesByGroup] }),
+ *                 label: "Batch templates", fields: { group: { label: "Group", hints: ["Batches"] } },
+ *             },
+ *         }));
  *         // A batch needs a name before Save.
  *         const readyBatch = $.const(East.function([Sheet.Types.DraftGroup(Batch, "steps")], Sheet.Types.Readiness, ($, batch) => {
  *             $.if(batch.name.hasTag("value").and(() => batch.name.unwrap("value").length().equal(0n)), $ => {
@@ -321,12 +366,13 @@ function textOrBlank(v: SubtypeExprOrValue<StringType | OptionType<StringType>> 
  *                     // The sub rows show a step's parts and bookings; the inspector's form leaves them out.
  *                     inspector
  *                     fields={{ parts: Sheet.field.hidden(), bookings: Sheet.field.hidden() }}
- *                     templates={{
- *                         groups: [{ key: "finishing", name: "Finishing batch", group: "Batches",
- *                                    values: Sheet.patch(Batch, { name: "Finishing", steps: finishing }) }],
- *                         rows:   [{ key: "sand", name: "Sand", group: "Steps", values: Sheet.patch(BatchStep, { task: "Sand", qty: none }) },
- *                                  { key: "seal", name: "Seal", group: "Steps", values: Sheet.patch(BatchStep, { task: "Seal", qty: none }) }],
- *                     }}
+ *                     slice={{ slice }}
+ *                     templates={[
+ *                         Sheet.templates(stepTemplates.read(), { name: t => t.name, group: t => some(t.group),
+ *                             values: t => Sheet.patch(BatchStep, { task: t.task, qty: none }), source: "rowTemplates" }),
+ *                         Sheet.templates(batchTemplates.read(), { name: t => t.name, group: t => some(t.group),
+ *                             values: t => Sheet.patch(Batch, { name: t.batch, steps: t.steps }), source: "groupTemplates" }),
+ *                     ]}
  *                     library={[Sheet.library.rows(), Sheet.library.columns()]}
  *                     ready={{ group: readyBatch }}
  *                     newRow={newStep}

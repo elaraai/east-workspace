@@ -593,6 +593,7 @@ export async function getDataflowExecution(
       cached: run.cached,
       failed: run.failed,
       skipped: run.skipped,
+      waiting: run.waiting,
       duration,
     });
   } else {

@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import {
-    Avatar as ChakraAvatar, Box, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
+    Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
 } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -68,6 +68,36 @@ export interface EastChakraLibraryProps {
     onCardEnter?: ((key: string) => void) | undefined;
     /** Optional host-controlled facets; search and facet matching remain the shared Library engine. */
     facetFilter?: { values: Record<string, string[]>; onChange: (next: Record<string, string[]>) => void } | undefined;
+    /** The search box's words, a host's (`Find an event or site`), in place of `Search 27 items…`; its accessible name too. */
+    search?: string | undefined;
+    /** What the Library says while a search or a filter hides every card, in a host's words (`No events match`), in place of `No matches`. */
+    noMatch?: LibraryEmpty | undefined;
+    /** What a host draws on a compact card beside its shared face (#1330): its tooltip, a figure, a note line, a look and an ×. */
+    extras?: ((item: LibraryItemValue) => LibraryCardExtras | undefined) | undefined;
+    /** A group head's mark, by the group's label: a group that warns. */
+    groupMark?: ((label: string) => LibraryGroupMark | undefined) | undefined;
+    /**
+     * While its host's narrowing — a builder's rail — hides some of what the
+     * Library would list (#1339): what it says when that leaves it no item
+     * (`No resources match the filters`), and the Clear filters it offers.
+     * The Library still lists what its host feeds it.
+     */
+    narrowing?: LibraryNarrowing | undefined;
+}
+
+/** What a Library says while its host's narrowing leaves it no item, and how that narrowing clears. */
+export interface LibraryNarrowing {
+    /** Its words, as the shared empty state's. */
+    empty: LibraryEmpty;
+    /** Clear the narrowing: the empty state's Clear filters. None where the narrowing clears elsewhere — a Find's own chip (#1342). */
+    onClear?: (() => void) | undefined;
+    /**
+     * Whether the narrowing has left none of the items it narrows while the
+     * Library lists others it does not touch — the Roster's agency requests
+     * beside its people (#1342): its words then show above them. A Library
+     * with no item says them whatever this is.
+     */
+    emptied?: boolean | undefined;
 }
 
 /** What an empty Library says: the empty state's title, and the line under it. */
@@ -78,8 +108,52 @@ export interface LibraryEmpty {
     description?: string | undefined;
 }
 
+/**
+ * What a host draws on a compact card beside its shared face (#1330) — what
+ * its domain shows on a card that a Library item has no field for.
+ */
+export interface LibraryCardExtras {
+    /** The card's tooltip: what a click and a drag do with it. */
+    title?: string | undefined;
+    /** A figure at the end of its name's line: a quantity, a range. */
+    figure?: string | undefined;
+    /** A line under its meta — when it is due, what it holds today — in a tone when it warns. */
+    note?: { text: string; tone?: "warning" | "danger" | undefined } | undefined;
+    /** How it is drawn besides its states: `dashed`, taken off the target and kept to put back; `sunken`, already on it. */
+    look?: "dashed" | "sunken" | undefined;
+    /** An × at its end that takes it back: its words, and what it does. */
+    remove?: { label: string; onRemove: () => void } | undefined;
+}
+
+/** A group head's mark: a Font Awesome solid icon in a tone before its label, and what it says. */
+export interface LibraryGroupMark {
+    /** A Font Awesome solid icon name. */
+    icon: string;
+    /** What it says, for assistive technology and the tooltip. */
+    label: string;
+    tone: "warning" | "danger";
+}
+
 /** The empty state's icon: an empty box, as the design system draws it — Font Awesome's open box (#1263). */
 const EMPTY_ICON = { prefix: "fas", name: "box-open" } as const;
+
+/**
+ * What a Library says when it shows no card: the shared empty state in its
+ * words, with Clear filters while its host's narrowing is what left it none
+ * (#1339) — a Library's and a paged palette's alike (#1341).
+ *
+ * @param props - Its words, and the narrowing's Clear filters when a narrowing left it empty
+ * @returns The empty state
+ * @internal
+ */
+export function LibraryEmptyState({ said, onClear }: { said: LibraryEmpty; onClear: (() => void) | undefined }) {
+    return (
+        <Box data-library-empty="" {...(onClear !== undefined ? { "data-narrowed": "" } : {})}>
+            <EmptyStateView icon={EMPTY_ICON} title={said.title} description={said.description}
+                actions={onClear === undefined ? undefined : <Button size="xs" variant="outline" onClick={onClear}>Clear filters</Button>} />
+        </Box>
+    );
+}
 
 type SlotStyles = Record<string, SystemStyleObject>;
 
@@ -206,6 +280,8 @@ interface LibraryCardProps {
     onCardClick: ((key: string) => void) | undefined;
     /** A draggable card's ⏎, the host's. */
     onCardEnter: ((key: string) => void) | undefined;
+    /** What the host draws on it beside its shared face. */
+    extras?: LibraryCardExtras | undefined;
 }
 
 /**
@@ -236,7 +312,7 @@ function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: 
 }
 
 /** Render the shared compact card for a Library or a paged builder palette. @internal */
-export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter }: LibraryCardProps) {
+export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter, extras }: LibraryCardProps) {
     const status = getSomeorUndefined(item.status);
     const glyph = getSomeorUndefined(item.trailing);
     const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;
@@ -245,6 +321,9 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
     const draggable = item.draggable && !filtered;
     const visibleDims = dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
     const tall = visibleDims.length > 0;
+    const figure = extras?.figure, note = extras?.note, remove = extras?.remove;
+    // A figure rides the name's line, as a tall card's status does.
+    const headed = figure !== undefined || (tall && status !== undefined);
 
     const from = useMemo(() => ({ library: libraryId, key: item.key, label: item.label }), [libraryId, item.key, item.label]);
     const ghost = useMemo(() => (
@@ -281,6 +360,8 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
             {...(draggable && drag ? { "data-draggable": "" } : {})}
             {...(onCardClick !== undefined ? { "data-clickable": "" } : {})}
             {...(tall ? { "data-tall": "" } : {})}
+            {...(extras?.look !== undefined ? { "data-look": extras.look } : {})}
+            {...(extras?.title !== undefined ? { title: extras.title } : {})}
         >
             {draggable && drag && (
                 <Box as="span" css={styles.grip} data-drag-grip="">
@@ -293,16 +374,18 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                 </Box>
             )}
             <Box css={styles.cardBody}>
-                {tall && status ? (
-                    // Secondary facts take the body's full width, so the status rides the name's line.
+                {headed ? (
+                    // Secondary facts take the body's full width, so the status rides the name's line; a figure always does.
                     <Box css={styles.cardHead}>
                         <Box as="span" css={styles.cardLabel}>{item.label}</Box>
-                        <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>{status.label}</Box>
+                        {figure !== undefined && <Box as="span" css={styles.cardFigure} data-library-figure="">{figure}</Box>}
+                        {tall && status && <Box as="span" css={styles.statusPill} data-tone={status.tone.type}>{status.label}</Box>}
                     </Box>
                 ) : (
                     <Box as="span" css={styles.cardLabel}>{item.label}</Box>
                 )}
                 {sublabel && <Box as="span" css={styles.cardSublabel}>{sublabel}</Box>}
+                {note !== undefined && <Box as="span" css={styles.cardNote} data-library-note="" {...(note.tone !== undefined ? { "data-tone": note.tone } : {})}>{note.text}</Box>}
                 <LibraryDims item={item} keys={visibleDims} styles={styles} />
             </Box>
             {((!tall && status) || glyph) && (
@@ -325,6 +408,15 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                         </Box>
                     )}
                 </Box>
+            )}
+            {remove !== undefined && (
+                // Its own target: it picks no drag up, and its click is not the card's.
+                <chakra.button type="button" css={styles.cardRemove} aria-label={remove.label} title={remove.label} data-library-remove=""
+                    onPointerDown={(event: ReactPointerEvent) => event.stopPropagation()}
+                    onKeyDown={(event: React.KeyboardEvent) => event.stopPropagation()}
+                    onClick={(event: React.MouseEvent) => { event.stopPropagation(); remove.onRemove(); }}>
+                    <FontAwesomeIcon icon={faXmark} />
+                </chakra.button>
             )}
         </Box>
     );
@@ -445,11 +537,18 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
 // Group head (shared by the virtual and non-virtual paths)
 // ============================================================================
 
-function LibraryGroupHead({ label, count, summary, styles }: { label: string; count: number; summary: string | undefined; styles: SlotStyles }) {
+function LibraryGroupHead({ label, count, summary, styles, mark }: { label: string; count: number; summary: string | undefined; styles: SlotStyles; mark?: LibraryGroupMark | undefined }) {
     const words = useFormatters();
     return (
-        <Box css={styles.groupHead} data-library-head="">
-            <Box as="span" css={styles.groupLabel}>{label}</Box>
+        <Box css={styles.groupHead} data-library-head="" {...(mark !== undefined ? { "data-tone": mark.tone } : {})}>
+            <Box as="span" css={styles.groupLabel}>
+                {mark !== undefined && (
+                    <Box as="span" css={styles.groupMark} role="img" aria-label={mark.label} title={mark.label} data-library-group-mark="">
+                        <FontAwesomeIcon icon={["fas", mark.icon as IconName]} />
+                    </Box>
+                )}
+                {label}
+            </Box>
             <Box as="span" css={styles.groupSummary}>{summary ?? words.number(count)}</Box>
         </Box>
     );
@@ -659,6 +758,121 @@ export function LibraryLayoutSwitch({ layout, onPick }: { layout: LibraryLayout;
 }
 
 // ============================================================================
+// The search box — a Library's over its cards, and a paged palette's over its
+// record (#1340)
+// ============================================================================
+
+/** The widths a Library's toolbar folds its search box to: wide, mid, then narrow, without the key cap. */
+export type LibrarySearchSize = "wide" | "mid" | "narrow";
+
+/** Props of {@link LibrarySearchBox}. */
+export interface LibrarySearchBoxProps {
+    /** The width the toolbar folds it to. */
+    size: LibrarySearchSize;
+    /** Its input: the field ⌘ / brings the focus to ({@link useLibrarySearchShortcut}). */
+    inputRef: RefObject<HTMLInputElement | null>;
+    /** Its text. */
+    query: string;
+    /** Takes its text: typed, cleared by its ×, or by Escape. */
+    onQuery: (query: string) => void;
+    /** Its placeholder: `Search 27 items…`. */
+    placeholder: string;
+    /** Its accessible name. */
+    label: string;
+}
+
+/**
+ * A Library's search box, at a width its toolbar folds it to: the magnifier,
+ * the field, and its × while it holds text — else the ⌘ / key cap. Escape
+ * clears it. A Library's own, over its cards, and a paged palette's, over its
+ * record (#1340, ruling 11) — one look, the `library` recipe's.
+ *
+ * @param props - Its width, its input's ref, its text and what takes it, its placeholder and its name
+ * @returns The box
+ * @internal
+ */
+export function LibrarySearchBox({ size, inputRef, query, onQuery, placeholder, label }: LibrarySearchBoxProps) {
+    const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
+    const kbd = useRecipe({ key: "kbd" });
+    return (
+        <Box css={styles.searchBox} data-size={size}>
+            <Box as="span" css={styles.searchIcon} aria-hidden>
+                <FontAwesomeIcon icon={faMagnifyingGlass} />
+            </Box>
+            <chakra.input
+                ref={inputRef}
+                css={styles.searchInput}
+                placeholder={placeholder}
+                aria-label={label}
+                aria-keyshortcuts="Meta+/ Control+/"
+                value={query}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => onQuery(e.target.value)}
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (e.key === "Escape" && query !== "") {
+                        e.preventDefault();
+                        onQuery("");
+                    }
+                }}
+            />
+            {query !== "" ? (
+                <chakra.button type="button" css={styles.searchClear} aria-label="Clear search" onClick={() => onQuery("")}>
+                    <FontAwesomeIcon icon={faXmark} />
+                </chakra.button>
+            ) : (
+                <chakra.kbd css={[kbd({}), styles.searchKbd]} aria-hidden>⌘ /</chakra.kbd>
+            )}
+        </Box>
+    );
+}
+
+/**
+ * ⌘ / brings a Library's search box the focus: the box of the Library last
+ * pointed at or focused, else the first mounted — a Library's and a paged
+ * palette's alike.
+ *
+ * @param searchable - Whether the Library draws a search box
+ * @returns The box's input ref, and what the Library's root calls as the pointer enters it or it takes the focus
+ * @internal
+ */
+export function useLibrarySearchShortcut(searchable: boolean): { searchRef: RefObject<HTMLInputElement | null>; claim: () => void } {
+    const searchRef = useRef<HTMLInputElement | null>(null);
+    const [self] = useState(() => Symbol("library"));
+    useEffect(() => {
+        if (!searchable) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key !== "/") return;
+            searchOwner ??= self;
+            const input = searchRef.current;
+            if (searchOwner !== self || input === null) return;
+            e.preventDefault();
+            input.focus();
+            input.select();
+        };
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("keydown", onKey);
+            if (searchOwner === self) searchOwner = undefined;
+        };
+    }, [searchable, self]);
+    const claim = useCallback(() => {
+        if (searchable) searchOwner = self;
+    }, [searchable, self]);
+    return { searchRef, claim };
+}
+
+/**
+ * A Library's search box as an item of its toolbar: its wide, mid and narrow
+ * forms, the last steps of the Library's ladder.
+ *
+ * @param box - The box at each width
+ * @returns The toolbar item
+ * @internal
+ */
+export function librarySearchItem(box: (size: LibrarySearchSize) => ReactNode): ToolbarItem {
+    return { key: "search", forms: [box("wide"), box("mid"), box("narrow")], rank: [LIBRARY_RANK.searchMid, LIBRARY_RANK.searchNarrow] };
+}
+
+// ============================================================================
 // Library core
 // ============================================================================
 
@@ -668,9 +882,8 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
-    const kbd = useRecipe({ key: "kbd" });
     // Counts, in the app's locale (#850).
     const words = useFormatters();
 
@@ -771,10 +984,13 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         () => value.items.filter(hides).length,
         [value.items, hides],
     );
-    // Nothing to show: no item at all, in the host's words; or a search or a filter that hides every card.
-    const nothing: LibraryEmpty | undefined = value.items.length === 0 ? empty
+    // Nothing to show: its host's narrowing left none of what it narrows, in the host's words — above any item the narrowing does not
+    // touch; no item at all, in the host's words; or a search or a filter that hides every card, in its words or the Library's.
+    const narrowedOut = narrowing !== undefined && (value.items.length === 0 || narrowing.emptied === true) ? narrowing : undefined;
+    const nothing: LibraryEmpty | undefined = narrowedOut !== undefined ? narrowedOut.empty : value.items.length === 0 ? empty
         : hiddenCount < value.items.length ? undefined
-            : { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
+            : noMatch ?? { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
+    const clearNarrowing = narrowedOut?.onClear;
     const noun = getSomeorUndefined(value.noun);
 
     const hint = getSomeorUndefined(value.hint);
@@ -877,59 +1093,14 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     const railItems = useSliceToolbarItems(rail?.slice, [{ key: "rail", kinds: rail?.kinds ?? [] }]);
 
     // ⌘ / focuses the search box of the Library last pointed at or focused.
-    const searchRef = useRef<HTMLInputElement | null>(null);
-    const [self] = useState(() => Symbol("library"));
-    useEffect(() => {
-        if (!searchable) return;
-        const onKey = (e: KeyboardEvent) => {
-            if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key !== "/") return;
-            searchOwner ??= self;
-            const input = searchRef.current;
-            if (searchOwner !== self || input === null) return;
-            e.preventDefault();
-            input.focus();
-            input.select();
-        };
-        document.addEventListener("keydown", onKey);
-        return () => {
-            document.removeEventListener("keydown", onKey);
-            if (searchOwner === self) searchOwner = undefined;
-        };
-    }, [searchable, self]);
-    const claimSearch = useCallback(() => {
-        if (searchable) searchOwner = self;
-    }, [searchable, self]);
+    const { searchRef, claim: claimSearch } = useLibrarySearchShortcut(searchable);
 
     // The search box at a width the toolbar folds it to — one element in
     // every form, so the field keeps its focus and its text as the row folds.
-    const searchBox = (size: "wide" | "mid" | "narrow") => (
-        <Box css={styles.searchBox} data-size={size}>
-            <Box as="span" css={styles.searchIcon} aria-hidden>
-                <FontAwesomeIcon icon={faMagnifyingGlass} />
-            </Box>
-            <chakra.input
-                ref={searchRef}
-                css={styles.searchInput}
-                placeholder={`Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
-                aria-label="Search library"
-                aria-keyshortcuts="Meta+/ Control+/"
-                value={query}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
-                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                    if (e.key === "Escape" && query !== "") {
-                        e.preventDefault();
-                        setQuery("");
-                    }
-                }}
-            />
-            {query !== "" ? (
-                <chakra.button type="button" css={styles.searchClear} aria-label="Clear search" onClick={() => setQuery("")}>
-                    <FontAwesomeIcon icon={faXmark} />
-                </chakra.button>
-            ) : (
-                <chakra.kbd css={[kbd({}), styles.searchKbd]} aria-hidden>⌘ /</chakra.kbd>
-            )}
-        </Box>
+    const searchBox = (size: LibrarySearchSize) => (
+        <LibrarySearchBox size={size} inputRef={searchRef} query={query} onQuery={setQuery}
+            placeholder={search ?? `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
+            label={search ?? "Search library"} />
     );
     const checkedFilters = filterOptions.reduce((n, o) => n + (activeFilters[o.key]?.length ?? 0), 0);
     // One row, the shared toolbar's: the rail and the search, then the
@@ -938,11 +1109,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     // order LIBRARY_RANK gives.
     const toolbarItems: ReadonlyArray<ToolbarItem | false | undefined> = [
         ...railItems,
-        searchable && {
-            key: "search",
-            forms: [searchBox("wide"), searchBox("mid"), searchBox("narrow")],
-            rank: [LIBRARY_RANK.searchMid, LIBRARY_RANK.searchNarrow],
-        },
+        searchable && librarySearchItem(searchBox),
         groupOptions.length > 0 && {
             key: "group",
             forms: [
@@ -1012,7 +1179,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         ) : groups.map((group, i) => (
             <Box key={group.label || "_flat"} css={styles.group}>
                 {group.label !== "" && (
-                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} />
+                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} mark={groupMark?.(group.label)} />
                 )}
                 <Box {...galleryGridProps}>
                     {group.items.map(item => (
@@ -1049,7 +1216,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                         style={{ transform: `translateY(${virtualItem.start}px)` }}
                     >
                         {entry.kind === "groupHead" ? (
-                            <LibraryGroupHead label={entry.label} count={entry.count} summary={entry.summary} styles={styles} />
+                            <LibraryGroupHead label={entry.label} count={entry.count} summary={entry.summary} styles={styles} mark={groupMark?.(entry.label)} />
                         ) : (
                             <Box css={styles.rowGrid} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
                                 {entry.items.map(item => (
@@ -1063,6 +1230,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                                         styles={styles}
                                         onCardClick={onCardClickFn ? handleCardClick : undefined}
                                         onCardEnter={onCardEnter}
+                                        extras={extras?.(item)}
                                     />
                                 ))}
                             </Box>
@@ -1075,7 +1243,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         groups.map(group => (
             <Box key={group.label || "_flat"} css={styles.group}>
                 {group.label !== "" && (
-                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} />
+                    <LibraryGroupHead label={group.label} count={group.items.length} summary={group.summary} styles={styles} mark={groupMark?.(group.label)} />
                 )}
                 <Box css={styles.grid}>
                     {group.items.map(item => (
@@ -1089,6 +1257,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                             styles={styles}
                             onCardClick={onCardClickFn ? handleCardClick : undefined}
                             onCardEnter={onCardEnter}
+                            extras={extras?.(item)}
                         />
                     ))}
                 </Box>
@@ -1120,11 +1289,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
                 {...(virtualEnabled ? { "data-virtual": "" } : {})}
                 onScroll={handleScrollPersist}
             >
-                {nothing !== undefined && (
-                    <Box data-library-empty="">
-                        <EmptyStateView icon={EMPTY_ICON} title={nothing.title} description={nothing.description} />
-                    </Box>
-                )}
+                {nothing !== undefined && <LibraryEmptyState said={nothing} onClear={clearNarrowing} />}
                 {bodyContent}
             </Box>
             {(hiddenCount > 0 || (!gallery && addLabel !== undefined)) && (
@@ -1195,4 +1360,8 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
         </Box>
     );
 }, (prev, next) => libraryEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.renderMedia === next.renderMedia
-    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter);
+    && prev.empty?.title === next.empty?.title && prev.empty?.description === next.empty?.description && prev.onCardEnter === next.onCardEnter && prev.facetFilter === next.facetFilter
+    && prev.search === next.search && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
+    && prev.extras === next.extras && prev.groupMark === next.groupMark
+    && prev.narrowing?.empty.title === next.narrowing?.empty.title && prev.narrowing?.empty.description === next.narrowing?.empty.description
+    && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied);

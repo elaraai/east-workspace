@@ -93,6 +93,7 @@ export {
     // The Dock's pane as React — for a host renderer's own panes
     DockPane,
     type DockPaneProps,
+    type DockRailMark,
     // The one frame of a builder-style component (#1125): the toolbar, the
     // banners, the panes either side of main, and the footer
     BuilderFrame,
@@ -179,6 +180,9 @@ export {
     type LibraryValue,
     type LibraryItemValue,
     type LibraryEmpty,
+    type LibraryCardExtras,
+    type LibraryNarrowing,
+    type LibraryGroupMark,
     type EastChakraLibraryProps,
     EastChakraSchematic,
     type SchematicValue,
@@ -561,7 +565,7 @@ export {
 } from "./collections/deck";
 export { EastChakraValueTree, type EastChakraValueTreeProps, type ValueTreeValue, type ValueTreeNodeValue, type ValueTreeStepValue, type ValueTreeLeafValue, type ValueTreePaging, type ValueTreePagedRow, type ValueTreeControls } from "./collections/value-tree";
 export { LoadingIcon, type LoadingIconProps } from "./LoadingIcon.js";
-export { useSliceReactivity } from "./slice/use-slice-reactivity";
+export { useSliceReactivity, useSlicesReactivity } from "./slice/use-slice-reactivity";
 // Reusable, handle-free Slice predicate-editor pieces — used by the Experiment
 // surface's population filter (its population is an Array<SlicePredicate>).
 export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceFieldValue } from "./slice/predicate-builder";
@@ -619,6 +623,7 @@ export {
     type EditSessionOptions,
     type EntryUpdate,
     type EntryVersion,
+    type HeldRows,
     type HistoryAction,
     type HistoryBarProps,
     type Origin,

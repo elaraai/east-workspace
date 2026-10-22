@@ -18,6 +18,7 @@
 
 import {
     East,
+    Expr,
     ArrayType,
     BooleanType,
     FunctionType,
@@ -181,6 +182,26 @@ export const FuncBindHandleType = <I extends EastType[], O extends EastType>(
  */
 export type BoundFunc<I extends EastType[], O extends EastType> =
     ExprType<ReturnType<typeof FuncBindHandleType<I, O>>>;
+
+/**
+ * What a {@link Func.bind} handle of a one-argument function asks and
+ * answers, read from the handle's type: its `call`'s one input and its
+ * `read`'s result. A tag that takes a bound function checks the handle it is
+ * given with this, then holds each type to its own with `isTypeEqual`.
+ *
+ * @param handle - What an app passed where a `Func.bind` handle goes
+ * @returns The function's argument type and result type, or `undefined` for a value that is no `Func.bind` handle of a one-argument function
+ * @internal
+ */
+export function boundFuncSignature(handle: unknown): { asks: EastType; answers: EastType } | undefined {
+    if (!(handle instanceof Expr)) return undefined;
+    const type = Expr.type(handle) as EastType;
+    if (type.type !== "Struct" || type.fields["binding"] === undefined) return undefined;
+    const call = type.fields["call"], read = type.fields["read"];
+    const asks = call?.type === "Function" && call.inputs.length === 1 ? call.inputs[0] : undefined;
+    const answers = read?.type === "Function" && read.output.type === "Variant" ? read.output.cases["some"] : undefined;
+    return asks === undefined || answers === undefined ? undefined : { asks, answers };
+}
 
 // ============================================================================
 // Platform function — single generic over the instantiated handle type.

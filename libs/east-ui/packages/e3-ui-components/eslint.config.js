@@ -73,6 +73,27 @@ const SHEET_NO_SPREAD = [
   }
 ];
 
+// A test reads, pages, saves and calls on e3 itself (#1375, #1380), never a
+// stand-in that answers at once and says what the test wrote. These are the
+// stand-ins the tests once held, each refused in a test or a test's helper and
+// named with what replaces it: the e3-web harness. The in-memory APIs stay in
+// the source, for the snapshot tool and hosts with no server.
+const HARNESS = 'the e3-web harness (src/e3-web.test-utils.ts, src/e3-web-mount.test-utils.tsx, test/fixtures/e3.ts)';
+const NO_STAND_INS = [
+  {
+    selector: 'Identifier[name=/^createInMemory(Record|Function)Api$/]',
+    message: `The in-memory record and function APIs serve the snapshot tool and hosts with no server, never a test: a test reads and writes records and calls functions on e3 itself, through ${HARNESS} (#1380).`
+  },
+  {
+    selector: "CallExpression[callee.object.name='vi'][callee.property.name=/^(mock|doMock)$/][arguments.0.value='@elaraai/e3-api-client']",
+    message: `A test does not mock e3's client: its requests go to e3 itself through ${HARNESS}, and a fault is one at that fetch (h.e3.hold, h.e3.fail) (#1380).`
+  },
+  {
+    selector: "CallExpression[callee.object.name='vi'][callee.property.name='stubGlobal'][arguments.0.value='fetch']",
+    message: `A test does not stub the global fetch: its requests go to e3 through ${HARNESS}, whose fetch a fault is at (h.e3.fail), and the global one refuses every request (vitest.setup.ts) (#1380).`
+  }
+];
+
 export default [
   {
     ignores: ['dist/**', 'node_modules/**', 'coverage/**']
@@ -164,7 +185,8 @@ export default [
       'east': east
     },
     rules: {
-      'east/east-rules': EAST_HOST_VALUES
+      'east/east-rules': EAST_HOST_VALUES,
+      'no-restricted-syntax': ['error', ...NO_STAND_INS]
     }
   }
 ];

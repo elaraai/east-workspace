@@ -61,8 +61,9 @@ import {
 import { TrackedChannelStore } from "./tracked-channel.js";
 
 // =============================================================================
-// API seam — the narrow surface the runtime talks through. Tests stub it;
-// the snapshot harness swaps in an in-memory implementation.
+// API seam — the narrow surface the runtime talks through: e3's function
+// routes, over the fetch a host gives (e3-web's, in a test); the snapshot
+// harness swaps in an in-memory implementation.
 // =============================================================================
 
 /** Request shape for {@link FunctionApi.call} — beast2-encoded positional
@@ -550,9 +551,10 @@ export function createScopedFuncPlatform(functions: readonly string[]): Platform
 }
 
 // =============================================================================
-// In-memory FunctionApi — offline harnesses (the snapshot harness, tests)
-// register deterministic implementations keyed by name; `call` round-trips
-// arguments and results through the same beast2 codecs a real server uses.
+// In-memory FunctionApi — for a host with no server (the snapshot harness),
+// never a test, whose calls go to e3 itself (#1380): deterministic
+// implementations keyed by name; `call` round-trips arguments and results
+// through the same beast2 codecs a real server uses.
 // =============================================================================
 
 /** One offline function implementation for {@link createInMemoryFunctionApi}. */

@@ -45,7 +45,13 @@
  * `data-drop-invalid` on cells and sinks, and the portal ghost. A cell may
  * caption the ghost (#1187): while the drag rests over it, a line under the
  * ghost says where the drop would land, or — red, `data-refused` — why the
- * cell refuses it (`[data-drag-caption]`).
+ * cell refuses it (`[data-drag-caption]`). A cell is told when the drag stops
+ * resting over it (`onLeave`): for another destination, for nothing, at the
+ * drop or the cancel, or as it leaves the screen under the drag — so a host
+ * that marks what the drag rests on lets the mark go. The ghost sits beside
+ * the pointer, the window holding it by its own width, never by the width of
+ * what was picked up ({@link ghostRect}); a draggable may be an SVG element, a
+ * link's line or its caption (#1328).
  *
  * @packageDocumentation
  */
@@ -69,17 +75,20 @@ import { createPortal } from "react-dom";
 import {
     DndContext,
     DragOverlay,
+    getClientRect,
     useDraggable,
     useDroppable,
     useSensor,
     useSensors,
     type Announcements,
+    type ClientRect,
     type CollisionDetection,
     type DragEndEvent,
     type DragMoveEvent,
     type DragStartEvent,
     type KeyboardCodes,
     type KeyboardCoordinateGetter,
+    type MeasuringConfiguration,
     type Modifier,
     type UniqueIdentifier,
 } from "@dnd-kit/core";
@@ -163,6 +172,12 @@ export interface DragTargetConfig {
      * takes it.
      */
     onDrag?: (event: DragEventValue, meta?: DragMeta) => unknown;
+    /**
+     * Told of a drop a cell's veto refused, with the event it would have
+     * delivered — `onDrag` hears nothing of it — so the surface can say why
+     * (the Allocation's refusal note, A40). A cancelled drag tells it nothing.
+     */
+    onRefuse?: (event: DragEventValue) => void;
 }
 
 /**
@@ -192,6 +207,12 @@ export interface DropCellOptions {
     /** Told each time a drag rests over the cell and it takes it, with the client point and what is dragged. */
     onHover?: (clientX: number, clientY: number, payload: DragPayload) => void;
     /**
+     * Told when a drag that rested over the cell — taken or refused — rests
+     * elsewhere: over another destination, over nothing, or nowhere at all, the
+     * drag dropped or cancelled, or the cell gone from the screen under it.
+     */
+    onLeave?: () => void;
+    /**
      * Whether the cell takes this payload at all — a structural answer, asked
      * before its veto (#825: a Plan row takes a moved run only when its items
      * are the run's item type). A cell that does not is no destination: it
@@ -204,9 +225,11 @@ export interface DropCellOptions {
      * the drop would land (`Edge banding · after row 3`), or, when the cell
      * refuses it, why (the caption turns red) — at the coordinate the drag
      * rests on, for what is dragged. `allowed` is the cell's verdict there.
-     * Absent, or `undefined`, the ghost goes alone.
+     * A drop it takes with a warning says so in the warning's ink (`{ text,
+     * warn: true }`: `to K-203 · under min`). Absent, or `undefined`, the
+     * ghost goes alone.
      */
-    caption?: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string | undefined;
+    caption?: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string | { text: string; warn?: boolean } | undefined;
 }
 
 interface CellRegistration extends DropCellOptions {
@@ -246,9 +269,10 @@ export type DragPayload =
 /**
  * What a draggable spreads onto its element: its ref, the pointer and
  * keyboard handlers that pick it up, and its accessible role and description.
+ * The element may be an SVG one — a link's line or its caption (#1328).
  */
 export interface DragHandle {
-    ref: (el: HTMLElement | null) => void;
+    ref: (el: HTMLElement | SVGElement | null) => void;
     onPointerDown?: (event: ReactPointerEvent) => void;
     onKeyDown?: (event: ReactKeyboardEvent) => void;
     role: string;
@@ -370,7 +394,7 @@ type Point = { x: number; y: number };
 interface InFlight {
     payload: DragPayload;
     /** The element it began on (`data-dragging`). */
-    origin: HTMLElement | null;
+    origin: Element | null;
     /** The destination it rests over — a connected cell or a valid sink. */
     hovered: HTMLElement | null;
     /** A hovered cell left the screen during the drag. */
@@ -413,6 +437,25 @@ const beside: Modifier = ({ activatorEvent, activeNodeRect, transform }) => {
 };
 const GHOST_MODIFIERS = [beside, restrictToWindowEdges];
 
+/**
+ * The ghost's box, as the window keeps it inside it (`restrictToWindowEdges`):
+ * where the overlay puts it, no wider than what it shows. dnd-kit's overlay is
+ * as wide as what was picked up — a long bar, a link's whole route picked up by
+ * its line (#1328) — and held inside the window whole it would push a narrower
+ * ghost off the pointer, under it; held by the ghost's own width, the ghost
+ * stays beside the pointer until it meets the window's edge itself.
+ *
+ * @param node - What dnd-kit measures the overlay by: the ghost's wrapper
+ * @returns Its client rect, as wide as its widest part where that is narrower
+ */
+export function ghostRect(node: HTMLElement): ClientRect {
+    const rect = getClientRect(node);
+    const shown = Math.max(0, ...Array.from(node.children, (child) => child.getBoundingClientRect().width));
+    return shown > 0 && shown < rect.width ? { ...rect, width: shown, right: rect.left + shown } : rect;
+}
+/** The layer measures the ghost by what it shows ({@link ghostRect}). */
+const MEASURING: MeasuringConfiguration = { dragOverlay: { measure: ghostRect } };
+
 /** The coordinate a cell names at a point, for a payload — its own, when it has no resolver or there is no point. */
 function coordAt(reg: CellRegistration, point: Point | undefined, payload: DragPayload): CellCoord {
     return point !== undefined && reg.resolveCoord !== undefined ? reg.resolveCoord(point.x, point.y, payload) : reg.coord;
@@ -425,10 +468,19 @@ function clearStages(el: HTMLElement): void {
     el.removeAttribute("data-drop-invalid");
 }
 
-/** What the ghost says (#1187): its words, and whether they say why the cell refuses the drop. */
+/** What the ghost says (#1187): its words, whether they say why the cell refuses the drop, and whether a drop it takes warns. */
 interface DragCaption {
     text: string;
     refused: boolean;
+    warn: boolean;
+}
+
+/** A cell's or a library's caption, as the ghost says it. */
+function captionOf(said: string | { text: string; warn?: boolean } | undefined, refused: boolean): DragCaption | undefined {
+    if (said === undefined) return undefined;
+    const text = typeof said === "string" ? said : said.text;
+    if (text === "") return undefined;
+    return { text, refused, warn: !refused && typeof said !== "string" && said.warn === true };
 }
 
 /**
@@ -450,7 +502,7 @@ class CaptionStore {
     /** Say something else — or nothing — telling the view only when the words or their verdict change. */
     set(next: DragCaption | undefined): void {
         const was = this.value;
-        if (was === next || (was !== undefined && next !== undefined && was.text === next.text && was.refused === next.refused)) return;
+        if (was === next || (was !== undefined && next !== undefined && was.text === next.text && was.refused === next.refused && was.warn === next.warn)) return;
         this.value = next;
         for (const listener of this.listeners) listener();
     }
@@ -460,7 +512,7 @@ class CaptionStore {
 function DragCaptionView({ store }: { store: CaptionStore }) {
     const caption = useSyncExternalStore(store.subscribe, store.get, store.get);
     if (caption === undefined) return null;
-    return <div data-drag-caption="" data-refused={caption.refused ? "" : undefined} aria-hidden="true">{caption.text}</div>;
+    return <div data-drag-caption="" data-refused={caption.refused ? "" : undefined} data-warn={caption.warn ? "" : undefined} aria-hidden="true">{caption.text}</div>;
 }
 
 export interface DragLayerProviderProps {
@@ -613,6 +665,8 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             el.setAttribute("data-drop-valid", "");
         }
         return () => {
+            // The cell the drag rests over leaves the screen under it: it is left.
+            if (drag.current?.hovered === el) cell.current.onLeave?.();
             cells.current.delete(el);
             // Leave the attribute and a de-registered element keeps
             // hit-testing as a destination the layer no longer knows.
@@ -651,12 +705,15 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         if (prev !== null && prev !== el) {
             prev.removeAttribute("data-drop-active");
             prev.removeAttribute("data-drop-invalid");
+            // Told before the destination it rests over now says anything.
+            cells.current.get(prev)?.current.onLeave?.();
         }
         d.hovered = null;
         const cell = el !== null ? cells.current.get(el)?.current : undefined;
         if (el !== null && cell !== undefined) {
             // An unconnected element is not a destination, and a drop must not consider it one.
             if (!connected(cell, d.payload)) {
+                if (prev === el) cell.onLeave?.();
                 caption.set(undefined);
                 return;
             }
@@ -676,8 +733,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                 el.removeAttribute("data-drop-active");
                 el.setAttribute("data-drop-invalid", "");
             }
-            const text = cell.caption?.(coord, d.payload, allowed);
-            caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
+            caption.set(captionOf(cell.caption?.(coord, d.payload, allowed), !allowed));
             return;
         }
         // Over nothing the ghost goes alone; over a sink, with what its surface says of a return there.
@@ -695,8 +751,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             }
             if (sink.kind === "library" && sink.library !== undefined && d.payload.kind === "event") {
                 const returns = targets.current.get(d.payload.from.surface)?.returns;
-                const text = returns?.caption?.(returnEvent(sink, d.payload.from), sink.library, allowed);
-                caption.set(text === undefined || text === "" ? undefined : { text, refused: !allowed });
+                caption.set(captionOf(returns?.caption?.(returnEvent(sink, d.payload.from), sink.library, allowed), !allowed));
             }
         }
     }, [connected, sinkValid, returnAllowed, returnEvent, track, caption]);
@@ -802,7 +857,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     // ── The drag's lifecycle ──────────────────────────────────────────────
 
     const onDragStart = useCallback(({ active, activatorEvent }: DragStartEvent) => {
-        const data = active.data.current as { payload?: DragPayload; node?: { current: HTMLElement | null } } | undefined;
+        const data = active.data.current as { payload?: DragPayload; node?: { current: Element | null } } | undefined;
         const payload = data?.payload;
         if (payload === undefined) return;
         const origin = data?.node?.current ?? null;
@@ -870,6 +925,9 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         drag.current = null;
         for (const el of cells.current.keys()) clearStages(el);
         for (const el of sinks.current.keys()) clearStages(el);
+        // The cell the drag rested over is left, dropped on or not.
+        const rested = d?.hovered ?? null;
+        if (rested !== null) cells.current.get(rested)?.current.onLeave?.();
         caption.set(undefined);
         setDragged(null);
         if (d === null) return;
@@ -904,8 +962,14 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             const event = dropEvent(payload, coord, track.altKey);
             const name = targetName(el, point, payload);
             // The veto is asked once more, of the event about to be
-            // delivered — its duplicate flag the one the drop carries.
-            if (target?.onDrag === undefined || !(cell.canDrop?.(event) ?? true)) {
+            // delivered — its duplicate flag the one the drop carries. A drop
+            // it refuses is never delivered; the surface hears why it was not.
+            if (target?.onDrag === undefined) {
+                outcome.current = { kind: "notDropped", item };
+                return;
+            }
+            if (!(cell.canDrop?.(event) ?? true)) {
+                target.onRefuse?.(event);
                 outcome.current = { kind: "notDropped", item };
                 return;
             }
@@ -1025,6 +1089,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         <DndContext
             sensors={sensors}
             collisionDetection={collide}
+            measuring={MEASURING}
             autoScroll={false}
             accessibility={accessibility}
             onDragStart={onDragStart}
@@ -1146,7 +1211,7 @@ function useDragHandle(payload: DragPayload | null, disabled: boolean): DragHand
     const layer = useContext(DragLayerContext);
     const words = useContext(DragMessagesContext);
     const id = useId();
-    const node = useRef<HTMLElement | null>(null);
+    const node = useRef<HTMLElement | SVGElement | null>(null);
     const enabled = layer !== null && payload !== null && !disabled;
     const { setNodeRef, setActivatorNodeRef, listeners, attributes } = useDraggable({
         id,
@@ -1154,12 +1219,15 @@ function useDragHandle(payload: DragPayload | null, disabled: boolean): DragHand
         disabled: !enabled,
         ...(layer !== null ? { attributes: { roleDescription: words.draggable() } } : {}),
     });
-    const ref = useCallback((el: HTMLElement | null) => {
+    const ref = useCallback((el: HTMLElement | SVGElement | null) => {
         node.current = el;
-        setNodeRef(el);
+        // dnd-kit types its nodes as HTML elements; it measures and focuses
+        // any element by its client rect, an SVG link's line as well (#1328).
+        const at = el as HTMLElement | null;
+        setNodeRef(at);
         // The element itself activates — a key pressed in a control inside it
         // (an amount input, an action button) never picks the drag up.
-        setActivatorNodeRef(el);
+        setActivatorNodeRef(at);
     }, [setNodeRef, setActivatorNodeRef]);
     return useMemo(() => (enabled
         ? { ref, ...(listeners as Pick<DragHandle, "onPointerDown" | "onKeyDown"> | undefined), ...attributes }

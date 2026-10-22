@@ -13,35 +13,41 @@
  * (the source type rides as a type-arg). The host work (the mode×patch matrix +
  * async write queue) stays in the primitive impls, which resolve cache/workspace
  * live — so a decoded handle re-binds to the decoder's cache.
+ *
+ * On e3 itself (#1378): the source is the Data.bind examples' threshold, and
+ * the encoder and the decoder each read a workspace of their own, so what a
+ * decoded handle reads and writes is the decoder's workspace's.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { variant, toEastTypeValue, encodeBeast2For, decodeBeast2For, FloatType } from "@elaraai/east";
-import type { TreePath } from "@elaraai/e3-types";
+import { toEastTypeValue, encodeBeast2For, decodeBeast2For, FloatType } from "@elaraai/east";
 import { DataBindHandleType, type DataManifest } from "@elaraai/e3-ui/internal";
-import { BindRuntime, ReactiveDatasetCache } from "../src/platform/index.js";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import { readDataset, writeDataset } from "../src/e3-web.test-utils.js";
+import { BindRuntime } from "../src/platform/index.js";
 import { createScopedBindPlatform } from "../src/platform/bind-runtime.js";
 import { StagedStore, MemoryStagedAdapter } from "../src/platform/staged-store.js";
-import { createMockDatasetApi } from "./fixtures/mock-dataset-api.js";
-import { createFakeClock, settle } from "./fixtures/fake-clock.js";
+import { e3Spec } from "./fixtures/e3.js";
 
-const pathOf = (...segs: string[]): TreePath => segs.map(s => variant("field", s));
-const ws = "ws";
-const sourcePath = pathOf("source");
+const h = e3Spec({ "bind/data/data": ex });
+
+const sourcePath = ex.thresholdInput.path;
 const floatTypeValue = toEastTypeValue(FloatType);
-const encodeFloat = encodeBeast2For(FloatType);
 const HandleType = DataBindHandleType(FloatType);
 
-async function newRuntime() {
+/**
+ * A bind runtime over a dataset cache over e3, its staged buffers in memory.
+ *
+ * @param workspace - The workspace it reads; the test's own unless given
+ */
+async function newRuntime(workspace?: string) {
     const staged = new StagedStore(new MemoryStagedAdapter());
     await staged.ready();
-    const api = createMockDatasetApi();
-    const clock = createFakeClock();
-    const cache = new ReactiveDatasetCache({ workspace: ws }, api, clock);
+    const { cache } = h.cache(workspace === undefined ? {} : { workspace });
     const runtime = new BindRuntime(staged);
     runtime.initializeCache(cache);
-    return { runtime, cache, api, clock, staged };
+    return { runtime, cache, staged };
 }
 
 test("#106 — a Data.bind handle ENCODES (its methods carry IR)", async () => {
@@ -56,11 +62,12 @@ test("#106 — read() round-trips and re-binds to the DECODER's cache", async ()
     const bytes = encodeBeast2For(HandleType)(
         enc.runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct") as never);
 
-    const dec = await newRuntime();
-    dec.api.seed(ws, sourcePath, encodeFloat(7));
-    await dec.cache.preload(ws, sourcePath);
+    const other = await h.e3.workspace();
+    await writeDataset(h.e3, other, ex.thresholdInput, 7);
+    const dec = await newRuntime(other);
+    await dec.cache.preload(other, sourcePath);
     const decoded = decodeBeast2For(HandleType, { platform: dec.runtime.buildPrimitives() })(bytes) as unknown as { read: () => number };
-    assert.equal(decoded.read(), 7);
+    assert.equal(decoded.read(), 7, "the decoder's workspace's value, not the encoder's 50");
 });
 
 test("#106 — write() round-trips and re-binds to the DECODER's api", async () => {
@@ -68,13 +75,16 @@ test("#106 — write() round-trips and re-binds to the DECODER's api", async () 
     const bytes = encodeBeast2For(HandleType)(
         enc.runtime.buildBindHandle(floatTypeValue, sourcePath, undefined, "direct") as never);
 
-    const dec = await newRuntime();
-    dec.api.seed(ws, sourcePath, encodeFloat(1));
-    await dec.cache.preload(ws, sourcePath);
+    const other = await h.e3.workspace();
+    const dec = await newRuntime(other);
+    await dec.cache.preload(other, sourcePath);
     const decoded = decodeBeast2For(HandleType, { platform: dec.runtime.buildPrimitives() })(bytes) as unknown as { write: (v: number) => null };
     decoded.write(5);
-    await settle();
-    assert.equal(dec.api.calls.set.length, 1, "write reached the decoder api");
+    await dec.runtime.awaitPendingWrites();
+    assert.deepEqual(h.e3.requests.filter((request) => request.kind === "write").map((request) => request.workspace), [other],
+        "the write reached the decoder's workspace");
+    assert.equal(await readDataset(h.e3, other, ex.thresholdInput), 5);
+    assert.equal(await h.read(ex.thresholdInput), 50, "the encoder's workspace is untouched");
 });
 
 test("#106 — createScopedBindPlatform ships the backing primitives (e3 ui() task decode path)", () => {

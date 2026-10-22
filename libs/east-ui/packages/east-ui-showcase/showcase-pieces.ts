@@ -9,8 +9,8 @@
  * its own, so the e3 worker's bundle takes in nothing else.
  *
  * e3 aims each piece at a target and closes it between a quarter of that and
- * four times it (`E3_TEST_PIECE_BYTES`, read through e3-core's
- * `readTestPieceBytesFrom`). A deployment's target is 64 MiB; the showcase's
+ * four times it (`serveE3`'s `pieceBytes`, as `E3_TEST_PIECE_BYTES` sets a
+ * local runner's). A deployment's target is 64 MiB; the showcase's
  * is 64 KiB, so its generated order history — megabytes, not gigabytes — runs
  * as a split call over about a dozen pieces, as a deployment's runs over
  * hundreds.

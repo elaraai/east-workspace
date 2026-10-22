@@ -15,7 +15,10 @@
  *   bound with its patch mutation, closed behind East functions over beast2
  *   bytes so a builder's payload is one type whatever the records hold.
  *   Plan's options sit beside the Calendar's (#1190): how a kind draws, an
- *   instant kind's `at`, and its roles' fields.
+ *   instant kind's `at`, and its roles' fields; and the Roster's and the
+ *   Allocation's roles beside them (#1367).
+ * - `Schedule.periods(record, config)`: what a builder publishes, the app's
+ *   own record of periods, its status a variant field of the app's (#1367).
  * - `Schedule.field`: the inspector's typed form, east-ui's `Fields`.
  * - `Schedule.patch`: what a library card dropped on an event sets, a patch
  *   over an event kind's row type (#1195).
@@ -37,25 +40,33 @@ import { scheduleDays, scheduleUnscheduled } from "./days.js";
 import { scheduleTemplates } from "./templates.js";
 import { scheduleEvents, type ScheduleEventKind } from "./events.js";
 import { SchedulePatchTypeFor, schedulePatch } from "./patch.js";
+import { schedulePeriods } from "./periods.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
-    ScheduleCandidateType, ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleGestureType,
-    ScheduleItemType, ScheduleKindType, ScheduleOverlapsType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
-    ScheduleResourcesType, ScheduleStatusCasesFor, ScheduleStatusType, ScheduleTemplateType, ScheduleWriteType,
+    ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationRolesType, ScheduleCandidateType, ScheduleClockType,
+    ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleFitType, ScheduleGestureType, ScheduleItemType, ScheduleKindType,
+    ScheduleOverlapsType, SchedulePeriodStatusType, SchedulePeriodsKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
+    ScheduleRefusalType, ScheduleResourcesType, ScheduleRosterEntryType, ScheduleRosterKindType, ScheduleRosterRolesType, ScheduleStatusCasesFor,
+    ScheduleStatusType, ScheduleTemplateType, ScheduleWriteType,
 } from "./types.js";
 
 export * from "./types.js";
 export { scheduleTemplates, type ScheduleTemplates, type ScheduleTemplatesConfig } from "./templates.js";
 export {
     scheduleEvents,
-    type ScheduleAtField, type ScheduleBacklog, type ScheduleEventKind, type ScheduleEventsBase, type ScheduleEventsConfig,
-    type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleInstantField, type ScheduleInstantTemplate,
-    type ScheduleOverlapsLiteral, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceField, type ScheduleResourceOf,
-    type ScheduleStateField, type ScheduleStatusCasesOf, type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField,
-    type ScheduleTemplate, type ScheduleValuesOf,
+    type ScheduleAtField, type ScheduleBacklog, type ScheduleCaseOf, type ScheduleDictFloatField, type ScheduleEventKind, type ScheduleEventsBase,
+    type ScheduleEventsConfig, type ScheduleFloatField, type ScheduleInstantEventsConfig, type ScheduleIntegerField, type ScheduleInstantField, type ScheduleInstantTemplate,
+    type ScheduleOptionStringField, type ScheduleOverlapsLiteral, type ScheduleParts, type ScheduleQuantity, type ScheduleRecordHandle,
+    type ScheduleResourceField, type ScheduleResourceOf, type ScheduleSetStringField, type ScheduleStateField, type ScheduleStatusCasesOf,
+    type ScheduleStatusConfig, type ScheduleStatusField, type ScheduleStringField, type ScheduleTemplate, type ScheduleTimeStepField,
+    type ScheduleValuesOf,
 } from "./events.js";
-export { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind, type ScheduleResourcesConfig } from "./resources.js";
+export { schedulePeriods, type SchedulePeriods, type SchedulePeriodsConfig } from "./periods.js";
+export {
+    SCHEDULE_DEF, scheduleResources, type ScheduleResourceAccessor, type ScheduleResourceAccessors, type ScheduleResourceKind,
+    type ScheduleResourcesConfig,
+} from "./resources.js";
 export { scheduleDays, scheduleUnscheduled } from "./days.js";
 export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from "./patch.js";
 
@@ -101,12 +112,31 @@ export function scheduleCheck(
 }
 
 /**
+ * The check a builder that draws each event's title makes (#1367): every
+ * event kind names its `title`, which `Schedule.events` takes as optional for
+ * the builders that draw none.
+ *
+ * @param events - The builder's event kinds, by slot
+ * @param builder - The builder, for the refusal (`Calendar`, `Plan`)
+ * @throws {Error} Naming the slot of a kind with no title
+ */
+export function scheduleTitled(events: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>, builder: string): void {
+    for (const [slot, kind] of Object.entries(events)) {
+        if (kind.title === undefined) {
+            throw new Error(`${builder}: events.${slot} has no title — the ${builder} draws each event's title: give the kind a \`title\`, a String field of its row`);
+        }
+    }
+}
+
+/**
  * The type of the {@link Schedule} namespace — declared explicitly so the
  * declaration emit stays within TypeScript's serialization limit.
  */
 export interface ScheduleNamespace {
     /** One event kind: a record of its own, bound with its patch mutation. */
     events: typeof scheduleEvents;
+    /** What a builder publishes: the app's record of periods, bound with its patch mutation, its status a field of the app's. */
+    periods: typeof schedulePeriods;
     /** Reads typed templates from bound keyed data. */
     templates: typeof scheduleTemplates;
     /** One resource kind, read from keyed rows. */
@@ -137,6 +167,10 @@ export interface ScheduleNamespace {
         Candidate: typeof ScheduleCandidateType;
         /** `Patch(R)`: a patch over an event kind's row type, every field an `Option` — what `Schedule.patch` builds. */
         Patch: typeof SchedulePatchTypeFor;
+        /** One verdict of a fit: it fits, with its score and reason, or it is refused — the Allocation's and the Roster's. */
+        Fit: typeof ScheduleFitType;
+        /** Why something does not fit, and what a run of refusals gathers into its label. */
+        Refusal: typeof ScheduleRefusalType;
     };
 }
 
@@ -146,6 +180,7 @@ export interface ScheduleNamespace {
  */
 export const Schedule: ScheduleNamespace = {
     events: scheduleEvents,
+    periods: schedulePeriods,
     templates: scheduleTemplates,
     resources: scheduleResources,
     field: Fields,
@@ -161,6 +196,8 @@ export const Schedule: ScheduleNamespace = {
         Duration: ScheduleDurationType,
         Candidate: ScheduleCandidateType,
         Patch: SchedulePatchTypeFor,
+        Fit: ScheduleFitType,
+        Refusal: ScheduleRefusalType,
     },
 };
 
@@ -205,6 +242,22 @@ export interface ScheduleInternalNamespace extends Omit<ScheduleNamespace, "Type
         PlanResources: typeof PlanResourcesType;
         /** One resource as Plan's builder takes it. */
         PlanResourceRow: typeof PlanResourceRowType;
+        /** A duty's roles, as the Roster reads them from the app's row (#1367). */
+        RosterRoles: typeof ScheduleRosterRolesType;
+        /** One stored duty: its roles and its row. */
+        RosterEntry: typeof ScheduleRosterEntryType;
+        /** One event kind as the Roster takes it. */
+        RosterKind: typeof ScheduleRosterKindType;
+        /** A bin's roles, as the Allocation reads them from the app's row (#1367). */
+        AllocationRoles: typeof ScheduleAllocationRolesType;
+        /** One stored bin: its roles and its row. */
+        AllocationEntry: typeof ScheduleAllocationEntryType;
+        /** One event kind as the Allocation takes it. */
+        AllocationKind: typeof ScheduleAllocationKindType;
+        /** A period's status, as a builder reads it from the app's status field (#1367). */
+        PeriodStatus: typeof SchedulePeriodStatusType;
+        /** What a builder publishes, closed. */
+        PeriodsKind: typeof SchedulePeriodsKindType;
     };
 }
 
@@ -233,5 +286,13 @@ export const ScheduleInternal: ScheduleInternalNamespace = {
         PlanRoles: PlanEventRolesType,
         PlanResources: PlanResourcesType,
         PlanResourceRow: PlanResourceRowType,
+        RosterRoles: ScheduleRosterRolesType,
+        RosterEntry: ScheduleRosterEntryType,
+        RosterKind: ScheduleRosterKindType,
+        AllocationRoles: ScheduleAllocationRolesType,
+        AllocationEntry: ScheduleAllocationEntryType,
+        AllocationKind: ScheduleAllocationKindType,
+        PeriodStatus: SchedulePeriodStatusType,
+        PeriodsKind: SchedulePeriodsKindType,
     },
 };

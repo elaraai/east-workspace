@@ -5,113 +5,60 @@
  * @vitest-environment jsdom
  *
  * A Plan (#821) and a Sheet (#851) over a bound paged source follow its
- * dataset — the real `Data.bindPaged` runtime (`defaultPagedRuntime`, its
- * channels, its revision pinning and `refresh`) behind a stand-in paging
- * service, rendered by the real component — the Sheet in its frame (#1216).
- * Writing the dataset moves the source to the new content hash, and the
- * component swaps each row's content in place: the row element survives, and
- * the old rows stay on screen until the new revision's window lands. And a
- * Sheet's first edit drafts at once: the entry it reads before drafting is
- * answered from the window it shows, never fetched on its own (#1217).
+ * dataset — `Data.bindPaged` over the machines e3 itself holds (#1377), its
+ * runtime's channels, revision pinning and `refresh` — rendered by the real
+ * component, the Sheet in its frame (#1216). Another session writing the
+ * dataset moves the source to the new content hash, and the component swaps
+ * each row's content in place: the row element survives, and the old rows stay
+ * on screen until the new revision's window lands. And a Sheet's first edit
+ * drafts at once: the entry it reads before drafting is answered from the
+ * window it shows, never fetched on its own (#1217).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
-import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import {
-    DictType, East, StringType, StructType, compareFor, encodeBeast2For, none, printFor, some, toEastTypeValue, variant,
-    type ValueTypeOf,
-} from "@elaraai/east";
-import { Paged } from "@elaraai/east-ui";
+import { East, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
-import { Plan, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
-import { DatasetHashMismatchError, type DatasetPage } from "@elaraai/e3-api-client";
-import type { TreePath } from "@elaraai/e3-types";
+import { Data, Plan, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
+import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import type { E3Request } from "../e3-web.test-utils.js";
+import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "../plan/index.js";
-import { EastChakraSheet, type SheetValue } from "../sheet/frame/index.js";
+import { EastChakraSheet } from "../sheet/frame/index.js";
 import { boundFrame } from "../sheet/frame.test-utils.js";
-import { clearPagedApi, defaultPagedRuntime, initializePagedApi, type PagedApi, type PagedSelector } from "./paged-runtime.js";
+import { getReactiveDatasetCache } from "./bind-runtime.js";
 
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
-(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
+const h = e3Harness({ "bind/data/data": ex }, { measure: false });
 
 // The Sheet's frame, tall enough for its rows (#1216).
 let restoreFrame: () => void = () => {};
 beforeEach(() => { restoreFrame = boundFrame(2000); });
-afterEach(() => {
-    cleanup();
-    clearPagedApi();
-    localStorage.clear();
-    restoreFrame();
-});
+afterEach(() => { restoreFrame(); });
 
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 
-/** The dataset: machines keyed by id, each with the label its run shows. */
-const Machine = StructType({ label: StringType });
-const Machines = DictType(StringType, Machine);
-const encodeMachines = encodeBeast2For(Machines);
-/** The dataset's key order — what its element windows are served in. */
-const compareKeys = compareFor(StringType);
-const MACHINES_PATH: TreePath = [variant("field", "inputs"), variant("field", "machines")];
-/** The bind reads the dataset's own rows, through no index. */
-const OWN_ROWS: PagedSelector = { index: null, join: false };
+/** A machine, and the label its row shows. */
+const Machine = ex.PreviewMachine;
+/** The machines' dotted path, as a request names them. */
+const MACHINES = "inputs.preview_machines";
+/** The machines another session writes in place of A's: B's labels. */
+const B = new Map([["m1", { label: "B-M1" }], ["m2", { label: "B-M2" }]]);
 
-/** What the stand-in server holds, and which revisions it answers yet. */
-interface Content { hash: string; labels: Record<string, string> }
+/** Whether a request reads a window of the machines. */
+const isWindow = (request: E3Request) => request.kind === "page" && request.dataset === MACHINES;
+/** The requests that read the machines' rows: whole, a window, or a key search. */
+const rowReads = (from: number) => h.requests().slice(from).filter((request) =>
+    request.dataset === MACHINES && (request.kind === "read" || request.kind === "page" || request.kind === "find"));
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-    let resolve!: () => void;
-    const promise = new Promise<void>((yes) => { resolve = yes; });
-    return { promise, resolve };
-}
+/** The machines a window at a time, bound as a page binds them. */
+const bindMachines = East.function([], undefined, () => Data.bindPaged(ex.previewMachinesInput));
 
-/** The paging service: pages pinned to the current content hash, a refused
- *  stale pin (409), and a revision watch the test fires as the status poll. */
-function standInServer(initial: Content) {
-    const state = { content: initial, held: new Map<string, { promise: Promise<void>; resolve: () => void }>() };
-    const watchers: ((hash: string | null) => void)[] = [];
-    /** Every window asked for, as `offset+limit@hash`. */
-    const requests: string[] = [];
-    const api: PagedApi = {
-        async getRevision() { return state.content.hash; },
-        async getPage(_ws, _path, window): Promise<DatasetPage> {
-            requests.push(`${window.offset}+${window.limit}@${window.hash ?? ""}`);
-            const gate = state.held.get(window.hash ?? "");
-            if (gate !== undefined) await gate.promise;
-            if (window.hash !== undefined && window.hash !== state.content.hash) {
-                throw new DatasetHashMismatchError("stale pin", state.content.hash);
-            }
-            const all = Object.entries(state.content.labels).sort(([a], [b]) => compareKeys(a, b));
-            const slice = all.slice(window.offset, window.offset + window.limit);
-            const data = encodeMachines(new Map(slice.map(([k, label]) => [k, { label }])));
-            return {
-                data, totalElements: all.length, totalBytes: data.length, totalExact: true,
-                segmentCount: 1, offset: window.offset, count: slice.length, hash: state.content.hash,
-            };
-        },
-        async findKey() { throw new Error("these tests never seek"); },
-        watchRevision(_ws, _path, onRevision) {
-            watchers.push(onRevision);
-            return () => { watchers.splice(watchers.indexOf(onRevision), 1); };
-        },
-    };
-    return {
-        api,
-        requests,
-        /** Write the dataset: new content under a new hash, its pages held back. */
-        write(next: Content) {
-            state.held.set(next.hash, deferred());
-            state.content = next;
-        },
-        /** The status poll reports the dataset's hash. */
-        poll() { for (const w of [...watchers]) w(state.content.hash); },
-        /** Let a revision's held pages answer. */
-        release(hash: string) { state.held.get(hash)?.resolve(); state.held.delete(hash); },
-        /** How many follow the dataset — what its status poll runs for. */
-        watching() { return watchers.length; },
-    };
+/** The bound handle, the runtimes it reads through installed over the test's workspace as a mounted page's providers install them. */
+async function machines(): Promise<Record<string, unknown>> {
+    await h.install({ fn: bindMachines });
+    return East.compile(bindMachines, getRegisteredPlatformImplementations())() as Record<string, unknown>;
 }
 
 /** A machine's row id — the `machines` series' entry at its key (#822). */
@@ -176,13 +123,9 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
     } as unknown as PlanRootValue;
 }
 
-const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-
 describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
     test("writing the dataset swaps each row's content in place — no remount, no empty frame", async () => {
-        const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
-        initializePagedApi(server.api, "ws");
-        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
+        const handle = await machines();
         const { container } = render(
             <ChakraProvider value={system}>
                 <EastChakraPlan value={planOver(handle)} storageKey="e3-821-plan" />
@@ -192,18 +135,18 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
         const row = container.querySelector(machineRow("m1"));
         expect(row).toBeTruthy();
 
-        // The dataset is written, and the next status poll reports it. B's
-        // window is still on the wire.
-        server.write({ hash: "B", labels: { m1: "B-M1", m2: "B-M2" } });
-        await act(async () => { server.poll(); });
-        await settle();
+        // Another session writes the dataset, and the next status poll reports it. B's window is held on its way
+        // to e3.
+        const windows = h.e3.hold(isWindow);
+        await h.write(ex.previewMachinesInput, B);
+        expect(windows.held).toBeGreaterThan(0);
         // The same row, still showing A — never an empty frame.
         expect(container.querySelector(machineRow("m1"))).toBe(row);
         expect(screen.getByText("A-M1")).toBeTruthy();
         expect(screen.queryByText("B-M1")).toBeNull();
 
         // B's window lands: the row swaps its content, in place.
-        server.release("B");
+        await act(async () => { windows.release(); });
         await settle();
         await screen.findByText("B-M1");
         expect(screen.queryByText("A-M1")).toBeNull();
@@ -211,65 +154,72 @@ describe("a Plan over Data.bindPaged follows its dataset (#821)", () => {
     });
 
     test("unmounted, it lets its dataset go: nothing follows the dataset, so nothing polls for it", async () => {
-        const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
-        initializePagedApi(server.api, "ws");
-        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
+        const handle = await machines();
         const { unmount } = render(
             <ChakraProvider value={system}>
                 <EastChakraPlan value={planOver(handle)} storageKey="e3-849-plan-unfollow" />
             </ChakraProvider>,
         );
         await screen.findByText("A-M1");
-        expect(server.watching()).toBe(1);
+        /** The status polls that ask e3 for the machines' hash. */
+        const polls = () => h.requests("status").filter((request) => request.query.getAll("path").some((path) => path.endsWith("preview_machines")));
+        await act(async () => { await getReactiveDatasetCache().refresh(h.workspace); });
+        expect(polls().length, "a poll follows the dataset while the canvas shows it").toBeGreaterThan(0);
+
         unmount();
         await settle();
-        expect(server.watching()).toBe(0);
+        const asked = polls().length;
+        await act(async () => { await getReactiveDatasetCache().refresh(h.workspace); });
+        await settle();
+        expect(polls(), "nothing follows the dataset, so no poll asks for it").toHaveLength(asked);
     });
 });
 
-/** A Sheet as an author writes it — a text column over the bound machines,
- *  the handle its input — so the rows reach the renderer through the Sheet's
- *  own derived source, pinned as `Data.bindPaged`'s handle is. */
-const sheetProgram = East.function([Paged.Types.PinnedSource(Machines)], SheetPayloadType, (_$, machines) =>
-    Sheet.Payload({ data: machines, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0 }));
-
-/** The Sheet over the bound handle. */
-function sheetOver(handle: Record<string, unknown>): SheetValue {
-    return East.compile(sheetProgram, getRegisteredPlatformImplementations())(handle as never);
-}
+/** A Sheet as an author writes it — a text column over the machines, bound a
+ *  window at a time — so the rows reach the renderer through the Sheet's own
+ *  derived source, pinned as `Data.bindPaged`'s handle is. */
+const sheetProgram = East.function([], SheetPayloadType, ($) => {
+    const bound = $.let(Data.bindPaged(ex.previewMachinesInput));
+    return Sheet.Payload({ data: bound, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0 });
+});
 
 /** The same Sheet with an `onApply` of the host's, so a gesture drafts (#1217). */
-const editedProgram = East.function([Paged.Types.PinnedSource(Machines)], SheetPayloadType, ($, machines) => {
+const editedProgram = East.function([], SheetPayloadType, ($) => {
+    const bound = $.let(Data.bindPaged(ex.previewMachinesInput));
     const apply = $.const(East.function([Sheet.Types.ChangeSet(Machine)], Sheet.Types.ApplyResult, (_$, _batch) => variant("applied", { revision: none })));
-    return Sheet.Payload({ data: machines, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0, onApply: apply });
+    return Sheet.Payload({ data: bound, columns: { label: Sheet.column.text(Machine, { header: "Label" }) }, blanks: 0, onApply: apply });
 });
+
+/** A Sheet's payload, its runtimes installed over the test's workspace first. */
+async function sheetOf(program: typeof sheetProgram) {
+    await h.install({ fn: program });
+    return East.compile(program, getRegisteredPlatformImplementations())();
+}
 
 describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
     test("writing the dataset swaps each row's content in place — no remount, no empty frame", async () => {
-        const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
-        initializePagedApi(server.api, "ws");
-        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
+        const value = await sheetOf(sheetProgram);
         const { container } = render(
             <ChakraProvider value={system}>
-                <EastChakraSheet value={sheetOver(handle)} storageKey="e3-851-sheet" />
+                <EastChakraSheet value={value} storageKey="e3-851-sheet" />
             </ChakraProvider>,
         );
         await screen.findByText("A-M1");
         const row = container.querySelector('[data-row-id="m1"]');
         expect(row).toBeTruthy();
 
-        // The dataset is written, and the next status poll reports it. B's
-        // window is still on the wire.
-        server.write({ hash: "B", labels: { m1: "B-M1", m2: "B-M2" } });
-        await act(async () => { server.poll(); });
-        await settle();
+        // Another session writes the dataset, and the next status poll reports it. B's window is held on its way
+        // to e3.
+        const windows = h.e3.hold(isWindow);
+        await h.write(ex.previewMachinesInput, B);
+        expect(windows.held).toBeGreaterThan(0);
         // The same row, still showing A — an empty frame would have unmounted it.
         expect(container.querySelector('[data-row-id="m1"]')).toBe(row);
         expect(screen.getByText("A-M1")).toBeTruthy();
         expect(screen.queryByText("B-M1")).toBeNull();
 
         // B's window lands: the row swaps its content, in place.
-        server.release("B");
+        await act(async () => { windows.release(); });
         await settle();
         await screen.findByText("B-M1");
         expect(screen.queryByText("A-M1")).toBeNull();
@@ -277,10 +227,7 @@ describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
     });
 
     test("a first edit drafts at once: the entry it reads is answered from the window the sheet shows, never fetched on its own (#1217)", async () => {
-        const server = standInServer({ hash: "A", labels: { m1: "A-M1", m2: "A-M2" } });
-        initializePagedApi(server.api, "ws");
-        const handle = defaultPagedRuntime.buildHandle(toEastTypeValue(Machines), MACHINES_PATH, OWN_ROWS, "pinned");
-        const value = East.compile(editedProgram, getRegisteredPlatformImplementations())(handle as never);
+        const value = await sheetOf(editedProgram);
         const { container } = render(
             <ChakraProvider value={system}>
                 <EastChakraSheet value={value} storageKey="e3-1217-sheet" />
@@ -288,7 +235,7 @@ describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
         );
         await screen.findByText("A-M1");
         await settle();
-        const asked = [...server.requests];
+        const asked = h.requests().length;
 
         fireEvent.doubleClick(container.querySelector('[data-row-id="m1"] [data-key="label"]')!);
         await settle();
@@ -302,7 +249,7 @@ describe("a Sheet over Data.bindPaged follows its dataset (#851)", () => {
         expect(container.querySelector('[data-row-id="m1"][data-draft]')).not.toBeNull();
         expect(container.querySelector('[data-row-id="m1"] [data-key="label"]')!.textContent).toBe("A-M1, checked");
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
-        // The service was asked for the sheet's window, and for nothing since.
-        expect(server.requests).toEqual(asked);
+        // e3 was asked for the sheet's window, and for none of the machines' rows since.
+        expect(rowReads(asked)).toEqual([]);
     });
 });

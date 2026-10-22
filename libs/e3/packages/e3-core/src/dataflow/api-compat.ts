@@ -82,6 +82,8 @@ export interface ApiExecutionSummary {
   cached: bigint;
   failed: bigint;
   skipped: bigint;
+  /** Tasks left waiting on an unassigned input, and their dependents */
+  waiting: bigint;
   duration: number;
 }
 
@@ -249,7 +251,7 @@ export function summaryToApiStatus(summary: Pick<ExecutionStateSummary, 'status'
  * @returns API-compatible execution state, naming the run and its last event
  */
 export function coreStateToApiState(
-  state: Pick<ExecutionStateSummary, 'id' | 'status' | 'startedAt' | 'completedAt' | 'executed' | 'cached' | 'failed' | 'skipped' | 'lastSeq' | 'cancelRequested'>,
+  state: Pick<ExecutionStateSummary, 'id' | 'status' | 'startedAt' | 'completedAt' | 'executed' | 'cached' | 'failed' | 'skipped' | 'waiting' | 'lastSeq' | 'cancelRequested'>,
   events: ExecutionEvent[],
   nextSeq: bigint,
   duration: number
@@ -271,6 +273,7 @@ export function coreStateToApiState(
       cached: state.cached,
       failed: state.failed,
       skipped: state.skipped,
+      waiting: state.waiting,
       duration,
     };
   }

@@ -5,25 +5,28 @@
 
 /**
  * `<Sheet>`'s payload (#1216; `Sheet Builder Spec.md` §3–§5, SB7–SB12): its
- * two sources — a record's entries, one entry's rows, its groups, groups with
- * loose rows between them, a window of a large one; and the host's rows, an
- * array, a bind handle or a paged source — its panes, each an optional prop,
- * absent and present, a template's seed, built by `newRow`'s and `newGroup`'s
- * own code, the library (#1186, SB59, SB60): its tabs in order, an author's
- * cards through their accessors and where a drop's patch lands, `views` as a
- * bind handle, and every refusal, each naming the prop and the remedy. How
- * the payload meets a record runs in e3-ui-components' `sheet-payload` spec,
- * against the record runtime.
+ * rows' sources — a record's entries, one entry's rows, its groups, groups
+ * with loose rows between them, a window of a large one; the host's rows, an
+ * array, a bind handle or a paged source; and the `rows` source of its
+ * `Slice.bindRecords` (#1345) — its panes, each an optional prop, absent and
+ * present, the templates, each list a record of its own naming its source of
+ * the slice, a template's seed, built by `newRow`'s and `newGroup`'s own code,
+ * the library (#1186, SB59, SB60): its tabs in order, an author's cards
+ * through their accessors, where a drop's patch lands and the source a tab
+ * follows, `views` as a bind handle of every source's narrowing, and every
+ * refusal, each naming the prop and the remedy. How the payload meets a
+ * record and the narrowing's runtime runs in e3-ui-components' `sheet-payload`
+ * spec.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, isTypeEqual, none, some, variant,
+    compareFor, decodeBeast2For, equalFor, isTypeEqual, none, some, variant,
     type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Paged, UIComponentType } from "@elaraai/east-ui";
+import { Paged, Slice, UIComponentType } from "@elaraai/east-ui";
 import { State, Text } from "@elaraai/east-ui/internal";
 import {
     Data, Record, Sheet, SheetLibraryTabType, SheetPayloadType, SheetTemplateWireType, buildLibrary, buildTemplates, createSheetBuild, sheetKeys,
@@ -101,10 +104,14 @@ const DATA_COLUMNS = {
     qty:  Sheet.column.quantity(Job, { header: "Qty" }),
 };
 // A views handle built by hand, as `State.bind` and `Data.bind` hand one: a read and a write.
-const ViewsHandle = StructType({ read: FunctionType([], ArrayType(Sheet.Types.View)), write: FunctionType([ArrayType(Sheet.Types.View)], NullType) });
-const VIEWS = [{
-    id: "v1", name: "ALL", context: 1n, reveals: [], folds: new Map(),
-    narrowing: { range: none, compare: none, filters: [], cohorts: [], activeCohorts: new Set<string>(), breakdown: none, search: none, visible: none, selectedIndex: none, resolution: none },
+const ViewsHandle = StructType({ read: FunctionType([], ArrayType(Sheet.Types.RecordView)), write: FunctionType([ArrayType(Sheet.Types.RecordView)], NullType) });
+/** A view over both sources (#1345): the rows by status, a value its `.east` literal, and the templates by their group. */
+const VIEWS: ValueTypeOf<ArrayType<typeof Sheet.Types.RecordView>> = [{
+    id: "v1", name: "PLANNED", context: 1n, reveals: [], folds: new Map(),
+    narrowing: new Map([
+        ["rows", { where: new Map([["status", variant("values", ["\"PLANNED\""])]]), preset: none, resolution: none }],
+        ["rowTemplates", { where: new Map([["group", variant("values", ["\"Operations\""])]]), preset: none, resolution: none }],
+    ]),
 }];
 
 type Payload = ValueTypeOf<typeof SheetPayloadType>;
@@ -199,15 +206,17 @@ describe("its panes, each an optional prop (#1216)", () => {
         assert.deepEqual(payload.inspector.value.forms.row.fields.map((f) => f.spec.path.join(".")), ["task", "qty"]);
     });
 
-    test("`views` is a bind handle: its read the sheet's views, its write their write-back", () => {
+    test("`views` is a bind handle: its read the sheet's views, each every source's narrowing by name, its write their write-back", () => {
         const payload = overJobs(($) => ({
             views: $.const({
-                read: East.function([], ArrayType(Sheet.Types.View), () => VIEWS),
-                write: East.function([ArrayType(Sheet.Types.View)], NullType, () => null),
+                read: East.function([], ArrayType(Sheet.Types.RecordView), () => VIEWS),
+                write: East.function([ArrayType(Sheet.Types.RecordView)], NullType, () => null),
             }, ViewsHandle),
             activeView: some("v1"),
         }));
-        assert.deepEqual(payload.sheet.views.map((v) => [v.id, v.name, v.context]), [["v1", "ALL", 1n]]);
+        // A saved view over both sources crosses whole: the rows' narrowing and the templates', each by its source's name.
+        assert.ok(equalFor(ArrayType(Sheet.Types.RecordView))(payload.sheet.views, VIEWS));
+        assert.equal(payload.sheet.views[0]!.narrowing.size, 2);
         assert.equal(payload.sheet.onViewsChange.type, "some");
         assert.deepEqual(payload.sheet.activeView, some("v1"));
     });
@@ -218,9 +227,13 @@ describe("its panes, each an optional prop (#1216)", () => {
 });
 
 // A flat sheet over operations, and a grouped one over orders: what the
-// templates' seeds are built over, read whole from plain Dicts.
+// templates' seeds are built over, read whole from plain Dicts — and the
+// templates records, keyed by their key (#1345): the operation templates and
+// the order templates.
 const OpType = StructType({ activity: StringType, qty: OptionType(FloatType), notes: StringType, created_by: StringType });
 const OrderType = StructType({ name: StringType, customer: StringType, status: StringType, ops: ArrayType(OpType) });
+const OpTemplate = StructType({ name: StringType, group: OptionType(StringType), activity: StringType, notes: StringType });
+const OrderTemplate = StructType({ name: StringType, status: StringType, ops: ArrayType(OpType) });
 /** Fixtures at MODULE scope: East bodies never call host helpers. */
 const OPS = new SortedMap([["o1", { activity: "Panel cutting", qty: some(48.0), notes: "", created_by: "planner" }]], compareFor(StringType));
 const ORDERS = new SortedMap([["WO-1", { name: "WO-1 · Kitchen", customer: "Tallowmere Homes", status: "PLANNED", ops: [] }]], compareFor(StringType));
@@ -228,6 +241,11 @@ const TWO_OPS = [
     { activity: "Panel cutting", qty: none, notes: "", created_by: "" },
     { activity: "Assembly", qty: none, notes: "", created_by: "" },
 ];
+const OP_TEMPLATES = new SortedMap([
+    ["sand", { name: "Sanding", group: none, activity: "Sanding", notes: "Sand to 180 grit" }],
+    ["edge", { name: "Edge banding", group: some("Operations"), activity: "Edge banding", notes: "Band the long edges" }],
+], compareFor(StringType));
+const ORDER_TEMPLATES = new SortedMap([["kitchen", { name: "Kitchen order", status: "PLANNED", ops: TWO_OPS }]], compareFor(StringType));
 const OP_COLUMNS = {
     activity: Sheet.column.text(OpType, { header: "Activity" }),
     qty:      Sheet.column.quantity(OpType, { header: "Qty" }),
@@ -235,31 +253,46 @@ const OP_COLUMNS = {
 };
 type Wire = ValueTypeOf<typeof SheetTemplateWireType>;
 
-/** The templates of a flat sheet over the operations, `newRow` setting `notes` and `created_by`. */
+/** The templates of a flat sheet over the operations, `newRow` setting `notes` and `created_by`: the operation templates record, its source `rowTemplates`. */
 const rowTemplates = East.compile(East.function([], ArrayType(SheetTemplateWireType), ($) => {
     const ops = $.const(OPS, DictType(StringType, OpType));
+    const templates = $.const(OP_TEMPLATES, DictType(StringType, OpTemplate));
     const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(OpType), () => Sheet.patch(OpType, { notes: "", created_by: "planner" })));
     const build = createSheetBuild(ops, OP_COLUMNS, { newRow }, { keyOrdered: true });
-    return buildTemplates({ rows: [
-        { key: "edge", name: "Edge banding", group: "Operations", values: Sheet.patch(OpType, { activity: "Edge banding", notes: "Band the long edges" }) },
-        { key: "sand", name: "Sanding", values: Sheet.patch(OpType, { activity: "Sanding" }) },
-    ] }, build.bridge, { newRow });
+    return buildTemplates([{
+        source: "rowTemplates",
+        templates: Sheet.templates(templates, { name: t => t.name, group: t => t.group,
+            values: t => Sheet.patch(OpType, { activity: t.activity, notes: t.notes }), source: "rowTemplates" }),
+    }], build.bridge, { newRow });
 }), []);
-/** The templates of a grouped sheet over the orders, `newGroup` setting `customer`. */
+/** The templates of a grouped sheet over the orders, `newGroup` setting `customer`: two records, the row templates' and the group templates', each its own source. */
 const groupTemplates = East.compile(East.function([], ArrayType(SheetTemplateWireType), ($) => {
     const orders = $.const(ORDERS, DictType(StringType, OrderType));
-    const lines = $.const(TWO_OPS, ArrayType(OpType));
+    const opTemplates = $.const(OP_TEMPLATES, DictType(StringType, OpTemplate));
+    const orderTemplates = $.const(ORDER_TEMPLATES, DictType(StringType, OrderTemplate));
     const newGroup = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(OrderType), () => Sheet.patch(OrderType, { customer: "" })));
     const build = createSheetBuild(orders, OP_COLUMNS, { group: Sheet.group(OrderType, "ops", { title: "name" }), newGroup }, { keyOrdered: true });
-    return buildTemplates({ groups: [
-        { key: "kitchen", name: "Kitchen order", group: "Orders", values: Sheet.patch(OrderType, { status: "PLANNED", ops: lines }) },
-    ] }, build.bridge, { newGroup });
+    return buildTemplates([
+        { source: "groupTemplates", templates: Sheet.templates(orderTemplates, { name: t => t.name, group: () => some("Orders"),
+            values: t => Sheet.patch(OrderType, { status: t.status, ops: t.ops }), source: "groupTemplates" }) },
+        { source: "rowTemplates", templates: Sheet.templates(opTemplates, { name: t => t.name,
+            values: t => Sheet.patch(OpType, { activity: t.activity }), source: "rowTemplates" }) },
+    ], build.bridge, { newGroup });
 }), []);
 
 const NEW_ROW = { destination: variant("entry", variant("keyOrder", null)) };
 const NEW_GROUP = { place: variant("keyOrder", null) };
 
-describe("templates (SB9)", () => {
+describe("templates (SB9), each list a record of its own (#1345)", () => {
+    test("one card per row of the templates record, in its key order, its key the row's, each carrying the source its list follows", () => {
+        const cards = rowTemplates() as Wire[];
+        assert.deepEqual(cards.map((t) => [t.key, t.name, t.source]), [["edge", "Edge banding", "rowTemplates"], ["sand", "Sanding", "rowTemplates"]]);
+        // A grouped sheet's two lists, in the order given, each its record's key order, each a kind of its own.
+        assert.deepEqual((groupTemplates() as Wire[]).map((t) => [t.key, t.source, t.seed.type]), [
+            ["kitchen", "groupTemplates", "group"], ["edge", "rowTemplates", "row"], ["sand", "rowTemplates", "row"],
+        ]);
+    });
+
     test("a row template's seed is newRow's defaults with the template's fields over them; a field neither sets starts missing", () => {
         const [edge, sand] = rowTemplates() as Wire[];
         assert.equal(edge!.key, "edge");
@@ -308,12 +341,12 @@ const ACTIVITIES = [
 const STATUS_WORDS = new SortedMap([["p", "PLANNED"], ["r", "RELEASED"]], compareFor(StringType));
 type Tab = ValueTypeOf<typeof SheetLibraryTabType>;
 
-/** A flat sheet's library: the templates, the activities — dropped on a row, its activity and a field no column shows — and the columns. */
-const flatLibrary = (tabs: ($: BlockBuilder<ArrayType<typeof SheetLibraryTabType>>) => readonly SheetLibraryTab[]) =>
+/** A flat sheet's library: the templates, the activities — dropped on a row, its activity and a field no column shows — and the columns; `sources`, its slice's. */
+const flatLibrary = (tabs: ($: BlockBuilder<ArrayType<typeof SheetLibraryTabType>>) => readonly SheetLibraryTab[], sources: readonly string[] = []) =>
     East.compile(East.function([], ArrayType(SheetLibraryTabType), ($) => {
         const ops = $.const(OPS, DictType(StringType, OpType));
         const build = createSheetBuild(ops, OP_COLUMNS, {}, { keyOrdered: true });
-        return buildLibrary(tabs($), build.bridge);
+        return buildLibrary(tabs($), build.bridge, sources);
     }), [])() as Tab[];
 /** A grouped sheet's library: the statuses, dropped on an order's band, rename it. */
 const groupedLibrary = (tabs: ($: BlockBuilder<ArrayType<typeof SheetLibraryTabType>>) => readonly SheetLibraryTab[]) =>
@@ -381,6 +414,20 @@ describe("the library (SB59, SB60)", () => {
         assert.deepEqual(tab!.value.cards[1]!.sets.get("$title"), variant("String", "RELEASED"));
     });
 
+    test("an author's tab follows the source of the slice it names (#1345); naming none, it lists its cards whole; a source the slice lacks is refused", () => {
+        const activities = (source?: string) => ($: BlockBuilder<ArrayType<typeof SheetLibraryTabType>>) => [Sheet.library.tab($.const(ACTIVITIES, ArrayType(ActivityRow)), {
+            name: "Activities", key: a => a.name, label: a => a.name, ...(source === undefined ? {} : { source }),
+        })];
+        const [followed] = flatLibrary(activities("activities"), ["rows", "activities"]);
+        if (followed!.type !== "tab") assert.fail(`expected an author's tab, got ${followed!.type}`);
+        assert.deepEqual(followed!.value.source, some("activities"));
+        const [whole] = flatLibrary(activities(), ["rows", "activities"]);
+        if (whole!.type !== "tab") assert.fail(`expected an author's tab, got ${whole!.type}`);
+        assert.deepEqual(whole!.value.source, none);
+        assert.throws(() => flatLibrary(activities("activities"), ["rows"]), /Sheet: the "Activities" tab's source 'activities' is not one of the slice's sources \(rows\)/);
+        assert.throws(() => flatLibrary(activities("activities")), /\(it has no slice\)/);
+    });
+
     test("refused, naming the tab: a tab listed twice, two author's tabs of one name, a drop over another type, and data neither an Array nor a Dict", () => {
         assert.throws(() => flatLibrary(() => [Sheet.library.rows(), Sheet.library.rows()]), /the library lists Sheet.library.rows\(\) twice/);
         assert.throws(() => flatLibrary(($) => {
@@ -422,6 +469,29 @@ const looseWork = e3.record("sheet_spec_loose", DictType(StringType, LooseWeek),
     ] }],
 ]));
 const looseWorkPatch = e3.mutation.patch(looseWork);
+
+// The narrowing (#1345): a templates record of the jobs, with an index for
+// its rail field, and the stress sheet's jobs — a `rows` source.
+const JobTemplate = StructType({ name: StringType, group: StringType, task: StringType });
+const jobTemplates = e3.record("sheet_spec_job_templates", DictType(StringType, JobTemplate), new Map([
+    ["cut", { name: "Cut", group: "Cutting", task: "Panel cutting" }],
+]));
+const jobTemplatesByGroup = e3.recordIndex("sheet_spec_job_templates_by_group", jobTemplates, { on: ["group"] });
+const STRESS_COLUMNS = { activity: Sheet.column.text(ex.StressJob, { header: "Activity" }) };
+/** The stress jobs, paged through an index: a `rows` source. */
+const stressSource = () => Data.bindPaged(ex.sheetStressJobs, { indexes: [ex.sheetStressByActivity] });
+/** `slice={{ slice }}` over the stress jobs' `rows` source alone. */
+const stressSlice = () => ({ slice: { slice: Slice.bindRecords("spec.stress", { rows: { source: stressSource() } }) } });
+/** `slice={{ slice }}` over the job templates, under each name given. */
+const templatesSlice = (...names: string[]) => ({
+    slice: Slice.bindRecords("spec.templates", Object.fromEntries(names.map((name) => [name, { source: Data.bindPaged(jobTemplates, { indexes: [jobTemplatesByGroup] }) }])) as never),
+});
+/** The tag over the jobs as an array, with `props` beside its rows and columns. */
+const overData = (props: ($: BlockBuilder<NullType>) => Record<string, unknown>) =>
+    inBlock(($) => (Sheet as unknown as (p: Record<string, unknown>) => unknown)({ data: $.const(JOBS, Jobs), id: "id", columns: DATA_COLUMNS, ...props($) }));
+/** The tag over the stress jobs' columns, read only, with `props` giving its rows. */
+const overStress = (props: ($: BlockBuilder<NullType>) => Record<string, unknown>) =>
+    inBlock(($) => (Sheet as unknown as (p: Record<string, unknown>) => unknown)({ columns: STRESS_COLUMNS, readOnly: true, ...props($) }));
 
 describe("grouped checks and loose rows (#1214)", () => {
     test("a grouped sheet's member check reads its line's fields, typed, on a link column beside an arity rule over the line", () => {
@@ -485,7 +555,8 @@ describe("refusals (SB7), each naming the prop and the remedy", () => {
         assert.throws(() => inBlock(($) => sheet({
             record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), data: $.const(JOBS, Jobs), columns: JOB_COLUMNS,
         })), /takes its rows from `record` or from `data`, never both/);
-        assert.throws(() => sheet({ columns: DATA_COLUMNS }), /needs its rows — `record`, an e3 record bound with its patch mutation, or `data`/);
+        assert.throws(() => sheet({ columns: DATA_COLUMNS }),
+            /needs its rows — `record`, an e3 record bound with its patch mutation, `data`: an array, a bind handle or a paged source, or the `rows` source of `slice`/);
         assert.throws(() => inBlock(($) => sheet({ data: $.const(JOBS, Jobs), id: "id", entry: { key: "w", rows: "rows", id: "id" }, columns: DATA_COLUMNS })),
             /`entry` reads a record — pass `record` for it, or leave it out with `data`/);
         assert.throws(() => inBlock(($) => sheet({ data: $.const(JOBS, Jobs), id: "id", window: $.let(Data.bindPaged(ex.sheetJobs)), columns: DATA_COLUMNS })),
@@ -528,29 +599,104 @@ describe("refusals (SB7), each naming the prop and the remedy", () => {
             /`groupFields` hints the inspector's form, and this sheet has no inspector/);
     });
 
-    test("a template over another type, a key that repeats, and a group template on a flat sheet", () => {
-        const jobsSheet = (templates: unknown) => inBlock(($) => sheet({
-            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS, templates,
-        }));
-        assert.throws(() => jobsSheet({ rows: [{ key: "x", name: "X", values: Sheet.patch(ex.WeekRow, { task: "X" }) }] }),
-            /row template "x" was built over another type — build its values with Sheet.patch\(RowType, …\)/);
-        assert.throws(() => jobsSheet({ rows: [
-            { key: "a", name: "A", values: Sheet.patch(ex.SheetJob, { task: "A" }) },
-            { key: "a", name: "Again", values: Sheet.patch(ex.SheetJob, { task: "Again" }) },
-        ] }), /template key "a" repeats/);
-        assert.throws(() => jobsSheet({ groups: [{ key: "g", name: "G", values: Sheet.patch(ex.SheetJob, { task: "G" }) }] }),
-            /`templates.groups` needs a grouped sheet/);
+    test("templates are records (#1345): a list written in the code, one naming no source of the slice or one it lacks, one naming `rows`, two naming one source, and a list over another type, each refused naming the change", () => {
+        const templates = ($: BlockBuilder<NullType>, source?: string) => Sheet.templates($.let(Data.bind(jobTemplates)).read(), {
+            name: t => t.name, values: t => Sheet.patch(Job, { task: t.task }), ...(source === undefined ? {} : { source }),
+        });
+        const change = /Sheet: templates are records now — bind them in Slice.bindRecords and name the source, Sheet.templates\(rows, \{ …, source: "rowTemplates" \}\)/;
+        // A list written in the code, with no slice and with one.
+        assert.throws(() => overData(() => ({ templates: { rows: [{ key: "x", name: "X", values: Sheet.patch(Job, { task: "X" }) }] } })), change);
+        assert.throws(() => overData(() => ({ templates: { rows: [] }, slice: templatesSlice("rowTemplates") })), /\(the slice's sources: rowTemplates\)$/);
+        // A list naming no source, and one naming a source the slice lacks — or with no slice at all.
+        assert.throws(() => overData(($) => ({ templates: templates($), slice: templatesSlice("rowTemplates") })), change);
+        assert.throws(() => overData(($) => ({ templates: templates($, "groupTemplates"), slice: templatesSlice("rowTemplates") })),
+            /\(the slice's sources: rowTemplates — 'groupTemplates' is not one of them\)/);
+        assert.throws(() => overData(($) => ({ templates: templates($, "rowTemplates") })), /\(it has no slice — 'rowTemplates' is not one of them\)/);
+        // `rows` narrows the sheet's rows, and each list is a source of its own.
+        assert.throws(() => overData(($) => ({ templates: templates($, "rows"), slice: templatesSlice("rows") })),
+            /a templates list names the source 'rows', which narrows the sheet's rows — each templates list is a record of its own, and its own source of the slice/);
+        assert.throws(() => overData(($) => ({ templates: [templates($, "rowTemplates"), templates($, "rowTemplates")], slice: templatesSlice("rowTemplates") })),
+            /two templates lists name the source 'rowTemplates'/);
+        // A list over another type than the row's, and a group template on a flat sheet: neither is the row type, and a flat sheet takes no group.
+        assert.throws(() => overData(($) => ({ slice: templatesSlice("rowTemplates"), templates: Sheet.templates($.let(Data.bind(jobTemplates)).read(), {
+            name: t => t.name, values: t => Sheet.patch(ex.WeekRow, { task: t.task }), source: "rowTemplates",
+        }) })), /the templates of source 'rowTemplates' set .* — build their values with Sheet.patch\(RowType, …\) over the sheet's row type/);
+        assert.throws(() => overData(($) => ({ slice: templatesSlice("groupTemplates"), templates: Sheet.templates($.let(Data.bind(jobTemplates)).read(), {
+            name: t => t.name, values: t => Sheet.patch(OrderType, { name: t.name }), source: "groupTemplates",
+        }) })), /the templates of source 'groupTemplates' set .* over the sheet's row type \(a grouped sheet: its line type\)$/);
+        // A templates list reads a templates record's rows: a Dict keyed by String.
+        assert.throws(() => inBlock(($) => Sheet.templates<typeof JobTemplate, typeof JobTemplate>($.const([], ArrayType(JobTemplate)) as never, { name: t => t.name, values: t => t })),
+            /Sheet.templates: rows must be a Dict keyed by String/);
     });
 
-    test("a views handle of anything but Array<Sheet.Types.View>, and `onViewsChange`, which the handle replaces", () => {
+    test("a views handle of anything but Array<Sheet.Types.RecordView>, and `onViewsChange`, which the handle replaces", () => {
         assert.throws(() => inBlock(($) => sheet({
             record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS,
             views: $.let(State.bind([StringType], "sheet.spec.views", "")),
-        })), /`views` must be a bind handle of Array<Sheet.Types.View>/);
+        })), /`views` must be a bind handle of Array<Sheet.Types.RecordView> — each view every source's narrowing, by name/);
         inBlock(($) => sheet({
             record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS,
-            views: $.let(State.bind([ArrayType(Sheet.Types.View)], "sheet.spec.views", [])),
+            views: $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.spec.views", [])),
         }));
         assert.throws(() => overJobs(() => ({ onViewsChange: none })), /`views` is a bind handle .* it takes no `onViewsChange`/);
+    });
+
+    test("the narrowing is slice={{ slice: Slice.bindRecords(…) }} (#1345): the bare handle, Slice.bind, a single Slice.bindRecord, a source nothing names, the props it took in and the axis affordance are refused", () => {
+        const named = /Sheet: `slice` is Slice.bindRecords\(key, \{ rows \}\) — name each source after what it narrows; Slice.bind and Slice.bindRecord are not taken/;
+        assert.throws(() => overStress(($) => ({ slice: $.let(Slice.bindRecords("spec.bare", { rows: { source: stressSource() } })) })),
+            /`slice` takes \{ slice \} — slice=\{\{ slice: Slice.bindRecords\(key, \{ rows \}\) \}\}: the bare handle and data=\{Slice.rows\(slice\)\} are gone/);
+        assert.throws(() => overData(() => ({ slice: { slice: Slice.bind("spec.local", JOBS, { fields: { task: { label: "Task" } } }) } })), named);
+        assert.throws(() => overStress(() => ({ slice: { slice: Slice.bindRecord("spec.single", stressSource()) } })), named);
+        assert.throws(() => overStress(() => ({ slice: { slice: Slice.bindRecords("spec.jobs", { jobs: { source: stressSource() } }) } })),
+            /Sheet: `slice` narrows its rows, and the templates lists and tabs that name a source — its source 'jobs' is none of them; name the sources `rows`/);
+        for (const prop of ["affordances", "persist"]) {
+            assert.throws(() => overStress(() => ({ ...stressSlice(), [prop]: prop === "persist" ? "local" : ["search"] })),
+                new RegExp(`Sheet: \`${prop}\` moved into \`slice\` — slice=\\{\\{ slice, ${prop} \\}\\}`));
+        }
+        assert.throws(() => overStress(() => ({ slice: { slice: Slice.bindRecords("spec.brush", { rows: { source: stressSource() } }), affordances: ["brush"] } })),
+            /Sheet does not support the 'brush' affordance — it has no axis and no series/);
+    });
+
+    test("the `rows` source gives the rows (#1345): `record`, `data`, `window` and `entry` beside it are refused, each naming the change", () => {
+        assert.throws(() => overStress(($) => ({ ...stressSlice(), record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])) })),
+            /`slice`'s `rows` source gives the rows, paged from it — commit them with onApply=\{Record.onApply\(record, \{ keyed: true \}\)\} rather than `record`/);
+        assert.throws(() => overStress(($) => ({ ...stressSlice(), data: $.const(JOBS, Jobs) })),
+            /`data=\{Slice.rows\(slice\)\}` is gone — the sheet reads its rows from `slice`'s `rows` source: slice=\{\{ slice \}\}/);
+        assert.throws(() => overStress(($) => ({ ...stressSlice(), window: $.let(Data.bindPaged(ex.sheetStressJobs)) })),
+            /`window=\{Slice.rows\(slice\)\}` is gone — the sheet reads its rows from `slice`'s `rows` source/);
+        assert.throws(() => overStress(() => ({ ...stressSlice(), entry: { key: "w", rows: "rows", id: "id" } })),
+            /`entry` reads one entry's rows of a record, and `slice`'s `rows` source gives the rows — take them from one or the other/);
+    });
+});
+
+describe("its narrowing (#1345)", () => {
+    const sheet = (props: Record<string, unknown>) => (Sheet as unknown as (p: Record<string, unknown>) => unknown)(props);
+
+    test("the `rows` source's rows are the sheet's, flat and grouped: the payload builds over them, its columns over their type", () => {
+        inBlock(($) => {
+            const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+            const grouped = Sheet.Payload({
+                slice: { slice: Slice.bindRecords("spec.orders", { rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: [ex.sheetWorkshopOrdersByStatus] }) } }) },
+                group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
+                columns: { notes: Sheet.column.text(ex.WorkshopOperation, { header: "Notes" }) },
+                onApply: Record.onApply(orders, { keyed: true }),
+            });
+            assert.ok(isTypeEqual(typeOf(grouped), SheetPayloadType), "grouped: the orders the rail narrows to, their operations the lines");
+            const flat = Sheet.Payload({ ...stressSlice(), columns: STRESS_COLUMNS, readOnly: true });
+            assert.ok(isTypeEqual(typeOf(flat), SheetPayloadType), "flat: the jobs the rail narrows to");
+        });
+        // The columns are declared over the `rows` source's rows, as over any rows: over another type, refused.
+        assert.throws(() => inBlock(() => sheet({ ...stressSlice(), columns: DATA_COLUMNS, readOnly: true })), /different row type/);
+    });
+
+    test("with no `rows` source the slice narrows only what names its sources, and the rows come from `record` or `data`", () => {
+        const templates = ($: BlockBuilder<NullType>) => Sheet.templates($.let(Data.bind(jobTemplates)).read(), {
+            name: t => t.name, values: t => Sheet.patch(Job, { task: t.task }), source: "rowTemplates",
+        });
+        assert.ok(isTypeEqual(typeOf(inBlock(($) => Sheet.Payload({
+            data: $.const(JOBS, Jobs), id: "id", columns: DATA_COLUMNS, slice: templatesSlice("rowTemplates"), templates: templates($),
+            library: [Sheet.library.rows()],
+        }))), SheetPayloadType));
+        assert.throws(() => inBlock(($) => sheet({ columns: DATA_COLUMNS, slice: templatesSlice("rowTemplates"), templates: templates($) })), /needs its rows/);
     });
 });

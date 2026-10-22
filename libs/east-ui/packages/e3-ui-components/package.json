@@ -1,6 +1,6 @@
 {
   "name": "@elaraai/e3-ui-components",
-  "version": "1.0.94",
+  "version": "1.0.97",
   "description": "React Query hooks and preview components for the e3 API",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -88,6 +88,7 @@
     "@elaraai/e3-api-client": "workspace:*",
     "@elaraai/e3-types": "workspace:*",
     "@elaraai/e3-ui": "workspace:*",
+    "@elaraai/e3-web": "workspace:*",
     "@elaraai/east": "workspace:*",
     "@elaraai/east-ui": "workspace:*",
     "@elaraai/east-ui-components": "workspace:*",

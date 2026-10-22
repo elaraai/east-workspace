@@ -5,28 +5,32 @@
 
 /**
  * The one `<Plan>`'s event kinds and read-only rows (#1191, `Plan Builder
- * Spec.md` §3.2, §3.3, §4.3, §5.2, PB8–PB11): the examples run, and their
- * payloads are built over the print works' records in memory — the canvas
- * whole beside the resource kinds and event kinds as a Plan takes them — and
- * every refusal at build names itself; and `inspector` gives the Plan its
- * inspector pane (#1197). The resources' rows over a window are
- * `plan-event-rows.spec.ts`'s (#1192), and the frame the renderer draws a Plan
- * in is #1193's.
+ * Spec.md` §3.2, §3.3, §4.3, §5.2, PB8–PB11) — what is checked of them
+ * without e3: the examples run; a Plan's payload is one type whatever its
+ * records hold, and returns through the `Plan` carrier; every refusal at
+ * build names itself; and its narrowing is one `Slice.bindRecords`, each
+ * kind's templates a record of its own naming its source (#1344), refused in
+ * every other form with the change to make. A payload reads the print works'
+ * records as it is built, so the payload itself — the canvas beside the
+ * resource kinds and event kinds, its templates, links, rows over a dataset,
+ * drop veto and inspector (#1197), and the refusals a Plan makes as it is
+ * evaluated — is checked in e3-ui-components on e3 itself
+ * (`test/plan-events-payload.spec.ts`). The resources' rows over a window are
+ * `plan-event-rows`' (#1192).
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, SortedMap,
-    StringType, StructType, compareFor, decodeBeast2For, equalFor, isTypeEqual, none, some, variant,
-    type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType,
+    StringType, StructType, decodeBeast2For, equalFor, isTypeEqual, none, some, variant,
+    type BlockBuilder, type EastType,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Chart, DragEventType, Paged, UIComponentType } from "@elaraai/east-ui";
+import { Slice, UIComponentType } from "@elaraai/east-ui";
 import { Text } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanPayloadType, Record, Schedule, planKeys } from "@elaraai/e3-ui/internal";
 import { Plan as PublicPlan } from "@elaraai/e3-ui";
-import { memoryData, memoryRecords } from "../schedule/memory-records.js";
 import * as ex from "./plan-events.examples.js";
 
 describeEast("Plan of event kinds — the examples (#1191)", (test) => {
@@ -36,42 +40,6 @@ describeEast("Plan of event kinds — the examples (#1191)", (test) => {
         planEventLinks: ex.planEventLinks,
     });
 }, { platformFns: TestImpl });
-
-// ============================================================================
-// The print works, in memory
-// ============================================================================
-
-/** An input's authored value: its `value` source. */
-function valueOf(source: unknown): unknown {
-    const s = source as { type: string; value: unknown } | undefined;
-    if (s?.type !== "value") throw new Error("expected an input seeded with its value");
-    return s.value;
-}
-
-/** The examples' records and datasets, each holding its seed, as the runtimes read them. */
-const PLATFORM = [
-    ...memoryRecords(new Map<string, unknown>([
-        [ex.planPrintPresses.name, ex.planPrintPresses.default],
-        [ex.planPrintCrews.name, ex.planPrintCrews.default],
-        [ex.planPrintJobs.name, ex.planPrintJobs.default],
-        [ex.planPrintStops.name, ex.planPrintStops.default],
-        [ex.planPrintShifts.name, ex.planPrintShifts.default],
-        [ex.planLinkJobs.name, ex.planLinkJobs.default],
-    ])),
-    ...memoryData(new Map<string, unknown>([
-        [ex.planPrintUtilisation.name, valueOf(ex.planPrintUtilisation.source)],
-        [ex.planPrintOutput.name, valueOf(ex.planPrintOutput.source)],
-        [ex.planLinkStock.name, valueOf(ex.planLinkStock.source)],
-    ])),
-];
-
-type Payload = ValueTypeOf<typeof PlanPayloadType>;
-type EventKind = Payload["events"][number];
-
-/** Build a payload in East and read it back, over the print works in memory. */
-function payloadOf(build: ($: BlockBuilder<typeof PlanPayloadType>) => ExprType<typeof PlanPayloadType>): Payload {
-    return East.compile(East.function([], PlanPayloadType, ($) => build($)), PLATFORM)() as Payload;
-}
 
 /** Run `build` inside a block, as `<Plan>`'s factory runs. */
 function inBlock<T>(build: ($: BlockBuilder<NullType>) => T): T {
@@ -93,23 +61,6 @@ function refusal(build: ($: BlockBuilder<NullType>) => unknown): string {
 const FIRST = new Date("2026-10-05T00:00:00Z");
 const LAST = new Date("2026-11-02T00:00:00Z");
 const WINDOW = { min: FIRST, max: LAST };
-const NO_DRAFTS = new SortedMap<string, Uint8Array>([], compareFor(StringType));
-const rowIds = equalFor(ArrayType(Plan.Types.RowId));
-const NO_EDITS = { drop: false, move: none };
-
-/** An event kind's events in the window, by key. */
-function keysIn(kind: EventKind): string[] {
-    const read = kind.planItems(FIRST, LAST, NO_DRAFTS);
-    if (read.type !== "some") assert.fail("expected the window read");
-    return read.value.map((item) => item.key);
-}
-
-/** An event kind's backlog, by key. */
-function backlogOf(kind: EventKind): string[] {
-    const read = kind.planUnscheduled(NO_DRAFTS);
-    if (read.type !== "some") assert.fail("expected the backlog");
-    return read.value.map((item) => item.key);
-}
 
 /** The jobs over the presses, bound inside a block: the event kind §3.2 declares. */
 function jobsOf($: BlockBuilder<NullType>) {
@@ -119,6 +70,16 @@ function jobsOf($: BlockBuilder<NullType>) {
         title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" },
     });
+}
+
+/** The jobs over the presses, bound inside a block, with more of a kind's options. */
+function jobsOf2($: BlockBuilder<NullType>, more: globalThis.Record<string, unknown>) {
+    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    return Schedule.events(jobs, {
+        name: "Print job", icon: "file-lines",
+        title: "title", start: "start", end: "end",
+        resource: { field: "press", of: "presses" }, ...more,
+    } as never);
 }
 
 /** The presses, bound inside a block: the resource kind §3.2 declares. */
@@ -138,239 +99,6 @@ const MARKS = Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r
 // ============================================================================
 
 describe("the payload (PB8, PB11)", () => {
-    test("§3.2: the canvas with no rows of its own, one resource kind of six presses, and one event kind drawing bars on them", () => {
-        const payload = payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const axis = $.let(Plan.axis({ window: WINDOW, resolution: "day" }));
-            return Plan.Payload({
-                axis,
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
-                events: {
-                    job: Schedule.events(jobs, {
-                        name: "Print job", icon: "file-lines",
-                        title: "title", start: "start", end: "end",
-                        resource: { field: "press", of: "presses" },
-                    }),
-                },
-            });
-        });
-        // The canvas: no `data` and no `rows`, so no rows of its own — the resources' are #1192's blocks.
-        assert.deepEqual(payload.plan.rows.type === "inline" ? payload.plan.rows.value : undefined, []);
-        assert.equal(payload.plan.axis.type, "time");
-        assert.equal(payload.plan.editing.type, "none");
-        assert.deepEqual(payload.plan.links, []);
-        // The presses, as a Plan takes them.
-        assert.deepEqual(payload.resources.map((k) => [k.key, k.name, k.icon, k.rollup.type]), [["presses", "Presses", "print", "union"]]);
-        assert.deepEqual(payload.resources[0]!.rows.map((r) => [r.key, r.label]), [
-            ["a1", "Press A1"], ["a2", "Press A2"], ["a3", "Press A3"], ["b1", "Press B1"], ["b2", "Press B2"], ["b3", "Press B3"],
-        ]);
-        // The jobs: bars on the presses, twenty-two in the window and eight in the backlog.
-        const [jobs, ...more] = payload.events;
-        assert.equal(more.length, 0);
-        assert.deepEqual([jobs!.key, jobs!.draw.type, jobs!.instant, jobs!.takes, jobs!.backlog], ["job", "span", false, ["presses"], true]);
-        assert.equal(keysIn(jobs!).length, 22);
-        assert.deepEqual(backlogOf(jobs!), ["J-1023", "J-1024", "J-1025", "J-1026", "J-1027", "J-1028", "J-1029", "J-1030"]);
-        // The resources' rows over a window (#1192, plan-event-rows.spec.ts); nothing else declared: no veto, Apply in batches, the window from its start.
-        assert.deepEqual([payload.blocks.type, payload.canDrop.type, payload.settings.applyMode.type, payload.settings.date.type], ["some", "none", "batch", "none"]);
-    });
-
-    test("§3.3: presses and crews by hall, jobs as bars, stops as marks and shifts as chips, each kind's templates, the pinned chart and the grain", () => {
-        const payload = payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const crews = $.let(Record.bind(ex.planPrintCrews, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
-            const shifts = $.let(Record.bind(ex.planPrintShifts, [ex.planPrintShiftsPatch]));
-            const util = $.let(Data.bind(ex.planPrintUtilisation));
-            const output = $.let(Data.bind(ex.planPrintOutput));
-            const first = $.const(FIRST, DateTimeType);
-            const daily = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), (_$2, readings) =>
-                East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$3, i) => ({ at: Plan.at.time(first.addDays(i)), value: some(readings.get(i)), label: none }))));
-            const PrintDay = StructType({ day: DateTimeType, sheets: FloatType });
-            const printed = $.let(output.read());
-            const days = $.let(East.Array.generate(printed.size(), PrintDay, (_$2, i) => ({ day: first.addDays(i), sheets: printed.get(i) })));
-            const axis = $.let(Plan.axis({ window: WINDOW, resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z") }));
-            return Plan.Payload({
-                axis,
-                resources: {
-                    presses: Schedule.resources(presses.read(), {
-                        name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall,
-                        sub: (p) => some(East.str`${East.Float.printCommaSeperated(p.sheets_per_hour, 0n)} sheets/h`),
-                        measures: [Plan.series.heat(ex.PrintPress, {
-                            key: "util", title: "Utilisation", label: () => "Utilisation",
-                            cells: (_p, key) => Plan.heatCells(daily(util.read().get(key)), { min: 0, max: 100, warnAt: 95 }),
-                        })],
-                    }),
-                    crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name, group: (c) => c.hall }),
-                },
-                events: {
-                    job: Schedule.events(jobs, {
-                        name: "Print job", icon: "file-lines", draw: "span",
-                        title: "title", start: "start", end: "end",
-                        resource: { field: "press", of: "presses" },
-                        state: "state", quantity: { field: "sheets", unit: "sheets" },
-                        backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
-                        fields: {
-                            customer: Schedule.field.text({ label: "Customer" }),
-                            stock: Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
-                            sheets: Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0 }),
-                        },
-                        templates: [
-                            { key: "brochure", name: "Brochure run", group: "Jobs", duration: variant("hours", 6.0),
-                              values: { title: "Brochure run", state: variant("proposed", variant("added", null)), sheets: 40000.0, customer: "", stock: variant("coated", null), due: none } },
-                            { key: "catalogue", name: "Catalogue run", group: "Jobs", duration: variant("hours", 12.0),
-                              values: { title: "Catalogue run", state: variant("proposed", variant("added", null)), sheets: 96000.0, customer: "", stock: variant("coated", null), due: none } },
-                            { key: "poster", name: "Poster run", group: "Jobs", duration: variant("hours", 4.0),
-                              values: { title: "Poster run", state: variant("proposed", variant("added", null)), sheets: 20000.0, customer: "", stock: variant("uncoated", null), due: none } },
-                            { key: "board", name: "Board run", group: "Jobs", duration: variant("hours", 8.0),
-                              values: { title: "Board run", state: variant("proposed", variant("added", null)), sheets: 24000.0, customer: "", stock: variant("board", null), due: none } },
-                        ],
-                    }),
-                    stop: Schedule.events(stops, {
-                        name: "Stop", icon: "screwdriver-wrench", draw: "marks",
-                        title: "title", at: "at", resource: { field: "press", of: "presses" },
-                        templates: [
-                            { key: "plates", name: "Plate change", group: "Stops", values: { title: "Plate change", kind: variant("plate_change", null) } },
-                            { key: "service", name: "Service", group: "Stops", values: { title: "Service", kind: variant("service", null) } },
-                        ],
-                    }),
-                    shift: Schedule.events(shifts, {
-                        name: "Crew shift", icon: "user-clock", draw: "cards",
-                        title: "title", start: "start", end: "end", resource: { field: "crew", of: "crews" }, state: "state",
-                        templates: [
-                            { key: "early", name: "Early shift", group: "Shifts", at: { hour: 6n, minute: 0n }, duration: variant("hours", 8.0),
-                              values: { title: "Early", state: variant("confirmed", null) } },
-                            { key: "late", name: "Late shift", group: "Shifts", at: { hour: 14n, minute: 0n }, duration: variant("hours", 8.0),
-                              values: { title: "Late", state: variant("confirmed", null) } },
-                            { key: "night", name: "Night shift", group: "Shifts", at: { hour: 22n, minute: 0n }, duration: variant("hours", 8.0),
-                              values: { title: "Night", state: variant("proposed", variant("added", null)) } },
-                        ],
-                    }),
-                },
-                rows: [Plan.chart({
-                    key: "output", label: "SHEETS / DAY", id: true, pinned: true, height: "spark", expandable: true,
-                    layers: [Chart.Column(days, { x: (r) => r.day, y: (r) => r.sheets })],
-                })],
-                grain: "resource",
-            });
-        });
-        // Two resource kinds, grouped by hall, the presses' sub lines their speeds.
-        assert.deepEqual(payload.resources.map((k) => k.key), ["presses", "crews"]);
-        const [presses, crews] = payload.resources;
-        assert.ok(equalFor(Schedule.Types.PlanResourceRow)(presses!.rows[0]!, {
-            key: "a1", label: "Press A1", meta: none, group: some("Hall A"), parent: none, sub: some("12,000 sheets/h"), value: none, status: none, collapsed: false,
-        }));
-        const groups = equalFor(ArrayType(OptionType(StringType)));
-        assert.ok(groups(presses!.rows.map((r) => r.group), ["Hall A", "Hall A", "Hall A", "Hall B", "Hall B", "Hall B"].map((h) => some(h))));
-        assert.ok(groups(crews!.rows.map((r) => r.group), ["Hall A", "Hall A", "Hall B", "Hall B"].map((h) => some(h))));
-        // Three event kinds, drawn three ways, in the order `events` lists them, each with its templates.
-        assert.deepEqual(payload.events.map((k) => [k.key, k.draw.type, k.instant, k.backlog]), [
-            ["job", "span", false, true], ["stop", "marks", true, false], ["shift", "cards", false, false],
-        ]);
-        assert.deepEqual(payload.events.map((k) => k.templates.map((t) => t.key)), [["brochure", "catalogue", "poster", "board"], ["plates", "service"], ["early", "late", "night"]]);
-        const roles = equalFor(Schedule.Types.PlanRoles);
-        assert.ok(roles(payload.events[0]!.roles, { state: some("state"), quantity: some("sheets"), lane: none }));
-        assert.ok(roles(payload.events[2]!.roles, { state: some("state"), quantity: none, lane: none }));
-        assert.deepEqual(payload.events.map((k) => keysIn(k).length), [22, 6, 24]);
-        // A job's customer, stock and sheets lead its form, as hinted.
-        assert.deepEqual(payload.events[0]!.fields.slice(0, 3).map((f) => [f.path, f.label, f.editor.type]), [
-            [["customer"], "Customer", "text"], [["stock"], "Stock", "select"], [["sheets"], "Sheets", "number"],
-        ]);
-        // The pinned chart: the canvas's one row, in a fixed block.
-        const blocks = payload.plan.rows.type === "inline" ? payload.plan.rows.value : [];
-        assert.deepEqual(blocks.map((b) => [b.fixed, b.rows.length]), [[true, 1]]);
-        const [chart] = blocks[0]!.rows;
-        assert.deepEqual([chart!.pinned, chart!.kind.type], [true, "chart"]);
-        assert.ok(rowIds([chart!.id], [variant("entry", { series: "", path: ["output"] })]));
-        // The grain, on the canvas.
-        assert.equal(payload.plan.grain.type === "some" ? payload.plan.grain.value.type : "", "resource");
-    });
-
-    test("links name their ends by event, and the paper in stock is a read-only table beside the presses (PB9, PB10)", () => {
-        const payload = payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planLinkJobs, [ex.planLinkJobsPatch]));
-            const stock = $.let(Data.bind(ex.planLinkStock));
-            return Plan.Payload({
-                axis: Plan.axis({ window: WINDOW, resolution: "week" }),
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall }) },
-                events: {
-                    job: Schedule.events(jobs, {
-                        name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
-                        resource: { field: "press", of: "presses" }, state: "state", quantity: { field: "sheets", unit: "sheets" },
-                    }),
-                },
-                rows: [Plan.over(stock, [Plan.series.table(ex.PrintStock, { key: "stock", title: "Paper stock", label: (s) => s.name })])],
-                links: [
-                    Plan.link({ key: "covers", from: Plan.eventRef("job", "J-2001"), to: Plan.eventRef("job", "J-2002"), quantity: Plan.quantity(12000.0, { unit: "covers" }) }),
-                    Plan.link({ key: "sleeves", from: Plan.eventRef("job", "J-2003"), to: Plan.eventRef("job", "J-2004") }),
-                ],
-            });
-        });
-        // An event's end names its kind and its key — the row it draws on is the canvas's to find.
-        const event = (key: string) => ({ row: variant("entry", { series: "job", path: [] as string[] }), run: key });
-        assert.ok(equalFor(ArrayType(Plan.Types.Link))(payload.plan.links, [
-            { key: "covers", from: event("J-2001"), to: event("J-2002"), quantity: some({ value: 12000, unit: some("covers"), format: none, text: none }) },
-            { key: "sleeves", from: event("J-2003"), to: event("J-2004"), quantity: none },
-        ]));
-        // The stock: a fixed block, a row per stock in the dataset's order, named by its series' key; none takes a gesture.
-        const blocks = payload.plan.rows.type === "inline" ? payload.plan.rows.value : [];
-        assert.deepEqual(blocks.map((b) => b.fixed), [true]);
-        assert.ok(rowIds(blocks[0]!.rows.map((r) => r.id), ["board", "coated", "uncoated"].map((k) => variant("entry", { series: "stock", path: [k] }))));
-        assert.ok(equalFor(ArrayType(Plan.Types.RowEdits))(blocks[0]!.rows.map((r) => r.edits), [NO_EDITS, NO_EDITS, NO_EDITS]));
-    });
-
-    test("`rows` follow `data`'s blocks as fixed blocks — a paged source serves them with every window, so they draw once (PB9)", () => {
-        const PAGE = East.function([IntegerType, IntegerType], OptionType(Rows), ($, offset, limit) => {
-            const all = $.const(ROWS, Rows);
-            const keys = $.let(all.toArray((_$, _v, k) => k));
-            const n = $.let(keys.size());
-            const start = $.let(offset.less(n).ifElse(() => offset, () => n));
-            const end = $.let(start.add(limit).less(n).ifElse(() => start.add(limit), () => n));
-            return some(all.getKeys(keys.slice(start, end).toSet()));
-        });
-        const TOTAL = East.function([], OptionType(IntegerType), ($) => {
-            const all = $.const(ROWS, Rows);
-            return some(all.size());
-        });
-        const build = (paged: boolean) => payloadOf(($) => {
-            const stock = $.let(Data.bind(ex.planLinkStock));
-            const rows = [
-                Plan.over(stock, [Plan.series.table(ex.PrintStock, { key: "stock", title: "Paper stock", label: (s) => s.name })]),
-                Plan.events({ key: "ms", label: "Milestones" }),
-            ];
-            const axis = Plan.axis({ window: WINDOW, resolution: "week" });
-            if (paged) {
-                const source = $.const({ id: "rows", page: PAGE, total: TOTAL, seek: none }, Paged.Types.Source(Rows));
-                return Plan.Payload({ axis, data: source, series: [MARKS], rows });
-            }
-            const data = $.const(ROWS, Rows);
-            return Plan.Payload({ axis, data, series: [MARKS], rows });
-        });
-        const ids = (blocks: readonly { rows: readonly { id: ValueTypeOf<typeof Plan.Types.RowId> }[] }[]) => blocks.map((b) => b.rows.map((r) => r.id));
-        const STOCK = ["board", "coated", "uncoated"].map((k) => variant("entry", { series: "stock", path: [k] }));
-        const MS = [variant("entry", { series: "", path: ["ms"] })];
-        // Inline: `data`'s block, then the two `rows`, fixed.
-        const inline = build(false);
-        const blocks = inline.plan.rows.type === "inline" ? inline.plan.rows.value : [];
-        assert.deepEqual(blocks.map((b) => b.fixed), [false, true, true]);
-        const [marks, stock, ms] = ids(blocks);
-        assert.ok(rowIds(marks!, [variant("entry", { series: "marks", path: ["a"] }), variant("entry", { series: "marks", path: ["b"] })]));
-        assert.ok(rowIds(stock!, STOCK) && rowIds(ms!, MS));
-        // Paged: each window holds its share of `data`'s block and the `rows` whole, which the canvas draws once.
-        const paged = build(true);
-        if (paged.plan.rows.type !== "paged") assert.fail(`expected a paged canvas, got its ${paged.plan.rows.type} arm`);
-        for (const [offset, key] of [[0n, "a"], [1n, "b"]] as const) {
-            const window = paged.plan.rows.value.page(offset, 1n);
-            if (window.type !== "some") assert.fail("expected the window");
-            assert.deepEqual(window.value.map((b) => b.fixed), [false, true, true]);
-            const [own, theStock, theMs] = ids(window.value);
-            assert.ok(rowIds(own!, [variant("entry", { series: "marks", path: [key] })]));
-            assert.ok(rowIds(theStock!, STOCK) && rowIds(theMs!, MS));
-        }
-    });
-
     test("every Plan's payload is one type, whatever its records hold — each kind's rows closed behind functions over bytes", () => {
         inBlock(($) => {
             const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
@@ -397,63 +125,6 @@ describe("the payload (PB8, PB11)", () => {
         assert.deepEqual([payload.resources.length, payload.events.length], [0, 0]);
     });
 
-    test("the drop veto goes by its East type: an event kind's on the payload, a drag's on the canvas", () => {
-        const payload = payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const veto = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), (_$2, candidate) =>
-                candidate.resource.hasTag("none").ifElse(() => East.value(some("Needs a press"), OptionType(StringType)), () => East.value(none, OptionType(StringType)))));
-            return Plan.Payload({
-                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
-                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
-                canDrop: veto,
-                applyMode: "auto",
-                date: new Date("2026-10-19T00:00:00Z"),
-            });
-        });
-        if (payload.canDrop.type !== "some") assert.fail("expected the event kinds' veto");
-        const unplaced = { kind: "job", from: variant("backlog", "J-1023"), start: FIRST, end: FIRST, resource: none };
-        assert.ok(equalFor(OptionType(StringType))(payload.canDrop.value(unplaced), some("Needs a press")));
-        assert.equal(payload.plan.canDrop.type, "none");
-        assert.equal(payload.settings.applyMode.type, "auto");
-        assert.ok(equalFor(OptionType(DateTimeType))(payload.settings.date, some(new Date("2026-10-19T00:00:00Z"))));
-        // A drag's veto is the canvas's own, over `data`'s rows.
-        const overData = payloadOf(($) => {
-            const drag = $.const(East.function([DragEventType], BooleanType, () => true));
-            return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data: $.const(ROWS, Rows), series: [MARKS], canDrop: drag });
-        });
-        assert.deepEqual([overData.canDrop.type, overData.plan.canDrop.type], ["none", "some"]);
-    });
-
-    test("`inspector` gives the Plan its inspector pane, and each kind's own inspector rides on its kind; left out, or `false`, no pane (#1197)", () => {
-        const withPane = (inspector: boolean | undefined) => payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
-            return Plan.Payload({
-                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
-                events: {
-                    job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
-                    stop: Schedule.events(stops, {
-                        name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" },
-                        inspector: East.function([ex.PrintStop, FunctionType([ex.PrintStop], NullType)], UIComponentType, (_$2, stop) => Text.Root(stop.title)),
-                    }),
-                },
-                ...(inspector === undefined ? {} : { inspector }),
-            });
-        });
-        const given = withPane(true);
-        assert.equal(given.inspector, true);
-        assert.deepEqual(given.events.map((k) => [k.key, k.inspector.type]), [["job", "none"], ["stop", "some"]]);
-        assert.equal(withPane(false).inspector, false);
-        assert.equal(withPane(undefined).inspector, false);
-        // A Plan of no event kinds has none.
-        const overRows = payloadOf(() => Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), rows: [Plan.events({ key: "ms", label: "Milestones" })] }));
-        assert.equal(overRows.inspector, false);
-    });
-
     test("the keys a Plan keeps its viewer's state under follow its `id`", () => {
         assert.deepEqual(planKeys(undefined), { frame: "plan.frame", series: "plan.series", library: "plan.library", surface: "plan.surface" });
         assert.deepEqual(planKeys("ops"), { frame: "plan.ops.frame", series: "plan.ops.series", library: "plan.library.ops", surface: "plan.ops.surface" });
@@ -469,7 +140,7 @@ describe("the Plan's refusals (PB8)", () => {
 
     test("a Plan with no rows from any source, naming the three — and a canvas's root with neither `data` nor rows", () => {
         assert.match(refusal(() => Plan.Payload({ axis })),
-            /^Plan: needs its rows — `data` and its `series`, event kinds \(`events` over `resources`\), or read-only `rows`$/);
+            /^Plan: needs its rows — `data` and its `series`, `slice`'s `rows` source, event kinds \(`events` over `resources`\), or read-only `rows`$/);
         assert.match(refusal(() => Plan.Root({ axis } as never)), /^Plan: `data` is required — a canvas is its data plus the series over it$/);
     });
 
@@ -489,41 +160,6 @@ describe("the Plan's refusals (PB8)", () => {
             const byNumber = $.const(new Map([[1n, { name: "Press 1", hall: "Hall A", sheets_per_hour: 1000.0 }]]), DictType(IntegerType, ex.PrintPress));
             return Plan.Payload({ axis, resources: { presses: Schedule.resources(byNumber, { name: "Presses", icon: "print", label: (p) => p.name }) }, events: { job: jobsOf($) } });
         }), /^Plan: events\.job's resource field holds String keys of resources\.presses, which is keyed by \.Integer — key the resources by String$/);
-    });
-
-    test("event kinds on a number or ordinal axis, naming the axis and the kinds; an axis held in a variable is refused in the same words as the Plan is evaluated", () => {
-        assert.match(refusal(($) => Plan.Payload({ axis: Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }), resources: { presses: pressesOf($) }, events: { job: jobsOf($) } })),
-            /^Plan: an event is scheduled in time, and this is a number axis — the event kinds \(job\) need a time axis: Plan\.axis\(\{ window, resolution \}\)$/);
-        assert.match(refusal(($) => Plan.Payload({ axis: Plan.axis.ordinal({ values: ["P1", "P2"] }), resources: { presses: pressesOf($) }, events: { job: jobsOf($) } })),
-            /^Plan: an event is scheduled in time, and this is an ordinal axis — the event kinds \(job\) need a time axis/);
-        // Held in a variable, the axis is not seen at build: the Plan builds…
-        assert.equal(refusal(($) => {
-            const held = $.let(Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }));
-            return Plan.Payload({ axis: held, resources: { presses: pressesOf($) }, events: { job: jobsOf($) } });
-        }), "");
-        // …and is refused as it is evaluated, in the words a build uses.
-        const held = (axis: () => ExprType<typeof Plan.Types.Axis>) => ($: BlockBuilder<typeof PlanPayloadType>) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const axisHeld = $.let(axis());
-            return Plan.Payload({
-                axis: axisHeld,
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
-                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
-            });
-        };
-        assert.throws(() => payloadOf(held(() => Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }))),
-            /Plan: an event is scheduled in time, and this is a number axis — the event kinds \(job\) need a time axis: Plan\.axis\(\{ window, resolution \}\)/);
-        assert.throws(() => payloadOf(held(() => Plan.axis.ordinal({ values: ["P1", "P2"] }))),
-            /Plan: an event is scheduled in time, and this is an ordinal axis — the event kinds \(job\) need a time axis: Plan\.axis\(\{ window, resolution \}\)/);
-        // A time axis held in a variable is a Plan's like any other.
-        assert.equal(payloadOf(held(() => Plan.axis({ window: WINDOW, resolution: "day" }))).plan.axis.type, "time");
-        // With no event kinds any axis goes: a number axis held in a variable is a Plan over its rows.
-        const overRows = payloadOf(($) => {
-            const axisHeld = $.let(Plan.axis.number({ window: { min: 1, max: 9 }, step: 1 }));
-            return Plan.Payload({ axis: axisHeld, rows: [Plan.heat({ key: "load", label: "Load", cells: Plan.heatCells([{ at: Plan.at.number(3), value: some(40.0), label: none }]) })] });
-        });
-        assert.equal(overRows.plan.axis.type, "number");
     });
 
     test("`series`, `pick` and `editing` with no `data` to read", () => {
@@ -554,6 +190,132 @@ describe("the Plan's refusals (PB8)", () => {
     });
 });
 
+describe("its narrowing (#1344): one Slice.bindRecords, each source named after what it narrows", () => {
+    const axis = Plan.axis({ window: WINDOW, resolution: "day" });
+    const jobIndex = () => Data.bindPaged(ex.planPrintJobs, { indexes: [ex.planPrintJobsByTime, ex.planPrintJobsByStockTime] });
+    const jobEntries = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planPrintJobs));
+    /** The jobs, narrowed through the slice's `job` source when `entries` is given. */
+    const narrowedJobs = ($: BlockBuilder<NullType>, more: globalThis.Record<string, unknown> = {}) => {
+        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        return Schedule.events(jobs, {
+            name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
+            entries: jobEntries($), ...more,
+        } as never);
+    };
+    const jobSlice = (key = "spec.jobs") => Slice.bindRecords(key, {
+        job: { source: jobIndex(), fields: { stock: { label: "Stock" }, start: { label: "Dates" } }, range: "start" },
+    });
+    const jobTemplates = ($: BlockBuilder<NullType>, source?: string) => Schedule.templates($.let(Data.bind(ex.planPrintJobTemplates)).read(), {
+        name: (t) => t.name, duration: (t) => variant("hours", t.hours), values: (t) => t.values, ...(source === undefined ? {} : { source }),
+    });
+    const templatesIndex = () => Data.bindPaged(ex.planPrintJobTemplates, { indexes: [ex.planPrintJobTemplatesByGroup] });
+
+    test("an event kind's source, a resource kind's, a templates list's and a tab's: the Plan takes each, and builds", () => {
+        assert.equal(refusal(($) => {
+            const customers = $.let(Data.bind(ex.planPrintCustomers));
+            const slice = Slice.bindRecords("spec.all", {
+                job: { source: jobIndex(), fields: { stock: { label: "Stock" }, start: { label: "Dates" } }, range: "start" },
+                presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: [ex.planPrintPressesByHall] }), fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } } },
+                jobTemplates: { source: templatesIndex() },
+                customers: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: [ex.planPrintCustomersByDistrict] }), fields: { district: { label: "District", hints: ["Old Town"] } } },
+            });
+            const payload = Plan.Payload({
+                axis, slice: { slice }, resources: { presses: pressesOf($) },
+                events: { job: narrowedJobs($, { templates: jobTemplates($, "jobTemplates") }) },
+                library: [Plan.library.events(), Plan.library.tab(customers.read(), { name: "Customers", label: (c) => c.name, source: "customers" })],
+            });
+            assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
+        }), "");
+    });
+
+    test("the `rows` source is the canvas's data, paged from it, laid out by `series`: `data` beside it is refused, naming the change", () => {
+        const Job = ex.PrintJob;
+        const series = [Plan.series.span(Job, { key: "jobs", title: "Jobs", label: (j) => j.title,
+            runs: (j, k) => [Plan.run({ key: k, start: j.start.unwrap("some"), end: j.end.unwrap("some"), label: j.title, state: "confirmed" })] })];
+        const rowsSlice = () => Slice.bindRecords("spec.rows", { rows: { source: jobIndex(), fields: { start: { label: "Dates" } }, range: "start" } });
+        assert.equal(refusal(() => {
+            const payload = Plan.Payload({ axis, slice: { slice: rowsSlice() }, series });
+            assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
+        }), "");
+        // With no window of its own an axis takes the slice's: a source's range holds it.
+        assert.equal(refusal(() => Plan.Payload({ axis: Plan.axis({ resolution: "day" }), slice: { slice: rowsSlice() }, series })), "");
+        assert.match(refusal(($) => Plan.Payload({ axis, slice: { slice: rowsSlice() }, series, data: $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch])) })),
+            /^Plan: `slice`'s `rows` source gives the canvas its rows, paged from it — leave `data` out: data=\{Slice\.rows\(slice\)\} is gone, and the Plan reads its rows from the slice: slice=\{\{ slice \}\}$/);
+    });
+
+    test("the bare handle, Slice.bind and a single Slice.bindRecord are refused, naming Slice.bindRecords and the Plan's sources", () => {
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) }, slice: $.let(jobSlice()) as never })),
+            /^Plan: `slice` takes \{ slice \} — slice=\{\{ slice: Slice\.bindRecords\(key, \{ rows, … \}\) \}\}: the bare handle is not taken$/);
+        const named = /^Plan: `slice` is Slice\.bindRecords\(key, \{ rows, job, presses \}\) — name each source after what it narrows; Slice\.bind and Slice\.bindRecord are not taken$/;
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) },
+            slice: { slice: Slice.bindRecord("spec.single", jobIndex()) as never } })), named);
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) },
+            slice: { slice: Slice.bind("spec.local", [{ day: FIRST }], { fields: { day: { label: "Day" } }, range: "day" }) as never } })), named);
+    });
+
+    test("a source nothing names is refused, naming the sources the Plan takes", () => {
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) },
+            slice: { slice: Slice.bindRecords("spec.stray", { jobs: { source: jobIndex(), fields: { start: { label: "Dates" } }, range: "start" } }) } })),
+            /^Plan: `slice` narrows its rows, its event kinds, its resource kinds, and the templates lists and tabs that name a source — its source 'jobs' is none of them; name the sources `rows`, `job` and `presses`$/);
+    });
+
+    test("an event kind's source over another record than the kind's is refused, naming the change", () => {
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) },
+            slice: { slice: Slice.bindRecords("spec.other", { job: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: [ex.planPrintCustomersByDistrict] }), fields: { district: { label: "District", hints: ["Old Town"] } } } }) } })),
+            /^Schedule\.events: "Print job": the builder's source "job" narrows another record — name it after this kind's slot over the kind's own record, Data\.bindPaged\(record, \{ indexes \}\), its rows joined$/);
+    });
+
+    test("a kind narrowed through its source needs its `entries`, and takes no `window` or `backlogWindow` beside it", () => {
+        assert.match(refusal(($) => {
+            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            return Plan.Payload({ axis, resources: { presses: pressesOf($) }, slice: { slice: jobSlice() },
+                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) } });
+        }), /^Schedule\.events: "Print job": the builder's source "job" reads only its narrowing — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it/);
+    });
+
+    test("a resource kind its source would narrow is read whole and keyed by String: a paged one is refused, naming the change", () => {
+        assert.match(refusal(($) => {
+            const presses = $.let(Data.bindPaged(ex.planPrintPresses));
+            return Plan.Payload({ axis, events: { job: jobsOf($) },
+                resources: { presses: Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name }) },
+                slice: { slice: Slice.bindRecords("spec.paged", { presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: [ex.planPrintPressesByHall] }), fields: { hall: { label: "Hall", hints: ["Hall A"] } } } }) } });
+        }), /^Plan: resources\.presses pages its resources \(Data\.bindPaged\), and the slice's source "presses" would narrow them — a paged resource kind is not narrowed: read its resources whole, a record's read\(\) \(Data\.bind\), or leave the source out$/);
+    });
+
+    test("templates are records: a list written in the code, or one naming no source of the slice, is refused with the change to make", () => {
+        const change = /^Plan: templates are records now — bind them in Slice\.bindRecords and name the source, Schedule\.templates\(rows, \{ …, source: "jobTemplates" \}\)/;
+        const coded = [{ key: "run", name: "Run", duration: variant("hours", 1.0), values: { title: "Run", state: variant("confirmed", null), sheets: 1.0, customer: "", stock: variant("coated", null), due: none } }];
+        // Written in the code, with no slice and with one.
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: jobsOf2($, { templates: coded }) } })), new RegExp(`${change.source} \\(it has no slice\\)$`));
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($, { templates: coded }) }, slice: { slice: jobSlice() } })),
+            new RegExp(`${change.source} \\(the slice's sources: job\\)$`));
+        // A record's list naming no source, one the slice lacks, or with no slice at all.
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($, { templates: jobTemplates($) }) }, slice: { slice: jobSlice() } })), change);
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($, { templates: jobTemplates($, "jobTemplates") }) }, slice: { slice: jobSlice() } })),
+            /\(the slice's sources: job — 'jobTemplates' is not one of them\)$/);
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: jobsOf2($, { templates: jobTemplates($, "jobTemplates") }) } })),
+            /\(it has no slice — 'jobTemplates' is not one of them\)$/);
+    });
+
+    test("a templates record's templates give each event's duration on a span kind, and none on an instant kind", () => {
+        assert.match(refusal(($) => jobsOf2($, { templates: Schedule.templates($.let(Data.bind(ex.planPrintJobTemplates)).read(), { name: (t) => t.name, values: (t) => t.values, source: "jobTemplates" }) })),
+            /^Schedule\.events: "Print job": its templates give each event's `duration` — Schedule\.templates\(rows, \{ …, duration: \(row\) => variant\("hours", …\) \}\), how long the event a template creates runs$/);
+        assert.match(refusal(($) => {
+            const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+            return Schedule.events(stops, { name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" },
+                templates: Schedule.templates($.let(Data.bind(ex.planPrintStopTemplates)).read(), { name: (t) => t.name, duration: () => variant("hours", 1.0), values: (t) => t.values, source: "stopTemplates" }) });
+        }), /^Schedule\.events: "Stop": an instant kind's events are one time, and its templates give a `duration` — leave it out of Schedule\.templates$/);
+    });
+
+    test("a tab naming a source the slice lacks is refused, naming the slice's sources", () => {
+        assert.match(refusal(($) => {
+            const customers = $.let(Data.bind(ex.planPrintCustomers));
+            return Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) }, slice: { slice: jobSlice() },
+                library: [Plan.library.tab(customers.read(), { name: "Customers", label: (c) => c.name, source: "customers" })] });
+        }), /^Plan: the Customers tab's source 'customers' is not one of the slice's sources \(job\)$/);
+    });
+});
+
 describe("the inspector's refusals (#1197)", () => {
     const axis = Plan.axis({ window: WINDOW, resolution: "day" });
 
@@ -577,62 +339,6 @@ describe("links between events (PB10)", () => {
             /^Plan: links\[0\] names the event kind "stop", and `events` has no kind of that name \(job\)$/);
         assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], links: [link()] })),
             /^Plan: links\[0\] names the event kind "stop", and `events` has no kind of that name \(none\)$/);
-    });
-
-    test("links whose kinds are not known at build — held in a variable, built in East, or ending at an event held in a variable — are refused in the same words as the Plan is evaluated", () => {
-        const Links = ArrayType(Plan.Types.Link);
-        const overJobs = (links: ($: BlockBuilder<typeof PlanPayloadType>) => ExprType<typeof Links>) => ($: BlockBuilder<typeof PlanPayloadType>) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-            const all = links($);
-            return Plan.Payload({
-                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
-                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
-                links: all,
-            });
-        };
-        const job = (key: string) => ({ row: variant("entry", { series: "job", path: [] as string[] }), run: key });
-        // A list held in a variable: its second link starts at a stop, and the first ends at one.
-        assert.throws(() => payloadOf(overJobs(($) => $.let([
-            Plan.link({ key: "a", from: Plan.eventRef("job", "J-1001"), to: Plan.eventRef("job", "J-1002") }),
-            Plan.link({ key: "b", from: Plan.eventRef("stop", "S-01"), to: Plan.eventRef("job", "J-1003") }),
-        ], Links))), /Plan: links\[1\] names the event kind "stop", and `events` has no kind of that name \(job\)/);
-        assert.throws(() => payloadOf(overJobs(($) => $.let([
-            Plan.link({ key: "a", from: Plan.eventRef("job", "J-1001"), to: Plan.eventRef("stop", "S-01") }),
-        ], Links))), /Plan: links\[0\] names the event kind "stop", and `events` has no kind of that name \(job\)/);
-        // Built in East, from data.
-        const KEYS = ["J-1001", "J-1002"];
-        assert.throws(() => payloadOf(overJobs(($) => {
-            const keys = $.const(KEYS, ArrayType(StringType));
-            return keys.map((_$2, k) => Plan.link({ key: k, from: Plan.eventRef("job", k), to: Plan.eventRef("shift", k) }));
-        })), /Plan: links\[0\] names the event kind "shift", and `events` has no kind of that name \(job\)/);
-        // A link Plan.link built, its event end held in a variable: that kind is not known at build either.
-        assert.equal(refusal(($) => {
-            const stop = $.let(Plan.eventRef("stop", "S-01"));
-            return Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) }, links: [Plan.link({ key: "a", from: Plan.eventRef("job", "J-1001"), to: stop })] });
-        }), "");
-        assert.throws(() => payloadOf(overJobs(($) => {
-            const stop = $.let(Plan.eventRef("stop", "S-01"));
-            return East.value([Plan.link({ key: "a", from: Plan.eventRef("job", "J-1001"), to: stop })], Links);
-        })), /Plan: links\[0\] names the event kind "stop", and `events` has no kind of that name \(job\)/);
-        // Links naming the Plan's own kinds pass, held or built in East, and reach the canvas as written.
-        const held = payloadOf(overJobs(($) => $.let([Plan.link({ key: "a", from: Plan.eventRef("job", "J-1001"), to: Plan.eventRef("job", "J-1002") })], Links)));
-        assert.ok(equalFor(Links)(held.plan.links, [{ key: "a", from: job("J-1001"), to: job("J-1002"), quantity: none }]));
-        const mapped = payloadOf(overJobs(($) => {
-            const keys = $.const(KEYS, ArrayType(StringType));
-            return keys.map((_$2, k) => Plan.link({ key: k, from: Plan.eventRef("job", k), to: Plan.eventRef("job", k) }));
-        }));
-        assert.ok(equalFor(Links)(mapped.plan.links, KEYS.map((k) => ({ key: k, from: job(k), to: job(k), quantity: none }))));
-        // A held list of links between rows names no event: it passes on a Plan with no event kinds.
-        const rows = payloadOf(($) => {
-            const data = $.const(ROWS, Rows);
-            const links = $.let([Plan.link({ key: "r", from: Plan.ref("marks", "a"), fromRun: "x", to: Plan.ref("marks", "b"), toRun: "y" })], Links);
-            return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data, series: [MARKS], links });
-        });
-        assert.ok(equalFor(Links)(rows.plan.links, [{
-            key: "r", from: { row: variant("entry", { series: "marks", path: ["a"] }), run: "x" }, to: { row: variant("entry", { series: "marks", path: ["b"] }), run: "y" }, quantity: none,
-        }]));
     });
 
     test("an event names its own run, and a row's id needs one", () => {

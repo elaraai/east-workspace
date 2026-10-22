@@ -3,78 +3,97 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Saved views share transitions, while local and indexed narrowing retain their own wire types. */
-import { equalFor, none } from "@elaraai/east";
+/**
+ * The saved views' narrowing (#1345): every source's narrowing of the sheet's
+ * one `Slice.bindRecords`, by the source's name — read off the rail, written
+ * back to it as a view opens, compared, cleared and described through East's
+ * own types.
+ *
+ * @packageDocumentation
+ */
+
+import { ArrayType, DictType, SortedMap, StringType, compareFor, equalFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
-import { RecordSliceStateType, Slice } from "@elaraai/east-ui/internal";
-import type { SheetRecordViewValue, SheetSavedView, SheetViewValue } from "./values.js";
+import { RecordSliceStateType, type RecordSlicesChromeType } from "@elaraai/east-ui/internal";
+import type { SheetNarrowing, SheetSavedView } from "./values.js";
 
-type Narrowing = SheetSavedView["narrowing"];
-const localEqual = equalFor(Slice.Types.State);
-const recordEqual = equalFor(RecordSliceStateType);
-const localViewEqual = equalFor(Sheet.Types.View);
-const recordViewEqual = equalFor(Sheet.Types.RecordView);
+/** One source's narrowing. */
+type SourceState = ValueTypeOf<typeof RecordSliceStateType>;
+/** The rail's chrome, as the root carries it. */
+type Chrome = ValueTypeOf<typeof RecordSlicesChromeType>;
 
-/** Record state has field choices; it is never projected into local Slice state. */
-export function isRecordNarrowing(state: Narrowing): state is SheetRecordViewValue["narrowing"] {
-    return "where" in state;
+const compareString = compareFor(StringType);
+const narrowingsEqual = equalFor(DictType(StringType, RecordSliceStateType));
+const viewsEqual = equalFor(ArrayType(Sheet.Types.RecordView));
+
+/** A source's narrowing with nothing chosen: its presentation (its resolution) kept. */
+function cleared(state: SourceState): SourceState {
+    return { ...state, where: new Map(), preset: none };
 }
 
-/** Compare using the appropriate East type, including typed filter literals. */
-export function narrowingEqual(a: Narrowing, b: Narrowing): boolean {
-    if (isRecordNarrowing(a)) return isRecordNarrowing(b) && recordEqual(a, b);
-    return !isRecordNarrowing(b) && localEqual(a, b);
+/**
+ * The rail's narrowing now: each source's state, by its name.
+ *
+ * @param chrome - The sheet's rail
+ * @returns Every source's narrowing
+ */
+export function narrowingOf(chrome: Chrome): SheetNarrowing {
+    return new SortedMap(chrome.slice.parts.map((part) => [part.source, part.slice.read()] as const), compareString);
+}
+
+/**
+ * Writes a narrowing back to the rail, source by source: a source the
+ * narrowing does not hold opens with nothing chosen, as a preset clears a
+ * source it does not name.
+ *
+ * @param chrome - The sheet's rail
+ * @param narrowing - The narrowing to write — a view's, or the whole sheet's
+ */
+export function writeNarrowing(chrome: Chrome, narrowing: SheetNarrowing): void {
+    for (const part of chrome.slice.parts) {
+        part.slice.write(narrowing.get(part.source) ?? cleared(part.slice.read()));
+    }
+}
+
+/** Whether two narrowings hold the same choices, through East's equality, by source. */
+export function narrowingEqual(a: SheetNarrowing, b: SheetNarrowing): boolean {
+    return narrowingsEqual(a, b);
 }
 
 /** Value equality keeps optimistic tab changes when the host decodes a fresh payload. */
 export function sheetViewsEqual(a: readonly SheetSavedView[], b: readonly SheetSavedView[]): boolean {
-    return a.length === b.length && a.every((v, i) => {
-        const other = b[i]!;
-        if (isRecordNarrowing(v.narrowing)) return isRecordNarrowing(other.narrowing)
-            && recordViewEqual({ ...v, narrowing: v.narrowing }, { ...other, narrowing: other.narrowing });
-        return !isRecordNarrowing(other.narrowing)
-            && localViewEqual({ ...v, narrowing: v.narrowing }, { ...other, narrowing: other.narrowing });
-    });
+    return viewsEqual([...a], [...b]);
 }
 
-/** The All tab clears narrowing but retains presentation resolution. */
-export function clearNarrowing(state: Narrowing): Narrowing {
-    return isRecordNarrowing(state) ? { ...state, where: new Map(), preset: none }
-        : { ...state, range: none, filters: [], activeCohorts: new Set<string>(), search: none };
+/** The All tab clears every source's choices but keeps their presentation. */
+export function clearNarrowing(state: SheetNarrowing): SheetNarrowing {
+    return new SortedMap([...state].map(([source, s]) => [source, cleared(s)] as const), compareString);
 }
 
-/** Search text for a new tab's default name. Exact typed choices are not search text. */
-export function narrowingQuery(state: Narrowing): string {
-    if (!isRecordNarrowing(state)) return state.search.type === "some" ? state.search.value : "";
-    return [...state.where.values()].filter(choice => choice.type === "prefix").map(choice => choice.value).join(" ");
+/** Search text for a new tab's default name: each source's prefix searches. Exact typed choices are not search text. */
+export function narrowingQuery(state: SheetNarrowing): string {
+    return [...state.values()].flatMap((s) => [...s.where.values()].filter((choice) => choice.type === "prefix").map((choice) => choice.value)).join(" ");
 }
 
-/** Escape clears searches without changing other selected fields or presentation. */
-export function clearSearch(state: Narrowing): Narrowing {
-    return isRecordNarrowing(state)
-        ? { ...state, where: new Map([...state.where].filter(([, choice]) => choice.type !== "prefix")), preset: none }
-        : { ...state, search: none };
+/** Escape clears every search, each source keeping its other choices and its presentation. */
+export function clearSearch(state: SheetNarrowing): SheetNarrowing {
+    return new SortedMap([...state].map(([source, s]) => [source, s.where.size === 0 ? s
+        : { ...s, where: new Map([...s.where].filter(([, choice]) => choice.type !== "prefix")), preset: none }] as const), compareString);
 }
 
 /** A view's scope as the existing tab description names it. */
-export function narrowingScope(state: Narrowing): "query" | "range" | "filter" | "none" {
+export function narrowingScope(state: SheetNarrowing): "query" | "range" | "filter" | "none" {
     if (narrowingQuery(state).trim() !== "") return "query";
-    if (isRecordNarrowing(state)) return [...state.where.values()].some(choice => choice.type === "range") ? "range" : state.where.size > 0 ? "filter" : "none";
-    return state.range.type === "some" ? "range" : state.filters.length > 0 || state.activeCohorts.size > 0 ? "filter" : "none";
+    const choices = [...state.values()].flatMap((s) => [...s.where.values()]);
+    return choices.some((choice) => choice.type === "range") ? "range" : choices.length > 0 ? "filter" : "none";
 }
 
-/** Write a saved view list through its correctly typed binding. */
-export function writeSheetViews(views: readonly SheetSavedView[], local: ((views: SheetViewValue[]) => unknown) | undefined,
-    record: ((views: SheetRecordViewValue[]) => unknown) | undefined): void {
-    if (record !== undefined) {
-        record(views.map(view => {
-            if (!isRecordNarrowing(view.narrowing)) throw new Error("A record Sheet cannot save local narrowing");
-            return { ...view, narrowing: view.narrowing };
-        }));
-    } else if (local !== undefined) {
-        local(views.map(view => {
-            if (isRecordNarrowing(view.narrowing)) throw new Error("A local Sheet cannot save record narrowing");
-            return { ...view, narrowing: view.narrowing };
-        }));
-    }
+/**
+ * Writes the saved views back to the host's bind handle.
+ *
+ * @param views - The views, as the sheet holds them now
+ * @param write - The views' write-back, if the host keeps them
+ */
+export function writeSheetViews(views: readonly SheetSavedView[], write: ((views: SheetSavedView[]) => unknown) | undefined): void {
+    write?.([...views]);
 }

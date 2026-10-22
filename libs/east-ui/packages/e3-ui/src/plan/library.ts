@@ -360,6 +360,8 @@ export interface PlanLibraryContext {
     readonly rows: readonly unknown[] | undefined;
     /** Whether `data`'s series are picked (`pick`), so the Series tab lists them too. */
     readonly picked: boolean;
+    /** The Plan's `Slice.bindRecords` sources, which an author's tab's `source` must be one of; none, a tab may name none (#1343, #1344). */
+    readonly sources?: readonly string[] | undefined;
 }
 
 /** How a tab names itself in a refusal. */
@@ -502,7 +504,7 @@ export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: P
             case "series":
                 return seriesTab(ctx);
             case "tab":
-                return East.value(variant("tab", buildScheduleTab(tab, ctx.events, "Plan")), PlanLibraryTabType);
+                return East.value(variant("tab", buildScheduleTab(tab, ctx.events, "Plan", ctx.sources ?? [])), PlanLibraryTabType);
         }
     });
     return East.value(wires, ArrayType(PlanLibraryTabType));

@@ -144,6 +144,33 @@ Each wire changed under this rule, with the kind it is.
   outputs against the type the package declares, as `UITaskPreview` does,
   still reads them, and one holding `App`, `Pages` or `Route` fails as it
   renders: the `nav_*` platform functions they call are gone.
+- **e3-types' `RecordPlanType` gains `unassigned` and `unassign`, and the run
+  summaries `waiting` (#1363)** — stored state, while a deploy runs. A record
+  plan is a deploy's answer for a record declared with no initial value:
+  `unassigned` for one the workspace does not hold, which the deploy leaves
+  unassigned for its first state to be committed, and `unassign` for one the
+  `reset` policy sends back to unassigned, having no initial value to reset it
+  to. A deploy also reports its plans through the lock it holds, for a watcher
+  to read (`LockProgressType`'s `deployment`: a `DeployProgressType` whose
+  records are `RecordDeployStateType`, each naming its plan), and a server's
+  deploy job carries them in its status (`WorkspaceDeployStatusType`), so a
+  lock store keeps a plan for as long as a deploy runs. Both cases are named
+  to sort after every case before them, so their tags are the last: a plan an
+  earlier release wrote reads as itself, since a header whose variant holds
+  the first cases of the asked type's reads as it, and no upgrade step is
+  shipped; an earlier release refuses one this release wrote, naming both
+  types, as it refuses any form it does not read. A package may now carry a
+  record whose ref is `unassigned` — package-borne, with no type changed: a
+  release before this one deploys such a package with the record declared and
+  never minted, so a package declaring a record with no initial value is
+  deployed by this release or later. A run leaves a task whose input is
+  unassigned waiting, and its dependents with it, rather than fail: a task
+  status, `waiting`, which the execution state holds as a string, so its form
+  does not change, and no event, since a run's events are stored. The run
+  summaries gain `waiting` — e3-types' `ExecutionStateSummaryType`, which a
+  store derives from the task statuses, and the API's
+  `DataflowExecutionSummaryType` and `DataflowResultType` — which no store
+  keeps in those types' forms, so no upgrade step is shipped.
 - **e3-types' `ApiExecutionStatusType` gains `stopping` (#1286)** — neither
   package-borne nor stored: the dataflow poll's answer, for a run asked to stop
   that has not yet stopped. The case is named to sort after every case before
@@ -154,3 +181,141 @@ Each wire changed under this rule, with the kind it is.
   read. The run summary a state store answers (`ExecutionStateSummaryType`)
   gains `cancelRequested`, which no store keeps in that type's form, so no
   upgrade step is shipped.
+- **e3-ui's `Roster` narrows through `Slice.bindRecords` alone (#1340,
+  #1342)** — package-borne. The `Roster` extension's payload loses
+  `visiblePeople`, `visibleSource`, `recordSlice` and `duties`. Its `slice` is
+  the chrome of a Slice over several records, each source's keys in a new
+  `narrowed`, and its new `activities` lists every activity; an app's library
+  tab (`RosterAuthorTabType`) gains the `source` it follows. `Roster.Types.Group`
+  loses `skills`, `Roster.Types.Skill` gains `group`, and `Roster.Types.Context`
+  trades `duties` for `activities`. A UI value encoded under either type does
+  not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output is
+  not stored state, so no repository upgrade step ships with it. An
+  application's own record that holds `Roster.Types.Group` or
+  `Roster.Types.Skill` values — a configuration's groups, or its duties —
+  changes type with it; moving its skills and duties into an activities record
+  is that record's own migration, as with any record whose type an application
+  changes.
+- **e3-ui's `Calendar` narrows through `Slice.bindRecords` alone (#1340,
+  #1343)** — package-borne. The `Calendar` extension's payload loses its local
+  `slice` and its `recordSlice`: its `slice` is the chrome of a Slice over
+  several records — a source per event kind, resource kind and templates record
+  it narrows — and each source's keys are in a new `narrowed`. The Schedule
+  kinds it carries (`ScheduleKindType`, and with it the Plan's
+  `PlanEventKindType`) gain `templatesSource`, the source a templates list
+  names, and their backlog reads (`unscheduled`, `planUnscheduled`) take the
+  window the canvas reads, `(from, to, drafts)`; an app's library tab
+  (`ScheduleAuthorTabType`) gains the `source` it follows. A UI value encoded
+  under either type does not decode under the other: packages are re-exported,
+  and the dataflow computes each UI task's output again under the new type. A
+  UI task's output is not stored state, so no repository upgrade step ships
+  with it. A Calendar's templates written in the code become a templates record
+  of the application's own, as with any record an application declares.
+- **e3-ui's `Plan` narrows through `Slice.bindRecords` alone, its templates
+  records (#1340, #1344)** — package-borne. The `Plan` extension's payload
+  gains `narrowed`, each source's keys by its name; its canvas's `slice`
+  (`PlanRootType`) becomes the chrome of a Slice over several records, and the
+  canvas loses `recordSlice`. The resources' rows seam (`PlanEventBlocksType`)
+  takes the resources the rail shows, by resource kind, after the ids the
+  viewer hides. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it. A Plan's templates written in the
+  code become a templates record of the application's own, as with any record
+  an application declares.
+- **e3-ui's `Sheet` narrows through `Slice.bindRecords` alone, its
+  templates records (#1340, #1345)** — package-borne. The `Sheet` extension's
+  payload gains `narrowed`, each source's keys by its name; its root's `slice`
+  becomes the chrome of a Slice over several records, and it loses
+  `recordSlice`, `recordViews` and `onRecordViewsChange`. `Sheet.Types.View`
+  goes: `views` holds `Sheet.Types.RecordView`, whose `narrowing` is every
+  source's state by the source's name. A template on the wire
+  (`SheetTemplateWireType`) gains the `source` its list follows, and an app's
+  library tab (`SheetLibraryTabType`'s `tab`) gains the `source` it follows. A
+  UI value encoded under either type does not decode under the other: packages
+  are re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, so no repository
+  upgrade step ships with it. An application's own record of saved views
+  (`Array<Sheet.Types.View>` in a dataset a `Data.bind` shares) changes type
+  with it; rewriting those views as `Sheet.Types.RecordView` is that record's
+  own migration, as with any record whose type an application changes.
+- **e3-ui's `Flowchart` narrows through `Slice.bindRecords` alone, its
+  templates records (#1340, #1346)** — package-borne. The `Flowchart`
+  extension's payload gains `slice`, the chrome of a Slice over several
+  records — the `flows` source a record's Flows tab pages, and a source per
+  templates list or tab that names one — and `narrowed`, each source's keys by
+  its name; its `canvas` loses the local `slice` the host's tables were
+  narrowed by. The paged arm of its `source` loses `chrome`, the one record's
+  rail, and gains `search`, a page of the narrowing the Flows tab's own search
+  finds. A library tab on the wire (`FlowchartLibraryTabType`) gains the
+  `source` it follows: a templates list's, always; an app's tab's, when it
+  names one. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it. A Flowchart's templates written in
+  the code, or held in an input, become a templates record of the
+  application's own, keyed by each template's key, as with any record an
+  application declares.
+- **east-ui's `RowSourceType` gains `live`, and a record Slice's narrowed
+  `data` names its narrowing (#1340, #1354)** — package-borne. A rail's
+  narrowed source — a record Slice handle's `data`, `Slice.rows(slice,
+  source)` — is one source per binding whatever the narrowing: its reads read
+  the narrowing when they run, its `id` names the source alone, and it gains
+  `query`, the narrowing it serves, printed (`Paged.Types.LiveSource`). A
+  builder over it is not built again when a choice changes. `RowSourceType`
+  gains the `live` arm that carries it; `live` sorts after `inline`, so `paged`
+  and `pinned` move down one, and a UI value encoded under either type does not
+  decode under the other. The record Slice's operations lose
+  `slice_record_page`, `slice_record_seek` and `slice_record_data_count`, which
+  took the narrowing as an argument, for `slice_record_data_page`,
+  `slice_record_data_seek` and `slice_record_data_query`, which read it.
+  Packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it.
+- **e3-ui's `Roster` asks the app's fit (#1319, #1334)** — package-borne. The
+  `Roster` extension's payload gains `fit`, after `check`: the binding of the
+  app's `e3.function` a Find fix asks who fits (`Option<FuncBinding>`), none
+  when the Roster offers no Find. A fix's `find` names its need as
+  `Roster.Types.Need`, which holds the same cases as before, so a fix encodes
+  as it did. A UI value encoded under either payload type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. A UI task's output is not stored
+  state, so no repository upgrade step ships with it.
+- **e3-ui's `Roster` takes the app's own records through Schedule's kinds
+  (#1365, #1368, #1369)** — package-borne. The `Roster` extension's payload
+  trades `sourceId`, and the `read`, `apply` and `window` over
+  `Roster.Types.Weeks`, for its duty kind (`duty`, Schedule's Roster kind over
+  the app's duty rows), its periods (`periods`, what `Schedule.periods`
+  builds) and its targets (`targets`), each closed over beast2 bytes as
+  Schedule's kinds are, so the payload is one type whatever the app's rows
+  hold. It trades `forecast` for `targets`, `costs` for `pay` and `currency`,
+  and its `inspector`'s forms for a Boolean: a duty's own form is its kind's
+  `inspector`, a target's `Roster.targets`'. Its `check` takes its request as
+  bytes, and an app's library tab is Schedule's (`ScheduleAuthorTabType`).
+  `Roster.Types.Weeks` and `Roster.Types.Costs` are removed. The types over a
+  week become constructors of the app's duty row type — `Assignment(R)`,
+  `Week(R)`, `CheckContext(R)`, `FitRequest(R)` and the new `PayRequest(R)` —
+  each assignment carrying the duty's own row and losing `offset`, `overtime`
+  and `agreed`. `Status` is Schedule's period status, `Rules` loses `agree`,
+  `Context` loses `costs`, `Coverage`'s hours lose `overtime`, `Issue`'s kind
+  loses `agree`, `Fix` loses `agree` and its `start` names the later start's
+  time rather than its hours, and `Proposal` names its `day`, `group` and
+  `shift` in place of its week and slot. A UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, so no repository upgrade step ships with it. An
+  application's weeks record (`Roster.Types.Weeks`, #1174) and its forecast
+  and proposals records hold types that are removed or changed; moving them
+  into the application's own records — its duties, the weeks of its rota and
+  its targets — is those records' own migration, as with any record whose type
+  an application changes.
+- **Schedule's kinds take the Roster's and the Allocation's roles (#1365,
+  #1367)** — package-borne. `Schedule.events` takes the builders' roles, and a
+  kind builds two closed forms beside the Calendar's and Plan's —
+  `ScheduleRosterKindType` and `ScheduleAllocationKindType` — which the
+  Roster's and the Allocation's payloads carry, beside the closed periods of
+  the new `Schedule.periods` (`SchedulePeriodsKindType`). The Calendar's and
+  Plan's kinds on the wire (`ScheduleKindType`, `PlanEventKindType`) are
+  unchanged. The Allocation's extension, which takes them too, is new in this
+  release: no earlier release wrote it, so no form of it moves.

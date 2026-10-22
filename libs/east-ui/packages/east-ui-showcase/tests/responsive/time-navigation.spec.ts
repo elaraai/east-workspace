@@ -93,7 +93,8 @@ for (const theme of ['light', 'dark'] as const) {
         const nav = frame.locator('[data-time-navigation=plan]');
         await nav.locator('[data-time-trigger]').click();
         await page.getByRole('dialog').getByRole('radio', { name: 'Range', exact: true }).click();
-        await expect(page.getByRole('dialog').getByRole('group', { name: 'Time range from' })).toBeVisible();
+        // The Range panel is the leading source's range editor — the jobs' start (#1344); the shifts follow it.
+        await expect(page.getByRole('dialog').locator('[data-record-slice-editor="start"][data-record-slice-source="job"]')).toBeVisible();
         await page.getByRole('dialog').getByRole('button', { name: '7d', exact: true }).click();
         await expect(nav).toHaveAttribute('data-time-anchor', String(Date.UTC(2026, 9, 13)));
         await page.keyboard.press('Escape');

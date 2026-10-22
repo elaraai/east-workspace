@@ -520,6 +520,7 @@ export {
   ExecutionStateSummaryType,
   type ExecutionStateSummary,
   executionStateSummary,
+  waitingTaskCount,
   lastEventSeq,
   // Dataflow run history
   DataflowRunStatusType,

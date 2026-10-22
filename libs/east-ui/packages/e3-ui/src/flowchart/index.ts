@@ -19,8 +19,11 @@
  * - `patch.ts` — `Flowchart.patch`, a patch over one of a flow's rows.
  * - `library.ts` — `Flowchart.library`, the library pane's tabs — the Flows
  *   tab, the state and transition templates and the author's tabs, each
- *   reading its own rows — and their wire.
+ *   reading its own rows and following the source of the slice it names —
+ *   and their wire.
  * - `canvas.ts` — the canvas: what the flowchart draws its flow with.
+ * - `window.ts` — the `flows` source of its slice: the Flows tab's pages, a
+ *   flow read by its name, and the tab's own search (#1346).
  * - `payload.ts` — the payload, its carrier, the shared keys, the props and
  *   their refusals.
  * - `flowchart.ts` — the tag.
@@ -72,7 +75,6 @@ export {
     FlowchartCanvasType,
     buildCanvas,
     type FlowchartCanvasOptions,
-    type FlowchartSliceOptions,
     type FlowchartFreshnessInput,
     type FlowchartOrientationLiteral,
 } from "./canvas.js";
@@ -97,6 +99,7 @@ export {
     FlowchartLibraryTabType,
     FlowchartStateCardType,
     FlowchartTransitionCardType,
+    buildLibrary as buildFlowchartLibrary,
     libraryFlows,
     libraryStates,
     libraryTab,
@@ -111,6 +114,7 @@ export {
     type FlowchartStatesConfig,
     type FlowchartStatesTab,
     type FlowchartTabConfig,
+    type FlowchartTemplateRows,
     type FlowchartTransitionsConfig,
     type FlowchartTransitionsTab,
 } from "./library.js";
@@ -225,12 +229,12 @@ const MEMBERS = {
  *
  * @remarks
  * - **Its frame**: it renders in its builder frame wherever it is used — one
- *   toolbar (find state, LR · TD, the freshness chip and, over `data`, the
- *   slice's rail; over a record, the history item), the canvas filling main
- *   and scrolling both ways inside it, and the footer's counts; a library pane
- *   when `library` lists tabs, and the inspector pane unless
- *   `inspector={false}`. It fills the box it is given and draws no border:
- *   give it a box of its own height.
+ *   toolbar (find state, LR · TD, the freshness chip, the slice's rail and,
+ *   where it edits, the history item), the canvas filling main and scrolling
+ *   both ways inside it, and the footer's counts; a library pane when
+ *   `library` lists tabs, and the inspector pane unless `inspector={false}`.
+ *   It fills the box it is given and draws no border: give it a box of its
+ *   own height.
  * - **Its inspector** (#1250, on by default, ruled by the user on
  *   2026-10-08): the end pane, Details and Issues — Issues with its count, and
  *   collapsed a rail with its icon and the issue count. Details shows what is
@@ -268,10 +272,14 @@ const MEMBERS = {
  *   (`Flowchart.library.states(rows, …)`) and transition templates
  *   (`Flowchart.library.transitions(rows, …)`), each card a drag source; and
  *   the author's own cards (`Flowchart.library.tab(rows, …)`), a drag source
- *   when the tab declares a `drop`. Each data tab reads its own rows — an
- *   input's or a record's, an Array or a `Dict<String, T>` — apart from the
- *   flows and from the other tabs. A click selects a card, and a click on the
- *   selected card lets it go; an empty tab says so in the shared empty state.
+ *   when the tab declares a `drop`. Each data tab reads its own rows apart
+ *   from the flows and from the other tabs. Templates are records (#1340,
+ *   ruling 9): each list's rows are its record's (`Data.bind(record).read()`,
+ *   a `Dict<String, T>`), and it names its `source` of the slice. An author's
+ *   tab reads an Array or a `Dict<String, T>`, and naming a `source` follows
+ *   it. A click selects a card, and a click on the selected card lets it go;
+ *   an empty tab says so in the shared empty state, and one the rail leaves
+ *   none says so, with a Clear.
  * - **Its drops** (#1249): a card carried onto the canvas lands where its tab
  *   says — a state template on a lane, adding a state at the row under the
  *   pointer, its key the drop's, made unique or minted; a transition template
@@ -301,8 +309,17 @@ const MEMBERS = {
  *   is a record of one entry. Or they are the host's (`data`): flows by name
  *   or one flow — a value, an expression or a bind handle — the value's type
  *   picking the arm, one prop taking either; `Flowchart.over` builds one flow
- *   from the host's own tables through their row mappers, and `slice`
- *   narrows what it builds.
+ *   from the host's own tables through their row mappers. The host's flows
+ *   are never narrowed: a task narrows the rows it builds them from.
+ * - **Its narrowing** (#1346) is one `Slice.bindRecords`, `slice={{ slice:
+ *   Slice.bindRecords(key, { flows, … }) }}`, its rail on the toolbar. Over a
+ *   record, its `flows` source — `Data.bindPaged(record, { indexes })` over
+ *   the same record, its `fields` the indexes' — narrows the Flows tab, which
+ *   pages it a window at a time with its count, the tab's own search finding
+ *   within the narrowing by the source's `search` fields; the open flow is
+ *   read by its name whatever the narrowing, and keeps its drafts. Each other
+ *   source narrows the templates list or the author's tab that names it, by
+ *   its cards' keys.
  * - **A dataset's value** is written as literals with `Flowchart.values`
  *   (flows by name) or `Flowchart.value` (one flow), checked when the package
  *   builds.
@@ -310,11 +327,16 @@ const MEMBERS = {
  *   `onSelectTrigger`) and a traced path (`onTracePath`), and vetoes a
  *   connection with `canConnect`.
  * - **Refused when the surface is built**, each naming the prop and the
- *   remedy: flows from both `record` and `data`, or neither; `onApply`,
- *   `slice` or `affordances` over a record; `flow` over one flow; a record of
- *   one flow, or of another type, or not bound with its patch mutation;
- *   `"brush"` among the affordances; `height` or `maxHeight`, which the box
- *   it fills sets; `density`, which nothing drew by — the canvas draws at one
+ *   remedy: flows from both `record` and `data`, or neither; `onApply` over a
+ *   record; `window`, which the slice's `flows` source replaced; a `slice`
+ *   that is not `{ slice }` — the bare handle a flow from the host's tables
+ *   was narrowed by — or not `Slice.bindRecords` (`Slice.bind`,
+ *   `Slice.bindRecord`), or holding a source nothing names; a `flows` source
+ *   over `data`; `affordances` outside `slice`; a templates list written in
+ *   the code, naming no source, or naming `flows`, and the two lists naming
+ *   one source; `flow` over one flow; a record of one flow, or of another
+ *   type, or not bound with its patch mutation; `"brush"` among the
+ *   affordances; `height` or `maxHeight`, which the box it fills sets; `density`, which nothing drew by — the canvas draws at one
  *   rhythm, the spec's 116×40 cards in their lanes (#1251); a callback for an
  *   edit (`onAddState`, `onCreateLink`, …)
  *   or `linkMode`, which the session's gestures replace; a hover card's
@@ -324,7 +346,9 @@ const MEMBERS = {
  *   another type than `(Row, (Row) => Null) => UIComponentType`; a library
  *   that lists a tab twice — the Flows tab or a template tab, or two of the
  *   author's tabs of one name — or the Flows tab over one flow; a data tab
- *   whose rows are neither an Array nor a `Dict<String, T>`; a `states` drop
+ *   whose rows are neither an Array nor a `Dict<String, T>`, or a templates
+ *   list's or a sourced tab's that are no `Dict<String, T>`; a tab's source
+ *   the slice lacks; a `states` drop
  *   over another type than a state's patch, a `transitions` drop over another
  *   than a transition's, and a `tab` drop over none of a flow's row types.
  *

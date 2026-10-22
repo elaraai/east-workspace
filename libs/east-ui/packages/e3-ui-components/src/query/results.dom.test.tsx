@@ -5,9 +5,9 @@
  * @vitest-environment jsdom
  *
  * Runs and results (#938, `Query Editor Spec.md` §4.11, §7 R1–R8), through
- * `<Query.Builder>`'s carrier over a saved queries record in memory, each
- * call answered here as e3 answers it — its body run over the fixture's
- * datasets, pinned at their hashes:
+ * `<Query.Builder>`'s carrier over the saved queries record on e3 (#1376),
+ * each run e3's one-shot call over the query examples' orders and customers,
+ * pinned at their hashes:
  *
  * - **R1**: a run is one one-shot call over the root, the counting program in
  *   the visual view and the jq in the jq view; a new run abandons the old;
@@ -17,24 +17,34 @@
  *   and 10 for the default query.
  * - **R3**: an edit makes the result stale — the banner, the dashed body, the
  *   shape lines plain again.
- * - **R4**: each way a run gives no result, worded.
+ * - **R4**: each way a run gives no result, worded — e3's own where a test can
+ *   make it, and the words of an answer e3 gives past a test's time (a run
+ *   stopped at its time limit) from the answer itself.
  * - **R5**: the footer — the count, the fields, the run, what it read.
- * - **R6**: downloads — the CSV's text and name, the BEAST2's bytes; the note
- *   after one closed by Font Awesome's xmark, named Close (#1263).
+ * - **R6**: downloads — the CSV's text and name, the BEAST2's typed value; the
+ *   note after one closed by Font Awesome's xmark, named Close (#1263).
  * - **R7**: the Table and the Value tree through the production renderers,
  *   picked by the result and overridden by the toolbar until the next run.
  */
 
-import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { ArrayType, IntegerType, StructType, decodeBeast2, decodeEastIR, equalFor, evaluateJq, fromEastTypeValue, isTypeEqual, variant } from "@elaraai/east";
-import { ApiError } from "@elaraai/e3-api-client";
-import type { ExecuteResult } from "@elaraai/e3-types";
-import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
-import type { QueryCall } from "./hooks.js";
+import { describe, test, expect, beforeEach, vi } from "vitest";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import {
-    act, FIXTURE_VALUE, FixtureType, fixtureCall, mountBuilder, offlineCall, openQuery, press, recordHarness, savedQuery, savedRecord, settle,
-} from "./query.test-utils.js";
+    ArrayType, IntegerType, StructType, checkJq, decodeBeast2, decodeEastIR, equalFor, evaluateJq, fromEastTypeValue, isTypeEqual, none, variant,
+} from "@elaraai/east";
+import type { ExecuteResult } from "@elaraai/e3-types";
+import * as ex from "@elaraai/e3-ui/examples/query/query";
+import { formatters } from "@elaraai/east-ui-components";
+import { foreignIcons, markOf } from "@elaraai/east-ui-components/testing";
+import type { E3Dataset } from "../e3-web.test-utils.js";
+import { FIXTURE_VALUE, FixtureType, ROOT, savedQuery } from "./fixture.test-utils.js";
+import { queryWords } from "./model/words.js";
+import { prepareQuery, queryResultOf } from "./one-shot.js";
+import { act, isRun, openQuery, press, queryHarness, settle } from "./query.test-utils.js";
+import { runFailure } from "./results.js";
+import { planRun } from "./run.js";
+import { QUERY_HEADER_ID } from "./session.js";
+import { parseSteps } from "./steps/parse.js";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_PROGRAM = [
@@ -50,13 +60,18 @@ const TOP = savedQuery("Top shipped orders, 2026", DEFAULT_PROGRAM);
 const BIG = savedQuery("Big orders", ".orders\n| map(select(.total >= 1000))");
 const COUNT = savedQuery("Order count", ".orders | length");
 
-beforeEach(() => {
-    recordHarness(savedRecord([TOP, BIG, COUNT]));
+const h = queryHarness();
+
+beforeEach(async () => {
+    await h.seed([TOP, BIG, COUNT]);
 });
-afterEach(() => {
-    cleanup();
-    localStorage.clear();
-});
+
+/** The first characters of a dataset's hash on e3, as the footer names it. */
+async function hashOf(dataset: E3Dataset): Promise<string> {
+    const status = await h.statusOf(dataset);
+    if (status.hash.type !== "some") throw new Error(`${status.path} holds no value`);
+    return status.hash.value.slice(0, 8);
+}
 
 // ─── What the results show ───────────────────────────────────────────────────
 
@@ -120,46 +135,50 @@ async function pick(value: string) {
 
 describe("<Query.Builder> — runs (#938 R1)", () => {
     test("nothing runs at the start or on an edit; opening a saved query runs it, naming what it reads while it goes", async () => {
-        const fixture = fixtureCall({ hold: true });
-        await mountBuilder(fixture.call);
-        expect([fixture.requests.length, results().querySelector("[data-query-results-idle]") !== null, footer().count]).toEqual([0, true, "No result yet"]);
+        // Each run's call is held on its way to e3, so the run is seen while it goes.
+        const runs = h.e3.hold(isRun);
+        await h.mountBuilder();
+        expect([h.oneShots().length, results().querySelector("[data-query-results-idle]") !== null, footer().count]).toEqual([0, true, "No result yet"]);
         // The idle state's mark is Font Awesome's play — Run is the way to a result — never a written ⏎ (#1263).
         const idle = results().querySelector<HTMLElement>("[data-query-results-idle]")!;
         expect(markOf(within(idle).getByRole("heading").parentElement!.previousElementSibling)).toBe("fas play");
         await openQuery(variant("saved", TOP.name));
-        expect(fixture.requests).toHaveLength(1);
+        expect(h.oneShots()).toHaveLength(1);
         expect(results().querySelector("[data-query-results-running]")!.textContent).toBe("Reading customers and orders");
         expect([footer().count, document.querySelector("[data-query-run]")!.textContent]).toEqual(["Running…", "Running"]);
-        await fixture.release();
+        await act(async () => { runs.release(); });
+        await settle();
         expect(shownAs()).toBe("table");
         // The run that answered is this viewer's most recent query, by its name.
         await waitFor(() => expect(localStorage.getItem("query.builder.recent") ?? "").toContain("Top shipped orders, 2026"));
         await press("Keep the first", document.querySelector<HTMLElement>("[data-query-foot]")!);
-        expect(fixture.requests).toHaveLength(1);
+        expect(h.oneShots()).toHaveLength(1);
     });
 
     test("the visual view sends the counting program; the jq view the jq, canonically", async () => {
-        const fixture = fixtureCall();
-        await mountBuilder(fixture.call);
+        await h.mountBuilder();
         await openQuery(variant("saved", BIG.name));
-        const counting = answers(fixture.requests[0]!.bodyIr);
+        const counting = answers(h.oneShots()[0]!.bodyIr);
         expect(counting.type === "Struct" && Object.keys(counting.fields)).toEqual(["counts", "result"]);
         await typeJq(".orders   |   length");
         await run();
-        expect(isTypeEqual(answers(fixture.requests[1]!.bodyIr), IntegerType)).toBe(true);
+        expect(isTypeEqual(answers(h.oneShots()[1]!.bodyIr), IntegerType)).toBe(true);
         // One value is counted in its shape's words.
         expect(footer().count).toBe("One whole number");
     });
 
     test("a new run abandons the one before: only the last one's answer shows, however late the others answer", async () => {
-        const fixture = fixtureCall({ hold: true });
-        await mountBuilder(fixture.call);
+        const runs = h.e3.hold(isRun);
+        await h.mountBuilder();
         await openQuery(variant("saved", COUNT.name));
         await runKeys();
         await runKeys();
-        expect(fixture.requests).toHaveLength(3);
+        expect(h.oneShots()).toHaveLength(3);
         // The last run answers first; the two it abandoned answer after it, and change nothing.
-        await fixture.release({ newestFirst: true });
+        for (let held = runs.held; held > 0; held--) {
+            await act(async () => { runs.releaseLast(); });
+            await settle();
+        }
         expect(footer().run).toMatch(/^run #3 · /);
     });
 });
@@ -168,7 +187,7 @@ describe("<Query.Builder> — runs (#938 R1)", () => {
 
 describe("<Query.Builder> — counted shape lines and staleness (#938 R2, R3, R8)", () => {
     test("R8: after a fresh run the default query's shape lines read 40, 16, 16, 16, 16 and 10", async () => {
-        await mountBuilder(fixtureCall().call);
+        await h.mountBuilder();
         await openQuery(variant("saved", TOP.name));
         expect(shapes()).toEqual([
             "40 orders",
@@ -181,7 +200,7 @@ describe("<Query.Builder> — counted shape lines and staleness (#938 R2, R3, R8
     });
 
     test("R3: an edit makes the result stale — the banner with Run again, the body dashed, the shape lines plain — and Run again freshens it", async () => {
-        await mountBuilder(fixtureCall().call);
+        await h.mountBuilder();
         await openQuery(variant("saved", BIG.name));
         expect(banners()).toEqual([]);
         await press("Keep the first", document.querySelector<HTMLElement>("[data-query-foot]")!);
@@ -197,55 +216,72 @@ describe("<Query.Builder> — counted shape lines and staleness (#938 R2, R3, R8
 
 // ─── R4 ──────────────────────────────────────────────────────────────────────
 
-/** A call that answers every request with one outcome, and what the runner said on stderr, as e3 does. */
-function answering(outcome: ExecuteResult["outcome"], stderr = ""): QueryCall {
-    return async () => ({ outcome, stdout: "", stderr, stdoutTruncated: false, stderrTruncated: false, inputs: [] });
+/** The builder's words: the message table, and the en-US formatters. */
+const words = queryWords(formatters("en-US"));
+
+/**
+ * The banner a run of `.orders | length` shows for an answer e3 gives: the
+ * answer read as a run reads it (`queryResultOf`), and worded as the results
+ * word a run that gave no result (`runFailure`).
+ */
+function bannerFor(outcome: ExecuteResult["outcome"], stderr = ""): string {
+    const program = ".orders | length";
+    const parsed = parseSteps(program, ROOT.type);
+    if ("error" in parsed) throw new Error(parsed.error.message);
+    const plan = planRun({
+        view: "jq", header: { id: QUERY_HEADER_ID, name: COUNT.name, description: none, source: "orders", jq: none },
+        query: parsed.query, checked: undefined, jqText: program, jqChecked: checkJq(program, ROOT.type, { root: true }),
+    }, ROOT);
+    const prepared = prepareQuery(plan.program, ROOT);
+    if ("result" in prepared) throw new Error(`${program} does not check`);
+    const result = queryResultOf(prepared.prepared, { outcome, stdout: "", stderr, stdoutTruncated: false, stderrTruncated: false, inputs: [] });
+    const failure = runFailure({ status: "done", n: 1, plan, result, output: undefined, at: new Date(0), ms: 0, planned: undefined, pieces: undefined }, words);
+    if (failure === undefined) throw new Error(`a run answered ${outcome.type} gave a result`);
+    return `${failure.title}${failure.message}`;
 }
 
 describe("<Query.Builder> — a run that gives no result (#938 R4)", () => {
     test("the checker's problems, and a runtime error, are Not run", async () => {
-        const fixture = fixtureCall();
-        await mountBuilder(fixture.call);
+        await h.mountBuilder();
         await openQuery(variant("saved", COUNT.name));
         await typeJq(".orders | map(.totl)");
         await run();
         expect(banners()).toEqual([expect.stringMatching(/^Not run — the checker found problemsunknown_field: \.totl is not a field of /)]);
-        expect(fixture.requests).toHaveLength(1);
+        // The checker's problems stop the run: e3 was asked to run the query only as it opened.
+        expect(h.oneShots()).toHaveLength(1);
         await typeJq(".orders | length | . % 0");
         await run();
         expect(banners()).toEqual([expect.stringMatching(/^Not run.*Division by zero/)]);
     });
 
-    test("the time limit, the size limit and a platform function the server lacks", async () => {
-        const cases: readonly (readonly [ExecuteResult["outcome"], string])[] = [
-            [variant("timed_out", { ms: 30_000n }), "Stopped after 30 sNarrow the query, or ask for fewer rows."],
-            [variant("too_large", { bytes: 1_468_006n, limit: 1_048_576n }), "The result is too large1.4 MB is over the 1 MB limit. Total or narrow the query."],
-        ];
-        for (const [outcome, banner] of cases) {
-            await mountBuilder(answering(outcome));
-            await openQuery(variant("saved", COUNT.name));
-            expect(banners()).toEqual([banner]);
-            expect(footer().count).toBe("No result");
-            cleanup();
-        }
+    test("the size limit: a result over the call's 1 MB is too large, its weight as e3 measured it, and no result", async () => {
+        await h.mountBuilder();
+        await openQuery(variant("saved", COUNT.name));
+        await typeJq("[range(0; 800000)] | tostring");
+        await run();
+        expect(banners()).toEqual([expect.stringMatching(/^The result is too large[\d.]+ MB is over the 1 MB limit\. Total or narrow the query\.$/)]);
+        expect(footer().count).toBe("No result");
+    });
+
+    test("the time limit, a platform function the server lacks, and a failure the runner gave no words for, each worded from e3's answer", () => {
+        expect(bannerFor(variant("timed_out", { ms: 30_000n }))).toBe("Stopped after 30 sNarrow the query, or ask for fewer rows.");
         // A runner that cannot find a platform function the data calls says so on stderr.
-        await mountBuilder(answering(variant("failed", { exitCode: 1n }), "Error: Unknown platform function: sales_lookup\n"));
-        await openQuery(variant("saved", COUNT.name));
-        expect(banners()).toEqual(["Not run — the query calls a function this server can't runIt needs sales_lookup."]);
-        cleanup();
+        expect(bannerFor(variant("failed", { exitCode: 1n }), "Error: Unknown platform function: sales_lookup\n"))
+            .toBe("Not run — the query calls a function this server can't runIt needs sales_lookup.");
         // A failure the runner gave no words for is Not run, with its exit code.
-        await mountBuilder(answering(variant("failed", { exitCode: 3n })));
-        await openQuery(variant("saved", COUNT.name));
-        expect(banners()).toEqual([expect.stringMatching(/^Not run.*exit code 3/)]);
+        expect(bannerFor(variant("failed", { exitCode: 3n }))).toMatch(/^Not run.*exit code 3/);
     });
 
     test("a call that never reached the server, and one the server refused", async () => {
-        await mountBuilder(offlineCall().call);
+        // The network fails each try: e3's client tries again after a pause, a timer the harness's settle cannot see, so
+        // the test waits for what the user sees then.
+        const stop = h.e3.fail(isRun, "network");
+        await h.mountBuilder();
         await openQuery(variant("saved", COUNT.name));
-        expect(banners()).toEqual(["Couldn't reach the serveroffline"]);
-        cleanup();
-        await mountBuilder(async () => { throw new ApiError("permission_denied"); });
-        await openQuery(variant("saved", COUNT.name));
+        await waitFor(() => expect(banners()).toEqual([`Couldn't reach the serverfetch failed: the test failed the network for POST /repos/default/workspaces/${h.workspace}/one-shot`]), { timeout: 10_000 });
+        stop();
+        h.e3.fail(isRun, { status: 403, type: "permission_denied" });
+        await runKeys();
         expect(banners()).toEqual(["Not runAPI error: permission_denied"]);
     });
 });
@@ -253,17 +289,17 @@ describe("<Query.Builder> — a run that gives no result (#938 R4)", () => {
 // ─── R5 ──────────────────────────────────────────────────────────────────────
 
 describe("<Query.Builder> — the footer (#938 R5)", () => {
-    test("the count in words and the fields; the run's number, time and duration; each data source read, with its hash", async () => {
-        await mountBuilder(fixtureCall().call);
+    test("the count in words and the fields; the run's number, time and duration; each data source read, with its hash on e3", async () => {
+        await h.mountBuilder();
         await openQuery(variant("saved", TOP.name));
         const f = footer();
         expect([f.count, f.fields]).toEqual(["10 orders", "· order, customer, region, total, shipped"]);
         expect(f.run).toMatch(/^run #1 · \d{2}:\d{2} · \d+ ms$/);
-        expect(f.reads).toBe("reads customers #9b07e3a4 · orders #4f2a1c8d");
+        expect(f.reads).toBe(`reads customers #${await hashOf(ex.customers)} · orders #${await hashOf(ex.orders)}`);
     });
 
     test("a jq run cut at the call's most outputs says there are more", async () => {
-        await mountBuilder(fixtureCall().call);
+        await h.mountBuilder();
         await openQuery(variant("saved", COUNT.name));
         await typeJq("range(0; 2000)");
         await run();
@@ -283,8 +319,8 @@ describe("<Query.Builder> — downloads (#938 R6)", () => {
             saved.push({ name: this.download, blob: lastBlob! });
         });
         try {
-            const fixture = fixtureCall();
-            await mountBuilder(fixture.call);
+            const answered = h.oneShotResults();
+            await h.mountBuilder();
             await openQuery(variant("saved", TOP.name));
             for (const format of ["csv", "beast2"] as const) {
                 await openMenu(document.querySelector<HTMLElement>("[data-query-download]")!);
@@ -307,7 +343,8 @@ describe("<Query.Builder> — downloads (#938 R6)", () => {
             expect([markOf(close), foreignIcons(note)]).toEqual(["fas xmark", []]);
             await act(async () => { fireEvent.click(close); });
             expect(banners()).toEqual([]);
-            // A text with a comma is quoted, RFC 4180's way; and a jq run's BEAST2 is the bytes the run returned.
+            // A text with a comma is quoted, RFC 4180's way; and a jq run's BEAST2 is the result the run returned, with its
+            // type — e3 answers it in its stored form, and the download writes the same value at the same type.
             await typeJq(".orders[:2] | map({order: .id, note: \"big, shipped\"})");
             await run();
             for (const format of ["csv", "beast2"] as const) {
@@ -315,9 +352,12 @@ describe("<Query.Builder> — downloads (#938 R6)", () => {
                 await pick(format);
             }
             expect((await saved[2]!.blob.text()).split("\r\n")).toEqual(["order,note", "1001,\"big, shipped\"", "1002,\"big, shipped\""]);
-            const returned = fixture.answers.at(-1)!.outcome;
+            const returned = answered().at(-1)!.outcome;
             if (returned.type !== "success") throw new Error("the jq run answered");
-            expect(new Uint8Array(await saved[3]!.blob.arrayBuffer())).toEqual(returned.value.value);
+            const [downloaded, ran] = [decodeBeast2(new Uint8Array(await saved[3]!.blob.arrayBuffer())), decodeBeast2(returned.value.value)];
+            const ranType = fromEastTypeValue(ran.type);
+            expect(isTypeEqual(fromEastTypeValue(downloaded.type), ranType)).toBe(true);
+            expect(equalFor(ranType)(downloaded.value as never, ran.value as never)).toBe(true);
         } finally {
             click.mockRestore();
             Reflect.deleteProperty(URL, "createObjectURL");
@@ -330,7 +370,7 @@ describe("<Query.Builder> — downloads (#938 R6)", () => {
 
 describe("<Query.Builder> — the Table and the Value tree (#938 R7)", () => {
     test("rows open as a Table, one value as a tree; the toolbar's switch overrides it until the next run", async () => {
-        await mountBuilder(fixtureCall().call);
+        await h.mountBuilder();
         await openQuery(variant("saved", TOP.name));
         expect(shownAs()).toBe("table");
         expect(results().querySelector("table")).not.toBeNull();
@@ -345,7 +385,7 @@ describe("<Query.Builder> — the Table and the Value tree (#938 R7)", () => {
     });
 
     test("without a result the switch and Download are off", async () => {
-        await mountBuilder(offlineCall().call);
+        await h.mountBuilder();
         expect([resultButton("Table").hasAttribute("disabled"), (document.querySelector("[data-query-download]") as HTMLButtonElement).disabled]).toEqual([true, true]);
     });
 });

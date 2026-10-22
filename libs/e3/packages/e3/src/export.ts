@@ -363,7 +363,8 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   // records are datasets. Here we write the separate RecordObject and the
   // mutation, index and migration objects it names, mirroring how functions
   // are written. Deploy mints the record's `$init` commit from the
-  // initial-state ref.
+  // initial-state ref; a record declared with no initial value is exported
+  // with its ref unassigned, and holds no state until its first is committed.
   const records = new SortedMap<string, string>(); // name -> RecordObject hash
   const mutationEncoder = encodeBeast2For(MutationObjectType);
   const indexEncoder = encodeBeast2For(RecordIndexObjectType);

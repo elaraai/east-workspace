@@ -321,16 +321,24 @@ export class UIStore implements UIStoreInterface {
             reg.lastResult = reg.compiled(this.state);
         }
 
-        // Notify key-specific subscribers
+        // Notify key-specific subscribers: each once, those subscribed as the
+        // key's notification began and still subscribed when its turn comes.
+        // A subscriber that subscribes again from its own callback — a tracked
+        // read's run replaces its subscriptions — is called again by the next
+        // write, never by this flush: iterating the live set would visit it
+        // after every re-subscription, without end.
         for (const key of this.changedKeys) {
             const subs = this.keySubscribers.get(key);
-            if (subs) {
-                for (const cb of subs) cb();
+            if (subs === undefined) continue;
+            for (const cb of [...subs]) {
+                if (this.keySubscribers.get(key)?.has(cb) === true) cb();
             }
         }
 
-        // Notify global subscribers
-        for (const cb of this.globalSubscribers) cb();
+        // Notify global subscribers, likewise.
+        for (const cb of [...this.globalSubscribers]) {
+            if (this.globalSubscribers.has(cb)) cb();
+        }
 
         this.changedKeys.clear();
     }

@@ -365,6 +365,21 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect(heard).toEqual(["Escape", "z"]);
     });
 
+    test("Esc in a layer laid in the open overlay pane that takes Esc itself (`data-escape-layer`) is the layer's; anywhere else in the pane it closes the pane", () => {
+        const closed: string[] = [];
+        const layer = (
+            <div data-escape-layer="">
+                <input aria-label="FIND" onKeyDown={(event) => { if (event.key === "Escape") { closed.push("FIND"); event.preventDefault(); event.stopPropagation(); } }} />
+            </div>
+        );
+        mount({ start: library({ mode: "overlay", tabs: [{ key: "cards", label: "Cards", body: <>{layer}<button type="button">CARD</button></> }] }) });
+        expect(paneOf("start")).toEqual(["overlay", false]);
+        fireEvent.keyDown(screen.getByRole("textbox", { name: "FIND" }), { key: "Escape" });
+        expect([paneOf("start"), closed]).toEqual([["overlay", false], ["FIND"]]);
+        fireEvent.keyDown(screen.getByRole("button", { name: "CARD" }), { key: "Escape" });
+        expect([paneOf("start"), closed]).toEqual([["overlay", true], ["FIND"]]);
+    });
+
     test("one overlay pane is open at a time: opening one closes the other; both open at first, the start pane stays", async () => {
         mount({ start: library({ mode: "overlay" }), end: properties({ mode: "overlay", defaultCollapsed: true }) });
         expect([paneOf("start"), paneOf("end")]).toEqual([["overlay", false], ["overlay", true]]);

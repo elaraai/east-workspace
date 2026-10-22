@@ -27,6 +27,10 @@ import {
   stepTaskCompleted,
   stepTaskFailed,
   stepTaskForced,
+  stepTasksWaiting,
+  stepIsComplete,
+  stepFinalize,
+  waitingTasks,
 } from './steps.js';
 import { DataflowError, TaskNotFoundError } from '../errors.js';
 import * as root from '../index.js';
@@ -134,6 +138,20 @@ describe('stepYield', () => {
     assert.strictEqual(state.status, 'running');
   });
 
+  it('resets waiting tasks to pending too: a resumed run decides each again', () => {
+    const tasks = new Map<string, TaskState>();
+    tasks.set('task-a', makeTaskState('task-a', 'waiting'));
+    tasks.set('task-b', makeTaskState('task-b', 'waiting'));
+    tasks.set('task-c', makeTaskState('task-c', 'completed'));
+
+    const state = makeState(graph, tasks);
+    const { reset } = stepYield(state);
+
+    assert.deepStrictEqual(reset.sort(), ['task-a', 'task-b']);
+    assert.deepStrictEqual(waitingTasks(state), []);
+    assert.strictEqual(state.tasks.get('task-c')!.status, 'completed');
+  });
+
   it('leaves terminal and pending tasks untouched', () => {
     const tasks = new Map<string, TaskState>();
     tasks.set('task-a', makeTaskState('task-a', 'completed'));
@@ -215,6 +233,90 @@ describe('checkDataflowStart', () => {
   it('is the check every entry exports, which a start makes', () => {
     assert.strictEqual(root.checkDataflowStart, checkDataflowStart);
     assert.strictEqual(portable.checkDataflowStart, checkDataflowStart);
+  });
+});
+
+describe('tasks waiting on an unassigned input', () => {
+  // input → a → b → c, b reading another input too; d reads that input alone
+  const graph: DataflowGraph = {
+    tasks: [
+      { name: 'a', hash: 'hash-a', inputs: ['.input'], output: '.out_a', dependsOn: [] },
+      { name: 'b', hash: 'hash-b', inputs: ['.out_a', '.other'], output: '.out_b', dependsOn: ['a'] },
+      { name: 'c', hash: 'hash-c', inputs: ['.out_b'], output: '.out_c', dependsOn: ['b'] },
+      { name: 'd', hash: 'hash-d', inputs: ['.other'], output: '.out_d', dependsOn: [] },
+    ],
+  };
+  /** Every task pending, under `filter` when given. */
+  const pending = (filter?: string): DataflowExecutionState => makeState(
+    graph,
+    new Map(graph.tasks.map((task) => [task.name, makeTaskState(task.name, 'pending')] as const)),
+    filter === undefined ? undefined : { filter },
+  );
+  /** Each task's status, in the state's order. */
+  const statuses = (state: DataflowExecutionState): [string, string][] =>
+    [...state.tasks.values()].map((task) => [task.name, task.status]);
+
+  it('leaves the task waiting, and its dependents with it, each naming what it waits on, no other task, and no event', () => {
+    const state = pending();
+    const { waiting } = stepTasksWaiting(state, 'a', ['.input']);
+    assert.deepStrictEqual(waiting, [
+      { task: 'a', inputs: ['.input'] },
+      { task: 'b', inputs: ['.out_a'] },
+      { task: 'c', inputs: ['.out_b'] },
+    ]);
+    assert.deepStrictEqual(waitingTasks(state), ['a', 'b', 'c']);
+    assert.strictEqual(state.tasks.get('d')!.status, 'pending');
+    assert.deepStrictEqual(state.events, []);
+  });
+
+  it('leaves no dependent outside the filter\'s run set waiting', () => {
+    const state = pending('b');
+    const { waiting } = stepTasksWaiting(state, 'a', ['.input']);
+    assert.deepStrictEqual(waiting.map((each) => each.task), ['a', 'b']);
+    assert.strictEqual(state.tasks.get('c')!.status, 'pending', 'outside the run set, as it was');
+  });
+
+  it('ends the run with them: complete once the rest has run, and finalized completed, counting them', () => {
+    const state = pending();
+    stepTasksWaiting(state, 'a', ['.input']);
+    assert.strictEqual(stepIsComplete(state), false, 'd has yet to run');
+    (state.tasks.get('d') as Mutable<TaskState>).status = 'completed';
+    assert.strictEqual(stepIsComplete(state), true);
+    const { result } = stepFinalize(state);
+    assert.deepStrictEqual([result.success, result.waiting, result.failed, result.skipped], [true, 3, 0, 0]);
+    assert.strictEqual(state.status, 'completed');
+  });
+
+  it('decides them again as an input is assigned, unless a task they read still waits', () => {
+    const state = pending();
+    stepTasksWaiting(state, 'a', ['.input']);
+    stepTasksWaiting(state, 'd', ['.other']);
+    // `.other` assigned: d is decided again; b reads it too, but still waits
+    // on a, and c on b
+    const { invalidated } = stepInvalidateTasks(state, [{ path: '.other' }]);
+    assert.deepStrictEqual(invalidated, [], 'none had run');
+    assert.deepStrictEqual(statuses(state), [['a', 'waiting'], ['b', 'waiting'], ['c', 'waiting'], ['d', 'pending']]);
+    // `.input` assigned: a, and b and c after it, are decided again
+    stepInvalidateTasks(state, [{ path: '.input' }]);
+    assert.deepStrictEqual(waitingTasks(state), []);
+  });
+
+  it('decides a waiting dependent again as the task it waited on completes, unless another it reads still waits', () => {
+    const state = pending();
+    stepTasksWaiting(state, 'a', ['.input']);
+    // `.input` assigned and a run, as the loop runs it once decided again
+    (state.tasks.get('a') as Mutable<TaskState>).status = 'in_progress';
+    const { result } = stepTaskCompleted(state, 'a', 'out-a', false, 10, { inputsHash: 'inputs-a', executionId: 'execution-a' });
+    assert.deepStrictEqual(result.newlyReady, ['b', 'd'], 'b, decided again, and d, which reads the other input alone');
+    assert.deepStrictEqual(statuses(state), [['a', 'completed'], ['b', 'ready'], ['c', 'waiting'], ['d', 'ready']],
+      'c waits on b still');
+  });
+
+  it('is the step every entry exports', () => {
+    assert.strictEqual(root.stepTasksWaiting, stepTasksWaiting);
+    assert.strictEqual(portable.stepTasksWaiting, stepTasksWaiting);
+    assert.strictEqual(root.waitingTasks, waitingTasks);
+    assert.strictEqual(portable.waitingTasks, waitingTasks);
   });
 });
 

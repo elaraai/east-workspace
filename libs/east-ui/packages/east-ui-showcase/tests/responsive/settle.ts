@@ -61,12 +61,34 @@ function sample(page: Page): Promise<{ starting: number; still: boolean }> {
 }
 
 /**
+ * Waits for every builder frame's panes to stop moving. A pane opening,
+ * closing or changing its mode slides over the design system's duration (the
+ * `builderFrame` recipe's pane transitions, on the `[data-frame-slot]` itself),
+ * and a pane's width moves no row and no document width — all {@link sample}
+ * sees — so a spec that measured a pane, or main beside it, as soon as the rows
+ * stood still read it partway, a few px off: a collapsed rail 45 or 52 wide
+ * rather than its 44. A transition another change cut short is over too.
+ *
+ * @returns Whether any pane was moving: the page is read again once it stopped
+ */
+function panesStill(page: Page): Promise<boolean> {
+    return page.evaluate(async () => {
+        const moving = [...document.querySelectorAll("[data-frame-slot]")]
+            .flatMap(slot => slot.getAnimations())
+            .filter(animation => animation.effect?.getTiming().iterations !== Infinity);
+        await Promise.all(moving.map(animation => animation.finished.then(() => undefined, () => undefined)));
+        return moving.length > 0;
+    });
+}
+
+/**
  * Resolves once the page has stopped laying itself out: the webfonts are
  * loaded, no example is still compiling its East behind its skeleton, no e3
  * example is waiting for the e3 the page runs to start (#849), no builder is
  * still loading or retaining its previous Calendar query, visible deferred
- * previews have started, and every virtualized row and the document's width
- * hold still across two frames, and then two more.
+ * previews have started, every virtualized row and the document's width
+ * hold still across two frames, and then two more, and no builder's pane is
+ * still sliding.
  *
  * @remarks
  * An example compiles after the first paint, when the page is next idle, and
@@ -82,7 +104,9 @@ export async function settled(page: Page): Promise<void> {
         message: "an example kept compiling, or its e3 or builder loading",
         timeout: STARTING_MS,
     }).toBe(0);
-    if (last.still) return;
+    // A pane still sliding is waited for, and the page read again once it has stopped: main takes its last width as it does.
+    if (await panesStill(page)) last = await sample(page);
+    if (last.still && last.starting === 0) return;
     await expect.poll(async () => {
         const { starting, still } = await sample(page);
         return starting === 0 && still;
