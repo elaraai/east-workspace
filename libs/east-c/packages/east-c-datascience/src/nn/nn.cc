@@ -671,8 +671,12 @@ EvalResult nn_import_torch(EastValue **args, size_t, EastType **, size_t, EastTy
         auto it = by_torch_name.find(torch_name);
         std::vector<std::string> targets =
             it != by_torch_name.end() ? it->second : std::vector<std::string>{torch_name};
-        for (const std::string &weight : targets)
+        for (const std::string &weight : targets) {
+            if (weights.count(weight))
+                throw Error(msg(fn, "two entries of the state dict name the weight '" + weight +
+                                        "' (one through `names`, one by its own name)"));
             weights[weight] = struct_of_tensor(t.to(torch::kCPU).contiguous(), struct_type, fn);
+        }
     }
     for (const auto &kv : by_torch_name)
         if (!present.count(kv.first))

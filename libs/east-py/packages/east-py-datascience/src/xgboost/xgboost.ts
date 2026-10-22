@@ -276,6 +276,12 @@ export const xgboost_train_quantile = East.platform(
  * @param X - Feature matrix
  * @returns Quantiles and predictions matrix (n_samples x n_quantiles)
  */
+export const xgboost_predict_quantile = East.platform(
+    "xgboost_predict_quantile",
+    [XGBoostModelBlobType, MatrixType(FloatType)],
+    XGBoostQuantilePredictResultType
+);
+
 /**
  * Re-save a model blob in the UBJSON form every runner reads: a blob from
  * before that form (a cloudpickle, which the python runner alone reads) comes
@@ -290,12 +296,6 @@ export const xgboost_resave = East.platform(
     "xgboost_resave",
     [XGBoostModelBlobType],
     XGBoostModelBlobType
-);
-
-export const xgboost_predict_quantile = East.platform(
-    "xgboost_predict_quantile",
-    [XGBoostModelBlobType, MatrixType(FloatType)],
-    XGBoostQuantilePredictResultType
 );
 
 // ============================================================================

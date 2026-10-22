@@ -22,6 +22,7 @@ const { default: XorShift128RNG } = await import(join(dist, 'xorshift128.js'));
 const { default: uniformDist } = await import(join(dist, 'distributions', 'uniform.js'));
 const { default: uniformIntDist } = await import(join(dist, 'distributions', 'uniform-int.js'));
 const { default: normalDist } = await import(join(dist, 'distributions', 'normal.js'));
+const { default: logNormalDist } = await import(join(dist, 'distributions', 'log-normal.js'));
 
 const N = 1000;
 const draws = (seed, make) => {
@@ -32,6 +33,7 @@ const draws = (seed, make) => {
 const uniform42 = draws(42n, (rng) => uniformDist(rng, 0, 1));
 const range12345 = draws(12345n, (rng) => uniformIntDist(rng, 1n, 1000000n)).map((x) => BigInt(x));
 const normal7 = draws(7n, (rng) => normalDist(rng, 0, 1));
+const logNormal11 = draws(11n, (rng) => logNormalDist(rng, 0.5, 0.25));
 
 const floats = (xs) => xs.map((x) => (Number.isInteger(x) ? `${x}.0` : String(x))).join(', ');
 const out = `/**
@@ -49,6 +51,9 @@ export const range12345: bigint[] = [${range12345.map((x) => `${x}n`).join(', ')
 
 /** random_normal() × ${N} after random_seed(7). */
 export const normal7: number[] = [${floats(normal7)}];
+
+/** random_log_normal(0.5, 0.25) × ${N} after random_seed(11). */
+export const logNormal11: number[] = [${floats(logNormal11)}];
 `;
 const target = join(here, '..', 'test', 'random.reference.generated.ts');
 writeFileSync(target, out);

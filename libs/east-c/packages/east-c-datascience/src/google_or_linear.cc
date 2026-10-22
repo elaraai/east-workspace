@@ -311,7 +311,7 @@ EvalResult linear_solve_columns(EastValue **args, size_t num_args, EastType *out
     r.set("solve_time", east_float(solve_time));
     double wall_time = seconds_since(t0);
     r.set("wall_time", east_float(wall_time));
-    note_bridge(FN, build_time, wall_time - build_time - solve_time);
+    note_bridge(fn, build_time, wall_time - build_time - solve_time);
     return eval_ok(r.build());
 }
 

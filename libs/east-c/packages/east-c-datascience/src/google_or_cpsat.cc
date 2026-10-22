@@ -132,15 +132,26 @@ struct Build {
                                 "' cannot appear in a linear expression"));
     }
 
+    /* A variable used as a boolean: a boolean variable, or an integer one whose
+     * domain is [0, 1] (python's OR-Tools takes either as a literal). */
+    BoolVar as_bool(EastValue *name_value) const
+    {
+        const Named &v = lookup(name_value);
+        if (v.kind == Named::BOOL) return v.b;
+        if (v.kind == Named::INT) {
+            const auto &domain = model.Proto().variables(v.i.index()).domain();
+            if (domain.size() == 2 && domain.Get(0) == 0 && domain.Get(1) == 1)
+                return v.i.ToBoolVar();
+        }
+        throw Error(
+            msg(fn, "'" + std::string(as_string(name_value, fn)) + "' is not a boolean variable"));
+    }
+
     /* A boolean literal: the variable, or its negation. */
     BoolVar literal(EastValue *lit) const
     {
-        EastValue *name_value = field(lit, "var", fn);
-        const Named &v = lookup(name_value);
-        if (v.kind != Named::BOOL)
-            throw Error(msg(fn, "'" + std::string(as_string(name_value, fn)) +
-                                    "' is not a boolean variable"));
-        return as_boolean(field(lit, "negated", fn), fn) ? v.b.Not() : v.b;
+        BoolVar b = as_bool(field(lit, "var", fn));
+        return as_boolean(field(lit, "negated", fn), fn) ? b.Not() : b;
     }
 
     IntervalVar interval(EastValue *name_value) const
@@ -171,12 +182,8 @@ struct Build {
             LinearExpr end = expr_of(field(v, "end", fn));
             IntervalVar iv;
             if (EastValue *present = some_value(field(v, "is_present", fn), fn)) {
-                const Named &p = lookup(present);
-                if (p.kind != Named::BOOL)
-                    throw Error(msg(fn, "'" + std::string(as_string(present, fn)) +
-                                            "' is not a boolean variable"));
-                iv =
-                    model.NewOptionalIntervalVar(start, size, end, p.b).WithName(std::string(name));
+                iv = model.NewOptionalIntervalVar(start, size, end, as_bool(present))
+                         .WithName(std::string(name));
             } else {
                 iv = model.NewIntervalVar(start, size, end).WithName(std::string(name));
             }
@@ -264,13 +271,9 @@ struct Build {
             EastValue *arcs = field(data, "arcs", fn);
             for (size_t i = 0, n = length(arcs, fn); i < n; i++) {
                 EastValue *arc = at(arcs, i);
-                EastValue *name_value = field(arc, "literal", fn);
-                const Named &v = lookup(name_value);
-                if (v.kind != Named::BOOL)
-                    throw Error(msg(fn, "'" + std::string(as_string(name_value, fn)) +
-                                            "' is not a boolean variable"));
                 circuit.AddArc(static_cast<int>(as_integer(field(arc, "tail", fn), fn)),
-                               static_cast<int>(as_integer(field(arc, "head", fn), fn)), v.b);
+                               static_cast<int>(as_integer(field(arc, "head", fn), fn)),
+                               as_bool(field(arc, "literal", fn)));
             }
         } else {
             throw Error(msg(fn, std::string("unknown constraint '") + tag + "'"));
@@ -353,6 +356,7 @@ struct Solved {
     double build_time; /* the call's entry to the solver's start */
     double solve_time; /* inside the solver */
     std::vector<std::pair<Assignments, double> > collected; /* assignments, objective */
+    bool fallback = false; /* solve_all observed nothing and took the solver's own solution */
 };
 
 Solved build_and_solve(const char *fn, Clock::time_point t0, EastValue *model_data,
@@ -433,9 +437,19 @@ Solved build_and_solve(const char *fn, Clock::time_point t0, EastValue *model_da
     Clock::time_point t1 = now();
     result.response = operations_research::sat::SolveCpModel(build.model.Build(), &model);
     result.solve_time = seconds_since(t1);
-    if (!enumerate || (result.collected.empty() && solved(result.response.status())))
+    /* The solver's own solution: read only when there is one — a response
+     * with no solution has an empty value array, which the accessors index
+     * without a check. */
+    bool has_solution = solved(result.response.status());
+    if (!enumerate) {
+        result.collected.emplace_back(has_solution ? assignments_of(result.response, build)
+                                                   : Assignments(),
+                                      result.response.objective_value());
+    } else if (result.collected.empty() && has_solution) {
+        result.fallback = true;
         result.collected.emplace_back(assignments_of(result.response, build),
                                       result.response.objective_value());
+    }
     return result;
 }
 
@@ -510,15 +524,15 @@ EvalResult cpsat_solve_all(EastValue **args, size_t num_args, EastType *out)
                                     max_solutions < 0 ? 0 : static_cast<size_t>(max_solutions));
     EastType *result_t = element_type(out, fn);
     EastValue *results = array(out, fn, result.collected.size());
-    /* Every solution the observer collected is `feasible`; the one the solver
-     * answered with instead (none observed, the fallback) carries its status.
-     * The last carries the call's times and the solver's bound, the rest 0 and
-     * none. */
-    bool from_observer = !(result.collected.size() == 1 && solved(result.response.status()));
+    /* Every solution the observer collected is `feasible` (python's collector
+     * tags each so, the solver's final status notwithstanding); the one the
+     * solver answered with instead (none observed, the fallback) carries its
+     * status. The last carries the call's times and the solver's bound, the
+     * rest 0 and none. */
     double bound = result.response.best_objective_bound();
     for (size_t i = 0; i < result.collected.size(); i++) {
         bool last = i + 1 == result.collected.size();
-        const char *tag = from_observer ? "feasible" : status_tag(result.response.status());
+        const char *tag = result.fallback ? status_tag(result.response.status()) : "feasible";
         push(results, result_struct(result_t, fn, tag, &result.collected[i].first,
                                     result.collected[i].second, last ? &bound : nullptr,
                                     Times{t0, result.build_time, result.solve_time, last}));

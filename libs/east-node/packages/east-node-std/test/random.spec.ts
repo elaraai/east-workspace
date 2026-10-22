@@ -273,4 +273,19 @@ describeEast("Random platform functions", (test) => {
         });
         $(Assert.equal(xs, ref.normal7));
     });
+
+    test("a seeded stream of log-normals is the same on every runtime, to the host's exponential", $ => {
+        // exp(mu + sigma · normal) over the shared normal stream: the normal is the same bits
+        // everywhere (a runtime drawing its own, with the host's logarithm, would part from the
+        // others in a few draws per thousand); the exponential is the host's, which rounds a
+        // draw in ten the other way by one unit in the last place
+        $(Random.seed(11n));
+        const xs = $.let(East.value([], ArrayType(FloatType)));
+        $.for(East.Array.range(0n, 1000n), ($) => {
+            $(xs.pushLast(Random.logNormal(0.5, 0.25)));
+        });
+        const want = $.let(East.Vector.fromArray(ref.logNormal11));
+        const got = $.let(East.Vector.fromArray(xs));
+        $(Assert.lessEqual(got.map(($, x, i) => x.subtract(want.get(i)).abs().divide(want.get(i))).max(), 4.5e-16));
+    });
 }, { platformFns: NodePlatform });

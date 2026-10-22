@@ -201,6 +201,7 @@ export {
     xgboost_predict_class,
     xgboost_predict_proba,
     xgboost_predict_quantile,
+    xgboost_resave,
     XGBoostTypes,
     XGBoostConfigType,
     XGBoostQuantileConfigType,

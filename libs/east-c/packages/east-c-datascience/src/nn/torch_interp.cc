@@ -14,7 +14,6 @@
 #include <functional>
 #include <limits>
 #include <map>
-#include <mutex>
 #include <set>
 
 namespace east_ds::nn
@@ -801,8 +800,13 @@ Interpreter::Value Interpreter::node(const Plan &plan, const Node &nd, Env &env,
         lead.pop_back();
         if (sizes_of(positions) != lead) throw bad("positions must be shaped " + shape_text(lead));
         int64_t half = dh / 2;
-        Tensor exponent = torch::arange(half, x.options()) * (-2.0 / (double)dh);
-        Tensor inv = torch::pow(nd.fv("base"), exponent);
+        /* The inverse frequencies in double, then the tensor's precision (§4):
+         * one value on every runner for every head dimension, not only the
+         * powers of two whose 2/dh a float holds exactly. */
+        Tensor exponent =
+            (torch::arange(half, torch::dtype(torch::kFloat64).device(x.device())) * -2.0) /
+            (double)dh;
+        Tensor inv = torch::pow(nd.fv("base"), exponent).to(x.scalar_type());
         Tensor angle = positions.to(x.scalar_type()).unsqueeze(-1) * inv;
         Tensor cos = angle.cos().unsqueeze(-2), sin = angle.sin().unsqueeze(-2);
         std::vector<int64_t> hshape = lead;
@@ -989,20 +993,22 @@ Interpreter::Value Interpreter::call(const Plan &plan, const Node &nd, Env &env,
 
 /* A module's call as one autograd node: the forward runs it without a graph
  * and keeps its inputs and weights; the backward runs it again with a graph,
- * from the same generator state, and differentiates (torch.utils.checkpoint's
- * non-reentrant form, for one call). */
+ * from the same draws' stream and under the same autocast, and differentiates
+ * (torch.utils.checkpoint's non-reentrant form, for one call). The call's
+ * closure lives in the node's context (a capsule), so a node that never runs
+ * its backward frees it with the graph. */
 struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
-    struct Closure {
-        Interpreter *self;
-        const Plan *module;
+    struct Closure : torch::CustomClassHolder {
+        Interpreter *self = nullptr;
+        const Plan *module = nullptr;
         std::string prefix;
         std::vector<std::string> input_names, weight_names, operands;
-        Tensors bound_fixed; /* the inputs that take no gradient */
-        uint64_t path;       /* the draws' stream inside the call, replayed by the backward */
+        Tensors bound_fixed;   /* the inputs that take no gradient */
+        uint64_t path = 0;     /* the draws' stream inside the call, replayed by the backward */
+        bool autocast = false; /* the forward ran under autocast: so does the backward's re-run */
+        c10::DeviceType device_type = c10::DeviceType::CPU;
+        at::ScalarType autocast_dtype = at::kBFloat16;
     };
-    static std::mutex mutex;
-    static std::map<int64_t, std::shared_ptr<Closure> > closures;
-    static int64_t next_id;
 
     static torch::autograd::variable_list run(Closure &c,
                                               const torch::autograd::variable_list &inputs,
@@ -1034,16 +1040,19 @@ struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
         return out;
     }
 
+    static c10::intrusive_ptr<Closure> closure_of(torch::autograd::AutogradContext *ctx)
+    {
+        return c10::static_intrusive_pointer_cast<Closure>(ctx->saved_data["closure"].toCapsule());
+    }
+
     /* The tensors come as a TensorList: the only sequence the Function
      * machinery reads its differentiable inputs from. */
-    static torch::autograd::variable_list forward(torch::autograd::AutogradContext *ctx, int64_t id,
-                                                  int64_t n_inputs, at::TensorList tensors)
+    static torch::autograd::variable_list forward(torch::autograd::AutogradContext *ctx,
+                                                  c10::intrusive_ptr<Closure> c, int64_t n_inputs,
+                                                  at::TensorList tensors)
     {
-        std::shared_ptr<Closure> c;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            c = closures.at(id);
-        }
+        c->autocast = at::autocast::is_autocast_enabled(c->device_type);
+        if (c->autocast) c->autocast_dtype = at::autocast::get_autocast_dtype(c->device_type);
         torch::autograd::variable_list inputs(tensors.begin(), tensors.begin() + n_inputs),
             weights(tensors.begin() + n_inputs, tensors.end());
         torch::autograd::variable_list out;
@@ -1051,7 +1060,7 @@ struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
             torch::NoGradGuard no_grad;
             out = run(*c, inputs, weights);
         }
-        ctx->saved_data["id"] = id;
+        ctx->saved_data["closure"] = torch::IValue::make_capsule(c);
         ctx->saved_data["n_inputs"] = n_inputs;
         ctx->save_for_backward(torch::autograd::variable_list(tensors.begin(), tensors.end()));
         return out;
@@ -1060,13 +1069,8 @@ struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
     static torch::autograd::variable_list backward(torch::autograd::AutogradContext *ctx,
                                                    torch::autograd::variable_list grad_outputs)
     {
-        int64_t id = ctx->saved_data["id"].toInt(), n_inputs = ctx->saved_data["n_inputs"].toInt();
-        std::shared_ptr<Closure> c;
-        {
-            std::lock_guard<std::mutex> lock(mutex);
-            c = closures.at(id);
-            closures.erase(id);
-        }
+        int64_t n_inputs = ctx->saved_data["n_inputs"].toInt();
+        c10::intrusive_ptr<Closure> c = closure_of(ctx);
         torch::autograd::variable_list saved = ctx->get_saved_variables();
         torch::autograd::variable_list leaves, inputs, weights;
         for (size_t k = 0; k < saved.size(); k++) {
@@ -1078,7 +1082,23 @@ struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
         torch::autograd::variable_list outputs;
         {
             torch::AutoGradMode grad(true);
-            outputs = run(*c, inputs, weights);
+            /* the forward's autocast again, so the gradients come from the
+             * precision that made the loss */
+            bool was = at::autocast::is_autocast_enabled(c->device_type);
+            if (c->autocast && !was) {
+                at::autocast::set_autocast_enabled(c->device_type, true);
+                at::autocast::set_autocast_dtype(c->device_type, c->autocast_dtype);
+            }
+            try {
+                outputs = run(*c, inputs, weights);
+            } catch (...) {
+                if (c->autocast && !was) at::autocast::set_autocast_enabled(c->device_type, false);
+                throw;
+            }
+            if (c->autocast && !was) {
+                at::autocast::clear_cache();
+                at::autocast::set_autocast_enabled(c->device_type, false);
+            }
         }
         torch::autograd::variable_list wanted, grads_in;
         for (size_t k = 0; k < outputs.size(); k++)
@@ -1104,21 +1124,19 @@ struct RecomputeFn : public torch::autograd::Function<RecomputeFn> {
         return grads;
     }
 };
-std::mutex RecomputeFn::mutex;
-std::map<int64_t, std::shared_ptr<RecomputeFn::Closure> > RecomputeFn::closures;
-int64_t RecomputeFn::next_id = 0;
 
 Interpreter::Value Interpreter::recomputed_call(const Plan &module, const Node &nd,
                                                 const Tensors &bound, const std::string &sub_prefix,
                                                 const std::vector<std::string> &outputs,
                                                 const std::vector<std::string> &operands)
 {
-    auto c = std::make_shared<RecomputeFn::Closure>();
+    auto c = c10::make_intrusive<RecomputeFn::Closure>();
     c->self = this;
     c->module = &module;
     c->prefix = sub_prefix;
     c->operands = operands;
     c->path = path_;
+    c->device_type = device_.type();
     torch::autograd::variable_list tensors;
     for (const auto &kv : bound) {
         if (kv.second.requires_grad()) {
@@ -1138,13 +1156,7 @@ Interpreter::Value Interpreter::recomputed_call(const Plan &module, const Node &
         c->weight_names.push_back(kv.first);
         tensors.push_back(it->second);
     }
-    int64_t id;
-    {
-        std::lock_guard<std::mutex> lock(RecomputeFn::mutex);
-        id = RecomputeFn::next_id++;
-        RecomputeFn::closures[id] = c;
-    }
-    torch::autograd::variable_list out = RecomputeFn::apply(id, n_inputs, at::TensorList(tensors));
+    torch::autograd::variable_list out = RecomputeFn::apply(c, n_inputs, at::TensorList(tensors));
     Value result;
     result.many = true;
     for (size_t k = 0; k < outputs.size(); k++)

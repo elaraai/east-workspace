@@ -200,6 +200,11 @@ def main() -> None:
         "\n",
         family("rotaryConventions", fam.rotary_conventions_net(), fam.rotary_conventions_batch(), 0, fam.ref_rotary_conventions),
         "\n",
+        family(
+            "rotaryOddHead", fam.rotary_conventions_net(fam.E_ODD_CFG), fam.rotary_conventions_batch(fam.E_ODD_CFG), 0,
+            lambda batch, weights: fam.ref_rotary_conventions(batch, weights, fam.E_ODD_CFG),
+        ),
+        "\n",
         family("draws", fam.draws_net(), fam.draws_batch(), 0, fam.ref_draws),
     ]
     OUT.write_text("".join(parts))

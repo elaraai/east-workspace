@@ -53,34 +53,49 @@ export function parseArgs(argv) {
 // ── ELF: the libraries a shared object needs ──────────────────────────────
 
 function neededOf(file) {
-    const buf = fs.readFileSync(file);
-    if (buf.length < 64 || buf.readUInt32BE(0) !== 0x7f454c46 || buf[4] !== 2 || buf[5] !== 1) return [];
-    const shoff = Number(buf.readBigUInt64LE(0x28));
-    const shentsize = buf.readUInt16LE(0x3a);
-    const shnum = buf.readUInt16LE(0x3c);
-    const sections = [];
-    for (let i = 0; i < shnum; i++) {
-        const o = shoff + i * shentsize;
-        sections.push({
-            type: buf.readUInt32LE(o + 4),
-            offset: Number(buf.readBigUInt64LE(o + 24)),
-            size: Number(buf.readBigUInt64LE(o + 32)),
-            link: buf.readUInt32LE(o + 40),
-        });
-    }
-    const dynamic = sections.find((s) => s.type === 6); // SHT_DYNAMIC
-    if (!dynamic) return [];
-    const strtab = sections[dynamic.link];
-    const names = [];
-    for (let o = dynamic.offset; o + 16 <= dynamic.offset + dynamic.size; o += 16) {
-        const tag = Number(buf.readBigInt64LE(o));
-        if (tag === 0) break;
-        if (tag === 1) { // DT_NEEDED
-            const start = strtab.offset + Number(buf.readBigUInt64LE(o + 8));
-            names.push(buf.toString('utf8', start, buf.indexOf(0, start)));
+    // Read only the ELF header, the section headers, the dynamic section and
+    // its string table: the libraries run to hundreds of megabytes.
+    const fd = fs.openSync(file, 'r');
+    const readAt = (offset, size) => {
+        const b = Buffer.alloc(size);
+        const n = fs.readSync(fd, b, 0, size, offset);
+        return n === size ? b : b.subarray(0, n);
+    };
+    try {
+        const header = readAt(0, 64);
+        if (header.length < 64 || header.readUInt32BE(0) !== 0x7f454c46 || header[4] !== 2 || header[5] !== 1) return [];
+        const shoff = Number(header.readBigUInt64LE(0x28));
+        const shentsize = header.readUInt16LE(0x3a);
+        const shnum = header.readUInt16LE(0x3c);
+        const table = readAt(shoff, shentsize * shnum);
+        const sections = [];
+        for (let i = 0; i < shnum; i++) {
+            const o = i * shentsize;
+            sections.push({
+                type: table.readUInt32LE(o + 4),
+                offset: Number(table.readBigUInt64LE(o + 24)),
+                size: Number(table.readBigUInt64LE(o + 32)),
+                link: table.readUInt32LE(o + 40),
+            });
         }
+        const dynamic = sections.find((s) => s.type === 6); // SHT_DYNAMIC
+        if (!dynamic) return [];
+        const strtab = sections[dynamic.link];
+        const dyn = readAt(dynamic.offset, dynamic.size);
+        const str = readAt(strtab.offset, strtab.size);
+        const names = [];
+        for (let o = 0; o + 16 <= dyn.length; o += 16) {
+            const tag = Number(dyn.readBigInt64LE(o));
+            if (tag === 1) { // DT_NEEDED
+                const at = Number(dyn.readBigUInt64LE(o + 8));
+                const end = str.indexOf(0, at);
+                names.push(str.toString('utf8', at, end < 0 ? str.length : end));
+            }
+        }
+        return names;
+    } finally {
+        fs.closeSync(fd);
     }
-    return names;
 }
 
 // ── ZIP: the central directory, and one entry out ─────────────────────────
@@ -247,16 +262,32 @@ export async function fetchLibtorch(options = {}) {
             const out = join(scratch, 'libtorch');
             fs.mkdirSync(join(out, 'lib'), { recursive: true });
             const taken = new Set();
-            const queue = neededOf(nnLibrary);
-            while (queue.length > 0) {
-                const name = queue.shift();
-                if (taken.has(name)) continue;
-                const entry = entries.get(`${prefix}lib/${name}`);
-                if (!entry) continue; // the system's: libc, libstdc++, ...
-                taken.add(name);
-                const dest = join(out, 'lib', name);
-                await extractEntry(archive, fd, entry, dest);
-                queue.push(...neededOf(dest));
+            if (variant === 'cpu') {
+                // The CPU build: what libeast-c-nn loads, and what that loads, by
+                // their declared dependencies — a closure the clean-install CI job
+                // runs the suites through.
+                const queue = neededOf(nnLibrary);
+                while (queue.length > 0) {
+                    const name = queue.shift();
+                    if (taken.has(name)) continue;
+                    const entry = entries.get(`${prefix}lib/${name}`);
+                    if (!entry) continue; // the system's: libc, libstdc++, ...
+                    taken.add(name);
+                    const dest = join(out, 'lib', name);
+                    await extractEntry(archive, fd, entry, dest);
+                    queue.push(...neededOf(dest));
+                }
+            } else {
+                // A CUDA build opens libraries its headers never declare — cuDNN's
+                // sub-libraries, libtorch_cuda_linalg, nvrtc's builtins — as a
+                // kernel first needs them, so every library of the archive is kept.
+                for (const [name, entry] of entries) {
+                    if (!name.startsWith(`${prefix}lib/`) || !/\.so(\.|$)/.test(name)) continue;
+                    const base = name.slice(`${prefix}lib/`.length);
+                    if (base.includes('/')) continue;
+                    taken.add(base);
+                    await extractEntry(archive, fd, entry, join(out, 'lib', base));
+                }
             }
             if (taken.size === 0) throw new Error(`${nnLibrary} needs nothing from the archive`);
             for (const extra of ['build-version', 'build-hash']) {

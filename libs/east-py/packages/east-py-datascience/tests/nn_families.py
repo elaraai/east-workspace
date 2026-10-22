@@ -573,7 +573,7 @@ def ref_rotary(x: Any, positions: Any, heads: int, base: float) -> Any:
     t, d = x.shape
     dh = d // heads
     half = dh // 2
-    inv = base ** (-torch.arange(half, dtype=x.dtype) * 2.0 / dh)
+    inv = (base ** (-torch.arange(half, dtype=torch.float64) * 2.0 / dh)).to(x.dtype)  # in double, then f32 (§4)
     ang = positions.to(x.dtype)[:, None] * inv  # [T, half]
     cos, sin = ang.cos()[:, None, :], ang.sin()[:, None, :]
     xh = x.reshape(t, heads, dh)
@@ -876,6 +876,10 @@ def ref_time_grid(batch: Any, weights: Any, c: dict[str, int] = D_CFG) -> dict[s
 # ============================================================================
 
 E_CFG = {"T": 3, "d": 8, "heads": 2}
+# A head dimension that is not a power of two (12 = 2 × 6), at positions far enough
+# along for a frequency's last bit to show in the angle: where the runners' rotary
+# formulas parted before the frequencies were computed in double.
+E_ODD_CFG = {"T": 4, "d": 12, "heads": 2, "positions": [0, 1, 16384, 65535]}
 
 
 def rotary_conventions_net(c: dict[str, int] = E_CFG) -> dict[str, Any]:
@@ -887,9 +891,10 @@ def rotary_conventions_net(c: dict[str, int] = E_CFG) -> dict[str, Any]:
     return net(inputs, {}, {}, nodes, {"halves": "halves", "inter": "inter"})
 
 
-def rotary_conventions_batch(c: dict[str, int] = E_CFG, seed: int = 9) -> dict[str, Any]:
+def rotary_conventions_batch(c: dict[str, Any] = E_CFG, seed: int = 9) -> dict[str, Any]:
     rng = np.random.default_rng(seed)
-    return {"x": tensor(rng.normal(size=(c["T"], c["d"]))), "positions": tensor([0, 1, 7], "integer")}
+    positions = c.get("positions", [0, 1, 7])
+    return {"x": tensor(rng.normal(size=(c["T"], c["d"]))), "positions": tensor(positions, "integer")}
 
 
 def ref_rotary_interleaved(x: Any, positions: Any, heads: int, base: float) -> Any:
@@ -898,7 +903,7 @@ def ref_rotary_interleaved(x: Any, positions: Any, heads: int, base: float) -> A
     t, d = x.shape
     dh = d // heads
     half = dh // 2
-    inv = base ** (-torch.arange(half, dtype=x.dtype) * 2.0 / dh)
+    inv = (base ** (-torch.arange(half, dtype=torch.float64) * 2.0 / dh)).to(x.dtype)  # in double, then f32 (§4)
     ang = positions.to(x.dtype)[:, None] * inv  # [T, half]
     cos, sin = ang.cos()[:, None, :], ang.sin()[:, None, :]
     pairs = x.reshape(t, heads, half, 2)
@@ -906,7 +911,7 @@ def ref_rotary_interleaved(x: Any, positions: Any, heads: int, base: float) -> A
     return torch.stack([x1 * cos - x2 * sin, x2 * cos + x1 * sin], -1).reshape(t, d)
 
 
-def ref_rotary_conventions(batch: Any, weights: Any, c: dict[str, int] = E_CFG) -> dict[str, Any]:
+def ref_rotary_conventions(batch: Any, weights: Any, c: dict[str, Any] = E_CFG) -> dict[str, Any]:
     del weights
     b = torch_batch(batch)
     return {

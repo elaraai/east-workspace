@@ -121,7 +121,7 @@ const ints = (n: number, k: number, seed: number) => {
 };
 
 describeEast("NeuralNet platform functions", test => {
-    Assert.examples(test, { nnInit: ex.nnInit, nnRun: ex.nnRun });
+    Assert.examples(test, { nnInit: ex.nnInit, nnRun: ex.nnRun, nnTorchStateDict: ex.nnTorchStateDict });
 
     // ========================================================================
     // Indexing and layout
@@ -976,6 +976,7 @@ describeEast("NeuralNet platform functions", test => {
         ["the head on the events a mask selects, written back by their indices", ref.headSelection],
         ["the time grid from range into a sinusoidal embedding", ref.timeGrid],
         ["rotary under both pairing conventions", ref.rotaryConventions],
+        ["rotary at a head dimension that is no power of two, far along the sequence", ref.rotaryOddHead],
     ] as const) {
         test(`${label} answers what torch answered, to tolerance`, $ => {
             const net = $.let(family.net, NetType);

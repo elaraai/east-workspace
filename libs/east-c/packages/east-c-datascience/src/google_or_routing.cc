@@ -30,13 +30,19 @@ const char *const FN = "google_or_routing_solve";
 
 using Matrix = std::vector<std::vector<int64_t> >;
 
-Matrix matrix(EastValue *rows)
+/* A square matrix over the nodes: every row has one entry per node. */
+Matrix matrix(EastValue *rows, const char *what)
 {
     Matrix out;
     size_t n = length(rows, FN);
     out.reserve(n);
-    for (size_t i = 0; i < n; i++)
+    for (size_t i = 0; i < n; i++) {
         out.push_back(integers(at(rows, i), FN));
+        if (out.back().size() != n)
+            throw Error(msg(FN, std::string(what) + " row " + std::to_string(i) + " has " +
+                                    std::to_string(out.back().size()) + " entries but there are " +
+                                    std::to_string(n) + " nodes"));
+    }
     return out;
 }
 
@@ -84,7 +90,7 @@ EvalResult routing_solve(EastValue **args, size_t num_args, EastType *out)
     EastType *route_t = element_type(routes_t, FN);
     EastType *nodes_t = field_type(route_t, "nodes", FN);
 
-    Matrix distance = matrix(field(model_data, "distance_matrix", FN));
+    Matrix distance = matrix(field(model_data, "distance_matrix", FN), "distance_matrix");
     int num_vehicles = static_cast<int>(as_integer(field(model_data, "num_vehicles", FN), FN));
     int depot = static_cast<int>(as_integer(field(model_data, "depot", FN), FN));
     int num_nodes = static_cast<int>(distance.size());
@@ -106,6 +112,10 @@ EvalResult routing_solve(EastValue **args, size_t num_args, EastType *out)
     if (demands_opt && capacities_opt) {
         demands = integers(demands_opt, FN);
         capacities = integers(capacities_opt, FN);
+        if (demands.size() != static_cast<size_t>(num_nodes))
+            throw Error(msg(FN, "demands has " + std::to_string(demands.size()) +
+                                    " entries but there are " + std::to_string(num_nodes) +
+                                    " nodes"));
         int demand = routing.RegisterUnaryTransitCallback(
             [&](int64_t from) -> int64_t { return demands[node_of(from)]; });
         routing.AddDimensionWithVehicleCapacity(demand, 0, capacities, true, "Capacity");
@@ -116,7 +126,10 @@ EvalResult routing_solve(EastValue **args, size_t num_args, EastType *out)
     EastValue *time_windows_opt = some_value(field(model_data, "time_windows", FN), FN);
     Matrix times;
     if (time_matrix_opt && time_windows_opt) {
-        times = matrix(time_matrix_opt);
+        times = matrix(time_matrix_opt, "time_matrix");
+        if (times.size() != static_cast<size_t>(num_nodes))
+            throw Error(msg(FN, "time_matrix has " + std::to_string(times.size()) +
+                                    " rows but there are " + std::to_string(num_nodes) + " nodes"));
         int time = routing.RegisterTransitCallback(
             [&](int64_t from, int64_t to) -> int64_t { return times[node_of(from)][node_of(to)]; });
         size_t n = length(time_windows_opt, FN);

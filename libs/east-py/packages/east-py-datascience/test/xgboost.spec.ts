@@ -85,7 +85,10 @@ const fixtureModel = (model: FixtureModel) => {
 
 describeEast("XGBoost platform functions", (test) => {
 
-    Assert.examples(test, { xgboostTrainPredict: ex.xgboostTrainPredict, xgboostClassifier: ex.xgboostClassifier, xgboostQuantile: ex.xgboostQuantile, xgboostClassifierScalePosWeight: ex.xgboostClassifierScalePosWeight });
+    Assert.examples(test, {
+        xgboostTrainPredict: ex.xgboostTrainPredict, xgboostClassifier: ex.xgboostClassifier, xgboostQuantile: ex.xgboostQuantile,
+        xgboostClassifierScalePosWeight: ex.xgboostClassifierScalePosWeight, xgboostResave: ex.xgboostResave,
+    });
 
     test("train_regressor and predict works", $ => {
         // Simple linear data: y = x1 + x2

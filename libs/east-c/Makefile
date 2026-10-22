@@ -15,7 +15,11 @@ include ../../paths.mk
 # fetch-ortools` has put the pinned OR-Tools release at build-deps/or-tools and
 # `make fetch-libtorch` the pinned libtorch at build-deps/libtorch.
 # Off, the build is the C runtime, std and the CLI alone.
-EAST_C_DATASCIENCE ?= OFF
+# Passed to CMake only when given: a build directory configured ON stays ON
+# across `make build`/`make test` (an unset value used to reconfigure it OFF,
+# leaving the datascience libraries stale beside a rebuilt runtime).
+EAST_C_DATASCIENCE ?=
+CMAKE_DATASCIENCE := $(if $(EAST_C_DATASCIENCE),-DEAST_C_DATASCIENCE=$(EAST_C_DATASCIENCE),)
 
 # On Windows use Ninja (single-config) so test binaries land at
 # build/packages/.../<name> as on Unix; the default Visual Studio generator is
@@ -29,7 +33,7 @@ endif
 
 ## Build native C libraries and tests
 build:
-	@mkdir -p build && cd build && cmake .. $(CMAKE_GEN) -DEAST_C_DATASCIENCE=$(EAST_C_DATASCIENCE) && cmake --build . -j$$(nproc)
+	@mkdir -p build && cd build && cmake .. $(CMAKE_GEN) $(CMAKE_DATASCIENCE) && cmake --build . -j$$(nproc)
 
 ## Fetch the pinned prebuilt OR-Tools release east-c-datascience links
 ## (build-deps/or-tools, gitignored; the script verifies its SHA-256)

@@ -201,6 +201,47 @@ requests; this file is the record of behaviour. Changes land under
   run on either runner. The compliance harness arms the profiler under
   `EAST_PROFILE`.
 
+### Fixes from the review of the above (east-c-datascience, the std random streams)
+
+- CP-SAT on east-c read every variable's value from a response that held no
+  solution (infeasible, invalid, or out of time), past the end of its empty
+  value array — garbage discarded for a small model, a crash for a large one;
+  it reads values only from a solution now. `google_or_cpsat_solve_all`
+  labels every solution its observer collected `feasible`, as the python
+  runner does, and only the solver's own fallback with the solver's status.
+  An integer variable with domain [0, 1] serves as a literal (in `bool_or`,
+  `bool_and`, an implication, a circuit arc, an interval's `is_present`), as
+  python's OR-Tools takes it. The flow and routing functions refuse arc arrays
+  of unequal lengths, a matrix row shorter than the nodes and a `demands`
+  vector of another length, where they read out of bounds.
+- `rotary`'s inverse frequencies are computed in double and rounded to float
+  on both runners (the specification says so now): for a head dimension that
+  is not a power of two the two runners' frequencies differed in the last bit,
+  and far along a sequence the angles by up to 7e-4.
+- On east-c, a module recomputed in the backward pass (`recompute`) under
+  `bf16` is re-run under the same autocast, so its gradients come from the
+  precision that made the loss, as python's checkpoint does; each recomputed
+  call's state lives in its autograd node, freed with the graph, where a
+  process-wide table kept it when no backward ran.
+- east-c-std's `random_log_normal` draws its normal with the same fdlibm
+  logarithm as `random_normal` (it kept the host's), so a seeded log-normal is
+  the same on every runtime; the first 1,000 values of one are pinned in the
+  Random suite beside the other three streams.
+- east-c-datascience prints floats as python's `repr` does in its messages and
+  `nn_train`'s progress lines (`1e-05`, `1.5e+16`, `nan`), where it printed
+  them as JavaScript does; `google_or_linear_solve_columns` reports its
+  profiler bridge line under its own name; `make build` no longer turns the
+  datascience option off in a build directory configured with it on;
+  `nn_import_torch` refuses a weight two state-dict entries name instead of
+  leaking one. The CUDA libtorch fetch keeps every library of the archive
+  (cuDNN's sub-libraries and the others loaded on demand), while the CPU fetch
+  keeps the declared closure; the dependency scan reads only the ELF tables.
+  The full `e3` Docker image installs `@elaraai/east-c-datascience` with its
+  libtorch, as the datascience tier does, now that e3 lists the package as
+  stock for an east-c runner. `xgboost_resave`, `nn_import_torch` and
+  `nn_export_torch` have examples, and `xgboost_resave` is exported from the
+  TypeScript package.
+
 ### The test harnesses
 
 - **A test named `… (x86-64)` pins an answer only x86-64 gives** — a native

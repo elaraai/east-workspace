@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, BooleanType, variant, some, none, example } from "@elaraai/east";
+import { East, BooleanType, DictType, StringType, variant, some, none, example } from "@elaraai/east";
 import { NeuralNet } from "@elaraai/east-py-datascience";
 
 export const nnInit = example({
@@ -134,6 +134,38 @@ export const nnTrain = example({
         return result.history.length().equal(60n)
             .and(() => last.less(first))
             .and(() => w.subtract(2.0).abs().less(0.3));
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const nnTorchStateDict = example({
+    keywords: ["neural network", "nn_export_torch", "nn_import_torch", "NeuralNet", "torch", "state dict", "weights", "exchange"],
+    description: "Write a network's weights as a torch state dict and read them back: float32 tensors under torch's names, exact once at that precision",
+    fn: East.function([], BooleanType, ($) => {
+        // One linear layer; torch names its parameters `0.weight` and `0.bias`.
+        const net = $.let({
+            inputs: new Map([["x", { dtype: variant("float", null), rank: 2n }]]),
+            params: new Map([
+                ["w", { shape: [3n, 2n], init: variant("xavier_uniform", null), trainable: true, decay: 1.0 }],
+                ["b", { shape: [3n], init: variant("zeros", null), trainable: true, decay: 0.0 }],
+            ]),
+            modules: new Map(),
+            nodes: [{ name: "y", op: variant("linear", { x: "x", weight: "w", bias: some("b") }) }],
+            outputs: new Map([["y", "y"]]),
+        }, NeuralNet.Types.NetType);
+        const weights = $.let(NeuralNet.init(net, 7n));
+        // weight name → torch name; the blob is torch.save's bytes, which torch.load reads
+        const names = $.let(new Map([["w", "0.weight"], ["b", "0.bias"]]), DictType(StringType, StringType));
+        const blob = $.let(NeuralNet.exportTorch(weights, names));
+        const once = $.let(NeuralNet.importTorch(blob, names));
+        // the state dict holds float32 tensors: the init's f64 weights come back at that precision
+        // (within 1e-7 relative), and a round trip of a float32 weight is exact
+        const w = $.let(weights.get("w").data);
+        const rounding = $.let(once.get("w").data.map(($, v, i) => v.subtract(w.get(i)).abs().divide(w.get(i).abs().add(1e-30))).max());
+        const twice = $.let(NeuralNet.importTorch(NeuralNet.exportTorch(once, names), names));
+        const exact = $.let(twice.get("w").data.map(($, v, i) => v.subtract(once.get("w").data.get(i)).abs()).max());
+        return rounding.less(1e-7).and(() => exact.equal(0.0)).and(() => once.get("b").shape.equal(weights.get("b").shape));
     }),
     inputs: [],
     returns: true,

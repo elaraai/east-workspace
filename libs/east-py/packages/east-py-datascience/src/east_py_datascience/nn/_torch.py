@@ -593,7 +593,9 @@ class Interpreter:
             if tuple(positions.shape) != tuple(x.shape[:-1]):
                 raise bad(f"positions must be shaped {list(x.shape[:-1])}")
             half = dh // 2
-            inv = float(a["base"]) ** (-torch.arange(half, device=x.device, dtype=x.dtype) * 2.0 / dh)
+            # the inverse frequencies in double, then the tensor's precision (§4): one value
+            # on every runner for every head dimension, not only the powers of two
+            inv = (float(a["base"]) ** (-torch.arange(half, device=x.device, dtype=torch.float64) * 2.0 / dh)).to(x.dtype)
             angle = positions.to(x.dtype).unsqueeze(-1) * inv
             cos = angle.cos().unsqueeze(-2)
             sin = angle.sin().unsqueeze(-2)

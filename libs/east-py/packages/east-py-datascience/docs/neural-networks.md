@@ -283,7 +283,10 @@ index of the maximum. `cummax`/`cummin` are the running maximum/minimum.
   `positions` integer `[…, T]`, `dh = d/heads` even: per head, `dh/2` pairs
   of dimensions each turn by `θᵢ = positions · base^(−2i/dh)` (`i` in
   `0 .. dh/2−1`): a pair `(a, b)` becomes `(a cos θᵢ − b sin θᵢ, b cos θᵢ +
-  a sin θᵢ)`. `convention` names the pairs: `halves` pairs `x[i]` with
+  a sin θᵢ)`. The inverse frequencies `base^(−2i/dh)` are computed in double
+  (`(−i × 2) / dh`, then the power) and rounded to the tensor's `float`, so
+  every head dimension gives one value on every runner, not only the powers
+  of two whose `2/dh` a float holds exactly. `convention` names the pairs: `halves` pairs `x[i]` with
   `x[i + dh/2]` (the first half with the second), `interleaved` pairs `x[2i]`
   with `x[2i + 1]` (neighbours). Weights trained under one convention serve
   under the other once the query and key projections' output columns are

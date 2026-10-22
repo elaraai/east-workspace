@@ -1281,4 +1281,68 @@ describeEast("GoogleOr platform functions", (test) => {
         $(Assert.throws(GoogleOr.cpsatSolveColumns(columns, columnsConfig), /google_or_cpsat_solve_columns: seed -2147483649 is outside the solver's 32-bit range/));
     });
 
+    // ── CP-SAT: an unsolved response, an observed lone solution, a 0/1 integer as a literal ──
+
+    const cpSatPlain = {
+        max_time_seconds: none, num_workers: some(1n), log_search_progress: none, seed: some(1n),
+        max_solutions: none, relative_gap_limit: none, absolute_gap_limit: none, hints: none,
+    };
+
+    test("an infeasible model of 2,000 booleans answers infeasible with no assignments on every runner", $ => {
+        // a response with no solution has an empty value array: nothing may be read from it
+        const boolVars = $.let(East.value([], ArrayType(CpSatBoolVarType)));
+        const terms = $.let(East.value([], ArrayType(CpSatLinearTermType)));
+        $.for(East.Array.range(0n, 2000n), ($, i) => {
+            const name = $.let(East.value("b").concat(East.print(i)));
+            $(boolVars.pushLast({ name }));
+            $(terms.pushLast({ var: name, coeff: 1n }));
+        });
+        const model = $.let({
+            int_vars: East.value([], ArrayType(CpSatIntVarType)),
+            bool_vars: boolVars,
+            interval_vars: East.value([], ArrayType(CpSatIntervalVarType)),
+            constraints: [variant('linear', { expr: { terms, constant: 0n }, op: variant('greater_equal', null), rhs: 2001n })],
+            objective: none,
+        }, CpSatModelType);
+        const config = $.let(cpSatPlain, CpSatConfigType);
+        const result = $.let(GoogleOr.cpsatSolve(model, config));
+        $(Assert.equal(result.status, variant('infeasible', null)));
+        $(Assert.equal(result.assignments.keys(), new Set<string>()));
+        $(Assert.equal(result.objective_value, none));
+        $(Assert.equal(GoogleOr.cpsatSolveAll(model, config).length(), 0n));
+    });
+
+    test("solve_all labels every solution it observed feasible on every runner, a lone one included", $ => {
+        const model = $.let({
+            int_vars: [],
+            bool_vars: [{ name: "x" }],
+            interval_vars: [],
+            constraints: [variant('linear', { expr: { terms: [{ var: "x", coeff: 1n }], constant: 0n }, op: variant('equal', null), rhs: 1n })],
+            objective: none,
+        }, CpSatModelType);
+        const all = $.let(GoogleOr.cpsatSolveAll(model, $.let(cpSatPlain, CpSatConfigType)));
+        $(Assert.equal(all.length(), 1n));
+        $(Assert.equal(all.get(0n).status, variant('feasible', null)));
+        $(Assert.equal(all.get(0n).assignments.get("x"), 1n));
+    });
+
+    test("an integer variable of domain [0, 1] serves as a literal on every runner", $ => {
+        const model = $.let({
+            int_vars: [{ name: "y", lower_bound: 0n, upper_bound: 1n }],
+            bool_vars: [{ name: "x" }],
+            interval_vars: [],
+            constraints: [
+                // ¬y ∨ x, and x → y, with y = 1: so x = 1
+                variant('bool_or', { literals: [{ var: "y", negated: true }, { var: "x", negated: false }] }),
+                variant('implication', { if_literal: { var: "x", negated: false }, then_literal: { var: "y", negated: false } }),
+                variant('linear', { expr: { terms: [{ var: "y", coeff: 1n }], constant: 0n }, op: variant('equal', null), rhs: 1n }),
+            ],
+            objective: none,
+        }, CpSatModelType);
+        const result = $.let(GoogleOr.cpsatSolve(model, $.let(cpSatPlain, CpSatConfigType)));
+        $(Assert.equal(result.status, variant('optimal', null)));
+        $(Assert.equal(result.assignments.get("x"), 1n));
+        $(Assert.equal(result.assignments.get("y"), 1n));
+    });
+
 }, { exportOnly: true });

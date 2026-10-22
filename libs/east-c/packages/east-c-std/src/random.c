@@ -292,7 +292,9 @@ static EvalResult random_log_normal(EastValue **args, size_t num_args, EastType 
         s = u * u + v * v;
     } while (s <= 0.0 || s >= 1.0);
 
-    double z = u * sqrt(-2.0 * log(s) / s);
+    /* The same normal every runtime draws (random_normal): fdlibm's log, so a
+     * seeded log-normal matches the python and node runtimes' bit for bit. */
+    double z = u * sqrt(-2.0 * fdlibm_log(s) / s);
     return eval_ok(east_float(exp(mu + sigma * z)));
 }
 

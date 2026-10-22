@@ -74,8 +74,13 @@ EvalResult min_cost_flow(EastValue **args, size_t num_args, EastType *out)
     std::vector<int64_t> capacities = integers(field(input, "capacities", fn), fn);
     std::vector<int64_t> unit_costs = integers(field(input, "unit_costs", fn), fn);
     std::vector<int64_t> supplies = integers(field(input, "supplies", fn), fn);
-    size_t n =
-        std::min({start_nodes.size(), end_nodes.size(), capacities.size(), unit_costs.size()});
+    size_t n = start_nodes.size();
+    if (end_nodes.size() != n || capacities.size() != n || unit_costs.size() != n)
+        throw Error(msg(fn, "start_nodes, end_nodes, capacities and unit_costs must have one entry "
+                            "per arc; got " +
+                                std::to_string(n) + ", " + std::to_string(end_nodes.size()) + ", " +
+                                std::to_string(capacities.size()) + " and " +
+                                std::to_string(unit_costs.size())));
 
     SimpleMinCostFlow smcf;
     for (size_t i = 0; i < n; i++)
@@ -111,7 +116,12 @@ EvalResult max_flow(EastValue **args, size_t num_args, EastType *out)
     std::vector<int64_t> capacities = integers(field(input, "capacities", fn), fn);
     int source = static_cast<int>(as_integer(field(input, "source", fn), fn));
     int sink = static_cast<int>(as_integer(field(input, "sink", fn), fn));
-    size_t n = std::min({start_nodes.size(), end_nodes.size(), capacities.size()});
+    size_t n = start_nodes.size();
+    if (end_nodes.size() != n || capacities.size() != n)
+        throw Error(msg(fn, "start_nodes, end_nodes and capacities must have one entry per arc; "
+                            "got " +
+                                std::to_string(n) + ", " + std::to_string(end_nodes.size()) +
+                                " and " + std::to_string(capacities.size())));
 
     SimpleMaxFlow smf;
     for (size_t i = 0; i < n; i++)

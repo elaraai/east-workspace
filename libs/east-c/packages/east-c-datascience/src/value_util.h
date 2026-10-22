@@ -18,6 +18,9 @@
 #include <east/values.h>
 
 #include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
@@ -439,16 +442,72 @@ inline EastValue *float_matrix(size_t rows, size_t cols, const std::vector<doubl
     return v;
 }
 
-/* A Float as python prints it: the shortest round-tripping digits, with a
- * `.0` on a whole number — what east-py-datascience's messages hold. */
+/* A Float as python's repr prints it — what east-py-datascience's messages and
+ * nn_train's progress lines hold: the shortest round-tripping digits (which
+ * east_fmt_double finds, in JavaScript's layout), laid out as python lays them
+ * — fixed notation when the decimal point falls in -4 < exponent <= 16, else
+ * `d.ddde±XX` with at least two exponent digits; `inf`, `-inf`, `nan`; `.0`
+ * on a whole number. */
 inline std::string python_float(double x)
 {
+    if (std::isnan(x)) return "nan";
+    if (std::isinf(x)) return x > 0 ? "inf" : "-inf";
     char buf[64];
     east_fmt_double(buf, sizeof(buf), x);
-    std::string s(buf);
-    if (s.find_first_of(".eEn") == std::string::npos && s != "Infinity" && s != "-Infinity")
-        s += ".0";
-    return s;
+    std::string js(buf);
+    /* The digits and the decimal exponent from JavaScript's text: "-1.5e+21",
+     * "0.00003", "123.456", "1e-7". */
+    std::string digits;
+    bool negative = false;
+    int exponent = 0; /* the value is 0.digits × 10^exponent */
+    size_t i = 0;
+    if (i < js.size() && js[i] == '-') {
+        negative = true;
+        i++;
+    }
+    int point = -1; /* digits before the point */
+    int exp_part = 0;
+    for (; i < js.size(); i++) {
+        char c = js[i];
+        if (c >= '0' && c <= '9') {
+            digits += c;
+        } else if (c == '.') {
+            point = (int)digits.size();
+        } else if (c == 'e' || c == 'E') {
+            exp_part = std::atoi(js.c_str() + i + 1);
+            break;
+        }
+    }
+    if (point < 0) point = (int)digits.size();
+    /* strip leading zeros (adjusting the point) and trailing zeros */
+    size_t lead = 0;
+    while (lead + 1 < digits.size() && digits[lead] == '0') {
+        lead++;
+        point--;
+    }
+    digits = digits.substr(lead);
+    while (digits.size() > 1 && digits.back() == '0')
+        digits.pop_back();
+    if (digits == "0") return negative ? "-0.0" : "0.0";
+    exponent = point + exp_part; /* value = 0.d1d2… × 10^exponent */
+    int decpt = exponent;        /* python's decimal-point position */
+    std::string out = negative ? "-" : "";
+    if (decpt > -4 && decpt <= 16) {
+        if (decpt <= 0) {
+            out += "0." + std::string((size_t)(-decpt), '0') + digits;
+        } else if ((size_t)decpt >= digits.size()) {
+            out += digits + std::string((size_t)decpt - digits.size(), '0') + ".0";
+        } else {
+            out += digits.substr(0, (size_t)decpt) + "." + digits.substr((size_t)decpt);
+        }
+        return out;
+    }
+    int e = decpt - 1;
+    out += digits.substr(0, 1);
+    if (digits.size() > 1) out += "." + digits.substr(1);
+    char ebuf[16];
+    std::snprintf(ebuf, sizeof(ebuf), "e%c%02d", e < 0 ? '-' : '+', e < 0 ? -e : e);
+    return out + ebuf;
 }
 
 /* ---- time ------------------------------------------------------------- */
