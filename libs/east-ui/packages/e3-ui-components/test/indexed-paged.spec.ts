@@ -22,6 +22,7 @@ import {
 } from "@elaraai/east";
 import { AREA_UNPLACED, RecordSliceWhereType, bindRecord } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
+import { recordSlicePlace, recordSliceWithin } from "@elaraai/east-ui-components/internal";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { Data, deriveManifest } from "@elaraai/e3-ui/internal";
@@ -369,6 +370,39 @@ test("a window over an area index reads the racks whose box meets it from the in
     const reads = [...pagesOf(racks), ...h.requests("runs", `records.${racks.name}`)].filter(request => request.query.has("index"));
     assert.ok(reads.length > 0 && reads.every(request => !request.query.has("join")), "an area index's reads join nothing");
     assert.equal(h.requests("read", `records.${racks.name}`).length, 0, "the record is never read whole");
+    runtime.clear();
+});
+
+test("a record Slice places its narrowing's rows in the record, and asks which of some rows it holds, from the index alone (#1349)", async () => {
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(sliceProgram, slicePlatform(runtime))();
+    const R1 = await h.ready(() => handle.data.revision());
+    const where = handle.read().where;
+    // Skill b: Ada and Amy, two of the record's three people, all in its one segment.
+    const placement = await h.ready(() => recordSlicePlace(handle));
+    assert.deepEqual(placement, { segments: [{ offset: 0n, count: 3n, rows: 2n }], placed: 2n, total: 2n, records: 3n, complete: true });
+    const stored = await h.read(people);
+    const rows = [...stored].map(([key, row]) => ({ key, row }));
+    assert.deepEqual(rows.map(row => row.key), ["p1", "p2", "p3"]);
+    assert.deepEqual(await h.ready(() => recordSliceWithin(handle, where, rows)), [true, false, true]);
+    // One placement and one membership read, pinned to the revision the narrowing's runs are at, and no page of the
+    // record's own rows: Ada's two skills are two entries, Abe's none, Amy's one.
+    assert.deepEqual(h.requests("place", `records.${people.name}`).map(request => [request.method, request.query.get("hash")]), [["POST", R1]]);
+    const within = h.requests("within", `records.${people.name}`);
+    assert.deepEqual(within.map(request => [request.method, request.query.get("hash")]), [["POST", R1]]);
+    const body = JSON.parse(new TextDecoder().decode(within[0]!.body)) as { index: string; keys: string[] };
+    assert.equal(body.index, ex.peopleBySkill.name);
+    assert.equal(body.keys.length, 3);
+    assert.deepEqual(pagesOf(people).filter(request => !request.query.has("index")), [], "no page of the record's own rows");
+    // Asked again, both answer from what the runtime holds.
+    const before = h.requests("place", `records.${people.name}`).length + within.length;
+    assert.deepEqual(recordSlicePlace(handle), some(placement));
+    assert.deepEqual(recordSliceWithin(handle, where, rows), some([true, false, true]));
+    assert.equal(h.requests("place", `records.${people.name}`).length + h.requests("within", `records.${people.name}`).length, before);
+    // A narrowing of no field holds every row, and has nothing to place.
+    assert.deepEqual(recordSliceWithin(handle, new Map(), rows), some([true, true, true]));
+    assert.throws(() => recordSlicePlace(handle, new Map()), /nothing narrows this record/);
     runtime.clear();
 });
 

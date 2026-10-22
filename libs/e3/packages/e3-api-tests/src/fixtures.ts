@@ -14,7 +14,10 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3, { type PackageDef } from '@elaraai/e3';
-import { ArrayType, DictType, FloatType, FunctionType, IntegerType, NullType, StringType, StructType, OptionType, East, variant, some, none } from '@elaraai/east';
+import {
+  ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, SetType, StringType, StructType, OptionType, East, variant,
+  some, none,
+} from '@elaraai/east';
 import { Console, Time } from '@elaraai/east-node-std';
 
 /**
@@ -368,6 +371,86 @@ export async function createAreaRecordPackageZip(
   const byArea = e3.recordIndex.area('racks_by_area', racks, { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
   const byHallArea = e3.recordIndex.area('racks_by_hall_area', racks, { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
   const pkg = e3.package(name, version, racks, seed, e3.mutation.patch(racks), byArea, byHallArea);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** When the place fixture's first order starts: midnight UTC on 1 January 2026. */
+export const ORDERS_FROM = new Date(Date.UTC(2026, 0, 1));
+/** The row of the place fixture's record: an order's status, its name, its due rank, its tags, and when it runs. */
+export const OrderRowType = StructType({
+  status: StringType, name: StringType, due: IntegerType, tags: SetType(StringType), start: DateTimeType, end: DateTimeType,
+});
+/** The place fixture's record: orders by key. */
+export const OrdersType = DictType(StringType, OrderRowType);
+
+/**
+ * Create a package whose record a narrowing's rows are placed in (#1349): in
+ * which of the record's segments the rows of a narrowing sit, from its runs of
+ * one of the record's indexes, and which index entries those runs hold.
+ *
+ * Creates a package with:
+ * - Record: "orders" (Dict<String, {status, name, due, tags, start, end}>,
+ *   empty), and Mutation "seed" (count) => `count` orders keyed `order-<i>`:
+ *   `open`, `late`, `done` or `held` by `i` mod 4; named `Ash`, `Birch`,
+ *   `Cedar` or `Fir` by `i` div 3 mod 4, then `i`; due `i` × 7919 mod `count`,
+ *   a rank of its own whenever `count` shares no factor with 7919; tagged
+ *   `t<i mod 5>` and `t<i mod 7>`; starting `i` mod 97 hours after
+ *   {@link ORDERS_FROM}, and running 30 days when `i` is a multiple of 13, else
+ *   `i` mod 5 hours, which is no time at all when it is 0
+ * - Indexes: "orders_by_status", "orders_by_name", "orders_by_due" and
+ *   "orders_by_tag", each on its one field (the tags' files an order under each
+ *   of its tags), and "orders_by_time", the interval index from `start` to
+ *   `end`
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createPlaceRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const orders = e3.record('orders', OrdersType, new Map());
+  const seed = e3.mutation.reduce('seed', orders,
+    East.function([OrdersType, IntegerType], OrdersType, ($, _state, count) => {
+      const statuses = $.const(['open', 'late', 'done', 'held'], ArrayType(StringType));
+      const names = $.const(['Ash', 'Birch', 'Cedar', 'Fir'], ArrayType(StringType));
+      const from = $.const(ORDERS_FROM, DateTimeType);
+      const out = $.let(new Map(), OrdersType);
+      $.for(East.Array.range(0n, count), ($, i) => {
+        const tags = $.let(new Set<string>(), SetType(StringType));
+        $(tags.tryInsert(East.str`t${i.remainder(5n)}`));
+        $(tags.tryInsert(East.str`t${i.remainder(7n)}`));
+        const start = $.let(from.addHours(i.remainder(97n)));
+        const end = $.let(start.addHours(i.remainder(5n)));
+        $.if(East.equal(i.remainder(13n), 0n), ($) => {
+          $.assign(end, start.addDays(30n));
+        });
+        $(out.insert(East.str`order-${i}`, {
+          status: statuses.get(i.remainder(4n)),
+          name: East.str`${names.get(i.divide(3n).remainder(4n))} ${i}`,
+          due: i.multiply(7919n).remainder(count),
+          tags,
+          start,
+          end,
+        }));
+      });
+      return out;
+    }));
+  const byStatus = e3.recordIndex('orders_by_status', orders, { on: ['status'] });
+  const byName = e3.recordIndex('orders_by_name', orders, { on: ['name'] });
+  const byDue = e3.recordIndex('orders_by_due', orders, { on: ['due'] });
+  const byTag = e3.recordIndex('orders_by_tag', orders, { on: ['tags'] });
+  const byTime = e3.recordIndex.interval('orders_by_time', orders, { from: 'start', to: 'end' });
+  const pkg = e3.package(name, version, orders, seed, byStatus, byName, byDue, byTag, byTime);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

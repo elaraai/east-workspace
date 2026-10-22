@@ -259,6 +259,80 @@ test("a batching reader's pending batch or read is `none`, never a partial count
     assert.equal(unwrap(engine.page(union, 5n, 10n)).length, 10, "a refused read does not poison its retry");
 });
 
+/**
+ * The batching source as a reader that places and asks memberships (#1349):
+ * a placement of runs counts their rows in segments of ten rows; an entry is
+ * named by its row, its `ik` the row's text, and lies in the runs when its row
+ * does — every read kept, in the order asked.
+ */
+function placingSource(size: bigint, ranges: Map<string, Range>) {
+    const base = batchingSource(size, ranges);
+    let pending = false;
+    let skew = 0n;
+    const placed: Range[][] = [];
+    const asked: { runs: Range[]; entries: { ik: string; key: unknown }[] }[] = [];
+    const reader: RecordSliceReader<bigint> = {
+        ...base.reader,
+        placeAll(_index, runs) {
+            placed.push(runs.map(({ row, count }) => ({ row, count })));
+            if (pending) return none;
+            const bySegment = new Map<bigint, bigint>();
+            for (const { row, count } of runs) {
+                for (let at = row; at < row + count; at++) bySegment.set(at / 10n, (bySegment.get(at / 10n) ?? 0n) + 1n);
+            }
+            const total = runs.reduce((sum, run) => sum + run.count, 0n) + skew;
+            return some({
+                segments: [...bySegment].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([segment, rows]) => ({ offset: segment * 10n, count: 10n, rows })),
+                placed: total, total, records: size, complete: true,
+            });
+        },
+        withinAll(_index, runs, entries) {
+            asked.push({ runs: runs.map(({ row, count }) => ({ row, count })), entries: entries.map(({ ik, key }) => ({ ik, key })) });
+            if (pending) return none;
+            return some(entries.map(({ ik }) => runs.some(({ row, count }) => parseInteger(ik) >= row && parseInteger(ik) < row + count)));
+        },
+    };
+    return { reader, placed, asked, revision: base.revision,
+        pending(value: boolean) { pending = value; base.pending(value); },
+        /** Answer each placement this many rows off its runs' count. */
+        skew(value: bigint) { skew = value; } };
+}
+
+test("a narrowing's rows are placed through its resolved runs, and a placement that disagrees with its bounds is refused (#1349)", () => {
+    const source = placingSource(100n, new Map([['"a"', { row: 10n, count: 10n }], ['"b"', { row: 55n, count: 20n }]]));
+    const engine = new RecordSliceSource(source.reader);
+    source.pending(true);
+    assert.deepEqual(engine.place(union), none, "nothing is placed while the runs are pending");
+    assert.deepEqual(source.placed, [], "a placement waits for the runs it places");
+    source.pending(false);
+    const placement = unwrap(engine.place(union));
+    assert.deepEqual(source.placed, [[{ row: 10n, count: 10n }, { row: 55n, count: 20n }]], "the plan's runs, ascending, whatever order its searches were in");
+    assert.deepEqual(placement.segments.map(segment => [segment.offset, segment.rows]), [[10n, 10n], [50n, 5n], [60n, 10n], [70n, 5n]]);
+    assert.deepEqual([placement.placed, placement.total, placement.records, placement.complete], [30n, 30n, 100n, true]);
+    // Another revision whose placement counts a row its bounds do not hold.
+    source.revision(some("B"));
+    source.skew(1n);
+    assert.throws(() => engine.place(union), /placement disagrees with its search bounds/);
+    source.skew(0n);
+    assert.equal(unwrap(engine.place(union)).total, 30n, "a refused placement does not poison its retry");
+    assert.throws(() => new RecordSliceSource(batchingSource(100n, new Map()).reader).place(union), /cannot place/);
+});
+
+test("which of some entries a narrowing holds is asked of its resolved runs in one read, the reader deciding (#1349)", () => {
+    const source = placingSource(100n, new Map([['"a"', { row: 10n, count: 10n }], ['"b"', { row: 55n, count: 20n }]]));
+    const engine = new RecordSliceSource(source.reader);
+    const entries = [9n, 10n, 19n, 20n, 54n, 55n, 74n, 75n].map(row => ({ ik: `${row}`, key: row }));
+    assert.deepEqual(unwrap(engine.within(union, entries)), [false, true, true, false, false, true, true, false],
+        "each run holds its first and last rows, and not those beside it");
+    assert.deepEqual(source.asked, [{ runs: [{ row: 10n, count: 10n }, { row: 55n, count: 20n }], entries }], "every entry in one read, beside the runs");
+    assert.deepEqual(unwrap(engine.within(union, [])), [], "asked of nothing, nothing is read");
+    assert.equal(source.asked.length, 1);
+    source.revision(some("B"));
+    source.pending(true);
+    assert.deepEqual(engine.within(union, entries), none, "a read pending is none, never a partial answer");
+    assert.throws(() => new RecordSliceSource(batchingSource(100n, new Map()).reader).within(union, entries), /cannot read which rows/);
+});
+
 test("a plan of more searches than one batch takes is asked as several batches, all in one pass (#1351)", () => {
     const keys = Array.from({ length: MAX_RECORD_SLICE_BATCH + 5 }, (_, i) => `"k${i}"`);
     const source = batchingSource(BigInt(2 * keys.length), new Map(keys.map((key, i) => [key, { row: BigInt(2 * i), count: 1n }])));

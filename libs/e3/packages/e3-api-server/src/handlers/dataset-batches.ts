@@ -247,6 +247,28 @@ async function rowsAt(
   });
 }
 
+/**
+ * Why a batch's runs are not runs of a collection's rows, or `undefined` when
+ * they are: each `[row, count]` a row at least 0 and a count at least 1,
+ * ascending and disjoint, and each inside the collection.
+ *
+ * @param runs - The runs, as a batch names them
+ * @param total - The collection's row count
+ * @returns The refusal's words, naming the run by its place, or `undefined`
+ */
+export function runsRefusal(runs: readonly (readonly [number, number])[], total: number): string | undefined {
+  let end = 0;
+  for (const [i, [row, count]] of runs.entries()) {
+    if (!Number.isSafeInteger(row) || !Number.isSafeInteger(count) || row < 0 || count < 1) {
+      return `run ${i} is [${row}, ${count}]: a run is a row at least 0 and a count at least 1`;
+    }
+    if (row < end) return `run ${i} starts at row ${row}, before the run before it ends (${end}): runs are ascending and disjoint`;
+    if (row + count > total) return `run ${i} ends at row ${row + count}, past the collection's ${total} rows`;
+    end = row + count;
+  }
+  return undefined;
+}
+
 /** Several runs of a collection's rows, for {@link getDatasetRuns}. */
 export interface DatasetRunsRequest {
   /** The runs, `[row, count]`: ascending, disjoint, each inside the
@@ -325,22 +347,9 @@ export async function getDatasetRuns(
       : null;
 
     const total = collection.elementCount;
-    let end = 0;
-    let entries = 0;
-    for (const [i, run] of request.runs.entries()) {
-      const [row, count] = run;
-      if (!Number.isSafeInteger(row) || !Number.isSafeInteger(count) || row < 0 || count < 1) {
-        return pageError('bad_request', `run ${i} is [${row}, ${count}]: a run is a row at least 0 and a count at least 1`);
-      }
-      if (row < end) {
-        return pageError('bad_request', `run ${i} starts at row ${row}, before the run before it ends (${end}): runs are ascending and disjoint`);
-      }
-      if (row + count > total) {
-        return pageError('bad_request', `run ${i} ends at row ${row + count}, past the collection's ${total} rows`);
-      }
-      end = row + count;
-      entries += count;
-    }
+    const refused = runsRefusal(request.runs, total);
+    if (refused !== undefined) return pageError('bad_request', refused);
+    const entries = request.runs.reduce((sum, [, count]) => sum + count, 0);
 
     // A page's bounds: the entries' share of the budget by their average
     // size, and a joined read's by the record's rows' too.

@@ -13,7 +13,7 @@ import type { PlatformFunction } from "@elaraai/east/internal";
 import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
     RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType,
-    recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry,
+    recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry, type RecordSlicePlacement,
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
@@ -84,10 +84,11 @@ function activeScan(key: string): PagedScan<unknown, unknown[]> {
 
 /**
  * The reads a host's runtime batches for a record Slice's binding (#1351):
- * several searches of one source in one request, and the entries of several
- * runs in one.
+ * several searches of one source in one request, the entries of several runs
+ * in one, and where a narrowing's runs sit in the record and which entries
+ * they hold (#1349).
  */
-export type RecordSliceBatches = Required<Pick<RecordSliceReader<RecordSliceEntry>, "seekAll" | "runsAll">>;
+export type RecordSliceBatches = Required<Pick<RecordSliceReader<RecordSliceEntry>, "seekAll" | "runsAll" | "placeAll" | "withinAll">>;
 
 /** How the host's runtime batches a binding's reads, when it does. */
 let batchesOf: ((binding: RecordSliceBinding) => RecordSliceBatches | undefined) | undefined;
@@ -109,7 +110,9 @@ export function registerRecordSliceBatches(resolve: (binding: RecordSliceBinding
 /** A binding with the reads its runtime batches beside its own. */
 function batched(source: RecordSliceBinding): RecordSliceBinding {
     const batches = batchesOf?.(source);
-    return batches === undefined ? source : { ...source, seekAll: batches.seekAll, runsAll: batches.runsAll };
+    return batches === undefined ? source : {
+        ...source, seekAll: batches.seekAll, runsAll: batches.runsAll, placeAll: batches.placeAll, withinAll: batches.withinAll,
+    };
 }
 
 function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
@@ -282,6 +285,54 @@ export function recordSliceSeeded(slice: Pick<ValueTypeOf<RecordSliceBindType>, 
     const store = getStore();
     const seed = seeds.get(store)?.get(slice.key);
     return seed !== undefined && store.read(slice.key) === seed;
+}
+
+/**
+ * The controller a record Slice's handle reads through, in the page's store:
+ * the one its binding made, by the handle's key — the latest, should a
+ * redeployed binding have made another.
+ *
+ * @param slice - The record Slice
+ * @returns Its controller
+ * @throws {Error} When no binding of it lives in the page's store
+ */
+function controllerOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): RecordSliceController {
+    let found: RecordSliceController | undefined;
+    for (const entry of bindings.get(getStore())?.values() ?? []) if (entry.descriptor[0] === slice.key) found = entry.controller;
+    if (found === undefined) throw new Error(`The record Slice '${slice.key}' is bound in no store this page holds`);
+    return found;
+}
+
+/**
+ * Where a record Slice's narrowing sits in its record (#1349): how many of the
+ * narrowing's rows each record segment holds, read from the index alone, as far
+ * as they are placed — what a renderer lays a narrowing out over the record by
+ * (the Sheet's lens). A tracked read: the evaluation that reads it runs again as
+ * each window of the placement lands, and when the narrowing or the record moves.
+ * The handle's East type is unchanged; this is the runtime's.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing; the one the Slice holds when absent
+ * @returns The placement so far; none while its bounds or its first window are pending
+ * @throws {Error} With no narrowing, or when its binding reads no placements
+ */
+export function recordSlicePlace(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where?: Where): option<RecordSlicePlacement> {
+    return controllerOf(slice).place(where);
+}
+
+/**
+ * Which of some rows a record Slice's narrowing holds (#1349): each row's
+ * maintained entry keys asked of the narrowing's runs in one read, the server
+ * deciding by the runs. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing
+ * @param rows - The rows, each its primary key and row, as the record holds them at its current revision
+ * @returns Whether the narrowing holds each row, in order; none while pending
+ * @throws {Error} When its binding reads no memberships
+ */
+export function recordSliceWithin(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
+    return controllerOf(slice).within(where, rows);
 }
 
 /** Persist through the same store-key mechanism as local Slice, validating

@@ -86,6 +86,10 @@ export type E3RequestKind =
     | "rows"
     /** The entries of several runs of a dataset, or of one of a record's indexes, read in one request (#1351). */
     | "runs"
+    /** Where a narrowing's runs of one of a record's indexes sit in the record: a window of them placed (#1349). */
+    | "place"
+    /** Which of some index entries a narrowing's runs of one of a record's indexes hold (#1349). */
+    | "within"
     /** A dataset written. */
     | "write"
     /** A dataset's status, or a listing of datasets. */
@@ -321,6 +325,8 @@ export function e3RequestOf(
             if (method === "POST" && query.get("findKeys") === "true") return { ...base, ...named, kind: "find", searches: batchSearches(body) };
             if (method === "POST" && query.get("rows") === "true") return { ...base, ...named, kind: "rows" };
             if (method === "POST" && query.get("runs") === "true") return { ...base, ...named, kind: "runs" };
+            if (method === "POST" && query.get("place") === "true") return { ...base, ...named, kind: "place" };
+            if (method === "POST" && query.get("within") === "true") return { ...base, ...named, kind: "within" };
             if (method !== "GET") return { ...base, ...named, kind: "write" };
             if (query.get("find") === "true") return { ...base, ...named, kind: "find", searches: [searchOf(query)] };
             if (query.get("page") === "true") return { ...base, ...named, kind: "page" };

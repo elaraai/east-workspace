@@ -6,7 +6,7 @@
 /** Named field-index reads, adapted through the existing pinned paged runtime. */
 import {
     East, ArrayType, BooleanType, DictType, IntegerType, NullType, OptionType,
-    StringType, StructType, fromEastTypeValue, toEastTypeValue, printType, isTypeEqual,
+    StringType, StructType, fromEastTypeValue, toEastTypeValue, printType, isTypeEqual, parseFor, printFor,
     none, some, variant, type EastType, type EastTypeValue, type option, type ValueTypeOf,
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
@@ -81,9 +81,40 @@ export class IndexedPagedRuntime {
     // again and looked its handle up by that type's structure.
     private sources = new WeakMap<Schema, Map<string, Handle>>();
 
-    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll">) {}
+    // Each index's printer of an entry key, `(ik=…, k=…)`, from its key's text and the row's key (#1349).
+    private entryPrinters = new WeakMap<Schema, Map<string, (ik: string, key: unknown) => string>>();
 
-    clear(): void { this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); }
+    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll" | "placeAll" | "withinAll">) {}
+
+    clear(): void { this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); this.entryPrinters = new WeakMap(); }
+
+    /**
+     * An index's entry key, `(ik=…, k=…)`, as a membership read names it (#1349):
+     * the index key's `.east` text, as the binding's maintained keys print it,
+     * read back as the index key's type, beside the row's key.
+     *
+     * @param schema - The binding's types
+     * @param name - The index
+     * @returns The printer
+     */
+    private entryPrinter(schema: Schema, name: string): (ik: string, key: unknown) => string {
+        let printers = this.entryPrinters.get(schema);
+        if (printers === undefined) { printers = new Map(); this.entryPrinters.set(schema, printers); }
+        let print = printers.get(name);
+        if (print === undefined) {
+            const ikType = schema.keys[name];
+            if (ikType === undefined) throw new Error(`Index '${name}' was not declared on this binding`);
+            const parse = parseFor(ikType);
+            const printEntry = printFor(StructType({ ik: ikType, k: schema.args[0] }));
+            print = (ik, key) => {
+                const parsed = parse(ik);
+                if (!parsed.success) throw new Error(`The index '${name}' has no key ${ik}: ${parsed.error}`);
+                return printEntry({ ik: parsed.value, k: key });
+            };
+            printers.set(name, print);
+        }
+        return print;
+    }
 
     private schema(types: EastTypeValue[]): Schema {
         const args = types.map(fromEastTypeValue) as Schema["args"];
@@ -186,6 +217,24 @@ export class IndexedPagedRuntime {
                 if (name === "primary" && !joined) throw new Error("A covering-only binding cannot read primary rows");
                 const read = this.paged.runsAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const));
                 return read.type === "none" ? none : some(this.entriesOf(schema, name, read.value) as never);
+            },
+            // Where a narrowing's runs of an index sit in the record, and which entries they hold (#1349).
+            placeAll: (name, runs) => {
+                if (name === "primary") throw new Error("A placement places runs of one of the record's indexes, never of its own rows");
+                const placement = this.paged.placeAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const));
+                if (placement.type === "none") return none;
+                const { segments, placed, entries, total, complete } = placement.value;
+                return some({
+                    segments: segments.map(segment => ({ offset: BigInt(segment.offset), count: BigInt(segment.count), rows: BigInt(segment.rows) })),
+                    placed: BigInt(placed), total: BigInt(entries), records: BigInt(total), complete,
+                });
+            },
+            withinAll: (name, runs, entries) => {
+                if (name === "primary") throw new Error("A membership read asks of runs of one of the record's indexes, never of its own rows");
+                const print = this.entryPrinter(schema, name);
+                const within = this.paged.withinAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const),
+                    entries.map(entry => print(entry.ik, entry.key)));
+                return within.type === "none" ? none : some([...within.value]);
             },
         };
     }

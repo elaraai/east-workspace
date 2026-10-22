@@ -157,6 +157,8 @@ export {
   datasetFindKeys,
   datasetGetRows,
   datasetGetRuns,
+  datasetPlace,
+  datasetWithin,
   DATASET_BATCH_MAX,
   datasetSet,
   datasetSetStream,
@@ -176,6 +178,11 @@ export {
   type DatasetRows,
   type DatasetRunsQuery,
   type DatasetRuns,
+  type DatasetPlaceQuery,
+  type DatasetPlacedSegment,
+  type DatasetPlacement,
+  type DatasetWithinQuery,
+  type DatasetWithin,
 } from './datasets.js';
 
 // Tasks

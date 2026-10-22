@@ -258,8 +258,8 @@ keeps a workspace's rows for whoever asks next. A host whose data any caller may
 read lets those caches keep it too, a CDN's among them, with the dataset
 routes' `cache: 'public'`; `getDatasetPage`, `getValuePage` and
 `findDatasetKey` take the same. An answer not pinned is `no-store`, and so is a
-batch read's (`findKeys`, `rows`, `runs`), a POST whose body names what it
-reads.
+batch read's (`findKeys`, `rows`, `runs`, `place`, `within`), a POST whose body
+names what it reads.
 
 A batch read is a POST to a dataset's own path, as an upload's init is to its
 `/upload`: a host mounts the dataset routes after the transfer routes, at the
@@ -372,6 +372,8 @@ and a copy onto itself `invalid_name`.
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?findKeys=true` | Several key searches of one collection or index (`index`), `{ queries: [...] }`, each in one of `find`'s forms, at most 10,000: JSON `{ results: [{ found, row, count }, …] }`, in order; pinned with `hash` |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?rows=true` | The rows of several keys of a Dict, `{ keys: [<.east>, …] }`, at most 10,000: BEAST2 of `datasetRowsType(K, V)` — each key, its row or none, and its position in the Dict's order — for the first `X-Page-Count` keys the page budget reaches; pinned with `hash` |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?runs=true&hash=` | The entries of several runs of a collection's rows, or of an index's (`index`, `join`), `{ runs: [[row, count], …] }`, ascending and disjoint, at most 10,000: one window of the dataset's type, or the index's window type, holding the first `X-Page-Count` of the runs' `X-Run-Entries` entries a page's bounds reach |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?place=true&hash=` | Where a narrowing's rows sit in a record: `{ index, runs: [[row, count], …], offset?, limit? }`, the runs of one of its indexes, at most 10,000, a window of their entries from `offset`: JSON `{ segments: [{ segment, offset, count, rows }], placed }` — each record segment the window's entries fall in, its first row, its row count and how many of them it holds — for the first `placed` entries a page's bounds reach; `X-Total-Elements` the record's rows, `X-Run-Entries` the runs' |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?within=true&hash=` | Which of some index entries a narrowing's runs hold: `{ index, runs: [[row, count], …], keys: ["(ik=…, k=…)", …] }`, each key an entry's index key beside its row's key, at most 10,000 runs and 10,000 keys: JSON `{ within: [boolean, …] }`, in order |
 | PUT | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Set dataset value (BEAST2) |
 
 A collection is streamed as the splice of its segments. A client whose host
@@ -389,6 +391,16 @@ by content hash, bounded by their decoded weight (64 MiB), and every page,
 search and batch reads through them — so a window read again, or a pan over
 the same segments, decodes none. A value read whole is streamed as its
 segments' bytes, and decodes none of them.
+
+Where a narrowing's rows sit among a record's is two reads of its index alone,
+never of a record segment. `place` reads the window's entries from the
+index's own segments and places each entry's row in the record segment that
+holds it by the record's fences, which its manifest carries: a narrowing's runs
+name each row once, so a segment's counts over every window add up to the
+narrowing's rows in it. `within` reads each run's first and last entries — at
+most two index segments a run — and places every key it is asked of among them
+by the index entry key's order. Neither evaluates anything over a row: the index
+holds what its maintained key functions emitted, and both use only that.
 
 ### Objects
 

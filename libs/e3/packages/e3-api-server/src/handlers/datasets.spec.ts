@@ -22,6 +22,7 @@ import {
   encodeBeast2PagedFor,
   equalFor,
   none,
+  printFor,
   some,
   toEastTypeValue,
   variant,
@@ -41,8 +42,8 @@ import { createTransferRoutes } from '../routes/transfer.js';
 import { findDatasetKey, getDataset, setDataset, type DatasetFindQuery } from './datasets.js';
 // The page and batch handlers through the handlers entry, as a host reaches them.
 import {
-  decodedSegmentStats, findDatasetKeys, getDatasetPage, getDatasetRows, getDatasetRuns, getValuePage,
-  type DatasetPageWindow, type KeySearchQuery, type PinnedCache,
+  decodedSegmentStats, findDatasetKeys, getDatasetPage, getDatasetRows, getDatasetRuns, getValuePage, placeDatasetRuns, withinDatasetRuns,
+  type DatasetPageWindow, type DatasetPlacedSegment, type KeySearchQuery, type PinnedCache,
 } from './index.js';
 
 /**
@@ -1369,6 +1370,203 @@ describe('getDatasetRuns (the entries of several runs in one request)', () => {
   });
 });
 
+/** The `by_due` index window, as e3 answers it. */
+const DueWindowType = indexWindowType(StringType, IntegerType, StringType, PlanRowType);
+const decodeDueWindow = decodeBeast2For(DueWindowType as never) as (bytes: Uint8Array) => Array<{ ik: bigint; key: string }>;
+/** An entry key of the `by_status` index: its index key beside the row's key. */
+const StatusEntryKeyType = StructType({ ik: PlanStatusKeyType, k: StringType });
+const printStatusEntryKey = printFor(StatusEntryKeyType);
+
+/** The rows each of a stored collection's segments ends before, by its manifest. */
+async function cumulativeOf(storage: InMemoryStorage, manifest: string): Promise<number[]> {
+  const out: number[] = [];
+  let sum = 0;
+  for (const entry of decodeCollectionManifest(await storage.objects.read(REPO, manifest)).entries) {
+    sum += Number(entry.count);
+    out.push(sum);
+  }
+  return out;
+}
+
+/** Where some index entries' rows sit, worked out from the record's rows: each segment holding some, with how many. */
+function placementOf(keys: readonly string[], rows: SortedMap<string, PlanRow>, cumulative: readonly number[]): DatasetPlacedSegment[] {
+  const positions = new Map([...rows.keys()].map((key, i) => [key, i]));
+  const held = new Map<number, number>();
+  for (const key of keys) {
+    const segment = cumulative.findIndex((end) => positions.get(key)! < end);
+    held.set(segment, (held.get(segment) ?? 0) + 1);
+  }
+  return [...held].sort((a, b) => a[0] - b[0]).map(([segment, count]) => ({
+    segment, offset: segment === 0 ? 0 : cumulative[segment - 1]!, count: cumulative[segment]! - (segment === 0 ? 0 : cumulative[segment - 1]!), rows: count,
+  }));
+}
+
+/** Adds windows' placements up, segment by segment. */
+function sumPlacements(placements: readonly DatasetPlacedSegment[][]): DatasetPlacedSegment[] {
+  const held = new Map<number, DatasetPlacedSegment>();
+  for (const segment of placements.flat()) {
+    const known = held.get(segment.segment);
+    held.set(segment.segment, known === undefined ? { ...segment } : { ...known, rows: known.rows + segment.rows });
+  }
+  return [...held.values()].sort((a, b) => a.segment - b.segment);
+}
+
+type Placement = { segments: DatasetPlacedSegment[]; placed: number };
+
+describe('placeDatasetRuns (where a narrowing\'s runs of an index sit in its record)', () => {
+  it('places each entry of the runs in the record segment that holds its row, reading each index segment once and no record segment', async () => {
+    const storage = new InMemoryStorage();
+    const { rows, primary, primarySegments, dueSegments } = await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    // `by_due` scatters the record: a run's rows land all over it.
+    const runs: [number, number][] = [[0, 400], [3000, 300], [9000, 600]];
+    const spy = spyReadsByObject(storage, [...primarySegments, ...dueSegments]);
+    let answer: Placement;
+    try {
+      const response = await placeDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_due', runs, hash: state });
+      assert.equal(response.headers.get('X-Content-SHA256'), state);
+      assert.equal(response.headers.get('Cache-Control'), 'no-store', 'a POST is no cache\'s to keep');
+      assert.equal(response.headers.get('X-Run-Entries'), '1300');
+      assert.equal(response.headers.get('X-Total-Elements'), '12000', 'the record\'s rows');
+      answer = await batchJson<Placement>(response);
+      assert.deepEqual([...spy.reads.keys()].filter((hash) => primarySegments.includes(hash)), [], 'the record\'s fences place each row: no record segment is read');
+      assert.ok(spy.total() > 0, 'the index\'s segments are read');
+      assert.deepEqual([...spy.reads.values()].filter((n) => n !== 1), [], 'each index segment touched is read once');
+    } finally {
+      spy.restore();
+    }
+    assert.equal(answer.placed, 1300);
+    const read = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, index: 'by_due' });
+    const keys = decodeDueWindow(new Uint8Array(await read.arrayBuffer())).map((entry) => entry.key);
+    assert.deepEqual(answer.segments, placementOf(keys, rows, await cumulativeOf(storage, primary)));
+    assert.ok(answer.segments.length > 3, `the runs' rows scatter across the record, in ${answer.segments.length} segments`);
+  });
+
+  it('places a window of the runs at a time, within a page\'s bounds, the windows adding up to the whole', async () => {
+    const storage = new InMemoryStorage();
+    const { rows, primary } = await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    const place = async (runs: [number, number][], window: { offset?: number; limit?: number } = {}, byteBudget?: number) =>
+      batchJson<Placement>(await placeDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_status', runs, hash: state, ...window },
+        byteBudget === undefined ? {} : { byteBudget }));
+    // `late` is rows 4000..7999 of `by_status`, and `open`'s week 0 is 8000..8399.
+    const runs: [number, number][] = [[4000, 4000], [8000, 400]];
+    const whole = await place(runs);
+    assert.equal(whole.placed, 4400);
+    const read = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, index: 'by_status' });
+    assert.deepEqual(whole.segments, placementOf(decodeStatusWindow(new Uint8Array(await read.arrayBuffer())).map((entry) => entry.key), rows,
+      await cumulativeOf(storage, primary)));
+
+    const windows: DatasetPlacedSegment[][] = [];
+    for (let offset = 0; offset < 4400;) {
+      const window = await place(runs, { offset, limit: 777 });
+      assert.ok(window.placed > 0 && window.placed <= 777, `a window places at most its limit, placed ${window.placed}`);
+      windows.push(window.segments);
+      offset += window.placed;
+    }
+    assert.equal(windows.length, 6);
+    assert.deepEqual(sumPlacements(windows), whole.segments, 'the windows add up to the whole, segment by segment');
+
+    assert.deepEqual(await place(runs, { offset: 4400 }), { segments: [], placed: 0 }, 'past the runs\' end, nothing');
+    assert.equal((await place(runs, {}, 1)).placed, 1, 'the byte budget clamps a window');
+    const capped = await place([[0, 12_000]]);
+    assert.equal(capped.placed, 10_000, 'a window places a page\'s 10,000 entries at most');
+    const rest = await place([[0, 12_000]], { offset: capped.placed });
+    assert.equal(rest.placed, 2000, 'and the rest places on from there');
+    assert.equal(sumPlacements([capped.segments, rest.segments]).reduce((sum, segment) => sum + segment.rows, 0), 12_000);
+    assert.deepEqual(sumPlacements([capped.segments, rest.segments]).map((segment) => segment.rows),
+      sumPlacements([capped.segments, rest.segments]).map((segment) => segment.count), 'the whole index places every row of every segment');
+  });
+
+  it('refuses runs that are not ascending, disjoint and inside the index, more than 10,000 of them, a bad window, an index the record lacks, and a stale pin', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const state = await stateOf(storage);
+    const refused = async (request: Partial<Parameters<typeof placeDatasetRuns>[4]>) =>
+      refusalOf(await placeDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_status', runs: [[0, 1]], hash: state, ...request }));
+    assert.match((await refused({ runs: [[10, 5], [12, 3]] })).message, /run 1 starts at row 12, before the run before it ends \(15\)/);
+    assert.match((await refused({ runs: [[290, 20]] })).message, /run 0 ends at row 310, past the collection's 300 rows/);
+    assert.match((await refused({ runs: [[3, 0]] })).message, /run 0 is \[3, 0\]/);
+    const many = await refused({ runs: Array.from({ length: 10_001 }, (_, i) => [i, 1] as [number, number]) });
+    assert.deepEqual([many.status, many.type], [400, 'bad_request']);
+    assert.match(many.message, /at most 10000 runs; this one has 10001/);
+    assert.match((await refused({ offset: -1 })).message, /offset -1 is not a row at least 0/);
+    assert.match((await refused({ limit: 1.5 })).message, /limit 1.5 is not a count at least 0/);
+    const missing = await refused({ index: 'nope' });
+    assert.deepEqual([missing.status, missing.type], [404, 'index_not_found']);
+    const stale = await refused({ hash: '0'.repeat(64) });
+    assert.deepEqual([stale.status, stale.type, stale.sha], [409, 'dataset_hash_mismatch', state]);
+    // Ten thousand runs, the most a placement takes, place as one.
+    const big = new InMemoryStorage();
+    await seedIndexedRecord(big, 12_000);
+    const most = await batchJson<Placement>(await placeDatasetRuns(big, REPO, WS, plansPath,
+      { index: 'by_due', runs: Array.from({ length: 10_000 }, (_, i) => [i, 1] as [number, number]), hash: await stateOf(big) }));
+    assert.equal(most.placed, 10_000);
+  });
+});
+
+describe('withinDatasetRuns (which entries a narrowing\'s runs of an index hold)', () => {
+  it('answers whether each entry lies in one of the runs, reading at most two index segments a run and no record segment', async () => {
+    const storage = new InMemoryStorage();
+    const { rows, primarySegments, statusSegments } = await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    // One `late` row's entry, `late`'s week 3, and every `open` entry.
+    const runs: [number, number][] = [[4000, 1], [5200, 400], [8000, 4000]];
+    const held = new Set<string>();
+    const read = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, index: 'by_status' });
+    for (const entry of decodeStatusWindow(new Uint8Array(await read.arrayBuffer()))) held.add(printStatusEntryKey({ ik: entry.ik, k: entry.key }));
+    // A row's entry key, as the index files it: its status and week, then its key.
+    const sampled = [...rows].filter((_, i) => i % 37 === 0).map(([k, row]) =>
+      printStatusEntryKey({ ik: { status: ['done', 'late', 'open'][Number(row.due % 3n)]!, week: row.due % 10n }, k }));
+    assert.ok(sampled.some((key) => held.has(key)) && sampled.some((key) => !held.has(key)), 'the keys are in and out of the runs');
+    // Each run's first and last entries, and those just outside it: where a slip at a run's edge shows.
+    const edges = [...new Set(runs.flatMap(([row, count]) => [row - 1, row, row + count - 1, row + count]))]
+      .filter((row) => row >= 0 && row < 12_000).sort((a, b) => a - b);
+    const edgeRead = await getDatasetRuns(storage, REPO, WS, plansPath, { runs: edges.map((row): [number, number] => [row, 1]), hash: state, index: 'by_status' });
+    const edgeKeys = decodeStatusWindow(new Uint8Array(await edgeRead.arrayBuffer())).map((entry) => printStatusEntryKey({ ik: entry.ik, k: entry.key }));
+    assert.equal(edgeKeys.length, edges.length);
+    const keys = [...sampled, ...edgeKeys];
+
+    const fresh = new InMemoryStorage();
+    await seedIndexedRecord(fresh, 12_000);
+    const spy = spyReadsByObject(fresh, [...primarySegments, ...statusSegments]);
+    try {
+      const response = await withinDatasetRuns(fresh, REPO, WS, plansPath, { index: 'by_status', runs, keys, hash: await stateOf(fresh) });
+      assert.equal(response.headers.get('Cache-Control'), 'no-store');
+      const { within } = await batchJson<{ within: boolean[] }>(response);
+      assert.deepEqual(within, keys.map((key) => held.has(key)), 'each key is in the runs exactly when a read of them holds it');
+      assert.deepEqual(within.slice(sampled.length), edges.map((row) => runs.some(([start, count]) => row >= start && row < start + count)),
+        'each run holds its first and last entries, and not those beside it');
+      assert.deepEqual([...spy.reads.keys()].filter((hash) => primarySegments.includes(hash)), [], 'no record segment is read');
+      assert.ok(spy.total() > 0 && spy.total() <= 2 * runs.length, `the runs' first and last entries lie in at most two segments a run, read ${spy.total()}`);
+      assert.deepEqual([...spy.reads.values()].filter((n) => n !== 1), [], 'each read once');
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('refuses more than 10,000 keys or runs, runs not of the index, a key that is no entry key — naming its place — an index the record lacks, and a stale pin', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const state = await stateOf(storage);
+    const refused = async (request: Partial<Parameters<typeof withinDatasetRuns>[4]>) =>
+      refusalOf(await withinDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_status', runs: [[0, 10]], keys: [], hash: state, ...request }));
+    const manyKeys = await refused({ keys: Array.from({ length: 10_001 }, () => '(ik=(status="late", week=1), k="p-000001")') });
+    assert.match(manyKeys.message, /at most 10000 keys; this one has 10001/);
+    assert.match((await refused({ runs: Array.from({ length: 10_001 }, (_, i) => [i, 1] as [number, number]) })).message, /at most 10000 runs/);
+    assert.match((await refused({ runs: [[5, 5], [8, 2]] })).message, /run 1 starts at row 8/);
+    const bad = await refused({ keys: ['(ik=(status="late", week=1), k="p-000001")', '(status="late", week=1)'] });
+    assert.deepEqual([bad.status, bad.type], [400, 'key_parse_error']);
+    assert.match(bad.message, /^key 1: /, 'an index key alone is no entry key');
+    const missing = await refused({ index: 'nope' });
+    assert.deepEqual([missing.status, missing.type], [404, 'index_not_found']);
+    const stale = await refused({ hash: '0'.repeat(64) });
+    assert.deepEqual([stale.status, stale.type, stale.sha], [409, 'dataset_hash_mismatch', state]);
+    assert.deepEqual(await batchJson(await withinDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_status', runs: [], keys: ['(ik=(status="late", week=1), k="p-000001")'], hash: state })),
+      { within: [false] }, 'no run holds anything');
+  });
+});
+
 describe('the batch routes', () => {
   /** An app mounting the dataset routes behind the transfer routes, as every server does. */
   function serverOf(storage: InMemoryStorage, options: Parameters<typeof createDatasetRoutes>[3] = {}): Hono {
@@ -1423,6 +1621,30 @@ describe('the batch routes', () => {
     assert.match((await refused('rows=true&findKeys=true', { keys: [] })).message, /Ask for one batch/);
     const other = await post(app, '', {});
     assert.equal(other.status, 404, 'a POST naming no batch is no route');
+  });
+
+  it('answer a placement and a membership read as their handlers do, and refuse their bodies\' wrong forms', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 3000);
+    const state = await stateOf(storage);
+    const app = serverOf(storage);
+    const placed = await batchJson<Placement>(await post(app, `place=true&hash=${state}`, { index: 'by_status', runs: [[0, 100], [1000, 50]], offset: 20, limit: 70 }));
+    assert.deepEqual(placed, await batchJson<Placement>(await placeDatasetRuns(storage, REPO, WS, plansPath,
+      { index: 'by_status', runs: [[0, 100], [1000, 50]], offset: 20, limit: 70, hash: state })));
+    assert.equal(placed.placed, 70);
+    const key = '(ik=(status="done", week=0), k="p-000000")';
+    const within = await batchJson<{ within: boolean[] }>(await post(app, `within=true&hash=${state}`, { index: 'by_status', runs: [[0, 100]], keys: [key] }));
+    assert.deepEqual(within, await batchJson(await withinDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_status', runs: [[0, 100]], keys: [key], hash: state })));
+
+    const refused = async (query: string, body: unknown) => refusalOf(await post(app, query, body));
+    assert.match((await refused('place=true', { index: 'by_status', runs: [] })).message, /A placement names the content hash its runs are positions at/);
+    assert.match((await refused('within=true', { index: 'by_status', runs: [], keys: [] })).message, /A membership read names the content hash/);
+    assert.match((await refused(`place=true&hash=${state}`, { runs: [] })).message, /A placement names the index its runs are rows of/);
+    assert.match((await refused(`within=true&hash=${state}`, { index: '', runs: [], keys: [] })).message, /A membership read names the index/);
+    assert.match((await refused(`place=true&hash=${state}`, { index: 'by_status', runs: [[1]] })).message, /run 0 is not \[row, count\]/);
+    assert.match((await refused(`place=true&hash=${state}`, { index: 'by_status', runs: [], offset: '1' })).message, /offset is a number/);
+    assert.match((await refused(`within=true&hash=${state}`, { index: 'by_status', runs: [] })).message, /A membership read is \{ "index"/);
+    assert.match((await refused(`place=true&within=true&hash=${state}`, {})).message, /Ask for one batch/);
   });
 });
 

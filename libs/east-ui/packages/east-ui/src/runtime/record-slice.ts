@@ -11,7 +11,7 @@ import {
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import { planRecordSlice, recordChoiceWhere, recordPlanIndex, type RecordSlicePlan } from "../platform/slice/record-plan.js";
 import type { RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType, RecordSliceChoiceType, RecordSliceCountType, RecordSliceDomainType } from "../platform/slice/record-types.js";
-import { RecordSliceSource, type RecordSliceReader } from "./record-slice-source.js";
+import { RecordSliceSource, type RecordSliceEntryKey, type RecordSlicePlacement, type RecordSliceReader } from "./record-slice-source.js";
 import type { SeekQueryType } from "../contracts/source.js";
 
 type Config = ValueTypeOf<RecordSliceConfigType>;
@@ -299,6 +299,52 @@ export class RecordSliceController {
         const revision = this.source.revision();
         if (revision.type === "none" || revision.value !== runs.value.revision || (pending && !included)) return none;
         return some(included);
+    }
+
+    /**
+     * Where a narrowing's rows sit in the record (#1349): how many of them each
+     * record segment holds, read from the index alone, as far as they are
+     * placed. With no narrowing every row is the record's own, and there is
+     * nothing to place.
+     *
+     * @param where - The narrowing; the one the Slice holds when absent
+     * @returns The placement so far, or none while the narrowing's bounds or its first window are pending
+     * @throws {Error} With no narrowing, or when the binding reads no placements
+     */
+    place(where: Where = this.readState().where): option<RecordSlicePlacement> {
+        const plan = this.plan(where);
+        if (plan.queries.length === 0) throw new Error("A placement places a narrowing's rows, and nothing narrows this record");
+        return this.windows.place(plan);
+    }
+
+    /**
+     * Which of some rows a narrowing holds (#1349), each row's maintained entry
+     * keys asked of the narrowing's runs in one read: the server decides by the
+     * runs, and no predicate runs over a row here. A row is held when any of its
+     * entries is, as {@link RecordSliceController.contains} decides it one row at a time.
+     *
+     * @param where - The narrowing
+     * @param rows - The rows asked of, each its primary key and its row as the record holds them at its current revision
+     * @returns Whether the narrowing holds each row, in order; none while its bounds or the read are pending
+     * @throws {Error} When the binding reads no memberships
+     */
+    within(where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
+        const plan = this.plan(where);
+        // No narrowing holds every row.
+        if (plan.queries.length === 0) return some(rows.map(() => true));
+        const entries: RecordSliceEntryKey[] = [];
+        const owners: number[] = [];
+        for (const [i, { key, row }] of rows.entries()) {
+            for (const ik of this.source.entryKeys(plan.index, key, row)) {
+                entries.push({ ik, key });
+                owners.push(i);
+            }
+        }
+        const answers = this.windows.within(plan, entries);
+        if (answers.type === "none") return none;
+        const held = rows.map(() => false);
+        for (const [j, inside] of answers.value.entries()) if (inside) held[owners[j]!] = true;
+        return some(held);
     }
 
     /** Labels a typical exact choice would replace, for advance explanation. */

@@ -96,9 +96,15 @@ import {
     datasetGetRows,
     datasetGetRuns,
     datasetGetStatus,
+    datasetPlace,
+    datasetWithin,
     DatasetHashMismatchError,
     DATASET_BATCH_MAX,
     type DatasetPage,
+    type DatasetPlaceQuery,
+    type DatasetPlacement,
+    type DatasetWithin,
+    type DatasetWithinQuery,
     type DatasetFindQuery,
     type DatasetFindResult,
     type DatasetFindKeysQuery,
@@ -174,6 +180,32 @@ export interface PagedRow {
 /** A run of a source's rows: its first row and how many it holds. */
 export type PagedRun = readonly [row: number, count: number];
 
+/** A record segment some of a narrowing's rows fall in (#1349). */
+export interface PagedPlacedSegment {
+    /** The segment's number in the record's manifest. */
+    readonly segment: number;
+    /** Its first row in the record's order. */
+    readonly offset: number;
+    /** How many rows it holds. */
+    readonly count: number;
+    /** How many of the narrowing's rows it holds. */
+    readonly rows: number;
+}
+
+/** Where a narrowing's runs of an index sit in its record, as far as they are placed (#1349). */
+export interface PagedPlacement {
+    /** The record segments the placed entries fall in, in the record's order, each with how many it holds. */
+    readonly segments: readonly PagedPlacedSegment[];
+    /** How many of the runs' entries are placed. */
+    readonly placed: number;
+    /** How many entries the runs hold. */
+    readonly entries: number;
+    /** The record's row count. */
+    readonly total: number;
+    /** Whether every entry is placed: until then, the segments not yet placed hold rows the placement has not counted. */
+    readonly complete: boolean;
+}
+
 /** The selector a bind with no index has. */
 const NO_INDEX: PagedSelector = { index: null, join: false };
 
@@ -205,6 +237,13 @@ export interface PagedApi {
     /** Read the entries of several runs of a source's rows in one request, in
      *  order: the first `count` of them a page's bounds reach. */
     getRuns(workspace: string, path: TreePath, query: DatasetRunsQuery): Promise<DatasetRuns>;
+    /** Place a window of a narrowing's runs of one of a record's indexes in the
+     *  record (#1349): how many of the window's entries each record segment
+     *  holds, the first `placed` of them a page's bounds reach. */
+    place(workspace: string, path: TreePath, query: DatasetPlaceQuery): Promise<DatasetPlacement>;
+    /** Ask which of some index entries a narrowing's runs of one of a record's
+     *  indexes hold, in one request (#1349). */
+    within(workspace: string, path: TreePath, query: DatasetWithinQuery): Promise<DatasetWithin>;
     /**
      * The dataset's current content hash, or `null` while it has no value. For
      * a record it is the record's state hash, which reads through its indexes
@@ -261,6 +300,12 @@ export function createDefaultPagedApi(
         async getRuns(workspace, path, query) {
             return datasetGetRuns(apiUrl, repo, workspace, path, query, getOptions());
         },
+        async place(workspace, path, query) {
+            return datasetPlace(apiUrl, repo, workspace, path, query, getOptions());
+        },
+        async within(workspace, path, query) {
+            return datasetWithin(apiUrl, repo, workspace, path, query, getOptions());
+        },
         async getRevision(workspace, path) {
             const status = await datasetGetStatus(apiUrl, repo, workspace, path, getOptions());
             return status.hash.type === "some" ? status.hash.value : null;
@@ -300,6 +345,9 @@ interface PageEntry {
     /** A rows read's answer, every key asked's row in order — the answer on a
      *  rows batch's channel (#1351). */
     rows?: readonly PagedRow[];
+    /** A placement's answer so far — the answer on a placement's channel
+     *  (#1349), set as each of its windows lands. */
+    placement?: PagedPlacement;
     /** Why the last attempt failed — what a read of the channel throws. */
     error?: string;
     /** When the last attempt failed, so a retry can be rate-limited. */
@@ -437,6 +485,10 @@ interface Snapshot {
      *  rows they read (#1351): a search by one of their keys, and a one-row
      *  page at one's position, answer from them. Dropped when it moves. */
     readonly held: Map<string, HeldRows>;
+    /** Which entry keys a narrowing's runs hold, as membership reads have
+     *  answered them at this revision, by the runs (#1349). Dropped when it
+     *  moves. */
+    readonly within: Map<string, Map<string, boolean>>;
     /** Stops following the dataset; `undefined` while it is not followed —
      *  nothing reads it, or no adapter is installed. */
     unwatch: (() => void) | undefined;
@@ -453,6 +505,19 @@ interface HeldRows {
 /** The most rows a family holds from reads by key; past it, what it held goes
  *  and the newest read's rows are held alone. */
 const MAX_HELD_ROWS = 20_000;
+
+/** How many windows of a placement are asked at once (#1349). */
+const PLACE_CONCURRENCY = 4;
+
+/** The most entry keys one membership read asks of (#1349): a reader asks of
+ *  more in parts. */
+export const MAX_WITHIN_KEYS = 20_000;
+
+/** The most entry keys whose membership one narrowing's runs hold answered;
+ *  past it, what was held goes and the newest read's answers are held alone.
+ *  Twice what one read asks, so the answers a read waited on are always held
+ *  when it reads again. */
+const MAX_HELD_WITHIN = 2 * MAX_WITHIN_KEYS;
 
 /**
  * The runs left of `runs` once their first `taken` entries are in hand.
@@ -680,7 +745,7 @@ function seekQueryText(query: DatasetFindQuery): string {
  * @returns The key
  */
 export function pagedBatchKey(
-    workspace: string, path: TreePath, revision: string, selector: PagedSelector, kind: "seekAll" | "rows" | "runs", parts: readonly string[],
+    workspace: string, path: TreePath, revision: string, selector: PagedSelector, kind: "seekAll" | "rows" | "runs" | "place" | "within", parts: readonly string[],
 ): string {
     return `${pagedWindowFamily(workspace, path, revision, selector)}#${kind}:${parts.join("\u0001")}`;
 }
@@ -820,6 +885,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 finding: false,
                 channels: new Set(),
                 held: new Map(),
+                within: new Map(),
                 unwatch: undefined,
             };
             this.snapshots.set(key, snapshot);
@@ -929,6 +995,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         }
         snapshot.channels.clear();
         snapshot.held.clear();
+        snapshot.within.clear();
         this.notify(pagedRevisionKey(workspace, path));
     }
 
@@ -1551,6 +1618,220 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; e.window = window; e.runSpans = runSpans; delete e.error; })) return;
             this.touchWindow(batchKey);
             this.notify(batchKey);
+        })();
+    }
+
+    /**
+     * Where a narrowing's runs of one of a record's indexes sit in the record
+     * (#1349): how many of the runs' entries each record segment holds, placed
+     * a window at a time and drawn as the windows land.
+     *
+     * @remarks
+     * The first window learns how many entries the server places in one, and
+     * the rest are asked {@link PLACE_CONCURRENCY} at a time from there; a
+     * window placed short leaves the rest of it to ask again. Runs past a
+     * request's {@link DATASET_BATCH_MAX} are placed a group at a time. A
+     * narrowing's runs name each row once, so the windows' placements add up,
+     * segment by segment. The channel re-fires as each window lands, its
+     * placement `complete` once the last has.
+     *
+     * @param source - One of a record's indexes, the runs' rows
+     * @param runs - The narrowing's runs: ascending, disjoint, each inside the index
+     * @returns What is placed so far, once the first window has landed
+     * @throws The placement's failure, until a read after the retry gap asks again;
+     *   at once, for a source that is no record's index
+     */
+    placeAll(source: PagedSource, runs: readonly PagedRun[]): option<PagedPlacement> {
+        const index = source.selector.index;
+        if (index === null) throw new Error("Data.bindPaged: a placement places runs of one of a record's indexes");
+        const workspace = this.resolveWorkspace();
+        const { path, selector } = source;
+        const revision = this.revisionFor(workspace, path);
+        if (typeof revision !== "string") return none;
+        const snapshot = this.snapshotOf(workspace, path);
+        const batchKey = pagedBatchKey(workspace, path, revision, selector, "place", runs.map(([row, count]) => `${row}+${count}`));
+        this.track(batchKey);
+        const batch = this.channel(snapshot, batchKey);
+        if (this.due(batch)) this.launchPlacement(workspace, path, snapshot, revision, index, batchKey, runs);
+        if (batch.status === "failed") return this.answer<PagedPlacement>(batch, undefined);
+        return batch.placement === undefined ? none : some(batch.placement);
+    }
+
+    /** Launch a placement: its windows, {@link PLACE_CONCURRENCY} at a time,
+     *  each answer added in as it lands. */
+    private launchPlacement(
+        workspace: string,
+        path: TreePath,
+        snapshot: Snapshot,
+        revision: string,
+        index: string,
+        batchKey: string,
+        runs: readonly PagedRun[],
+    ): void {
+        const seq = this.launch(this.channel(snapshot, batchKey));
+        const api = this.api;
+        const entries = runs.reduce((sum, [, count]) => sum + count, 0);
+        void (async () => {
+            const held = new Map<number, PagedPlacedSegment>();
+            let placed = 0;
+            let total = 0;
+            /** Add a window's answer in, and re-fire the placement's readers. */
+            const land = (answer: DatasetPlacement): boolean => {
+                for (const segment of answer.segments) {
+                    const known = held.get(segment.segment);
+                    held.set(segment.segment, known === undefined ? { ...segment } : { ...known, rows: known.rows + segment.rows });
+                }
+                placed += answer.placed;
+                total = answer.totalElements;
+                const placement: PagedPlacement = {
+                    segments: [...held.values()].sort((a, b) => a.segment - b.segment), placed, entries, total, complete: placed === entries,
+                };
+                return this.settle(batchKey, seq, (e) => {
+                    e.placement = placement;
+                    if (placement.complete) { e.status = "loaded"; delete e.error; }
+                });
+            };
+            try {
+                if (api === null) throw new Error("no PagedApi installed");
+                // No runs are one group, placing nothing, whose answer says how many rows the record holds.
+                const groups: (readonly PagedRun[])[] = [];
+                for (let at = 0; at < runs.length; at += DATASET_BATCH_MAX) groups.push(runs.slice(at, at + DATASET_BATCH_MAX));
+                if (groups.length === 0) groups.push([]);
+                for (const group of groups) {
+                    const groupEntries = group.reduce((sum, [, count]) => sum + count, 0);
+                    // The first window says how many entries a window places.
+                    const first = await api.place(workspace, path, { index, runs: group, offset: 0, hash: revision });
+                    if (!this.pinnedTo(snapshot, revision) || !land(first)) return;
+                    if (first.placed < 1 && groupEntries > 0) throw new Error("a placement placed no entry of runs that hold some");
+                    const width = first.placed;
+                    // What is left to place, as stretches of the runs' entries.
+                    const left: [number, number][] = first.placed < groupEntries ? [[first.placed, groupEntries]] : [];
+                    while (left.length > 0) {
+                        const asked: [number, number][] = [];
+                        while (asked.length < PLACE_CONCURRENCY && left.length > 0) {
+                            const [from, to] = left[0]!;
+                            const until = Math.min(to, from + width);
+                            asked.push([from, until]);
+                            if (until === to) left.shift();
+                            else left[0] = [until, to];
+                        }
+                        const answers = await Promise.all(asked.map(([from, until]) =>
+                            api.place(workspace, path, { index, runs: group, offset: from, limit: until - from, hash: revision })));
+                        if (!this.pinnedTo(snapshot, revision)) return;
+                        for (const [k, answer] of answers.entries()) {
+                            const [from, until] = asked[k]!;
+                            if (answer.placed < 1) throw new Error("a placement placed no entry of a window that holds some");
+                            if (!land(answer)) return;
+                            // A window placed short leaves the rest of it to ask again.
+                            if (from + answer.placed < until) left.unshift([from + answer.placed, until]);
+                        }
+                    }
+                }
+            } catch (err) {
+                if (this.followed(workspace, path, snapshot, revision, err)) return;
+                this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
+                console.error(`Data.bindPaged: placement failed for ${batchKey}:`, err);
+            }
+        })();
+    }
+
+    /**
+     * Which of some index entries a narrowing's runs of one of a record's
+     * indexes hold (#1349): for each entry key, whether it lies in one of the
+     * runs, in the order asked — `none` while any is in flight.
+     *
+     * @remarks
+     * Each key's answer is held at the revision, by the runs, so a key asked
+     * again — a segment drawn again, a window panned back — is answered from
+     * what is held, and only the keys not held go in a request: one for each
+     * {@link DATASET_BATCH_MAX} keys, and for each as many runs, a key in any
+     * group of the runs being in them.
+     *
+     * @param source - One of a record's indexes, the runs' rows
+     * @param runs - The narrowing's runs: ascending, disjoint, each inside the index
+     * @param keys - `.east` literals of the index's entry keys, `(ik=…, k=…)`: at
+     *   most {@link MAX_WITHIN_KEYS} in one read
+     * @returns Whether each key lies in one of the runs, once every one is known
+     * @throws The read's failure, until a read after the retry gap asks again;
+     *   at once, for a source that is no record's index, or more keys than a read takes
+     */
+    withinAll(source: PagedSource, runs: readonly PagedRun[], keys: readonly string[]): option<readonly boolean[]> {
+        const index = source.selector.index;
+        if (index === null) throw new Error("Data.bindPaged: a membership read asks of runs of one of a record's indexes");
+        if (keys.length > MAX_WITHIN_KEYS) {
+            throw new Error(`Data.bindPaged: a membership read asks of ${MAX_WITHIN_KEYS} entry keys at most; ask of ${keys.length} in parts`);
+        }
+        const workspace = this.resolveWorkspace();
+        const { path, selector } = source;
+        const revision = this.revisionFor(workspace, path);
+        if (typeof revision !== "string") return none;
+        const snapshot = this.snapshotOf(workspace, path);
+        const family = `${pagedWindowFamily(workspace, path, revision, selector)}#within:${runs.map(([row, count]) => `${row}+${count}`).join(",")}`;
+        const held = snapshot.within.get(family);
+        const answers: boolean[] = new Array<boolean>(keys.length);
+        const missing = new Set<string>();
+        for (const [i, key] of keys.entries()) {
+            const known = held?.get(key);
+            if (known === undefined) missing.add(key);
+            else answers[i] = known;
+        }
+        if (missing.size === 0) return some(answers);
+        const asked = [...missing];
+        // The channel coordinates the read; the answers are held key by key, so
+        // two reads that share a channel each read their own keys again if need be.
+        const batchKey = pagedBatchKey(workspace, path, revision, selector, "within",
+            [family, String(asked.length), asked[0]!, asked[asked.length - 1]!]);
+        this.track(batchKey);
+        const batch = this.channel(snapshot, batchKey);
+        if (batch.status === "loaded") batch.status = "idle";
+        if (this.due(batch)) this.launchWithin(workspace, path, snapshot, revision, index, family, batchKey, runs, asked);
+        return this.answer<readonly boolean[]>(batch, undefined);
+    }
+
+    /** Launch a membership read of the keys not held: a request for each group
+     *  of keys and of runs, a key in any group of the runs being in them. */
+    private launchWithin(
+        workspace: string,
+        path: TreePath,
+        snapshot: Snapshot,
+        revision: string,
+        index: string,
+        family: string,
+        batchKey: string,
+        runs: readonly PagedRun[],
+        keys: readonly string[],
+    ): void {
+        const seq = this.launch(this.channel(snapshot, batchKey));
+        const api = this.api;
+        void (async () => {
+            const within = new Array<boolean>(keys.length).fill(false);
+            try {
+                if (api === null) throw new Error("no PagedApi installed");
+                for (let k = 0; k < keys.length; k += DATASET_BATCH_MAX) {
+                    const chunk = keys.slice(k, k + DATASET_BATCH_MAX);
+                    for (let r = 0; r < Math.max(1, runs.length); r += DATASET_BATCH_MAX) {
+                        const answer = await api.within(workspace, path, { index, runs: runs.slice(r, r + DATASET_BATCH_MAX), keys: chunk, hash: revision });
+                        if (answer.within.length !== chunk.length) {
+                            throw new Error(`a membership read of ${chunk.length} keys answered ${answer.within.length}`);
+                        }
+                        for (const [i, inside] of answer.within.entries()) within[k + i] ||= inside;
+                    }
+                }
+            } catch (err) {
+                if (this.followed(workspace, path, snapshot, revision, err)) return;
+                this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
+                console.error(`Data.bindPaged: membership read failed for ${batchKey}:`, err);
+                return;
+            }
+            if (!this.pinnedTo(snapshot, revision)) return;
+            let held = snapshot.within.get(family);
+            // Past the cap, what was held goes, and this read's answers are held alone.
+            if (held === undefined || held.size + keys.length > MAX_HELD_WITHIN) {
+                held = new Map();
+                snapshot.within.set(family, held);
+            }
+            for (const [i, key] of keys.entries()) held.set(key, within[i]!);
+            this.settle(batchKey, seq, (e) => { e.status = "loaded"; delete e.error; });
         })();
     }
 
