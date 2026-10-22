@@ -1411,9 +1411,9 @@ describe("PagedRuntime — which entries a narrowing's runs hold, kept for each 
         assert.ok(asked().every((request) => request.query.get("hash") === R1), "pinned to the revision");
         assert.deepEqual(asked().map((request) => keysOf(request).length).sort((a, b) => a - b),
             [READ - 10_000, READ - 10_000, READ - 10_000, READ - 10_000, 10_000, 10_000, 10_000, 10_000], "each reader's batch is two requests");
-        assert.deepEqual(runtime.held(source), { answers: 4 * READ, kept: 4 * READ }, "past the cap, every answer is kept for the reader still to read it");
+        assert.deepEqual(runtime.held(source), { answers: 4 * READ, kept: 4 * READ, batches: 4 }, "past the cap, every answer is kept for the reader still to read it");
         for (const reader of readers) assert.deepEqual(runtime.withinAll(source, LATE, reader.keys), some(reader.within));
-        assert.deepEqual(runtime.held(source), { answers: CAP, kept: 0 }, "read, the least recently read go, down to the cap");
+        assert.deepEqual(runtime.held(source), { answers: CAP, kept: 0, batches: 0 }, "read, the least recently read go, down to the cap, and no batch keeps any");
         await h.settle();
         assert.equal(asked().length, 8, "one batch a reader: no reader's landing undid another's");
     });
@@ -1431,7 +1431,7 @@ describe("PagedRuntime — which entries a narrowing's runs hold, kept for each 
         assert.deepEqual(runtime.withinAll(source, LATE, first.keys), some(first.within), "read again, it holds them");
         await h.settle();
         assert.equal(asked().length, before + 2, "one batch, and no request since");
-        assert.deepEqual(runtime.held(source), { answers: CAP, kept: 0 });
+        assert.deepEqual(runtime.held(source), { answers: CAP, kept: 0, batches: 0 });
     });
 
     test("a batch in flight when the revision moves is dropped with what it kept: the next revision holds only its own answers, within the cap and what its batches keep", async () => {
@@ -1443,22 +1443,22 @@ describe("PagedRuntime — which entries a narrowing's runs hold, kept for each 
         const answers = h.e3.holdAnswers((request) => request.kind === "within");
         assert.equal(runtime.withinAll(source, LATE, first.keys).type, "none");
         await answers.holding;
-        assert.deepEqual(runtime.held(source), { answers: CAP, kept: READ - OVER }, "its batch keeps the answers it holds");
+        assert.deepEqual(runtime.held(source), { answers: CAP, kept: READ - OVER, batches: 1 }, "its batch keeps the answers it holds");
         // Another session changes an order: the work orders move.
         const stored = await h.read(orders);
         await h.patch(orders, new SortedMap([...stored].map(([id, order]) => [id, id === "WO-1001" ? { ...order, crew: "Mech B" } : order] as const), keys));
         const R2 = await hashOf(orders);
         await poll(clock);
-        assert.deepEqual(runtime.held(source), { answers: 0, kept: 0 }, "the move drops the answers, and what the batch kept");
+        assert.deepEqual(runtime.held(source), { answers: 0, kept: 0, batches: 0 }, "the move drops the answers, and what the batch kept");
         answers.release();
         await h.settle();
-        assert.deepEqual(runtime.held(source), { answers: 0, kept: 0 }, "the old revision's answer, landing late, is dropped");
+        assert.deepEqual(runtime.held(source), { answers: 0, kept: 0, batches: 0 }, "the old revision's answer, landing late, is dropped");
         // At the new revision the reader asks again of every key, in one batch, kept until it reads them.
         assert.equal(runtime.withinAll(source, LATE, first.keys).type, "none");
         await h.settle();
-        assert.deepEqual(runtime.held(source), { answers: READ, kept: READ });
+        assert.deepEqual(runtime.held(source), { answers: READ, kept: READ, batches: 1 });
         assert.deepEqual(runtime.withinAll(source, LATE, first.keys), some(first.within));
-        assert.deepEqual(runtime.held(source), { answers: READ, kept: 0 });
+        assert.deepEqual(runtime.held(source), { answers: READ, kept: 0, batches: 0 });
         assert.deepEqual(asked().map((request) => request.query.get("hash")), [...Array.from({ length: 10 }, () => R1), R2, R2],
             "four batches and the dropped one at the old revision — its second request refused there — and one at the new");
     });
