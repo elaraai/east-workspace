@@ -4,123 +4,23 @@
  */
 
 /**
- * Unit tests for the pure selection rules (`selection.ts`) — the managed slice
- * `in`-clause splice (the selection→slice bridge) and the marquee hit
- * collection. Fixtures are real East values typed from the Slice's and the
- * Schematic's East types, built with `variant()` / `some` / `none`, East Sets
- * and the types' default values.
+ * Unit tests for the pure selection rules (`selection.ts`) — the marquee hit
+ * collection. Fixtures are real East values typed from the drawn item's East
+ * type, its default value keyed and placed.
  */
 
 import { describe, it, expect } from "vitest";
-import { SortedSet, StringType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, none, some, variant } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui/internal";
-import { Schematic } from "@elaraai/e3-ui/internal";
+import { defaultValue } from "@elaraai/east";
 import RBush from "rbush";
-import {
-    EMPTY_STRING_SET,
-    type ItemBox,
-    type SlicePredicateValue,
-    type SliceStateValue,
-    isSelectionClause,
-    managedSelectionSet,
-    marqueeHits,
-    sameStringSet,
-    sliceWithSelection,
-} from "./selection";
-
-const compareStrings = compareFor(StringType);
-
-const inClause = (fieldId: string, keys: string[]): SlicePredicateValue =>
-    variant("string", { fieldId, op: variant("in", new SortedSet(keys, compareStrings)) });
-const eqClause = (fieldId: string, v: string): SlicePredicateValue =>
-    variant("string", { fieldId, op: variant("eq", v) });
-
-/** A slice state holding `filters`, the rest of it set so a splice must leave it alone. */
-const state = (filters: SlicePredicateValue[]): SliceStateValue => ({
-    range: none, compare: none, filters, cohorts: [], activeCohorts: new SortedSet<string>(undefined, compareStrings),
-    breakdown: none, search: some("untouched"), visible: none, selectedIndex: none, resolution: none,
-});
-
-describe("sameStringSet", () => {
-    it("is order-free equality over string sets", () => {
-        expect(sameStringSet(new Set(["a", "b"]), new Set(["b", "a"]))).toBe(true);
-        expect(sameStringSet(new Set(["a"]), new Set(["a", "b"]))).toBe(false);
-        expect(sameStringSet(new Set(["a", "b"]), new Set(["a", "c"]))).toBe(false);
-        expect(sameStringSet(new Set(), new Set())).toBe(true);
-    });
-});
-
-describe("isSelectionClause / managedSelectionSet", () => {
-    it("matches only a string `in` clause on the target field", () => {
-        expect(isSelectionClause(inClause("id", ["A"]), "id")).toBe(true);
-        expect(isSelectionClause(inClause("kind", ["A"]), "id")).toBe(false);
-        expect(isSelectionClause(eqClause("id", "A"), "id")).toBe(false);
-    });
-
-    it("reads the managed key set, defaulting to the shared empty set", () => {
-        const filters = [eqClause("kind", "rack"), inClause("id", ["A", "B"])];
-        expect([...managedSelectionSet(filters, "id")].sort()).toEqual(["A", "B"]);
-        expect(managedSelectionSet(filters, "missing")).toBe(EMPTY_STRING_SET);
-        expect(managedSelectionSet([], "id")).toBe(EMPTY_STRING_SET);
-    });
-});
-
-describe("sliceWithSelection", () => {
-    it("appends the managed clause when absent, leaving other clauses + state fields untouched", () => {
-        const s = state([eqClause("kind", "rack")]);
-        const out = sliceWithSelection(s, "id", ["A", "B"]);
-        expect(out.filters).toHaveLength(2);
-        expect(out.filters[0]).toBe(s.filters[0]);                       // other clause untouched, position kept
-        expect([...managedSelectionSet(out.filters, "id")].sort()).toEqual(["A", "B"]);
-        expect(out.search).toBe(s.search);                               // non-filter fields preserved
-        expect(s.filters).toHaveLength(1);                               // input not mutated
-    });
-
-    it("replaces the managed clause IN PLACE (order preserved)", () => {
-        const s = state([inClause("id", ["A"]), eqClause("kind", "rack")]);
-        const out = sliceWithSelection(s, "id", ["B", "C"]);
-        expect(out.filters).toHaveLength(2);
-        expect(isSelectionClause(out.filters[0]!, "id")).toBe(true);     // still first
-        expect([...managedSelectionSet(out.filters, "id")].sort()).toEqual(["B", "C"]);
-        expect(out.filters[1]).toBe(s.filters[1]);
-    });
-
-    it("removes the managed clause when the selection empties, and is a no-op-shape when absent", () => {
-        const s = state([eqClause("kind", "rack"), inClause("id", ["A"])]);
-        const out = sliceWithSelection(s, "id", []);
-        expect(out.filters).toHaveLength(1);
-        expect(isSelectionClause(out.filters[0]!, "id")).toBe(false);
-        const s2 = state([eqClause("kind", "rack")]);
-        expect(sliceWithSelection(s2, "id", []).filters).toHaveLength(1);
-    });
-
-    it("only ever touches the clause on ITS field", () => {
-        const s = state([inClause("other", ["X"])]);
-        const out = sliceWithSelection(s, "id", ["A"]);
-        expect([...managedSelectionSet(out.filters, "other")].sort()).toEqual(["X"]);
-        expect([...managedSelectionSet(out.filters, "id")].sort()).toEqual(["A"]);
-    });
-
-    it("builds the clause's set as an East Set — in East's order, whatever order the keys come in", () => {
-        // JavaScript's default sort (UTF-16 code units) puts the astral key
-        // before U+FF5E; East orders strings by code point, so it goes last.
-        const astral = "\u{1F600}";
-        const fullwidth = "～";
-        expect([astral, fullwidth].sort()).toEqual([astral, fullwidth]);
-        const out = sliceWithSelection(state([]), "id", new Set([astral, fullwidth, "a"]));
-        expect([...managedSelectionSet(out.filters, "id")]).toEqual(["a", fullwidth, astral]);
-        // …the order East's own encoding gives the state back in.
-        const stored = decodeBeast2For(Slice.Types.State)(encodeBeast2For(Slice.Types.State)(out));
-        expect([...managedSelectionSet(stored.filters, "id")]).toEqual(["a", fullwidth, astral]);
-    });
-});
+import { SchematicDrawnItemType } from "./drawn";
+import { EMPTY_STRING_SET, type ItemBox, marqueeHits } from "./selection";
 
 describe("marqueeHits", () => {
     // Padded boxes (±2 world units), mirroring the culling tree: an item whose
     // PADDING overlaps the region but whose CENTER is outside must not select.
     const box = (key: string, x: number, y: number): ItemBox => ({
         minX: x - 2, minY: y - 2, maxX: x + 2, maxY: y + 2,
-        item: { ...defaultValue<typeof Schematic.Types.Item>(Schematic.Types.Item), key, label: key, x, y },
+        item: { ...defaultValue<typeof SchematicDrawnItemType>(SchematicDrawnItemType), key, label: key, x, y },
     });
     const tree = () => {
         const t = new RBush<ItemBox>();
@@ -134,7 +34,7 @@ describe("marqueeHits", () => {
         expect([...marqueeHits(tree(), region, EMPTY_STRING_SET, EMPTY_STRING_SET)].sort()).toEqual(["A", "B"]);
     });
 
-    it("skips locked and slice-excluded items", () => {
+    it("skips locked items and narrowed-out items drawn dimmed", () => {
         expect([...marqueeHits(tree(), region, new Set(["A"]), EMPTY_STRING_SET)]).toEqual(["B"]);
         expect([...marqueeHits(tree(), region, EMPTY_STRING_SET, new Set(["B"]))]).toEqual(["A"]);
         expect([...marqueeHits(tree(), region, new Set(["A"]), new Set(["B"]))]).toEqual([]);

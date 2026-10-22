@@ -529,7 +529,7 @@ Task → Which tag?
 │   │       ├─ Matrix.cell({ segments?, markers?, orientation?, slot?, popover? }) — one cell (slot = arbitrary UIComponent; popover = click body)
 │   │       ├─ Matrix.segment({ fill?, weight, label?, color?, min?, max?, step? }) — one segment of the cell bar
 │   │       └─ Matrix.marker({ status?, message, at?, label? }) — corner status marker
-│   ├─ <Schematic> — the 2D world-coordinate canvas (items, zones, links and nets from flat tables, each at its x/y in the world; a camera, layers, hover cards, selection, editing and slice effects) is e3-ui's (#1384): `import { Schematic } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
+│   ├─ <Schematic> — the 2D world-coordinate drawing of the app's own records (items, zones, links and nets, each a kind over a record, placed where its row says; a camera, layers and selection) is e3-ui's (#1384, #1386): `import { Schematic } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Flowchart> — the state-transition flowchart (states in ORDERED phase lanes, its layout derived — no coordinates; H/V-routed transitions; per-link decision triggers and evidence) is e3-ui's (#1243): `import { Flowchart } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Map markers={…} center={Map.at(lat,lng)} zoom={n} /> — interactive geographic basemap; read-only / selection-only
 │   │   ├─ Props:
@@ -989,7 +989,7 @@ Task → Which tag?
 │   ├─ Where a bare token / status value plugs in:
 │   │   ├─ Library.status(label, tone, ring?) — palette card status chip, a gallery card's dot (`ring` open) · Library.glyph(icon, label, tone?) — its trailing glyph
 │   │   ├─ Table rowStatus — fn(rowIndex) => StatusToken row tint
-│   │   ├─ e3-ui's Schematic item { status } (Option token dot) and { tone } (brand|ink|muted|success|warning|danger stroke override)
+│   │   ├─ e3-ui's Schematic.items { status: { field, cases } } (a dot per case of a variant field) and { tone } (brand|ink|muted|success|warning|danger stroke override)
 │   │   ├─ e3-ui's Plan.run { status } (stuck ring) · Plan.marker { status } (cell rings, default danger) · Plan.event { tone } — tile tints, all ORTHOGONAL to `state`
 │   │   ├─ Matrix.marker { status } — corner markers
 │   │   ├─ <Status value> — dot + word (`ring` an open ring — not live yet); <Banner status> uses the wider notice set (info|warning|success|error|neutral|change|guard|stale)
@@ -1189,7 +1189,7 @@ Non-UI sub-structures are never child sub-tags.
 
 Every size prop is a **plain string** and every renderer parses it the same
 way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
-e3-ui's `<Plan>` and `<Schematic>`, `<Matrix>`,
+e3-ui's `<Plan>`, `<Matrix>`,
 `<Library>`, `<SnapGrid>`) and layout primitives (`<Box>` / `<Flex>` /
 `<Stack>` / `<Grid>` / `<Card>`):
 
@@ -1483,8 +1483,9 @@ tier so they stay subordinate to tags at every density.
   — the e3-ui skill documents it; for reading, sorting and reviewing a
   dataset, `<Table>`.
 - **Flowchart vs Schematic** — both are e3-ui's, and the e3-ui skill
-  documents them: `<Schematic>` (#1384) is a world-coordinate 2D canvas
-  (data carries x/y; zones, footprints, camera); `<Flowchart>` (#1243)
+  documents them: `<Schematic>` (#1384, #1386) is a world-coordinate 2D
+  drawing of the app's records (each row carries its x/y; zones, footprints,
+  camera); `<Flowchart>` (#1243)
   derives its whole layout from lanes + links (no coordinates) for
   state-transition / process-flow reading, with decision triggers and
   evidence on the links.

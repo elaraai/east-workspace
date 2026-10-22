@@ -19,15 +19,13 @@
 import { match, type option, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import { type Bbox, type ScreenCamera, bboxOverlaps, pointsBbox, project, viewportWorldBbox } from "./camera";
+import { type DrawnItem, type DrawnZone, type SchematicDrawn } from "./drawn";
 
 /** An Option's value, or `undefined` — East's `match`, as east-ui-components'
  *  `getSomeorUndefined` reads one, without loading that package's renderers:
  *  this module stays free of React, Chakra and the DOM (#1384). */
 const getSomeorUndefined = <T,>(opt: option<T>): T | undefined => match(opt, { some: (value) => value }, undefined);
 
-type SchematicValue = ValueTypeOf<typeof Schematic.Types.Schematic>;
-type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
-type SchematicZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;
 type SchematicGeometryValue = ValueTypeOf<typeof Schematic.Types.Geometry>;
 type Pt = { x: number; y: number };
 /** A screen-space shape vertex carrying its DXF bulge (0 = straight to next). */
@@ -98,13 +96,14 @@ export interface SchematicPaintEffect {
 /** Everything {@link paintSchematic} needs for one frame. */
 export interface PaintInput {
     ctx: CanvasRenderingContext2D;
-    value: SchematicValue;
+    /** What the canvas draws: each kind's entities, the local edits in place. */
+    value: SchematicDrawn;
     cam: PaintCamera;
     /** Canvas size in CSS px (the ctx is pre-scaled by devicePixelRatio). */
     width: number;
     height: number;
     /** Viewport-culled items (the React layer's `visibleItems`). */
-    visibleItems: readonly SchematicItemValue[];
+    visibleItems: readonly DrawnItem[];
     /** Per-item LOD tier after declutter. */
     tiers: ReadonlyMap<string, LodTier>;
     /** The set of selected item keys (single/multiple/range all share it). */
@@ -168,8 +167,31 @@ function statusRGB(p: SchematicPalette, status: string | undefined): RGB {
     }
 }
 
-function statusTone(status: SchematicItemValue["status"]): string | undefined {
-    return status.type === "some" ? status.value.type : undefined;
+/** The tone an item's status draws in, if it has one. */
+function statusTone(status: DrawnItem["status"]): string | undefined {
+    return status.type === "some" ? status.value.tone.type : undefined;
+}
+
+/** Whether an item's status draws as an open ring, as a tentative one does. */
+function statusRing(status: DrawnItem["status"]): boolean {
+    return status.type === "some" && status.value.ring;
+}
+
+/**
+ * Geometry's vertices in world units: each an offset from its entity's anchor
+ * — an item's centre, a zone's box centre (D22) — placed about it.
+ *
+ * @param anchor - The entity's anchor, in world units
+ * @param vertices - The geometry's vertices, offsets from the anchor
+ * @returns The vertices placed in the world
+ */
+export function placedVertices<V extends { x: number; y: number; bulge: number }>(anchor: Pt, vertices: readonly V[]): Vert[] {
+    return vertices.map(v => ({ x: anchor.x + v.x, y: anchor.y + v.y, bulge: v.bulge }));
+}
+
+/** A zone's anchor: its box's centre, what its geometry is drawn about. */
+export function zoneAnchor(zone: { x: number; y: number; width: number; height: number }): Pt {
+    return { x: zone.x + zone.width / 2, y: zone.y + zone.height / 2 };
 }
 
 /**
@@ -496,9 +518,10 @@ export function hatchLineCount(w: number, h: number, rawSpacing: number): number
 
 /** World-space cull bbox for a zone: the declared `x/y/width/height` rect
  * unioned with the actual geometry's extent (circle centre±radius, polygon /
- * polyline vertex bounds), mirroring the item-footprint union — so a shape that
- * bows outside its declared rect is never wrongly culled (issue #57, 1e). */
-function zoneWorldBbox(zone: SchematicZoneValue, geom: SchematicGeometryValue | undefined): Bbox {
+ * polyline vertex bounds, each vertex about the box's centre), mirroring the
+ * item-footprint union — so a shape that bows outside its declared rect is
+ * never wrongly culled (issue #57, 1e). */
+function zoneWorldBbox(zone: DrawnZone, geom: SchematicGeometryValue | undefined): Bbox {
     const bb: Bbox = { minX: zone.x, minY: zone.y, maxX: zone.x + zone.width, maxY: zone.y + zone.height };
     if (geom !== undefined && geom.type === "circle") {
         const cx = zone.x + zone.width / 2, cy = zone.y + zone.height / 2, r = geom.value.radius;
@@ -512,7 +535,7 @@ function zoneWorldBbox(zone: SchematicZoneValue, geom: SchematicGeometryValue | 
         // part (its vertices, chord, and declared rect all off screen) can cull
         // a frame early — a rare, transient gap while zoomed in and panning, not
         // a persistent error, accepted to keep the cull cheap per 1e.
-        const g = pointsBbox(geom.value.vertices);
+        const g = pointsBbox(placedVertices(zoneAnchor(zone), geom.value.vertices));
         if (g !== null) {
             bb.minX = Math.min(bb.minX, g.minX); bb.minY = Math.min(bb.minY, g.minY);
             bb.maxX = Math.max(bb.maxX, g.maxX); bb.maxY = Math.max(bb.maxY, g.maxY);
@@ -681,15 +704,16 @@ export function paintSchematic(input: PaintInput): void {
         const pattern = zone.pattern;
         const patternTone = (pattern.value.tone.type === "some" ? pattern.value.tone.value.type : undefined) ?? "muted";
         const tint = resolveTint(p, getSomeorUndefined(zone.color), getSomeorUndefined(zone.tone)?.type, toneRGB(p, patternTone, "zone"), "zone");
-        const zbg = getSomeorUndefined(zone.bg);
-        const zFillAlpha = getSomeorUndefined(zone.fillOpacity) ?? 0.15;
+        // A zone is unfilled unless its `fillOpacity` says how much: then it is filled in its tint.
+        const zFillAlpha = getSomeorUndefined(zone.fillOpacity);
         const zWeight = getSomeorUndefined(zone.weight);
         const x = wx(zone.x), y = wy(zone.y), w = zone.width * ppu, h = zone.height * ppu;
+        const anchor = zoneAnchor(zone);
         const fillShape = () => {
-            if (zbg === undefined) return;
+            if (zFillAlpha === undefined) return;
             ctx.save();
             ctx.globalAlpha = zFillAlpha;
-            ctx.fillStyle = zbg;
+            ctx.fillStyle = tint;
             ctx.fill();
             ctx.restore();
         };
@@ -705,7 +729,7 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.stroke();
                 ctx.setLineDash([]);
             } else {
-                const pts = geom.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
+                const pts = placedVertices(anchor, geom.value.vertices).map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
                 if (pts.length > 0) {
                     ctx.beginPath();
                     if (geom.type === "polygon") {
@@ -740,10 +764,10 @@ export function paintSchematic(input: PaintInput): void {
             ctx.beginPath();
             ctx.rect(x, y, w, h);
             ctx.clip();
-            if (zbg !== undefined) {
+            if (zFillAlpha !== undefined) {
                 ctx.save();
                 ctx.globalAlpha = zFillAlpha;
-                ctx.fillStyle = zbg;
+                ctx.fillStyle = tint;
                 ctx.fillRect(x, y, w, h);
                 ctx.restore();
             }
@@ -764,10 +788,10 @@ export function paintSchematic(input: PaintInput): void {
             ctx.stroke();
             ctx.restore();
         } else {
-            if (zbg !== undefined) {
+            if (zFillAlpha !== undefined) {
                 ctx.save();
                 ctx.globalAlpha = zFillAlpha;
-                ctx.fillStyle = zbg;
+                ctx.fillStyle = tint;
                 ctx.fillRect(x, y, w, h);
                 ctx.restore();
             }
@@ -786,7 +810,7 @@ export function paintSchematic(input: PaintInput): void {
             if (geom !== undefined && geom.type === "circle") {
                 ctx.arc(x + w / 2, y + h / 2, geom.value.radius * ppu, 0, Math.PI * 2);
             } else if (geom !== undefined && geom.type === "polygon") {
-                traceVertices(ctx, geom.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge })), true);
+                traceVertices(ctx, placedVertices(anchor, geom.value.vertices).map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge })), true);
             } else {
                 ctx.rect(x, y, w, h);
             }
@@ -1154,13 +1178,12 @@ export function paintSchematic(input: PaintInput): void {
         let tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)), "link");
         if (desatOf(item.key)) tint = css(p.fgMuted);
         const a = alphaOf(item.key);
-        const ibg = getSomeorUndefined(item.bg);
         const fillAlpha = getSomeorUndefined(item.fillOpacity) ?? (isSel ? 0.24 : 0.12);
         const stroke = getSomeorUndefined(item.weight) ?? (isSel ? 2.5 : 1.5);
         const fillShape = () => {
             ctx.save();
             ctx.globalAlpha = fillAlpha * a;
-            ctx.fillStyle = desatOf(item.key) ? tint : (ibg ?? tint);
+            ctx.fillStyle = tint;
             ctx.fill();
             ctx.restore();
         };
@@ -1175,7 +1198,7 @@ export function paintSchematic(input: PaintInput): void {
             ctx.strokeStyle = tint;
             ctx.stroke();
         } else {
-            const pts = footprint.value.vertices.map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
+            const pts = placedVertices(item, footprint.value.vertices).map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge }));
             if (pts.length > 0) {
                 ctx.beginPath();
                 if (footprint.type === "polygon") {
@@ -1209,13 +1232,15 @@ export function paintSchematic(input: PaintInput): void {
 
         ctx.save();
         ctx.globalAlpha = alphaOf(item.key);
+        const ring = statusRing(item.status);
         if (tier === "dot") {
             ctx.beginPath();
             ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
-            ctx.fillStyle = tint;
+            // A ring status — a tentative one — is an open ring in its tone; any other a filled dot.
+            ctx.fillStyle = ring ? css(p.bgSurface) : tint;
             ctx.fill();
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = css(p.white);
+            ctx.lineWidth = ring ? 2 : 1.5;
+            ctx.strokeStyle = ring ? tint : css(p.white);
             ctx.stroke();
             if (isSel) {
                 ctx.beginPath();
@@ -1240,9 +1265,15 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
                 ctx.stroke();
                 ctx.beginPath();
-                ctx.arc(left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W / 2, y, MARKER_PIN_DOT_W / 2, 0, Math.PI * 2);
-                ctx.fillStyle = tint;
-                ctx.fill();
+                ctx.arc(left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W / 2, y, ring ? MARKER_PIN_DOT_W / 2 - 0.75 : MARKER_PIN_DOT_W / 2, 0, Math.PI * 2);
+                if (ring) {
+                    ctx.lineWidth = 1.5;
+                    ctx.strokeStyle = tint;
+                    ctx.stroke();
+                } else {
+                    ctx.fillStyle = tint;
+                    ctx.fill();
+                }
                 ctx.fillStyle = css(p.fg);
                 ctx.textBaseline = "middle";
                 ctx.fillText(item.label, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);

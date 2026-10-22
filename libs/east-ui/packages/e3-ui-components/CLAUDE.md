@@ -32,9 +32,10 @@ parts, and
 keeps its slot recipes there too, the canvas's and the inspector's. The
 Schematic's renderer (`src/schematic/`, #1384) registers against its
 `Schematic` extension the same way, its slot recipe in the theme too: its
-composition root (`index.tsx`) over its pure canvas modules (`canvas/`: the
-camera, the painter, the selection, the model and the palette probe), whose
-invariants are `canvas/CLAUDE.md`'s. The
+composition root (`index.tsx`) over its reads of the app's records, in a
+component of their own (`data.ts`, #1386), and its pure canvas modules
+(`canvas/`: what it draws, the camera, the painter, the selection, the model
+and the palette probe), whose invariants are `canvas/CLAUDE.md`'s. The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it

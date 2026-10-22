@@ -6,11 +6,14 @@
 /**
  * The Schematic's renderer — the 2D world-coordinate canvas: a Canvas2D paint
  * layer and a DOM card layer under one camera (`canvas/`), the navigator, the
- * minimap, the controls and the slice rail. The `schematic` slot recipe
- * stays in east-ui-components' theme.
+ * minimap and the controls. The `schematic` slot recipe stays in
+ * east-ui-components' theme.
  *
  * The Schematic is e3-ui's (#1384): the renderer registers itself against the
- * `Schematic` extension (`Schematic.Component`) as the module loads.
+ * `Schematic` extension (`Schematic.Component`) as the module loads. It draws
+ * the app's own records (#1386): its reader (`data.ts`) reads each kind's
+ * rows and hands the canvas what it draws (`canvas/drawn.ts`), each entity
+ * named by its kind's slot and its key.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -19,22 +22,19 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, library, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas, faAnglesLeft, faAnglesRight, faBullseye, faCaretRight, faChevronLeft, faChevronRight, faExpand, faEye, faEyeSlash, faHand, faLayerGroup, faLink, faLock, faLockOpen, faMinus, faUpDownLeftRight, faObjectGroup, faObjectUngroup, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
-import { equalFor, equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { type UIComponentType } from "@elaraai/east-ui/internal";
+import { ArrayType, equalFor, equivalentFor, some, none, variant } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraComponent,
-    SliceRailCluster,
     getSomeorUndefined,
     implementUIComponent,
     useDataStable,
     usePersistedState,
-    useSliceReactivity,
 } from "@elaraai/east-ui-components";
-import { parseCssSize } from "@elaraai/east-ui-components/internal";
-import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, LINK_LANE_GAP, type SchematicPalette, type SchematicPaintEffect } from "./canvas/paint";
-import { EMPTY_STRING_SET, type ItemBox, managedSelectionSet, marqueeHits, sameStringSet, sliceWithSelection } from "./canvas/selection";
-import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./canvas/model";
+import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, placedVertices, zoneAnchor, LINK_LANE_GAP, type SchematicPalette } from "./canvas/paint";
+import { EMPTY_STRING_SET, type ItemBox, marqueeHits } from "./canvas/selection";
+import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers } from "./canvas/model";
+import { entityId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn";
+import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, type SchematicData, type SchematicValue } from "./data";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
     IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, makeRafCoalescer, nextMode, viewportWorldBbox, zoomAbout,
@@ -43,32 +43,26 @@ import { SchematicPaletteProbe } from "./canvas/theme";
 
 library.add(fas);
 
-// The memo compares closures too (#809); the local-first overlays and the
-// derivations below key on the value's DATA identity, so a callback that
-// captured new data never replaces an in-progress edit or re-fits the camera.
-const schematicEqual = equivalentFor(Schematic.Types.Schematic);
-const schematicDataEqual = equalFor(Schematic.Types.Schematic);
+// The memo compares closures too (#809): a payload whose functions captured new
+// data is a new payload, which the reader reads again; what it draws keeps its
+// identity while nothing it shows moves, so an in-progress edit or the camera
+// is never replaced by a closure-only change.
+const schematicEqual = equivalentFor(Schematic.Types.Payload);
+const layersEqual = equalFor(ArrayType(Schematic.Types.Layer));
 
-/** East Schematic value type. */
-export type SchematicValue = ValueTypeOf<typeof Schematic.Types.Schematic>;
+export type { SchematicValue } from "./data";
 
-/** East Schematic item value type. */
-export type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
+/** An item as the canvas draws it. */
+export type SchematicItemValue = DrawnItem;
 
-/** East Schematic zone value type. */
-export type SchematicZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;
+/** A zone as the canvas draws it. */
+export type SchematicZoneValue = DrawnZone;
 
-/** East Schematic shape-geometry value type (`rect` / `circle` / `polyline` / `polygon`). */
-export type SchematicGeometryValue = ValueTypeOf<typeof Schematic.Types.Geometry>;
+/** A link as the canvas draws it. */
+export type SchematicLinkValue = DrawnLink;
 
-/** East Schematic link value type. */
-export type SchematicLinkValue = ValueTypeOf<typeof Schematic.Types.Link>;
-
-/** East Schematic net (bus / trunk) value type. */
-export type SchematicNetValue = ValueTypeOf<typeof Schematic.Types.Net>;
-
-/** East Schematic layer value type. */
-export type SchematicLayerValue = ValueTypeOf<typeof Schematic.Types.Layer>;
+/** A net (bus / trunk) as the canvas draws it. */
+export type SchematicNetValue = DrawnNet;
 
 /** Fold connect-session gesture pairs into net endpoints with MEMBERSHIP
  *  semantics: the first drag fixes the upstream side; a drag FROM an existing
@@ -98,9 +92,6 @@ function foldSessionNet(links: readonly { from: string; to: string }[]): { sourc
 /** One selected net LEG — a stub identified by its side + endpoint item. */
 type NetLeg = { end: "source" | "destination"; item: string };
 
-/** Decoded hover-content builder (#178) — hovered entity key → UI value. */
-type HoverContentFn = (key: string) => ValueTypeOf<UIComponentType>;
-
 export interface EastChakraSchematicProps {
     value: SchematicValue;
     storageKey: string;
@@ -118,13 +109,6 @@ const MINIMAP_AUTO = 25;
 /** Shared empty layer-override map — the default before any user toggle (stable
  *  identity so it never churns the layer-resolution memo). */
 const EMPTY_LAYER_OVERRIDES: Record<string, boolean> = {};
-/** Pulse animation period in ms (the matched-item breathing ring). */
-const PULSE_PERIOD_MS = 1600;
-/** Hover-card dwell before opening and leave-grace before closing (#178). */
-const HOVER_OPEN_MS = 300;
-const HOVER_CLOSE_GRACE_MS = 250;
-/** Screen-px half-extent used to frame a dot-tier item (its marker + touch slop). */
-const DOT_FRAME_ALLOW_PX = 10;
 
 /** Dispatch an author's East callback off the event turn (queueMicrotask, per
  *  the interactive-state pattern) with error isolation — a throwing callback
@@ -142,11 +126,13 @@ function dispatchEast(name: string, run: () => unknown): void {
     });
 }
 
-/** A draw-mode session grown past one pair becomes a NET (#189): default
- *  solid style, orthogonal trunk, no label / waypoints / layer. */
-function mkCreatedNet(key: string, sources: readonly string[], destinations: readonly string[]): SchematicNetValue {
+/** A connect session grown past one pair becomes a NET (#189) of the net kind
+ *  the canvas draws in: default solid style, orthogonal trunk, no label /
+ *  waypoints / layer. */
+function mkCreatedNet(ref: SchematicRef, sources: readonly string[], destinations: readonly string[]): SchematicNetValue {
     return {
-        key,
+        key: entityId(ref),
+        ref,
         sources: [...sources],
         destinations: [...destinations],
         label: none, metric: none,
@@ -157,12 +143,12 @@ function mkCreatedNet(key: string, sources: readonly string[], destinations: rea
     } as SchematicNetValue;
 }
 
-/** A freshly-drawn link (draw-mode connect gesture): default solid style,
- *  orthogonal route, no label / waypoints / layer — constructed with
- *  variant()/none per the interop rules. */
-function mkCreatedLink(key: string, from: string, to: string): SchematicLinkValue {
+/** A freshly-drawn link (a connect gesture) of the link kind the Connect tool
+ *  draws: default solid style, orthogonal route, no label / waypoints / layer
+ *  — constructed with variant()/none per the interop rules. */
+function mkCreatedLink(ref: SchematicRef, from: string, to: string): SchematicLinkValue {
     return {
-        key, from, to,
+        key: entityId(ref), ref, from, to,
         label: none, metric: none,
         style: variant("solid", { tone: none, weight: none }),
         route: variant("orthogonal", { corner: none }),
@@ -171,8 +157,14 @@ function mkCreatedLink(key: string, from: string, to: string): SchematicLinkValu
     } as SchematicLinkValue;
 }
 
+/** The tone an item's status shows in, if it has one. */
 function statusTone(status: SchematicItemValue["status"]): string | undefined {
-    return status.type === "some" ? status.value.type : undefined;
+    return status.type === "some" ? status.value.tone.type : undefined;
+}
+
+/** Whether an item's status shows as an open ring, as a tentative one does. */
+function statusRing(status: SchematicItemValue["status"]): boolean {
+    return status.type === "some" && status.value.ring;
 }
 
 /** A round scale-bar length (1/2/5 × 10^k) rendering near `targetPx`. */
@@ -196,124 +188,69 @@ function pointInPolygon(x: number, y: number, pts: readonly Pt[]): boolean {
 }
 
 /**
- * Renders the Schematic's root (e3-ui's `<Schematic>`) — the 2D
- * world-coordinate canvas with map-grade navigation: wheel-zoom about the cursor, drag-pan, animated
- * fly-to, semantic zoom (status dots ⇢ labelled dots ⇢ full cards), rbush
- * viewport culling, an adaptive scale bar, a zones→items navigator with
- * search and viewport spy, and a minimap with a draggable viewport.
+ * Draws the Schematic's kinds (e3-ui's `<Schematic>`) — the 2D
+ * world-coordinate canvas with map-grade navigation: wheel-zoom about the
+ * cursor, drag-pan, animated fly-to, semantic zoom (status dots ⇢ labelled
+ * dots ⇢ full cards), rbush viewport culling, an adaptive scale bar, a
+ * zones→items navigator and a minimap with a draggable viewport. What it draws
+ * is its reader's (`data.ts`): each kind's rows, as their roles give them.
  */
-export const EastChakraSchematic = memo(function EastChakraSchematic({ value, storageKey }: EastChakraSchematicProps) {
+const SchematicCanvas = memo(function SchematicCanvas({ value, data, storageKey }: { value: SchematicValue; data: SchematicDrawn; storageKey: string }) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
-    // Changes identity on a DATA change only — items / zones / links / nets /
-    // layers are read through it; callbacks come from `value` (#809).
-    const data = useDataStable(value, schematicDataEqual);
 
-    const onSelectFn = useMemo(() => getSomeorUndefined(value.onSelect), [value.onSelect]);
     const onSelectionChangeFn = useMemo(() => getSomeorUndefined(value.onSelectionChange), [value.onSelectionChange]);
-    // Selection cardinality (absent ⇒ single). `multiple` reveals the marquee
-    // tool + selection control group; `single` keeps today's behaviour.
-    const selectionMode = getSomeorUndefined(value.selectionMode)?.type ?? "single";
-    const selectionEnabled = selectionMode === "multiple";
     // When true, a canvas selection also moves the camera (tap flies, marquee fits).
     const selectZoomFocus = getSomeorUndefined(value.selectZoomFocus) ?? false;
     const onViewportChangeFn = useMemo(() => getSomeorUndefined(value.onViewportChange), [value.onViewportChange]);
     const onItemOpenFn = useMemo(() => getSomeorUndefined(value.onItemOpen), [value.onItemOpen]);
-    const onSelectZoneFn = useMemo(() => getSomeorUndefined(value.onSelectZone), [value.onSelectZone]);
     const onZoneSelectionChangeFn = useMemo(() => getSomeorUndefined(value.onZoneSelectionChange), [value.onZoneSelectionChange]);
     // Zone (area) selection (#177) — a separate set from item selection, committed
     // through its own funnel below (declared here so early callbacks can reference it).
     const [zoneSelection, setZoneSelection] = useState<ReadonlySet<string>>(EMPTY_STRING_SET);
-    // Link editing (#176): gesture mode + creation callback + flattened read-only.
-    const onCreateLinkFn = useMemo(() => getSomeorUndefined(value.onCreateLink), [value.onCreateLink]);
-    const linkMode = getSomeorUndefined(value.linkMode)?.type ?? "draw";
-    const readOnly = getSomeorUndefined(value.readOnly) ?? false;
-    // Effective per-domain editability = !readOnly && !readOnly<Domain> — so an
-    // author can forbid item dragging while still allowing link creation.
-    const linkEditEnabled = !readOnly && !(getSomeorUndefined(value.readOnlyLinks) ?? false);
-    const onMoveItemFn = useMemo(() => getSomeorUndefined(value.onMoveItem), [value.onMoveItem]);
-    // --- Hover cards (#178) — the read-only inspection channel. --------------
-    // Content builders are East functions receiving the hovered entity's KEY,
-    // evaluated lazily at open (no per-entity IR for large schematics). A card
-    // opens after a short dwell, closes on any camera / edit gesture, and
-    // survives the pointer travelling ONTO it (leave-grace) so charts inside
-    // stay inspectable. Hover ignores readOnly — it inspects, never edits.
-    const itemHoverFn = useMemo(() => getSomeorUndefined(value.itemHover) as HoverContentFn | undefined, [value.itemHover]);
-    const zoneHoverFn = useMemo(() => getSomeorUndefined(value.zoneHover) as HoverContentFn | undefined, [value.zoneHover]);
-    const linkHoverFn = useMemo(() => getSomeorUndefined(value.linkHover) as HoverContentFn | undefined, [value.linkHover]);
-    const hoverEnabled = itemHoverFn !== undefined || zoneHoverFn !== undefined || linkHoverFn !== undefined;
-    const [hoverCard, setHoverCard] = useState<{ kind: "item" | "zone" | "link"; key: string; ax: number; ay: number } | null>(null);
-    // Mirror + timer refs keep every helper below DEP-FREE (stable identities),
-    // so the camera / keyboard seams that call closeHover never re-bind.
-    const hoverCardRef = useRef<typeof hoverCard>(null);
-    useEffect(() => { hoverCardRef.current = hoverCard; }, [hoverCard]);
-    const hoverOpenRef = useRef<{ timer: number; target: string } | null>(null);
-    const hoverCloseRef = useRef<number | null>(null);
-    const cancelHoverOpen = useCallback(() => {
-        if (hoverOpenRef.current !== null) { window.clearTimeout(hoverOpenRef.current.timer); hoverOpenRef.current = null; }
-    }, []);
-    const cancelHoverClose = useCallback(() => {
-        if (hoverCloseRef.current !== null) { window.clearTimeout(hoverCloseRef.current); hoverCloseRef.current = null; }
-    }, []);
-    const closeHover = useCallback(() => {
-        cancelHoverOpen();
-        cancelHoverClose();
-        setHoverCard(prev => prev === null ? prev : null);
-    }, [cancelHoverOpen, cancelHoverClose]);
-    // Grace-close: pending until the pointer re-enters the entity or the card.
-    const scheduleHoverClose = useCallback(() => {
-        cancelHoverOpen();
-        if (hoverCardRef.current === null || hoverCloseRef.current !== null) return;
-        hoverCloseRef.current = window.setTimeout(() => {
-            hoverCloseRef.current = null;
-            setHoverCard(null);
-        }, HOVER_CLOSE_GRACE_MS);
-    }, [cancelHoverOpen]);
-    useEffect(() => () => {
-        if (hoverOpenRef.current !== null) window.clearTimeout(hoverOpenRef.current.timer);
-        if (hoverCloseRef.current !== null) window.clearTimeout(hoverCloseRef.current);
-    }, []);
-    // Evaluate the builder ONCE per open card; a throwing builder logs and
-    // renders nothing rather than unmounting the schematic.
-    const hoverContent = useMemo(() => {
-        if (hoverCard === null) return null;
-        const fn = hoverCard.kind === "item" ? itemHoverFn : hoverCard.kind === "zone" ? zoneHoverFn : linkHoverFn;
-        if (fn === undefined) return null;
-        try {
-            return fn(hoverCard.key);
-        } catch (err) {
-            console.error("[Schematic] hover content builder failed:", err);
-            return null;
-        }
-    }, [hoverCard, itemHoverFn, zoneHoverFn, linkHoverFn]);
-    const itemEditEnabled = !readOnly && !(getSomeorUndefined(value.readOnlyItems) ?? false);
+    // Editing (#176, #179) follows the kinds' bindings (§1, rule 4): the Connect
+    // tool draws the first link kind bound with its patch door, a Shift session
+    // grows a net of the first such net kind, and the Move tool moves the items
+    // of the item kinds so bound. `readOnly` makes every kind read only.
+    const readOnly = value.readOnly;
+    const linkKind = readOnly ? undefined : value.links.find(kind => kind.editable)?.key;
+    const netKind = readOnly ? undefined : value.nets.find(kind => kind.editable)?.key;
+    const linkEditEnabled = linkKind !== undefined;
+    const movableKinds = useMemo(() => new Set(readOnly ? [] : value.items.filter(kind => kind.editable).map(kind => kind.key)), [readOnly, value.items]);
+    const itemEditEnabled = movableKinds.size > 0;
     const onSelectLinkFn = useMemo(() => getSomeorUndefined(value.onSelectLink), [value.onSelectLink]);
-    const onEditLinkFn = useMemo(() => getSomeorUndefined(value.onEditLink), [value.onEditLink]);
-    const onDeleteLinkFn = useMemo(() => getSomeorUndefined(value.onDeleteLink), [value.onDeleteLink]);
-    const onEditNetFn = useMemo(() => getSomeorUndefined(value.onEditNet), [value.onEditNet]);
+    // Each entity's reference by its id on the canvas: what the host hears an entity named by.
+    const refById = useMemo(() => {
+        const refs = new Map<string, SchematicRef>();
+        for (const entity of [...data.items, ...data.zones, ...data.links, ...data.nets]) refs.set(entity.key, entity.ref);
+        return refs;
+    }, [data]);
     // Connection validator (#176): gates the connect GESTURE itself — the one
     // channel behind pairwise links, every Shift-session extension (nets), and
     // endpoint re-targets — so all three obey the same rule. Verdicts cache per
     // (from,to) pair (reset when the fn changes) so the pointermove probe never
     // re-runs the East predicate for the same candidate; a THROWING validator
     // logs and ALLOWS (fail-open) so a broken predicate cannot brick editing.
-    const canConnectFn = useMemo(() => getSomeorUndefined(value.canConnect) as ((from: string, to: string) => boolean) | undefined, [value.canConnect]);
+    const canConnectFn = useMemo(() => getSomeorUndefined(value.canConnect), [value.canConnect]);
     const connectVerdictRef = useRef(new Map<string, boolean>());
-    useEffect(() => { connectVerdictRef.current = new Map(); }, [canConnectFn]);
+    useEffect(() => { connectVerdictRef.current = new Map(); }, [canConnectFn, refById]);
     const connectAllowed = useCallback((from: string, to: string): boolean => {
         if (canConnectFn === undefined) return true;
         const cacheKey = `${from}\u0000${to}`;
         const hit = connectVerdictRef.current.get(cacheKey);
         if (hit !== undefined) return hit;
         let ok = true;
-        try {
-            ok = canConnectFn(from, to) === true;
-        } catch (err) {
-            console.error("[Schematic] canConnect validator failed (allowing):", err);
+        const fromRef = refById.get(from), toRef = refById.get(to);
+        if (fromRef !== undefined && toRef !== undefined) {
+            try {
+                ok = canConnectFn(fromRef, toRef) === true;
+            } catch (err) {
+                console.error("[Schematic] canConnect validator failed (allowing):", err);
+            }
         }
         connectVerdictRef.current.set(cacheKey, ok);
         return ok;
-    }, [canConnectFn]);
+    }, [canConnectFn, refById]);
     // The selected link (single, #176) — selection works even when read-only
     // (inspection + onSelectLink); the connector handles / delete do not. A net
     // STUB click selects one LEG (`leg` non-null): the halo narrows to that stub
@@ -321,75 +258,15 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const [selectedLink, setSelectedLink] = useState<{ key: string; leg: NetLeg | null } | null>(null);
     const scaleUnit = getSomeorUndefined(value.scaleUnit);
     const showGrid = getSomeorUndefined(value.grid) ?? true;
-    const showNavigator = getSomeorUndefined(value.navigator) ?? value.zones.length > 0;
-    const showMinimap = getSomeorUndefined(value.minimap) ?? value.items.length >= MINIMAP_AUTO;
-    // Optional Slice chrome — a full-width top-edge rail (replaces the built-in
-    // navigator search; #128). The narrowing itself is fed upstream via
-    // `Slice.rows` into `items`, the same "chrome only" model Table/Chart use.
-    const sliceChrome = getSomeorUndefined(value.slice);
-    const sliceHandle = sliceChrome?.slice;
-    // The version bumps only when the slice is mutated — used below to rebuild the
-    // slice chrome ONLY on slice changes, never on the per-frame camera re-render.
-    const sliceVersion = useSliceReactivity(sliceHandle?.key);
-    const sliceFrameStyles = useSlotRecipe({ key: "sliceFrame" })();
-    const hasSliceChrome = sliceChrome !== undefined && sliceHandle !== undefined;
-    // The slice rail mounts live Slice affordance components (filter / search /
-    // range …) that recompute over the WHOLE dataset. Isolate that subtree from
-    // the schematic's per-frame camera re-render: memoise the element on the slice
-    // VERSION + handle + affordances so a pan/zoom (which re-renders this component
-    // ~60×/s via `setCameraSnapshot`) reuses the SAME element and React skips the
-    // whole O(rows) slice-chrome render. It still rebuilds when the slice actually
-    // changes (version bump) or the rail's own internal state does.
-    const affordanceKinds = useMemo(
-        () => sliceChrome?.affordances.map(a => a.type) ?? [],
-        [sliceChrome],
-    );
-    const sliceRail = useMemo(
-        () => (hasSliceChrome ? <SliceRailCluster slice={sliceHandle!} affordanceKinds={affordanceKinds} /> : null),
-        // sliceVersion is the reactive trigger (not referenced in the body); handle
-        // identity is stable across camera frames, so pans reuse the element.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [hasSliceChrome, sliceHandle, affordanceKinds, sliceVersion],
-    );
-    // A fixed height pins the panel instead of the extent's aspect ratio.
-    // Uniform sizing (#320) — `"fill"` → 100% of the parent box; `maxHeight`
-    // overrides the recipe's default 75vh cap.
-    const fixedHeight = parseCssSize(getSomeorUndefined(value.height));
-    const maxHeightCss = parseCssSize(getSomeorUndefined(value.maxHeight));
-
-    // --- Slice effect: how filtered-out items render instead of vanishing. ---
-    // Feed the FULL item set with each item's `excluded` flag set; the flat effect
-    // struct (mirrors the `slice*` props) decides the treatment. Absent ⇒ no
-    // effect. Types inferred from the East `Schematic.Types` — no hand-rolled shapes.
-    const sliceEffect = getSomeorUndefined(value.sliceEffect);
-    const hasEffect = sliceEffect !== undefined;
-    // `hidden` some(true) ⇒ remove filtered-out; else keep (with opacity/desaturate/dot).
-    const excludedMode: "hide" | "keep" =
-        (sliceEffect !== undefined && (getSomeorUndefined(sliceEffect.hidden) ?? false)) ? "hide" : "keep";
-    const excludedOpacity = sliceEffect !== undefined ? (getSomeorUndefined(sliceEffect.opacity) ?? 1) : 1;
-    const excludedDesaturate = sliceEffect !== undefined ? (getSomeorUndefined(sliceEffect.desaturate) ?? false) : false;
-    const excludedDot = sliceEffect !== undefined ? (getSomeorUndefined(sliceEffect.dot) ?? false) : false;
-    const emphasis: "halo" | "pulse" | undefined = sliceEffect !== undefined
-        ? getSomeorUndefined(sliceEffect.emphasis)?.type
-        : undefined;
-    const frameEnabled = sliceEffect !== undefined ? (getSomeorUndefined(sliceEffect.frame) ?? false) : false;
-    const frameFit = sliceEffect !== undefined ? (getSomeorUndefined(sliceEffect.frameFit) ?? false) : false;
-
-    // Which items are slice-excluded (only meaningful when an effect is set).
-    const excludedKeys = useMemo(() => {
-        const s = new Set<string>();
-        if (hasEffect) for (const it of data.items) if (getSomeorUndefined(it.excluded) === true) s.add(it.key);
-        return s;
-    }, [data.items, hasEffect]);
-    // The effect only "engages" once something is actually excluded — otherwise
-    // emphasis / frame would decorate every item (no narrowing active).
-    const effectActive = hasEffect && excludedKeys.size > 0;
+    // The navigator lists the zones and the items inside them, while the drawing has zones.
+    const showNavigator = data.zones.length > 0;
+    const showMinimap = getSomeorUndefined(value.minimap) ?? data.items.length >= MINIMAP_AUTO;
 
     // --- Local link state (#176, draw mode) — the form-input model. ----------
-    // Created / re-targeted / deleted deltas over `value.links`, so link editing
-    // works with zero callbacks wired; a reactive change to the links' DATA
-    // REPLACES the local edits (prop is source of truth on change, like form
-    // inputs) — a closure-only change keeps them (#809).
+    // Created / re-targeted / deleted deltas over the links read; a change to
+    // the links' DATA REPLACES the local edits (the records are the source of
+    // truth on change, like form inputs) — a closure-only change keeps them
+    // (#809).
     const [linkEdits, setLinkEdits] = useState<{
         created: readonly SchematicLinkValue[];
         createdNets: readonly SchematicNetValue[];
@@ -423,7 +300,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         });
     }, [data.nets, linkEdits, hasLinkEdits]);
     // --- Local item positions (#179, move tool) — the form-input model. -------
-    // A position overlay over `value.items`, applied UPSTREAM of the working set
+    // A position overlay over the items read, applied UPSTREAM of the working set
     // so centers / rbush / LOD / nav / link endpoints all follow a move for free;
     // a reactive change to the items' DATA REPLACES the local moves.
     const [itemMoves, setItemMoves] = useState<ReadonlyMap<string, Pt>>(new Map());
@@ -467,16 +344,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         { selected: EMPTY_STRING_SET, anchor: null });
     const selected = selection.selected;
     // Commit context for the stable (empty-deps) commitSelection funnel: the
-    // decoded callback + slice wiring + focus flag it must read FRESH at event
+    // decoded callback and each entity's reference it must read FRESH at event
     // time. ONE object, written in the commit-phase snapshot effect below (#172)
     // — never in the render body, so a discarded render can't leak into it.
-    const sliceSelectField = getSomeorUndefined(value.sliceSelectField);
-    const commitCtx = { onSelectionChange: onSelectionChangeFn, sliceSelectField, sliceHandle, selectZoomFocus };
+    const commitCtx = { onSelectionChange: onSelectionChangeFn, refById };
     const commitCtxRef = useRef(commitCtx);
-    // #173: a selection-driven slice write is about to change `frameSig`; the
-    // frameFit auto-fit must NOT fire a competing flyTo over the selection fly.
-    // Set here, consumed (cleared) by the fit effect on its next run.
-    const selectionDrivenFitRef = useRef(false);
     // Single funnel for every selection mutation (tap / marquee / clear). Per the
     // MANDATORY interactive-state pattern: compute `next` OUTSIDE the updater,
     // then setSelected and queueMicrotask as two separate statements.
@@ -497,28 +369,16 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }));
         const ctx = commitCtxRef.current;
         const fn = ctx.onSelectionChange;
+        // The host hears each item named by its kind and key (§5).
+        const refs = [...next].flatMap(k => { const ref = ctx.refById.get(k); return ref === undefined ? [] : [ref]; });
+        const touched = opts.key === undefined ? undefined : ctx.refById.get(opts.key);
         if (fn) dispatchEast("onSelectionChange", () => fn({
-            key: opts.key !== undefined ? some(opts.key) : none,
+            ref: touched !== undefined ? some(touched) : none,
             selected: opts.key !== undefined ? next.has(opts.key) : next.size > 0,
-            selectedKeys: [...next],
+            selection: refs,
             additive: opts.additive,
-            region: opts.region !== undefined ? some(opts.region) : none,
+            box: opts.region !== undefined ? some(opts.region) : none,
         }));
-        // Drive the bound slice with an `in` filter of the selected keys. ONE-
-        // directional (selection → slice, never the reverse) so there is no loop;
-        // the fresh-read guard makes re-committing the same set a no-op. Runs from
-        // gesture handlers only (never a render / effect), so a synchronous write
-        // that re-renders slice consumers is safe.
-        if (ctx.sliceSelectField !== undefined && ctx.sliceHandle !== undefined) {
-            const cur = ctx.sliceHandle.read();
-            if (!sameStringSet(managedSelectionSet(cur.filters, ctx.sliceSelectField), next)) {
-                // A selectZoomFocus fly for this commit is already armed (fly-first);
-                // flag the write so the frameFit effect doesn't fire a competing
-                // flyTo when the resulting frameSig change lands (#173).
-                if (ctx.selectZoomFocus) selectionDrivenFitRef.current = true;
-                ctx.sliceHandle.write(sliceWithSelection(cur, ctx.sliceSelectField, next));
-            }
-        }
     }, []);
     const clearSelection = useCallback(() => commitSelection(EMPTY_STRING_SET, { additive: false }), [commitSelection]);
     const [openZone, setOpenZone] = useState<string | null>(null);
@@ -534,8 +394,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
 
     // --- Layers: named groups toggled from the layer button. -----------------
     // Visibility / lock are VIEW state (persisted above; solo is transient); the
-    // East `layers` carry only the author defaults. Absent ⇒ no layer chrome.
-    const layers = useMemo(() => getSomeorUndefined(data.layers) ?? [], [data.layers]);
+    // East `layers` carry only the author defaults. None ⇒ no layer chrome.
+    const layers = useDataStable(value.layers, layersEqual);
     const hasLayers = layers.length > 0;
     const layerVis = persisted.layerVis ?? EMPTY_LAYER_OVERRIDES;
     const layerLocks = persisted.layerLocks ?? EMPTY_LAYER_OVERRIDES;
@@ -575,8 +435,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         for (const it of data.items) scan(it.key, getSomeorUndefined(it.layer));
         for (const z of data.zones) scan(z.key, getSomeorUndefined(z.layer));
         for (const l of data.links) scan(l.key, getSomeorUndefined(l.layer));
+        for (const n of data.nets) scan(n.key, getSomeorUndefined(n.layer));
         return { layerHiddenKeys: hiddenKeys, lockedKeys: locked, layerAlpha: alpha, layerHiddenLayers: hiddenLayers };
-    }, [layers, data.items, data.zones, data.links, layerLocks, layerHidden, authorLockedOf, authorOpacityOf]);
+    }, [layers, data.items, data.zones, data.links, data.nets, layerLocks, layerHidden, authorLockedOf, authorOpacityOf]);
     // The view is "filtered" (drives the button's active state) whenever a layer
     // is hidden or a solo is active.
     const layersFiltered = layerHiddenLayers.size > 0 || soloLayer !== null;
@@ -587,8 +448,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         for (const it of data.items) add(getSomeorUndefined(it.layer));
         for (const z of data.zones) add(getSomeorUndefined(z.layer));
         for (const l of data.links) add(getSomeorUndefined(l.layer));
+        for (const n of data.nets) add(getSomeorUndefined(n.layer));
         return m;
-    }, [data.items, data.zones, data.links]);
+    }, [data.items, data.zones, data.links, data.nets]);
     // Eye toggle: flip the layer's override off its EFFECTIVE visibility (so it
     // reverses correctly even under a solo, which it clears); lock toggles the
     // non-selectable override; solo isolates one layer; reset clears all.
@@ -610,14 +472,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         setPersisted(prev => ({ ...prev, layerVis: {}, layerLocks: {} }));
     }, [setPersisted]);
 
-    // The item working set: layer-hidden is a HARD pre-filter that wins over the
-    // slice-effect keep (an off layer means "not at all"); union with slice-hide.
-    // Propagates for free to centers / rbush index / visibleItems / LOD / nav.
+    // The item working set: layer-hidden is a HARD pre-filter (an off layer means
+    // "not at all"). Propagates for free to centers / rbush index / visibleItems /
+    // LOD / nav.
     const items = useMemo(() => {
-        const sliceHide = effectActive && excludedMode === "hide";
-        if (!sliceHide && layerHiddenKeys.size === 0) return movedItems;
-        return movedItems.filter(it => !layerHiddenKeys.has(it.key) && !(sliceHide && excludedKeys.has(it.key)));
-    }, [movedItems, effectActive, excludedMode, excludedKeys, layerHiddenKeys]);
+        if (layerHiddenKeys.size === 0) return movedItems;
+        return movedItems.filter(it => !layerHiddenKeys.has(it.key));
+    }, [movedItems, layerHiddenKeys]);
 
     // Zones are read at several surfaces (nav TOC, minimap, viewport spy, labels);
     // drop hidden-layer zones once here. Links are filtered inside paint.
@@ -639,7 +500,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         const next = new Set<string>();
         for (const k of selected) { if (live.has(k)) next.add(k); else changed = true; }
         // Route the prune through the funnel (not a raw set) so onSelectionChange
-        // fires and the slice `in` clause drops the pruned keys. Shrank-only ⇒ no loop.
+        // fires. Shrank-only ⇒ no loop.
         if (changed) commitSelection(next, { additive: false });
         // A dead anchor (its item left the working set) is pruned with a PURE,
         // identity-stable updater — no set change, so no callbacks fire.
@@ -708,8 +569,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // pointer-down (marquee unions rather than replaces).
     // Connect-tool gesture (#176): the live drag (pointer-capture scoped) and its
     // render state (the draft edge painted on the canvas). A SESSION accumulates
-    // Shift-added connections — `sessionEdges` is the transient visual for
-    // `connect` mode (draw mode shows the real created links instead).
+    // Shift-added connections, the links and the net it draws shown as they are.
     const connectDragRef = useRef<{ from: string; additive: boolean; retarget?: { key: string; movingEnd: "from" | "to" }; netExtend?: string } | null>(null);
     // Move-tool drag (#179): the pressed key, every key moving (group move rides
     // the selection), each mover's ORIGINAL position (for Esc/cancel revert), and
@@ -717,7 +577,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const moveDragRef = useRef<{ key: string; keys: readonly string[]; orig: ReadonlyMap<string, Pt>; startWorld: Pt } | null>(null);
     const [connectDraft, setConnectDraft] = useState<{ from: string; toWorld: Pt; target: string | undefined; forbidden?: string } | null>(null);
     const linkSessionRef = useRef<{ key: string; links: readonly { key: string; from: string; to: string }[]; drawn: "link" | "net" | "none"; seeded: readonly string[] } | null>(null);
-    const [sessionEdges, setSessionEdges] = useState<readonly { key: string; from: string; to: string }[]>([]);
     const linkKeyCounter = useRef(0);
     // One-shot connect flash (the draw-in + endpoint rings), driven by a short
     // rAF loop like the pulse ticker — phase read at paint time from the ref.
@@ -774,30 +633,14 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             ...(connectDraft.forbidden !== undefined ? { forbiddenKey: connectDraft.forbidden } : {}),
         };
     }, [connectDraft, centers]);
-    // The connect-mode proposal preview: one pair is a dashed edge; a grown
-    // session renders as a dashed BUS via the same fold + geometry a committed
-    // net would use — the preview IS the shape the handler was sent.
-    const sessionWorld = useMemo(() => {
-        if (sessionEdges.length === 0) return null;
-        if (sessionEdges.length === 1) {
-            const ep = sessionEdges[0]!;
-            const f = centers.get(ep.from), t = centers.get(ep.to);
-            return f !== undefined && t !== undefined ? { kind: "edge" as const, from: f, to: t } : null;
-        }
-        const { sources, destinations } = foldSessionNet(sessionEdges);
-        const srcPts = sources.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
-        const dstPts = destinations.map(k => centers.get(k)).filter((q): q is Pt => q !== undefined);
-        if (srcPts.length === 0 || dstPts.length === 0) return null;
-        return { kind: "net" as const, sources: srcPts, destinations: dstPts };
-    }, [sessionEdges, centers]);
-
     // Spatial index for viewport culling (item half-extent ~2.4 world units
     // covers the widest constant-size marker at the card threshold).
     const index = useMemo(() => {
         const tree = new RBush<ItemBox>();
         tree.load(items.map(item => {
             const hw = (getSomeorUndefined(item.width) ?? 0) / 2 + 2.4;
-            let minX = item.x - hw, minY = item.y - 2, maxX = item.x + hw, maxY = item.y + 2;
+            const hh = (getSomeorUndefined(item.height) ?? 0) / 2 + 2;
+            let minX = item.x - hw, minY = item.y - hh, maxX = item.x + hw, maxY = item.y + hh;
             // A footprint can reach past the marker box — union its world
             // bbox in so the shape isn't culled when the anchor leaves view.
             const fp = getSomeorUndefined(item.footprint);
@@ -806,7 +649,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 minX = Math.min(minX, item.x - r); minY = Math.min(minY, item.y - r);
                 maxX = Math.max(maxX, item.x + r); maxY = Math.max(maxY, item.y + r);
             } else if (fp !== undefined && fp.type !== "rect") {
-                for (const v of fp.value.vertices) {
+                // Its vertices are offsets from the item's centre (D22).
+                for (const v of placedVertices(item, fp.value.vertices)) {
                     minX = Math.min(minX, v.x); minY = Math.min(minY, v.y);
                     maxX = Math.max(maxX, v.x); maxY = Math.max(maxY, v.y);
                 }
@@ -844,18 +688,20 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     }, [nav]);
     // The zone-selection commit funnel — mirrors commitSelection (fresh set,
     // setState then the error-isolated dispatch; the event carries the zones AND
-    // their child items).
+    // the items inside them, each named by its kind and key).
     const commitZoneSelection = useCallback((next: ReadonlySet<string>, opts: { additive: boolean; key?: string }) => {
         setZoneSelection(next);
         const fn = onZoneSelectionChangeFn;
+        const refsOf = (keys: Iterable<string>) => [...keys].flatMap(k => { const ref = refById.get(k); return ref === undefined ? [] : [ref]; });
+        const touched = opts.key === undefined ? undefined : refById.get(opts.key);
         if (fn) dispatchEast("onZoneSelectionChange", () => fn({
-            key: opts.key !== undefined ? some(opts.key) : none,
+            ref: touched !== undefined ? some(touched) : none,
             selected: opts.key !== undefined ? next.has(opts.key) : next.size > 0,
-            selectedKeys: [...next],
-            childItemKeys: zoneChildItems(next),
+            selection: refsOf(next),
+            items: refsOf(zoneChildItems(next)),
             additive: opts.additive,
         }));
-    }, [onZoneSelectionChangeFn, zoneChildItems]);
+    }, [onZoneSelectionChangeFn, zoneChildItems, refById]);
     const clearZoneSelection = useCallback(() => {
         // Only a real clear commits (and fires callbacks) — Esc on an already-empty
         // zone selection is silent.
@@ -879,11 +725,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             if (z.pattern.type !== "outline") continue;
             if (lockedKeys.has(z.key)) continue;
             const geom = getSomeorUndefined(z.geometry);
+            // Its geometry is drawn about its box's centre (D22).
+            const anchor = zoneAnchor(z);
             let hit: boolean;
             if (geom !== undefined && geom.type === "circle") {
-                hit = Math.hypot(wxp - (z.x + z.width / 2), wyp - (z.y + z.height / 2)) <= geom.value.radius;
+                hit = Math.hypot(wxp - anchor.x, wyp - anchor.y) <= geom.value.radius;
             } else if (geom !== undefined && geom.type === "polygon") {
-                hit = pointInPolygon(wxp, wyp, geom.value.vertices);
+                hit = pointInPolygon(wxp - anchor.x, wyp - anchor.y, geom.value.vertices);
             } else if (geom !== undefined && geom.type === "polyline") {
                 continue;   // an open band is not a container
             } else {
@@ -963,11 +811,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }
         return best;
     }, [effectiveLinks, effectiveNets, centers, layerHiddenKeys, lockedKeys]);
-    // Click-select a link — selection works read-only (inspection channel).
+    // Click-select a link or a net — selection works read-only (inspection
+    // channel); the host hears it named by its kind and key.
     const selectLink = useCallback((key: string, leg: NetLeg | null = null) => {
         setSelectedLink({ key, leg });
-        if (onSelectLinkFn) { const fn = onSelectLinkFn; dispatchEast("onSelectLink", () => fn(key)); }
-    }, [onSelectLinkFn]);
+        const ref = refById.get(key);
+        if (onSelectLinkFn && ref !== undefined) { const fn = onSelectLinkFn; dispatchEast("onSelectLink", () => fn(ref)); }
+    }, [onSelectLinkFn, refById]);
 
     // Duplicate zone labels are real (each floor's halls repeat names) — the
     // navigator needs a unique handle per row, so repeats get an ordinal.
@@ -1064,70 +914,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
 
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
     const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
-    const tiers = useMemo(() => {
-        const base = declutterTiers(visibleItems, centerTree, lod, ppu, selected);
-        // `keep` + `dot`: collapse excluded items to a bare marker (drop them out
-        // of the card / label tiers) so the matched survivors dominate.
-        if (effectActive && excludedMode === "keep" && excludedDot) {
-            for (const key of excludedKeys) if (base.has(key)) base.set(key, "dot");
-        }
-        return base;
-    }, [visibleItems, centerTree, lod, ppu, selected, effectActive, excludedMode, excludedDot, excludedKeys]);
+    const tiers = useMemo(() => declutterTiers(visibleItems, centerTree, lod, ppu, selected), [visibleItems, centerTree, lod, ppu, selected]);
 
     const scaleLen = ppu > 0 ? niceScaleLength(ppu, 100) : 0;
-
-    // World bbox ENCLOSING all matched items (not just the visible ones): each
-    // item expanded by its rendered card / pin / dot half-extent (via `tierSize`,
-    // which accounts for label length / explicit width) AND its footprint extent,
-    // converted to world units at the current zoom. This is why it's `ppu` / `lod`
-    // dependent — the card is screen-sized, so enclosing it needs the live zoom;
-    // the `fit`-fly is keyed on the matched SET (not the rect) so this doesn't
-    // re-fly on a wheel tick.
-    const frameRect = useMemo(() => {
-        if (!(effectActive && frameEnabled)) return undefined;
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        let matched = 0;
-        for (const it of movedItems) {
-            if (excludedKeys.has(it.key) || layerHiddenKeys.has(it.key)) continue;
-            matched++;
-            const hw = lod === "dot" ? DOT_FRAME_ALLOW_PX : tierSize(it, lod, ppu).w / 2 + 2;
-            const hh = lod === "dot" ? DOT_FRAME_ALLOW_PX : tierSize(it, lod, ppu).h / 2 + 2;
-            const aw = ppu > 0 ? hw / ppu : 0, ah = ppu > 0 ? hh / ppu : 0;
-            let x0 = it.x - aw, y0 = it.y - ah, x1 = it.x + aw, y1 = it.y + ah;
-            const fp = getSomeorUndefined(it.footprint);
-            if (fp !== undefined && fp.type === "circle") {
-                const r = fp.value.radius;
-                x0 = Math.min(x0, it.x - r); y0 = Math.min(y0, it.y - r);
-                x1 = Math.max(x1, it.x + r); y1 = Math.max(y1, it.y + r);
-            } else if (fp !== undefined && fp.type !== "rect") {
-                for (const v of fp.value.vertices) {
-                    x0 = Math.min(x0, v.x); y0 = Math.min(y0, v.y);
-                    x1 = Math.max(x1, v.x); y1 = Math.max(y1, v.y);
-                }
-            }
-            if (x0 < minX) minX = x0;
-            if (y0 < minY) minY = y0;
-            if (x1 > maxX) maxX = x1;
-            if (y1 > maxY) maxY = y1;
-        }
-        // A frame only reads as a grouping when it wraps 2+ items — a lone match
-        // needs no box (it's already emphasised).
-        return (matched >= 2 && Number.isFinite(minX)) ? { minX, minY, maxX, maxY } : undefined;
-    }, [movedItems, excludedKeys, layerHiddenKeys, effectActive, frameEnabled, lod, ppu]);
-
-    // Paint-layer effect params, minus the live pulse phase (injected at paint
-    // time from a ref so the animation loop need not re-render React). `hide`
-    // mode already dropped the excluded items upstream, so its dim-set is empty.
-    const paintEffect = useMemo<Omit<SchematicPaintEffect, "pulsePhase"> | undefined>(() => {
-        if (!effectActive) return undefined;
-        return {
-            excluded: excludedMode === "keep" ? excludedKeys : EMPTY_STRING_SET,
-            excludedOpacity,
-            excludedDesaturate,
-            emphasis: emphasis as "halo" | "pulse" | undefined,
-            frame: frameRect,
-        };
-    }, [effectActive, excludedMode, excludedKeys, excludedOpacity, excludedDesaturate, emphasis, frameRect]);
 
     // --- Single synchronized camera apply (Phase 2). ------------------------
     // While a marquee drag is in flight, the CANVAS previews the would-be
@@ -1143,15 +932,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const renderSnap = {
         value: paintValue, size, fit, dpr, palette, visibleItems, tiers,
         selection, zoneSelection, renderSelected, centers, openZone,
-        paintEffect, frameRect, layerHiddenKeys, layerAlpha,
+        layerHiddenKeys, layerAlpha,
         effectiveTool, isBoxTool,
-        connectDraftWorld, sessionWorld,
+        connectDraftWorld,
         selectedLink, linkEditEnabled,
     };
     const renderSnapRef = useRef(renderSnap);
-    // The live pulse phase (mutated by the rAF ticker, read at paint time
-    // without a React re-render) — animation-local, not a render mirror.
-    const pulsePhaseRef = useRef(0);
 
     // Skip an apply whose inputs are referentially identical to the last —
     // covers redundant idle re-renders / repeated requestRender with no change.
@@ -1161,8 +947,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const lastPaintRef = useRef<{
         zoom: number; tx: number; ty: number; vis: unknown; tiers: unknown;
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; w: number; h: number; dpr: number; val: unknown;
-        eff: unknown; phase: number; lay: unknown; alp: unknown;
-        dl: unknown; sw: unknown; cf: number; slk: unknown; sle: boolean;
+        lay: unknown; alp: unknown;
+        dl: unknown; cf: number; slk: unknown; sle: boolean;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -1207,16 +993,14 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             && last.vis === snap.visibleItems && last.tiers === snap.tiers
             && last.sel === snap.renderSelected && last.zsel === snap.zoneSelection && last.pal === pal
             && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && Object.is(last.val, snap.value)
-            && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current
             && last.lay === snap.layerHiddenKeys && last.alp === snap.layerAlpha
-            && last.dl === snap.connectDraftWorld && last.sw === snap.sessionWorld && last.cf === cfPhase
+            && last.dl === snap.connectDraftWorld && last.cf === cfPhase
             && last.slk === snap.selectedLink && last.sle === snap.linkEditEnabled) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
             sel: snap.renderSelected, zsel: snap.zoneSelection, pal, w: sz.w, h: sz.h, dpr: dprLive, val: snap.value,
-            eff: snap.paintEffect, phase: pulsePhaseRef.current,
             lay: snap.layerHiddenKeys, alp: snap.layerAlpha,
-            dl: snap.connectDraftWorld, sw: snap.sessionWorld, cf: cfPhase,
+            dl: snap.connectDraftWorld, cf: cfPhase,
             slk: snap.selectedLink, sle: snap.linkEditEnabled,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
@@ -1224,7 +1008,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         const ctx = canvas.getContext("2d");
         if (ctx === null) return;
         ctx.setTransform(dprLive, 0, 0, dprLive, 0, 0);
-        const eff = snap.paintEffect;
         // A paint throw (bad geometry / palette edge) logs and skips the frame
         // rather than propagating out of a layout effect and unmounting the tree.
         try {
@@ -1236,10 +1019,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 // Layer masks for the zone / link paint passes (items are already
                 // pre-filtered out of visibleItems); `layerAlpha` dims item markers.
                 layerHiddenKeys: snap.layerHiddenKeys, layerAlpha: snap.layerAlpha,
-                // Connect-tool overlays (#176): the draft edge, the open session's
-                // transient edges, and the one-shot commit flash.
+                // Connect-tool overlays (#176): the draft edge and the one-shot commit flash.
                 ...(snap.connectDraftWorld !== undefined ? { draftLink: snap.connectDraftWorld } : {}),
-                ...(snap.sessionWorld !== null ? { session: snap.sessionWorld } : {}),
                 ...(cf !== null ? { connectFlash: { from: snap.centers.get(cf.from), to: snap.centers.get(cf.to), phase: cfPhase } } : {}),
                 ...(snap.selectedLink !== null ? {
                     selectedLink: {
@@ -1247,9 +1028,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                         ...(snap.selectedLink.leg !== null ? { leg: snap.selectedLink.leg } : {}),
                     },
                 } : {}),
-                // Spread `effect` only when set — `exactOptionalPropertyTypes` forbids
-                // passing an explicit `undefined` to the optional `effect?` field.
-                ...(eff !== undefined ? { effect: { ...eff, pulsePhase: pulsePhaseRef.current } } : {}),
             });
         } catch (err) {
             console.error("[Schematic] paint failed (frame skipped):", err);
@@ -1297,7 +1075,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // each frame (cancellable by any user input via the mode machine).
     const flyTo = useCallback((rect: { x: number; y: number; w: number; h: number }) => {
         if (renderSnapRef.current.size === null || renderSnapRef.current.fit === 0) return;
-        closeHover();   // a fly is a camera gesture — close, don't re-anchor
         const pad = 1.18;
         // Re-derive the destination from the LIVE viewport every frame, so a
         // resize mid-fly (nav-rail toggle, splitter drag, window resize) re-aims
@@ -1334,7 +1111,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             else { animRef.current = null; transition("flyEnd"); }
         };
         animRef.current = requestAnimationFrame(step);
-    }, [applyCamera, transition, closeHover]);
+    }, [applyCamera, transition]);
 
     // Fit the camera to a SET of selected items — the bounding box over all of them
     // (not just the last), padded so a single item lands in a comfortable window and a
@@ -1364,11 +1141,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }
         if (minX <= maxX) flyTo({ x: minX, y: minY, w: maxX - minX, h: maxY - minY });
     }, [shownZones, flyTo]);
-    // A canvas tap on a zone body (items always take precedence): `single`
-    // replaces the zone set; `multiple` + Shift toggles/extends — mirroring the
-    // item tap semantics. selectZoomFocus fits BEFORE the commit (fly-first).
+    // A canvas tap on a zone body (items always take precedence): a plain tap
+    // replaces the zone set; Shift toggles/extends — mirroring the item tap
+    // semantics. selectZoomFocus fits BEFORE the commit (fly-first).
     const zoneTap = useCallback((key: string, additive: boolean) => {
-        const shiftAdd = additive && selectionMode === "multiple";
+        const shiftAdd = additive;
         let next: Set<string>;
         if (shiftAdd) {
             next = new Set(renderSnapRef.current.zoneSelection);
@@ -1378,12 +1155,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }
         if (selectZoomFocus) flyToZones(next);
         commitZoneSelection(next, { additive: shiftAdd, key });
-        if (onSelectZoneFn) { const fn = onSelectZoneFn; dispatchEast("onSelectZone", () => fn(key)); }
-    }, [selectionMode, selectZoomFocus, flyToZones, commitZoneSelection, onSelectZoneFn]);
+    }, [selectZoomFocus, flyToZones, commitZoneSelection]);
     // End the open connect session (Esc, tool switch, or a plain new drag).
     const endLinkSession = useCallback(() => {
         linkSessionRef.current = null;
-        setSessionEdges(prev => (prev.length === 0 ? prev : []));
     }, []);
     // ~450ms one-shot flash driving repaints via the same identity-checked apply.
     const startConnectFlash = useCallback(() => {
@@ -1403,74 +1178,58 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         flashRafRef.current = requestAnimationFrame(tick);
     }, [applyCamera]);
     useEffect(() => () => { if (flashRafRef.current !== null) cancelAnimationFrame(flashRafRef.current); }, []);
-    // Commit a connect gesture: extend / start the session, add a physical link
-    // (draw mode) or the transient session edge (connect mode), play the flash,
-    // and fire onCreateLink with the newest link + the FULL session + the pair's
-    // existing links (either direction).
+    // Commit a connect gesture: extend / start the session, draw a link of the
+    // Connect tool's kind and play the flash. With a net kind to draw in, a
+    // Shift session grows into a net of it.
     const commitConnect = useCallback((from: string, to: string, shift: boolean) => {
-        const key = `connect-${from}-${to}-${++linkKeyCounter.current}`;
-        const ep = { key, from, to };
+        if (linkKind === undefined) return;
+        const linkRef = { kind: linkKind, key: `connect-${++linkKeyCounter.current}` };
+        const created = mkCreatedLink(linkRef, from, to);
+        const ep = { key: created.key, from, to };
         const open = shift ? linkSessionRef.current : null;
         const links = open !== null ? [...open.links, ep] : [ep];
         const seeded = open !== null ? open.seeded : [];
-        // The session key is STABLE across the session's commits — the event's
-        // `net.key`, so handlers can upsert ONE net per session (#189).
-        const sessionKey = open !== null ? open.key : `net-${++linkKeyCounter.current}`;
-        const additive = open !== null;
-        const { sources: netSources, destinations: netDestinations } = foldSessionNet(links);
-        const existing = effectiveLinks
-            .filter(l => (l.from === from && l.to === to) || (l.from === to && l.to === from))
-            .map(l => l.key);
+        // The session's net keeps one key across the session's commits (#189).
+        const netRef = netKind === undefined ? undefined
+            : { kind: netKind, key: open !== null ? open.key : `net-${++linkKeyCounter.current}` };
+        const sessionKey = netRef !== undefined ? netRef.key : linkRef.key;
         let drawn: "link" | "net" | "none" = "none";
-        if (linkMode === "draw") {
-            if (!additive) {
-                // A plain drag draws a pairwise link.
-                drawn = "link";
-                setLinkEdits({ ...linkEdits, created: [...linkEdits.created, mkCreatedLink(key, from, to)] });
-            } else {
-                // The first Shift-extension CONVERTS the session's pairwise link
-                // into a growing NET (same session key, #189); later extensions
-                // update that net in place.
-                drawn = "net";
-                const net = mkCreatedNet(sessionKey, netSources, netDestinations);
-                const priorLinkKey = open !== null && open.drawn === "link" ? open.links[0]?.key : undefined;
-                // Seeded (absorbed) links leave the picture with the net's
-                // arrival — from BOTH pools: locally-created links are filtered
-                // out of `created` (the deleted overlay only guards prop links),
-                // prop links join the deleted overlay. The event's `absorbed`
-                // tells handlers to delete their rows.
-                const seededSet = new Set(seeded);
-                const deleted = seeded.length > 0
-                    ? new Set([...linkEdits.deleted, ...seeded])
-                    : linkEdits.deleted;
-                setLinkEdits({
-                    ...linkEdits,
-                    created: linkEdits.created.filter(l => l.key !== priorLinkKey && !seededSet.has(l.key)),
-                    createdNets: [
-                        ...linkEdits.createdNets.filter(n => n.key !== sessionKey),
-                        net,
-                    ],
-                    deleted,
-                });
-            }
+        if (open === null || netRef === undefined) {
+            // A plain drag — or any drag with no net kind to grow — draws a pairwise link.
+            drawn = "link";
+            setLinkEdits({ ...linkEdits, created: [...linkEdits.created, created] });
         } else {
-            setSessionEdges(links);
+            // The first Shift-extension CONVERTS the session's pairwise link
+            // into a growing NET (same session key, #189); later extensions
+            // update that net in place.
+            drawn = "net";
+            const { sources: netSources, destinations: netDestinations } = foldSessionNet(links);
+            const net = mkCreatedNet(netRef, netSources, netDestinations);
+            const priorLinkKey = open.drawn === "link" ? open.links[0]?.key : undefined;
+            // Seeded (absorbed) links leave the picture with the net's
+            // arrival — from BOTH pools: locally-created links are filtered
+            // out of `created` (the deleted overlay only guards read links),
+            // read links join the deleted overlay.
+            const seededSet = new Set(seeded);
+            const deleted = seeded.length > 0
+                ? new Set([...linkEdits.deleted, ...seeded])
+                : linkEdits.deleted;
+            setLinkEdits({
+                ...linkEdits,
+                created: linkEdits.created.filter(l => l.key !== priorLinkKey && !seededSet.has(l.key)),
+                createdNets: [
+                    ...linkEdits.createdNets.filter(n => n.key !== net.key),
+                    net,
+                ],
+                deleted,
+            });
         }
         linkSessionRef.current = { key: sessionKey, links, drawn, seeded };
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
-        if (onCreateLinkFn) {
-            const fn = onCreateLinkFn;
-            dispatchEast("onCreateLink", () => fn({
-                link: ep, links: [...links],
-                net: { key: sessionKey, sources: netSources, destinations: netDestinations },
-                additive, existing, absorbed: [...seeded],
-            }));
-        }
-    }, [effectiveLinks, linkMode, linkEdits, onCreateLinkFn, startConnectFlash]);
+    }, [linkKind, netKind, linkEdits, startConnectFlash]);
     // Re-target a selected link's endpoint (connector-handle drag): local-first
-    // (created links edit in place; prop links via the retarget overlay), then
-    // onEditLink fires with the endpoints AFTER the edit.
+    // (created links edit in place; read links via the retarget overlay).
     const commitRetarget = useCallback((key: string, movingEnd: "from" | "to", target: string) => {
         const lk = effectiveLinks.find(l => l.key === key);
         if (lk === undefined) return;
@@ -1489,11 +1248,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         }
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
-        if (onEditLinkFn) { const fn = onEditLinkFn; dispatchEast("onEditLink", () => fn({ key, from, to })); }
-    }, [effectiveLinks, linkEdits, onEditLinkFn, startConnectFlash]);
+    }, [effectiveLinks, linkEdits, startConnectFlash]);
     // Extend a selected NET by one member (Shift-drag out of a member): the
-    // dragged-to item joins DOWNSTREAM; local netEdits overlay + onEditNet with
-    // the endpoints AFTER — the exact mirror of leg-delete.
+    // dragged-to item joins DOWNSTREAM, a local netEdits overlay — the exact
+    // mirror of leg-delete.
     const commitNetExtend = useCallback((netKey: string, from: string, to: string) => {
         const net = effectiveNets.find(n => n.key === netKey);
         if (net === undefined) return;
@@ -1507,17 +1265,16 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         setLinkEdits({ ...linkEdits, netEdits });
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
-        if (onEditNetFn) { const fn = onEditNetFn; dispatchEast("onEditNet", () => fn({ key: netKey, sources, destinations })); }
-    }, [effectiveNets, linkEdits, onEditNetFn, startConnectFlash]);
+    }, [effectiveNets, linkEdits, startConnectFlash]);
     // Delete the selected link (Del / Backspace while editable): created links
-    // drop locally; prop links join the deleted overlay; onDeleteLink fires.
+    // drop locally; read links join the deleted overlay.
     const deleteSelectedLink = useCallback(() => {
         const selL = renderSnapRef.current.selectedLink;
         if (selL === null || !renderSnapRef.current.linkEditEnabled) return;
         const key = selL.key;
         // A selected LEG deletes just that endpoint (#189): the membership
-        // overlay replaces the net's endpoint sets locally and onEditNet reports
-        // the endpoints AFTER; emptying a side falls through to whole-net delete.
+        // overlay replaces the net's endpoint sets locally; emptying a side falls
+        // through to whole-net delete.
         if (selL.leg !== null) {
             const net = effectiveNets.find(n => n.key === key);
             if (net !== undefined) {
@@ -1529,7 +1286,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                     netEdits.set(key, { sources, destinations });
                     setLinkEdits({ ...linkEdits, netEdits });
                     setSelectedLink({ key, leg: null });
-                    if (onEditNetFn) { const fn = onEditNetFn; dispatchEast("onEditNet", () => fn({ key, sources, destinations })); }
                     return;
                 }
             }
@@ -1539,30 +1295,13 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         } else if (linkEdits.createdNets.some(n => n.key === key)) {
             setLinkEdits({ ...linkEdits, createdNets: linkEdits.createdNets.filter(n => n.key !== key) });
         } else {
-            // Prop-supplied links AND nets share the deleted overlay.
+            // Read links AND nets share the deleted overlay.
             const deleted = new Set(linkEdits.deleted);
             deleted.add(key);
             setLinkEdits({ ...linkEdits, deleted });
         }
         setSelectedLink(null);
-        if (onDeleteLinkFn) { const fn = onDeleteLinkFn; dispatchEast("onDeleteLink", () => fn(key)); }
-    }, [linkEdits, onDeleteLinkFn, effectiveNets, onEditNetFn]);
-    // Finish a move gesture: fire onMoveItem ONCE with the pressed item's final
-    // (clamped) position, every moved key, and the shared raw world delta.
-    const commitMove = useCallback((md: { key: string; keys: readonly string[]; orig: ReadonlyMap<string, Pt>; startWorld: Pt }, dx: number, dy: number) => {
-        if (onMoveItemFn === undefined) return;
-        const o = md.orig.get(md.key);
-        if (o === undefined) return;
-        const fn = onMoveItemFn;
-        const ev = {
-            key: md.key,
-            x: Math.min(Math.max(o.x + dx, 0), W),
-            y: Math.min(Math.max(o.y + dy, 0), H),
-            keys: [...md.keys],
-            dx, dy,
-        };
-        dispatchEast("onMoveItem", () => fn(ev));
-    }, [onMoveItemFn, W, H]);
+    }, [linkEdits, effectiveNets]);
 
     // A user gesture (collapse/fly) takes the accordion away from the viewport
     // spy until the viewport leaves that zone (issue #57, Phase 2 openZone fix).
@@ -1577,9 +1316,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         // viewport spy to catch up after the fly animation.
         zoneOverrideRef.current = null;
         setOpenZone(nav.zoneOf.get(item.key) ?? null);
-        // onSelect (single-key channel) still fires alongside onSelectionChange.
-        if (onSelectFn) { const fn = onSelectFn; dispatchEast("onSelect", () => fn(item.key)); }
-    }, [flyTo, nav.zoneOf, onSelectFn, commitSelection]);
+    }, [flyTo, nav.zoneOf, commitSelection]);
     const stepSelection = useCallback((delta: number) => {
         const { ordered, indexOf } = itemOrder;
         if (ordered.length === 0) return;
@@ -1598,9 +1335,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); stepSelection(-1); }
         else if (e.key === "Enter") {
             const anchor = renderSnapRef.current.selection.anchor;
-            if (anchor !== null && onItemOpenFn) { const fn = onItemOpenFn; dispatchEast("onItemOpen", () => fn(anchor)); }
+            const ref = anchor === null ? undefined : refById.get(anchor);
+            if (ref !== undefined && onItemOpenFn) { const fn = onItemOpenFn; dispatchEast("onItemOpen", () => fn(ref)); }
         }
-    }, [stepSelection, onItemOpenFn]);
+    }, [stepSelection, onItemOpenFn, refById]);
     const flyToZone = useCallback((zone: SchematicZoneValue) => {
         flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height });
         zoneOverrideRef.current = null;
@@ -1608,8 +1346,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         // A nav-rail zone click also SELECTS the zone (single replace), mirroring
         // how nav item clicks commit item selection (#177).
         commitZoneSelection(new Set([zone.key]), { additive: false, key: zone.key });
-        if (onSelectZoneFn) { const fn = onSelectZoneFn; dispatchEast("onSelectZone", () => fn(zone.key)); }
-    }, [flyTo, commitZoneSelection, onSelectZoneFn]);
+    }, [flyTo, commitZoneSelection]);
 
     // Wheel zooms about the cursor (no modifier — a dedicated canvas owns the
     // wheel, like any map); attached non-passively so preventDefault stops the
@@ -1619,7 +1356,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (!el) return;
         const onWheel = (e: WheelEvent) => {
             e.preventDefault();
-            closeHover();
             const rect = el.getBoundingClientRect();
             const px = e.clientX - rect.left, py = e.clientY - rect.top;
             transition("wheel");
@@ -1628,7 +1364,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         };
         el.addEventListener("wheel", onWheel, { passive: false });
         return () => el.removeEventListener("wheel", onWheel);
-    }, [transition, requestRender, closeHover]);
+    }, [transition, requestRender]);
 
     // Drag-pan + tap-to-pick on the canvas. The pick runs on POINTERUP, not the
     // `click` event: onCanvasPointerDown captures the pointer for the drag, and
@@ -1664,9 +1400,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             if ((tiers.get(it.key) ?? lod) !== "card") continue;
             const fp = getSomeorUndefined(it.footprint);
             if (fp === undefined || fp.type === "rect") continue;
+            // Its footprint is drawn about its centre (D22).
             const hit = fp.type === "circle"
                 ? Math.hypot(wxp - it.x, wyp - it.y) <= fp.value.radius
-                : pointInPolygon(wxp, wyp, fp.value.vertices);
+                : pointInPolygon(wxp - it.x, wyp - it.y, fp.value.vertices);
             if (hit) return it.key;
         }
         // 2) the real DOM card under the pointer — hit-test the actual rendered
@@ -1700,9 +1437,8 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     const pickAt = useCallback((host: HTMLElement, clientX: number, clientY: number, additive: boolean): boolean => {
         const key = itemKeyAt(host, clientX, clientY);
         if (key === undefined) return false;
-        // A tap resolves per mode: `single` always replaces; `multiple` replaces on
-        // a plain tap and toggles the item on a Shift+tap (extend the set).
-        const shiftAdd = additive && selectionMode === "multiple";
+        // A plain tap replaces the selection; a Shift+tap toggles the item (extends the set).
+        const shiftAdd = additive;
         let next: Set<string>;
         if (shiftAdd) {
             next = new Set(renderSnapRef.current.selection.selected);
@@ -1716,17 +1452,16 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         // nav-click, prev/next) are fly-first; commit-first leaves the fly dead.
         if (selectZoomFocus) flyToSelection(next);
         commitSelection(next, { additive: shiftAdd, key, anchor: key });
-        if (onSelectFn) { const fn = onSelectFn; dispatchEast("onSelect", () => fn(key)); }
         return true;
-    }, [itemKeyAt, onSelectFn, flyToSelection, selectionMode, commitSelection, selectZoomFocus]);
+    }, [itemKeyAt, flyToSelection, commitSelection, selectZoomFocus]);
 
     // Collect the items a marquee region encloses — the pure rule lives in
     // `selection.ts` (`marqueeHits`: R-tree sweep + CENTER-in-region test,
-    // skipping locked / slice-excluded; layer-hidden items are already absent
-    // from `index`, built over the post-filter working set).
+    // skipping locked items; layer-hidden items are already absent from
+    // `index`, built over the post-filter working set).
     const collectMarquee = useCallback((region: { minX: number; minY: number; maxX: number; maxY: number }): Set<string> =>
-        marqueeHits(index, region, lockedKeys, excludedKeys),
-    [index, lockedKeys, excludedKeys]);
+        marqueeHits(index, region, lockedKeys, EMPTY_STRING_SET),
+    [index, lockedKeys]);
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
@@ -1744,19 +1479,20 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 return;
             }
         }
-        closeHover();
         // Presses on the controls / nav buttons are theirs. Cards are NOT
         // excluded — a drag-pan can start anywhere, including over a card; a
         // tap (no drag) over the card is resolved by pickAt on pointerup.
         if ((e.target as HTMLElement).closest("button") !== null) return;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         movedRef.current = false;
-        // Move tool (#179): a press ON AN ITEM starts a reposition drag; when the
-        // pressed item is part of the selection the WHOLE selection moves rigidly.
-        // An empty press falls through to a pan.
+        // Move tool (#179): a press ON AN ITEM of a kind bound with its patch door
+        // starts a reposition drag; when the pressed item is part of the selection
+        // the WHOLE selection's movable items move rigidly. An empty press falls
+        // through to a pan.
         if (renderSnapRef.current.effectiveTool === "move") {
             const k = itemKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-            if (k !== undefined) {
+            const movable = (key: string) => { const ref = refById.get(key); return ref !== undefined && movableKinds.has(ref.kind); };
+            if (k !== undefined && movable(k)) {
                 transition("cancel");
                 const snap = renderSnapRef.current;
                 const cam = cameraRef.current;
@@ -1764,7 +1500,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const wxp = ppuLive > 0 ? (e.clientX - r.left - cam.tx) / ppuLive : 0;
                 const wyp = ppuLive > 0 ? (e.clientY - r.top - cam.ty) / ppuLive : 0;
-                const keys = snap.selection.selected.has(k) ? [...snap.selection.selected] : [k];
+                const keys = snap.selection.selected.has(k) ? [...snap.selection.selected].filter(movable) : [k];
                 const orig = new Map<string, Pt>();
                 for (const kk of keys) {
                     const c = snap.centers.get(kk);
@@ -1861,57 +1597,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (linkSessionRef.current !== null) endLinkSession();
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-    }, [transition, itemKeyAt, effectiveLinks, effectiveNets, closeHover, endLinkSession]);
-    // Drive the hover state machine from an IDLE pointermove (#178): hit-test
-    // item → zone → link/net (interaction precedence), dwell before opening,
-    // retarget on a new entity, grace-close over empty canvas. Read-only reuse
-    // of the selection hit-testers.
-    const hoverProbe = useCallback((e: React.PointerEvent) => {
-        const host = e.currentTarget as HTMLElement;
-        let kind: "item" | "zone" | "link" | null = null;
-        let key: string | undefined;
-        if (itemHoverFn !== undefined) {
-            key = itemKeyAt(host, e.clientX, e.clientY);
-            if (key !== undefined) kind = "item";
-        }
-        if (kind === null && zoneHoverFn !== undefined) {
-            key = zoneKeyAt(host, e.clientX, e.clientY);
-            if (key !== undefined) kind = "zone";
-        }
-        if (kind === null && linkHoverFn !== undefined) {
-            key = linkKeyAt(host, e.clientX, e.clientY)?.key;
-            if (key !== undefined) kind = "link";
-        }
-        if (kind === null || key === undefined) {
-            scheduleHoverClose();
-            return;
-        }
-        const open = hoverCardRef.current;
-        if (open !== null && open.kind === kind && open.key === key) {
-            cancelHoverClose();   // moving within the entity keeps the card
-            return;
-        }
-        const target = `${kind}:${key}`;
-        if (hoverOpenRef.current !== null && hoverOpenRef.current.target === target) return;
-        cancelHoverOpen();
-        // Items anchor at the marker centre (stable, matches the drawing);
-        // zones / links anchor at the dwell point on their body.
-        const rect = host.getBoundingClientRect();
-        let ax = e.clientX - rect.left, ay = e.clientY - rect.top;
-        if (kind === "item") {
-            const cam = cameraRef.current;
-            const ppuLive = renderSnapRef.current.fit * cam.zoom;
-            const c = centers.get(key);
-            if (c !== undefined && ppuLive > 0) { ax = c.x * ppuLive + cam.tx; ay = c.y * ppuLive + cam.ty; }
-        }
-        const kd = kind, kk = key, fx = ax, fy = ay;
-        const timer = window.setTimeout(() => {
-            hoverOpenRef.current = null;
-            cancelHoverClose();   // the open supersedes any pending grace-close
-            setHoverCard({ kind: kd, key: kk, ax: fx, ay: fy });
-        }, HOVER_OPEN_MS);
-        hoverOpenRef.current = { timer, target };
-    }, [itemHoverFn, zoneHoverFn, linkHoverFn, itemKeyAt, zoneKeyAt, linkKeyAt, centers, scheduleHoverClose, cancelHoverOpen, cancelHoverClose]);
+    }, [transition, itemKeyAt, effectiveLinks, effectiveNets, endLinkSession, refById, movableKinds]);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
         // Pinch-zoom (#353): with two live touches the gesture owns the
         // canvas — zoom about the midpoint, ratio of successive distances.
@@ -2014,14 +1700,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             return;
         }
         const pan = panRef.current;
-        if (!pan) {
-            if (hoverEnabled) hoverProbe(e);
-            return;
-        }
+        if (!pan) return;
         if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
         cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
         requestRender();
-    }, [requestRender, collectMarquee, itemKeyAt, hoverEnabled, hoverProbe, W, H, connectAllowed, transition]);
+    }, [requestRender, collectMarquee, itemKeyAt, W, H, connectAllowed, transition]);
     // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
     // was active; never disturbs a running fly.
     const endPan = useCallback(() => {
@@ -2037,18 +1720,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             touchesRef.current.delete(e.pointerId);
             if (touchesRef.current.size < 2) pinchRef.current = null;
         }
-        // Move release (#179): fire onMoveItem once with the final delta.
-        const mdUp = moveDragRef.current;
-        if (mdUp !== null) {
+        // Move release (#179): the moved items stay where the drag left them.
+        if (moveDragRef.current !== null) {
             moveDragRef.current = null;
-            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            const cam = cameraRef.current;
-            const ppuLive = renderSnapRef.current.fit * cam.zoom;
-            if (ppuLive > 0) {
-                const dx = (e.clientX - r.left - cam.tx) / ppuLive - mdUp.startWorld.x;
-                const dy = (e.clientY - r.top - cam.ty) / ppuLive - mdUp.startWorld.y;
-                commitMove(mdUp, dx, dy);
-            }
             return;
         }
         // Connect release (#176): over a valid target commits the gesture
@@ -2137,7 +1811,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 else if (!e.shiftKey) { clearSelection(); clearZoneSelection(); setSelectedLink(null); }
             }
         }
-    }, [endPan, pickAt, flyTo, flyToSelection, collectMarquee, commitSelection, clearSelection, selectZoomFocus, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, commitMove, connectAllowed, commitNetExtend]);
+    }, [endPan, pickAt, flyTo, flyToSelection, collectMarquee, commitSelection, clearSelection, selectZoomFocus, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, connectAllowed, commitNetExtend]);
     // pointercancel / lost capture: a pan OR select-drag that loses its grip
     // mid-gesture must still end (issue #57, P10). After a normal release the
     // pan is already ended (panRef null) so this is a no-op then, and it never
@@ -2167,19 +1841,21 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     }, [transition, requestRender]);
     // Double-click: an item under the pointer OPENS (the drill-in affordance,
     // #181) when `onItemOpen` is wired — the first click of the pair has already
-    // tap-selected it (standard platform behaviour). Background double-click (or
-    // no handler) keeps today's Fit / reset. Locked items never resolve.
+    // tap-selected it (standard platform behaviour), and the host hears it named
+    // by its kind and key. Background double-click (or no handler) keeps today's
+    // Fit / reset. Locked items never resolve.
     const onCanvasDoubleClick = useCallback((e: React.MouseEvent) => {
         if (onItemOpenFn !== undefined) {
             const key = itemKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-            if (key !== undefined) {
+            const ref = key === undefined ? undefined : refById.get(key);
+            if (ref !== undefined) {
                 const fn = onItemOpenFn;
-                dispatchEast("onItemOpen", () => fn(key));
+                dispatchEast("onItemOpen", () => fn(ref));
                 return;
             }
         }
         resetView();
-    }, [onItemOpenFn, itemKeyAt, resetView]);
+    }, [onItemOpenFn, itemKeyAt, resetView, refById]);
     const zoomBy = useCallback((factor: number) => {
         const sz = renderSnapRef.current.size;
         if (sz === null) return;
@@ -2188,9 +1864,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         requestRender();
     }, [transition, requestRender]);
 
-    // Flipping draw ↔ connect mid-session would silently change what the next
-    // Shift-extension means — the open proposal dismisses instead.
-    useEffect(() => { endLinkSession(); }, [linkMode, endLinkSession]);
     // Leaving the connect tool cancels any in-flight draft and ends the session;
     // a tool whose domain turns read-only reverts to grab.
     useEffect(() => {
@@ -2219,8 +1892,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 deleteSelectedLink();
             }
             else if (e.key === "Escape") {
-                if (hoverCardRef.current !== null) { closeHover(); }
-                else if (moveDragRef.current !== null) {
+                if (moveDragRef.current !== null) {
                     const md = moveDragRef.current;
                     moveDragRef.current = null;
                     setItemMoves(prev => {
@@ -2249,7 +1921,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
             window.removeEventListener("keyup", onKeyUp);
             window.removeEventListener("blur", clear);
         };
-    }, [clearSelection, clearZoneSelection, endLinkSession, deleteSelectedLink, closeHover]);
+    }, [clearSelection, clearZoneSelection, endLinkSession, deleteSelectedLink]);
     // Minimap is a camera writer (jump on press, follow on drag — invariant 8).
     const minimapDragRef = useRef(false);
     const minimapJump = useCallback((el: HTMLElement, clientX: number, clientY: number) => {
@@ -2273,72 +1945,6 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // a zone/link-only layer toggle, theme load, or data change repaints because
     // EVERY commit re-snapshots then applies, and the identity short-circuit
     // makes the no-change case free.)
-
-    // Pulse emphasis: a self-contained rAF loop that advances the pulse phase and
-    // repaints, only while `emphasis === "pulse"` and the effect is engaged (some
-    // items excluded). `halo` / no-emphasis never spins this up; on teardown the
-    // phase resets and one final repaint clears the last ring frame.
-    useEffect(() => {
-        if (!(effectActive && emphasis === "pulse")) return;
-        let raf = 0;
-        // The card layer the frames breathe: read at each frame, as it mounts only once the canvas is measured, which can
-        // be after the pulse starts; the teardown rests the one they wrote.
-        let breathed: HTMLDivElement | null = null;
-        const start = performance.now();
-        const tick = (now: number) => {
-            const phase = ((now - start) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
-            pulsePhaseRef.current = phase;
-            // Drive the DOM cards' pulse ring off the same clock (canvas markers
-            // read `pulsePhaseRef` in paint; matched CARDS breathe via this var).
-            breathed = cardLayerRef.current;
-            breathed?.style.setProperty("--pulse", String(Math.sin(phase * Math.PI * 2) * 0.5 + 0.5));
-            applyCamera();
-            raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-        return () => {
-            cancelAnimationFrame(raf);
-            pulsePhaseRef.current = 0;
-            breathed?.style.setProperty("--pulse", "0");
-            applyCamera();
-        };
-    }, [effectActive, emphasis, applyCamera]);
-
-    // Frame + `fit`: fly the camera to the matched extent whenever that SET
-    // changes. Keyed on the matched item KEYS (not the rect coords) — the rect is
-    // now zoom-dependent (it hugs item extents), so a coord key would re-fly on
-    // every zoom; the key set only changes when the filtering does. A gesture can
-    // still pan away afterwards.
-    const frameSig = useMemo(() => {
-        if (!(effectActive && frameFit)) return null;
-        const keys: string[] = [];
-        for (const it of data.items) if (!excludedKeys.has(it.key) && !layerHiddenKeys.has(it.key)) keys.push(it.key);
-        keys.sort();
-        return keys.join("|");
-    }, [data.items, excludedKeys, layerHiddenKeys, effectActive, frameFit]);
-    // `sizeReady` gates the initial fit: on mount `size` is null and `flyTo` bails,
-    // so without it a State-seeded slice (filter already applied on load) would
-    // never fit. It flips false→true once (resizes don't retrigger).
-    const sizeReady = size !== null;
-    useEffect(() => {
-        // Fires on matched-set change and once the viewport is measured; the live
-        // rect comes from a ref (its zoom updates are irrelevant to when we re-fly).
-        // Consume the selection-driven flag FIRST (before any guard) so it can
-        // never linger past this run: when the frameSig change was caused by a
-        // selectZoomFocus selection commit, the selection fly already owns the
-        // camera — skip the competing auto-fit (#173). A user-driven filter
-        // change (chips / search) leaves the flag unset and still fits.
-        const selectionDriven = selectionDrivenFitRef.current;
-        selectionDrivenFitRef.current = false;
-        const rect = renderSnapRef.current.frameRect;
-        if (!(effectActive && frameFit) || rect === undefined || !sizeReady) return;
-        if (selectionDriven) return;
-        flyTo({
-            x: rect.minX, y: rect.minY,
-            w: Math.max(1e-3, rect.maxX - rect.minX),
-            h: Math.max(1e-3, rect.maxY - rect.minY),
-        });
-    }, [frameSig, effectActive, frameFit, flyTo, sizeReady]);
 
     // Accordion: one open zone; its ancestors stay open so the path is visible.
     const toggleZone = useCallback((key: string) => {
@@ -2428,7 +2034,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                         {...(selected.has(item.key) ? { "data-selected": "" } : {})}
                         onClick={() => flyToItem(item)}
                     >
-                        <Box as="span" css={styles.statusDot} data-tone={statusTone(item.status) ?? "neutral"} />
+                        <Box as="span" css={styles.statusDot} data-tone={statusTone(item.status) ?? "neutral"} {...(statusRing(item.status) ? { "data-ring": "" } : {})} />
                         {item.label}
                         {item.metric.type === "some" && <Box as="span" css={styles.navMetric}>{item.metric.value}</Box>}
                     </Box>
@@ -2438,7 +2044,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     };
 
     const schematicBody = (
-        <Box css={styles.root} {...(fixedHeight !== undefined ? { style: { height: fixedHeight, maxHeight: maxHeightCss ?? fixedHeight } } : (maxHeightCss !== undefined ? { style: { maxHeight: maxHeightCss } } : {}))}>
+        <Box css={styles.root}>
             <SchematicPaletteProbe onResolve={setPalette} />
             {showNavigator && navCollapsed && (
                 <Box css={styles.navCollapsed}>
@@ -2451,13 +2057,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                         <Box as="span" css={styles.navTitle}>Index</Box>
                         <Box as="button" css={styles.navToggle} aria-label="Collapse index" title="Hide index" onClick={() => setNavCollapsed(true)}><FontAwesomeIcon icon={faAnglesLeft} /></Box>
                     </Box>
-                    {/* Search lives in the optional top-edge Slice rail now (#128) —
-                        the navigator is a pure zones→items TOC. */}
                     <Box ref={navTreeRef} css={styles.navTree}>
                         {nav.roots.map(node => renderNavZone(node, 0))}
                         {nav.floor.map(item => (
                             <Box key={item.key} as="button" css={styles.navItem} data-nav-key={item.key} style={{ paddingLeft: "8px" }} {...(selected.has(item.key) ? { "data-selected": "" } : {})} onClick={() => flyToItem(item)}>
-                                <Box as="span" css={styles.statusDot} data-tone={statusTone(item.status) ?? "neutral"} />
+                                <Box as="span" css={styles.statusDot} data-tone={statusTone(item.status) ?? "neutral"} {...(statusRing(item.status) ? { "data-ring": "" } : {})} />
                                 {item.label}
                             </Box>
                         ))}
@@ -2473,7 +2077,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                 aria-label="Schematic canvas — arrow keys traverse items, Enter opens the selected item"
                 onKeyDown={onCanvasKeyDown}
                 style={{
-                    ...(fixedHeight !== undefined ? { minHeight: 0 } : { aspectRatio: `${W} / ${H}` }),
+                    aspectRatio: `${W} / ${H}`,
                     // Box tools (zoom / marquee) show a crosshair; for grab we leave
                     // the cursor to the recipe (grab → grabbing on :active) — an inline
                     // value would outrank the recipe and freeze it mid-pan (#153).
@@ -2482,7 +2086,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                             : effectiveTool === "move" ? { cursor: "move" } : {}),
                 }}
                 onPointerEnter={() => { hoveredRef.current = true; }}
-                onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); scheduleHoverClose(); }}
+                onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); }}
                 onPointerDown={onCanvasPointerDown}
                 onPointerMove={onCanvasPointerMove}
                 onPointerUp={onCanvasPointerUp}
@@ -2510,16 +2114,10 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                 if ((tiers.get(item.key) ?? lod) !== "card") return null;
                                 const tone = statusTone(item.status);
                                 const isSelected = renderSelected.has(item.key);
-                                // Slice-effect card treatment: a kept-excluded card fades /
-                                // desaturates (dynamic data binding); a matched card carries the
-                                // emphasis hook the recipe styles. `hide` / `dot` cards never reach
-                                // here (filtered out / demoted to a canvas dot).
-                                const isExcludedCard = effectActive && excludedMode === "keep" && excludedKeys.has(item.key);
-                                const isEmphasized = effectActive && emphasis !== undefined && !excludedKeys.has(item.key);
-                                // Layer treatment: dim (opacity × slice-keep opacity) + lock (non-selectable
-                                // — clicks fall through to entities beneath, matching the pickAt lock skip).
+                                // Layer treatment: dim + lock (non-selectable — clicks fall
+                                // through to entities beneath, matching the pickAt lock skip).
                                 const isLockedCard = lockedKeys.has(item.key);
-                                const cardOpacity = (isExcludedCard ? excludedOpacity : 1) * (layerAlpha.get(item.key) ?? 1);
+                                const cardOpacity = layerAlpha.get(item.key) ?? 1;
                                 const sublabel = getSomeorUndefined(item.sublabel);
                                 const icon = getSomeorUndefined(item.icon);
                                 const meter = getSomeorUndefined(item.meter);
@@ -2534,15 +2132,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                         css={styles.item}
                                         data-card-key={item.key}
                                         {...(isSelected ? { "data-selected": "" } : {})}
-                                        {...(isEmphasized ? { "data-emphasis": emphasis } : {})}
-                                        {...(isExcludedCard ? { "data-excluded": "" } : {})}
                                         {...(connectDraft?.forbidden === item.key ? { "data-forbidden": "" } : {})}
                                         style={{
                                             left: 0, top: 0,
                                             transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,
                                             ...(width !== undefined ? { width: cardWidthCss(width) } : {}),
                                             ...(cardOpacity < 1 ? { opacity: cardOpacity } : {}),
-                                            ...(isExcludedCard && excludedDesaturate ? { filter: "grayscale(1)" } : {}),
                                             ...(isLockedCard ? { pointerEvents: "none" as const } : {}),
                                         }}
                                     >{/* No onClick / stopPropagation: a drag-pan can start on a
@@ -2552,11 +2147,11 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                                 <Box as="span" css={styles.itemIcon}><FontAwesomeIcon icon={iconDef} /></Box>
                                             )}
                                             <Box as="span" css={styles.itemLabel}>{item.label}</Box>
-                                            {tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={tone} />}
+                                            {tone !== undefined && <Box as="span" css={styles.statusDot} data-tone={tone} {...(statusRing(item.status) ? { "data-ring": "" } : {})} />}
                                         </Box>
                                         {sublabel !== undefined && <Box css={styles.itemSublabel}>{sublabel}</Box>}
                                         {meter !== undefined && (
-                                            <Box css={styles.meterTrack}>
+                                            <Box css={styles.meterTrack} data-meter="">
                                                 <Box css={styles.meterFill} style={{ width: `${meter.max > 0 ? Math.min(100, (meter.value / meter.max) * 100) : 0}%` }} />
                                             </Box>
                                         )}
@@ -2574,41 +2169,22 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
                                 )}
                             </Box>
                         )}
-                        {hoverCard !== null && hoverContent !== null && (
-                            <Box
-                                css={styles.hoverCard}
-                                style={{
-                                    left: Math.round(hoverCard.ax), top: Math.round(hoverCard.ay),
-                                    // Flip away from the near edges without measuring the card.
-                                    transform: `translate(${hoverCard.ax > size.w * 0.6 ? "calc(-100% - 12px)" : "12px"}, ${hoverCard.ay > size.h * 0.6 ? "calc(-100% - 12px)" : "12px"})`,
-                                }}
-                                onPointerEnter={cancelHoverClose}
-                                onPointerLeave={scheduleHoverClose}
-                                onPointerMove={e => e.stopPropagation()}
-                                onPointerDown={e => e.stopPropagation()}
-                            >
-                                <EastChakraComponent value={hoverContent} storageKey={`${storageKey}.hover.${hoverCard.kind}`} />
-                            </Box>
-                        )}
                         <Box css={styles.controls}>
                             {/* Nav tool group: grab (pan, default) + zoom-to-box. Icons unchanged. */}
                             <Box css={styles.controlGroup}>
                                 <Box as="button" css={styles.controlButton} {...(tool === "grab" ? { "data-active": "" } : {})} aria-label="Grab / pan tool" aria-pressed={tool === "grab"} title="Grab — drag to pan (hold Space)" onClick={() => setTool("grab")}><FontAwesomeIcon icon={faHand} /></Box>
                                 <Box as="button" css={styles.controlButton} {...(tool === "zoom" ? { "data-active": "" } : {})} aria-label="Zoom-region tool" aria-pressed={tool === "zoom"} title="Zoom — drag a box to zoom in (hold Ctrl)" onClick={() => setTool("zoom")}><FontAwesomeIcon icon={faObjectGroup} /></Box>
                             </Box>
-                            {/* Selection tool group (#159) — only when selectionMode is
-                                multiple/range. Single-select folds into grab; this adds a
-                                marquee (drag a box → select the enclosed items) + a clear. */}
-                            {selectionEnabled && (
-                                <Box css={styles.controlGroup}>
-                                    <Box as="button" css={styles.controlButton} {...(tool === "marquee" ? { "data-active": "" } : {})} aria-label="Select-region tool" aria-pressed={tool === "marquee"} title="Select region — drag a box (Shift adds)" onClick={() => setTool("marquee")}><FontAwesomeIcon icon={faObjectUngroup} /></Box>
-                                    {selected.size > 0 && (
-                                        <Box as="button" css={styles.controlButton} aria-label="Clear selection" title="Clear selection (Esc)" onClick={clearSelection}><FontAwesomeIcon icon={faXmark} /></Box>
-                                    )}
-                                </Box>
-                            )}
-                            {/* Edit tool group (#176/#179) — per-domain buttons, hidden
-                                when their domain is read-only. */}
+                            {/* Selection tool group (#159): the marquee (drag a box → select
+                                the enclosed items) + a clear. A tap selects; Shift extends. */}
+                            <Box css={styles.controlGroup}>
+                                <Box as="button" css={styles.controlButton} {...(tool === "marquee" ? { "data-active": "" } : {})} aria-label="Select-region tool" aria-pressed={tool === "marquee"} title="Select region — drag a box (Shift adds)" onClick={() => setTool("marquee")}><FontAwesomeIcon icon={faObjectUngroup} /></Box>
+                                {selected.size > 0 && (
+                                    <Box as="button" css={styles.controlButton} aria-label="Clear selection" title="Clear selection (Esc)" onClick={clearSelection}><FontAwesomeIcon icon={faXmark} /></Box>
+                                )}
+                            </Box>
+                            {/* Edit tool group (#176/#179) — Connect while a link kind is
+                                bound with its patch door, Move while an item kind is. */}
                             {(linkEditEnabled || itemEditEnabled) && (
                                 <Box css={styles.controlGroup}>
                                     {linkEditEnabled && (
@@ -2733,18 +2309,28 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         </Box>
     );
 
-    // No slice chrome → render the schematic bare (built-in navigator search stays).
-    if (!hasSliceChrome) return schematicBody;
-    // Slice chrome → a full-width top-edge rail above the schematic frame (#128).
+    return schematicBody;
+});
+
+/** The props `EastChakraSchematic` takes: the payload and where its view state is kept. */
+export interface EastChakraSchematicProps {
+    value: SchematicValue;
+    storageKey: string;
+}
+
+/**
+ * Renders the Schematic (e3-ui's `<Schematic>`): its reader, which reads each
+ * kind's rows (`data.ts`), and the canvas, which draws what it read.
+ */
+export const EastChakraSchematic = memo(function EastChakraSchematic({ value, storageKey }: EastChakraSchematicProps) {
+    const [data, setData] = useState<SchematicData>(INITIAL_SCHEMATIC_DATA);
     return (
-        <Box css={{ ...sliceFrameStyles.root, display: "flex", flexDirection: "column", minHeight: 0, ...(fixedHeight !== undefined ? { height: fixedHeight, maxHeight: maxHeightCss ?? fixedHeight } : (maxHeightCss !== undefined ? { maxHeight: maxHeightCss } : {})) }}>
-            <Box css={{ ...sliceFrameStyles.frameEyebrow, flexShrink: 0 }}>
-                {sliceRail}
+        <>
+            <SchematicDataReader value={value} onData={setData} />
+            <Box data-schematic="" {...(data.loading ? { "aria-busy": "true" } : {})} {...(data.error !== undefined ? { "data-error": data.error } : {})}>
+                <SchematicCanvas value={value} data={data.drawn} storageKey={storageKey} />
             </Box>
-            <Box css={{ ...sliceFrameStyles.frameBody, flex: "1 1 0%", minHeight: 0, position: "relative" }}>
-                {schematicBody}
-            </Box>
-        </Box>
+        </>
     );
 }, (prev, next) => schematicEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 

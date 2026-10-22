@@ -22,7 +22,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
         "itemDot", "itemPin",
         "controls", "controlButton", "controlGroup", "selectBox", "selectBoxCount", "scaleBar", "scaleRuler", "scaleLabel",
-        "hoverCard",
         "minimap", "minimapZone", "minimapViewport",
         "nav", "navCollapsed", "navHeader", "navTitle", "navToggle",
         "navSearch", "navTree", "navZone", "navCaret",
@@ -344,6 +343,13 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-tone=danger]": { background: "{colors.status.neg}" },
             "&[data-tone=info]": { background: "{colors.brand.500}" },
             "&[data-tone=neutral]": { background: "{colors.fg.muted}" },
+            /* A ring status — a tentative one — is an open ring in its tone (#1386). */
+            "&[data-ring]": { background: "transparent" },
+            "&[data-ring][data-tone=success]": { boxShadow: "inset 0 0 0 1.5px {colors.status.pos}" },
+            "&[data-ring][data-tone=warning]": { boxShadow: "inset 0 0 0 1.5px {colors.status.warn}" },
+            "&[data-ring][data-tone=danger]": { boxShadow: "inset 0 0 0 1.5px {colors.status.neg}" },
+            "&[data-ring][data-tone=info]": { boxShadow: "inset 0 0 0 1.5px {colors.brand.500}" },
+            "&[data-ring][data-tone=neutral]": { boxShadow: "inset 0 0 0 1.5px {colors.fg.muted}" },
         },
         itemSublabel: {
             fontFamily: "mono",
@@ -663,21 +669,6 @@ export const schematicSlotRecipe = defineSlotRecipe({
          * offset left of the 24px control column, capped + scrollable so it never
          * escapes the canvas overflow clip. Each row: swatch · label · count ·
          * solo · lock · eye. */
-        /* Hover card (#178): the entity-anchored inspection surface hosting
-         * arbitrary East content (charts). Anchored + flipped inline (data
-         * binding); everything visual lives here. */
-        hoverCard: {
-            position: "absolute",
-            zIndex: "45",
-            pointerEvents: "auto",
-            background: "bg.surface",
-            borderWidth: "1px",
-            borderColor: "border.subtle",
-            borderRadius: "{radii.sm}",
-            padding: "{spacing.3}",
-            minWidth: "180px",
-            maxWidth: "340px",
-        },
         layerPanel: {
             position: "absolute",
             top: "{spacing.2}",

@@ -762,7 +762,6 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
     { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => FLOWCHART_LADDER },
     { name: "Flowchart (records)", route: "e3/flowchart/flowchart/flowchartRecordIndexes", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => FLOWCHART_LADDER },
-    { name: "Schematic", route: "e3/schematic/schematic/schematicSlice", widths: [1600, 1200, 900, 700, 600], nudge: [900] },
     { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
     { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },
 ];

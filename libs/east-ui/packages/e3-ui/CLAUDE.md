@@ -50,7 +50,8 @@ A builder's tag checks its `slice` with `utils/record-sources.ts`'
 `recordSources`, a Library tab's `source` with `tabSource`, and a templates
 list's source with `templatesSource` (#1340): every builder takes only
 `Slice.bindRecords`, its sources named after what they narrow — the
-Allocation, the Roster, the Calendar, the Plan, the Sheet and the Flowchart.
+Allocation, the Roster, the Calendar, the Plan, the Sheet, the Flowchart and
+the Schematic.
 Templates are records: each list names its source of the one
 `Slice.bindRecords`, and a list written in the code is refused, naming the
 change to make.
@@ -118,12 +119,25 @@ of them. Each templates list is `Schedule.templates(templates.read(), { …,
 source })` over a record bound with `Data.bind`, an instant kind's giving no
 `duration`, and each tab that names a `source` follows it.
 
+The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
+}}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed
+by its slot — is bound as it is read. Read whole, an editable kind binds
+`Record.bind(record, [e3.mutation.patch(record)])` and a read-only one
+`Data.bind(record)`. A source of the slice named after the kind's slot reads
+it complete through that source instead, the kind giving `entries:
+Data.bindPaged(record)` beside its `Record.bind`, or bound
+`Data.bindPaged(record)` alone, read only. An indexed read is the source,
+never the kind's record. A kind's details (`Schematic.details`) are bound as
+their kind is read: whole beside a kind read whole, by key beside one read
+through its source. Each templates list is `Schematic.templates(
+templates.read(), { name, group?, values, source })` over a record bound with
+`Data.bind`. The library's tabs are `Schematic.library`'s: a kind's templates
+or unplaced rows, by its slot, the zones' index and the layers.
+
 A builder takes neither `Slice.bind` nor a single `Slice.bindRecord`; east-ui's
 own collections — a Table, a Library, a Deck — keep their own Slice
 (`Slice.bind(key, rows, { … })` over rows held whole, read through
-`Slice.rows(slice)`), and so does e3-ui's `<Schematic>` (#1384) until its
-builder narrows through `Slice.bindRecords` (#1392). An indexed record narrows
-a builder as a source of its
+`Slice.rows(slice)`). An indexed record narrows a builder as a source of its
 one `Slice.bindRecords`: declare `e3.recordIndex(name, record, { on: [fields...]
 })` and bind `Data.bindPaged(record, { indexes })`. Never turn the loaded page
 into another local Slice or implement a browser predicate. Typed controls and

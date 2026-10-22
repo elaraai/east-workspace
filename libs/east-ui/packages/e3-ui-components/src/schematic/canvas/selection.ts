@@ -4,90 +4,33 @@
  */
 
 /**
- * Pure selection logic for the Schematic renderer — the managed slice
- * `in`-clause splice (the selection→slice bridge, #159) and the marquee
- * hit collection (#159). React-free and DOM-free so every rule the
- * interaction layer relies on is unit-testable in a `node` environment
- * (see `selection.test.ts`), mirroring the `camera.ts` / `paint.ts` split.
+ * Pure selection logic for the Schematic renderer — the marquee hit
+ * collection (#159). React-free and DOM-free so every rule the interaction
+ * layer relies on is unit-testable in a `node` environment (see
+ * `selection.test.ts`), mirroring the `camera.ts` / `paint.ts` split.
  *
  * @packageDocumentation
  */
 
-import { SortedSet, StringType, compareFor, variant, type ValueTypeOf } from "@elaraai/east";
 import type RBush from "rbush";
-import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
-import { Schematic } from "@elaraai/e3-ui/internal";
-
-/** East's order over the selected keys — the managed clause's set is an East Set. */
-const compareStrings = compareFor(StringType);
-
-type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
-/** Decoded slice value types are DERIVED from the East types (never hand-rolled). */
-export type SlicePredicateValue = ValueTypeOf<typeof SliceInternal.Types.Predicate>;
-export type SliceStateValue = ValueTypeOf<typeof SliceInternal.Types.State>;
+import { type DrawnItem } from "./drawn";
 
 /** An axis-aligned world-space box over an item, as stored in the culling R-tree. */
-export interface ItemBox { minX: number; minY: number; maxX: number; maxY: number; item: SchematicItemValue }
+export interface ItemBox { minX: number; minY: number; maxX: number; maxY: number; item: DrawnItem }
 
 /** Shared empty key set (stable identity — never churns memos / paint dedup). */
 export const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
 
-/** True for the managed selection clause: a string `in` filter on `fieldId`. */
-export function isSelectionClause(f: SlicePredicateValue, fieldId: string): boolean {
-    return f.type === "string" && f.value.fieldId === fieldId && f.value.op.type === "in";
-}
-
-/** The key set currently held by the managed `in` clause on `fieldId` (empty if none). */
-export function managedSelectionSet(filters: readonly SlicePredicateValue[], fieldId: string): ReadonlySet<string> {
-    for (const f of filters) {
-        if (f.type === "string" && f.value.fieldId === fieldId && f.value.op.type === "in") return f.value.op.value;
-    }
-    return EMPTY_STRING_SET;
-}
-
-/** Set equality over string keys (order-free). */
-export function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
-    if (a.size !== b.size) return false;
-    for (const k of a) if (!b.has(k)) return false;
-    return true;
-}
-
-/**
- * Splice the managed selection `in` clause into a slice state: replace it in
- * place (preserving order), append it if absent, or drop it when `keys` is
- * empty — leaving every other filter / range / cohort untouched. The clause's
- * set is an East Set, in East's order whatever order the keys come in, so the
- * state written is canonical (the store's blobEqual dedup compares bytes).
- *
- * @param state - the decoded slice state to splice into (not mutated)
- * @param fieldId - the field the managed `in` clause targets
- * @param keys - the selected keys, in any order; none ⇒ remove the clause
- * @returns a new state with only the managed clause changed
- */
-export function sliceWithSelection(state: SliceStateValue, fieldId: string, keys: Iterable<string>): SliceStateValue {
-    const idx = state.filters.findIndex(f => isSelectionClause(f, fieldId));
-    const selected = new SortedSet(keys, compareStrings);
-    let filters: SlicePredicateValue[];
-    if (selected.size === 0) {
-        filters = idx < 0 ? [...state.filters] : state.filters.filter((_, j) => j !== idx);
-    } else {
-        const clause: SlicePredicateValue = variant("string", { fieldId, op: variant("in", selected) });
-        if (idx < 0) filters = [...state.filters, clause];
-        else { filters = [...state.filters]; filters[idx] = clause; }
-    }
-    return { ...state, filters };
-}
-
 /**
  * Collect the items a marquee region selects: an R-tree sweep, then a
  * CENTER-in-region test (the index boxes are padded for culling, so bare
- * overlap would over-select), skipping locked items and slice-excluded
- * ghosts (context, not targets). Layer-hidden items never reach the tree.
+ * overlap would over-select), skipping locked items and narrowed-out items
+ * drawn dimmed (context, not targets). Layer-hidden items never reach the tree.
  *
  * @param tree - the world-space culling R-tree over the working item set
  * @param region - the swept world rectangle
  * @param lockedKeys - keys in a locked layer (non-selectable)
- * @param excludedKeys - slice-excluded (ghosted) keys (non-selectable)
+ * @param excludedKeys - narrowed-out keys drawn dimmed (non-selectable)
  * @returns the selected item keys
  */
 export function marqueeHits(

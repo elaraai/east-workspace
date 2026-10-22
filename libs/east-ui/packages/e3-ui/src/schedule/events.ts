@@ -91,6 +91,7 @@ import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, Tic
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
+import { checkKeyField, fieldOf, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
 import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
@@ -124,12 +125,6 @@ export interface ScheduleRecordHandle<K extends EastType, R extends EastType> {
     /** The record's binding. */
     binding: unknown;
 }
-
-/** The names of a struct's fields. */
-type FieldName<R extends StructType> = keyof R["fields"] & string;
-
-/** The fields of a struct whose type is `T`. */
-type FieldsOf<R extends StructType, T> = { [F in FieldName<R>]: R["fields"][F] extends T ? F : never }[FieldName<R>];
 
 /** Whether a variant's cases are an Option's. */
 type IsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
@@ -580,22 +575,6 @@ const ROSTER_ROLES = ["shift", "group", "position", "activity", "hours"] as cons
 /** The Allocation's roles, as a kind's options name them. */
 const ALLOCATION_ROLES = ["arrival", "parts", "hold", "kind"] as const;
 
-// ============================================================================
-// Reading East types
-// ============================================================================
-
-/** A variant's cases, when every one of them holds a String. */
-function stringCases(type: EastType): string[] | undefined {
-    if (type.type !== "Variant" || optionOf(type) !== undefined) return undefined;
-    const cases = Object.entries(type.cases as Record<string, EastType>);
-    return cases.length > 0 && cases.every(([, t]) => isTypeEqual(t, StringType)) ? cases.map(([c]) => c) : undefined;
-}
-
-/** A field of a struct as an East expression, by name. */
-function fieldOf(row: unknown, name: string): ExprType<EastType> {
-    return (row as Record<string, ExprType<EastType>>)[name]!;
-}
-
 /** The ways a kind draws. */
 const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
 
@@ -759,39 +738,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             : `${where}: \`backlog\` is a kind's rows with no time, and its times are plain DateTime fields — make \`start\` and \`end\` Options for a backlog`);
     }
 
-    // The resource: a key of one kind, or a case per kind.
-    type Resource = { field: string; shape: "key"; of: string; optional: boolean }
-        | { field: string; shape: "cases"; of: Readonly<Record<string, string>>; cases: string[]; optional: boolean; variant: EastType };
-    let resource: Resource | undefined;
-    if (config.resource !== undefined) {
-        const { field, of } = config.resource;
-        const type = fieldType("resource.field", field);
-        const inner = optionOf(type) ?? type;
-        const isOptional = optionOf(type) !== undefined;
-        const cases = stringCases(inner);
-        if (isTypeEqual(inner, StringType)) {
-            if (typeof of !== "string" || of === "") {
-                throw new Error(`${where}: \`resource.of\` names the resource slot "${field}" holds keys of — a String field holds one kind's keys`);
-            }
-            resource = { field, shape: "key", of, optional: isOptional };
-        } else if (cases !== undefined) {
-            if (typeof of !== "object" || of === null) {
-                throw new Error(`${where}: "${field}" is a variant — \`resource.of\` names a resource slot per case: { ${cases.map((c) => `${c}: "…"`).join(", ")} }`);
-            }
-            const named = Object.keys(of);
-            if (named.length !== cases.length || !named.every((c) => cases.includes(c))) {
-                throw new Error(`${where}: \`resource.of\` names a resource slot for each of "${field}"'s cases (${cases.join(", ")}) — and it names ${named.join(", ") || "none"}`);
-            }
-            const kinds = Object.values(of);
-            if (new Set(kinds).size !== kinds.length) {
-                throw new Error(`${where}: \`resource.of\` names each resource slot once — a case per kind of resource — and it names ${kinds.join(", ")}`);
-            }
-            resource = { field, shape: "cases", of, cases, optional: isOptional, variant: inner };
-        } else {
-            throw new Error(`${where}: \`resource.field\` names a field holding a resource's key — a String, a variant of String cases, or an Option of either — and "${field}" holds ${typeText(type)}`);
-        }
-    }
-    const takes = resource === undefined ? [] : resource.shape === "key" ? [resource.of] : Object.values(resource.of);
+    // The resource: a key of one kind, or a case per kind (`fields.ts`).
+    const resource: KeyField | undefined = config.resource === undefined ? undefined
+        : checkKeyField(config.resource.field, fieldType("resource.field", config.resource.field), config.resource.of, { where, prop: "resource", noun: "resource" });
+    const takes = resource === undefined ? [] : keyFieldSlots(resource);
 
     // The status: a variant, a Status per case.
     let statusCases: string[] | undefined;
@@ -990,51 +940,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         : East.function([rowType, keyType], ScheduleDurationType, (_$, row, key) => config.backlog!.duration(row, key) as SubtypeExprOrValue<ScheduleDurationType>);
     const dueOf = config.backlog?.due === undefined ? undefined
         : East.function([rowType, keyType], OptionType(DateTimeType), (_$, row, key) => config.backlog!.due!(row, key) as SubtypeExprOrValue<OptionType<DateTimeType>>);
-    // The resource a row is on.
+    // The resource a row is on (`fields.ts`).
     const RefOption = OptionType(ScheduleResourceRefType);
-    const refOf = East.function([rowType], RefOption, (_$, row) => {
-        if (resource === undefined) return East.value(none, RefOption);
-        const value = fieldOf(row, resource.field);
-        if (resource.shape === "key") {
-            const kind = resource.of;
-            const ref = (key: ExprType<StringType>) => East.value(some(East.value({ kind, key }, ScheduleResourceRefType)), RefOption);
-            return resource.optional
-                ? (value as unknown as ExprType<OptionType<StringType>>).match({ none: (_$2) => East.value(none, RefOption), some: (_$2, key) => ref(key) })
-                : ref(value as unknown as ExprType<StringType>);
-        }
-        const of = resource.of;
-        const byCase = (v: ExprType<EastType>) => (v as unknown as { match: (arms: object) => ExprType<EastType> }).match(Object.fromEntries(resource.cases.map((c) =>
-            [c, (_$2: unknown, key: ExprType<StringType>) => East.value(some(East.value({ kind: of[c]!, key }, ScheduleResourceRefType)), RefOption)])));
-        return resource.optional
-            ? (value as unknown as ExprType<OptionType<EastType>>).match({ none: (_$2) => East.value(none, RefOption), some: (_$2, v) => byCase(v) })
-            : byCase(value);
-    });
+    const refOf = keyFieldRef(resource, rowType);
     // The value a resource field takes for a placement's resource; `none` where the kind refuses it: a resource of a
     // kind it does not take, or none for a field that must hold one.
-    const resourceValue = resource === undefined ? undefined : (() => {
-        const valueType = fields[resource.field]!;
-        return East.function([RefOption], OptionType(valueType), ($, ref) => {
-            const result = $.let(East.value(none as never, OptionType(valueType)), OptionType(valueType));
-            $.match(ref, {
-                none: ($2) => {
-                    if (resource.optional) $2.assign(result, East.value(some(East.value(none as never, valueType)) as never, OptionType(valueType)));
-                },
-                some: ($2, r) => {
-                    if (resource.shape === "key") {
-                        const key = resource.optional ? East.value(some(r.key) as never, valueType) : r.key;
-                        $2.if(East.equal(r.kind, resource.of), ($3) => { $3.assign(result, East.value(some(key) as never, OptionType(valueType))); });
-                    } else {
-                        for (const c of resource.cases) {
-                            const caseValue = East.value(variant(c, r.key) as never, resource.variant);
-                            const held = resource.optional ? East.value(some(caseValue) as never, valueType) : caseValue;
-                            $2.if(East.equal(r.kind, resource.of[c]!), ($3) => { $3.assign(result, East.value(some(held) as never, OptionType(valueType))); });
-                        }
-                    }
-                },
-            });
-            return result;
-        });
-    })();
+    const resourceValue = resource === undefined ? undefined : keyFieldValue(resource, fields[resource.field]!);
     // A row of the record's type, field by field: its times and resource from a placement, the rest from `source`.
     // An instant kind's `at` is its start.
     const rowWith = (source: unknown, start: ExprType<DateTimeType>, end: ExprType<DateTimeType>, resourceField: ExprType<EastType> | undefined): ExprType<EastType> =>

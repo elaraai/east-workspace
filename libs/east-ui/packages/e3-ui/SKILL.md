@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with one Slice.bindRecords rail (its rows, each event kind, resource kind and templates record a source, one window), key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search), or the `rows` source of its one Slice.bindRecords rail, paged from it, the rail narrowing its templates records too; typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, saved-view tabs over every source's narrowing, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply). (14) Calendar — the record-backed scheduling builder in e3-ui: Calendar, Resources and Timeline layouts, bound resource and template records, the event record’s unscheduled backlog, one Slice.bindRecords rail — a source per event kind, resource kind and templates record, one date window — shared Toolbar/Library/FieldForm/EditSession behavior, and explicit agenda/card actions below 480px. BuilderFrame remains internal. (15) Roster — weekly staffing over the app's own records: its duties a Schedule.events kind (start, end, resource, shift, group, position?, activity?, hours?), its people and agencies Schedule.resources kinds, its weeks Schedule.periods for Publish, its cover Roster.targets, and its shifts, groups, positions, activities and proposals read through Roster.* accessors; Shifts and People layouts; pure coverage/rules over the duty row type; the app's pay in its own codes, asked a person at a time; Find fixes on the app's fit e3.function (Func.bind, Roster.fit(R)); the week's duties read through the slice's duty source; one Slice.bindRecords rail over the duties, targets, people and activities; one history over a session per record, Save per record and Publish saving first, then the week's status; and explicit mobile actions. (16) The Flowchart — <Flowchart>, the state-transition flowchart, always in its builder frame — one toolbar (find state, LR · TD, the freshness chip, the rail of its one Slice.bindRecords, and where it edits the history item), the canvas filling main, the footer's counts: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers); its library pane's Flows tab (Flowchart.library.flows()) lists the flows by name — over a record those its rail's `flows` source narrows it to, counted — and opens one, the open flow kept under the flowchart's name, and '+ New flow' starts one, beside state and transition templates, templates records (Flowchart.library.states / transitions), and the author's own cards (Flowchart.library.tab), each following the source of the rail it names, and each card dropped on the canvas — a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says, ⏎ on a card onto the selection; every gesture on the canvas — '+ LANE', a lane renamed (a double-click on its header) or deleted, a state added, edited, moved or deleted, a handle dragged to connect, Del on the selection — one transaction of the open flow's editing session, each flow keeping its own drafts, with Undo / Redo and one checked Save through the record's patch mutation or the host's onApply; its inspector pane, on by default (inspector={false} takes it away) — Details for the state, transition, decision, lane (a click on its header) or several states selected, or the open flow, each through the shared form, a state's or a transition's own Details in its place with inspector={{ state, transition }}, and Issues, each selecting what it names; with selection and path tracing — its types on Flowchart.Types, a row patch from Flowchart.patch. (17) The Allocation — <Allocation>, a day's arrivals booked into timed lane slots and each bin's quantity allocated to resources with room and time for its hold, always in its builder frame, as a Timeline (lanes, links, resource rows) or a Table (a row per slot), over the app's own records: its bins an instant Schedule.events kind (at, resource, arrival, quantity, parts, hold, kind?), its lanes and resources Schedule.resources kinds (offset; min, max, note, hold, jobs), what it books from Allocation.arrivals (each arrival's values a booked bin's own fields), and its days Schedule.periods for Publish — one history over the bins' and the days' sessions, every gesture a draft, Save per record and Publish saving first, then the day's status — the app's fit an e3.function bound with Func.bind (a place or a take question about the drafted day, FitRequest(R) over the bin row type, built on Allocation.answer / fit / lookahead), split loads and Find a fit, the app's bin fields as columns and its own check over CheckContext(R), one Slice.bindRecords rail over the day's bins, its lanes, resources and arrivals, the shared Library, Inspector and session, explicit-action cards below 480px, and pure loads / candidates / check / slots over Day(R) a task runs too. (18) The Schematic — <Schematic>, the 2D world-coordinate canvas: items, zones, links and nets from flat tables through row mappers, each at its x/y in the world (footprints, meters, status dots, metrics), the canvas scaled to fit the extent; a camera with a navigator and a minimap, layers, hover cards, selection (single, multiple through a marquee, range, zones), items moved, links and nets drawn, re-targeted and deleted, and slice effects over a bound slice (ghost, desaturate, halo) — its factories and types on Schematic (Schematic.circle / polyline / polygon / rect, outline / hatch, solid / dashed, Schematic.Types)."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with one Slice.bindRecords rail (its rows, each event kind, resource kind and templates record a source, one window), key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search), or the `rows` source of its one Slice.bindRecords rail, paged from it, the rail narrowing its templates records too; typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, saved-view tabs over every source's narrowing, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply). (14) Calendar — the record-backed scheduling builder in e3-ui: Calendar, Resources and Timeline layouts, bound resource and template records, the event record’s unscheduled backlog, one Slice.bindRecords rail — a source per event kind, resource kind and templates record, one date window — shared Toolbar/Library/FieldForm/EditSession behavior, and explicit agenda/card actions below 480px. BuilderFrame remains internal. (15) Roster — weekly staffing over the app's own records: its duties a Schedule.events kind (start, end, resource, shift, group, position?, activity?, hours?), its people and agencies Schedule.resources kinds, its weeks Schedule.periods for Publish, its cover Roster.targets, and its shifts, groups, positions, activities and proposals read through Roster.* accessors; Shifts and People layouts; pure coverage/rules over the duty row type; the app's pay in its own codes, asked a person at a time; Find fixes on the app's fit e3.function (Func.bind, Roster.fit(R)); the week's duties read through the slice's duty source; one Slice.bindRecords rail over the duties, targets, people and activities; one history over a session per record, Save per record and Publish saving first, then the week's status; and explicit mobile actions. (16) The Flowchart — <Flowchart>, the state-transition flowchart, always in its builder frame — one toolbar (find state, LR · TD, the freshness chip, the rail of its one Slice.bindRecords, and where it edits the history item), the canvas filling main, the footer's counts: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers); its library pane's Flows tab (Flowchart.library.flows()) lists the flows by name — over a record those its rail's `flows` source narrows it to, counted — and opens one, the open flow kept under the flowchart's name, and '+ New flow' starts one, beside state and transition templates, templates records (Flowchart.library.states / transitions), and the author's own cards (Flowchart.library.tab), each following the source of the rail it names, and each card dropped on the canvas — a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says, ⏎ on a card onto the selection; every gesture on the canvas — '+ LANE', a lane renamed (a double-click on its header) or deleted, a state added, edited, moved or deleted, a handle dragged to connect, Del on the selection — one transaction of the open flow's editing session, each flow keeping its own drafts, with Undo / Redo and one checked Save through the record's patch mutation or the host's onApply; its inspector pane, on by default (inspector={false} takes it away) — Details for the state, transition, decision, lane (a click on its header) or several states selected, or the open flow, each through the shared form, a state's or a transition's own Details in its place with inspector={{ state, transition }}, and Issues, each selecting what it names; with selection and path tracing — its types on Flowchart.Types, a row patch from Flowchart.patch. (17) The Allocation — <Allocation>, a day's arrivals booked into timed lane slots and each bin's quantity allocated to resources with room and time for its hold, always in its builder frame, as a Timeline (lanes, links, resource rows) or a Table (a row per slot), over the app's own records: its bins an instant Schedule.events kind (at, resource, arrival, quantity, parts, hold, kind?), its lanes and resources Schedule.resources kinds (offset; min, max, note, hold, jobs), what it books from Allocation.arrivals (each arrival's values a booked bin's own fields), and its days Schedule.periods for Publish — one history over the bins' and the days' sessions, every gesture a draft, Save per record and Publish saving first, then the day's status — the app's fit an e3.function bound with Func.bind (a place or a take question about the drafted day, FitRequest(R) over the bin row type, built on Allocation.answer / fit / lookahead), split loads and Find a fit, the app's bin fields as columns and its own check over CheckContext(R), one Slice.bindRecords rail over the day's bins, its lanes, resources and arrivals, the shared Library, Inspector and session, explicit-action cards below 480px, and pure loads / candidates / check / slots over Day(R) a task runs too. (18) The Schematic — <Schematic>, the 2D world-coordinate drawing of the app's own records: a kind per record, keyed by String, its fields mapped to the Schematic's roles — items (Schematic.items: a centre, a box, a footprint drawn about the centre, a label, a status, a meter, a figure), zones (Schematic.zones: a box, outlined or hatched, a shape about its centre), links between two items (Schematic.links: from and to naming item slots) and nets joining many to many (Schematic.nets: sources and destinations) — each kind editable bound with its patch door (Record.bind) or read only (Data.bind), read whole or complete through its source of one Slice.bindRecords rail (entries: Data.bindPaged), its details a record keyed as it is (Schematic.details), its templates a record (Schematic.templates), the library's tabs (Schematic.library.templates / unplaced / index / layers / tab); a camera with a minimap, layers, selection by a tap, Shift and the marquee, and items moved and links and nets drawn as drafts the canvas keeps; what the host hears names each entity by its kind's slot and its key — its shapes and types on Schematic (Schematic.circle / polyline / polygon / rect about the anchor, outline / hatch, solid / dashed, Schematic.patch, Schematic.Types)."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -170,11 +170,13 @@ Task → What do you need?
     │   ├─ A card dropped on the canvas, or ⏎ on it                   → a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says; ⏎ onto the selection
     │   └─ Edit a flow: lanes, states, transitions — Undo, one Save   → record={…}, or data={…} + onApply (every canvas gesture a draft; canConnect vetoes a pair)
     │
-    ├─ Draw items at world coordinates — a floor, a site — the Schematic (see The Schematic below)
-    │   ├─ Items, zones, links and nets from flat tables       → <Schematic items={…} extent={{ width, height }} item={r => ({ key, x, y, … })} zones={…} links={…} nets={…} />
-    │   ├─ Select, move items, draw and re-target links        → selectionMode, onSelect*, onMoveItem, linkMode + onCreateLink / onEditLink / onDeleteLink, canConnect
-    │   ├─ Layers, hover cards, the navigator and the minimap  → layers, itemHover / zoneHover / linkHover, navigator, minimap
-    │   └─ Keep the items a slice filters out as context       → slice + sliceOpacity / sliceDesaturate / sliceEmphasis … over Slice.partition rows
+    ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic (see The Schematic below)
+    │   ├─ A kind per record, under its slot                   → <Schematic extent={{ width, height }} items={{ racks: Schematic.items(record, { name, icon, x, y, label, … }) }} zones={{ … }} links={{ … }} nets={{ … }} />
+    │   ├─ Editable, or read only                              → Record.bind(record, [e3.mutation.patch(record)]) · Data.bind(record)
+    │   ├─ Narrow its kinds and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { <a kind's slot>: { source: Data.bindPaged(record, { indexes }) }, … }) }} (+ the kind's entries: Data.bindPaged(record)) · narrowed="dim"
+    │   ├─ What a card draws from another record               → Schematic.items(…, { details: Schematic.details(record, { status, meter, metric, sublabel }) })
+    │   ├─ Templates, unplaced rows, the index, the layers     → Schematic.templates(rows, { …, source }) · library={[Schematic.library.templates(slot), .unplaced(slot), .index(), .layers()]}
+    │   └─ What the host hears                                 → onSelectionChange / onZoneSelectionChange / onSelectLink / onItemOpen / onViewportChange, each entity { kind, key }
     │
     ├─ Staff a week's shifts from the app's own duties — the Roster (see Roster below)
     │   ├─ The duties: the app's record, a span kind                 → events={{ duty: Schedule.events(Record.bind(duties, [dutiesPatch]), { start, end, resource: { field, of }, shift, group, position?, activity?, hours? }) }}
@@ -346,8 +348,7 @@ rail hides. Refused at build, each naming the change: `Slice.bind`, a single
 `data={Slice.rows(slice)}` or `window={Slice.rows(slice)}`, the Roster's
 `visiblePeople`, and an event kind's own `slice` or `filter`. Every
 builder has moved: the Allocation, the Roster, the Calendar, the Plan, the
-Sheet and the Flowchart. The Schematic, e3-ui's since #1384, keeps
-`Slice.bind` until it moves too (#1392).
+Sheet, the Flowchart and the Schematic.
 
 Templates are records: each templates list reads a templates record and names
 its source of the rail (`source`), and a list written in the code is refused.
@@ -2137,94 +2138,181 @@ read from an Array or an input (templates records) and a templates list's
 
 ### The Schematic — `<Schematic>`
 
-`<Schematic>` is the 2D world-coordinate canvas: items, zones, links and nets
-from flat tables, each placed at its x/y in the world and the canvas scaled to
-fit the extent, with a camera, a navigator, a minimap, layers, hover cards,
-selection, editing gestures and slice effects. Where the Flowchart lays its
-states out itself, the Schematic draws what the data places.
+`<Schematic>` is the 2D world-coordinate drawing of the app's own records:
+placed items (racks, cooling units, power distribution units), zones (halls,
+cages, hot and cold aisles), links between two items (fibre runs) and nets
+joining many to many (a power distribution unit feeding a row of racks), each
+where its row places it and the canvas scaled to fit the extent. Where the
+Flowchart lays its states out itself, the Schematic draws what the records
+place.
 
-It moved here from east-ui (#1384), its props and behaviour unchanged: a
-surface that wrote east-ui's `<Schematic>` imports it from `@elaraai/e3-ui`,
-its factories and its types (`Schematic.Types`) with it, and the tags around
-it from `@elaraai/east-ui`. Its `slice` is a `Slice.bind` handle's chrome
-until it narrows through `Slice.bindRecords` (#1392).
+It stores nothing in a shape of its own (#1386): each kind is a record of the
+app's, keyed by String, its fields mapped to the Schematic's roles —
+`Schematic.items`, `zones`, `links` and `nets`, each under a slot of its
+sort's prop. A role names a field of the row: its type is checked when the
+code compiles and again at build, refused naming the role, the field and its
+type (`` `x` names a Float field, or an Option of one — "name" holds .String ``).
+A role the app computes — a second line, a meter, a tone — is an accessor
+`(row, key) => …`, reified once and called per row. A gesture writes only the
+fields its roles map: every other field of the row reads back as it was.
+
+A kind's binding says whether it is editable and how it is read; any other
+binding is refused, naming the one to use:
+
+| Read | Editable | Read only |
+| --- | --- | --- |
+| whole | `Record.bind(record, [e3.mutation.patch(record)])` | `Data.bind(record)` |
+| complete, through its source of the slice | `Record.bind(…)` + `entries: Data.bindPaged(record)` | `Data.bindPaged(record)` |
+
+A source of `slice={{ slice: Slice.bindRecords(key, { … }) }}` named after a
+kind's slot reads that kind through it — `Data.bindPaged(record, { indexes })`
+over the kind's record — every row of its narrowing; an indexed read is the
+source, never the kind's record. A kind's details (`Schematic.details`) are
+bound as their kind is read: whole beside a kind read whole, by key beside one
+read through its source.
+
+The canvas draws each kind's rows: an item at its centre, as a card or a
+marker by the zoom, its footprint about its centre; a zone in its box,
+outlined or hatched, its shape about the box's centre; a link routed between
+its ends, two of one pair fanning into lanes; a net as a bus. An item kind
+whose `x` and `y` are Options keeps its rows with no position as its backlog,
+drawn nowhere. A record another session commits is drawn again. Move, Connect
+and a Shift session growing a net follow the kinds' bindings and draw as
+drafts the canvas keeps; nothing is written until the editing session
+(#1388). The frame — the toolbar and its rail, the library pane and the
+inspector — comes with #1387–#1391, and the narrowing's drawing with #1392:
+the tag takes `slice`, `narrowed`, `library` and `inspector` now and checks
+them, and the canvas draws none of them yet. While a Schematic has zones, a
+navigator lists them and the items inside them.
 
 ```tsx
 /** @jsxImportSource @elaraai/e3-ui */
-import { East, some, variant } from '@elaraai/east';
-import { UIComponentType } from '@elaraai/east-ui';
-import { Schematic } from '@elaraai/e3-ui';
+import { DictType, East, FloatType, StringType, StructType } from '@elaraai/east';
+import { Box, Reactive, UIComponentType } from '@elaraai/east-ui';
+import { Data, Schematic } from '@elaraai/e3-ui';
+import e3 from '@elaraai/e3';
 
-// Racks with power meters in a cage, and a hatched cold aisle beside it.
-const floor = East.function([], UIComponentType, ($) => {
-    const racks = $.const([
-        { id: "A01", x: 2.4, y: 2.9, used: 5.2, cap: 8.0, state: some(variant("success", null)) },
-        { id: "A02", x: 6.0, y: 2.9, used: 7.4, cap: 8.0, state: some(variant("warning", null)) },
-    ]);
-    const areas = $.const([
-        { id: "cage-a", name: "Cage A", x: 0.6, y: 0.6, w: 19.6, h: 4.6, pattern: Schematic.outline() },
-        { id: "cold-a", name: "Cold aisle A · 1.2 m", x: 0.6, y: 6.0, w: 26.8, h: 1.2, pattern: Schematic.hatch() },
-    ]);
-    return (
-        <Schematic
-            extent={{ width: 28, height: 12 }}
-            height="440px"
-            items={racks}
-            item={r => ({ key: r.id, x: r.x, y: r.y, label: r.id, icon: "server", status: r.state, meter: { value: r.used, max: r.cap } })}
-            zones={areas}
-            zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: z.pattern })}
-            scaleUnit="m"
-        />
-    );
-});
+// The app's racks: a record keyed by String — each rack's centre, box, name, model and power.
+export const FloorRack = StructType({ name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType, model: StringType, kw: FloatType, capacity: FloatType });
+export const floorRacks = e3.record("floor_racks", DictType(StringType, FloorRack), new Map([
+    ["A01", { name: "A01", x: 2.4, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 5.2, capacity: 8.0 }],
+    ["A02", { name: "A02", x: 6.0, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 7.4, capacity: 8.0 }],
+]));
+
+const floor = East.function([], UIComponentType, (_$) => (
+    <Reactive>{$ => {
+        const racks = $.let(Data.bind(floorRacks));   // read only, and read whole
+        return (
+            <Box height="440px">
+                <Schematic extent={{ width: 18, height: 12 }} scaleUnit="m" inspector={false}
+                    items={{ racks: Schematic.items(racks, {
+                        name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name",
+                        sublabel: (r) => r.model,
+                        meter: (r) => ({ value: r.kw, max: r.capacity }),
+                    }) }} />
+            </Box>
+        );
+    }}</Reactive>
+));
+```
+
+A floor over several records, its racks editable and read through their
+source of the rail, their loads a details record keyed as they are, their
+templates a record of their own (`schematicDataCentre`):
+
+```tsx
+// Inside Reactive: the racks through their patch door, read by key beside their source of the rail.
+const racks = $.let(Record.bind(dcRacks, [dcRacksPatch]));
+const rackEntries = $.let(Data.bindPaged(dcRacks));            // one rack by its key
+const loads = $.let(Data.bindPaged(dcRackLoads));              // by key, beside a kind read through its source
+const areas = $.let(Data.bind(dcAreas));                       // read only, and read whole
+const fibre = $.let(Record.bind(dcFibre, [dcFibrePatch]));
+const rackTemplates = $.let(Data.bind(dcRackTemplates));
+// One rail: the racks by name, hall and owner, and their templates by group.
+const slice = $.let(Slice.bindRecords("ops.floor", {
+    racks: { source: Data.bindPaged(dcRacks, { indexes: [racksByName, racksByHall, racksByOwner] }), search: ["name", "owner"],
+        fields: { name: { label: "Rack" }, hall: { label: "Hall", hints: ["Cage A"] }, owner: { label: "Owner", hints: ["Harbour Labs"] } } },
+    rackTemplates: { source: Data.bindPaged(dcRackTemplates, { indexes: [rackTemplatesByGroup] }), fields: { group: { label: "Group", hints: ["Racks"] } } },
+}));
+<Schematic extent={{ width: 28, height: 14 }} scaleUnit="m" slice={{ slice }} narrowed="dim"
+    items={{ racks: Schematic.items(racks, {
+        name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system", entries: rackEntries,
+        details: Schematic.details(loads, {                       // what each card draws from the rack's load
+            meter: (l) => ({ value: l.kw, max: l.capacity }),
+            status: { field: "alarm", cases: {
+                ok: { label: "OK", tone: variant("success", null), ring: false },
+                hot: { label: "Hot", tone: variant("danger", null), ring: false },
+            } },
+        }),
+        templates: Schematic.templates(rackTemplates.read(), {      // every field of a rack but x and y
+            name: (t) => t.name, group: (t) => some(t.group), values: (t) => t.values, source: "rackTemplates",
+        }),
+    }) }}
+    zones={{ areas: Schematic.zones(areas, { name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name", pattern: (a) => a.pattern }) }}
+    links={{ fibre: Schematic.links(fibre, {
+        name: "Fibre run", icon: "bolt", via: "path",
+        from: { field: "from", of: "racks" }, to: { field: "to", of: "racks" },   // each a String field holding a rack's key
+        label: (f) => f.label, style: (f) => f.style,
+    }) }}
+    layers={[{ key: "power", label: "Power", tone: "warning" }, { key: "network", label: "Network", tone: "success" }]}
+    library={[Schematic.library.templates("racks"), Schematic.library.unplaced("racks"), Schematic.library.index(), Schematic.library.layers()]} />
 ```
 
 ```
-<Schematic items={rows} extent={{width,height}} item={r => ({…})} /> — 2D world-coord canvas: items / zones / links / nets from flat tables
+<Schematic extent={{ width, height }} items={{ <slot>: Schematic.items(record, { … }) }} /> — the 2D world-coordinate drawing of the app's own records: a kind per record, under its slot
 ├─ Props:
-│   ├─ items + extent (required) — item rows + world bounds (canvas scales to fit)
-│   ├─ item (optional) — row mapper to { key, x, y, label, sublabel?, icon?, status?, meter?{value,max}, metric?, width?, footprint?, tone?, color?, bg?, fillOpacity?, weight?, excluded?, layer? } (omit when already Schematic.Types.Item)
-│   ├─ zones + zone (optional) — zone rows + mapper to { key, label, x, y, width, height, pattern?, geometry?, tone?, color?, bg?, fillOpacity?, weight?, layer? }
-│   ├─ links + link (optional) — link rows + mapper to { key, from, to, label?, metric?, style?, route?, via?, layer? }
-│   ├─ nets + net (optional) — bus rows (ONE row = many sources → many destinations: a PDU's circuits, a switch's uplinks) + mapper to { key, sources, destinations, label?, metric?, style?, route?, via?, layer? }; drawn as a one-line diagram's bus — a header BAR spans each multi-endpoint side with a stub per endpoint, the trunk runs bar → via… → bar (junction dots ONLY where a tap 3-way joins a bar)
-│   ├─ selectionMode (optional) — "single" (default) | "multiple" | "range"; multiple ⇒ marquee tool (drag-box multi-select w/ live preview + count; plain box/tap replaces, Shift extends)
-│   ├─ onSelect / onSelectionChange (optional) — item click (key) / full selection-set events ({key?, selected, selectedKeys, additive, region?}); works in every tool (grab/zoom/marquee)
-│   ├─ onSelectZone / onZoneSelectionChange (optional) — zone click-select (items win hit-test; innermost zone wins; Shift extends) reporting the zones AND their childItemKeys
-│   ├─ selectZoomFocus (optional) — a canvas selection also moves the camera (tap flies, marquee fits)
-│   ├─ onItemOpen (optional) — double-click drill-in (background double-click keeps Fit/reset)
-│   ├─ onViewportChange (optional) — debounced viewport-settled reporting ({zoom, minX, minY, maxX, maxY}) for sync / lazy-load / persist
-│   ├─ linkMode (optional) — connect-gesture mode: "draw" (adds locally, form-input style) | "connect" (event-only, repeatable: plan operations); Shift+drag ADDS to the session
-│   ├─ onCreateLink / onSelectLink / onEditLink / onDeleteLink (optional) — link lifecycle ({link, links, additive, existing} on create; click-select key; endpoint re-target; Del delete)
-│   ├─ canConnect (optional) — fn(from, to) => Bool vetoes pairs BEFORE they resolve (the draft never snaps; one rule covers links, Shift-session/net extensions, and re-targets; a throwing validator fails OPEN)
-│   ├─ onEditNet (optional) — net membership edits: trunk/bar click selects the WHOLE net, a STUB click selects ONE leg (Del removes just that endpoint; onEditNet reports membership AFTER; a side emptying deletes the whole net via onDeleteLink). Shift-session gestures keep ONE bus (a member never flips sides); with a LINK selected, Shift-drag from its endpoint SEEDS the session with that link (onCreateLink.absorbed lists absorbed keys — delete those rows when upserting); with a NET selected, Shift-drag out of a member adds the target as a leg; a Shift connect-session commits as a net (onCreateLink.net = {key, sources, destinations}, stable session key — upsert by net.key)
-│   ├─ readOnly / readOnlyLinks / readOnlyItems (optional) — flattened per-domain edit gates
-│   ├─ onMoveItem (optional) — move tool (readOnlyItems off): drags items to new positions; a selected item moves the WHOLE selection rigidly, local-first; fires once per gesture ({key, x, y, keys, dx, dy})
-│   ├─ itemHover / zoneHover / linkHover (optional) — East fn key => UIComponent lazy hover cards (charts in a card over a rack / fibre run); any camera or edit gesture closes them; hover ignores readOnly + locked layers
-│   ├─ slice + affordances (optional) — bound slice chrome (default ["search"]); flat effect props sliceHidden / sliceOpacity / sliceDesaturate / sliceDot / sliceEmphasis:"halo"|"pulse" / sliceFrame / sliceFrameFit keep filtered-OUT items as ghost/desaturate/dot context + emphasise the remainder instead of hiding — feed the FULL set (Slice.partition) and mark item.excluded (e.g. t.matched.not())
-│   ├─ sliceSelectField (optional) — bound-slice fieldId a marquee/tap selection writes an `in` filter of selected item keys into (one-directional selection→slice) — pair with the ghost effect (not a Slice.rows feed on the same slice)
-│   ├─ layers (optional) — [{ key, label, tone?, visible?, locked?, opacity? }] + tag items/zones/links with layer:"key"; a canvas layer button opens a show/hide/solo/lock panel (persists per panel); lock ⇒ non-selectable (click-through), opacity dims
-│   ├─ scaleUnit / grid / navigator / minimap (optional) — scale bar unit, metric grid (default on), zones→items TOC (default when zones exist), minimap (default 25+ items)
-│   └─ height / maxHeight (optional) — uniform sizing (#320); default aspect-driven, capped 75vh
+│   ├─ extent (required) — the drawing's world bounds, { width, height }, each a positive number of world units; the canvas fits them
+│   ├─ items (required) — the item kinds, by slot, one at least: Schematic.items(record, { name, icon, x, y, label, width?, height?, footprint?, layer?, sublabel?, metric?, meter?, status?, tone?, color?, weight?, fillOpacity?, details?, templates?, entries?, fields?, inspector?, ready? }) — `x` and `y` Float fields, the item's centre, or both Options of Float: a row with neither is unplaced, the kind's backlog, drawn nowhere; `width` and `height` Float fields, its box about its centre; `footprint` an `Option<Schematic.Types.Geometry>` field drawn about its centre, refused without the box; `label` a String field, or an accessor; `icon` a Font Awesome solid icon, or an accessor; `layer` a String field naming a layer; `status: { field, cases }` a variant field, a Status per case; the rest accessors `(row, key) => …`
+│   ├─ zones (optional) — the zone kinds, by slot: Schematic.zones(record, { name, icon, x, y, width, height, label, pattern?, geometry?, layer?, tone?, color?, fillOpacity?, weight?, details?, entries?, fields?, inspector?, ready? }) — `x`, `y`, `width` and `height` the Float fields of its box, its top-left corner and its size; `pattern` an accessor, outline (the default) or hatch — a hatched zone is an annotation, holding no items and taking no tap; `geometry` an `Option<Schematic.Types.Geometry>` field drawn about its box's centre. A zone takes no templates and no gesture on the canvas
+│   ├─ links (optional) — the link kinds, by slot: Schematic.links(record, { name, icon, from: { field, of }, to: { field, of }, via?, label?, metric?, style?, route?, layer?, details?, templates?, entries?, fields?, inspector?, ready? }) — an end is a String field holding a key of the item slot `of` names, or a variant of String cases with an item slot per case (`of: { rack: "racks", frame: "network" }`) — never an Option: a link has both its ends; `via` an `Array<Schematic.Types.Point>` field, its waypoints
+│   ├─ nets (optional) — the net kinds, by slot: Schematic.nets(record, { name, icon, sources: { field, of }, destinations: { field, of }, via?, label?, metric?, style?, route?, layer?, details?, templates?, … }) — each side a `Set<String>` or `Array<String>` field of keys of the item slot `of` names; drawn as a bus — a header bar over each side of many members, a stub per member, the trunk between them, a dot only where a tap joins a bar
+│   ├─ scaleUnit (optional) — the scale bar's unit
+│   ├─ slice (optional) — slice={{ slice: Slice.bindRecords(key, { <a kind's slot>?, <a templates list's or a tab's source>? }, { presets? }), affordances?, persist? }}: ONE rail, each source named after what it narrows — a kind's slot, that kind, read complete through it; a templates list's or a tab's, its cards. The brush is refused: a 2D canvas has no axis
+│   ├─ narrowed (optional) — how a row the narrowing leaves out draws: "hide" (the default), "dim", or { show, opacity?, desaturate?, dot?, emphasis?: "halo" | "pulse", frame?, fit? }
+│   ├─ layers (optional) — [{ key, label, tone?, visible?, locked?, opacity? }]: an entity's `layer` field names one, its key listed once; a locked layer's entities never select, a hidden one's never draw
+│   ├─ library (optional) — the library pane's tabs, in order: Schematic.library.templates(slot) (a kind with templates) · unplaced(slot) (an item kind whose `x` and `y` are Options) · index() (with zone kinds) · layers() (with layers) · tab(rows, { name, icon?, label, meta?, group?, drop?, source? }) (`drop` a `Schematic.patch(R, …)` over one kind's row type); each listed once
+│   ├─ inspector (optional) — on by default; `false` removes it; { <slot>: fn(R, fn(R) => Null) => UIComponentType } gives a kind its own Details, as a kind's own `inspector` does — not both
+│   ├─ readOnly / grid / minimap / selectZoomFocus / name (optional) — every kind read only; the metric grid (on); the minimap (from 25 items); a selection flying the camera to it; the Schematic's name, when a surface holds two
+│   ├─ canConnect (optional) — fn(Schematic.Types.Ref, Schematic.Types.Ref) => Boolean: vetoes a pair of items before a link's draft snaps; a throwing veto allows the pair
+│   └─ onSelectionChange / onZoneSelectionChange / onSelectLink / onItemOpen / onViewportChange (optional) — what the host hears: the selected items ({ ref, selected, selection, additive, box }), the selected zones with the items inside them ({ ref, selected, selection, items, additive }), a link or a net selected, an item opened by a double-click, and where the camera settled ({ zoom, minX, minY, maxX, maxY }) — each entity a `Schematic.Types.Ref`, { kind: its slot, key: its row's key }
 └─ Factories:
-    ├─ Schematic.circle(r) / .polyline(verts, {width}) / .polygon(verts) / .rect() — item footprints + zone geometry
-    ├─ Schematic.outline() / .hatch() — zone boundary patterns
-    └─ Schematic.solid() / .dashed() — link / net stroke styles
+    ├─ Schematic.items / zones / links / nets(record, config) — the kinds · Schematic.details(record, { status?, meter?, metric?, sublabel?, fields?, inspector?, entries? }) — a kind's details · Schematic.templates(rows, { name, group?, icon?, values, source }) — a kind's templates record, `values` every field but what a drop places
+    ├─ Schematic.circle(r) / .polyline(verts, { width? }) / .polygon(verts) / .rect() — geometry about the entity's anchor, each vertex an offset from it (`{ x, y, bulge? }`)
+    ├─ Schematic.outline() / .hatch() — zone patterns · Schematic.solid() / .dashed() — link and net styles
+    └─ Schematic.patch(R, { … }) — a patch over a kind's row type, what an author's card dropped on an entity sets · Schematic.Types.* — the value types an app's rows hold, and what the host hears
 ```
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `<Schematic items={…} extent={{ width, height }} item={r => ({ key, x, y, label, … })} />` | Items placed at world coordinates — a status dot, a meter, a metric, a footprint — the canvas scaled to fit the extent. | `schematicFloor` |
-| `zones={…} zone={z => ({ key, label, x, y, width, height, pattern? })}`, `Schematic.outline()` / `.hatch()` | Zones under the items — cages, aisles, rooms — outlined or hatched. | `schematicFloor` |
-| `links={…} link={l => ({ key, from, to, label?, metric?, style?, route?, via? })}`, `Schematic.solid()` / `.dashed()` | Links between items, routed orthogonally; two links of one pair fan into parallel lanes. | `schematicFloor` |
-| `nets={…} net={n => ({ key, sources, destinations, … })}` | A bus as one row: a header bar over each side of many endpoints, a stub per endpoint; a stub selects one leg. | `schematicNets` |
-| `linkMode` / `onCreateLink` / `onEditLink` / `onDeleteLink` / `canConnect` | Link editing: a connect drag adds a link — locally (`draw`) or as an event (`connect`) — Shift grows the session, an endpoint's handle re-targets it, Del deletes it; `canConnect` vetoes a pair. | `schematicLinkEdit`, `schematicNets` |
-| `selectionMode` / `onSelect` / `onSelectionChange` / `onSelectZone` / `selectZoomFocus` / `onMoveItem` / `itemHover` / `zoneHover` / `linkHover` | Selection — single, multiple through the marquee, range, zones, the camera following it — items moved, and hover cards. | `schematicInteractions` |
-| `layers={[{ key, label, tone?, visible?, locked?, opacity? }]}` | The layer panel: each layer shown, hidden, soloed or locked. | `schematicLayers` |
-| `Schematic.polygon(verts)` / `.polyline(verts, { width })` / `.circle(r)` / `.rect()` | Geometry: polygon and polyline zones, polygon and circle footprints, on the metric grid. | `schematicGeometry` |
-| `color` / `bg` / `fillOpacity` / `tone` | Colour overrides on an item's footprint and on a zone, independent of status. | `schematicColorOverrides` |
-| `slice` + `sliceOpacity` / `sliceDesaturate` / `sliceEmphasis` / … / `sliceSelectField` | Slice effects: the rows `Slice.partition` tags kept as context, ghosted or desaturated; a marquee selection writing an `in` filter. | `schematicSlice` |
-| `readOnly` / `navigator` / `minimap` / `grid` / `scaleUnit` / `height` / `maxHeight` | The canvas configurator: 260 units across six rooms — the navigator, the minimap, semantic zoom and varied footprints. | `schematicVariants` |
-| 3,000 items | The level-of-detail ladder and the slice chrome at scale: the pan and zoom budget with a slice on. | `schematicStress` |
+| `items={{ racks: Schematic.items(Data.bind(racks), { name, icon, x, y, width?, height?, label, … }) }}` **❗** | An item kind over the app's record, read only and read whole; its card's second line and bar from accessors. A role naming a field the row lacks, or one of another type, is refused, naming the role, the field and its type. | `schematicFloor` |
+| `Schematic.items(Record.bind(r, [patch]), { …, entries: Data.bindPaged(r) })` + a source of `slice` named after its slot **❗** | Editable, read complete through its source. `Data.bind` there, or a `Record.bind` without `entries`, is refused, naming the binding to use. | `schematicDataCentre` |
+| `x` / `y` Options of Float | The rows with no position are the kind's backlog: drawn nowhere, and listed by `Schematic.library.unplaced(slot)`. | `schematicDataCentre` |
+| `footprint` + `width` / `height`; `Schematic.polygon` / `.circle` / `.polyline` **❗** | Geometry about the item's centre, or the zone's box centre, each vertex an offset from it; a footprint without the box is refused. | `schematicShapes` |
+| `zones={{ areas: Schematic.zones(…, { x, y, width, height, label, pattern?, geometry? }) }}`, `Schematic.outline()` / `.hatch()` | Zones in their boxes under the items, outlined or hatched. | `schematicShapes`, `schematicDataCentre` |
+| `links={{ fibre: Schematic.links(…, { from: { field, of }, to: { field, of }, via? }) }}`, `Schematic.solid()` / `.dashed()` | Links between items, routed orthogonally, two of one pair fanning into lanes; an end of a variant field takes its slot from its case. | `schematicDataCentre` |
+| `nets={{ feeds: Schematic.nets(…, { sources: { field, of }, destinations: { field, of } }) }}` | A bus joining many items to many. | `schematicDataCentre` |
+| `details: Schematic.details(record, { status?, meter?, metric?, sublabel? })` **❗** | A record keyed as its kind is, its roles drawn on the cards; a role given by the kind too is refused. | `schematicDataCentre` |
+| `templates: Schematic.templates(rows, { name, group?, values, source })` **❗** | A templates record, its `source` one of the slice's; `values` gives every field but what a drop places — an item's `x` and `y`, a link's ends, a net's sides. A list written in the code is refused. | `schematicDataCentre` |
+| `library={[Schematic.library.templates(slot), .unplaced(slot), .index(), .layers(), .tab(rows, {…})]}` **❗** | The library pane's tabs, each checked against the kinds; the pane draws with the frame (#1389). | `schematicDataCentre` |
+| `layers`, `color` / `tone` / `fillOpacity` / `weight` | Layers, and colour overrides on an item's footprint and a zone — a theme colour token or a tone. | `schematicShapes` |
+| `inspector={false}` · `inspector={{ <slot>: … }}` · a kind's own `inspector` | The inspector pane, on by default; a kind's own Details in place of its form (#1391). | `schematicFloor`, `schematicDataCentre` |
+| `onSelectionChange` / `onZoneSelectionChange` / `onSelectLink` / `onItemOpen` / `onViewportChange` | What the host hears, each entity a `Schematic.Types.Ref`, `{ kind, key }`. | — |
+
+Removed with #1386, each still written refused at build, naming its
+replacement: rows and their mappers — `items` as rows with `item`, and `zone`,
+`link` and `net` — (kinds over the app's records, by slot); `onMoveItem`,
+`onCreateLink`, `onEditLink`, `onDeleteLink` and `onEditNet` (the editing
+session's gestures: bind a kind with its patch door to edit it); `linkMode`;
+`readOnlyLinks` and `readOnlyItems` (a kind bound read only); the hover cards
+`itemHover`, `zoneHover` and `linkHover` (the inspector); `affordances`
+outside `slice`; the slice's effect props `sliceHidden`, `sliceOpacity`,
+`sliceDesaturate`, `sliceDot`, `sliceEmphasis`, `sliceFrame` and
+`sliceFrameFit` (`narrowed`); `sliceSelectField`; `selectionMode` (a tap
+selects, Shift extends it, and the marquee boxes); `navigator` (the library's
+Index tab); `height` and `maxHeight` (the Schematic fills the box it is given);
+and `onSelect` and `onSelectZone` (`onSelectionChange` and
+`onZoneSelectionChange`). A prop the Schematic doesn't take is refused, naming
+those it does.
 
 ## Rendering surfaces in an app — `<E3Provider>`
 
@@ -2407,17 +2495,18 @@ Tested examples live in `test/*.examples.tsx`:
   commit, a `canConnect` veto — with a state's and a transition's own Details
   (`flowchartDetail`). Between them, every pane combination: none, a library,
   an inspector, and both.
-- `schematic/schematic.examples.tsx` — `<Schematic>` over a data centre: its
-  floor — racks with power meters in a cage, a hatched cold aisle, fibre runs
-  fanned into parallel lanes (`schematicFloor`); 3,000 generated racks at
-  scale (`schematicStress`); link editing under a `canConnect` veto
-  (`schematicLinkEdit`); a power distribution unit's circuits as one net
-  (`schematicNets`); the canvas configurator over 260 units in six rooms
-  (`schematicVariants`); the layer panel (`schematicLayers`); polygon and
-  polyline geometry (`schematicGeometry`); colour overrides
-  (`schematicColorOverrides`); slice effects and the select filter
-  (`schematicSlice`); and the interaction configurator
-  (`schematicInteractions`).
+- `schematic/schematic.examples.tsx` — `<Schematic>` over the app's records:
+  one hall's racks, read only and read whole, each card's second line and
+  power meter from its row (`schematicFloor`); footprints and zone shapes
+  about their anchors — a polygon and a circle about each unit's centre, a
+  hall's polygon and a duct bank's arcing band about each area's box centre
+  — with theme colour tokens, tones and layers (`schematicShapes`); and a
+  data centre floor over several records — racks editable and read through
+  their source of the rail, their loads as details on each card, network
+  frames, cooling units with their own Details, power distribution units,
+  halls, cages and aisles, fibre runs between racks and frames, power feeds
+  as nets, rack and fibre templates records, unplaced racks, and the
+  library's tabs (`schematicDataCentre`).
 - `query/query.examples.tsx` — queries as a solution writes them: the shared
   fixture's datasets; the saved queries record, its value seven queries from
   `Query.value`; the builder open on three of them and over an empty record; an
