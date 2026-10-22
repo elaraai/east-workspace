@@ -215,7 +215,15 @@ replace a choice of its own (`recordSliceWindowFits`). A record's resolution
 only re-buckets, and the brush commits once a gesture, with no histogram. The
 Plan reads its event kinds' rows, counts and backlog and the selected events in
 components of their own (`PlanEventsReader`, `PlanKindsReader`,
-`PlanSelectionReader`). Inside the folded editor, field editors expand inline,
+`PlanSelectionReader`). An event kind whose source lists a series and a
+summary index (#1039) is read a cell at a time (`root/cells.ts`, inside
+`PlanEventsReader`): the blocks of fifty paged resources around the rows in
+view — the canvas writes them to a span store as its scroll rests, rendering
+nothing for it — by the tiles its read range touches, every cell's searches in
+one request and the missing cells' entries in one more, kept per revision
+while wanted; past 10,000 entries it reads the summary's cells and shades, and
+the reader takes the root's own links, never the ones named where the events
+draw. Inside the folded editor, field editors expand inline,
 with one popup and normal keyboard focus return. Never copy another control
 family into a builder.
 
@@ -271,7 +279,9 @@ whatever the indexed visibility query hides.
 Keep page eviction enabled and independent of sessions. `PagedRuntime` retains
 at most 24 decoded windows; record Slice retains 32 windows capped at 2,048 rows
 each, and the bounds of at most 1,024 landed searches a revision, so a read
-again asks only the searches still pending (#1360). The Sheet's lens has at
+again asks only the searches still pending (#1360); it keeps the counts of at
+most 1,024 cells a revision, and a cell or a run a request in flight asks
+waits on it — at most 32 of them — rather than being asked again (#1039). The Sheet's lens has at
 most 16 pages in flight (`LENS_BUDGET`), reading the segments a view wants a
 turn at a time and keeping only what that view wants (#1349). Never raise those
 bounds or pin every page to make Save or a scan finish.

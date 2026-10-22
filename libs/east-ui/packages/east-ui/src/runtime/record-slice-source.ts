@@ -110,6 +110,27 @@ export interface RecordSliceCellRuns {
     readonly total: bigint;
 }
 
+/**
+ * Cells' searches asked in one batch and not yet landed (#1039): each cell by
+ * its searches' text, and how many searches it has, in the batch's order.
+ */
+interface AskedCells {
+    /** The index searched. */
+    readonly index: string;
+    /** Its cells, in order. */
+    readonly cells: readonly { readonly key: string; readonly size: number }[];
+    /** Every cell's searches, in order: what the batch asks. */
+    readonly queries: readonly Query[];
+}
+
+/** Cells' runs asked in one read and not yet landed (#1039). */
+interface AskedRuns {
+    /** The index read. */
+    readonly index: string;
+    /** Its runs: ascending, disjoint, none empty. */
+    readonly runs: readonly Range[];
+}
+
 /** Resolved, ascending, disjoint ranges within one immutable revision. */
 export interface RecordSliceRuns {
     /** Named source. */
@@ -130,6 +151,12 @@ const MAX_CACHED_RUNS = 128;
 const MAX_CACHED_CELLS = 1024;
 /** Searches whose bounds are kept per revision; a window over an interval index is some fifty-five. */
 const MAX_LANDED_SEARCHES = 1024;
+/**
+ * Batches of cells' searches, and reads of their runs, kept while in flight per
+ * revision (#1039): past it the oldest is let go, and a cell waiting on it is
+ * asked again.
+ */
+const MAX_ASKED = 32;
 const MAX_CACHED_PAGES = 32;
 const MAX_PAGE_ROWS = 2048n;
 /** The most searches one batch asks (#1351): e3 answers at most 10,000 in a
@@ -180,7 +207,11 @@ function windowRuns(result: RecordSliceRuns, offset: bigint, limit: bigint): Ran
  *
  * The cells of a series or a summary index (#1039) are read the same way: the
  * searches of every cell a reader wants in one request, and the entries of
- * every cell it reads in one more, each cell's runs kept per revision.
+ * every cell it reads in one more, each cell's runs kept per revision. A cell
+ * whose searches, or a run whose entries, a request still in flight asks waits
+ * on that request — asked again as it was, which asks the reader nothing new —
+ * so a reader wanting other cells while one read is in flight asks only for
+ * what no request asks.
  *
  * @typeParam T - An entry; its contents are opaque to this adapter.
  */
@@ -189,24 +220,34 @@ export class RecordSliceSource<T> {
     private readonly resolved = new Map<string, RecordSliceRuns>();
     private readonly landed = new Map<string, Range>();
     private readonly cells = new Map<string, RecordSliceCellRuns>();
+    private readonly askedCells: AskedCells[] = [];
+    private readonly askedRuns: AskedRuns[] = [];
     private readonly pages = new Map<RecordSliceRuns, Map<string, { rows: T[]; complete: boolean }>>();
     private pageCount = 0;
 
     /** @param reader - Existing indexed-source reads, sharing one revision. */
     constructor(private readonly reader: RecordSliceReader<T>) {}
 
+    /**
+     * The record's revision now, and what is kept let go when it moves. A
+     * revision not known for the moment — read again, say — lets nothing go:
+     * what was kept is the revision's it was kept at, and stands for it again
+     * when that revision is known again.
+     */
     private current(): string | undefined {
         const revision = this.reader.revision();
-        const next = revision.type === "some" ? revision.value : undefined;
-        if (next !== this.revision) {
+        if (revision.type !== "some") return undefined;
+        if (revision.value !== this.revision) {
             this.resolved.clear();
             this.landed.clear();
             this.cells.clear();
+            this.askedCells.splice(0);
+            this.askedRuns.splice(0);
             this.pages.clear();
             this.pageCount = 0;
-            this.revision = next;
+            this.revision = revision.value;
         }
-        return next;
+        return revision.value;
     }
 
     /**
@@ -298,7 +339,9 @@ export class RecordSliceSource<T> {
      * read. The searches of every cell not yet found go in one request (a batch
      * for each {@link MAX_RECORD_SLICE_BATCH} of them, all asked in this pass),
      * and a cell found is kept for its revision, so one asked again asks
-     * nothing.
+     * nothing. A cell a request still in flight asks waits on it: that request
+     * is asked again as it was, and only the cells no request asks go in a new
+     * one.
      *
      * @param index - The index the cells are of
      * @param cells - The cells
@@ -309,39 +352,72 @@ export class RecordSliceSource<T> {
         const revision = this.current();
         if (revision === undefined) return none;
         const found = new Map<string, RecordSliceCellRuns>();
-        const missing: { cell: RecordSliceCell; key: string }[] = [];
+        // The cells not yet found, by their searches' text: each one's searches, and the names it is asked under.
+        const missing = new Map<string, { queries: readonly Query[]; ids: string[] }>();
+        const named = new Set<string>();
         for (const cell of cells) {
-            if (found.has(cell.id) || missing.some(other => other.cell.id === cell.id)) throw new Error(`Two cells are named '${cell.id}'`);
+            if (named.has(cell.id)) throw new Error(`Two cells are named '${cell.id}'`);
+            named.add(cell.id);
             const key = `${index}:${printQueries([...cell.queries])}`;
             const known = this.cells.get(key);
-            if (known === undefined) { missing.push({ cell, key }); continue; }
-            cache(this.cells, key, known, MAX_CACHED_CELLS);
-            found.set(cell.id, known);
-        }
-        if (missing.length === 0) return some(found);
-        const ranges = this.searchAll(index, missing.flatMap(({ cell }) => cell.queries));
-        if (this.current() !== revision || ranges.type === "none") return none;
-        let at = 0;
-        for (const { cell, key } of missing) {
-            const own = ranges.value.slice(at, at + cell.queries.length);
-            at += cell.queries.length;
-            let total = 0n;
-            for (const range of own) {
-                if (range.row < 0n || range.count < 0n || range.found !== (range.count > 0n)) throw new Error("The source returned invalid search bounds");
-                total += range.count;
+            if (known !== undefined) {
+                cache(this.cells, key, known, MAX_CACHED_CELLS);
+                found.set(cell.id, known);
+                continue;
             }
-            const runs: RecordSliceCellRuns = { ranges: own, total };
-            cache(this.cells, key, runs, MAX_CACHED_CELLS);
-            found.set(cell.id, runs);
+            const other = missing.get(key);
+            if (other === undefined) missing.set(key, { queries: cell.queries, ids: [cell.id] });
+            else other.ids.push(cell.id);
         }
-        return some(found);
+        if (missing.size === 0) return some(found);
+        // Each waits on a request in flight that asks it; the rest are asked together, in one more.
+        const batches = new Set<AskedCells>();
+        const fresh: { key: string; queries: readonly Query[] }[] = [];
+        for (const [key, { queries }] of missing) {
+            const asked = this.askedCells.find((batch) => batch.index === index && batch.cells.some((cell) => cell.key === key));
+            if (asked !== undefined) batches.add(asked);
+            else fresh.push({ key, queries });
+        }
+        if (fresh.length > 0) {
+            const batch: AskedCells = {
+                index, cells: fresh.map(({ key, queries }) => ({ key, size: queries.length })), queries: fresh.flatMap(({ queries }) => queries),
+            };
+            this.askedCells.push(batch);
+            if (this.askedCells.length > MAX_ASKED) this.askedCells.shift();
+            batches.add(batch);
+        }
+        let pending = false;
+        for (const batch of batches) {
+            const ranges = this.searchAll(index, batch.queries);
+            if (this.current() !== revision) return none;
+            if (ranges.type === "none") { pending = true; continue; }
+            // Landed: every cell it asks is found, and kept for the revision.
+            const at = this.askedCells.indexOf(batch);
+            if (at >= 0) this.askedCells.splice(at, 1);
+            let offset = 0;
+            for (const { key, size } of batch.cells) {
+                const own = ranges.value.slice(offset, offset + size);
+                offset += size;
+                let total = 0n;
+                for (const range of own) {
+                    if (range.row < 0n || range.count < 0n || range.found !== (range.count > 0n)) throw new Error("The source returned invalid search bounds");
+                    total += range.count;
+                }
+                const runs: RecordSliceCellRuns = { ranges: own, total };
+                cache(this.cells, key, runs, MAX_CACHED_CELLS);
+                for (const id of missing.get(key)?.ids ?? []) found.set(id, runs);
+            }
+        }
+        return pending ? none : some(found);
     }
 
     /**
      * Read several cells' entries (#1039): the entries of every cell's runs in
      * one request — each run once, ascending, however many cells share it —
-     * handed back cell by cell, each in its searches' order. Nothing is kept
-     * here: the reader holds the cells it draws.
+     * handed back cell by cell, each in its searches' order. A run a read still
+     * in flight asks waits on it: that read is asked again as it was, and only
+     * the runs no read asks go in a new one. Nothing is kept once read: the
+     * reader holds the cells it draws.
      *
      * @param index - The index the cells are of
      * @param cells - The cells
@@ -367,19 +443,42 @@ export class RecordSliceSource<T> {
         for (let i = 1; i < runs.length; i++) {
             if (runs[i - 1]!.row + runs[i - 1]!.count > runs[i]!.row) throw new Error("The cells' searches overlap; refresh the view and retry");
         }
-        const entries = this.readRuns(index, runs);
-        if (this.current() !== revision || entries.type === "none") return none;
-        // Where each run's entries start in what was read.
-        const starts = new Map<bigint, number>();
-        let at = 0;
-        for (const run of runs) { starts.set(run.row, at); at += Number(run.count); }
+        // Each run waits on a read in flight that asks it; the rest are read together, in one more.
+        const reads = new Set<AskedRuns>();
+        const fresh: Range[] = [];
+        for (const run of runs) {
+            const asked = this.askedRuns.find((read) => read.index === index && read.runs.some((r) => r.row === run.row && r.count === run.count));
+            if (asked !== undefined) reads.add(asked);
+            else fresh.push(run);
+        }
+        if (fresh.length > 0) {
+            const read: AskedRuns = { index, runs: fresh };
+            this.askedRuns.push(read);
+            if (this.askedRuns.length > MAX_ASKED) this.askedRuns.shift();
+            reads.add(read);
+        }
+        // Each run's entries, by its first row.
+        const byStart = new Map<bigint, T[]>();
+        let pending = false;
+        for (const asked of reads) {
+            const entries = this.readRuns(index, asked.runs);
+            if (this.current() !== revision) return none;
+            if (entries.type === "none") { pending = true; continue; }
+            const at = this.askedRuns.indexOf(asked);
+            if (at >= 0) this.askedRuns.splice(at, 1);
+            let offset = 0;
+            for (const run of asked.runs) {
+                byStart.set(run.row, entries.value.slice(offset, offset + Number(run.count)));
+                offset += Number(run.count);
+            }
+        }
+        if (pending) return none;
         const read = new Map<string, T[]>();
         for (const cell of cells) {
             const own: T[] = [];
             for (const range of found.value.get(cell.id)!.ranges) {
                 if (range.count === 0n) continue;
-                const start = starts.get(range.row)!;
-                own.push(...entries.value.slice(start, start + Number(range.count)));
+                own.push(...byStart.get(range.row)!);
             }
             read.set(cell.id, own);
         }

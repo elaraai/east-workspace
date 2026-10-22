@@ -426,6 +426,17 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
             </Box>,
         );
     }
+    // A kind with more events in view than it draws, and no summary to shade them at this resolution (#1039): its rows
+    // hatched, and this — how many there are, and the resolution its summary shades at.
+    for (const notice of chrome?.cells?.notices ?? []) {
+        bannerNodes.push(
+            <Box key={`cells:${notice.kind}`} data-plan-banner="cells" data-plan-kind={notice.kind}>
+                <BannerView status="info"
+                    title={m.tooManyEvents({ kind: notice.name.toLocaleLowerCase(words.locale), n: notice.events, count: words.number(notice.events) })}
+                    description={m.tooManyEventsHint({ resolution: notice.resolution === undefined ? undefined : m.resolutionName({ resolution: notice.resolution }).toLocaleLowerCase(words.locale) })} />
+            </Box>,
+        );
+    }
     const banners = bannerNodes.length > 0 ? <>{bannerNodes}</> : undefined;
     // After a Save, what left each source's narrowing (#1344): the `rows` source's rows, each event kind's events.
     const rowsPart = chrome?.rowsPart;
@@ -449,7 +460,8 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         <Box css={styles.frame} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}
             style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }}>
             {kinds.length > 0 && (
-                <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} onRead={setKindsRead} />
+                <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} cells={chrome?.cells}
+                    onRead={setKindsRead} />
             )}
             {inspector && (
                 <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events} onRead={setSelected} />

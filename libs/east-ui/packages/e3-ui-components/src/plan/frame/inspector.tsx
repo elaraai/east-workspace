@@ -85,6 +85,7 @@ import { rowKeyOf } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "../quantity.js";
 import type { PlanChrome } from "../root/chrome.js";
+import type { PlanCellsRead } from "../root/cells.js";
 import type { PlanEventShownValue } from "../root/events.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
@@ -257,7 +258,7 @@ function useSelectedEvents(
             if (kind === undefined) continue;
             // The editing reads the latest drafts — these, which re-run the read as they move.
             const got = readEvent !== undefined ? readEvent(kind.key, ref.value.key)
-                : getSomeorUndefined(kind.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS, NO_RANGE, NO_RANGE));
+                : getSomeorUndefined(kind.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS, NO_RANGE, NO_RANGE, none));
             if (got !== undefined) out.push({ key, kind, item: got.item, row: got.row });
         }
         return out;
@@ -903,15 +904,17 @@ function timeOf(t: PlanScale["window"]["min"]): Date | undefined {
 /**
  * The events in the window a row stands for — a resource's, or an event
  * kind's on no resource — read through the kinds, their drafts in place,
- * tracked.
+ * tracked. A kind read by its cells (#1039) reads them from what its cells
+ * hold — every event of a row on screen — never over the window.
  *
  * @param target - What the row stands for
  * @param kinds - The event kinds
  * @param scale - The shared scale: its window
  * @param drafts - Every kind's drafts (#1194) — the same object while they hold
+ * @param cells - The kinds' cells, when a kind is read by them
  * @returns The facts; `undefined` for a row that stands for no events, and before the first read answers
  */
-function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts): WindowFacts | undefined {
+function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts, cells: PlanCellsRead | undefined): WindowFacts | undefined {
     const from = timeOf(scale.window.min);
     const to = timeOf(scale.window.max);
     const read = useCallback((): WindowFacts | typeof READING | undefined => {
@@ -922,7 +925,9 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
         const quantities: PlanQuantityValue[] = [];
         for (const kind of kinds) {
             if (target.kind === "resource" ? !kind.takes.some((slot) => stringEqual(slot, target.resources.key)) : !stringEqual(kind.key, target.event.key)) continue;
-            const items = kind.planItems(from, to, drafts.get(kind.key) ?? NO_DRAFTS);
+            const held = cells?.reads.get(kind.key);
+            const kindDrafts = (held === undefined ? drafts : cells!.drafts).get(kind.key) ?? NO_DRAFTS;
+            const items = kind.planItems(from, to, kindDrafts, held === undefined ? none : some(held));
             if (items.type === "none") return READING;
             for (const item of items.value) {
                 if (on !== undefined ? !resourceEqual(item.resource, on) : item.resource.type !== "none") continue;
@@ -933,7 +938,7 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
             }
         }
         return { events, minutes, quantities };
-    }, [target, kinds, from, to, drafts]);
+    }, [target, kinds, from, to, drafts, cells]);
     const { result } = useTrackedEvaluation(read);
     const held = useRef<WindowFacts | undefined>(undefined);
     return useMemo(() => {
@@ -962,7 +967,7 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
     const row = inspect.row(rowKey)!;
     const id = row.id.value;
     const target = useMemo(() => targetOf(id.series, id.path, kinds, resources), [id, kinds, resources]);
-    const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED);
+    const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED, chrome.cells);
     // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
     const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
     const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on));
@@ -1044,7 +1049,8 @@ function NothingSelected({ styles, counts, words }: { styles: Styles; counts: Pl
     const { m } = words;
     const stats = counts === undefined ? [] : [
         { stat: "events" as const, n: counts.events, text: words.number(counts.events) },
-        { stat: "hours" as const, n: counts.minutes, text: hoursText(counts.minutes, words) },
+        // A kind read by its cells counts its hours over the rows drawn (#1039): the stat says so.
+        { stat: counts.drawn ? "hoursInView" as const : "hours" as const, n: counts.minutes, text: hoursText(counts.minutes, words) },
         ...(counts.backlog !== undefined ? [{ stat: "backlog" as const, n: counts.backlog, text: words.number(counts.backlog) }] : []),
     ];
     return (

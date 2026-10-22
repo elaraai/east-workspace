@@ -183,7 +183,7 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
         slices: undefined, windowParts: [], lead: undefined, rowsPart: undefined, eventParts: [], nouns: {}, windowError: undefined,
         affordances: [], resolutions: [], grain: undefined, transport: undefined, search: undefined,
         diagnostics: { skipped: 0 },
-        history: undefined, sessions: [], events: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        history: undefined, sessions: [], events: undefined, cells: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
         // The inspector's reads: the toolbar takes none.
         inspect: { row: () => undefined, valueAt: () => undefined },
         // The overlaps chip's selection (#1198): its own test hears it.

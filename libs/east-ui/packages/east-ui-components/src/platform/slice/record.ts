@@ -389,6 +389,18 @@ export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
 }
 
 /**
+ * The revision a record Slice's record is read at now (#1039): what a reader
+ * keeps what it read under, so a commit — a Save's, another session's — reads
+ * it again. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @returns The record's revision; none while it is not yet known
+ */
+export function recordSliceRevision(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): option<string> {
+    return controllerOf(slice).source.revision();
+}
+
+/**
  * A record Slice's controller, refusing a series or summary index its binding does not list (#1039).
  *
  * @param slice - The record Slice

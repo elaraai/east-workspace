@@ -25,11 +25,12 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { DateTimeType, SortedMap, StringType, compareFor, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import type { PlanEventDraftsType, PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { useBacklogNarrowing, type BacklogNarrowing } from "../../shared/schedule/backlog.js";
 import { scheduleOverlaps, type ScheduleOverlaps } from "../../shared/schedule/overlaps.js";
+import type { PlanCellsRead } from "../root/cells.js";
 import type { PlanEventPart } from "../root/sources.js";
 import type { PlanScale } from "../scale.js";
 
@@ -50,10 +51,15 @@ export interface PlanBacklogEntry {
 
 /** What the footer counts of the event kinds. */
 export interface PlanEventCounts {
-    /** The events in the window, every kind's. */
+    /** The events in the window, every kind's — a kind read by its cells counted exactly, from its source, as the rail counts it (#1039). */
     readonly events: number;
     /** How long they run, in minutes — a month counting 30 days, as a kind counts it. */
     readonly minutes: number;
+    /**
+     * Whether a kind read by its cells counts its hours and its overlaps over the rows drawn (#1039): it reads only the
+     * events of the resources around the rows in view, so the inspector says its hours are those in view.
+     */
+    readonly drawn: boolean;
     /** The unscheduled events — every backlog kind's; `undefined` when no kind has a backlog. */
     readonly backlog: number | undefined;
     /** The newest commit to any kind's record; `undefined` while there is none. */
@@ -74,6 +80,9 @@ type EventDrafts = ValueTypeOf<typeof PlanEventDraftsType>;
 const NO_DRAFTS: KindDrafts = new SortedMap([], compareFor(StringType));
 const NONE_DRAFTED: EventDrafts = new SortedMap([], compareFor(StringType));
 const compareDateTime = compareFor(DateTimeType);
+const stringEqual = equalFor(StringType);
+/** No event kind narrowed through a source of the slice. */
+const NO_PARTS: readonly PlanEventPart[] = [];
 
 /** A read whose kinds are still in flight: the counts stand as they were. */
 const READING = "reading";
@@ -85,14 +94,22 @@ function timeMs(t: PlanScale["window"]["min"]): number | undefined {
 
 /**
  * The event kinds' counts over the window the canvas shows, every kind's
- * drafts in place (#1194).
+ * drafts in place (#1194). A kind read by its cells (#1039) never reads the
+ * window: its events are counted exactly from its source, as the rail counts
+ * them, its hours and its overlaps over the events its cells hold, and its
+ * backlog read alone.
  *
  * @param kinds - The Plan's event kinds; `undefined` or none for a Plan without them
  * @param scale - The shared scale: the window the events are counted over
  * @param drafts - Every kind's drafts, by kind then by entry id — the same object while they hold; none for a Plan whose kinds hold none
+ * @param cells - The kinds' cells, when a kind is read by them: what it draws from, and its drafts as the seams take them
+ * @param parts - Each event kind narrowed through its source of the slice: what a kind read by its cells is counted through
  * @returns The counts — the last read's while a read is in flight or fails; `undefined` for a Plan without event kinds, or before the first read answers
  */
-export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefined, scale: PlanScale | undefined, drafts: EventDrafts = NONE_DRAFTED): PlanEventCounts | undefined {
+export function usePlanEventCounts(
+    kinds: readonly PlanEventKindValue[] | undefined, scale: PlanScale | undefined, drafts: EventDrafts = NONE_DRAFTED,
+    cells?: PlanCellsRead | undefined, parts: readonly PlanEventPart[] = NO_PARTS,
+): PlanEventCounts | undefined {
     const from = scale !== undefined ? timeMs(scale.window.min) : undefined;
     const to = scale !== undefined ? timeMs(scale.window.max) : undefined;
     const active = kinds !== undefined && kinds.length > 0;
@@ -102,18 +119,31 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
         let minutes = 0;
         let backlog: number | undefined;
         let saved: Date | undefined;
+        let drawn = false;
         const unscheduled: PlanBacklogEntry[] = [];
         // Each kind that warns of its overlaps: two of its events are a pair (PB51).
         const warned: (readonly PlanEventItemValue[])[] = [];
         for (const kind of kinds) {
-            const drafted = drafts.get(kind.key) ?? NO_DRAFTS;
-            const items = kind.planItems(new Date(from), new Date(to), drafted);
+            // A kind read by its cells: from what they hold, its drafts as the seams take them (#1039).
+            const held = cells?.reads.get(kind.key);
+            const read = held === undefined ? none : some(held);
+            const drafted = (held === undefined ? drafts : cells!.drafts).get(kind.key) ?? NO_DRAFTS;
+            const items = kind.planItems(new Date(from), new Date(to), drafted, read);
             if (items.type === "none") return READING;
             if (kind.overlaps.type === "warn") warned.push(items.value);
-            events += items.value.length;
+            if (held === undefined) {
+                events += items.value.length;
+            } else {
+                // Its events in the window, exactly: its source's count, as the rail counts it.
+                const part = parts.find((p) => stringEqual(p.kind.key, kind.key))?.part;
+                const counted = part?.count();
+                if (counted === undefined || counted.type !== "some") return READING;
+                events += Number(counted.value);
+                drawn = true;
+            }
             for (const item of items.value) minutes += Number(item.minutes);
             if (kind.backlog) {
-                const waiting = kind.planUnscheduled(new Date(from), new Date(to), drafted);
+                const waiting = kind.planUnscheduled(new Date(from), new Date(to), drafted, read);
                 if (waiting.type === "none") return READING;
                 backlog = (backlog ?? 0) + waiting.value.length;
                 for (const item of waiting.value) unscheduled.push({ kind, item });
@@ -122,8 +152,8 @@ export function usePlanEventCounts(kinds: readonly PlanEventKindValue[] | undefi
             const newest = commits.type === "some" ? commits.value[0]?.at : undefined;
             if (newest !== undefined && (saved === undefined || compareDateTime(newest, saved) > 0)) saved = newest;
         }
-        return { events, minutes, backlog, saved, overlaps: scheduleOverlaps(warned), unscheduled };
-    }, [kinds, from, to, drafts]);
+        return { events, minutes, drawn, backlog, saved, overlaps: scheduleOverlaps(warned), unscheduled };
+    }, [kinds, from, to, drafts, cells, parts]);
     const { result } = useTrackedEvaluation(read);
     // The last counts read, held while a read is in flight or failed.
     const held = useRef<PlanEventCounts | undefined>(undefined);
@@ -160,6 +190,8 @@ export interface PlanKindsReaderProps {
     drafts: EventDrafts | undefined;
     /** Each event kind narrowed through its source of the slice. */
     parts: readonly PlanEventPart[];
+    /** The kinds' cells (#1039), when a kind is read by them. */
+    cells: PlanCellsRead | undefined;
     /** Where what it read goes: called only when that moves. */
     onRead: (read: PlanKindsRead) => void;
 }
@@ -171,8 +203,8 @@ export interface PlanKindsReaderProps {
  * @param props - What is read, over what, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanKindsReader({ kinds, scale, drafts, parts, onRead }: PlanKindsReaderProps): null {
-    const counts = usePlanEventCounts(kinds, scale, drafts);
+export function PlanKindsReader({ kinds, scale, drafts, parts, cells, onRead }: PlanKindsReaderProps): null {
+    const counts = usePlanEventCounts(kinds, scale, drafts, cells, parts);
     const backlog = useBacklogNarrowing(parts);
     const reported = useRef<PlanKindsRead | undefined>(undefined);
     useLayoutEffect(() => {

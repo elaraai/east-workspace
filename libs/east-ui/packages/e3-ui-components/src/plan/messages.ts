@@ -73,8 +73,12 @@ export type PlanInspectorSection = "fields" | "bulk" | "window" | "measures";
 /** A fact the inspector pane shows of an event or a row (#1197). */
 export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "state" | "quantity" | "group" | "events" | "hours" | "quantities";
 
-/** What the inspector pane counts when nothing is selected (#1197, PB41). */
-export type PlanInspectorStat = "events" | "hours" | "backlog";
+/**
+ * What the inspector pane counts when nothing is selected (#1197, PB41): the
+ * hours over the rows drawn (#1039), where a kind read by its cells counts
+ * its events exactly and its hours over the rows on screen.
+ */
+export type PlanInspectorStat = "events" | "hours" | "hoursInView" | "backlog";
 
 /**
  * The Plan's message table.
@@ -179,6 +183,14 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     libraryNarrowed: (p: { tab: PlanLibraryTabWord; name: string }) => string;
     /** The line under it. */
     libraryNarrowedHint: (p: { tab: PlanLibraryTabWord; name: string }) => string;
+
+    // ── Too many events to draw (#1039) ────────────────────────────────────
+    /** The notice's title: a kind with more events in view than it draws, and no summary to shade them at this
+     *  resolution — `12,480 print job events in view`; `kind` its name as running text writes it. */
+    tooManyEvents: (p: { kind: string; n: number; count: string }) => string;
+    /** The line under it: the resolution its summary shades at — `Too many to draw at this resolution: switch to month to
+     *  see where they fall`; `undefined`, it has none. */
+    tooManyEventsHint: (p: { resolution: string | undefined }) => string;
 
     // ── The library pane (#1195) ───────────────────────────────────────────
     /** The library pane's name. */
@@ -574,6 +586,11 @@ export const planMessages: PlanMessages = {
     libraryNarrowed: ({ tab, name }) => `No ${narrowedNoun(tab, name)} match the filters`,
     libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${narrowedNoun(tab, name)}.`,
 
+    tooManyEvents: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "event", "events")} in view`,
+    tooManyEventsHint: ({ resolution }) => (resolution === undefined
+        ? "Too many to draw at this resolution: narrow the filters, or zoom in."
+        : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
+
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),
     libraryEmpty: ({ tab, name }) => (tab === "events" ? "No templates" : tab === "backlog" ? "Backlog clear"
@@ -618,7 +635,7 @@ export const planMessages: PlanMessages = {
     inspectorNoBucket: () => "Click the row's plot to read its measures at that bucket.",
     inspectorNoValue: () => "—",
     inspectorStat: ({ stat, n }) => ({
-        events: plural(n, "Event", "Events"), hours: "Hours", backlog: "In backlog",
+        events: plural(n, "Event", "Events"), hours: "Hours", hoursInView: "Hours in view", backlog: "In backlog",
     })[stat],
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."

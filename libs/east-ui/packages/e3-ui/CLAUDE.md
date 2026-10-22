@@ -122,7 +122,10 @@ source holding a `range` of the axis's arm holds the window with the others:
 the date navigator, the horizon brush, the keys and the resolution write each
 of them. Each templates list is `Schedule.templates(templates.read(), { …,
 source })` over a record bound with `Data.bind`, an instant kind's giving no
-`duration`, and each tab that names a `source` follows it.
+`duration`, and each tab that names a `source` follows it. A source named
+after an event kind's slot may list a series index and a summary index beside
+its interval index (#1039): the kind, placed on a paged resource kind, is then
+read a cell at a time and shaded from the summary zoomed out (`planSeries`).
 
 The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
 }}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed
