@@ -59,6 +59,14 @@ export {
   type DatasetBatchLimits,
 } from './dataset-batches.js';
 
+export {
+  placeDatasetRuns,
+  withinDatasetRuns,
+  type DatasetPlaceRequest,
+  type DatasetPlacedSegment,
+  type DatasetWithinRequest,
+} from './dataset-place.js';
+
 export { type KeySearchQuery } from './key-search.js';
 
 export { decodedSegmentStats, DECODED_SEGMENTS_MAX_WEIGHT } from './segments.js';

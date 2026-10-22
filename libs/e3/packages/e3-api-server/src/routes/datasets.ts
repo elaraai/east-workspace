@@ -19,6 +19,7 @@ import {
   type PinnedCache,
 } from '../handlers/datasets.js';
 import { findDatasetKeys, getDatasetRows, getDatasetRuns } from '../handlers/dataset-batches.js';
+import { placeDatasetRuns, withinDatasetRuns } from '../handlers/dataset-place.js';
 import type { KeySearchQuery } from '../handlers/key-search.js';
 import { pageError } from '../handlers/dataset-reads.js';
 import { datasetPathOf } from './dataset-path.js';
@@ -138,14 +139,19 @@ export function createDatasetRoutes(
   // POST /api/repos/:repo/workspaces/:ws/datasets/* - A dataset's reads in
   // batches, their queries, keys or runs in a JSON body: several key searches
   // (`findKeys=true`), the rows of several keys (`rows=true`), the entries of
-  // several runs (`runs=true`). Any other POST is no route of these.
+  // several runs (`runs=true`), and where a narrowing's runs of an index sit in
+  // its record (`place=true`) and which entries they hold (`within=true`). Any
+  // other POST is no route of these.
   app.post('/*', async (c, next) => {
     const findKeys = c.req.query('findKeys') === 'true';
     const rows = c.req.query('rows') === 'true';
     const runs = c.req.query('runs') === 'true';
-    if ([findKeys, rows, runs].filter(Boolean).length !== 1) {
-      if (!findKeys && !rows && !runs) return next();
-      return pageError('bad_request', 'Ask for one batch: findKeys=true, rows=true or runs=true');
+    const place = c.req.query('place') === 'true';
+    const within = c.req.query('within') === 'true';
+    const asked = [findKeys, rows, runs, place, within].filter(Boolean).length;
+    if (asked !== 1) {
+      if (asked === 0) return next();
+      return pageError('bad_request', 'Ask for one batch: findKeys=true, rows=true, runs=true, place=true or within=true');
     }
     const repoPath = getRepoPath(c.req.param('repo')!);
     const ws = c.req.param('ws')!;
@@ -174,7 +180,24 @@ export function createDatasetRoutes(
       return getDatasetRows(storage, repoPath, ws, treePath, { keys, ...(hash !== undefined && { hash }) }, limits);
     }
     if (hash === undefined) {
-      return pageError('bad_request', 'A read of runs names the content hash its runs are positions at: hash=<state>');
+      const what = place ? 'A placement' : within ? 'A membership read' : 'A read of runs';
+      return pageError('bad_request', `${what} names the content hash its runs are positions at: hash=<state>`);
+    }
+    if (place || within) {
+      const index = (body as { index?: unknown } | null)?.index;
+      if (typeof index !== 'string' || index === '') {
+        return pageError('bad_request', `${place ? 'A placement' : 'A membership read'} names the index its runs are rows of: { "index": "<name>", … }`);
+      }
+      const indexRuns = runsOf(body);
+      if ('refusal' in indexRuns) return pageError('bad_request', indexRuns.refusal);
+      if (within) {
+        const keys = stringsOf(body, 'keys');
+        if ('refusal' in keys) return pageError('bad_request', 'A membership read is { "index": "<name>", "runs": [[row, count], …], "keys": [ "<.east literal>", … ] }');
+        return withinDatasetRuns(storage, repoPath, ws, treePath, { index, runs: indexRuns, keys, hash });
+      }
+      const window = windowOf(body);
+      if ('refusal' in window) return pageError('bad_request', window.refusal);
+      return placeDatasetRuns(storage, repoPath, ws, treePath, { index, runs: indexRuns, ...window, hash }, limits);
     }
     const spans = runsOf(body);
     if ('refusal' in spans) return pageError('bad_request', spans.refusal);
@@ -276,7 +299,15 @@ function stringsOf(body: unknown, name: string): string[] | Refusal {
   return isStrings(value) ? value : { refusal: `A read of rows by key is { "${name}": [ "<.east literal>", … ] }` };
 }
 
-/** The runs a `runs` body holds: `{ "runs": [[row, count], …] }`. */
+/** The window a `place` body names beside its runs: `offset` and `limit`, each a number when given. */
+function windowOf(body: unknown): { offset?: number; limit?: number } | Refusal {
+  const { offset, limit } = (body as { offset?: unknown; limit?: unknown } | null) ?? {};
+  if (offset !== undefined && typeof offset !== 'number') return { refusal: 'A placement\'s offset is a number: the runs\' first entry it places' };
+  if (limit !== undefined && typeof limit !== 'number') return { refusal: 'A placement\'s limit is a number: how many of the runs\' entries it places' };
+  return { ...(offset !== undefined && { offset }), ...(limit !== undefined && { limit }) };
+}
+
+/** The runs a `runs`, `place` or `within` body holds: `{ "runs": [[row, count], …] }`. */
 function runsOf(body: unknown): [number, number][] | Refusal {
   const runs = (body as { runs?: unknown } | null)?.runs;
   if (!Array.isArray(runs)) return { refusal: 'A read of runs is { "runs": [[row, count], …] }' };

@@ -35,6 +35,52 @@ export interface RecordSliceReader<T> {
      * a window pages each run.
      */
     runsAll?(index: string, runs: readonly Range[]): option<T[]>;
+    /**
+     * Where a narrowing's runs of one source sit in the record (#1349): how
+     * many of their entries each record segment holds, as far as they are
+     * placed — none until the first window lands. A binding whose runtime
+     * reads placements has it; without it, a narrowing has no placement.
+     */
+    placeAll?(index: string, runs: readonly Range[]): option<RecordSlicePlacement>;
+    /**
+     * Which of some entries a narrowing's runs of one source hold (#1349): for
+     * each, its index key's `.east` text beside its primary key, whether it lies
+     * in one of the runs — none while pending. A binding whose runtime reads
+     * memberships has it.
+     */
+    withinAll?(index: string, runs: readonly Range[], entries: readonly RecordSliceEntryKey[]): option<boolean[]>;
+}
+
+/** One index entry of a row, as a membership read names it: its index key's `.east` text, and the row's primary key. */
+export interface RecordSliceEntryKey {
+    /** The entry's index key, as the binding's maintained keys print it. */
+    ik: string;
+    /** The row's primary key, an East value of the record's key type. */
+    key: unknown;
+}
+
+/** A record segment some of a narrowing's rows fall in (#1349). */
+export interface RecordSlicePlacedSegment {
+    /** Its first row in the record's order. */
+    offset: bigint;
+    /** How many rows it holds. */
+    count: bigint;
+    /** How many of the narrowing's rows it holds. */
+    rows: bigint;
+}
+
+/** Where a narrowing's rows sit in its record, as far as they are placed (#1349). */
+export interface RecordSlicePlacement {
+    /** The record segments holding some of the placed rows, in the record's order. */
+    segments: readonly RecordSlicePlacedSegment[];
+    /** How many of the narrowing's rows are placed. */
+    placed: bigint;
+    /** How many rows the narrowing holds. */
+    total: bigint;
+    /** The record's row count. */
+    records: bigint;
+    /** Whether every row is placed: until then a segment the placement does not list may yet hold some. */
+    complete: boolean;
 }
 
 /** Resolved, ascending, disjoint ranges within one immutable revision. */
@@ -260,6 +306,43 @@ export class RecordSliceSource<T> {
         window.rows = rows.value;
         window.complete = true;
         return some(window.rows);
+    }
+
+    /**
+     * Where a narrowing's rows sit in the record (#1349): its resolved runs
+     * placed by the reader, a window at a time, as far as they are placed.
+     *
+     * @param plan - Current narrowing
+     * @returns The placement so far, or none while the runs or the first window are pending
+     * @throws {Error} When the reader reads no placements
+     */
+    place(plan: RecordSlicePlan): option<RecordSlicePlacement> {
+        if (this.reader.placeAll === undefined) throw new Error("This record's binding cannot place a narrowing's rows");
+        const resolved = this.resolve(plan);
+        if (resolved.type === "none") return none;
+        const placement = this.reader.placeAll(resolved.value.index, resolved.value.runs);
+        if (this.current() !== resolved.value.revision || placement.type === "none") return none;
+        if (placement.value.total !== resolved.value.total) throw new Error("The record's placement disagrees with its search bounds; refresh the view and retry");
+        return placement;
+    }
+
+    /**
+     * Which of some entries a narrowing's resolved runs hold (#1349), each
+     * answered by the reader from the runs: no row is examined here.
+     *
+     * @param plan - Current narrowing
+     * @param entries - The entries asked of: each one's index key text and primary key
+     * @returns Whether each entry lies in the narrowing's runs, or none while pending
+     * @throws {Error} When the reader reads no memberships
+     */
+    within(plan: RecordSlicePlan, entries: readonly RecordSliceEntryKey[]): option<boolean[]> {
+        if (this.reader.withinAll === undefined) throw new Error("This record's binding cannot read which rows a narrowing holds");
+        const resolved = this.resolve(plan);
+        if (resolved.type === "none") return none;
+        if (entries.length === 0) return some([]);
+        const within = this.reader.withinAll(resolved.value.index, resolved.value.runs, entries);
+        if (this.current() !== resolved.value.revision || within.type === "none") return none;
+        return within;
     }
 
     /**

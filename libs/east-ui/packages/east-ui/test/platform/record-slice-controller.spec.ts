@@ -5,7 +5,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { IntegerType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, type RecordSliceBinding } from "@elaraai/east-ui/internal";
 
 const Config = RecordSliceConfigType;
@@ -86,6 +86,52 @@ test("extent never returns a partial result during loading, propagates failures,
     assert.deepEqual(service.controller.domain("due"), some({ from: ".some 2", to: ".some 100" }));
     service.controller.choose("status", undefined);
     assert.deepEqual(service.controller.domain("due"), none, "a trailing range needs its leading choices");
+});
+
+test("which rows a narrowing holds is asked by each row's maintained entry keys, a row held when any of its entries is; nothing narrowed holds every row (#1349)", () => {
+    // The index files `held` at its rows 0 to 9 and `late` at 10 to 19; a row's entries are each status it holds.
+    const SetRow = StructType({ status: StringType, due: OptionType(IntegerType), statuses: SetType(StringType) });
+    type SetRowValue = ValueTypeOf<typeof SetRow>;
+    const printString = printFor(StringType);
+    const rowOfStatus = new Map([[printString("held"), 0n], [printString("late"), 10n]]);
+    const asked: { ik: string; key: unknown }[][] = [];
+    const binding: RecordSliceBinding = {
+        id: "small", recordId: "small", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(20n),
+        entryKeys: (_index, _key, row) => [...(row as SetRowValue).statuses].map(status => printString(status)),
+        seek(_index, query) {
+            assert.equal(query.type, "fields");
+            const fields = query.type === "fields" ? query.value.values : [];
+            return some({ found: true, row: rowOfStatus.get(fields[0]!) ?? 20n, count: 10n });
+        },
+        page: () => none,
+        withinAll(_index, runs, entries) {
+            asked.push(entries.map(({ ik, key }) => ({ ik, key })));
+            return some(entries.map(({ ik }) => {
+                const row = rowOfStatus.get(ik) ?? 20n;
+                return runs.some(run => row >= run.row && row < run.row + run.count);
+            }));
+        },
+        placeAll: () => none,
+    };
+    let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, SetRow, () => current, next => { current = next; });
+    const late = new Map([["status", values(printString("late"))]]);
+    const holding = (...statuses: string[]): SetRowValue => ({ status: statuses[0] ?? "none", due: none, statuses: new Set(statuses) });
+    const rows = [
+        { key: "a", row: holding("held") },
+        { key: "b", row: holding("held", "late") },
+        { key: "c", row: holding() },
+        { key: "d", row: holding("late") },
+    ];
+    assert.deepEqual(controller.within(late, rows), some([false, true, false, true]));
+    assert.deepEqual(asked, [[
+        { ik: printString("held"), key: "a" }, { ik: printString("held"), key: "b" }, { ik: printString("late"), key: "b" }, { ik: printString("late"), key: "d" },
+    ]], "each row's entries, in one read, a row with none sending none");
+    assert.deepEqual(controller.within(new Map(), rows), some([true, true, true, true]), "nothing narrowed holds every row");
+    assert.equal(asked.length, 1, "and asks nothing");
+    assert.deepEqual(controller.place(late), none, "a placement pending is none");
+    assert.throws(() => controller.place(new Map()), /nothing narrows this record/);
 });
 
 test("chip counts describe the exact state a toggle will apply, including clearing the final value", () => {

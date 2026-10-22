@@ -984,6 +984,172 @@ export async function datasetGetRuns(
   };
 }
 
+/** A window of a narrowing's runs of one of a record's indexes, for {@link datasetPlace}. */
+export interface DatasetPlaceQuery {
+  /** The index the runs are rows of. */
+  index: string;
+  /** The narrowing's runs of the index's rows, `[row, count]`: ascending,
+   *  disjoint, each inside the index — at most {@link DATASET_BATCH_MAX}. */
+  runs: readonly (readonly [number, number])[];
+  /** The runs' first entry it places, counting through them as one sequence
+   *  (0 when absent). */
+  offset?: number;
+  /** How many of the runs' entries it places at most; a page's bounds clamp it. */
+  limit?: number;
+  /** The record's content hash the runs are positions at. */
+  hash: string;
+}
+
+/** A record segment a placement's entries fall in. */
+export interface DatasetPlacedSegment {
+  /** The segment's number in the record's manifest. */
+  segment: number;
+  /** Its first row in the record's order. */
+  offset: number;
+  /** How many rows it holds. */
+  count: number;
+  /** How many of the placement's entries it holds. */
+  rows: number;
+}
+
+/** Where a window of a narrowing's rows sits in its record. */
+export interface DatasetPlacement {
+  /** The record segments the window's entries fall in, in the record's order,
+   *  each with how many of them it holds; a segment that holds none is not
+   *  listed. */
+  segments: DatasetPlacedSegment[];
+  /** How many of the runs' entries it places, from the offset asked: the
+   *  caller asks again from `offset + placed` for the rest. */
+  placed: number;
+  /** How many entries the runs hold. */
+  runEntries: number;
+  /** The record's row count. */
+  totalElements: number;
+  /** The content hash the answer is of. */
+  hash: string;
+}
+
+/**
+ * Place a window of a narrowing's runs of one of a record's indexes in the
+ * record (#1349): how many of the window's entries each record segment holds,
+ * so a view draws where a narrowing's rows sit among all the record's rows
+ * without reading the record.
+ *
+ * @remarks
+ * The server reads the window's entries from the index's own segments and
+ * places each in its record segment by the record's fences, reading no record
+ * segment. The window is held to a page's bounds (10,000 entries and the byte
+ * budget): it places the first {@link DatasetPlacement.placed} entries from
+ * the offset, and the caller asks again for the rest. A narrowing's runs name
+ * each row once, so a segment's rows over every window add up to the
+ * narrowing's rows in it.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the record
+ * @param query - The index, its runs, the window and the pin
+ * @param options - Request options including auth token
+ * @returns The segments the window's entries fall in, and how many it placed
+ * @throws {DatasetHashMismatchError} When the runs are pinned to a hash the
+ *   record no longer holds; its `currentHash` names the one it does
+ * @throws {ApiError} On application-level errors: runs that are not ascending,
+ *   disjoint and inside the index, more than {@link DATASET_BATCH_MAX} of them,
+ *   an index the record does not hold
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetPlace(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  query: DatasetPlaceQuery,
+  options: RequestOptions,
+): Promise<DatasetPlacement> {
+  const params = new URLSearchParams({ place: 'true', hash: query.hash });
+  const response = await postRead(batchUrl(url, repo, workspace, path, params), {
+    index: query.index,
+    runs: query.runs,
+    ...(query.offset !== undefined && { offset: query.offset }),
+    ...(query.limit !== undefined && { limit: query.limit }),
+  }, 'application/json', options);
+  const body = await response.json() as { segments: DatasetPlacedSegment[]; placed: number };
+  const intHeader = (name: string): number => Number(response.headers.get(name) ?? '0');
+  return {
+    segments: body.segments,
+    placed: body.placed,
+    runEntries: intHeader('X-Run-Entries'),
+    totalElements: intHeader('X-Total-Elements'),
+    hash: response.headers.get('X-Content-SHA256') ?? '',
+  };
+}
+
+/** Index entries asked whether a narrowing's runs hold them, for {@link datasetWithin}. */
+export interface DatasetWithinQuery {
+  /** The index the runs are rows of. */
+  index: string;
+  /** The narrowing's runs of the index's rows, `[row, count]`: ascending,
+   *  disjoint, each inside the index — at most {@link DATASET_BATCH_MAX}. */
+  runs: readonly (readonly [number, number])[];
+  /** `.east` literals of the entries' keys, `(ik=…, k=…)`: a row's maintained
+   *  index key beside its primary key, answered in this order — at most
+   *  {@link DATASET_BATCH_MAX}. */
+  keys: readonly string[];
+  /** The record's content hash the runs are positions at. */
+  hash: string;
+}
+
+/** Which of some index entries a narrowing's runs hold. */
+export interface DatasetWithin {
+  /** Whether each key lies in one of the runs, in the order asked. */
+  within: boolean[];
+  /** The content hash the answer is of. */
+  hash: string;
+}
+
+/**
+ * Ask which of some index entries a narrowing's runs of one of a record's
+ * indexes hold, in one request (#1349): the entries of the rows a view draws,
+ * each answered by the runs, so the server decides what the narrowing holds
+ * and the client never does.
+ *
+ * @remarks
+ * Each run is a contiguous stretch of the index's rows, so the server reads
+ * each run's first and last entries — at most two index segments a run — and
+ * places every key among them by the index's order. A row is in the narrowing
+ * when any of its entries is: a row whose index fans out sends each of its
+ * entries' keys.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the record
+ * @param query - The index, its runs, the entry keys and the pin
+ * @param options - Request options including auth token
+ * @returns Whether each key lies in one of the runs
+ * @throws {DatasetHashMismatchError} When the runs are pinned to a hash the
+ *   record no longer holds; its `currentHash` names the one it does
+ * @throws {ApiError} On application-level errors: runs that are not ascending,
+ *   disjoint and inside the index, more than {@link DATASET_BATCH_MAX} runs or
+ *   keys, a key that is no literal of the index's entry key, an index the
+ *   record does not hold
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetWithin(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  query: DatasetWithinQuery,
+  options: RequestOptions,
+): Promise<DatasetWithin> {
+  const params = new URLSearchParams({ within: 'true', hash: query.hash });
+  const response = await postRead(batchUrl(url, repo, workspace, path, params),
+    { index: query.index, runs: query.runs, keys: query.keys }, 'application/json', options);
+  const body = await response.json() as { within: boolean[] };
+  return { within: body.within, hash: response.headers.get('X-Content-SHA256') ?? '' };
+}
+
 const SIZE_THRESHOLD = 1 * 1024 * 1024; // 1 MB
 
 /** How many parts of one upload are sent at a time. */

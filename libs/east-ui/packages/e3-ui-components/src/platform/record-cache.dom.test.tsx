@@ -58,6 +58,8 @@ function fixture(count: number, shortPages = false) {
         async findKeys() { throw new Error("This fixture's binding reads no batch"); },
         async getRows() { throw new Error("This fixture's binding reads no batch"); },
         async getRuns() { throw new Error("This fixture's binding reads no batch"); },
+        async place() { throw new Error("This fixture's binding reads no batch"); },
+        async within() { throw new Error("This fixture's binding reads no batch"); },
         async getPage(_workspace, _path, window) {
             requests.push({ offset: window.offset, limit: window.limit, hash: window.hash });
             if (requests.length > 400) throw new Error("The reader repeatedly refetched evicted pages");
