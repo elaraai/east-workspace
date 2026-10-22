@@ -17,7 +17,9 @@
  * Every gesture that writes — Move, Connect and its Shift session, Retarget,
  * Extend and Del — is one step of the editing's history: the gesture's edits
  * (`edits.ts`) recorded through the frame's editing, nothing held here but a
- * Move's preview while its drag is under way.
+ * Move's preview while its drag is under way. The library's Index (#1389)
+ * flies to a zone or an item and selects it through the handle, and hears
+ * the canvas's selection and the zone its viewport is in.
  *
  * Its gestures, its selection funnels, its camera and its paint path are the
  * ones `CLAUDE.md` holds to its invariants: no render-phase ref write, one
@@ -48,6 +50,7 @@ import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
 import { entityTints, itemTint, tintAttributes, tintsOf } from "./tints";
 import type { SchematicLayerState } from "./layers";
 import type { SchematicValue } from "../data.js";
+import { zoneInView } from "../index-tree.js";
 import {
     clampDelta, connectCandidate, connectStep, deleteEdits, editKinds, extendEdits, linkRefusal, moveEdits, retargetEdits,
     type ConnectDragArgs, type ConnectSession, type EditRefusal, type Mover, type NetLeg, type SchematicEdit, type SessionDrawn,
@@ -134,6 +137,11 @@ function hasDot(item: DrawnItem): boolean {
     return item.status.type === "some" || item.color.type === "some" || item.tone.type === "some";
 }
 
+/** The world box a fly to an item frames: 8 × 6 units about its centre. */
+function itemFrame(item: DrawnItem): { x: number; y: number; w: number; h: number } {
+    return { x: item.x - 4, y: item.y - 3, w: 8, h: 6 };
+}
+
 /** A round scale-bar length (1/2/5 × 10^k) rendering near `targetPx`. */
 function niceScaleLength(ppu: number, targetPx: number): number {
     const target = targetPx / ppu;
@@ -154,7 +162,7 @@ function pointInPolygon(x: number, y: number, pts: readonly Pt[]): boolean {
     return inside;
 }
 
-/** What the frame drives the camera and the selection by: its toolbar's zoom, Fit, Find and steps. */
+/** What the frame drives the camera and the selection by: its toolbar's zoom, Fit, Find and steps, and the library's Index. */
 export interface SchematicCanvasHandle {
     /** Zooms about the canvas's middle by a factor. */
     zoomBy(factor: number): void;
@@ -162,7 +170,7 @@ export interface SchematicCanvasHandle {
     fit(): void;
     /** Steps the selection to the previous item, or the next, flying to it. */
     step(delta: 1 | -1): void;
-    /** Flies to an item and selects it: Find's pick. */
+    /** Flies to an item or a zone, by its id, and selects it: Find's pick, and the Index's (#1389). */
     reveal(id: string): void;
 }
 
@@ -184,8 +192,10 @@ export interface SchematicCanvasProps {
     readonly editing: SchematicCanvasEditing | undefined;
     /** Told why a gesture was refused — a Delete a read-only link or net blocks — or, `undefined`, that one has been recorded since. */
     readonly onRefused: (words: string | undefined) => void;
-    /** Told whether anything is selected — an item, a zone, a link or a net — as that changes. */
-    readonly onSelected: (selected: boolean) => void;
+    /** Told what is selected — the items, the zones, and the link or the net — by their ids, as that changes. */
+    readonly onSelection: (ids: ReadonlySet<string>) => void;
+    /** Told the zone the viewport is in, by its id — `undefined` for none — as that changes (#1389): the Index marks it. */
+    readonly onZoneInView?: ((zone: string | undefined) => void) | undefined;
     /** The canvas's handle, the frame's. */
     readonly ref?: Ref<SchematicCanvasHandle> | undefined;
 }
@@ -197,7 +207,7 @@ export interface SchematicCanvasProps {
  * and a minimap with a draggable viewport — and its gestures, each one step of
  * the editing's history.
  */
-export const SchematicCanvas = memo(function SchematicCanvas({ value, data, layers, tool, linkKind, words, editing, onRefused, onSelected, ref }: SchematicCanvasProps) {
+export const SchematicCanvas = memo(function SchematicCanvas({ value, data, layers, tool, linkKind, words, editing, onRefused, onSelection, onZoneInView, ref }: SchematicCanvasProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
 
@@ -348,13 +358,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         reportSelection();
     }, [reportSelection]);
     // Selected-link hygiene: clear when the link leaves the drawing (deleted —
-    // a draft, or another session's commit — or taken back by Undo), through the
-    // link's funnel, so the host hears it.
+    // a draft, or another session's commit — or taken back by Undo), or its
+    // layer is hidden or locked (SC27), through the link's funnel, so the host
+    // hears it.
     useEffect(() => {
         const prev = renderSnapRef.current.selectedLink;
         if (prev === null) return;
         const net = data.nets.find(n => n.key === prev.key);
-        if (net === undefined && !data.links.some(l => l.key === prev.key)) {
+        if ((net === undefined && !data.links.some(l => l.key === prev.key)) || layers.hidden.has(prev.key) || layers.locked.has(prev.key)) {
             commitLinkSelection(null);
             return;
         }
@@ -363,7 +374,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             const side = prev.leg.end === "source" ? net.sources : net.destinations;
             if (!side.includes(prev.leg.item)) commitLinkSelection({ key: prev.key, leg: null });
         }
-    }, [data.links, data.nets, commitLinkSelection]);
+    }, [data.links, data.nets, layers.hidden, layers.locked, commitLinkSelection]);
 
     // --- Layers: what the frame's layer state hides, locks and dims. ----------
     const layerHiddenKeys = layers.hidden;
@@ -386,12 +397,13 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     );
 
     // Selection hygiene: prune any selected keys that left the working set (their
-    // layer was hidden), and null a dead anchor, so prev/next stepping stays
+    // layer was hidden) or whose layer was locked — a locked layer's entities
+    // never select (SC27) — and null a dead anchor, so prev/next stepping stays
     // consistent. Only set state when the set actually shrank (fresh Set), so
     // this can't loop.
     useEffect(() => {
         if (selected.size === 0) return;
-        const live = new Set(items.map(it => it.key));
+        const live = new Set(items.flatMap(it => (lockedKeys.has(it.key) ? [] : [it.key])));
         let changed = false;
         const next = new Set<string>();
         for (const k of selected) { if (live.has(k)) next.add(k); else changed = true; }
@@ -401,10 +413,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         // A dead anchor (its item left the working set) is pruned with a PURE,
         // identity-stable updater — no set change, so no callbacks fire.
         setSelection(prev => (prev.anchor !== null && !live.has(prev.anchor)) ? { ...prev, anchor: null } : prev);
-    }, [items, selected, commitSelection]);
-    // The frame hears whether anything is selected: its toolbar's steps show while something is.
-    const anySelected = selected.size > 0 || zoneSelection.size > 0 || selectedLink !== null;
-    useEffect(() => { onSelected(anySelected); }, [anySelected, onSelected]);
+    }, [items, selected, lockedKeys, commitSelection]);
+    // The frame hears what is selected: its toolbar's steps show while something is, and the Index marks its rows.
+    useEffect(() => {
+        onSelection(new Set([...selected, ...zoneSelection, ...(selectedLink === null ? [] : [selectedLink.key])]));
+    }, [selected, zoneSelection, selectedLink, onSelection]);
 
     const canvasRef = useRef<HTMLDivElement | null>(null);
     const drawRef = useRef<HTMLCanvasElement | null>(null);
@@ -653,6 +666,24 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     // The zones nested by containment, and the items in each: what the steps
     // through the items walk (the Index tab's tree, #1389, is built the same way).
     const nav = useMemo(() => buildNavTree(shownZones, items), [shownZones, items]);
+    // The zone the viewport is in (#1389): the one covering most of it, kept until it clearly loses, none at the fit —
+    // told the frame only as it changes, never at every frame of a pan.
+    const inViewRef = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (onZoneInView === undefined || size === null || ppu === 0) return;
+        const view = {
+            box: {
+                minX: -cameraSnapshot.tx / ppu, minY: -cameraSnapshot.ty / ppu,
+                maxX: (size.w - cameraSnapshot.tx) / ppu, maxY: (size.h - cameraSnapshot.ty) / ppu,
+            },
+            fitted: cameraSnapshot.zoom <= 1.05,
+        };
+        const next = zoneInView(shownZones, view, inViewRef.current);
+        const was = inViewRef.current;
+        if (next === undefined ? was === undefined : was !== undefined && stringEqual(next, was)) return;
+        inViewRef.current = next;
+        onZoneInView(next);
+    }, [onZoneInView, size, ppu, cameraSnapshot, shownZones]);
 
     // --- Zone (area) selection (#177). ---------------------------------------
     // The zone-selection commit funnel — mirrors commitSelection: a fresh set,
@@ -666,6 +697,13 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         // Only a real clear commits — Esc on an already-empty zone selection is silent.
         if (renderSnapRef.current.zoneSelection.size > 0) commitZoneSelection(EMPTY_STRING_SET);
     }, [commitZoneSelection]);
+    // Zone-selection hygiene, as the items': a zone whose layer is hidden or locked leaves the selection (SC27).
+    useEffect(() => {
+        if (zoneSelection.size === 0) return;
+        const live = new Set(shownZones.flatMap(z => (lockedKeys.has(z.key) ? [] : [z.key])));
+        if ([...zoneSelection].every(key => live.has(key))) return;
+        commitZoneSelection(new Set([...zoneSelection].filter(key => live.has(key))));
+    }, [zoneSelection, shownZones, lockedKeys, commitZoneSelection]);
     // The innermost selectable zone under a screen point: OUTLINE zones only
     // (hatch bands are annotations, mirroring the Index's host contract), honouring
     // explicit circle / polygon geometry, skipping locked-layer zones; smallest
@@ -779,23 +817,25 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
 
     // Selection stepping order: zones alphabetical (natural-numeric), each
     // zone's items alphabetical within it, nested zones after their
-    // parent's own items, floor items last. Computed once per data change;
-    // the key→index map makes each step O(1).
+    // parent's own items, floor items last — a locked layer's left out, as
+    // they never select (SC27). Computed once per data change; the key→index
+    // map makes each step O(1).
     const itemOrder = useMemo(() => {
         const byLabel = (a: { label: string }, b: { label: string }) =>
             a.label.localeCompare(b.label, undefined, { numeric: true });
+        const unlocked = (item: DrawnItem) => !lockedKeys.has(item.key);
         const ordered: DrawnItem[] = [];
         const walk = (nodes: NavZone[]) => {
             for (const node of [...nodes].sort((a, b) => byLabel(a.zone, b.zone))) {
-                ordered.push(...[...node.items].sort(byLabel));
+                ordered.push(...node.items.filter(unlocked).sort(byLabel));
                 walk(node.children);
             }
         };
         walk(nav.roots);
-        ordered.push(...[...nav.floor].sort(byLabel));
+        ordered.push(...nav.floor.filter(unlocked).sort(byLabel));
         const indexOf = new Map(ordered.map((item, i) => [item.key, i]));
         return { ordered, indexOf };
-    }, [nav]);
+    }, [nav, lockedKeys]);
 
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
     const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
@@ -1137,11 +1177,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     }, [editing, kinds, data, onRefused, refusalWords, recordStep, endLinkSession]);
 
     const flyToItem = useCallback((item: DrawnItem) => {
-        flyTo({ x: item.x - 4, y: item.y - 3, w: 8, h: 6 });
-        // A fly-to focus (Find's pick / a step) is always single-focus
-        // REPLACE — its purpose is the camera move; Shift-add is marquee-only.
+        flyTo(itemFrame(item));
+        // A fly-to focus (Find's pick, a step, the Index's) is always
+        // single-focus REPLACE — the item alone, no zone or link beside it;
+        // its purpose is the camera move; Shift-add is marquee-only.
         commitSelection(new Set([item.key]), { anchor: item.key });
-    }, [flyTo, commitSelection]);
+        clearZoneSelection();
+        commitLinkSelection(null);
+    }, [flyTo, commitSelection, clearZoneSelection, commitLinkSelection]);
     const stepSelection = useCallback((delta: number) => {
         const { ordered, indexOf } = itemOrder;
         if (ordered.length === 0) return;
@@ -1658,10 +1701,23 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         fit: resetView,
         step: (delta) => stepSelection(delta),
         reveal: (id) => {
-            const item = items.find(it => it.key === id);
-            if (item !== undefined) flyToItem(item);
+            // An entity on a locked layer is flown to and never selected (SC27).
+            const item = items.find(it => stringEqual(it.key, id));
+            if (item !== undefined) {
+                if (lockedKeys.has(item.key)) flyTo(itemFrame(item));
+                else flyToItem(item);
+                return;
+            }
+            // A zone: the camera flies to its box, and the zone alone is selected (#1389).
+            const zone = shownZones.find(z => stringEqual(z.key, id));
+            if (zone === undefined) return;
+            flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height });
+            if (lockedKeys.has(zone.key)) return;
+            commitSelection(EMPTY_STRING_SET);
+            commitLinkSelection(null);
+            commitZoneSelection(new Set([zone.key]));
         },
-    }), [zoomBy, resetView, stepSelection, items, flyToItem]);
+    }), [zoomBy, resetView, stepSelection, items, lockedKeys, flyToItem, shownZones, flyTo, commitSelection, commitLinkSelection, commitZoneSelection]);
 
     // Leaving the Connect tool cancels any in-flight draft and ends the session.
     useEffect(() => {

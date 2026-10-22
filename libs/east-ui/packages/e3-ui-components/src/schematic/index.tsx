@@ -34,6 +34,13 @@
  *   through its source of the slice asks the source again, and one read whole
  *   is read again; and each record's session's (`SessionBanners`), titled by
  *   its kind;
+ * - **the library** — the start pane, when `library` lists a tab (#1389,
+ *   `library.tsx`): every kind's templates, the item kinds' backlog, the
+ *   zones' Index — the zone the viewport is in marked, a row's click flying
+ *   to what it names — the Layers tab, whose choices the canvas obeys
+ *   (`layers-view.ts`), and the author's tabs, each following the source of
+ *   the rail it names (`FollowSources`), whose failed narrowing is a banner
+ *   with Retry;
  * - **the skeleton** — `BuilderFrame.loading` covers the frame until every
  *   kind has been read once (or its read failed); later reads keep the canvas
  *   and what it draws until they land (§6.5, §10.4).
@@ -46,7 +53,8 @@
  * frame but a field typed into.
  *
  * The layers hide, lock and dim the entities on them as their author defaults
- * say (`canvas/layers.ts`). The host hears the whole selection through
+ * say (`canvas/layers.ts`), and the viewer's choices in the Layers tab over
+ * them, kept under the Schematic's `id`. The host hears the whole selection through
  * `onSelect`, and vets a connection through `canConnect` (#1401, D34). The
  * Schematic fills the box it is given and draws no border: a host gives it a
  * box of its own height.
@@ -60,9 +68,11 @@ import { ArrayType, StringType, equalFor, equivalentFor } from "@elaraai/east";
 import { Schematic, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
-    implementUIComponent, typedInto, useDataStable, useFormatters, type EditIssue, type EditingWords, type HistoryAction,
+    implementUIComponent, typedInto, useDataStable, useFormatters, useSlicesReactivity, type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { sourcePart } from "../shared/schedule/visibility.js";
+import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
+import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
+import { backlogEntries } from "./backlog.js";
 import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle } from "./canvas/view.js";
 import { entityId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
@@ -72,6 +82,8 @@ import { draftedDrawing, type DraftedCache } from "./drafted.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
 import { useFindItem, type FindableItem } from "./find.js";
 import { SchematicFooter, savedRecords, type SchematicNotice } from "./footer.js";
+import { layersInForce, useSchematicLayerView } from "./layers-view.js";
+import { useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
 import { useSchematicToolbarItems } from "./toolbar.js";
 import { offeredTools, toolsInForce, useSchematicTools } from "./tools.js";
@@ -127,7 +139,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     return (
         <>
             <SchematicDataReader value={value} attempt={attempt} onData={setData} />
-            <SchematicFrame value={value} data={data} readAgain={readAgain} storageKey={storageKey} />
+            <SchematicFollows value={value} data={data} readAgain={readAgain} storageKey={storageKey} />
         </>
     );
 }, (prev, next) => schematicEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
@@ -144,8 +156,54 @@ interface SchematicFrameProps {
     readonly storageKey: string;
 }
 
+/**
+ * The sources of the rail the library's tabs follow (#1389): each kind's
+ * templates record's, and each an author's tab names — each once, in order —
+ * and what the rail counts each in: a kind's templates, an author's tab's name.
+ *
+ * @param value - The payload
+ * @param words - The Schematic's words
+ * @returns The sources, and their nouns, by name
+ */
+function followedSources(value: SchematicValue, words: SchematicWords): { sources: string[]; nouns: Map<string, string> } {
+    const nouns = new Map<string, string>();
+    for (const kind of [...value.items, ...value.links, ...value.nets]) {
+        const source = getSomeorUndefined(kind.templatesSource);
+        if (source !== undefined && !nouns.has(source)) nouns.set(source, words.m.templatesNoun({ name: kind.name.toLocaleLowerCase(words.locale) }));
+    }
+    for (const tab of value.library) {
+        const source = tab.type === "tab" ? getSomeorUndefined(tab.value.source) : undefined;
+        if (tab.type === "tab" && source !== undefined && !nouns.has(source)) nouns.set(source, tab.value.name.toLocaleLowerCase(words.locale));
+    }
+    return { sources: [...nouns.keys()], nouns };
+}
+
+/**
+ * The frame, once each source its library's tabs follow is read (#1389): what
+ * each templates list and each author's tab shows of the source it names —
+ * one component a source, so a payload naming another set keeps each one's
+ * hooks in order.
+ */
+function SchematicFollows(props: SchematicFrameProps) {
+    const { value } = props;
+    const formatters = useFormatters();
+    const words = useMemo((): SchematicWords => ({ ...formatters, m: schematicMessages }), [formatters]);
+    const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
+    const { sources, nouns } = useMemo(() => followedSources(value, words), [value, words]);
+    // What a source's failed narrowing says, in the Schematic's words.
+    const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
+    return (
+        <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
+            {(followed) => <SchematicFrame {...props} followed={followed} />}
+        </FollowSources>
+    );
+}
+
+/** No entity selected. */
+const NOTHING_SELECTED: ReadonlySet<string> = new Set();
+
 /** The frame, its regions holding the Schematic's parts over one shared state — see the module docs. */
-function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFrameProps) {
+function SchematicFrame({ value, data, readAgain, storageKey, followed }: SchematicFrameProps & { readonly followed: FollowedSources }) {
     const styles = useSlotRecipe({ key: "schematic" })() as Styles;
     // The counts and the dates, in the app's locale (#850), and the Schematic's words.
     const formatters = useFormatters();
@@ -171,9 +229,11 @@ function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFramePr
     // Why the last gesture was refused, until one is recorded or Esc.
     const [refusal, setRefusal] = useState<string | undefined>(undefined);
 
-    // ── The layers: what their author defaults hide, lock and dim ───────
+    // ── The layers: what their author defaults and the viewer's choices hide, lock and dim (#1389) ──
     const layerValues = useDataStable(value.layers, layersEqual);
-    const layers = useMemo(() => layerState(layerValues, drawing), [layerValues, drawing]);
+    const [layerView, setLayerView] = useSchematicLayerView(keys.layers);
+    const layersNow = useMemo(() => layersInForce(layerValues, layerView), [layerValues, layerView]);
+    const layers = useMemo(() => layerState(layersNow, drawing), [layersNow, drawing]);
 
     // ── The tools (§6.1): the viewer's, as the Schematic offers them ─────
     // Connect over a link kind bound with its patch door, Move over such an item kind; `readOnly` offers neither.
@@ -189,7 +249,9 @@ function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFramePr
 
     // ── The canvas: the camera and the selection are its own ────────────
     const canvasRef = useRef<SchematicCanvasHandle>(null);
-    const [selected, setSelected] = useState(false);
+    // What the canvas has selected, by id: the toolbar's steps show while something is, and the Index marks its rows.
+    const [selection, setSelection] = useState<ReadonlySet<string>>(NOTHING_SELECTED);
+    const selected = selection.size > 0;
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
     const fit = useCallback(() => canvasRef.current?.fit(), []);
     const step = useCallback((delta: 1 | -1) => canvasRef.current?.step(delta), []);
@@ -251,6 +313,42 @@ function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFramePr
         onAction(action);
     }, [edits, onAction]);
 
+    // ── The library (#1389, §8): the start pane, when `library` lists a tab ──
+    // Every item kind's rows with no position, the drafts in place: the Backlog's.
+    const backlog = useMemo(() => backlogEntries(value.items, data.unplaced, data.held, editing.drafts.items),
+        [value.items, data.unplaced, data.held, editing.drafts.items]);
+    // An item kind with a backlog read through its source: while the rail narrows one, the Backlog says so, with Clear filters.
+    const backlogParts = useMemo(() => value.items.flatMap((kind) => {
+        const part = kind.backlog ? sourcePart(chrome, kind.key) : undefined;
+        return part === undefined ? [] : [part];
+    }), [value.items, chrome]);
+    const backlogVersion = useSlicesReactivity(backlogParts.map((part) => part.key));
+    const backlogNarrowing = useMemo((): SchematicBacklogNarrowing => {
+        const narrowing = backlogParts.filter((part) => part.read().where.size > 0);
+        return { narrows: narrowing.length > 0, clear: narrowing.length === 0 ? undefined : () => { for (const part of narrowing) part.clearAll(); } };
+        // `backlogVersion` moves with each source's choices.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [backlogParts, backlogVersion]);
+    // The Index's zones and items: what the canvas draws, a hidden layer's left out.
+    const shownZones = useMemo(() => (layers.hidden.size === 0 ? drawing.zones : drawing.zones.filter((zone) => !layers.hidden.has(zone.key))), [drawing.zones, layers.hidden]);
+    const shownItems = useMemo(() => (layers.hidden.size === 0 ? drawing.items : drawing.items.filter((item) => !layers.hidden.has(item.key))), [drawing.items, layers.hidden]);
+    // How many entities each layer holds: every one on it, shown or hidden.
+    const layerCounts = useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const entity of [...drawing.items, ...drawing.zones, ...drawing.links, ...drawing.nets]) {
+            const on = getSomeorUndefined(entity.layer);
+            if (on !== undefined) counts.set(on, (counts.get(on) ?? 0) + 1);
+        }
+        return counts;
+    }, [drawing]);
+    // The zone the viewport is in, which the Index marks: the canvas tells it only while the library lists the Index.
+    const [inView, setInView] = useState<string | undefined>(undefined);
+    const listsIndex = value.library.some((tab) => tab.type === "index");
+    const library = useSchematicLibrary({
+        value, zones: shownZones, items: shownItems, backlog, backlogNarrowing, layers: layerValues, layerCounts, layerView, onLayerView: setLayerView,
+        inView, selected: selection, onReveal: reveal, keys, words, followed,
+    });
+
     // ── The footer (§6.3) ───────────────────────────────────────────────
     const counted = useMemo(() => ({
         items: value.items.map((kind) => ({ key: kind.key, name: kind.name })),
@@ -281,6 +379,8 @@ function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFramePr
         else readAgain();
     }, [chrome, readAgain]);
     const failures = [...data.failures];
+    // Each source the library follows whose narrowing could not be read, with Retry (#1389).
+    const followedFailures = [...followed.values()].filter((source) => source.error !== undefined);
     // Each record's session's banners, titled by its kind, an issue placed by the item it names.
     const labels = useMemo(() => new Map(drawing.items.map((item) => [item.key, item.label] as const)), [drawing.items]);
     const sessionName = (key: string) => {
@@ -288,7 +388,7 @@ function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFramePr
         const name = kindName.get(slot) ?? slot;
         return stringEqual(slot, key) ? name : words.m.detailsName({ name });
     };
-    const banners = failures.length === 0 && data.error === undefined && sessions.length === 0 ? undefined : (
+    const banners = failures.length === 0 && data.error === undefined && sessions.length === 0 && followedFailures.length === 0 ? undefined : (
         <>
             {sessions.map((part) => (
                 <SessionBanners key={part.key} session={part.session} words={editingWords} name={sessionName(part.kind)}
@@ -299,6 +399,12 @@ function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFramePr
                 <Box key={slot} data-schematic-banner={slot}>
                     <BannerView status="error" title={words.m.kindUnavailable({ name: kindName.get(slot) ?? slot })} description={message}
                         actions={<Button size="xs" variant="outline" onClick={() => retry(slot)}>{words.m.retry()}</Button>} />
+                </Box>
+            ))}
+            {followedFailures.map((source) => (
+                <Box key={source.name} data-schematic-banner="source">
+                    <BannerView status="error" title={words.m.sourceUnavailable({ name: source.name })} description={source.error}
+                        actions={<Button size="xs" variant="outline" onClick={source.retry}>{words.m.retry()}</Button>} />
                 </Box>
             ))}
             {data.error !== undefined && (
@@ -319,12 +425,13 @@ function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFramePr
                 toolbar={items}
                 toolbarRef={toolbarRef}
                 banners={banners}
+                start={library}
                 footer={<SchematicFooter styles={styles} words={words} counts={counts} rows={data.rows} sources={sources} records={records}
                     pending={pending} notices={notices} refusal={refusal} />}
                 onKeyDown={onKeyDown}
             >
                 <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} tool={held.tool} linkKind={held.link}
-                    words={words} editing={canvasEditing} onRefused={setRefusal} onSelected={setSelected} />
+                    words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={setSelection} onZoneInView={listsIndex ? setInView : undefined} />
             </BuilderFrame>
         </Box>
     );

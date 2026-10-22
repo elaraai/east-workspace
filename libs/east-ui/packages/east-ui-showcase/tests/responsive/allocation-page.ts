@@ -9,6 +9,8 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 
+export { token } from "./tokens";
+
 export const FILE = "e3/allocation/allocation";
 
 /**
@@ -39,22 +41,4 @@ export async function open(page: Page, name = "allocationKilnYard", theme: "ligh
 export async function size(page: Page, entry: Locator, width: number): Promise<void> {
     await entry.locator("[data-allocation-frame]").first().locator("xpath=..").evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
     await settled(page);
-}
-
-/**
- * A theme colour token as the page resolves it, as a computed colour.
- *
- * @param page - The page
- * @param name - The token's CSS variable name, after `--chakra-colors-` (`fg-muted`)
- * @returns Its computed colour
- */
-export function token(page: Page, name: string): Promise<string> {
-    return page.evaluate((n) => {
-        const probe = document.createElement("span");
-        probe.style.color = `var(--chakra-colors-${n})`;
-        document.body.appendChild(probe);
-        const value = getComputedStyle(probe).color;
-        probe.remove();
-        return value;
-    }, name);
 }

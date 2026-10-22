@@ -45,7 +45,15 @@ over a session per record it writes (`editing.ts`, #1388), as the Roster's
 and the Allocation's are: what each gesture writes is pure in `edits.ts`,
 written through each kind's own `write` and `create` — an existing row
 rewritten from the row as its session finds it (`ScheduleChange`'s
-`rewrite`) — and the drafts are drawn over the stored rows (`drafted.ts`). The
+`rewrite`) — and the drafts are drawn over the stored rows (`drafted.ts`). Its
+library (`library.tsx`, #1389) is the start pane: every kind's templates,
+following their records' sources, and the item kinds' backlog (`backlog.ts`)
+as Libraries; the zones' Index (`index-tab.tsx` over `index-tree.ts`), one
+focusable tree around the shared virtual rows, marking the zone the viewport
+is in; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
+the UI store under the `id` (`layers-view.ts`), which the canvas obeys — a
+locked layer's entities select by no path; and an author's tabs, each
+following its source. The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it

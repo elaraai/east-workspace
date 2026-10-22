@@ -11,10 +11,13 @@
  * metric); the zoom and marquee boxes; a refused connection's caption, the
  * shared drag caption placed on the canvas (#1388); the scale bar and the minimap, which
  * stay on the canvas; the theme bridge's probe; the toolbar's tool controls
- * and the View popover's; and the footer, on the shared `builder-footer`
+ * and the View popover's; the library's tabs (#1389) — a tab's body, the
+ * Index's search and its tree rows (the design system's tree row), and the
+ * Layers tab's rows (its pick-panel row), each layer's swatch in the colour
+ * chain, and its Show all; and the footer, on the shared `builder-footer`
  * rail. The canvas holds no control of its own: what was its control column
  * is the frame's toolbar, and its navigator and layer panel are the library's
- * Index and Layers tabs (#1389).
+ * Index and Layers tabs.
  *
  * Every colour is a design-system token. An entity's colour — a card's status
  * dot here, and the same entity's marks on the canvas, which the theme bridge
@@ -26,8 +29,11 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
+import { fontAwesomeSize } from "../icon-size.js";
 import { semanticTokens } from "../semantic-tokens.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
+import { schedulePaneBase } from "./schedule-pane.js";
 
 /** The theme's colour groups that hold no design-system role: Chakra's own hues' hovers, and the translucent overlays. */
 const NO_ROLE: ReadonlySet<string> = new Set(["gray", "red", "orange", "yellow", "green", "teal", "blue", "cyan", "purple", "pink", "overlay"]);
@@ -115,7 +121,10 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
         "selectBox", "selectBoxCount", "draftCaption", "scaleBar", "scaleRuler", "scaleLabel",
         "minimap", "minimapZone", "minimapViewport",
-        "probe", "tools", "viewControls", "footer", "footerItem",
+        "probe", "tools", "viewControls",
+        "libraryPane", "indexSearch", "indexTree", "indexRows", "indexRow", "indexChevron", "indexName", "indexCount", "indexDot", "indexMetric", "indexEmpty",
+        "layerList", "layerRow", "layerSwatch", "layerName", "layerCount", "layerToggles", "layerToggle", "layerFoot",
+        "footer", "footerItem",
     ],
     base: {
         /* Fills the box it is given and draws no border: the frame inside it
@@ -415,6 +424,202 @@ export const schematicSlotRecipe = defineSlotRecipe({
             alignItems: "stretch",
             gap: "{spacing.2}",
             marginBottom: "{spacing.3}",
+        },
+        /* A library tab's body (#1389): its pane's height, its parts scrolling inside it. */
+        libraryPane: schedulePaneBase.pane,
+        /* The Index's search row: the Library's search box over the tree, a hairline under it. */
+        indexSearch: {
+            flexShrink: "0",
+            display: "flex",
+            alignItems: "center",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.2}",
+            borderBottomWidth: "1px",
+            borderColor: "border.subtle",
+        },
+        /* The Index's tree, around its rows' scroll box: it takes the focus and points at its active row, which wears
+         * the inset ring while the keyboard has it. */
+        indexTree: {
+            flex: "1",
+            minHeight: "0",
+            display: "flex",
+            flexDirection: "column",
+            outline: "none",
+            "&:focus-visible [data-active]": { boxShadow: "focusInset" },
+        },
+        /* Its rows' scroll box: the shared virtual rows', which the rows' offsets are measured from. */
+        indexRows: {
+            position: "relative",
+        },
+        /* A row of the Index (the design system's tree row): 36px, no rule — the indent carries the structure,
+         * 24px a level (`--index-depth`, its geometry); a zone's name 500, an item's 400 with its dot; hover the
+         * second paper, selected the third, the zone in view in the strong ink. */
+        indexRow: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.2}",
+            width: "100%",
+            minHeight: "36px",
+            paddingLeft: "calc({spacing.3} + var(--index-depth, 0) * 24px)",
+            paddingRight: "{spacing.3}",
+            background: "transparent",
+            color: "fg",
+            fontSize: "body",
+            textAlign: "left",
+            cursor: "pointer",
+            _coarse: { minHeight: "44px" },
+            _hover: { background: "bg.canvas" },
+            "&[data-selected]": { background: "bg.subtle" },
+            "&[data-index-zone]": { fontWeight: "medium" },
+            "&[data-current] [data-index-name]": { color: "fg", fontWeight: "semibold" },
+        },
+        /* A zone's chevron: Font Awesome's angle-right, 14 in its 16 slot, turning a quarter while open. */
+        indexChevron: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "16px",
+            flexShrink: "0",
+            color: "fg.muted",
+            background: "transparent",
+            cursor: "pointer",
+            ...coarseHitArea({ position: true }),
+            "& svg": { ...fontAwesomeSize("14px"), transitionProperty: "transform", transitionDuration: "fast", transitionTimingFunction: "ease-in-out" },
+            "&[data-open] svg": { transform: "rotate(90deg)" },
+            "&[data-leaf]": { visibility: "hidden" },
+        },
+        indexName: {
+            flex: "1",
+            minWidth: "0",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+        },
+        /* A zone's count: the design system's Count, 16 tall on the third paper, the first on a selected row. */
+        indexCount: {
+            display: "inline-flex",
+            alignItems: "center",
+            height: "16px",
+            paddingX: "4px",
+            flexShrink: "0",
+            background: "bg.subtle",
+            borderRadius: "{radii.sm}",
+            fontFamily: "mono",
+            fontSize: "label.sm",
+            fontWeight: "semibold",
+            fontVariantNumeric: "tabular-nums",
+            lineHeight: "1",
+            color: "fg.strong",
+            "[data-selected] &": { background: "bg.surface" },
+        },
+        /* An item's dot: its colour, as its card's is, in the row's flow. */
+        indexDot: {
+            ...TINT_PROPERTIES,
+            width: "7px",
+            height: "7px",
+            flexShrink: "0",
+            borderRadius: "{radii.full}",
+            background: TINT,
+            "&[data-ring]": { background: "transparent", boxShadow: `inset 0 0 0 1.5px ${TINT}` },
+        },
+        /* An item's figure, at the row's end. */
+        indexMetric: {
+            flexShrink: "0",
+            fontFamily: "mono",
+            fontSize: "label.sm",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg.subtle",
+        },
+        indexEmpty: {
+            flex: "1",
+            minHeight: "0",
+            overflowY: "auto",
+        },
+        /* The Layers tab (the design system's pick-panel rows): a row of 44 at least, a hairline between — on a touch
+         * screen 44 exactly, its toggles' squares filling it. */
+        layerList: {
+            flex: "1",
+            minHeight: "0",
+            overflowY: "auto",
+        },
+        layerRow: {
+            display: "flex",
+            alignItems: "center",
+            gap: "{spacing.2}",
+            minHeight: "44px",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.2}",
+            borderBottomWidth: "1px",
+            borderColor: "border.subtle",
+            _last: { borderBottomWidth: "0" },
+            _hover: { background: "bg.canvas" },
+            _coarse: { paddingY: "0" },
+        },
+        /* A layer's swatch: its colour token, else its tone — the colour chain the cards' dots draw in. */
+        layerSwatch: {
+            ...TINT_PROPERTIES,
+            width: "10px",
+            height: "10px",
+            flexShrink: "0",
+            borderRadius: "{radii.xs}",
+            background: TINT,
+        },
+        /* Its name, 600 while shown and the faint ink and 500 while hidden — no opacity, so every part holds its contrast. */
+        layerName: {
+            flex: "1",
+            minWidth: "0",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            fontSize: "body.sm",
+            fontWeight: "semibold",
+            color: "fg",
+            "[data-hidden] &": { fontWeight: "medium", color: "fg.subtle" },
+        },
+        layerCount: {
+            flexShrink: "0",
+            fontFamily: "mono",
+            fontSize: "label.xs",
+            fontWeight: "medium",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg.muted",
+            "[data-hidden] &": { color: "fg.subtle" },
+        },
+        /* Isolate, Lock and Show or Hide, side by side — on a touch screen edge to edge, each square its own target. */
+        layerToggles: {
+            display: "inline-flex",
+            alignItems: "center",
+            flexShrink: "0",
+            gap: "{spacing.2}",
+            _coarse: { gap: "0" },
+        },
+        /* Each a glyph of 12 in a 24 button, the brand's while on; a 44 square on a touch screen. */
+        layerToggle: {
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: "24px",
+            height: "24px",
+            flexShrink: "0",
+            color: "fg.subtle",
+            background: "transparent",
+            borderRadius: "{radii.sm}",
+            cursor: "pointer",
+            "& svg": fontAwesomeSize("12px"),
+            _coarse: { width: "44px", height: "44px" },
+            _hover: { color: "fg", background: "bg.subtle" },
+            _focusVisible: { outline: "none", boxShadow: "focus" },
+            "&[data-on]": { color: "brand.solid" },
+        },
+        /* Show all, under the rows while a layer is hidden. */
+        layerFoot: {
+            flexShrink: "0",
+            display: "flex",
+            justifyContent: "flex-end",
+            paddingX: "{spacing.3}",
+            paddingY: "{spacing.2}",
+            borderTopWidth: "1px",
+            borderColor: "border.subtle",
         },
         /* The footer, on the shared builder rail (§6.3); why the last gesture was refused in the danger ink (#1388). */
         footer: builderFooter,

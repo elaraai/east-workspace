@@ -15,7 +15,9 @@
  * when that moves. While a read the drawing needs is in flight, the frame keeps
  * the last complete drawing; one it has never read is never drawn as empty.
  * It reads the stored rows alone: the frame draws the editing session's drafts
- * over them (#1388), by which rows each read holds and their details' roles.
+ * over them (#1388), by which rows each read holds and their details' roles,
+ * and lists in the library's Backlog the rows an item kind's read holds with
+ * no position (#1389).
  *
  * Each kind is read on its own (#1387, SC32): a kind whose read fails keeps
  * what was drawn of it, says why under its slot, and leaves every other kind
@@ -31,7 +33,7 @@ import { Schematic } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import {
     EMPTY_DRAWN, drawnItem, drawnLink, drawnNet, drawnZone,
-    type DetailsRoles, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef,
+    type DetailsRoles, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type ItemRoles, type SchematicDrawn, type SchematicRef,
 } from "./canvas/drawn.js";
 
 /** The Schematic's payload, decoded. */
@@ -62,7 +64,15 @@ export interface SchematicData {
      * kind's details are read whole beside it (#1388): which rows a draft draws over, and what a drafted card draws.
      */
     readonly held: SchematicHeldRows;
+    /**
+     * Each item kind's rows the settled read holds with no position, by the kind's slot, then by key — each one's roles,
+     * in the read's order (#1389): what the library's Backlog lists, the drafts over them.
+     */
+    readonly unplaced: SchematicUnplacedRows;
 }
+
+/** Each item kind's rows a read holds with no position, by the kind's slot, then by key: each one's roles. */
+export type SchematicUnplacedRows = ReadonlyMap<string, ReadonlyMap<string, ItemRoles>>;
 
 /** One row a kind's read holds: its details' roles, where its kind's details are read whole beside it. */
 export interface SchematicHeldRow {
@@ -81,9 +91,12 @@ const NO_ROWS: ReadonlyMap<string, number> = new Map();
 /** No row held. */
 const NO_HELD: SchematicHeldRows = new Map();
 
+/** No row with no position. */
+const NO_UNPLACED: SchematicUnplacedRows = new Map();
+
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_SCHEMATIC_DATA: SchematicData = {
-    drawn: EMPTY_DRAWN, loading: true, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD,
+    drawn: EMPTY_DRAWN, loading: true, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD, unplaced: NO_UNPLACED,
 };
 
 /** One entity as it was last drawn: the roles it was drawn from, its details' roles, and what was drawn — none for an unplaced item. */
@@ -211,6 +224,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0): SchematicD
     // What it holds moves with what it draws: a row added, removed, or its roles or details changed, draws anew.
     const settled = useRef<{
         drawn: SchematicDrawn; failures: ReadonlyMap<string, string>; rows: ReadonlyMap<string, number>; held: SchematicHeldRows;
+        unplaced: SchematicUnplacedRows;
     } | undefined>(undefined);
     if (result.ok) {
         const got = result.value;
@@ -225,6 +239,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0): SchematicD
                     failures: was !== undefined && signatureOf(was.failures) === signatureOf(got.failures) ? was.failures : got.failures,
                     rows: was !== undefined && signatureOf(was.rows) === signatureOf(rows) ? was.rows : rows,
                     held: got.held.kinds,
+                    unplaced: unplacedOf(value, got.held.kinds),
                 };
             }
         }
@@ -234,7 +249,28 @@ export function useSchematicData(value: SchematicValue, attempt = 0): SchematicD
     const error = result.ok ? undefined : messageOf(result.error);
     return useMemo((): SchematicData => (last === undefined
         ? { ...INITIAL_SCHEMATIC_DATA, loading, error }
-        : { drawn: last.drawn, loading, ready: true, error, failures: last.failures, rows: last.rows, held: last.held }), [last, loading, error]);
+        : { drawn: last.drawn, loading, ready: true, error, failures: last.failures, rows: last.rows, held: last.held, unplaced: last.unplaced }),
+    [last, loading, error]);
+}
+
+/**
+ * Each item kind's rows a read holds with no position (#1389): the rows it
+ * drew nothing of, each one's roles, in the read's order — for a kind whose
+ * `x` and `y` are Options; none for a kind whose every row is placed.
+ *
+ * @param value - The payload the read was made under
+ * @param kinds - Each kind's rows the read holds, by its slot
+ * @returns The rows, by the kind's slot, then by key
+ */
+function unplacedOf(value: SchematicValue, kinds: ReadonlyMap<string, ReadonlyMap<string, Kept>>): SchematicUnplacedRows {
+    const out = new Map<string, ReadonlyMap<string, ItemRoles>>();
+    for (const kind of value.items) {
+        if (!kind.backlog) continue;
+        const rows = new Map<string, ItemRoles>();
+        for (const [key, kept] of kinds.get(kind.key) ?? []) if (kept.drawn === undefined) rows.set(key, kept.roles as ItemRoles);
+        out.set(kind.key, rows);
+    }
+    return out;
 }
 
 /**

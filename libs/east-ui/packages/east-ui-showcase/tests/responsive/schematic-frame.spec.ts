@@ -7,9 +7,10 @@
  * The Schematic in its frame, measured in a real browser (#1387, `Schematic
  * Builder Spec.md` §6, SC24, SC26, SC31), on the data centre floor and on the
  * floor of shaped units: a borderless `BuilderFrame` filling the box its
- * example gives it — one 44px toolbar row, the canvas filling main with the
- * scale bar on it and no control of its own, the footer's counts along the
- * foot. The toolbar folds by one ladder (SC24): the rail first, in its own
+ * example gives it — one 44px toolbar row, the library's pane at the start of
+ * the body (#1389), the canvas filling main beside it with the scale bar on it
+ * and no control of its own, the footer's counts along the foot. The toolbar
+ * folds by one ladder (SC24): the rail first, in its own
  * order, then its summary, then the Schematic's own — the tools' words, Find's
  * box, the tools' strip — and last the tools, the zoom, Fit and Find into the
  * View, one move; one row at 1440, 1024 and 768px and in every box from 1600px
@@ -29,38 +30,13 @@
  * `pnpm exec playwright test schematic-frame`.
  */
 
-import { test, expect, type Locator, type Page } from "playwright/test";
+import { test, expect, type Locator } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
+import { DATA_CENTRE, SHAPES, openSchematic, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
-
-const FILE = "e3/schematic/schematic";
-const DATA_CENTRE = `${FILE}/schematicDataCentre`;
-const SHAPES = `${FILE}/schematicShapes`;
 
 /** The Schematic's own fold steps, after every step of its rail and its summary's, in order — the history's, which the data centre edits, last (#1388). */
 const OWN = ["tools>1", "seek>1", "tools>2", "tools>3", "zoom>1", "seek>2", "history>1"];
-
-/** Open a Schematic example, at rest — its frame out from under its skeleton — and return its root: the box its frame fills. */
-async function openSchematic(page: Page, hash: string, theme: "light" | "dark" = "light"): Promise<Locator> {
-    await page.goto(`/?theme=${theme}#${hash}`);
-    await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${hash}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    const root = entry.locator("[data-schematic]").first();
-    await expect(root.locator("[data-builder-frame]")).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
-    await expect(root.locator("[data-schematic-canvas] canvas")).toBeVisible();
-    await settled(page);
-    return root;
-}
-
-/** Size the Schematic's box — its width, and its height when given — and wait for the page to be at rest. */
-async function sizeTo(page: Page, root: Locator, width: number, height?: number): Promise<void> {
-    await root.evaluate((el, [w, h]) => {
-        (el as HTMLElement).style.width = `${w}px`;
-        if (h !== undefined) (el as HTMLElement).style.height = `${h}px`;
-    }, [width, height] as const);
-    await settled(page);
-}
 
 /** What the toolbar says of itself: each item's form of its forms, the ladder, how many steps it took. */
 function toolbarOf(root: Locator) {
@@ -108,7 +84,7 @@ test.describe("The Schematic's frame (#1387)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured at the desktop widths; the phone's below");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`a borderless frame filling its box: one 44px toolbar row, the canvas filling main with the scale bar on it and no control of its own, the footer along the foot (${theme})`, async ({ page }) => {
+        test(`a borderless frame filling its box: one 44px toolbar row, the library's pane beside main, the canvas filling main with the scale bar on it and no control of its own, the footer along the foot (${theme})`, async ({ page }) => {
             const root = await openSchematic(page, DATA_CENTRE, theme);
             await expect.poll(() => root.evaluate((el) => {
                 const round = (n: number) => Math.round(n * 10) / 10;
@@ -139,13 +115,17 @@ test.describe("The Schematic's frame (#1387)", () => {
                 };
                 return {
                     w: Math.round(f.width), h: Math.round(f.height),
-                    toolbar: at("[data-frame-slot='toolbar']"), main: at("[data-frame-slot='main']"), canvas: at("[data-schematic-canvas]"), footer: at("[data-frame-slot='footer']"),
+                    toolbar: at("[data-frame-slot='toolbar']"), start: at("[data-frame-slot='start']"), main: at("[data-frame-slot='main']"),
+                    canvas: at("[data-schematic-canvas]"), footer: at("[data-frame-slot='footer']"),
                     counts: [...el.querySelectorAll("[data-schematic-footer] [data-schematic-count]")].map((line) => line.textContent),
                 };
             });
             expect(read.toolbar).toEqual([0, 0, read.w, 44]);
             expect(read.canvas).toEqual(read.main);
-            expect([read.main[0], read.main[1], read.main[2], read.main[1]! + read.main[3]!]).toEqual([0, 44, read.w, read.footer[1]]);
+            // The library's pane at the start of the body, and main beside it to the frame's end, each from the toolbar to the footer.
+            expect([read.start[0], read.start[1], read.start[1]! + read.start[3]!]).toEqual([0, 44, read.footer[1]]);
+            expect([read.main[0], read.main[1], read.main[0]! + read.main[2]!, read.main[1]! + read.main[3]!])
+                .toEqual([read.start[0]! + read.start[2]!, 44, read.w, read.footer[1]]);
             expect([read.footer[0], read.footer[2], read.footer[1]! + read.footer[3]!]).toEqual([0, read.w, read.h]);
             expect(read.counts).toEqual(["Rack 5 of 7", "Network frame 3", "Cooling unit 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets"]);
         });

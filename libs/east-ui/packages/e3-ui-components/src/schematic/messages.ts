@@ -12,8 +12,12 @@
  * Retry; the canvas's and the frame's accessible names; and its editing's
  * (#1388): the changes waiting on Save, what a Save's notice counts a kind's
  * rows in, a details record's banners, why a connection's draft doesn't snap
- * or a Delete is refused, and each gesture's step in the history. A host
- * translates the Schematic where it translates its formatters.
+ * or a Delete is refused, and each gesture's step in the history; and its
+ * library's (#1389): the pane and its tabs, their cards' lines and nouns, what
+ * an empty tab and a tab the rail empties say, the Index's search, its zones'
+ * and the zone in view, the Layers tab's controls, and a followed source's
+ * failed narrowing. A host translates the Schematic where it translates its
+ * formatters.
  *
  * @packageDocumentation
  */
@@ -103,12 +107,72 @@ export interface SchematicMessages {
     deleteRefused: (p: { item: string; kind: string; key: string }) => string;
     /** A gesture's label in the history: what it did, and to how many. */
     step: (p: { step: SchematicStep; name: string; n: number }) => string;
+    /** The library pane's name, on its rail and its head (#1389). */
+    libraryPane: () => string;
+    /** A tab of the library's own, by its name: `Templates`, `Backlog`, `Index`, `Layers`. */
+    libraryTab: (p: { tab: Exclude<SchematicLibraryTabWord, "tab"> }) => string;
+    /** What a tab counts its cards as, one or several: a template, an item, a zone, a layer; an author's tab's a card. */
+    libraryNoun: (p: { tab: SchematicLibraryTabWord; n: number }) => string;
+    /** What an empty tab says: `No templates`; an author's tab, `Nothing in <name>`. */
+    libraryEmpty: (p: { tab: SchematicLibraryTabWord; name: string }) => string;
+    /** The line under an empty tab's words. */
+    libraryEmptyHint: (p: { tab: SchematicLibraryTabWord; name: string }) => string;
+    /** What a tab the rail leaves no card says: `No templates match the filters`; `name` is an author's tab's, as running text writes it. */
+    libraryNarrowed: (p: { tab: SchematicLibraryTabWord; name: string }) => string;
+    /** The line under it. */
+    libraryNarrowedHint: (p: { tab: SchematicLibraryTabWord; name: string }) => string;
+    /** The cards' grouping's name. */
+    libraryGroupBy: () => string;
+    /** A template's group: its kind's name, then the template's own group — `Rack · Half racks`. */
+    templateGroup: (p: { kind: string; group: string | undefined }) => string;
+    /** A Backlog card's line: its kind's name, then the item's second line — `Rack · 48U · 12 kW`. */
+    backlogLine: (p: { kind: string; sublabel: string | undefined }) => string;
+    /** The Index's search: its placeholder and its accessible name. */
+    indexSearch: () => string;
+    /** What the Index says when its search keeps no item: `No items match "A9"`. */
+    indexNoMatch: (p: { query: string }) => string;
+    /** A zone's chevron: what a press on it does. */
+    indexToggle: (p: { zone: string; open: boolean }) => string;
+    /** A zone's count of the items it holds — `4 items` — as a reader hears it. */
+    indexCount: (p: SchematicCount) => string;
+    /** The Layers tab's Show all: every layer shown, the isolation ended. */
+    layersShowAll: () => string;
+    /** A layer's Show or Hide. */
+    layerShow: (p: { layer: string; shown: boolean }) => string;
+    /** A layer's Isolate: alone, or ending it. */
+    layerIsolate: (p: { layer: string; isolated: boolean }) => string;
+    /** A layer's Lock. */
+    layerLock: (p: { layer: string; locked: boolean }) => string;
+    /** A layer's count of the entities on it — `12 entities` — as a reader hears it. */
+    layerCount: (p: SchematicCount) => string;
+    /** The banner over a source the library follows whose narrowing could not be read — `Rack templates results unavailable`. */
+    sourceUnavailable: (p: { name: string }) => string;
+    /** A followed source's results moved while they were read. */
+    sourceChanged: (p: { name: string }) => string;
+    /** A followed source's results could not be read. */
+    sourceFailed: (p: { name: string }) => string;
 }
+
+/** A tab of the library, as its words name it: its own, or an author's (`tab`). */
+export type SchematicLibraryTabWord = "templates" | "backlog" | "index" | "layers" | "tab";
 
 /** A gesture, as the history labels its step. */
 export type SchematicStep = "move" | "connect" | "net" | "retarget" | "extend" | "delete";
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
+
+/** Words as a sentence starts them. */
+const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** Each of the library's own tabs' name. */
+const TAB_NAMES: { readonly [T in Exclude<SchematicLibraryTabWord, "tab">]: string } = {
+    templates: "Templates", backlog: "Backlog", index: "Index", layers: "Layers",
+};
+
+/** What each tab counts its cards as: one, several. */
+const TAB_NOUNS: { readonly [T in SchematicLibraryTabWord]: readonly [string, string] } = {
+    templates: ["template", "templates"], backlog: ["item", "items"], index: ["zone", "zones"], layers: ["layer", "layers"], tab: ["card", "cards"],
+};
 
 /** Each tool's name. */
 const TOOL_NAMES: { readonly [T in SchematicTool]: string } = {
@@ -166,6 +230,36 @@ export const schematicMessages: SchematicMessages = {
         extend: `Extend a ${name}`,
         delete: `Delete ${n} ${plural(n, "row", "rows")}`,
     })[step],
+    libraryPane: () => "Library",
+    libraryTab: ({ tab }) => TAB_NAMES[tab],
+    libraryNoun: ({ tab, n }) => plural(n, TAB_NOUNS[tab][0], TAB_NOUNS[tab][1]),
+    libraryEmpty: ({ tab, name }) => ({
+        templates: "No templates", backlog: "Nothing in the backlog", index: "No zones", layers: "No layers", tab: `Nothing in ${name}`,
+    })[tab],
+    libraryEmptyHint: ({ tab }) => ({
+        templates: "No template to drag onto the canvas.",
+        backlog: "Every item has a place on the drawing.",
+        index: "The drawing holds no zone.",
+        layers: "The drawing has no layer.",
+        tab: "No card to drag onto the canvas.",
+    })[tab],
+    libraryNarrowed: ({ tab, name }) => `No ${tab === "tab" ? name : TAB_NOUNS[tab][1]} match the filters`,
+    libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${tab === "tab" ? name : TAB_NOUNS[tab][1]}.`,
+    libraryGroupBy: () => "Group",
+    templateGroup: ({ kind, group }) => (group === undefined ? kind : `${kind} · ${group}`),
+    backlogLine: ({ kind, sublabel }) => (sublabel === undefined ? kind : `${kind} · ${sublabel}`),
+    indexSearch: () => "Search items",
+    indexNoMatch: ({ query }) => `No items match "${query}"`,
+    indexToggle: ({ zone, open }) => `${open ? "Close" : "Open"} ${zone}`,
+    indexCount: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
+    layersShowAll: () => "Show all",
+    layerShow: ({ layer, shown }) => `${shown ? "Hide" : "Show"} ${layer}`,
+    layerIsolate: ({ layer, isolated }) => (isolated ? `Show every layer, not ${layer} alone` : `Isolate ${layer}`),
+    layerLock: ({ layer, locked }) => `${locked ? "Unlock" : "Lock"} ${layer}`,
+    layerCount: ({ n, count }) => `${count} ${plural(n, "entity", "entities")}`,
+    sourceUnavailable: ({ name }) => `${capital(name)} results unavailable`,
+    sourceChanged: ({ name }) => `${capital(name)} results changed; retry the narrowing.`,
+    sourceFailed: ({ name }) => `Could not load ${name} results`,
 };
 
 /** The words a Schematic speaks: its message table, and its locale's formatters. */
