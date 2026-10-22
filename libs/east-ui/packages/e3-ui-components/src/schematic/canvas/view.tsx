@@ -946,10 +946,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     });
 
     // Coalesce many camera mutations within a frame into one paint + one
-    // throttled snapshot — keeps the hot pan path off React (invariant 2).
+    // throttled snapshot — keeps the hot pan path off React (invariant 2). Each
+    // frame is asked of the page's frame clock as it is then, as a fly's are, so
+    // one clock runs every camera move: a test's own, when it runs one.
     const coalescerRef = useRef<RafCoalescer | null>(null);
     if (coalescerRef.current === null && typeof requestAnimationFrame !== "undefined") {
-        coalescerRef.current = makeRafCoalescer(requestAnimationFrame, cancelAnimationFrame);
+        coalescerRef.current = makeRafCoalescer((run) => requestAnimationFrame(run), (handle) => cancelAnimationFrame(handle));
     }
     const requestRender = useCallback(() => {
         const run = () => {

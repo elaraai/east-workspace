@@ -19,7 +19,7 @@
  * (SC26), and the canvas sets nothing inline but geometry (SC31).
  */
 
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ArrayType, East, OptionType, StringType, none, printFor, some } from "@elaraai/east";
@@ -38,6 +38,12 @@ const canvasLayout = layOutCanvas();
 
 /** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
 const PPU = 1080 / 28;
+
+/** Longer than a fly takes (350 ms): run on the test's clock, it lands. */
+const FLY_MS = 400;
+
+/** One animation frame, and a little over. */
+const FRAME_MS = 20;
 
 /** What the data centre's host keeps of the selection, as East prints it. */
 const keptSelection = () => printFor(ArrayType(Schematic.Types.Ref))(East.compile(East.function([], ArrayType(Schematic.Types.Ref), ($) => {
@@ -98,29 +104,41 @@ test("the toolbar holds §6.1's items in order — the rail, the tools, the zoom
 
 test("the steps walk the items in order, flying to each and selecting it; Zoom and Fit move the camera", async () => {
     const { container, getByRole } = await dataCentre();
+    // The layer the cards ride holds the camera, and stays while cards come and go.
+    const layer = card(container, "racks", "A05")!.parentElement!;
+    const ppu = () => Number(layer.style.getPropertyValue("--cam-ppu"));
     hits(container, [["racks", "A05", 16.8, 2.9]]);
     await tap(canvasOf(container), PPU, 16.8, 2.9);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A05" }])));
-    // Cage A's items, by their names: A01 … A05, then PDU-A and PDU-B.
-    await act(async () => { fireEvent.click(getByRole("button", { name: "Next item" })); });
-    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "pdus", key: "PDU-A" }])));
-    await act(async () => { fireEvent.click(getByRole("button", { name: "Previous item" })); });
-    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A05" }])));
-    // The camera flies back to it: the selection lands as the fly begins, and the card draws, selected, on the way. The layer the
-    // cards ride holds the camera, and stays while a card comes and goes with the fly.
-    const layer = await waitFor(() => {
-        const a05 = card(container, "racks", "A05");
-        expect(a05?.hasAttribute("data-selected")).toBe(true);
-        return a05!.parentElement!;
-    });
-    // Fit puts the camera over the whole floor, superseding the fly; Zoom in moves it; Fit puts it back.
-    const ppu = () => Number(layer.style.getPropertyValue("--cam-ppu"));
-    await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
-    await waitFor(() => expect(ppu()).toBeCloseTo(PPU, 6));
-    await act(async () => { fireEvent.click(getByRole("button", { name: "Zoom in" })); });
-    await waitFor(() => expect(ppu()).toBeGreaterThan(PPU));
-    await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
-    await waitFor(() => expect(ppu()).toBeCloseTo(PPU, 6));
+    // The camera moves over animation frames — a step's fly, Zoom's and Fit's paint: the test runs them on a clock of its
+    // own, so each lands however busy the machine running it is.
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        const frames = (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
+        // Cage A's items, by their names: A01 … A05, then PDU-A and PDU-B.
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Next item" })); });
+        await frames(FLY_MS);
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "pdus", key: "PDU-A" }])));
+        // Landed on it, zoomed in: its card draws, selected.
+        expect(ppu()).toBeGreaterThan(PPU);
+        expect(card(container, "pdus", "PDU-A")?.hasAttribute("data-selected")).toBe(true);
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Previous item" })); });
+        await frames(FLY_MS);
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A05" }])));
+        expect(card(container, "racks", "A05")?.hasAttribute("data-selected")).toBe(true);
+        // Fit puts the camera over the whole floor; Zoom in moves it; Fit puts it back.
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
+        await frames(FRAME_MS);
+        expect(ppu()).toBeCloseTo(PPU, 6);
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Zoom in" })); });
+        await frames(FRAME_MS);
+        expect(ppu()).toBeGreaterThan(PPU);
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
+        await frames(FRAME_MS);
+        expect(ppu()).toBeCloseTo(PPU, 6);
+    } finally {
+        vi.useRealTimers();
+    }
 });
 
 test("the tools: the data centre's every one, its Move over its editable racks and Connect over its fibre runs; the tool held is the viewer's, kept under the Schematic's id", async () => {
