@@ -46,21 +46,18 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       # `finalize` pushes the release tag only after every publish job has
-      # succeeded, but a registry serves a new version some time after it
-      # accepts one: v1.0.71's run built `latest` 60 s after `publish-npm`
-      # finished, npm had not caught up, the build failed inside the image
-      # (hidden by --quiet), and no image of that release ever shipped. So on a
-      # tag push, or a dispatch that names a version, wait for EVERY package the
-      # images install to be installable — as the build jobs below do for one
-      # package each — and build exactly what they will build. A dispatch
-      # without a version keeps `latest`.
-      #
-      # Installable is what an install reads, not what `npm view` reads. The
-      # registry's CDN caches the abbreviated packument `npm install` reads
-      # apart from the full one `npm view` reads, and a tarball can 404 for a
-      # while after both list its version: v1.0.83's east-node build failed
-      # three seconds after `npm view` first listed @elaraai/east-ui (#1042).
-      # Likewise uv reads PyPI's simple index, not the JSON API.
+      # succeeded, and a publish job succeeds only once its registry serves
+      # what it published, the way an install reads it (#1399,
+      # scripts/lib/registry-served.mjs). It did not always: v1.0.71's run
+      # built `latest` 60 s after `publish-npm` finished, npm had not caught
+      # up, the build failed inside the image (hidden by --quiet), and no
+      # image of that release ever shipped; v1.0.95's and v1.0.96's waited
+      # here five minutes for a package npm served eight and seven minutes
+      # after accepting it, and no image shipped either. So on a tag push, or
+      # a dispatch that names a version, wait for EVERY package the images
+      # install to be served — the same probe, which passes at once for a tag
+      # the release pushed — and build exactly what the build jobs below will
+      # build. A dispatch without a version keeps `latest`.
       - name: Pin the test builds to the release, once npm and PyPI serve it
         if: github.ref_type == 'tag' || inputs.version != ''
         run: |
@@ -69,42 +66,14 @@ jobs:
           else
             VERSION="${{ inputs.version }}"
           fi
-          # wait_for <label> <probe command...>: poll the probe for up to 5 min.
-          wait_for() {
-            local label="$1"; shift
-            for i in $(seq 1 30); do
-              if "$@" >/dev/null 2>&1; then echo "  ready: ${label}"; return 0; fi
-              echo "Waiting for ${label}... ($i/30)"
-              sleep 10
-            done
-            echo "::error::${label} never appeared"
-            return 1
-          }
-          # npm_ready <package> <version>: the abbreviated packument lists the
-          # version, and its tarball is served.
-          npm_ready() {
-            local tarball
-            tarball=$(curl -fsS -H 'Accept: application/vnd.npm.install-v1+json' "https://registry.npmjs.org/${1/\//%2f}" \
-              | jq -r --arg v "$2" '.versions[$v].dist.tarball // empty') || return 1
-            [ -n "$tarball" ] && curl -fsSI "$tarball" >/dev/null
-          }
-          # pypi_ready <project> <version>: the simple index lists the version.
-          pypi_ready() {
-            curl -fsS -H 'Accept: application/vnd.pypi.simple.v1+json' "https://pypi.org/simple/$1/" \
-              | jq -e --arg v "$2" '.versions | index($v) != null' >/dev/null
-          }
           # The npm packages install-packages.sh installs across the images,
           # plus the per-platform east-c prebuilt the launcher pulls on this
-          # runner's architecture.
-          for PKG in east east-node-std east-node-io east-node-cli east-ui \
-                     e3 e3-types e3-core e3-cli e3-api-client e3-api-server \
-                     east-c-cli east-c-cli-linux-x64; do
-            wait_for "@elaraai/${PKG}@${VERSION} on npm" npm_ready "@elaraai/${PKG}" "${VERSION}"
-          done
-          for PKG in elaraai-east-py elaraai-east-py-std elaraai-east-py-io \
-                     elaraai-east-py-cli elaraai-east-py-datascience; do
-            wait_for "${PKG}==${VERSION} on PyPI" pypi_ready "${PKG}" "${VERSION}"
-          done
+          # runner's architecture, and the PyPI packages.
+          node scripts/wait-served.mjs --version "$VERSION" \
+            --npm @elaraai/east @elaraai/east-node-std @elaraai/east-node-io @elaraai/east-node-cli @elaraai/east-ui \
+                  @elaraai/e3 @elaraai/e3-types @elaraai/e3-core @elaraai/e3-cli @elaraai/e3-api-client @elaraai/e3-api-server \
+                  @elaraai/east-c-cli @elaraai/east-c-cli-linux-x64 \
+            --pypi elaraai-east-py elaraai-east-py-std elaraai-east-py-io elaraai-east-py-cli elaraai-east-py-datascience
           echo "EAST_RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
 
       - name: Run tests (quick)

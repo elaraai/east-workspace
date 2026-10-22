@@ -285,7 +285,11 @@ jobs:
   # + publishes.
   #
   # publish-npm: the public @elaraai/* packages via scripts/publish-npm.mjs,
-  # after e3-core's Windows job launcher (built by build-e3-job).
+  # after e3-core's Windows job launcher (built by build-e3-job). A publish is
+  # done once npm serves it the way an install reads it (#1399,
+  # scripts/lib/registry-served.mjs): the scripts wait for their own packages
+  # and the last step for the launcher, so finalize, which needs this job,
+  # tags an installable release.
   # ────────────────────────────────────────────────────────────────────────
   publish-npm:
     needs: [prepare, verify-version, validate-release, build-e3-job]
@@ -389,6 +393,11 @@ jobs:
           node scripts/publish-plugins.mjs \
             "${{ needs.prepare.outputs.npm_tag }}" \
             ${{ inputs.dry_run && '--dry-run' || '' }}
+      - name: Wait until npm serves the Windows job launcher
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: node scripts/wait-served.mjs --version "$VERSION" --npm @elaraai/e3-job-win32-x64
 
   # ────────────────────────────────────────────────────────────────────────
   # 3. publish-vsix: build + (optionally) publish the VSCode extension.
@@ -593,13 +602,20 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────
   # 4d. publish-pypi-upload: gather all dists and upload via the official PyPA
   # action. skip-existing makes re-runs safe; the action handles upload retries
-  # itself (no hand-rolled backoff).
+  # itself (no hand-rolled backoff). The job ends once PyPI's simple index,
+  # which uv reads, lists every package (#1399).
   # ────────────────────────────────────────────────────────────────────────
   publish-pypi-upload:
-    needs: [publish-pypi-pure, publish-pypi-cython-wheels, publish-pypi-cython-sdist]
+    needs: [prepare, publish-pypi-pure, publish-pypi-cython-wheels, publish-pypi-cython-sdist]
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/download-artifact@v4
         with:
           path: dist-staging
@@ -611,6 +627,12 @@ jobs:
           packages-dir: dist-staging
           skip-existing: true
           password: ${{ secrets.PYPI_TOKEN }}
+      - name: Wait until PyPI serves every package
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          node scripts/wait-served.mjs --version "$VERSION" \
+            --pypi elaraai-east-py elaraai-east-py-std elaraai-east-py-io elaraai-east-py-cli elaraai-east-py-datascience
 
   # ────────────────────────────────────────────────────────────────────────
   # 5. publish-c-native: linux-x64 + linux-arm64 + macos-arm64 + macos-x64 binary tarballs.
@@ -818,10 +840,22 @@ jobs:
             exit 0
           fi
           pnpm publish --access public --provenance --tag "$TAG" --no-git-checks $DRY
+      - name: Wait until npm serves the launcher and its per-platform packages
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          node scripts/wait-served.mjs --version "$VERSION" \
+            --npm @elaraai/east-c-cli @elaraai/east-c-cli-linux-x64 @elaraai/east-c-cli-linux-arm64 \
+                  @elaraai/east-c-cli-darwin-arm64 @elaraai/east-c-cli-darwin-x64 @elaraai/east-c-cli-win32-x64
 
   # ────────────────────────────────────────────────────────────────────────
   # 6. finalize: on success, commit + tag + push, create GitHub Release with
-  #    VSIX + C binaries attached. Skipped entirely on dry run.
+  #    VSIX + C binaries attached. Skipped entirely on dry run. Each publish
+  #    job it needs ends once its registry serves what it published (#1399),
+  #    so the tag, the release, the image build the tag starts
+  #    (docker-publish.yml) and the catalog render find the release
+  #    installable.
   # ────────────────────────────────────────────────────────────────────────
   finalize:
     needs: [prepare, publish-npm, publish-vsix, publish-pypi-upload, publish-c-native, publish-c-npm]
