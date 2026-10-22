@@ -405,3 +405,24 @@ Each wire changed under this rule, with the kind it is.
   it, as with `window` above: a deploy resets an input that holds them to its
   package's value, and refuses a record that holds them until the record
   declares the migration that carries them across.
+- **e3 gains the series and summary indexes: an index object gains `form`, and
+  a record's describe each index's `summary` (#1039)** — package-borne, and the
+  describe route's answer. `RecordIndexObjectType` gains `form`, after
+  `runner`: `entries` for an index as every package declared one before, or
+  `summary`, naming the IR of the merge a summary's build sums its pieces by.
+  An index object an earlier SDK exported does not decode under the new type:
+  a read through it, or a reindex, is refused, naming the fix — re-export the
+  package — and gc, which knows an index object by its current shape, no
+  longer walks it, so the programs only it names are swept. A deploy of the
+  re-exported package builds each index under its new object, so no upgrade
+  step ships, and a record's state, its commits and its deltas keep their
+  forms: a summary's arm of a delta (`RecordSummaryOpType`'s `add`) and its
+  collection, `Dict<{ik, k: Null}, RecordSummaryTotals>`, are new, and no
+  earlier release wrote either. `e3.recordIndex.series` builds an index object
+  as the area index's does: its key function, which the SDK generates — an
+  entry per time tile an event touches — and its projection, the whole row.
+  The describe route's index entries (`RecordSignatureType`) gain `summary`,
+  after `multi`, which tells a client to decode a summary's window with its
+  `key` Null and never to join it: an answer of either release does not decode
+  as the other's, and a client refuses an earlier server's answer, naming both
+  types, as it refuses any type it does not read.

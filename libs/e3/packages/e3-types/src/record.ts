@@ -164,6 +164,50 @@ export function decodeMutationObject(data: Uint8Array): MutationObject {
 }
 
 /**
+ * What a summary index holds for one of its keys (#1039): how many rows touch
+ * the key's period, and the milliseconds of the period they cover between
+ * them.
+ *
+ * @remarks
+ * Both are Integers, so a total kept write by write is exactly the total a
+ * rebuild sums: Integer addition is associative, where a Float sum depends on
+ * the order of its additions. A key is held only while its count is positive,
+ * so an emptied period leaves the summary as a rebuild would, and the count
+ * is what tells e3 a period has emptied.
+ *
+ * @property count - How many rows touch the period
+ * @property ms - The milliseconds of the period they cover, summed over them
+ */
+export const RecordSummaryTotalsType = StructType({
+  count: IntegerType,
+  ms: IntegerType,
+});
+export type RecordSummaryTotalsType = typeof RecordSummaryTotalsType;
+export type RecordSummaryTotals = ValueTypeOf<typeof RecordSummaryTotalsType>;
+
+/**
+ * Which collection an index builds (#1039).
+ *
+ * - `entries` — an entry per index key a row has, `Dict<{ik, k}, P>`: the
+ *   index every constructor but the summary's declares.
+ * - `summary` — one entry per index key, standing for every row that has it,
+ *   `Dict<{ik, k: Null}, Totals>` ({@link RecordSummaryTotalsType}): the
+ *   rows' totals per period, which a write changes by adding to them. Its
+ *   build's pieces hold the same keys, so it names the merge that sums them,
+ *   `mergeIr`, a `({ik, k}, Totals, Totals) -> Totals` IR bundle.
+ *
+ * @remarks
+ * A variant, so an index object decodes only with one of these: a collection
+ * this e3 does not know is refused where the object is read.
+ */
+export const RecordIndexFormType = VariantType({
+  entries: NullType,
+  summary: StructType({ mergeIr: StringType }),
+});
+export type RecordIndexFormType = typeof RecordIndexFormType;
+export type RecordIndexForm = ValueTypeOf<typeof RecordIndexFormType>;
+
+/**
  * A secondary index over a record: an East function of an entry, and the
  * collection it builds.
  *
@@ -196,6 +240,11 @@ export const RecordIndexObjectType = StructType({
   buildIr: StringType,
   /** Author-chosen runtime the index's functions run on. */
   runner: RunnerType,
+  /** Which collection it builds: an entry per key a row has, or a summary's
+   *  totals per key ({@link RecordIndexFormType}). A summary's `keyIr` is
+   *  `(K, V) -> Dict<IK, Totals>`, a row's contribution to each of its keys,
+   *  and its `valueType` is {@link RecordSummaryTotalsType}. */
+  form: RecordIndexFormType,
 });
 export type RecordIndexObjectType = typeof RecordIndexObjectType;
 export type RecordIndexObject = ValueTypeOf<typeof RecordIndexObjectType>;
@@ -424,7 +473,9 @@ export function isRecordStateType(typeValue: EastTypeValue, value?: unknown): bo
  * @remarks
  * `ik` first, so every entry with one index key is a contiguous run — ordered
  * by primary key inside it — and a RANGE of index keys is one contiguous run
- * too. `k` makes the entry unique and gives the run its inner order.
+ * too. `k` makes the entry unique and gives the run its inner order. A
+ * summary's entry stands for every row of its key, so its `k` is Null and its
+ * value its totals: `indexCollectionType(NullType, IK, RecordSummaryTotalsType)`.
  *
  * @param keyType - the record's primary key type, `K`
  * @param indexKeyType - the index key the function computes, `IK`
@@ -459,15 +510,36 @@ export function patchOpsType(collectionType: EastType): EastType {
   );
 }
 
+/**
+ * The op a summary index's arm of a mutation delta carries for one of its keys
+ * (#1039): `add`, the change to the key's totals — what the write's rows took
+ * away from it and gave it, summed.
+ *
+ * @remarks
+ * A write's program reads the record, never its indexes, so it cannot say
+ * what a summary's total becomes; it says what changed, and the apply adds it
+ * to the total the summary holds. Its parts may be negative. A key the summary
+ * does not hold is inserted with it, and a total whose count it brings to zero
+ * is deleted (see `e3-core`'s `record-apply.ts`).
+ *
+ * @property add - The change to the key's totals
+ */
+export const RecordSummaryOpType = VariantType({ add: RecordSummaryTotalsType });
+export type RecordSummaryOpType = typeof RecordSummaryOpType;
+export type RecordSummaryOp = ValueTypeOf<typeof RecordSummaryOpType>;
+
 /** One target of a mutation delta: its name, its key and its op type. */
 export interface DeltaTarget {
   /** `primary`, or an index name. */
   name: string;
   /** The key the target is addressed by — `K` for the primary, `{ik, k}` for
-   *  an index. */
+   *  an index, `{ik, k: Null}` for a summary. */
   keyType: EastType;
   /** The target's own collection type, whose patch ops the arm carries. */
   collectionType: EastType;
+  /** Whether the target is a summary index, whose arm carries
+   *  {@link RecordSummaryOpType}'s `add` rather than its collection's patch ops. */
+  summary?: boolean;
 }
 
 /**
@@ -511,7 +583,7 @@ export function mutationDeltaType(targets: readonly DeltaTarget[]): EastType {
   const ops: Record<string, EastType> = { [DELTA_CONFLICT]: NullType };
   for (const target of targets) {
     keys[target.name] = target.keyType;
-    ops[target.name] = patchOpsType(target.collectionType);
+    ops[target.name] = target.summary === true ? RecordSummaryOpType : patchOpsType(target.collectionType);
   }
   return DictType(VariantType(keys), VariantType(ops));
 }

@@ -17,7 +17,7 @@
  */
 
 import {
-  variant, some, none, ArrayType, BlobType, DateTimeType, PatchType, SortedMap, compareFor, decodeBeast2, encodeBeast2For,
+  variant, some, none, ArrayType, BlobType, DateTimeType, NullType, PatchType, SortedMap, compareFor, decodeBeast2, encodeBeast2For,
   decodeBeast2For, fromEastTypeValue, isTypeValueStructurallyEqual, parseFor, printFor, printTypeValueSummary, readBeast2Type,
   toEastTypeValue, type EastType, type EastTypeValue,
 } from '@elaraai/east';
@@ -52,7 +52,7 @@ import {
   type RecordSignature,
   type Structure,
 } from '@elaraai/e3-types';
-import { DeltaConflictError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
+import { DeltaConflictError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
 import { readManifest } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
 import { manifestCutElsewhere } from './store-collection.js';
@@ -862,6 +862,9 @@ async function writeDelta(
     }
   } catch (err) {
     if (err instanceof DeltaConflictError) return { conflictDetail: err.message };
+    // A summary that disagrees with its record (#1039) is no stale write, so no
+    // retry answers it: the write fails, saying which total and how to rebuild it.
+    if (err instanceof SummaryIntegrityError) return { failure: { kind: 'failed', exitCode: -1, stderr: err.message } };
     throw err;
   }
 
@@ -965,12 +968,14 @@ async function patchDelta(
  * Each index builds as a task split over the primary. Its task object is
  * written from the index object: the build program as the body, on the runner
  * its author chose, over the primary, partitioned with no `by`, into a `dict`
- * output with no merge. It runs as any task does, so a build over a primary it
- * has built before is served from the execution cache, and a larger one runs
- * as the engine's pieces and the merges where their outputs overlap. No entry
- * is emitted by two pieces, since an entry's `k` is one piece's. e3-core never
- * evaluates the index functions: it runs a program and takes what it emits
- * into the store.
+ * output. It runs as any task does, so a build over a primary it has built
+ * before is served from the execution cache, and a larger one runs as the
+ * engine's pieces and the merges where their outputs overlap. An ordinary
+ * index's entry is emitted by one piece, since its `k` is one piece's, so its
+ * output takes no merge; a summary's is emitted by every piece holding a row
+ * of its key (#1039), and its output names the merge its index object carries,
+ * which sums them. e3-core never evaluates the index functions: it runs a
+ * program and takes what it emits into the store.
  *
  * @param storage - Storage backend
  * @param runner - Task runner the builds run on
@@ -998,7 +1003,8 @@ async function buildRecordIndexes(
       body: variant('east', { program: indexObj.buildIr }),
       runner: indexObj.runner,
       inputs: [{ path: [], partition: some({ by: [] }) }],
-      output: { path: [], kind: variant('dict', { merge: none }) },
+      // A summary's pieces hold the same keys, and its merge sums them (#1039).
+      output: { path: [], kind: variant('dict', { merge: indexObj.form.type === 'summary' ? some(indexObj.form.value.mergeIr) : none }) },
       role: variant('data', null),
       environment: none,
     }));
@@ -1455,6 +1461,9 @@ export interface ResolvedRecordIndex {
   primaryType: EastTypeValue;
   /** The window a read answers with, `Array<{ik, key, value, row}>`. */
   windowType: EastTypeValue;
+  /** Whether it is a summary (#1039): its `k` Null, its value the totals, and
+   *  no row to join — a joined read of it is refused. */
+  summary: boolean;
 }
 
 /**
@@ -1501,13 +1510,18 @@ export async function resolveRecordIndex(
   if (primaryType.type !== 'Dict') return null;
   const indexKeyType = fromEastTypeValue(indexObj.keyType as EastTypeValue) as unknown as EastType;
   const projectionType = fromEastTypeValue(indexObj.valueType as EastTypeValue) as unknown as EastType;
+  // A summary's entry stands for every row of its key, so its `k` is Null
+  // (#1039): it names no row a read could join.
+  const summary = indexObj.form.type === 'summary';
+  const k = summary ? NullType : primaryType.key;
 
   return {
     manifest: entry.manifest,
-    collectionType: toEastTypeValue(indexCollectionType(primaryType.key, indexKeyType, projectionType)),
+    collectionType: toEastTypeValue(indexCollectionType(k, indexKeyType, projectionType)),
     primary: state.primary,
     primaryType: primaryManifest.type as EastTypeValue,
-    windowType: toEastTypeValue(indexWindowType(primaryType.key, indexKeyType, projectionType, primaryType.value)),
+    windowType: toEastTypeValue(indexWindowType(k, indexKeyType, projectionType, primaryType.value)),
+    summary,
   };
 }
 
@@ -1576,6 +1590,7 @@ export async function recordDescribe(
       keyType: indexObj.keyType,
       valueType: indexObj.valueType,
       multi: indexObj.multi,
+      summary: indexObj.form.type === 'summary',
       built: state?.indexes.get(name)?.index === indexHash,
     });
   }

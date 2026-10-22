@@ -76,9 +76,12 @@ the value-add over a plain input.
     `$conflict` entry, which sorts first in the delta, and the apply says so
     of an op that disagrees with the segment it lands on.
 - **Indexes.** An index is a second canonical collection keyed `{ik, k}`,
-  maintained by the same delta, in the same commit. Deploy builds, drops or
-  keeps each index to match the package, and records the change as a
-  `$reindex` commit.
+  maintained by the same delta, in the same commit. A summary index (#1039) is
+  keyed `{ik, k: Null}`, each entry standing for every row of its key, its
+  value the rows' totals: the delta carries what to add to each, which the
+  apply adds ([`e3-data-architecture.md`](./e3-data-architecture.md) §3.7).
+  Deploy builds, drops or keeps each index to match the package, and records
+  the change as a `$reindex` commit.
 - **Versioning.** The version-vector self-entry holds the **commit hash**, not
   the state hash, so an identical-state mutation still advances the version and
   downstream reactive tasks still re-run (no ABA).

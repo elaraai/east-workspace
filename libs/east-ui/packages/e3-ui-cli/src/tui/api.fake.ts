@@ -37,10 +37,12 @@ import {
     type WorkspaceInfo,
     type WorkspaceStatusResult,
 } from '@elaraai/e3-api-client';
-import type { DataManifest, TreePath, WorkspaceState } from '@elaraai/e3-types';
+import type { DataManifest, RecordSummaryTotals, TreePath, WorkspaceState } from '@elaraai/e3-types';
 import { DATAFLOW_POLL_EVENTS_MAX, encodeDatasetBlob, indexWindowType } from '@elaraai/e3-types';
 import {
     IntegerType,
+    NullType,
+    SortedMap,
     compareFor,
     decodeBeast2For,
     encodeBeast2For,
@@ -96,9 +98,15 @@ export interface FakeInput {
 export interface FakeIndex {
     name: string;
     keyType: EastType;
-    /** The projection's type; `Null` for an index whose reads join the rows. */
+    /** The projection's type; `Null` for an index whose reads join the rows;
+     *  a summary's totals. */
     valueType: EastType;
     multi?: boolean | undefined;
+    /** A summary (#1039): each index key's entries summed into one, standing
+     *  for every row of its key — a row's `value` is what it adds to the
+     *  totals, `{ count, ms }` — its windows' `key` Null, and a joined read
+     *  refused, as the server's. */
+    summary?: boolean | undefined;
     /** A row's entries: each index key it sorts under, with what the index projects. */
     entries: (key: unknown, row: unknown) => { ik: unknown; value: unknown }[];
 }
@@ -328,9 +336,21 @@ export class FakeApi implements Api {
         return ws.records?.find(r => `.records.${r.name}` === path);
     }
 
-    /** A record's index entries in index order: by index key, then by the row's key. */
+    /** A record's index entries in index order: by index key, then by the row's
+     *  key — a summary's, one an index key, its totals the sum of its rows'. */
     private indexEntries(record: FakeRecord, index: FakeIndex, value: Map<unknown, unknown>): { ik: unknown; key: unknown; value: unknown; row: unknown }[] {
         const byIk = compareFor(toEastTypeValue(index.keyType));
+        if (index.summary === true) {
+            const totals = new SortedMap<unknown, RecordSummaryTotals>(undefined, byIk);
+            for (const [key, row] of value) {
+                for (const entry of index.entries(key, row)) {
+                    const add = entry.value as RecordSummaryTotals;
+                    const held = totals.get(entry.ik) ?? { count: 0n, ms: 0n };
+                    totals.set(entry.ik, { count: held.count + add.count, ms: held.ms + add.ms });
+                }
+            }
+            return [...totals].map(([ik, sum]) => ({ ik, key: null, value: sum, row: null }));
+        }
         const byKey = compareFor(toEastTypeValue((record.type as unknown as { key: EastType }).key));
         const out: { ik: unknown; key: unknown; value: unknown; row: unknown }[] = [];
         for (const [key, row] of value) {
@@ -571,8 +591,11 @@ export class FakeApi implements Api {
                 // An index's window: its entries in index order, the row each names
                 // filled in when the read joins, and the index's own totals.
                 const { record, index } = this.indexOf(w, dotted, window.index);
+                if (index.summary === true && window.join === true) {
+                    throw new ApiError('bad_request', `index '${index.name}' of '${dotted}' is a summary: each entry stands for every row of its key and names none to join — read it without join`);
+                }
                 const dict = record.type as unknown as { key: EastType; value: EastType };
-                const encode = encodeBeast2For(indexWindowType(dict.key, index.keyType, index.valueType, dict.value));
+                const encode = encodeBeast2For(indexWindowType(index.summary === true ? NullType : dict.key, index.keyType, index.valueType, dict.value));
                 const entries = this.indexEntries(record, index, stored.value as Map<unknown, unknown>)
                     .map(e => ({ ik: e.ik, key: e.key, value: e.value, row: window.join === true ? some(e.row) : none }));
                 const offset = Math.max(0, Math.min(window.offset, entries.length));
@@ -808,6 +831,7 @@ export class FakeApi implements Api {
                 // A record holding a state holds its indexes built, as a deploy leaves it
                 indexes: (r.indexes ?? []).map(i => ({
                     name: i.name, keyType: toEastTypeValue(i.keyType), valueType: toEastTypeValue(i.valueType), multi: i.multi ?? false,
+                    summary: i.summary ?? false,
                     built: r.value !== undefined,
                 })),
                 migrations: [],

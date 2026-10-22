@@ -436,7 +436,7 @@ async function indexPage(
   byteBudget: number,
   cache: PinnedCache | undefined,
 ): Promise<Response> {
-  const resolved = await indexOf(storage, repoPath, workspace, treePath, stateHash, window.index!);
+  const resolved = await indexOf(storage, repoPath, workspace, treePath, stateHash, window.index!, window.join === true);
   if (resolved instanceof Response) return resolved;
 
   const offset = window.offset ?? 0;

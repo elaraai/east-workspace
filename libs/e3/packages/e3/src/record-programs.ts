@@ -36,8 +36,9 @@ import {
   type EastType,
 } from '@elaraai/east';
 import {
-  DELTA_CONFLICT, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
+  DELTA_CONFLICT, RecordSummaryTotalsType, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
 } from '@elaraai/e3-types';
+import { summaryMerge } from './record-series.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
@@ -95,6 +96,22 @@ export function indexEntryKeyType(keyType: EastType, indexKeyType: EastType): Ea
  */
 export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): EastIR<any, any> {
   const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
+  if (def.summary !== undefined) {
+    // A summary (#1039): each row's contributions under their keys, `k` Null.
+    // Two rows, in one piece or two, contribute to one key: the build's
+    // output names the merge that sums them ({@link summaryMergeProgram}).
+    const summaryKey = indexEntryKeyType(NullType, def.keyType);
+    const emitSummary = FunctionType([summaryKey as never, RecordSummaryTotalsType], NullType);
+    return locationFree(() => East.function([recordType as never, emitSummary], NullType, ($: any, piece: any, emit: any) => {
+      const contribute = $.const(def.keyFn);
+      $.for(piece, ($: any, row: any, key: any) => {
+        $.for(contribute(key, row), ($: any, totals: any, ik: any) => {
+          $(emit({ ik, k: null }, totals));
+        });
+      });
+      return null;
+    }));
+  }
   const entryKey = indexEntryKeyType(dict.key, def.keyType);
   const emitType = FunctionType([entryKey as never, def.valueType], NullType);
 
@@ -113,6 +130,21 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
     });
     return null;
   }));
+}
+
+/**
+ * A summary index's build merge (#1039): `({ik, k}, Totals, Totals) =>
+ * Totals`, the sum of two pieces' totals for one key. Integer addition is
+ * associative and commutative, so a build split into any pieces sums to the
+ * totals a single piece would.
+ *
+ * @param def - The summary's declaration
+ * @returns The merge's IR bundle
+ * @throws {Error} When the index is not a summary
+ */
+export function summaryMergeProgram(def: RecordIndexDef): EastIR<any, any> {
+  if (def.summary === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
+  return locationFree(() => summaryMerge(def.keyType));
 }
 
 /**
@@ -183,10 +215,14 @@ export function deltaTargets(recordType: EastType, indexes: readonly RecordIndex
     { name: 'primary', keyType: collection.key, collectionType: recordType },
   ];
   for (const index of indexes) {
+    // A summary's entry stands for every row of its key, so its `k` is Null,
+    // and its arm carries what to add to each total (#1039).
+    const k = index.summary !== undefined ? NullType : collection.key;
     targets.push({
       name: index.name,
-      keyType: indexEntryKeyType(collection.key, index.keyType),
-      collectionType: indexCollectionType(collection.key, index.keyType, index.valueType),
+      keyType: indexEntryKeyType(k, index.keyType),
+      collectionType: indexCollectionType(k, index.keyType, index.valueType),
+      ...(index.summary !== undefined && { summary: true }),
     });
   }
   return targets.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -344,6 +380,11 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
 
       const keyFns = indexes.map((index) => $.const(index.keyFn));
       const valueFns = indexes.map((index) => (index.valueFn === undefined ? undefined : $.const(index.valueFn)));
+      // Each summary's change, summed over the write's rows by its key (#1039):
+      // a key two rows share is one entry of the delta, emitted once all are in.
+      const zero = $.const({ count: 0n, ms: 0n }, RecordSummaryTotalsType);
+      const sums = new Map(indexes.flatMap((index, i) => (index.summary === undefined ? []
+        : [[i, $.let(new Map(), DictType(index.keyType as never, RecordSummaryTotalsType))] as const])));
 
       $.for(ops, ($: any, op: any, key: any) => {
         $(emit(variant('primary', key), variant('primary', op)));
@@ -372,11 +413,47 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<a
           },
         });
         indexes.forEach((index, i) => {
-          maintainIndex($, index, key, held, next, keyFns[i], valueFns[i], emit);
+          const sum = sums.get(i);
+          if (sum === undefined) maintainIndex($, index, key, held, next, keyFns[i], valueFns[i], emit);
+          else accumulateSummary($, sum, zero, keyFns[i], key, held, next);
+        });
+      });
+      // Each summary's non-zero changes: what its total under each key gains,
+      // which the apply adds to the total it holds.
+      indexes.forEach((index, i) => {
+        const sum = sums.get(i);
+        if (sum === undefined) return;
+        $.for(sum, ($: any, change: any, ik: any) => {
+          $.if(change.count.notEqual(0n).or(() => change.ms.notEqual(0n)), ($: any) => {
+            $(emit(variant(index.name, { ik, k: null }), variant(index.name, variant('add', change))));
+          });
         });
       });
       return null;
     }));
+}
+
+/**
+ * Sums one touched row's change to a summary (#1039): its old row's
+ * contributions taken away, its new row's given, under each key.
+ *
+ * @remarks
+ * A write reads the record, never the summary, so it says what changed rather
+ * than what a total becomes; the apply adds it to the total held. The change
+ * of a key two rows share is summed here, so the delta holds it once.
+ */
+function accumulateSummary($: any, sums: any, zero: any, contribute: any, key: any, held: any, next: any): void {
+  const add = (sign: bigint) => ($: any, row: any) => {
+    $.for(contribute(key, row), ($: any, totals: any, ik: any) => {
+      const was = $.let(sums.get(ik, () => zero));
+      $(sums.insertOrUpdate(ik, {
+        count: was.count.add(totals.count.multiply(sign)),
+        ms: was.ms.add(totals.ms.multiply(sign)),
+      }));
+    });
+  };
+  $.matchTag(held, 'some', add(-1n));
+  $.matchTag(next, 'some', add(1n));
 }
 
 /**

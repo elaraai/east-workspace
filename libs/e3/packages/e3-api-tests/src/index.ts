@@ -80,6 +80,7 @@ export { recordTests } from './suites/records.js';
 export { keyedRecordTests } from './suites/records-keyed.js';
 export { areaRecordTests } from './suites/records-area.js';
 export { placeRecordTests } from './suites/records-place.js';
+export { seriesRecordTests } from './suites/records-series.js';
 export { recordDeployTests } from './suites/record-deploy.js';
 export { inputDeployTests } from './suites/input-deploy.js';
 export { platformTests } from './suites/platform.js';
@@ -102,6 +103,7 @@ import { recordTests } from './suites/records.js';
 import { keyedRecordTests } from './suites/records-keyed.js';
 import { areaRecordTests } from './suites/records-area.js';
 import { placeRecordTests } from './suites/records-place.js';
+import { seriesRecordTests } from './suites/records-series.js';
 import { recordDeployTests } from './suites/record-deploy.js';
 import { inputDeployTests } from './suites/input-deploy.js';
 import { platformTests } from './suites/platform.js';
@@ -132,6 +134,7 @@ export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContex
   keyedRecords: keyedRecordTests,
   areaRecords: areaRecordTests,
   placeRecords: placeRecordTests,
+  seriesRecords: seriesRecordTests,
   recordDeploy: recordDeployTests,
   inputDeploy: inputDeployTests,
   packageTransfer: packageTransferTests,

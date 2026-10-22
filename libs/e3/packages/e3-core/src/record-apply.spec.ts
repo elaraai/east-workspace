@@ -22,13 +22,13 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname } from 'node:path';
 import {
-  DictType, IntegerType, SEGMENT_RULE_KEYED, SetType, SortedMap, SortedSet, StringType, StructType,
+  DictType, IntegerType, NullType, SEGMENT_RULE_KEYED, SetType, SortedMap, SortedSet, StringType, StructType,
   compareFor, decodeBeast2For, toEastTypeValue, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
+import { RecordSummaryTotalsType, encodeDatasetBlob, mutationDeltaType, type DeltaTarget } from '@elaraai/e3-types';
 import { DatasetSegments } from './dataset-open.js';
 import { datasetWrite } from './trees.js';
-import { DeltaConflictError, applyDelta } from './record-apply.js';
+import { DeltaConflictError, SummaryIntegrityError, applyDelta, applyDeltaEntries } from './record-apply.js';
 import { createTestRepo, encodeInSegmentsOf, removeTestRepo, storeSegmentsOf } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './index.js';
@@ -48,6 +48,28 @@ function plansOf(n: number): SortedMap<string, Row> {
   return new SortedMap<string, Row>(
     Array.from({ length: n }, (_, i) => [id(i), row(i)] as [string, Row]),
     compareFor(StringType));
+}
+
+/** A summary index's entry (#1039): a week, then a press, standing for every row of its key. */
+const WeekPressType = StructType({ __tile: IntegerType, press: StringType });
+const SummaryEntryType = StructType({ ik: WeekPressType, k: NullType });
+const SummaryType = DictType(SummaryEntryType, RecordSummaryTotalsType);
+type SummaryEntry = ValueTypeOf<typeof SummaryEntryType>;
+type Totals = ValueTypeOf<typeof RecordSummaryTotalsType>;
+const entryOrder = compareFor(SummaryEntryType);
+const HOUR = 3_600_000n;
+
+/** The entry of a press in a week. */
+const weekOf = (week: number, press: string): SummaryEntry => ({ ik: { __tile: BigInt(week), press }, k: null });
+const pressOf = (p: number): string => `P-${1000 + p}`;
+
+/** Every press's totals, a week at a time: between one and five rows, an hour each. */
+function totalsOf(presses: number, weeks: number): SortedMap<SummaryEntry, Totals> {
+  const totals = new SortedMap<SummaryEntry, Totals>(undefined, entryOrder);
+  for (let week = 0; week < weeks; week++) {
+    for (let p = 0; p < presses; p++) totals.set(weekOf(week, pressOf(p)), { count: BigInt(p % 5 + 1), ms: BigInt(p % 5 + 1) * HOUR });
+  }
+  return totals;
 }
 
 /** A storage backend that counts what an apply actually reads and writes.
@@ -380,5 +402,74 @@ describe('applying a mutation delta', () => {
       applyDelta(storage, repo, new Map([['primary', hash]]),
         await delta('by_nothing', StringType, PlansType, [[id(0), variant('delete', row(0))]])),
       /does not hold/);
+  });
+
+  describe("a summary index's arm (#1039)", () => {
+    /** Add each change to a stored summary's totals, through a delta typed as a
+     *  write's program types it, and answer with the summary's new manifest. */
+    async function applySummary(hash: string, changes: Array<[SummaryEntry, Totals]>): Promise<string> {
+      const targets: DeltaTarget[] = [{ name: 'by_week', keyType: SummaryEntryType, collectionType: SummaryType, summary: true }];
+      const type = mutationDeltaType(targets);
+      const entries = new SortedMap<unknown, unknown>(
+        changes.map(([key, change]) => [variant('by_week', key), variant('by_week', variant('add', change))] as [unknown, unknown]),
+        compareFor(toEastTypeValue((type as unknown as { key: EastType }).key)) as (a: unknown, b: unknown) => -1 | 0 | 1);
+      const deltaHash = await storage.objects.write(repo,
+        await encodeDatasetBlob(type, entries, (bytes) => storage.objects.write(repo, bytes)));
+      return (await applyDelta(storage, repo, new Map([['by_week', hash]]), deltaHash)).get('by_week')!;
+    }
+
+    it('adds each change to the total held: a key held gains, one new is inserted, one whose count reaches zero goes — as the door stores the sums', async () => {
+      const before = totalsOf(60, 100);
+      const hash = await store(SummaryType, before);
+      const segments = await DatasetSegments.open(storage, repo, hash);
+      assert.ok(segments.segmentCount > 2, `6,000 totals should span segments, not ${segments.segmentCount}`);
+
+      const after = new SortedMap(before, entryOrder);
+      const changes: Array<[SummaryEntry, Totals]> = [];
+      const change = (key: SummaryEntry, count: bigint, ms: bigint) => {
+        changes.push([key, { count, ms }]);
+        const held = after.get(key) ?? { count: 0n, ms: 0n };
+        if (held.count + count === 0n) after.delete(key);
+        else after.set(key, { count: held.count + count, ms: held.ms + ms });
+      };
+      // A week's first press loses every row, the next gains one, and a press
+      // between two the summary holds gets its first.
+      for (let week = 0; week < 100; week += 7) {
+        change(weekOf(week, pressOf(0)), -1n, -HOUR);
+        change(weekOf(week, pressOf(1)), 1n, HOUR / 2n);
+        change(weekOf(week, `${pressOf(1)}a`), 2n, 3n * HOUR);
+      }
+      // A week the summary has never held, after every other.
+      change(weekOf(150, pressOf(7)), 1n, 0n);
+      changes.sort(([a], [b]) => entryOrder(a, b));
+
+      assert.equal(await applySummary(hash, changes), await store(SummaryType, after), 'the totals applied ARE the totals the door stores');
+    });
+
+    it('refuses a change that leaves a total no rebuild sums, naming the summary, the key and why', async () => {
+      const hash = await store(SummaryType, totalsOf(60, 10));
+      // The press P-1007 holds three rows covering three hours each week.
+      const held = weekOf(5, pressOf(7));
+      const refusal = (count: string, ms: string, why: string) => (err: unknown) => err instanceof SummaryIntegrityError && err.message ===
+        `by_week: the total under (ik=(__tile=5, press="P-1007"), k=null) would be ${count} rows covering ${ms} ms — ${why}: ` +
+        'the summary disagrees with its record; rebuild it (e3 reindex)';
+      await assert.rejects(applySummary(hash, [[held, { count: -4n, ms: -3n * HOUR }]]), refusal('-1', '0', 'fewer than no rows'));
+      await assert.rejects(applySummary(hash, [[held, { count: -1n, ms: -4n * HOUR }]]), refusal('2', '-3600000', 'less than no time'));
+      await assert.rejects(applySummary(hash, [[held, { count: -3n, ms: -2n * HOUR }]]), refusal('0', '3600000', 'time with no row'));
+      await assert.rejects(applySummary(hash, [[held, { count: (1n << 63n) - 1n, ms: 0n }]]),
+        refusal(String((1n << 63n) + 2n), '10800000', 'past the largest Integer'));
+      await assert.rejects(applySummary(hash, [[weekOf(5, `${pressOf(7)}a`), { count: -1n, ms: 0n }]]),
+        (err: unknown) => err instanceof SummaryIntegrityError && /under \(ik=\(__tile=5, press="P-1007a"\), k=null\) would be -1 rows/.test(err.message),
+        'taking from a key the summary does not hold');
+    });
+
+    it('refuses an arm that mixes another op among its adds: no program writes one', async () => {
+      const hash = await store(SummaryType, totalsOf(4, 10));
+      await assert.rejects(applyDeltaEntries(storage, repo, new Map([['by_week', hash]]), [
+        { target: 'by_week', key: weekOf(5, pressOf(1)), op: variant('add', { count: 1n, ms: 0n }) },
+        { target: 'by_week', key: weekOf(5, pressOf(2)), op: variant('delete', { count: 3n, ms: 3n * HOUR }) },
+      ]), (err: unknown) => err instanceof SummaryIntegrityError
+        && /^by_week: a summary's arm carries 'delete' under \(ik=\(__tile=5, press="P-1002"\), k=null\), where every op adds to a total$/.test(err.message));
+    });
   });
 });

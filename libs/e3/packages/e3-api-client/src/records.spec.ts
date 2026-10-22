@@ -15,7 +15,7 @@ import {
   ArrayType, EastTypeType, IntegerType, NullType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none,
   some, toEastTypeValue, variant,
 } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { workspaceRecordDescribe, workspaceRecordHistory, workspaceRecordMutate } from './records.js';
 import {
   MutationResultType, RecordCommitArgsType, RecordHistoryResultType, RecordMigrationAppliedType, RecordSignatureType, ResponseType,
@@ -44,12 +44,16 @@ describe('record responses', () => {
     const applied = some({ at: some(AT), commit: some(HASH) });
     serve(encodeBeast2For(ResponseType(RecordSignatureType))(variant('success', {
       name: 'plans', mutations: [{ name: 'patch', argTypes: [], form: 'patch' }],
-      indexes: [{ name: 'by_status', keyType: toEastTypeValue(StringType), valueType: toEastTypeValue(NullType), multi: true, built: false }],
+      indexes: [
+        { name: 'by_status', keyType: toEastTypeValue(StringType), valueType: toEastTypeValue(NullType), multi: true, summary: false, built: false },
+        { name: 'by_week_totals', keyType: toEastTypeValue(StringType), valueType: toEastTypeValue(RecordSummaryTotalsType), multi: true, summary: true, built: true },
+      ],
       migrations: [{ name: 'add_owner', form: 'rows', from: toEastTypeValue(StringType), to: toEastTypeValue(IntegerType), applied }],
     })));
     const signature = await workspaceRecordDescribe(BASE, 'r', 'ws', 'plans', { token: null });
     assert.equal(signature.mutations[0]!.form, 'patch');
-    assert.deepEqual(signature.indexes.map(({ name, multi, built }) => [name, multi, built]), [['by_status', true, false]]);
+    assert.deepEqual(signature.indexes.map(({ name, multi, summary, built }) => [name, multi, summary, built]),
+      [['by_status', true, false, false], ['by_week_totals', true, true, true]]);
     assert.deepEqual(signature.migrations.map(({ name, form }) => [name, form]), [['add_owner', 'rows']]);
     assert.ok(equalFor(OptionType(RecordMigrationAppliedType))(signature.migrations[0]!.applied, applied));
 

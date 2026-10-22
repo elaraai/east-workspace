@@ -155,5 +155,10 @@ export {
 } from './dataset-file.js';
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
-export { indexBuildProgram, buildMutationProgram, migrationProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
-export type { RecordIndexSpec, IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, IndexFunction, IndexKeyOf, IndexOn, ProjectionOf } from './record-index.js';
+export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
+export type {
+  RecordIndexSpec, IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, TimeTileOf,
+  IndexFunction, IndexKeyOf, IndexOn, ProjectionOf,
+} from './record-index.js';
+export { RECORD_TILES, MAX_EVENT_TILES, TileShareType, tileStart, tileNext, tileShares, type RecordTile } from './record-tiles.js';
+export { TILE_FIELD } from './record-series.js';

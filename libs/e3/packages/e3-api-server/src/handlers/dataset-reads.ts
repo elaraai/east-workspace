@@ -328,7 +328,9 @@ export function corruptRefusal(err: unknown, type: 'dataset_not_canonical' | 'da
 
 /**
  * One of a record's indexes, resolved at its state for a read, or the refusal
- * of a name the state does not hold, naming the indexes it does.
+ * of a name the state does not hold, naming the indexes it does — or of a
+ * joined read of a summary (#1039), whose entries stand for many rows and name
+ * none.
  *
  * @param storage - Storage backend
  * @param repoPath - Repository identifier
@@ -336,13 +338,19 @@ export function corruptRefusal(err: unknown, type: 'dataset_not_canonical' | 'da
  * @param treePath - The record's path
  * @param stateHash - The record's state
  * @param name - The index
- * @returns The resolved index, or the 404 refusal
+ * @param join - Whether the read fills each entry's row from the record
+ * @returns The resolved index, or the 404 refusal, or the 400 refusal of a joined summary
  */
 export async function indexOf(
   storage: StorageBackend, repoPath: string, workspace: string, treePath: TreePath, stateHash: string, name: string,
+  join = false,
 ): Promise<ResolvedRecordIndex | Response> {
   const refPath = treePath.map((s) => s.value).join('/');
   const resolved = await resolveRecordIndex(storage, repoPath, workspace, refPath, stateHash, name);
+  if (resolved !== null && join && resolved.summary) {
+    return pageError('bad_request',
+      `index '${name}' of '${refPath}' is a summary: each entry stands for every row of its key and names none to join — read it without join`);
+  }
   if (resolved !== null) return resolved;
   const declared = await recordIndexNames(storage, repoPath, stateHash);
   return pageError('index_not_found',
