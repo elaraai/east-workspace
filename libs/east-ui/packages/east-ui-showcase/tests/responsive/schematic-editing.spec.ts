@@ -5,9 +5,10 @@
 
 /**
  * The Schematic's drags in a real browser (#1388, `Schematic Builder Spec.md`
- * §7, SC8, SC9), on the data centre floor in a page 1600px wide, where the
- * example's own box draws every rack as its card — below 480px of main the
- * canvas takes no drag (#1394). By the mouse and by touch — Chromium's own
+ * §7, SC8, SC9), on the data centre floor in a page 1600px wide, its library
+ * collapsed to its rail, where the example's own box draws every rack as its
+ * card — below 480px of main the canvas takes no drag (#1394). By the mouse
+ * and by touch — Chromium's own
  * touch input, through its DevTools protocol, as a touchscreen delivers it:
  *
  * - **Move**: a rack's card follows the pointer while the drag is under way;
@@ -26,22 +27,18 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
+import { DATA_CENTRE, card, openSchematic } from "./schematic-page";
 import { settled } from "./settle";
 
-const DATA_CENTRE = "e3/schematic/schematic/schematicDataCentre";
-
 /**
- * Open the data centre at rest and return its root: in a page 1600px wide, whose column gives the example's own box
- * room for every rack to draw as its card, each where nothing of the page lies over it.
+ * Open the data centre at rest and return its root: in a page 1600px wide, its library collapsed to its rail, as a
+ * viewer leaves it — the column then gives the canvas room for every rack to draw as its card (#1389) — each where
+ * nothing of the page lies over it.
  */
 async function openDataCentre(page: Page): Promise<Locator> {
     await page.setViewportSize({ width: 1600, height: 1000 });
-    await page.goto(`/?theme=light#${DATA_CENTRE}`);
-    await page.waitForSelector("header", { timeout: 20_000 });
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${DATA_CENTRE}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    const root = entry.locator("[data-schematic]").first();
-    await expect(root.locator("[data-builder-frame]")).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
+    const root = await openSchematic(page, DATA_CENTRE);
+    await root.locator("[data-frame-slot='start']").getByRole("button", { name: "Collapse Library" }).click();
     await settled(page);
     // Each card a drag starts or ends on, the page's topmost element at its centre: a press there is the card's.
     for (const [kind, key] of [["racks", "A03"], ["racks", "A05"], ["pdus", "PDU-B"], ["network", "MMR-1"]] as const) {
@@ -52,9 +49,6 @@ async function openDataCentre(page: Page): Promise<Locator> {
     }
     return root;
 }
-
-/** An item's card, by its kind and key. */
-const card = (root: Locator, kind: string, key: string) => root.locator(`[data-card-key=${JSON.stringify(`(kind=${JSON.stringify(kind)}, key=${JSON.stringify(key)})`)}]`);
 
 /** A locator's centre, in client px. */
 async function centre(locator: Locator): Promise<{ x: number; y: number }> {

@@ -2243,11 +2243,49 @@ cleared — one call a change, however many entities it selects, and none for a
 change that leaves the selection as it was. Its frame came with #1387: one
 toolbar — the rail of its `slice`, the tools, the zoom and Fit, Find over its
 items, the steps and, where it edits, the history item — over the canvas, and
-the footer's counts. Its library pane and its inspector come with
-#1389–#1391, and the narrowing's drawing with #1392: the tag takes
-`narrowed`, `library` and `inspector` now and checks them, and the frame draws
-none of them yet — nor, until the library's Index tab (#1389), a list of the
-zones and the items inside them.
+the footer's counts; and its library pane with #1389 (below). Its inspector
+comes with #1391, and the narrowing's drawing with #1392: the tag takes
+`narrowed` and `inspector` now and checks them, and the frame draws neither
+yet.
+
+The library (#1389) is the frame's start pane, 272px open, holding the tabs
+`library` lists, in its order, each with its count; its open tab and whether
+it is collapsed are kept per viewer under the Schematic's `id`, collapsed it
+is a rail counting the backlog (else the first tab's cards), and below 560px
+of frame it opens from its rail over the canvas:
+
+- **Templates** — every kind's templates, item, link and net kinds alike, each
+  card its template's name over its kind's, grouped by its kind and then its
+  template's `group`. Each kind's list follows the source its templates record
+  names: the tab counts what it shows (`3 of 5`) and, when the rail leaves a
+  list none, says so above the rest, with Clear filters.
+- **Backlog** — every item kind's rows with no position, the drafts in place,
+  each card its label, its kind's name and its second line, grouped by its
+  kind. A kind read through its source lists the rows its narrowing holds, and
+  a narrowing that leaves none says so, with Clear filters.
+- **Index** — the zones nested by containment, each counting the items it
+  holds, its nested zones' among them; an open zone lists its items, then its
+  nested zones, and the items in no zone come last; a hatched zone is an
+  annotation, holding none. A zone's row flies to the zone, selects it and
+  opens it; an item's flies to the item and selects it; the zone the viewport
+  is in is marked. Its search keeps the items whose label, key or kind's name
+  holds it, under their zones. The tree is one tab stop — ↑ ↓ Home End move,
+  → opens a zone or goes in, ← closes it or goes up, Enter does a row's click
+  — and only the rows in view are mounted.
+- **Layers** — each layer in its order: its swatch in its colour token, else
+  its tone, its name and how many entities it holds, with Isolate, Lock and
+  Show or Hide, and Show all while a layer is hidden (the layers its author
+  hides at first among them; the locks stay). The viewer's choices are kept
+  under the Schematic's `id`, over the author's defaults: a hidden layer's
+  entities never draw, and a locked one's never select — a tap, the marquee
+  and the steps pass them by, and Find and the Index fly to them and select
+  nothing — and locking a layer lets go of what is selected on it.
+- **An author's tab** — its cards, each its label and its meta, grouped by its
+  `group`, following the source of the rail it names (`Racks 2 of 7`).
+
+A card tab's search finds within that tab alone, never writing the rail; a
+click picks a card and a second lets it go. No card drags until the canvas
+takes a drop (#1390).
 
 Every gesture is one step of one history over a session per record it writes
 (#1388) — each kind bound with its patch door, and each such kind's details —
@@ -2449,7 +2487,8 @@ const slice = $.let(Slice.bindRecords("ops.floor", {
 | a kind bound with its patch door — `Record.bind(record, [e3.mutation.patch(record)])` **❗** | Every gesture one step of one history over a session per record (#1388): Move, Connect, Shift growing a net of the first editable net kind that takes its items, an end retargeted, a net extended, Del; Undo, Redo and Discard; Save sending each record's changes through its patch door, one refused leaving the others' commits standing. A gesture writes only the fields its roles map, a new row under a minted key. | `schematicDataCentre` |
 | `details: Schematic.details(record, { status?, meter?, metric?, sublabel? })` **❗** | A record keyed as its kind is, its roles drawn on the cards; a role given by the kind too is refused. | `schematicDataCentre` |
 | `templates: Schematic.templates(rows, { name, group?, values, source })` **❗** | A templates record, its `source` one of the slice's; `values` gives every field but what a drop places — an item's `x` and `y`, a link's ends, a net's sides. A list written in the code is refused. | `schematicDataCentre` |
-| `library={[Schematic.library.templates(), .backlog(), .index(), .layers(), .tab(rows, {…})]}` **❗** | The library pane's tabs, each over every kind as the Calendar's are, each checked against the kinds: Templates and Backlog are refused when no kind has any, naming the change; the pane draws with the frame (#1389). | `schematicDataCentre` |
+| `library={[Schematic.library.templates(), .backlog(), .index(), .layers(), .tab(rows, {…})]}` **❗** | The library pane's tabs, each over every kind as the Calendar's are, each checked against the kinds: Templates and Backlog are refused when no kind has any, naming the change. The frame's start pane draws them, each with its count, each card tab following its source of the rail (#1389). | `schematicDataCentre` |
+| the Layers tab's Isolate, Lock, Show or Hide and Show all | The viewer's layer choices, kept under the Schematic's `id` over the author's defaults: a hidden layer's entities never draw, a locked one's never select. | `schematicDataCentre` |
 | `layers={Schematic.layers(rows, { label, order?, tone?, color?, visible?, locked?, opacity? })}` **❗** | The layers, the app's own rows in their `order`, then key order, each keyed by its row's key; an accessor of another type, and a list written in the code, are refused, naming them. | `schematicShapes`, `schematicDataCentre` |
 | `color` / `tone` / `fillOpacity` / `weight` | Colour overrides on an item's footprint, a zone and a layer — a theme colour token or a tone. | `schematicShapes` |
 | `inspector` · a kind's own `inspector` **❗** | The inspector pane, opted into as the Plan's is; a kind's own Details in place of its form (#1391). `inspector={{ <slot>: … }}` is refused, naming the kind's `inspector`. | `schematicDataCentre` |

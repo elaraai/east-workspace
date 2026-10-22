@@ -149,7 +149,9 @@ Plan's: `id`, an `inspector` opted into (a kind's own Details its kind's
 a candidate with the refusal's words. The library's tabs are
 `Schematic.library`'s, each over every kind as the Calendar's are:
 `templates()`, `backlog()` (every item kind's rows with no position), the
-zones' `index()` and the `layers()`. Every gesture is one step of one history
+zones' `index()` and the `layers()`, drawn in the frame's start pane
+(#1389), each card tab following its source of the rail; the Layers tab's
+choices are the viewer's, kept under the `id`. Every gesture is one step of one history
 over a session per record it writes (#1388): Move writes an item's centre,
 Connect a new link under a key minted unique, a Shift session the net it grows
 into, Retarget and Extend a link's end and a net's side, and Del the rows it

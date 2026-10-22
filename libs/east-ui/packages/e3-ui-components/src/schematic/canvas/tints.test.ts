@@ -5,9 +5,10 @@
  * An entity's colour, as its roles name it (#1387, `tints.ts`, D14, SC26): an
  * item's colour token, else its tone, else its status's; a zone's colour token,
  * else its tone, else its pattern's — muted when its pattern names none; a
- * link's or a net's style's tone, else its style's own. What the recipe's chain
- * is given is the same for the canvas's probe and an item's card dot: the data
- * attributes each role sets. Fixtures are real East values, made what the
+ * link's or a net's style's tone, else its style's own; a layer's swatch its
+ * colour token, else its tone (#1389). What the recipe's chain is given is the
+ * same for the canvas's probe, an item's card dot and a layer's swatch: the
+ * data attributes each role sets. Fixtures are real East values, made what the
  * canvas draws by `drawn.ts`.
  */
 
@@ -15,7 +16,7 @@ import { describe, test, expect } from "vitest";
 import { defaultValue, none, some, variant } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import { drawnItem, drawnLink, drawnNet, drawnZone, entityId, type ItemRoles, type LinkRoles, type NetRoles, type ZoneRoles } from "./drawn";
-import { edgeTint, entityTints, itemTint, tintAttributes, tintKey, tintsOf, zoneTint } from "./tints";
+import { edgeTint, entityTints, itemTint, layerTint, tintAttributes, tintKey, tintsOf, zoneTint } from "./tints";
 
 const RACK = { kind: "racks", key: "A01" };
 const FRAME = { kind: "network", key: "ODF-1" };
@@ -74,6 +75,17 @@ describe("a link's and a net's colour", () => {
         expect(edgeTint(run(variant("dashed", { tone: none, weight: none })))).toEqual({ surface: "link", tone: "muted" });
         expect(edgeTint(run(variant("dashed", { tone: some(variant("danger", null)), weight: none })))).toEqual({ surface: "link", tone: "danger" });
         expect(edgeTint(feed(variant("solid", { tone: some(variant("success", null)), weight: some(3) })))).toEqual({ surface: "link", tone: "success" });
+    });
+});
+
+describe("a layer's swatch", () => {
+    test("is its colour token, else its tone, else an item's ground", () => {
+        const layer = { key: "power", label: "Power", visible: none, locked: none, opacity: none, tone: none, color: none };
+        expect(tintAttributes(layerTint(layer))).toEqual({ "data-surface": "item" });
+        expect(tintAttributes(layerTint({ ...layer, tone: some(variant("warning", null)) }))).toEqual({ "data-surface": "item", "data-tone": "warning" });
+        expect(tintAttributes(layerTint({ ...layer, tone: some(variant("warning", null)), color: some("status.warn") }))).toEqual({
+            "data-surface": "item", "data-color": "status.warn", "data-tone": "warning",
+        });
     });
 });
 

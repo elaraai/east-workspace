@@ -51,7 +51,10 @@
  * memo, its local state), its DOM element and its measured height wherever it
  * moves. Measured rows carry `data-slot="virtualRow"` so a host recipe can
  * style the wrappers (a transform transition), and are sized to whole device
- * pixels ({@link devicePixels}) so every row sits on the pixel grid.
+ * pixels ({@link devicePixels}) so every row sits on the pixel grid. A row a
+ * hidden ancestor takes out of the layout — a closed tab's panel, a collapsed
+ * pane — keeps the size it last had ({@link sizeWhileHidden}): shown again,
+ * the rows and the scroll are where they were (#1389).
  *
  * TanStack memoizes its measurements on the row count and a few layout options
  * — never on the heights it was given (see `sizeVersion`). A fixed-height
@@ -500,8 +503,34 @@ export function devicePixels(px: number): number {
     return Math.round(px * dpr) / dpr;
 }
 
-/** A mounted row's height, on the device-pixel grid ({@link devicePixels}). */
-const measureRect = (el: Element): number => devicePixels(el.getBoundingClientRect().height);
+/**
+ * The size a mounted row keeps while a hidden ancestor takes it out of the
+ * layout — a closed tab's panel, a collapsed pane — where the page measures it
+ * at nothing: the size it last had, else its estimate. Measured there at
+ * nothing, every row would start at the top; shown again, each would grow from
+ * nothing at the scroll's offset, which TanStack (virtual-core 3.17) takes for
+ * a row wholly above the view, moving the scroll by its height — a list with
+ * no padding above its rows run to its end. Whether the row is out of the
+ * layout is the page's `checkVisibility`, where it has one.
+ *
+ * @param el - The row's element
+ * @param instance - The virtualizer measuring it
+ * @returns The size it keeps; `undefined` while it is in the layout, to be measured
+ * @internal
+ */
+export function sizeWhileHidden<S extends Element | Window>(el: Element, instance: Virtualizer<S, Element>): number | undefined {
+    if (typeof el.checkVisibility !== "function" || el.checkVisibility()) return undefined;
+    const index = instance.indexFromElement(el);
+    return instance.measurementsCache[index]?.size ?? instance.options.estimateSize(index);
+}
+
+/**
+ * A mounted row's height, on the device-pixel grid ({@link devicePixels}) —
+ * or, out of the layout, the size it keeps ({@link sizeWhileHidden}).
+ */
+function measureRect<S extends Element | Window>(el: Element, _entry: ResizeObserverEntry | undefined, instance: Virtualizer<S, Element>): number {
+    return sizeWhileHidden(el, instance) ?? devicePixels(el.getBoundingClientRect().height);
+}
 
 /** An item's identity to the virtualizer — its key. */
 type ItemKey = VirtualItem["key"];

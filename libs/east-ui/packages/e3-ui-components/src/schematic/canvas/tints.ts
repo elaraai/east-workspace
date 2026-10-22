@@ -7,7 +7,8 @@
  * An entity's colour, as its roles name it (#1387, D14, SC26): an item's
  * colour token, else its tone, else its status's; a zone's colour token, else
  * its tone, else its pattern's; a link's or a net's style's tone, else its
- * style's own. The recipe's one chain of custom properties resolves it, for
+ * style's own; a layer's swatch its colour token, else its tone (#1389). The
+ * recipe's one chain of custom properties resolves it, for
  * the canvas — through the theme bridge's probe (`theme.tsx`) — and for an
  * item's card alike, so both draw one colour in each mode, and a value naming
  * no theme colour token draws the tone. This module only names what to
@@ -20,6 +21,7 @@
 import { match, type option } from "@elaraai/east";
 import type { RGB } from "./paint";
 import type { DrawnItem, DrawnLink, DrawnNet, DrawnZone, SchematicDrawn } from "./drawn";
+import type { SchematicLayerValue } from "./layers";
 
 /** An Option's value, or `undefined` — East's `match`, as paint.ts reads one: this module loads no renderer. */
 const getSomeorUndefined = <T,>(opt: option<T>): T | undefined => match(opt, { some: (value) => value }, undefined);
@@ -76,6 +78,17 @@ export function zoneTint(zone: DrawnZone): SchematicTint {
 export function edgeTint(edge: DrawnLink | DrawnNet): SchematicTint {
     const tone = getSomeorUndefined(edge.style.value.tone)?.type ?? (edge.style.type === "solid" ? "brand" : "muted");
     return { surface: "link", tone };
+}
+
+/**
+ * A layer's swatch's colour roles, in the library's Layers tab (#1389, §8):
+ * its colour token, else its tone, else an item's ground.
+ *
+ * @param layer - The layer
+ * @returns Its colour roles
+ */
+export function layerTint(layer: SchematicLayerValue): SchematicTint {
+    return { surface: "item", color: getSomeorUndefined(layer.color), tone: getSomeorUndefined(layer.tone)?.type };
 }
 
 /**
