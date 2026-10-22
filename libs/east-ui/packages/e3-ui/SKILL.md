@@ -2246,11 +2246,13 @@ session to show. `onSelect` hears the whole selection after each change —
 items, zones, links and nets alike, each a `Schematic.Types.Ref`,
 `{ kind, key }`, and `[]` once it is cleared — one call a change, however
 many entities it selects, and none for a change that leaves the selection as
-it was. The frame — the toolbar and its rail, the library pane and the
-inspector — comes with #1387–#1391, and the narrowing's drawing with #1392:
-the tag takes `slice`, `narrowed`, `library` and `inspector` now and checks
-them, and the canvas draws none of them yet. While a Schematic has zones, a
-navigator lists them and the items inside them.
+it was. Its frame came with #1387: one toolbar — the rail of its `slice`, the
+tools, the zoom and Fit, Find over its items and the steps — over the canvas,
+and the footer's counts. Its editing, its library pane and its inspector come
+with #1388–#1391, and the narrowing's drawing with #1392: the tag takes
+`narrowed`, `library` and `inspector` now and checks them, and the frame draws
+none of them yet — nor, until the library's Index tab (#1389), a list of the
+zones and the items inside them.
 
 ```tsx
 /** @jsxImportSource @elaraai/e3-ui */
