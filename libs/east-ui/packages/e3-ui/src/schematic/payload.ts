@@ -4,1321 +4,607 @@
  */
 
 /**
- * The Schematic's payload (#1384): its root, which `<Schematic>` returns
- * through the `Schematic` carrier; the props it is built from
- * ({@link SchematicConfig}) and their row fields; the factories; the pattern
- * and geometry builders the namespace carries; and the East types a schematic
- * is written with.
+ * The Schematic's payload (#1386, `Schematic Builder Spec.md` §2, §5): what
+ * `<Schematic>` hands the renderer through its `Schematic` carrier — the
+ * drawing's extent and scale, its kinds by slot, its layers, its narrowing and
+ * how a narrowed-out row draws, its library's tabs, its inspector, whether it
+ * is read only, its name, the canvas's options and what the host hears — and
+ * every refusal of its props, made when the surface is built.
+ *
+ * Its kinds are the app's records (§1, `kinds.ts`): `items`, `zones`, `links`
+ * and `nets` each map a slot to a kind, each closed over its record behind
+ * East functions over beast2 bytes, so the payload is one type whatever the
+ * rows hold. A slot names the kind in the payload and the source of the slice
+ * that narrows it.
+ *
+ * Its narrowing is one `Slice.bindRecords` (§10.1): a source named after a
+ * kind's slot narrows that kind, read complete through it (`window.ts`), and
+ * each other source the templates list or the author's tab that names it. The
+ * payload's block binds each source once (`recordSources(…).bind($)`, #1356),
+ * and each kind reads its own source inside its functions.
+ *
+ * The props §2 removes are refused when the surface is built, each naming the
+ * form that replaces it (SC3).
+ *
+ * @packageDocumentation
  */
 
 import {
-    type ExprType,
-    type SubtypeExprOrValue,
-    type TypeOf,
-    East,
-    Expr,
-    variant,
-    some,
-    none,
-    ArrayType,
-    BooleanType,
-    FloatType,
-    FunctionType,
-    NullType,
-    OptionType,
-    StringType,
-    StructType,
+    ArrayType, BooleanType, DictType, East, Expr, FloatType, FunctionType, NullType, OptionType, StringType, StructType, none, some, variant,
+    type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-
-import { EastUI, StatusTokenType, UIComponentType, type IconName } from "@elaraai/east-ui";
-import { localSliceHandle, SliceAffordanceType, SliceBindType, SliceChromeType, mapRows, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
+import { EastUI, RowSourceType } from "@elaraai/east-ui";
+import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
+import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { isSchematicKind, type SchematicItems, type SchematicLinks, type SchematicNets, type SchematicZones } from "./kinds.js";
+import { SchematicLibraryTabType, buildSchematicLibrary, schematicTabSources, type SchematicLibraryKind, type SchematicLibraryTab } from "./library.js";
+import { toneValue, type SchematicToneLiteral } from "./shapes.js";
 import {
-    SchematicItemType,
-    SchematicZoneType,
-    SchematicLinkType,
-    SchematicPointType,
-    SchematicVertexType,
-    SchematicGeometryType,
-    SchematicZonePatternType,
-    SchematicLinkStyleType,
-    SchematicRouteType,
-    SchematicToneType,
-    SchematicEmphasisType,
-    SchematicSliceEffectType,
-    SchematicLayerType,
-    SchematicSelectionModeType,
-    SchematicRegionType,
-    SchematicSelectionEventType,
-    SchematicViewportEventType,
-    SchematicZoneSelectionEventType,
-    SchematicLinkModeType,
-    SchematicLinkEndpointsType,
-    SchematicLinkCreateEventType,
-    SchematicLinkEditEventType,
-    SchematicNetEndpointsType,
-    SchematicNetType,
-    SchematicItemMoveEventType,
+    SchematicItemKindType, SchematicLayerType, SchematicLinkKindType, SchematicNarrowedType, SchematicNetKindType, SchematicRefType,
+    SchematicSelectionEventType, SchematicViewportEventType, SchematicZoneKindType, SchematicZoneSelectionEventType,
 } from "./types.js";
 
-// Re-export types
-export {
-    SchematicItemType,
-    SchematicZoneType,
-    SchematicLinkType,
-    SchematicPointType,
-    SchematicVertexType,
-    SchematicGeometryType,
-    SchematicZonePatternType,
-    SchematicLinkStyleType,
-    SchematicRouteType,
-    SchematicToneType,
-    SchematicEmphasisType,
-    SchematicSliceEffectType,
-    SchematicLayerType,
-    SchematicSelectionModeType,
-    SchematicRegionType,
-    SchematicSelectionEventType,
-    SchematicViewportEventType,
-    SchematicZoneSelectionEventType,
-    SchematicLinkModeType,
-    SchematicLinkEndpointsType,
-    SchematicLinkCreateEventType,
-    SchematicLinkEditEventType,
-    SchematicNetEndpointsType,
-    SchematicNetType,
-    SchematicItemMoveEventType,
-} from "./types.js";
+// ============================================================================
+// The payload
+// ============================================================================
+
+/** Each source's shown keys on the wire, by the source's name. */
+const ShownType = DictType(StringType, RowSourceType(ArrayType(StringType)));
 
 /**
- * East type for the Schematic root — the payload `<Schematic>` returns
- * through the `Schematic` carrier ({@link SchematicComponent}), and what the
- * renderer draws.
+ * The `Schematic` renderer's payload: the Schematic's interface (§5).
  *
- * @remarks
- * Per-field docs live on {@link SchematicConfig}; events and collection
- * row types are documented in `./types.ts`.
+ * @property extent - The drawing's world bounds; the canvas fits them
+ * @property scaleUnit - The scale bar's unit
+ * @property items - The item kinds, in the order `items` lists their slots
+ * @property zones - The zone kinds
+ * @property links - The link kinds
+ * @property nets - The net kinds
+ * @property layers - The layers and their author defaults (§8)
+ * @property slice - The rail's chrome over the one `Slice.bindRecords`; `none`, no rail
+ * @property shown - Each source's shown keys, paged through its own data, by the source's name: what a templates list's and a tab's cards follow, and what dims a narrowed-out row
+ * @property narrowed - How a narrowed-out row draws (§10.3)
+ * @property library - The library pane's tabs, in the order `library` lists them; none, no library pane
+ * @property inspector - Whether the inspector pane shows (§9): on by default
+ * @property readOnly - No gesture, drop or inspector edit; selection stays
+ * @property name - Names the Schematic, when a surface holds two
+ * @property grid - The metric grid; on by default
+ * @property minimap - The minimap; shown at 25 items or more by default
+ * @property selectZoomFocus - Whether a selection flies the camera to it
+ * @property canConnect - Vetoes a pair of items before a link's draft snaps
+ * @property onSelectionChange - Hears each change of the selected items
+ * @property onZoneSelectionChange - Hears each change of the selected zones
+ * @property onSelectLink - Hears a link or a net selected
+ * @property onViewportChange - Hears where the camera settled
+ * @property onItemOpen - Hears an item opened (double-click or double-tap)
  */
-export const SchematicRootType: StructType<{
-    extent: StructType<{ width: FloatType, height: FloatType }>,
-    items: ArrayType<SchematicItemType>,
-    zones: ArrayType<SchematicZoneType>,
-    links: ArrayType<SchematicLinkType>,
-    nets: ArrayType<SchematicNetType>,
-    scaleUnit: OptionType<StringType>,
-    grid: OptionType<BooleanType>,
-    navigator: OptionType<BooleanType>,
-    minimap: OptionType<BooleanType>,
-    slice: OptionType<SliceChromeType>,
-    sliceEffect: OptionType<SchematicSliceEffectType>,
-    layers: OptionType<ArrayType<SchematicLayerType>>,
-    height: OptionType<StringType>,
-    maxHeight: OptionType<StringType>,
-    onSelect: OptionType<FunctionType<[StringType], NullType>>,
-    selectionMode: OptionType<SchematicSelectionModeType>,
-    onSelectionChange: OptionType<FunctionType<[SchematicSelectionEventType], NullType>>,
-    sliceSelectField: OptionType<StringType>,
-    selectZoomFocus: OptionType<BooleanType>,
-    onViewportChange: OptionType<FunctionType<[SchematicViewportEventType], NullType>>,
-    onItemOpen: OptionType<FunctionType<[StringType], NullType>>,
-    onSelectZone: OptionType<FunctionType<[StringType], NullType>>,
-    onZoneSelectionChange: OptionType<FunctionType<[SchematicZoneSelectionEventType], NullType>>,
-    linkMode: OptionType<SchematicLinkModeType>,
-    onCreateLink: OptionType<FunctionType<[SchematicLinkCreateEventType], NullType>>,
-    onSelectLink: OptionType<FunctionType<[StringType], NullType>>,
-    onEditLink: OptionType<FunctionType<[SchematicLinkEditEventType], NullType>>,
-    onDeleteLink: OptionType<FunctionType<[StringType], NullType>>,
-    readOnly: OptionType<BooleanType>,
-    readOnlyLinks: OptionType<BooleanType>,
-    readOnlyItems: OptionType<BooleanType>,
-    onMoveItem: OptionType<FunctionType<[SchematicItemMoveEventType], NullType>>,
-    itemHover: OptionType<FunctionType<[StringType], UIComponentType>>,
-    zoneHover: OptionType<FunctionType<[StringType], UIComponentType>>,
-    linkHover: OptionType<FunctionType<[StringType], UIComponentType>>,
-    onEditNet: OptionType<FunctionType<[SchematicNetEndpointsType], NullType>>,
-    canConnect: OptionType<FunctionType<[StringType, StringType], BooleanType>>,
-}> = StructType({
+export const SchematicPayloadType = StructType({
     extent: StructType({ width: FloatType, height: FloatType }),
-    items: ArrayType(SchematicItemType),
-    zones: ArrayType(SchematicZoneType),
-    links: ArrayType(SchematicLinkType),
-    nets: ArrayType(SchematicNetType),
     scaleUnit: OptionType(StringType),
+    items: ArrayType(SchematicItemKindType),
+    zones: ArrayType(SchematicZoneKindType),
+    links: ArrayType(SchematicLinkKindType),
+    nets: ArrayType(SchematicNetKindType),
+    layers: ArrayType(SchematicLayerType),
+    slice: OptionType(RecordSlicesChromeType),
+    shown: ShownType,
+    narrowed: SchematicNarrowedType,
+    library: ArrayType(SchematicLibraryTabType),
+    inspector: BooleanType,
+    readOnly: BooleanType,
+    name: OptionType(StringType),
     grid: OptionType(BooleanType),
-    navigator: OptionType(BooleanType),
     minimap: OptionType(BooleanType),
-    slice: OptionType(SliceChromeType),
-    sliceEffect: OptionType(SchematicSliceEffectType),
-    layers: OptionType(ArrayType(SchematicLayerType)),
-    height: OptionType(StringType),
-    maxHeight: OptionType(StringType),
-    onSelect: OptionType(FunctionType([StringType], NullType)),
-    selectionMode: OptionType(SchematicSelectionModeType),
-    onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),
-    sliceSelectField: OptionType(StringType),
     selectZoomFocus: OptionType(BooleanType),
-    onViewportChange: OptionType(FunctionType([SchematicViewportEventType], NullType)),
-    onItemOpen: OptionType(FunctionType([StringType], NullType)),
-    onSelectZone: OptionType(FunctionType([StringType], NullType)),
+    canConnect: OptionType(FunctionType([SchematicRefType, SchematicRefType], BooleanType)),
+    onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),
     onZoneSelectionChange: OptionType(FunctionType([SchematicZoneSelectionEventType], NullType)),
-    linkMode: OptionType(SchematicLinkModeType),
-    onCreateLink: OptionType(FunctionType([SchematicLinkCreateEventType], NullType)),
-    onSelectLink: OptionType(FunctionType([StringType], NullType)),
-    onEditLink: OptionType(FunctionType([SchematicLinkEditEventType], NullType)),
-    onDeleteLink: OptionType(FunctionType([StringType], NullType)),
-    readOnly: OptionType(BooleanType),
-    readOnlyLinks: OptionType(BooleanType),
-    readOnlyItems: OptionType(BooleanType),
-    onMoveItem: OptionType(FunctionType([SchematicItemMoveEventType], NullType)),
-    itemHover: OptionType(FunctionType([StringType], UIComponentType)),
-    zoneHover: OptionType(FunctionType([StringType], UIComponentType)),
-    linkHover: OptionType(FunctionType([StringType], UIComponentType)),
-    onEditNet: OptionType(FunctionType([SchematicNetEndpointsType], NullType)),
-    canConnect: OptionType(FunctionType([StringType, StringType], BooleanType)),
+    onSelectLink: OptionType(FunctionType([SchematicRefType], NullType)),
+    onViewportChange: OptionType(FunctionType([SchematicViewportEventType], NullType)),
+    onItemOpen: OptionType(FunctionType([SchematicRefType], NullType)),
 });
 
-/**
- * Type representing the Schematic component.
- */
-export type SchematicRootType = typeof SchematicRootType;
+/** Type representing the `Schematic` renderer's payload. */
+export type SchematicPayloadType = typeof SchematicPayloadType;
 
 /**
- * The `Schematic` carrier: `<Schematic>` builds a {@link SchematicRootType}
+ * The `Schematic` carrier: `<Schematic>` builds a {@link SchematicPayloadType}
  * and returns it through this {@link EastUI.component}. The React renderer
  * registers against it in `@elaraai/e3-ui-components` via
  * `implementUIComponent`.
  */
-export const SchematicComponent = EastUI.component("Schematic", SchematicRootType, { optional: true });
-
-/** String literal form of {@link SchematicToneType} tags. */
-export type SchematicToneLiteral = "brand" | "ink" | "muted" | "success" | "warning" | "danger";
-
-/** Style configuration accepted by {@link outline} / {@link hatch} / {@link solid} / {@link dashed}. */
-export interface SchematicPatternConfig {
-    /** Theme tone for the stroke / hatch lines. */
-    tone?: SchematicToneLiteral;
-    /** Hatch line spacing in pixels (hatch only). */
-    spacing?: number;
-    /** Hatch line angle in degrees (hatch only). */
-    angle?: number;
-    /** Stroke width in pixels (links only). */
-    weight?: number;
-}
-
-function toneValue(tone: SchematicToneLiteral | undefined) {
-    return tone !== undefined ? some(variant(tone, null)) : none;
-}
-
-/** Wrap an item/zone `tone` colour override into its option — accepts a string
- *  literal shorthand (`"brand"`) or an East tone expression / value. */
-function toneOption(tone: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral | undefined) {
-    if (tone === undefined) return none;
-    return typeof tone === "string" ? some(variant(tone, null)) : some(tone);
-}
-
-/**
- * Builds an `outline` zone pattern value — the dashed boundary with an
- * eyebrow label (halls, cages).
- *
- * @param config - Optional style configuration (`tone`)
- * @returns A `SchematicZonePatternType` value
- */
-function outline(config?: SchematicPatternConfig) {
-    return variant("outline", { tone: toneValue(config?.tone) });
-}
-
-/**
- * Builds a `hatch` zone pattern value — the hatched band (hot and cold
- * aisles, exclusion zones).
- *
- * @param config - Optional style configuration (`tone`, `spacing`, `angle`)
- * @returns A `SchematicZonePatternType` value
- */
-function hatch(config?: SchematicPatternConfig) {
-    return variant("hatch", {
-        tone: toneValue(config?.tone),
-        spacing: config?.spacing !== undefined ? some(config.spacing) : none,
-        angle: config?.angle !== undefined ? some(config.angle) : none,
-    });
-}
-
-/**
- * Builds a `solid` link style value — a physical run (fibre, power cable).
- *
- * @param config - Optional stroke configuration (`tone`, `weight`)
- * @returns A `SchematicLinkStyleType` value
- */
-function solid(config?: SchematicPatternConfig) {
-    return variant("solid", {
-        tone: toneValue(config?.tone),
-        weight: config?.weight !== undefined ? some(config.weight) : none,
-    });
-}
-
-/**
- * Builds a `dashed` link style value — a routing / logical connection.
- *
- * @param config - Optional stroke configuration (`tone`, `weight`)
- * @returns A `SchematicLinkStyleType` value
- */
-function dashed(config?: SchematicPatternConfig) {
-    return variant("dashed", {
-        tone: toneValue(config?.tone),
-        weight: config?.weight !== undefined ? some(config.weight) : none,
-    });
-}
-
-/**
- * A polyline / polygon vertex for {@link polyline} / {@link polygon} — a world
- * point plus an optional DXF `bulge`.
- *
- * @property x - World x
- * @property y - World y
- * @property bulge - DXF bulge for the edge to the next vertex; `0` (default) is straight, nonzero is a circular arc (`tan(includedAngle / 4)`, sign = turn direction)
- */
-export interface SchematicVertexInput {
-    /** World x. */
-    x: SubtypeExprOrValue<FloatType>;
-    /** World y. */
-    y: SubtypeExprOrValue<FloatType>;
-    /** DXF bulge for the edge to the next vertex; `0` (default) = straight, nonzero = arc. */
-    bulge?: SubtypeExprOrValue<FloatType>;
-}
-
-/**
- * Vertices accepted by {@link polyline} / {@link polygon}: either a plain array
- * of `{ x, y, bulge? }` (bulge defaults to `0`) or a resolved East array of
- * {@link SchematicVertexType} values.
- */
-export type SchematicVertices =
-    | readonly SchematicVertexInput[]
-    | SubtypeExprOrValue<ArrayType<SchematicVertexType>>;
-
-/** Optional configuration for {@link polyline}. */
-export interface SchematicPolylineConfig {
-    /** Band width in world units — the stroke widens into a duct bank / aisle. */
-    width?: number;
-}
-
-/**
- * Normalise {@link SchematicVertices} into an East-coercible array of
- * {@link SchematicVertexType} — plain arrays get `bulge` defaulted to `0`,
- * East expressions pass through unchanged (they must already be vertices).
- */
-function toVertices(vertices: SchematicVertices): SubtypeExprOrValue<ArrayType<SchematicVertexType>> {
-    if (Array.isArray(vertices)) {
-        return (vertices as readonly SchematicVertexInput[]).map(v => ({
-            x: v.x,
-            y: v.y,
-            bulge: v.bulge !== undefined ? v.bulge : 0,
-        }));
-    }
-    return vertices as SubtypeExprOrValue<ArrayType<SchematicVertexType>>;
-}
-
-/**
- * Builds a `rect` geometry value — the axis-aligned box. For zones this is
- * the `x/y/width/height` bounding box; for items, the point / marker form.
- * Equivalent to omitting `geometry` / `footprint`.
- *
- * @returns A `SchematicGeometryType` value
- */
-function rect(): ExprType<SchematicGeometryType> {
-    return East.value(variant("rect", null), SchematicGeometryType);
-}
-
-/**
- * Builds a `circle` geometry value — a circle centred on the entity anchor
- * (an item's `x/y`, or a zone's bounding-box centre). Models columns,
- * cooling towers and other round equipment without flattening to a polygon.
- *
- * @param radius - Circle radius in world units
- * @returns A `SchematicGeometryType` value
- */
-function circle(radius: SubtypeExprOrValue<FloatType>): ExprType<SchematicGeometryType> {
-    return East.value(variant("circle", { radius }), SchematicGeometryType);
-}
-
-/**
- * Builds a `polyline` geometry value — an open, arc-aware polyline in world
- * coordinates, optionally widened into a band (a duct bank / aisle).
- *
- * @param vertices - Vertices in world coords, in order (each `{ x, y, bulge? }`; `bulge` defaults to `0`)
- * @param config - Optional `width` band in world units
- * @returns A `SchematicGeometryType` value
- */
-function polyline(vertices: SchematicVertices, config?: SchematicPolylineConfig): ExprType<SchematicGeometryType> {
-    return East.value(variant("polyline", {
-        vertices: toVertices(vertices),
-        width: config?.width !== undefined ? some(config.width) : none,
-    }), SchematicGeometryType);
-}
-
-/**
- * Builds a `polygon` geometry value — a closed, arc-aware polygon in world
- * coordinates (a rotated / L-shaped zone, or an equipment footprint).
- *
- * @param vertices - Boundary vertices in world coords, in order (auto-closed; each `{ x, y, bulge? }`)
- * @returns A `SchematicGeometryType` value
- */
-function polygon(vertices: SchematicVertices): ExprType<SchematicGeometryType> {
-    return East.value(variant("polygon", { vertices: toVertices(vertices) }), SchematicGeometryType);
-}
-
-/**
- * The struct element type of a `SubtypeExprOrValue<ArrayType<StructType>>`.
- */
-export type RowElement<T extends SubtypeExprOrValue<ArrayType<StructType>>> =
-    TypeOf<T> extends ArrayType<infer S> ? (S extends StructType ? S : never) : never;
+export const SchematicComponent = EastUI.component("Schematic", SchematicPayloadType, { optional: true });
 
 // ============================================================================
-// Row fields
+// The Schematic's shared keys
 // ============================================================================
 
 /**
- * Fields the `item` mapper returns — one placed item, before defaults.
+ * The names a Schematic keeps its viewer's state under, by its `name` (§5):
+ * its frame's panes, its library's id, the layers the viewer shows, hides and
+ * locks, the tool it holds, and its drop surface, where its library's cards
+ * land.
  *
  * @remarks
- * The mapper returns this plain object (optional fields omissible, defaults
- * applied by the factory) or a full `ExprType<SchematicItemType>` when the
- * row is already resolved.
+ * As the Flowchart's `flowchartKeys`: two Schematics on one surface keep apart
+ * only when each is named.
  *
- * @property key - Item identity — links reference it; `onSelect` returns it
- * @property x - World x of the card centre
- * @property y - World y of the card centre
- * @property label - Primary identity line
- * @property sublabel - Optional muted second line (kind / capacity)
- * @property icon - Optional Font Awesome solid icon (static name or expression)
- * @property status - Optional status-dot option (a `StatusTokenType` option value)
- * @property meter - Optional mini utilisation bar (value / max)
- * @property metric - Optional live metric text
- * @property width - Optional world width — renders the wide bar form
- * @property footprint - Optional shape footprint (`Schematic.polygon()` / `polyline()` / `rect()`)
- * @property tone - Optional colour override (semantic tone); absent ⇒ `status` drives the colour
- * @property color - Optional raw CSS stroke / marker tint; wins over `tone`
- * @property bg - Optional raw CSS fill for a polygon / circle footprint
- * @property fillOpacity - Optional fill alpha (0–1) for a polygon / circle footprint
- * @property weight - Optional stroke width in px
+ * @param name - The Schematic's name, when a surface holds more than one; omitted, the one Schematic
+ * @returns The keys
  */
-export interface SchematicItemFields {
-    /** Item identity — links reference it; `onSelect` returns it. */
-    key: SubtypeExprOrValue<StringType>;
-    /** World x of the card centre. */
-    x: SubtypeExprOrValue<FloatType>;
-    /** World y of the card centre. */
-    y: SubtypeExprOrValue<FloatType>;
-    /** Primary identity line. */
-    label: SubtypeExprOrValue<StringType>;
-    /** Optional muted second line (kind / capacity). */
-    sublabel?: SubtypeExprOrValue<StringType>;
-    /** Optional Font Awesome solid icon (static name or expression). */
-    icon?: IconName | ExprType<StringType>;
-    /** Optional status-dot option (a `StatusTokenType` option value). */
-    status?: SubtypeExprOrValue<OptionType<StatusTokenType>>;
-    /** Optional mini utilisation bar (value / max). */
-    meter?: {
-        /** Current value. */
-        value: SubtypeExprOrValue<FloatType>;
-        /** Full-scale value. */
-        max: SubtypeExprOrValue<FloatType>;
+export function schematicKeys(name: string | undefined): {
+    /** The frame's storage key: each pane's open tab and collapsed state. */
+    frame: string;
+    /** The library's id: what its tabs' cards are drawn from. */
+    library: string;
+    /** The Layers tab's UI store key: the layers the viewer shows, hides, isolates and locks. */
+    layers: string;
+    /** The tools' UI store key: the tool the viewer holds, and the link kind Connect draws. */
+    tools: string;
+    /** The Schematic's drop surface: where its canvas takes its library's cards. */
+    surface: string;
+} {
+    const suffix = name === undefined ? "" : `.${name}`;
+    return {
+        frame: `schematic${suffix}.frame`,
+        library: `schematic.library${suffix}`,
+        layers: `schematic${suffix}.layers`,
+        tools: `schematic${suffix}.tools`,
+        surface: `schematic${suffix}.surface`,
     };
-    /** Optional live metric text. */
-    metric?: SubtypeExprOrValue<StringType>;
-    /** Optional world width — renders the wide bar form. */
-    width?: SubtypeExprOrValue<FloatType>;
-    /** Optional shape footprint (`Schematic.polygon()` / `polyline()` / `rect()`); absent ⇒ point + icon. */
-    footprint?: SubtypeExprOrValue<SchematicGeometryType>;
-    /** Optional colour override (semantic tone); absent ⇒ `status` drives the colour. */
-    tone?: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral;
-    /** Optional raw CSS stroke / marker tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone`. */
-    color?: SubtypeExprOrValue<StringType>;
-    /** Optional raw CSS fill for a polygon / circle footprint. */
-    bg?: SubtypeExprOrValue<StringType>;
-    /** Optional fill alpha (0–1) for a polygon / circle footprint. */
-    fillOpacity?: SubtypeExprOrValue<FloatType>;
-    /** Optional stroke width in px. */
-    weight?: SubtypeExprOrValue<FloatType>;
-    /** Optional slice-excluded flag — when a `sliceEffect` is set, a `true` item
-     * is treated as filtered-out (ghosted / hidden per the effect). Typically
-     * `Slice.apply.matches(state, cfg, row).not()`, or read from `Slice.partition`. */
-    excluded?: SubtypeExprOrValue<BooleanType>;
-    /** Optional layer membership — the `key` of a `layers` entry; hidden when
-     * that layer is hidden. Absent ⇒ unlayered (always visible). */
-    layer?: SubtypeExprOrValue<StringType>;
 }
 
+// ============================================================================
+// <Schematic>'s props
+// ============================================================================
+
 /**
- * Fields the `zone` mapper returns — one annotation zone, before defaults.
+ * A layer, declared (§8): only `key` and `label` are required, the rest
+ * author defaults the viewer's choices in the Layers tab override.
  *
- * @property key - Zone identity
- * @property label - Mono eyebrow label on the boundary
- * @property x - World x of the top-left corner
- * @property y - World y of the top-left corner
- * @property width - World width
- * @property height - World height
- * @property pattern - Optional pattern (default `Schematic.outline()`)
- * @property geometry - Optional shape geometry (`Schematic.polyline()` / `polygon()` / `rect()`)
- * @property tone - Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour
- * @property color - Optional raw CSS stroke tint; wins over `tone`
- * @property bg - Optional raw CSS area fill (opt-in; zones are unfilled by default)
- * @property fillOpacity - Optional fill alpha (0–1) for the area fill
- * @property weight - Optional stroke width in px
- */
-export interface SchematicZoneFields {
-    /** Zone identity. */
-    key: SubtypeExprOrValue<StringType>;
-    /** Mono eyebrow label on the boundary. */
-    label: SubtypeExprOrValue<StringType>;
-    /** World x of the top-left corner. */
-    x: SubtypeExprOrValue<FloatType>;
-    /** World y of the top-left corner. */
-    y: SubtypeExprOrValue<FloatType>;
-    /** World width. */
-    width: SubtypeExprOrValue<FloatType>;
-    /** World height. */
-    height: SubtypeExprOrValue<FloatType>;
-    /** Optional pattern (default `Schematic.outline()`). */
-    pattern?: SubtypeExprOrValue<SchematicZonePatternType>;
-    /** Optional shape geometry (`Schematic.polyline()` / `polygon()` / `rect()`); absent ⇒ rect. */
-    geometry?: SubtypeExprOrValue<SchematicGeometryType>;
-    /** Optional colour override (semantic tone); absent ⇒ the `pattern`'s tone drives the colour. */
-    tone?: SubtypeExprOrValue<SchematicToneType> | SchematicToneLiteral;
-    /** Optional raw CSS stroke tint (e.g. `"#2D7FF9"`, `"teal"`); wins over `tone`. */
-    color?: SubtypeExprOrValue<StringType>;
-    /** Optional raw CSS area fill (opt-in; zones are unfilled by default). */
-    bg?: SubtypeExprOrValue<StringType>;
-    /** Optional fill alpha (0–1) for the area fill. */
-    fillOpacity?: SubtypeExprOrValue<FloatType>;
-    /** Optional stroke width in px. */
-    weight?: SubtypeExprOrValue<FloatType>;
-    /** Optional layer membership — the `key` of a `layers` entry; hidden when
-     * that layer is hidden. Absent ⇒ unlayered (always visible). */
-    layer?: SubtypeExprOrValue<StringType>;
-}
-
-/**
- * Fields the `link` mapper returns — one connection, before defaults.
- *
- * @property key - Link identity
- * @property from - Source item key
- * @property to - Destination item key
- * @property style - Optional style (default `Schematic.solid()`)
- * @property route - Optional routing (default orthogonal, rounded corners)
- * @property via - Optional world-coordinate waypoints, in order
- */
-export interface SchematicLinkFields {
-    /** Link identity. */
-    key: SubtypeExprOrValue<StringType>;
-    /** Source item key. */
-    from: SubtypeExprOrValue<StringType>;
-    /** Destination item key. */
-    to: SubtypeExprOrValue<StringType>;
-    /** Optional label rendered mid-path (a name / flow description); hidden when zoomed out past the label band. */
-    label?: SubtypeExprOrValue<StringType>;
-    /** Optional metric rendered after the label mid-path (a rate / capacity readout), muted. */
-    metric?: SubtypeExprOrValue<StringType>;
-    /** Optional style (default `Schematic.solid()`). */
-    style?: SubtypeExprOrValue<SchematicLinkStyleType>;
-    /** Optional routing (default orthogonal, rounded corners). */
-    route?: SubtypeExprOrValue<SchematicRouteType>;
-    /** Optional world-coordinate waypoints, in order. */
-    via?: SubtypeExprOrValue<ArrayType<SchematicPointType>>;
-    /** Optional layer membership — the `key` of a `layers` entry; hidden when
-     * that layer is hidden (or when either endpoint item is hidden). */
-    layer?: SubtypeExprOrValue<StringType>;
-}
-
-/**
- * Author-facing fields for one net (bus / trunk), produced by the `net`
- * mapper — many `sources` feeding many `destinations` through one trunk.
- */
-export interface SchematicNetFields {
-    /** Net identity. */
-    key: SubtypeExprOrValue<StringType>;
-    /** Source item keys (the feeding side). */
-    sources: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Destination item keys (the fed side). */
-    destinations: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Optional label rendered mid-trunk. */
-    label?: SubtypeExprOrValue<StringType>;
-    /** Optional metric rendered after the label mid-trunk, muted. */
-    metric?: SubtypeExprOrValue<StringType>;
-    /** Optional style (default `Schematic.solid()`). */
-    style?: SubtypeExprOrValue<SchematicLinkStyleType>;
-    /** Optional trunk routing (default orthogonal, rounded corners). */
-    route?: SubtypeExprOrValue<SchematicRouteType>;
-    /** Optional world-coordinate trunk waypoints, in order. */
-    via?: SubtypeExprOrValue<ArrayType<SchematicPointType>>;
-    /** Optional layer membership — hidden when that layer is hidden. */
-    layer?: SubtypeExprOrValue<StringType>;
-}
-
-/** String literal form of {@link SchematicEmphasisType} tags. */
-export type SchematicEmphasisLiteral = "halo" | "pulse";
-
-/** String literal form of {@link SchematicSelectionModeType} tags. */
-export type SchematicSelectionModeLiteral = "single" | "multiple";
-
-/** String literal form of {@link SchematicLinkModeType} tags. */
-export type SchematicLinkModeLiteral = "draw" | "connect";
-
-/** Resolve a `sliceEmphasis` prop to its `option<Emphasis>` — a `"halo"` /
- *  `"pulse"` string is sugar for `some(variant(...))`; an East value is already
- *  the option (so it can be reactively `none` to turn the ring OFF). */
-function emphasisOption(emphasis: SubtypeExprOrValue<OptionType<SchematicEmphasisType>> | SchematicEmphasisLiteral | undefined) {
-    if (emphasis === undefined) return none;
-    return typeof emphasis === "string" ? some(variant(emphasis, null)) : emphasis;
-}
-
-/**
- * A layer declaration for {@link SchematicConfig.layers}. Only `key` + `label`
- * are required; the rest are author defaults the user's panel toggles override.
- *
- * @property key - Layer identity — entities reference it via their `layer` field
- * @property label - Panel display name
- * @property visible - Author default visibility (default `true`); `false` ⇒ ships hidden
- * @property locked - Author default lock / non-selectable (default `false`)
- * @property opacity - Item-level dim (0–1) for the layer's items (default `1`)
- * @property tone - Panel swatch tone
+ * @property key - The layer's identity: an entity's `layer` field names it
+ * @property label - Its name
+ * @property visible - Author default visibility (default `true`); `false` ships it hidden
+ * @property locked - Author default lock (default `false`): a locked layer's entities never select
+ * @property opacity - Its items' dim (0–1, default `1`)
+ * @property tone - Its swatch's tone
  */
 export interface SchematicLayerInput {
-    /** Layer identity — entities reference it via their `layer` field. */
+    /** The layer's identity: an entity's `layer` field names it. */
     key: string;
-    /** Panel display name. */
+    /** Its name. */
     label: string;
-    /** Author default visibility (default `true`); `false` ⇒ ships hidden. */
+    /** Author default visibility (default `true`); `false` ships it hidden. */
     visible?: boolean;
-    /** Author default lock / non-selectable (default `false`). */
+    /** Author default lock (default `false`): a locked layer's entities never select. */
     locked?: boolean;
-    /** Item-level dim (0–1) for the layer's items (default `1`). */
+    /** Its items' dim (0–1, default `1`). */
     opacity?: number;
-    /** Panel swatch tone. */
+    /** Its swatch's tone. */
     tone?: SchematicToneLiteral;
 }
 
-/** Build the East `SchematicLayer` value from the plain JS declaration. */
-function toLayer(l: SchematicLayerInput): ExprType<SchematicLayerType> {
+/**
+ * How a narrowed-out row draws, in full (§10.3).
+ *
+ * @property show - `hide` (the default) or `dim`
+ * @property opacity - A dimmed row's opacity (0.35 by default)
+ * @property desaturate - Whether a dimmed row is drained of colour (on by default)
+ * @property dot - Whether a dimmed row draws as a bare marker
+ * @property emphasis - A ring on each match — `halo`, or `pulse`, which breathes — whatever `show` is
+ * @property frame - Whether the matches are boxed
+ * @property fit - Whether the camera flies to the matches when the narrowing changes
+ */
+export interface SchematicNarrowedOptions {
+    /** `hide` (the default) or `dim`. */
+    show: "hide" | "dim";
+    /** A dimmed row's opacity (0.35 by default). */
+    opacity?: number;
+    /** Whether a dimmed row is drained of colour (on by default). */
+    desaturate?: boolean;
+    /** Whether a dimmed row draws as a bare marker. */
+    dot?: boolean;
+    /** A ring on each match, whatever `show` is: `halo`, or `pulse`, which breathes. */
+    emphasis?: "halo" | "pulse";
+    /** Whether the matches are boxed. */
+    frame?: boolean;
+    /** Whether the camera flies to the matches when the narrowing changes. */
+    fit?: boolean;
+}
+
+/** `<Schematic>`'s props (§5). */
+export interface SchematicProps {
+    /** The drawing's world bounds; the canvas fits them. */
+    extent: { width: number; height: number };
+    /** The scale bar's unit. */
+    scaleUnit?: SubtypeExprOrValue<StringType>;
+    /** The item kinds, by slot: `items={{ racks: Schematic.items(record, { … }) }}`, one at least. */
+    items: Readonly<Record<string, SchematicItems>>;
+    /** The zone kinds, by slot. */
+    zones?: Readonly<Record<string, SchematicZones>>;
+    /** The link kinds, by slot. */
+    links?: Readonly<Record<string, SchematicLinks>>;
+    /** The net kinds, by slot. */
+    nets?: Readonly<Record<string, SchematicNets>>;
+    /** The layers and their author defaults (§8): an entity's `layer` field names one. */
+    layers?: readonly SchematicLayerInput[];
+    /**
+     * The narrowing (§10.1): slice={{ slice: Slice.bindRecords(key, { … }), affordances?, persist? }}, one rail on the
+     * toolbar. A source named after a kind's slot narrows that kind — `Data.bindPaged(record, { indexes, join: true })`
+     * over the kind's record — and each other source the templates list or the author's tab that names it.
+     */
+    slice?: RecordSlicesChromeOptions;
+    /** How a narrowed-out row draws (§10.3): `"hide"` (the default), `"dim"`, or the options in full. */
+    narrowed?: "hide" | "dim" | SchematicNarrowedOptions;
+    /** The library pane's tabs, in order, each a `Schematic.library.*` call; left out, or empty, no library pane. */
+    library?: readonly SchematicLibraryTab[];
+    /**
+     * The inspector pane (§9): on by default; `false` removes it; `{ [slot]: Details }` gives a kind its own Details in
+     * place of its form — an East function over the row and its writer, as a kind's own `inspector` is.
+     */
+    inspector?: boolean | Readonly<Record<string, unknown>>;
+    /** No gesture, drop or inspector edit; selection stays. */
+    readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Names the Schematic — needed only when one surface holds two. */
+    name?: string;
+    /** The metric grid; on by default. */
+    grid?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** The minimap; shown at 25 items or more by default. */
+    minimap?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Whether a selection flies the camera to it. */
+    selectZoomFocus?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** Vetoes a pair of items before a link's draft snaps; a throwing veto allows the pair and logs it. */
+    canConnect?: SubtypeExprOrValue<FunctionType<[SchematicRefType, SchematicRefType], BooleanType>>;
+    /** Hears each change of the selected items, each named by its kind and key. */
+    onSelectionChange?: SubtypeExprOrValue<FunctionType<[SchematicSelectionEventType], NullType>>;
+    /** Hears each change of the selected zones, with the items inside them. */
+    onZoneSelectionChange?: SubtypeExprOrValue<FunctionType<[SchematicZoneSelectionEventType], NullType>>;
+    /** Hears a link or a net selected. */
+    onSelectLink?: SubtypeExprOrValue<FunctionType<[SchematicRefType], NullType>>;
+    /** Hears where the camera settled after a pan, a zoom, a fly or a resize. */
+    onViewportChange?: SubtypeExprOrValue<FunctionType<[SchematicViewportEventType], NullType>>;
+    /** Hears an item opened: a double-click or a double-tap. */
+    onItemOpen?: SubtypeExprOrValue<FunctionType<[SchematicRefType], NullType>>;
+}
+
+/** The props, erased: what the implementation reads. */
+type SchematicAnyProps = { [K in keyof SchematicProps]?: unknown } & Record<string, unknown>;
+
+/** The refusal of rows and their mappers: kinds over the app's records replace them (§2). */
+function rowsRefusal(prop: string): string {
+    const sort = prop.startsWith("item") ? "items" : prop.startsWith("zone") ? "zones" : prop.startsWith("link") ? "links" : "nets";
+    const example = {
+        items: "items={{ racks: Schematic.items(Record.bind(racks, [e3.mutation.patch(racks)]), { name, icon, x, y, label }) }}",
+        zones: "zones={{ halls: Schematic.zones(Data.bind(halls), { name, icon, x, y, width, height, label }) }}",
+        links: "links={{ fibre: Schematic.links(Record.bind(fibres, [e3.mutation.patch(fibres)]), { name, icon, from: { field, of }, to: { field, of } }) }}",
+        nets: "nets={{ feeds: Schematic.nets(Record.bind(feeds, [e3.mutation.patch(feeds)]), { name, icon, sources: { field, of }, destinations: { field, of } }) }}",
+    }[sort];
+    return `Schematic: rows and their mappers are gone — an app's rows are its records, each kind's fields mapped to its roles: ${example}`;
+}
+
+/** The refusal of a callback for an edit: the editing session's gestures replace them (§2, §7). */
+const SESSION = "every gesture is a transaction of the Schematic's editing session, and Save writes each record through its patch door — " +
+    "bind a kind with Record.bind(record, [e3.mutation.patch(record)]) to edit it";
+
+/** The refusal of the slice's effect props: `narrowed` replaces them (§2, §10.3). */
+const NARROWED = "how a narrowed-out row draws is `narrowed` — narrowed=\"dim\", or narrowed={{ show: \"dim\", opacity, desaturate, dot, emphasis, frame, fit }}";
+
+/** The refusal of a hover card: the inspector replaces them (§2, §9). */
+const HOVER = "the inspector, on by default, shows what is selected — give a kind its own Details with its `inspector`, " +
+    "or inspector={{ <slot>: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) }}";
+
+/** The refusal of a size: the Schematic fills the box it is given (§2). */
+const SIZE = "the Schematic fills the box it is given — give it a box of its own height: <Box height=\"640px\"><Schematic … /></Box>";
+
+/** Each prop §2 removes, with the form that replaces it (SC3). */
+const REMOVED: Readonly<Record<string, string>> = {
+    item: rowsRefusal("item"),
+    zone: rowsRefusal("zone"),
+    link: rowsRefusal("link"),
+    net: rowsRefusal("net"),
+    onMoveItem: SESSION,
+    onCreateLink: SESSION,
+    onEditLink: SESSION,
+    onDeleteLink: SESSION,
+    onEditNet: SESSION,
+    linkMode: "the Connect tool always records a link, of the link kind its menu picks — an app that plans operations between items gives them a link kind of their own",
+    readOnlyLinks: "a kind is read only when it is bound read only — Data.bind(record), or Data.bindPaged(record) read through its source",
+    readOnlyItems: "a kind is read only when it is bound read only — Data.bind(record), or Data.bindPaged(record) read through its source",
+    itemHover: HOVER,
+    zoneHover: HOVER,
+    linkHover: HOVER,
+    affordances: "it moved into `slice`: slice={{ slice: Slice.bindRecords(key, { … }), affordances }}",
+    sliceHidden: NARROWED,
+    sliceOpacity: NARROWED,
+    sliceDesaturate: NARROWED,
+    sliceDot: NARROWED,
+    sliceEmphasis: NARROWED,
+    sliceFrame: NARROWED,
+    sliceFrameFit: NARROWED,
+    sliceSelectField: "the selection drives the inspector, and the rail is the only narrowing — leave it out",
+    selectionMode: "selection is built in: a tap selects, Shift extends it, and the Marquee tool boxes — leave it out",
+    navigator: "the library's Index tab lists the zones and the items inside them: library={[Schematic.library.index()]}",
+    height: SIZE,
+    maxHeight: SIZE,
+    onSelect: "onSelectionChange hears each change of the selection, each item named by its kind and key (Schematic.Types.Ref)",
+    onSelectZone: "onZoneSelectionChange hears each change of the selected zones, each named by its kind and key (Schematic.Types.Ref)",
+};
+
+/** Every prop `<Schematic>` takes. */
+const PROPS: ReadonlySet<string> = new Set([
+    "extent", "scaleUnit", "items", "zones", "links", "nets", "layers", "slice", "narrowed", "library", "inspector", "readOnly", "name",
+    "grid", "minimap", "selectZoomFocus", "canConnect", "onSelectionChange", "onZoneSelectionChange", "onSelectLink", "onViewportChange", "onItemOpen",
+]);
+
+/** A sort's noun, as a refusal names a kind of it. */
+const NOUN = { items: "item", zones: "zone", links: "link", nets: "net" } as const;
+
+/** The declaration each sort takes, as a refusal names it. */
+const DECLARE = {
+    items: "Schematic.items(record, { name, icon, x, y, label })",
+    zones: "Schematic.zones(record, { name, icon, x, y, width, height, label })",
+    links: "Schematic.links(record, { name, icon, from, to })",
+    nets: "Schematic.nets(record, { name, icon, sources, destinations })",
+} as const;
+
+/** A kind of any sort, declared. */
+type AnyKind = SchematicItems | SchematicZones | SchematicLinks | SchematicNets;
+
+/** A kind, under its slot. */
+interface Slotted {
+    readonly slot: string;
+    readonly sort: "items" | "zones" | "links" | "nets";
+    readonly kind: AnyKind;
+}
+
+/**
+ * Reads one sort's kinds by slot (§1, rule 5), each checked to be a kind of
+ * that sort.
+ *
+ * @param sort - The prop: `items`, `zones`, `links` or `nets`
+ * @param given - What it was given
+ * @returns Its kinds, in the order their slots are listed
+ * @throws {Error} When it is rows rather than kinds by slot, or a slot holds no kind of its sort
+ */
+function kindsOf(sort: Slotted["sort"], given: unknown): Slotted[] {
+    if (given === undefined) return [];
+    if (given instanceof Expr || Array.isArray(given) || typeof given !== "object" || given === null || isSchematicKind(given, sort)) {
+        throw new Error(isSchematicKind(given, sort)
+            ? `Schematic: \`${sort}\` takes kinds by slot — ${sort}={{ <slot>: ${DECLARE[sort]} }}: a slot names the kind, and the source of the slice that narrows it`
+            : rowsRefusal(sort));
+    }
+    return Object.entries(given as Record<string, unknown>).map(([slot, kind]) => {
+        if (!isSchematicKind(kind, sort)) {
+            const other = (["items", "zones", "links", "nets"] as const).find((s) => isSchematicKind(kind, s));
+            throw new Error(`Schematic: \`${sort}.${slot}\` is ${sort === "items" ? "an" : "a"} ${NOUN[sort]} kind, ${DECLARE[sort]}` +
+                (other === undefined ? "" : ` — and this is ${other === "items" ? "an" : "a"} ${NOUN[other]} kind: give it under \`${other}\``));
+        }
+        return { slot, sort, kind: kind as AnyKind };
+    });
+}
+
+/** The drawing's world bounds, checked. */
+function extentOf(extent: unknown): { width: number; height: number } {
+    const box = extent as { width?: unknown; height?: unknown } | undefined;
+    const positive = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n > 0;
+    if (typeof extent !== "object" || extent === null || !positive(box?.width) || !positive(box?.height)) {
+        throw new Error("Schematic: `extent` is the drawing's world bounds, { width, height }, each a positive number of world units — the canvas fits them");
+    }
+    return { width: box!.width as number, height: box!.height as number };
+}
+
+/** How a narrowed-out row draws, on the wire. */
+function narrowedOf(narrowed: unknown): ExprType<SchematicNarrowedType> {
+    const options = narrowed === undefined || narrowed === "hide" ? { show: "hide" } : narrowed === "dim" ? { show: "dim" } : narrowed;
+    const o = options as Partial<Record<keyof SchematicNarrowedOptions, unknown>>;
+    const flag = (value: unknown) => value === undefined || typeof value === "boolean";
+    if (typeof options !== "object" || options === null || (o.show !== "hide" && o.show !== "dim")
+        || !(o.opacity === undefined || (typeof o.opacity === "number" && o.opacity >= 0 && o.opacity <= 1))
+        || !flag(o.desaturate) || !flag(o.dot) || !flag(o.frame) || !flag(o.fit)
+        || !(o.emphasis === undefined || o.emphasis === "halo" || o.emphasis === "pulse")) {
+        throw new Error("Schematic: `narrowed` is \"hide\" (the default), \"dim\", or { show: \"hide\" | \"dim\", opacity?: 0–1, desaturate?, dot?, emphasis?: \"halo\" | \"pulse\", frame?, fit? }");
+    }
     return East.value({
+        show: variant(o.show as "hide" | "dim", null),
+        opacity: (o.opacity as number | undefined) ?? 0.35,
+        desaturate: (o.desaturate as boolean | undefined) ?? true,
+        dot: (o.dot as boolean | undefined) ?? false,
+        emphasis: o.emphasis === undefined ? none : some(variant(o.emphasis as "halo" | "pulse", null)),
+        frame: (o.frame as boolean | undefined) ?? false,
+        fit: (o.fit as boolean | undefined) ?? false,
+    }, SchematicNarrowedType);
+}
+
+/** The layers on the wire, each checked: a key and a label, no key twice. */
+function layersOf(layers: unknown): ExprType<ArrayType<SchematicLayerType>> {
+    if (layers === undefined) return East.value([], ArrayType(SchematicLayerType));
+    const valid = (l: unknown): l is SchematicLayerInput => typeof l === "object" && l !== null
+        && typeof (l as SchematicLayerInput).key === "string" && typeof (l as SchematicLayerInput).label === "string";
+    if (!Array.isArray(layers) || !layers.every(valid)) {
+        throw new Error("Schematic: `layers` lists the layers, each { key, label, tone?, visible?, locked?, opacity? } — an entity's `layer` field names one by its key");
+    }
+    const seen = new Set<string>();
+    for (const layer of layers) {
+        if (seen.has(layer.key)) throw new Error(`Schematic: \`layers\` lists the layer "${layer.key}" twice — each layer's key is its own`);
+        seen.add(layer.key);
+    }
+    return East.value(layers.map((l) => ({
         key: l.key,
         label: l.label,
         visible: l.visible !== undefined ? some(l.visible) : none,
         locked: l.locked !== undefined ? some(l.locked) : none,
         opacity: l.opacity !== undefined ? some(l.opacity) : none,
         tone: toneValue(l.tone),
-    }, SchematicLayerType);
+    })), ArrayType(SchematicLayerType));
 }
-
-// ============================================================================
-// Root factory
-// ============================================================================
 
 /**
- * `<Schematic>`'s props beside its `items` — the configuration
- * {@link createSchematicPayload} builds the root from.
+ * The inspector pane (§9): on by default, or given `true`; off for `false`;
+ * and each slot's own Details where `{ [slot]: Details }` gives them, checked
+ * against the kinds.
  *
- * @typeParam I - The item row struct
- * @typeParam Z - The zone row struct
- * @typeParam L - The link row struct
- * @property extent - World-coordinate bounds; the canvas scales to fit
- * @property item - Items row mapper (omit when rows are already resolved)
- * @property zones - Optional zones table
- * @property zone - Zones row mapper (omit when rows are already resolved)
- * @property links - Optional links table
- * @property link - Links row mapper (omit when rows are already resolved)
- * @property scaleUnit - Optional unit for the bottom-right scale bar
- * @property grid - Metric grid aligned to the scale legend
- * @property navigator - Navigator rail (zones → items TOC)
- * @property minimap - Minimap with the viewport rectangle
- * @property height - Optional fixed panel height (any CSS length)
- * @property onSelect - Optional item-click callback (receives the item key)
+ * @param inspector - The Schematic's `inspector`
+ * @param kinds - Its kinds
+ * @returns Whether the pane shows, and each slot's own Details the prop gives
+ * @throws {Error} Naming the prop and the remedy: an `inspector` of another kind, a key that is no kind's slot, and a
+ *   slot whose kind gives its own Details too
  */
-export interface SchematicConfig<
-    I extends StructType,
-    Z extends StructType,
-    L extends StructType,
-    N extends StructType = StructType,
-> {
-    /** World-coordinate bounds; the canvas scales to fit. */
-    extent: { width: number; height: number };
-    /** Items row mapper; omit when `items` is already `ArrayType(Schematic.Types.Item)`. */
-    item?: (item: ExprType<I>) => SchematicItemFields;
-    /** Optional zones table. */
-    zones?: SubtypeExprOrValue<ArrayType<Z>>;
-    /** Zones row mapper; omit when `zones` is already `ArrayType(Schematic.Types.Zone)`. */
-    zone?: (zone: ExprType<Z>) => SchematicZoneFields;
-    /** Optional links table. */
-    links?: SubtypeExprOrValue<ArrayType<L>>;
-    /** Links row mapper; omit when `links` is already `ArrayType(Schematic.Types.Link)`. */
-    link?: (link: ExprType<L>) => SchematicLinkFields;
-    /** Optional nets — bus rows (one row = many sources → many destinations). */
-    nets?: SubtypeExprOrValue<ArrayType<N>>;
-    /** Maps a net row to its {@link SchematicNetFields} (or passes a resolved {@link SchematicNetType} through). */
-    net?: (net: ExprType<N>) => SchematicNetFields;
-    /** Optional unit for the bottom-right scale bar. */
-    scaleUnit?: SubtypeExprOrValue<StringType>;
-    /** Metric grid aligned to the scale legend; default on. */
-    grid?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Navigator rail (zones → items TOC); default: shown when zones exist. */
-    navigator?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Minimap with the viewport rectangle; default: shown for 25+ items. */
-    minimap?: SubtypeExprOrValue<BooleanType> | boolean;
-    /**
-     * Slice chrome — pass the bound handle and the Schematic renders a
-     * full-width top-edge rail mounting the `affordances` (default
-     * `["search"]`), replacing the old built-in navigator search. The search
-     * affordance narrows the bound items (and flies to the top hit on Enter).
-     */
-    slice?: SubtypeExprOrValue<SliceBindType>;
-    /** Rail affordances when `slice` is set. Default `["search"]`. */
-    affordances?: SliceAffordanceLiteral[];
-    /**
-     * Slice-driven render effect — instead of hiding filtered-out items, keep
-     * them as ghosted / desaturated / shrunk context and emphasise the remainder.
-     * Feed the **full** item set and mark each item's `excluded` flag (via
-     * `Slice.partition`, or `Slice.apply.matches(...).not()`); every prop below is
-     * `SubtypeExprOrValue`, so any can be static or driven reactively from a
-     * `State.read`. All absent ⇒ excluded items hidden completely (today's default).
-     */
-    /** Remove filtered-out items entirely; absent / `false` ⇒ keep them as context. */
-    sliceHidden?: SubtypeExprOrValue<BooleanType>;
-    /** Ghost opacity (0–1) for kept filtered-out items; absent ⇒ full. */
-    sliceOpacity?: SubtypeExprOrValue<FloatType>;
-    /** Drain kept filtered-out items' colour to grey. */
-    sliceDesaturate?: SubtypeExprOrValue<BooleanType>;
-    /** Collapse kept filtered-out items to a bare dot (drop card / label / footprint). */
-    sliceDot?: SubtypeExprOrValue<BooleanType>;
-    /** Emphasise the matched remainder — `"halo"` (static ring) or `"pulse"`
-     * (animated). A reactive `option<Emphasis>` value can be `none` to turn the
-     * ring off; the string shorthands are sugar for `some(variant(...))`. */
-    sliceEmphasis?: SubtypeExprOrValue<OptionType<SchematicEmphasisType>> | SchematicEmphasisLiteral;
-    /** Draw a bounding frame around the matched set. */
-    sliceFrame?: SubtypeExprOrValue<BooleanType>;
-    /** Auto-fit the camera to the matched frame when the matched set changes. */
-    sliceFrameFit?: SubtypeExprOrValue<BooleanType>;
-    /**
-     * Named layers — cross-cutting groups of items / zones / links, toggled
-     * (visibility / solo / lock / dim) from a layer button on the canvas. Tag
-     * each entity with a matching `layer` key. Absent ⇒ no layer chrome.
-     */
-    layers?: SchematicLayerInput[];
-    /** Uniform sizing (#320): fixed panel height — a CSS length — a bare number (`"320"`), `"fill"` (fill the parent box), a percentage, `calc(...)`, or explicit `px` (`"400px"`); default: aspect-driven, capped at 75vh. */
-    height?: SubtypeExprOrValue<StringType>;
-    /** Uniform sizing (#320): max-height cap — a pixel `number` or CSS length; overrides the default 75vh cap. */
-    maxHeight?: SubtypeExprOrValue<StringType>;
-    /** Optional item-click callback (receives the item key). */
-    onSelect?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional selection cardinality (`"single"` / `"multiple"` / `"range"`); absent ⇒ single. `multiple` / `range` reveal the marquee tool. */
-    selectionMode?: SubtypeExprOrValue<SchematicSelectionModeType> | SchematicSelectionModeLiteral;
-    /** Optional selection-set change callback — fired on any tap / marquee / clear with the full selected set ({@link SchematicSelectionEventType}). */
-    onSelectionChange?: SubtypeExprOrValue<FunctionType<[SchematicSelectionEventType], NullType>>;
-    /** Optional bound-slice fieldId that selection drives with an `in` filter of the selected item keys (requires a bound `slice`); absent ⇒ selection leaves the slice untouched. Best paired with the ghost `slice*` effect rather than a `Slice.rows` feed on the same slice. */
-    sliceSelectField?: SubtypeExprOrValue<StringType> | string;
-    /** When true, a canvas selection also moves the camera — a single tap flies to the item, a marquee fits to the selected set — regardless of `selectionMode`; default false. The navigator rail + prev/next always fly. */
-    selectZoomFocus?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Optional debounced viewport-settled callback ({@link SchematicViewportEventType}: zoom + visible world rect) — fired after a pan / zoom / fly / resize settles, never per-frame. */
-    onViewportChange?: SubtypeExprOrValue<FunctionType<[SchematicViewportEventType], NullType>>;
-    /** Optional item-open callback (receives the item key) — fired on double-click / double-tap of an item (drill-in); a background double-click keeps Fit / reset. Locked-layer items do not open. */
-    onItemOpen?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional zone-click callback (receives the zone key) — the single-key channel, parallel to `onSelect`. Items take hit-test precedence; outline zones only (hatch bands are annotations); innermost zone wins for nested zones. */
-    onSelectZone?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional zone selection-set change callback ({@link SchematicZoneSelectionEventType}) — fired on any zone tap / nav zone click / clear with the full selected zone set AND their `childItemKeys`. Zone gestures follow `selectionMode` (Shift extends in `multiple`). */
-    onZoneSelectionChange?: SubtypeExprOrValue<FunctionType<[SchematicZoneSelectionEventType], NullType>>;
-    /** Optional connect-gesture mode (`"draw"` adds a physical link locally, form-input style; `"connect"` is event-only and repeatable — the plan-an-operation channel); absent ⇒ draw. */
-    linkMode?: SubtypeExprOrValue<SchematicLinkModeType> | SchematicLinkModeLiteral;
-    /** Optional link-creation callback ({@link SchematicLinkCreateEventType}) — fired on every committed connect gesture with the newest link, the accumulated Shift-session (`links`), and the pair's `existing` links. */
-    onCreateLink?: SubtypeExprOrValue<FunctionType<[SchematicLinkCreateEventType], NullType>>;
-    /** Optional link-click callback (receives the link key) — the link analogue of `onSelect`. */
-    onSelectLink?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Optional link-edit callback ({@link SchematicLinkEditEventType}) — fired after an endpoint connector re-target with the endpoints AFTER the edit. */
-    onEditLink?: SubtypeExprOrValue<FunctionType<[SchematicLinkEditEventType], NullType>>;
-    /** Optional link-delete callback (receives the deleted link's key). */
-    onDeleteLink?: SubtypeExprOrValue<FunctionType<[StringType], NullType>>;
-    /** Master read-only switch — disables ALL editing affordances; default false. */
-    readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Read-only for LINK editing only (connect tool, connectors, delete); effective = `readOnly || readOnlyLinks`; default false. */
-    readOnlyLinks?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Read-only for ITEM editing only (the move tool); effective = `readOnly || readOnlyItems`; default false. */
-    readOnlyItems?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Optional item-move callback ({@link SchematicItemMoveEventType}) — fired once per move-tool gesture on release; group move rides the current selection. */
-    onMoveItem?: SubtypeExprOrValue<FunctionType<[SchematicItemMoveEventType], NullType>>;
-    /** Optional hover-card content builder for ITEMS — receives the hovered item's key and returns arbitrary UI (a `Sparkline` / `Chart` over the entity's history is the headline case), evaluated lazily on hover; absent ⇒ no item hover card. Hover is read-only context — it ignores `readOnly` and locked layers. */
-    itemHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
-    /** Optional hover-card content builder for ZONES — receives the hovered zone's key; absent ⇒ no zone hover card. */
-    zoneHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
-    /** Optional hover-card content builder for LINKS and NETS — receives the hovered link / net key (nets share the channel, like `onSelectLink`); absent ⇒ no link hover card. */
-    linkHover?: SubtypeExprOrValue<FunctionType<[StringType], UIComponentType>>;
-    /** Optional net membership-edit callback — fired after deleting ONE selected leg (a stub) of a net, with the net's endpoints AFTER the removal (upsert by `key`); removing the last endpoint of a side deletes the whole net via `onDeleteLink` instead. Gated by `readOnly` / `readOnlyLinks`. */
-    onEditNet?: SubtypeExprOrValue<FunctionType<[SchematicNetEndpointsType], NullType>>;
-    /** Optional connection validator — receives `(from, to)` item keys BEFORE a connect gesture resolves; return false to forbid the pair: the draft never snaps to that target and releasing does nothing. Applies to draw AND connect modes, Shift-session extensions, and endpoint re-targets. A throwing validator logs and ALLOWS (fail-open) so a broken predicate cannot brick editing. */
-    canConnect?: SubtypeExprOrValue<FunctionType<[StringType, StringType], BooleanType>>;
-}
-
-function buildRoot(
-    items: SubtypeExprOrValue<ArrayType<StructType>>,
-    config: SchematicConfig<StructType, StructType, StructType>,
-): ExprType<SchematicRootType> {
-    const itemMapper = config.item;
-    const resolvedItems = itemMapper === undefined
-        ? East.value(items as SubtypeExprOrValue<ArrayType<SchematicItemType>>, ArrayType(SchematicItemType))
-        : mapRows(East.value(items) as ExprType<ArrayType<StructType>>, SchematicItemType, (row) => {
-            const r: SchematicItemFields | ExprType<SchematicItemType> = itemMapper(row);
-            if (r instanceof Expr) return East.value(r, SchematicItemType);
-            return East.value({
-                key: r.key,
-                x: r.x,
-                y: r.y,
-                label: r.label,
-                sublabel: r.sublabel !== undefined ? some(r.sublabel) : none,
-                icon: r.icon !== undefined ? some(r.icon) : none,
-                status: r.status !== undefined ? r.status : none,
-                meter: r.meter !== undefined
-                    ? some(East.value({ value: r.meter.value, max: r.meter.max },
-                        StructType({ value: FloatType, max: FloatType })))
-                    : none,
-                metric: r.metric !== undefined ? some(r.metric) : none,
-                width: r.width !== undefined ? some(r.width) : none,
-                footprint: r.footprint !== undefined ? some(r.footprint) : none,
-                tone: toneOption(r.tone),
-                color: r.color !== undefined ? some(r.color) : none,
-                bg: r.bg !== undefined ? some(r.bg) : none,
-                fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
-                weight: r.weight !== undefined ? some(r.weight) : none,
-                excluded: r.excluded !== undefined ? some(r.excluded) : none,
-                layer: r.layer !== undefined ? some(r.layer) : none,
-            }, SchematicItemType);
-        });
-
-    const zoneMapper = config.zone;
-    const resolvedZones = config.zones === undefined
-        ? East.value([], ArrayType(SchematicZoneType))
-        : zoneMapper === undefined
-            ? East.value(config.zones as SubtypeExprOrValue<ArrayType<SchematicZoneType>>, ArrayType(SchematicZoneType))
-            : mapRows(East.value(config.zones) as ExprType<ArrayType<StructType>>, SchematicZoneType, (row) => {
-                const r: SchematicZoneFields | ExprType<SchematicZoneType> = zoneMapper(row);
-                if (r instanceof Expr) return East.value(r, SchematicZoneType);
-                return East.value({
-                    key: r.key,
-                    label: r.label,
-                    x: r.x,
-                    y: r.y,
-                    width: r.width,
-                    height: r.height,
-                    pattern: r.pattern !== undefined
-                        ? r.pattern
-                        : East.value(outline(), SchematicZonePatternType),
-                    geometry: r.geometry !== undefined ? some(r.geometry) : none,
-                    tone: toneOption(r.tone),
-                    color: r.color !== undefined ? some(r.color) : none,
-                    bg: r.bg !== undefined ? some(r.bg) : none,
-                    fillOpacity: r.fillOpacity !== undefined ? some(r.fillOpacity) : none,
-                    weight: r.weight !== undefined ? some(r.weight) : none,
-                    layer: r.layer !== undefined ? some(r.layer) : none,
-                }, SchematicZoneType);
-            });
-
-    const linkMapper = config.link;
-    const resolvedLinks = config.links === undefined
-        ? East.value([], ArrayType(SchematicLinkType))
-        : linkMapper === undefined
-            ? East.value(config.links as SubtypeExprOrValue<ArrayType<SchematicLinkType>>, ArrayType(SchematicLinkType))
-            : mapRows(East.value(config.links) as ExprType<ArrayType<StructType>>, SchematicLinkType, (row) => {
-                const r: SchematicLinkFields | ExprType<SchematicLinkType> = linkMapper(row);
-                if (r instanceof Expr) return East.value(r, SchematicLinkType);
-                return East.value({
-                    key: r.key,
-                    from: r.from,
-                    to: r.to,
-                    label: r.label !== undefined ? some(r.label) : none,
-                    metric: r.metric !== undefined ? some(r.metric) : none,
-                    style: r.style !== undefined
-                        ? r.style
-                        : East.value(solid(), SchematicLinkStyleType),
-                    route: r.route !== undefined
-                        ? r.route
-                        : East.value(variant("orthogonal", { corner: none }), SchematicRouteType),
-                    via: r.via !== undefined
-                        ? East.value(r.via, ArrayType(SchematicPointType))
-                        : East.value([], ArrayType(SchematicPointType)),
-                    layer: r.layer !== undefined ? some(r.layer) : none,
-                }, SchematicLinkType);
-            });
-
-    const netMapper = config.net;
-    const resolvedNets = config.nets === undefined
-        ? East.value([], ArrayType(SchematicNetType))
-        : netMapper === undefined
-            ? East.value(config.nets as SubtypeExprOrValue<ArrayType<SchematicNetType>>, ArrayType(SchematicNetType))
-            : mapRows(East.value(config.nets) as ExprType<ArrayType<StructType>>, SchematicNetType, (row) => {
-                const r = netMapper(row);
-                return East.value({
-                    key: r.key,
-                    sources: East.value(r.sources, ArrayType(StringType)),
-                    destinations: East.value(r.destinations, ArrayType(StringType)),
-                    label: r.label !== undefined ? some(r.label) : none,
-                    metric: r.metric !== undefined ? some(r.metric) : none,
-                    style: r.style !== undefined
-                        ? r.style
-                        : East.value(solid(), SchematicLinkStyleType),
-                    route: r.route !== undefined
-                        ? r.route
-                        : East.value(variant("orthogonal", { corner: none }), SchematicRouteType),
-                    via: r.via !== undefined
-                        ? East.value(r.via, ArrayType(SchematicPointType))
-                        : East.value([], ArrayType(SchematicPointType)),
-                    layer: r.layer !== undefined ? some(r.layer) : none,
-                }, SchematicNetType);
-            });
-
-    if (config.affordances?.includes("brush")) {
-        throw new Error("Schematic does not support the 'brush' affordance — its 2D canvas has no continuous 1D axis.");
+function inspectorOf(inspector: unknown, kinds: readonly Slotted[]): { pane: boolean; bySlot: Readonly<Record<string, unknown>> } {
+    if (inspector === undefined || inspector === true) return { pane: true, bySlot: {} };
+    if (inspector === false) return { pane: false, bySlot: {} };
+    if (inspector === null || typeof inspector !== "object" || inspector instanceof Expr || Array.isArray(inspector)) {
+        throw new Error("Schematic: `inspector` is on by default — inspector={false} removes the pane, and inspector={{ <slot>: Details }} gives a kind its own Details, " +
+            "each an East function over the row and its writer");
     }
-    const sliceChromeValue = config.slice !== undefined
-        ? East.value({
-            slice: localSliceHandle(config.slice),
-            affordances: East.value(
-                (config.affordances ?? ["search"]).map(a => variant(a, null)),
-                ArrayType(SliceAffordanceType),
-            ),
-        }, SliceChromeType)
-        : undefined;
-
-    return East.value({
-        extent: { width: config.extent.width, height: config.extent.height },
-        items: resolvedItems,
-        zones: resolvedZones,
-        links: resolvedLinks,
-        nets: resolvedNets,
-        scaleUnit: config.scaleUnit !== undefined ? some(config.scaleUnit) : none,
-        grid: config.grid !== undefined ? some(config.grid) : none,
-        navigator: config.navigator !== undefined ? some(config.navigator) : none,
-        minimap: config.minimap !== undefined ? some(config.minimap) : none,
-        slice: sliceChromeValue ? some(sliceChromeValue) : none,
-        // Flat slice-effect props → the flat effect struct (each field static or
-        // reactive via its `SubtypeExprOrValue`); `some` only when any is set.
-        sliceEffect: (config.sliceHidden ?? config.sliceOpacity ?? config.sliceDesaturate
-            ?? config.sliceDot ?? config.sliceEmphasis ?? config.sliceFrame ?? config.sliceFrameFit) !== undefined
-            ? some(East.value({
-                hidden: config.sliceHidden !== undefined ? some(config.sliceHidden) : none,
-                opacity: config.sliceOpacity !== undefined ? some(config.sliceOpacity) : none,
-                desaturate: config.sliceDesaturate !== undefined ? some(config.sliceDesaturate) : none,
-                dot: config.sliceDot !== undefined ? some(config.sliceDot) : none,
-                emphasis: emphasisOption(config.sliceEmphasis),
-                frame: config.sliceFrame !== undefined ? some(config.sliceFrame) : none,
-                frameFit: config.sliceFrameFit !== undefined ? some(config.sliceFrameFit) : none,
-            }, SchematicSliceEffectType))
-            : none,
-        layers: config.layers !== undefined
-            ? some(East.value(config.layers.map(toLayer), ArrayType(SchematicLayerType)))
-            : none,
-        height: config.height !== undefined ? some(config.height) : none,
-        maxHeight: config.maxHeight !== undefined ? some(config.maxHeight) : none,
-        onSelect: config.onSelect !== undefined ? some(config.onSelect) : none,
-        selectionMode: config.selectionMode !== undefined
-            ? some(typeof config.selectionMode === "string" ? variant(config.selectionMode, null) : config.selectionMode)
-            : none,
-        onSelectionChange: config.onSelectionChange !== undefined ? some(config.onSelectionChange) : none,
-        sliceSelectField: config.sliceSelectField !== undefined ? some(config.sliceSelectField) : none,
-        selectZoomFocus: config.selectZoomFocus !== undefined ? some(config.selectZoomFocus) : none,
-        onViewportChange: config.onViewportChange !== undefined ? some(config.onViewportChange) : none,
-        onItemOpen: config.onItemOpen !== undefined ? some(config.onItemOpen) : none,
-        onSelectZone: config.onSelectZone !== undefined ? some(config.onSelectZone) : none,
-        onZoneSelectionChange: config.onZoneSelectionChange !== undefined ? some(config.onZoneSelectionChange) : none,
-        linkMode: config.linkMode !== undefined
-            ? some(typeof config.linkMode === "string" ? variant(config.linkMode, null) : config.linkMode)
-            : none,
-        onCreateLink: config.onCreateLink !== undefined ? some(config.onCreateLink) : none,
-        onSelectLink: config.onSelectLink !== undefined ? some(config.onSelectLink) : none,
-        onEditLink: config.onEditLink !== undefined ? some(config.onEditLink) : none,
-        onDeleteLink: config.onDeleteLink !== undefined ? some(config.onDeleteLink) : none,
-        readOnly: config.readOnly !== undefined ? some(config.readOnly) : none,
-        readOnlyLinks: config.readOnlyLinks !== undefined ? some(config.readOnlyLinks) : none,
-        readOnlyItems: config.readOnlyItems !== undefined ? some(config.readOnlyItems) : none,
-        onMoveItem: config.onMoveItem !== undefined ? some(config.onMoveItem) : none,
-        itemHover: config.itemHover !== undefined ? some(East.value(config.itemHover, FunctionType([StringType], UIComponentType))) : none,
-        zoneHover: config.zoneHover !== undefined ? some(East.value(config.zoneHover, FunctionType([StringType], UIComponentType))) : none,
-        linkHover: config.linkHover !== undefined ? some(East.value(config.linkHover, FunctionType([StringType], UIComponentType))) : none,
-        onEditNet: config.onEditNet !== undefined ? some(config.onEditNet) : none,
-        canConnect: config.canConnect !== undefined ? some(config.canConnect) : none,
-    }, SchematicRootType);
+    const bySlot = inspector as Readonly<Record<string, unknown>>;
+    for (const slot of Object.keys(bySlot)) {
+        const kind = kinds.find((k) => k.slot === slot);
+        if (kind === undefined) {
+            throw new Error(`Schematic: \`inspector\` gives "${slot}" its own Details, and no kind is in that slot — its kinds' slots are ${kinds.map((k) => `"${k.slot}"`).join(", ")}`);
+        }
+        if (kind.kind.ownInspector) {
+            throw new Error(`Schematic: \`inspector.${slot}\` gives the ${NOUN[kind.sort]} kind "${slot}" its own Details, and so does the kind's own \`inspector\` — give them in one place`);
+        }
+    }
+    return { pane: true, bySlot };
 }
 
 /**
- * Creates the schematic's root alone — what `<Schematic>` returns through the
- * `Schematic` carrier — for the tests and the renderer's fixtures, which read
- * it whole.
+ * Creates the Schematic's payload alone — what `<Schematic>` returns through
+ * the `Schematic` carrier — for the tests and the renderer's fixtures, which
+ * read it whole.
  *
- * @typeParam I - The items-table input
- * @typeParam Z - The zones-table input
- * @typeParam L - The links-table input
- * @typeParam N - The nets-table input
- * @param items - The placed-item rows
- * @param config - The Schematic configuration ({@link SchematicConfig}) and
- *   its `zones`, `links` and `nets` tables
- * @returns An East expression of {@link SchematicRootType}
- * @throws {Error} When `affordances` lists `"brush"` — a 2D canvas has no
- *   continuous 1D axis
+ * @param props - The Schematic's props ({@link SchematicProps})
+ * @returns An East expression of {@link SchematicPayloadType}
+ * @throws {Error} Naming the prop and the remedy (SC3): each prop §2 removes — rows and their mappers, the callbacks
+ *   for an edit, `linkMode`, `readOnlyLinks` and `readOnlyItems`, the hover cards, `affordances` outside `slice`, the
+ *   slice's effect props, `sliceSelectField`, `selectionMode`, `navigator`, `height` and `maxHeight`, `onSelect` and
+ *   `onSelectZone` — and a prop the Schematic doesn't take; an `extent` that is no pair of positive numbers; no item
+ *   kind; a sort given rows rather than kinds by slot, a slot holding a kind of another sort, and one slot holding two
+ *   kinds; a link's end or a net's side holding keys of a slot that holds no item kind; a `slice` that is not
+ *   `{ slice }`, or not `Slice.bindRecords`, or holding a source nothing names, or the brush; a templates list naming
+ *   no source of the slice; a `narrowed` of another form; layers without a key and a label, or listing a key twice; an
+ *   `inspector` of another kind, a key that is no kind's slot, or a slot whose kind gives its own Details too; each of
+ *   the library's refusals (`library.ts`); and each kind's refusals of its binding (SC33)
  * @internal
  */
-export function createSchematicPayload<
-    I extends SubtypeExprOrValue<ArrayType<StructType>>,
-    Z extends SubtypeExprOrValue<ArrayType<StructType>> = [],
-    L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
-    N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
->(
-    items: I,
-    config: SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>, RowElement<N>> & { zones?: Z; links?: L; nets?: N },
-): ExprType<SchematicRootType> {
-    return buildRoot(items, config as unknown as SchematicConfig<StructType, StructType, StructType>);
+export function createSchematicPayload(props: object): ExprType<SchematicPayloadType> {
+    const given = props as SchematicAnyProps;
+    for (const [prop, remedy] of Object.entries(REMOVED)) {
+        if (prop in given) throw new Error(prop === "item" || prop === "zone" || prop === "link" || prop === "net" ? remedy : `Schematic: \`${prop}\` is gone — ${remedy}`);
+    }
+    for (const prop of Object.keys(given)) {
+        if (!PROPS.has(prop) && !(prop === "children" && given[prop] === undefined)) {
+            throw new Error(`Schematic: \`${prop}\` is not a prop of <Schematic> — it takes ${[...PROPS].join(", ")}`);
+        }
+    }
+    const extent = extentOf(given.extent);
+
+    // The kinds, by slot (§1, rule 5): each slot names its kind, and the source of the slice that narrows it.
+    const items = kindsOf("items", given.items);
+    if (items.length === 0) throw new Error(`Schematic: needs its items — items={{ <slot>: ${DECLARE.items} }}, one item kind at least, over the app's record`);
+    const zones = kindsOf("zones", given.zones);
+    const links = kindsOf("links", given.links);
+    const nets = kindsOf("nets", given.nets);
+    const kinds = [...items, ...zones, ...links, ...nets];
+    const slotted = new Map<string, Slotted>();
+    for (const one of kinds) {
+        const held = slotted.get(one.slot);
+        if (held !== undefined) {
+            throw new Error(`Schematic: the slot "${one.slot}" holds two kinds — ${held.sort === "items" ? "an" : "a"} ${NOUN[held.sort]} kind and ` +
+                `${one.sort === "items" ? "an" : "a"} ${NOUN[one.sort]} kind: each slot names one kind, and the source of the slice that narrows it`);
+        }
+        slotted.set(one.slot, one);
+    }
+    // A link's ends and a net's sides hold keys of item slots.
+    const itemSlots = items.map((one) => one.slot);
+    const holdsItems = (one: Slotted, prop: string, slot: string) => {
+        if (!itemSlots.includes(slot)) {
+            throw new Error(`Schematic: the ${NOUN[one.sort]} kind "${one.slot}"'s \`${prop}\` holds keys of "${slot}", which holds no item kind — ` +
+                `its item slots are ${itemSlots.map((s) => `"${s}"`).join(", ")}`);
+        }
+    };
+    for (const one of links) {
+        const ends = (one.kind as SchematicLinks).ends;
+        for (const slot of ends.from) holdsItems(one, "from", slot);
+        for (const slot of ends.to) holdsItems(one, "to", slot);
+    }
+    for (const one of nets) {
+        const sides = (one.kind as SchematicNets).sides;
+        holdsItems(one, "sources", sides.sources);
+        holdsItems(one, "destinations", sides.destinations);
+    }
+
+    // The narrowing (§10.1): one Slice.bindRecords, each source named after what it narrows.
+    const slice = given.slice;
+    if (slice !== undefined && (slice instanceof Expr || typeof slice !== "object" || slice === null || !("slice" in slice))) {
+        throw new Error("Schematic: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { … }), affordances?, persist? }}, " +
+            "each source named after the kind it narrows; a bare Slice.bind handle beside rows is gone");
+    }
+    const narrowing = slice as RecordSlicesChromeOptions | undefined;
+    if (narrowing?.affordances?.includes("brush") === true) {
+        throw new Error("Schematic: `slice`'s affordances list \"brush\", and a 2D canvas has no continuous axis to brush along — mount fields, search, presets or summary");
+    }
+    // Templates are records (#1340, ruling 9): each list names its source of the slice, refused with the change to make
+    // before a source no list names is.
+    const sliceNames = sliceSourceNames(narrowing);
+    const templateSources: string[] = [];
+    if (narrowing === undefined || isRecordSlices(narrowing.slice)) {
+        for (const one of kinds) {
+            if (one.kind.hasTemplates) templateSources.push(templatesSource("Schematic", "Schematic.templates(rows, { …, source })", one.kind.templatesSource, sliceNames));
+        }
+    }
+    const tabSources = schematicTabSources(given.library);
+    const names = [...new Set([...kinds.map((one) => one.slot), ...templateSources, ...tabSources])];
+    const sources = recordSources(narrowing, {
+        builder: "Schematic", names, what: "its kinds, each by its slot, and the templates lists and tabs that name a source",
+    });
+    const library = buildSchematicLibrary(given.library, {
+        kinds: kinds.map((one): SchematicLibraryKind => ({
+            slot: one.slot, sort: one.sort, rowType: one.kind.rowType,
+            templates: one.kind.hasTemplates,
+            backlog: one.sort === "items" && (one.kind as SchematicItems).backlog,
+        })),
+        layers: Array.isArray(given.layers) ? given.layers.length : 0,
+        sources: sources.names,
+    });
+    const inspector = inspectorOf(given.inspector, kinds);
+    const narrowed = narrowedOf(given.narrowed);
+    const layers = layersOf(given.layers);
+    const name = given.name;
+    if (name !== undefined && typeof name !== "string") throw new Error("Schematic: `name` names the Schematic — a string, needed only when one surface holds two");
+    const optional = (value: unknown) => value === undefined ? none : some(value);
+
+    return Expr.block(($) => {
+        // Each source bound once (#1356): a kind reads its own source inside its functions.
+        const bound = sources.bind($);
+        const shown = East.value(new Map(Object.entries(bound.keys)) as never, ShownType) as ExprType<typeof ShownType>;
+        const built = (sort: Slotted["sort"]) => kinds.filter((one) => one.sort === sort)
+            .map((one) => one.kind.build(one.slot, bound.parts[one.slot], inspector.bySlot[one.slot]));
+        return East.value({
+            extent,
+            scaleUnit: optional(given.scaleUnit),
+            items: built("items"),
+            zones: built("zones"),
+            links: built("links"),
+            nets: built("nets"),
+            layers,
+            slice: sources.chrome,
+            shown,
+            narrowed,
+            library,
+            inspector: inspector.pane,
+            readOnly: given.readOnly ?? false,
+            name: name === undefined ? none : some(name),
+            grid: optional(given.grid),
+            minimap: optional(given.minimap),
+            selectZoomFocus: optional(given.selectZoomFocus),
+            canConnect: optional(given.canConnect),
+            onSelectionChange: optional(given.onSelectionChange),
+            onZoneSelectionChange: optional(given.onZoneSelectionChange),
+            onSelectLink: optional(given.onSelectLink),
+            onViewportChange: optional(given.onViewportChange),
+            onItemOpen: optional(given.onItemOpen),
+        } as never, SchematicPayloadType);
+    });
 }
-
-/**
- * Creates a Schematic — a 2D world-coordinate canvas: its root
- * ({@link createSchematicPayload}), returned through the `Schematic` carrier.
- * The factory `<Schematic>` maps to.
- *
- * @typeParam I - The items-table input
- * @typeParam Z - The zones-table input
- * @typeParam L - The links-table input
- * @typeParam N - The nets-table input
- * @param items - The placed-item rows
- * @param config - The Schematic configuration ({@link SchematicConfig}) and
- *   its `zones`, `links` and `nets` tables
- * @returns An East expression of `UIComponentType` — the `Schematic`
- *   extension over the root
- * @throws {Error} When `affordances` lists `"brush"` — a 2D canvas has no
- *   continuous 1D axis
- * @internal
- */
-export function createSchematicRoot<
-    I extends SubtypeExprOrValue<ArrayType<StructType>>,
-    Z extends SubtypeExprOrValue<ArrayType<StructType>> = [],
-    L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
-    N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
->(
-    items: I,
-    config: SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>, RowElement<N>> & { zones?: Z; links?: L; nets?: N },
-): ExprType<UIComponentType> {
-    return SchematicComponent.Root(createSchematicPayload(items, config));
-}
-
-// ============================================================================
-// The pattern and geometry builders, and the types a schematic is written with
-// ============================================================================
-
-/**
- * The pattern and geometry builders the `Schematic` namespace carries:
- * `Schematic.outline()`, `Schematic.hatch()`, `Schematic.solid()`,
- * `Schematic.dashed()`, `Schematic.rect()`, `Schematic.circle()`,
- * `Schematic.polyline()` and `Schematic.polygon()`.
- */
-export const SchematicBuilders = {
-    /**
-     * Builds an `outline` zone pattern value — the dashed boundary with an
-     * eyebrow label.
-     *
-     * @param config - Optional style configuration (`tone`)
-     * @returns A `SchematicZonePatternType` value
-     */
-    outline,
-    /**
-     * Builds a `hatch` zone pattern value — the hatched band.
-     *
-     * @param config - Optional style configuration (`tone`, `spacing`, `angle`)
-     * @returns A `SchematicZonePatternType` value
-     */
-    hatch,
-    /**
-     * Builds a `solid` link style value — a physical run.
-     *
-     * @param config - Optional stroke configuration (`tone`, `weight`)
-     * @returns A `SchematicLinkStyleType` value
-     */
-    solid,
-    /**
-     * Builds a `dashed` link style value — a routing / logical connection.
-     *
-     * @param config - Optional stroke configuration (`tone`, `weight`)
-     * @returns A `SchematicLinkStyleType` value
-     */
-    dashed,
-    /**
-     * Builds a `rect` geometry value — the axis-aligned box (a zone's
-     * `x/y/width/height`, or an item's point / marker form). Equals omitting
-     * `geometry` / `footprint`.
-     *
-     * @returns A `SchematicGeometryType` value
-     */
-    rect,
-    /**
-     * Builds a `circle` geometry value — a circle centred on the entity
-     * anchor (an item's `x/y`, or a zone's bbox centre). Models columns,
-     * cooling towers and other round equipment.
-     *
-     * @param radius - Circle radius in world units
-     * @returns A `SchematicGeometryType` value
-     */
-    circle,
-    /**
-     * Builds a `polyline` geometry value — an open, arc-aware polyline in
-     * world coordinates, optionally widened into a band (a duct bank / aisle).
-     * Each vertex's `bulge` curves the edge to the next vertex (0 = straight).
-     *
-     * @param vertices - Vertices in world coords, in order (`{ x, y, bulge? }`)
-     * @param config - Optional `width` band in world units
-     * @returns A `SchematicGeometryType` value
-     */
-    polyline,
-    /**
-     * Builds a `polygon` geometry value — a closed, arc-aware polygon in
-     * world coordinates (a rotated / L-shaped zone, or an equipment
-     * footprint). The last vertex's `bulge` curves the closing edge.
-     *
-     * @param vertices - Boundary vertices in world coords, in order (auto-closed; `{ x, y, bulge? }`)
-     * @returns A `SchematicGeometryType` value
-     */
-    polygon,
-} as const;
-
-/**
- * East types for the schematic's root, rows, closed-set fields and events —
- * the namespace's `Schematic.Types`.
- */
-export const SchematicTypes = {
-    /**
-     * East StructType for the Schematic component.
-     *
-     * @remarks
-     * See {@link SchematicRootType} for per-field docs.
-     *
-     * @property extent - World-coordinate bounds
-     * @property items - The placed items
-     * @property zones - Annotation zones
-     * @property links - Connections between items
-     * @property scaleUnit - Optional scale-bar unit
-     * @property onSelect - Optional item-click callback
-     */
-    Schematic: SchematicRootType,
-    /**
-     * A resolved placed item.
-     *
-     * @property key - Item identity
-     * @property x - World x of the card centre
-     * @property y - World y of the card centre
-     * @property label - Primary identity line
-     * @property sublabel - Optional muted second line
-     * @property icon - Optional Font Awesome solid icon name
-     * @property status - Optional status dot tone
-     * @property meter - Optional mini utilisation bar
-     * @property metric - Optional live metric text
-     * @property width - Optional world width (wide bar form)
-     * @property footprint - Optional shape footprint (point + icon when absent)
-     */
-    Item: SchematicItemType,
-    /**
-     * A resolved annotation zone.
-     *
-     * @property key - Zone identity
-     * @property label - Eyebrow label
-     * @property x - World x (top-left)
-     * @property y - World y (top-left)
-     * @property width - World width
-     * @property height - World height
-     * @property pattern - Render pattern
-     * @property geometry - Optional shape geometry (rect when absent)
-     */
-    Zone: SchematicZoneType,
-    /**
-     * A resolved link between items.
-     *
-     * @property key - Link identity
-     * @property from - Source item key
-     * @property to - Destination item key
-     * @property style - Render style
-     * @property via - Waypoints, in order
-     */
-    Link: SchematicLinkType,
-    /**
-     * Zone render pattern (`outline` / `hatch`).
-     *
-     * @property outline - Dashed boundary with an eyebrow label
-     * @property hatch - Hatched band
-     */
-    ZonePattern: SchematicZonePatternType,
-    /**
-     * Link render style (`solid` / `dashed`), each carrying stroke config.
-     *
-     * @property solid - A physical run
-     * @property dashed - A routing / logical connection
-     */
-    LinkStyle: SchematicLinkStyleType,
-    /**
-     * Link routing mode (`orthogonal` / `direct`).
-     *
-     * @property orthogonal - Axis-aligned with rounded corners
-     * @property direct - Straight segments between anchors
-     */
-    Route: SchematicRouteType,
-    /**
-     * Theme tone for zone strokes, hatching, and links.
-     *
-     * @property brand - Brand teal
-     * @property ink - Foreground ink
-     * @property muted - Muted foreground
-     * @property success - Status ok
-     * @property warning - Status warn
-     * @property danger - Status bad
-     */
-    Tone: SchematicToneType,
-    /**
-     * Shared shape geometry for zones (`geometry`) and item footprints
-     * (`footprint`).
-     *
-     * @property rect - Axis-aligned box
-     * @property circle - Circle centred on the entity anchor (`radius` in world units)
-     * @property polyline - Open, arc-aware polyline; optional world-space band width
-     * @property polygon - Closed, arc-aware polygon (>= 3 vertices)
-     */
-    Geometry: SchematicGeometryType,
-    /**
-     * A polyline / polygon vertex — a world point plus DXF `bulge`.
-     *
-     * @property x - World x
-     * @property y - World y
-     * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
-     */
-    Vertex: SchematicVertexType,
-    /**
-     * A named layer — a toggleable group of items / zones / links.
-     *
-     * @property key - Layer identity (entities reference it via `layer`)
-     * @property label - Panel display name
-     * @property visible - Author default visibility
-     * @property locked - Author default lock (non-selectable)
-     * @property opacity - Item dim (0–1)
-     * @property tone - Panel swatch tone
-     */
-    Layer: SchematicLayerType,
-    /**
-     * The flat slice-driven render effect struct (mirrors the `slice*` props).
-     */
-    SliceEffect: SchematicSliceEffectType,
-    /**
-     * Matched-item emphasis (`halo` / `pulse`) — annotate `State` with it to
-     * drive `sliceEmphasis` reactively.
-     */
-    Emphasis: SchematicEmphasisType,
-    /**
-     * Selection cardinality (`single` / `multiple` / `range`) — drive
-     * `selectionMode` reactively or read it back.
-     */
-    SelectionMode: SchematicSelectionModeType,
-    /**
-     * A world-coordinate rectangle swept by a marquee gesture.
-     *
-     * @property minX - Left edge (world units)
-     * @property minY - Top edge (world units)
-     * @property maxX - Right edge (world units)
-     * @property maxY - Bottom edge (world units)
-     */
-    Region: SchematicRegionType,
-    /**
-     * Selection-set change event passed to `onSelectionChange`.
-     *
-     * @property key - The item that triggered the change (some for a tap; none for marquee / clear)
-     * @property selected - Whether `key` is now selected; for bulk changes, whether the set is non-empty
-     * @property selectedKeys - The full selected set after the gesture
-     * @property additive - Whether the gesture added to the prior selection vs replaced it
-     * @property region - The world rectangle a marquee swept (some for a marquee; none otherwise)
-     */
-    SelectionEvent: SchematicSelectionEventType,
-    /**
-     * Viewport-settled event passed to `onViewportChange` — the camera zoom
-     * plus the visible world rectangle, debounced to gesture settle points.
-     *
-     * @property zoom - The settled camera zoom (1 = fully zoomed out)
-     * @property minX - Left edge of the visible world rect
-     * @property minY - Top edge of the visible world rect
-     * @property maxX - Right edge of the visible world rect
-     * @property maxY - Bottom edge of the visible world rect
-     */
-    ViewportEvent: SchematicViewportEventType,
-    /**
-     * Zone selection-set change event passed to `onZoneSelectionChange` —
-     * the selected zones plus the item keys inside them.
-     *
-     * @property key - The zone that triggered the change (some for a tap; none for a clear)
-     * @property selected - Whether `key` is now selected; for bulk changes, whether the set is non-empty
-     * @property selectedKeys - The full selected zone set after the gesture
-     * @property childItemKeys - Item keys inside the selected zones (nested descendants included)
-     * @property additive - Whether the gesture added to the prior selection vs replaced it
-     */
-    ZoneSelectionEvent: SchematicZoneSelectionEventType,
-    /**
-     * Connect-gesture mode (`draw` | `connect`) — `draw` adds a physical
-     * link locally; `connect` is event-only and repeatable.
-     */
-    LinkMode: SchematicLinkModeType,
-    /**
-     * One connection's endpoints — the unit a connect gesture produces.
-     *
-     * @property key - Renderer-generated key for the gesture's connection
-     * @property from - Source item key
-     * @property to - Destination item key
-     */
-    LinkEndpoints: SchematicLinkEndpointsType,
-    /**
-     * Link-creation event passed to `onCreateLink` — the newest link, the
-     * accumulated Shift-session, and the pair's existing links.
-     *
-     * @property link - The newest connection (this drag)
-     * @property links - The full session set, `link` included
-     * @property additive - True when Shift extended an open session
-     * @property existing - Keys of links already joining the newest pair
-     */
-    LinkCreateEvent: SchematicLinkCreateEventType,
-    /**
-     * Link-edit event passed to `onEditLink` — the endpoints AFTER an
-     * endpoint connector re-target.
-     *
-     * @property key - The edited link's key
-     * @property from - Source item key after the edit
-     * @property to - Destination item key after the edit
-     */
-    LinkEditEvent: SchematicLinkEditEventType,
-    /**
-     * A net — a bus link (many `sources` → many `destinations`,
-     * drawn as a trunk with branches).
-     *
-     * @property key - Net identity
-     * @property sources - Source item keys
-     * @property destinations - Destination item keys
-     * @property label - Optional mid-trunk label
-     * @property metric - Optional mid-trunk metric (muted)
-     * @property style - Stroke style for the whole net
-     * @property route - Trunk routing mode
-     * @property via - Optional trunk waypoints
-     * @property layer - Optional layer membership
-     */
-    Net: SchematicNetType,
-    /**
-     * A connect-session collapsed to net endpoints (stable session `key`)
-     * — carried on every `onCreateLink` for upsert-style handlers.
-     *
-     * @property key - The session key (stable across the session's commits)
-     * @property sources - Distinct source item keys so far
-     * @property destinations - Distinct destination item keys so far
-     */
-    NetEndpoints: SchematicNetEndpointsType,
-    /**
-     * Item-move event passed to `onMoveItem` — the pressed item's final
-     * position, every moved key (group move rides the selection), and the
-     * shared world delta.
-     *
-     * @property key - The pressed item's key
-     * @property x - Final world x
-     * @property y - Final world y
-     * @property keys - Every moved item (`key` included)
-     * @property dx - Shared world x delta
-     * @property dy - Shared world y delta
-     */
-    ItemMoveEvent: SchematicItemMoveEventType,
-} as const;

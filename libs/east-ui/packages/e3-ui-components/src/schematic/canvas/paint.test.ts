@@ -252,7 +252,7 @@ describe("parallelLanes (#180 fan-out)", () => {
 
 describe("netGeometry (bus-bar nets)", () => {
     it("1→N column: vertical header bar offset toward the trunk, a stub per rack, interior taps only", () => {
-        // The schematicNets PDU fixture: PDU-1 at (2.5,6.5), four racks at x=10.
+        // A power distribution unit's circuits: PDU-1 at (2.5,6.5), four racks at x=10.
         const geo = netGeometry(
             [{ x: 2.5, y: 6.5 }],
             [{ x: 10, y: 1.8 }, { x: 10, y: 4.6 }, { x: 10, y: 7.4 }, { x: 10, y: 10.2 }],
@@ -273,7 +273,7 @@ describe("netGeometry (bus-bar nets)", () => {
     });
 
     it("2→1 with a via waypoint: bar offset clamps to the 0.9 minimum and the trunk threads the via", () => {
-        // The schematicNets uplinks fixture: TOR-A/TOR-B → SPINE via (20,6).
+        // Two uplinks: TOR-A/TOR-B → SPINE via (20,6).
         const geo = netGeometry(
             [{ x: 17.5, y: 3.4 }, { x: 17.5, y: 8.2 }],
             [{ x: 24, y: 6 }],

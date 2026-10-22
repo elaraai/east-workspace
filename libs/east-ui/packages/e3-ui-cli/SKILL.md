@@ -50,7 +50,7 @@ e3-ui https://e3.example.com             # a bare origin → the repositories li
 # Screenshots need the browser once per machine (add --with-deps on fresh Linux servers):
 e3-ui install-browser
 e3-ui shot --from-source ./dashboard.tsx -o dashboard.png
-e3-ui shot --from-source test/schematic/schematic.examples.tsx -e schematicNets -o nets.png
+e3-ui shot --from-source test/collections/table.examples.tsx -e tableBasic -o table.png
 e3-ui shot --from-task main.dashboard --repo ./.repos -o dashboard.png
 e3-ui shots src --out .shots --json      # EVERYTHING renderable under src/
 ```
@@ -299,7 +299,7 @@ npm run shot        # = e3-ui shot --from-source src/ui/index.tsx --export surfa
 e3-ui shot --from-source test/display/combine.examples.tsx -e combineDensities -o combine.png
 
 # Width-flexible component (Schematic/Plan/Table) — mount the frame at viewport width
-e3-ui shot --from-source test/schematic/schematic.examples.tsx -e schematicStress --frame-width full -o stress.png
+e3-ui shot --from-source test/collections/table.examples.tsx -e tableFrozen --frame-width full -o frozen.png
 
 # Sweep a whole project (the --ui scaffold wires this as `npm run shots`):
 e3-ui shots src --out .shots            # PNGs, faithful width, typed skip reasons

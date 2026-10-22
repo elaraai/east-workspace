@@ -1,128 +1,83 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
- * Licensed under AGPL-3.0. See LICENSE file for details.
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * @vitest-environment jsdom
  *
- * Mount smoke test. The Schematic renderer is a single large component whose
- * hooks/memos all execute on first render — a declaration-order slip (a memo
- * reading state declared later, #179's TDZ) crashes EVERY mount yet is invisible
- * to the vite build (no typecheck) and to the pure module tests (nothing mounts).
- * jsdom has no layout and no 2D canvas, so the size-gated paint path stays off —
- * exactly enough to prove the hook graph itself is sound.
+ * The Schematic over the app's records, on e3 itself (#1386): each example
+ * mounted as the showcase mounts it, its kinds' records read through e3-web —
+ * whole, or through their source of the slice — and drawn: each item a card
+ * named by its kind and key, an unplaced row drawn nowhere, a record another
+ * session changes redrawn. The mount also proves the renderer's hook graph
+ * sound (a memo reading state declared later crashes every mount, #179).
  */
 
-import { describe, test, expect, afterEach, vi } from "vitest";
-import { render, cleanup } from "@testing-library/react";
-import { ChakraProvider } from "@chakra-ui/react";
-import { defaultValue, variant, some, none } from "@elaraai/east";
-import { system } from "@elaraai/east-ui-components";
-import { Schematic } from "@elaraai/e3-ui/internal";
-import { EastChakraSchematic, type SchematicValue, type SchematicItemValue, type SchematicLinkValue, type SchematicNetValue, type SchematicZoneValue } from "./index.js";
+import { beforeEach, afterEach, expect, test } from "vitest";
+import { waitFor } from "@testing-library/react";
+import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
+import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { entityId } from "./canvas/drawn.js";
+import "./index.js";
 
-afterEach(cleanup);
+const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
 
-// jsdom lacks ResizeObserver (the canvas size probe); a no-op keeps `size` null,
-// which is the untested-layout path the component already guards everywhere.
-if (typeof globalThis.ResizeObserver === "undefined") {
-    vi.stubGlobal("ResizeObserver", class {
-        observe(): void { /* no layout in jsdom */ }
-        unobserve(): void { /* no layout in jsdom */ }
-        disconnect(): void { /* no layout in jsdom */ }
-    });
-}
-
-/** An item at (x, y): the Item type's default value, keyed and placed. */
-function item(key: string, x: number, y: number): SchematicItemValue {
-    return { ...defaultValue<typeof Schematic.Types.Item>(Schematic.Types.Item), key, label: key, x, y };
-}
-
-/** Three items in a cage, an uplink between two of them and a bus from one to the other two. */
-function mkValue(): SchematicValue {
-    const link: SchematicLinkValue = {
-        ...defaultValue<typeof Schematic.Types.Link>(Schematic.Types.Link),
-        key: "l1", from: "A", to: "B", label: some("uplink"),
-        style: variant("solid", { tone: none, weight: none }),
-        route: variant("orthogonal", { corner: none }),
-    };
-    const net: SchematicNetValue = {
-        ...defaultValue<typeof Schematic.Types.Net>(Schematic.Types.Net),
-        key: "n1", sources: ["A"], destinations: ["B", "C"],
-        style: variant("solid", { tone: none, weight: none }),
-        route: variant("orthogonal", { corner: none }),
-    };
-    const zone: SchematicZoneValue = {
-        ...defaultValue<typeof Schematic.Types.Zone>(Schematic.Types.Zone),
-        key: "z1", label: "Cage A", x: 0, y: 0, width: 10, height: 6,
-        pattern: variant("outline", { tone: none }),
-    };
-    return {
-        ...defaultValue<typeof Schematic.Types.Schematic>(Schematic.Types.Schematic),
-        extent: { width: 20, height: 10 },
-        items: [item("A", 2, 2), item("B", 8, 2), item("C", 8, 6)],
-        zones: [zone],
-        links: [link],
-        nets: [net],
-        scaleUnit: some("m"),
-        selectionMode: some(variant("multiple", null)),
-    };
-}
-
-describe("EastChakraSchematic (jsdom mount)", () => {
-    test("mounts with items + zones + links + nets and renders the canvas host", () => {
-        const { container } = render(
-            <ChakraProvider value={system}>
-                <EastChakraSchematic value={mkValue()} storageKey="dom-smoke" />
-            </ChakraProvider>,
-        );
-        expect(container.querySelector("[data-schematic-canvas]")).not.toBeNull();
-    });
-
-    test("remounts cleanly with a different value (prop-replace path)", () => {
-        const first = render(
-            <ChakraProvider value={system}>
-                <EastChakraSchematic value={mkValue()} storageKey="dom-smoke-2" />
-            </ChakraProvider>,
-        );
-        const next: SchematicValue = { ...mkValue(), items: [item("A", 1, 1)], links: [], nets: [] };
-        first.rerender(
-            <ChakraProvider value={system}>
-                <EastChakraSchematic value={next} storageKey="dom-smoke-2" />
-            </ChakraProvider>,
-        );
-        expect(first.container.querySelector("[data-schematic-canvas]")).not.toBeNull();
-    });
+// jsdom lays nothing out: the canvas is given the box a page would give it —
+// 45 px a world unit for the 18 × 12 floor, 38.6 for the 28 × 14 data centre,
+// the camera at rest — so each item is wide enough to draw as its card.
+beforeEach(() => {
+    for (const [name, px] of [["clientWidth", 1080], ["clientHeight", 540]] as const) {
+        Object.defineProperty(HTMLElement.prototype, name, {
+            configurable: true,
+            get(this: HTMLElement) { return this.hasAttribute("data-schematic-canvas") ? px : 0; },
+        });
+    }
 });
 
-/** Three items, B outside the slice, under a slice effect of the given emphasis: engaged from the first render. */
-function emphasised(emphasis: "pulse" | "halo"): SchematicValue {
-    const at = (key: string, x: number, y: number, excluded: boolean): SchematicItemValue =>
-        ({ ...defaultValue<typeof Schematic.Types.Item>(Schematic.Types.Item), key, label: key, x, y, excluded: some(excluded) });
-    return {
-        ...defaultValue<typeof Schematic.Types.Schematic>(Schematic.Types.Schematic),
-        extent: { width: 20, height: 10 },
-        items: [at("A", 2, 2, false), at("B", 8, 2, true), at("C", 8, 6, false)],
-        sliceEffect: some({ ...defaultValue<typeof Schematic.Types.SliceEffect>(Schematic.Types.SliceEffect), emphasis: some(variant(emphasis, null)) }),
-    };
-}
+afterEach(() => {
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+});
 
-/** The card layer: the element the camera's variables are written on. */
-const cardLayer = (container: HTMLElement) =>
-    [...container.querySelectorAll<HTMLElement>("[data-schematic-canvas] *")].find(el => el.style.getPropertyValue("--cam-ppu") !== "");
+/** An item's card, by its kind and key. */
+const card = (container: HTMLElement, kind: string, key: string) =>
+    container.querySelector<HTMLElement>(`[data-card-key=${JSON.stringify(entityId({ kind, key }))}]`);
 
-describe("EastChakraSchematic — the pulse emphasis", () => {
-    test("its frames breathe the card layer, though they start before the canvas is measured and the layer mounts; stopped, the layer they wrote rests at 0", async () => {
-        const r = render(<ChakraProvider value={system}><EastChakraSchematic value={emphasised("pulse")} storageKey="dom-pulse" /></ChakraProvider>);
-        const layer = await vi.waitFor(() => {
-            const el = cardLayer(r.container);
-            expect(["", "0"]).not.toContain(el?.style.getPropertyValue("--pulse") ?? "");
-            return el!;
-        });
-        // The halo is still, so the pulse stops: no frame runs again, and the layer it breathed is at rest.
-        r.rerender(<ChakraProvider value={system}><EastChakraSchematic value={emphasised("halo")} storageKey="dom-pulse" /></ChakraProvider>);
-        expect(cardLayer(r.container)).toBe(layer);
-        expect(layer.style.getPropertyValue("--pulse")).toBe("0");
-        await new Promise<void>(resolve => { requestAnimationFrame(() => { requestAnimationFrame(() => { resolve(); }); }); });
-        expect(layer.style.getPropertyValue("--pulse")).toBe("0");
-    });
+test("the floor draws each rack of its record as a card named by its kind and key, its roles as the kind maps them", async () => {
+    const { container } = await h.mount(ex.schematicFloor);
+    await waitFor(() => expect(container.querySelectorAll("[data-card-key]")).toHaveLength(6));
+    const a01 = card(container, "racks", "A01")!;
+    expect(a01.textContent).toContain("A01");
+    expect(a01.textContent).toContain("42U · 8 kW");
+    // Its meter: 5.2 kW of 8.
+    expect(a01.querySelector<HTMLElement>("[data-meter] > *")?.style.width).toBe("65%");
+    // The record is read whole, as Data.bind reads it, and nothing is written.
+    expect(h.requests("mutate")).toEqual([]);
+    expect(container.querySelector("[data-schematic]")?.hasAttribute("aria-busy")).toBe(false);
+});
+
+test("a rack another session moves is drawn where its record now places it", async () => {
+    const { container } = await h.mount(ex.schematicFloor);
+    await waitFor(() => expect(card(container, "racks", "B02")).not.toBeNull());
+    const before = card(container, "racks", "B02")!.style.transform;
+    const racks = await h.read(ex.schematicFloorRacks);
+    const b02 = racks.get("B02")!;
+    await h.patch(ex.schematicFloorRacks, new Map([...racks, ["B02", { ...b02, x: 12.0, y: 8.6 }]]));
+    await waitFor(() => expect(card(container, "racks", "B02")!.style.transform).not.toBe(before));
+    expect(card(container, "racks", "B02")!.style.transform).toContain("12");
+});
+
+test("the data centre draws each kind's rows — the racks through their source of the slice, never read whole — and draws no unplaced rack", async () => {
+    const { container } = await h.mount(ex.schematicDataCentre);
+    // The racks' source scans its narrowing a page at a time: settled, every page has landed.
+    await settle();
+    await waitFor(() => expect(card(container, "racks", "A01")).not.toBeNull());
+    for (const key of ["A01", "A02", "A03", "A04", "A05"]) expect(card(container, "racks", key)).not.toBeNull();
+    // A06 and A07 have no position: the kind's backlog, drawn nowhere.
+    expect(card(container, "racks", "A06")).toBeNull();
+    expect(card(container, "racks", "A07")).toBeNull();
+    // The racks are read through their source — its key searches and pages — and never whole.
+    expect(h.requests("read", "records.schematic_racks")).toEqual([]);
+    expect(h.requests(undefined, "records.schematic_racks").length).toBeGreaterThan(0);
+    // The navigator lists the areas, which hold the racks inside them.
+    expect(container.textContent).toContain("Cage A");
 });

@@ -319,15 +319,23 @@ Each wire changed under this rule, with the kind it is.
   Plan's kinds on the wire (`ScheduleKindType`, `PlanEventKindType`) are
   unchanged. The Allocation's extension, which takes them too, is new in this
   release: no earlier release wrote it, so no form of it moves.
-- **east-ui's `UIComponentType` loses its `Schematic` arm (#1384, #1386)** —
-  package-borne. The schematic is e3-ui's `<Schematic>`, carried as the
-  `Schematic` extension, its payload the root the arm carried — its items,
-  zones, links and nets, its layers and its slice. As with the Plan's, the
-  Sheet's and the Flowchart's arms, every case after `Schematic` moves down
-  one, so a UI value encoded under either type does not decode under the
-  other: packages are re-exported, and the dataflow computes each UI task's
-  output again under the new type. A UI task's output is not stored state, so
-  no repository upgrade step ships with it.
+- **east-ui's `UIComponentType` loses its `Schematic` arm, and the schematic
+  draws the app's records (#1384, #1386)** — package-borne. The schematic is
+  e3-ui's `<Schematic>`, carried as the `Schematic` extension. Its payload is
+  not the root the arm carried, the host's rows mapped to items, zones, links
+  and nets: it carries a kind over the app's record for each
+  (`SchematicItemKindType`, `SchematicZoneKindType`, `SchematicLinkKindType`,
+  `SchematicNetKindType`), each closed over beast2 bytes as Schedule's kinds
+  are, so the payload is one type whatever the app's rows hold; its layers;
+  the chrome of a Slice over several records (`slice`) and each source's keys
+  (`shown`); how a row the narrowing leaves out draws (`narrowed`); and its
+  library's tabs. A prop the root took that the payload does not is refused at
+  build, naming what replaces it. As with the Plan's, the Sheet's and the
+  Flowchart's arms, every case after `Schematic` moves down one, so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.
 - **e3 gains the area index, and the interval index a constructor of its own
   (#1385)** — package-borne, and no wire changes. `e3.recordIndex.area` builds
   an index object as every index's is: its key function, which the SDK

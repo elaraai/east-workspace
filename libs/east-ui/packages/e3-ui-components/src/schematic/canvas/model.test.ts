@@ -8,22 +8,22 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { defaultValue, variant, some, none, type ValueTypeOf } from "@elaraai/east";
-import { Schematic } from "@elaraai/e3-ui/internal";
+import { defaultValue, variant, some, none } from "@elaraai/east";
+import { SchematicDrawnItemType, SchematicDrawnZoneType, type DrawnItem, type DrawnZone } from "./drawn";
 import { buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./model";
 
-type ItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
-type ZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;
+type ItemValue = DrawnItem;
+type ZoneValue = DrawnZone;
 
-/** An item at (x, y): the Item type's default value, keyed and placed. */
+/** An item at (x, y): the drawn item type's default value, keyed and placed. */
 function item(key: string, x: number, y: number, label = key): ItemValue {
-    return { ...defaultValue<typeof Schematic.Types.Item>(Schematic.Types.Item), key, x, y, label };
+    return { ...defaultValue<typeof SchematicDrawnItemType>(SchematicDrawnItemType), key, x, y, label };
 }
 
-/** A zone over a rect: the Zone type's default value, keyed, placed and patterned. */
+/** A zone over a rect: the drawn zone type's default value, keyed, placed and patterned. */
 function zone(key: string, x: number, y: number, width: number, height: number, pattern: "outline" | "hatch" = "outline"): ZoneValue {
     return {
-        ...defaultValue<typeof Schematic.Types.Zone>(Schematic.Types.Zone),
+        ...defaultValue<typeof SchematicDrawnZoneType>(SchematicDrawnZoneType),
         key, label: key, x, y, width, height,
         pattern: pattern === "hatch"
             ? variant("hatch", { tone: none, spacing: none, angle: none })
