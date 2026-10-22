@@ -16,8 +16,9 @@
  * library's (#1389): the pane and its tabs, their cards' lines and nouns, what
  * an empty tab and a tab the rail empties say, the Index's search, its zones'
  * and the zone in view, the Layers tab's controls, and a followed source's
- * failed narrowing. A host translates the Schematic where it translates its
- * formatters.
+ * failed narrowing; and its drops' (#1390): where a card lands, why a drop is
+ * refused, and a drop's step in the history. A host translates the Schematic
+ * where it translates its formatters.
  *
  * @packageDocumentation
  */
@@ -151,7 +152,37 @@ export interface SchematicMessages {
     sourceChanged: (p: { name: string }) => string;
     /** A followed source's results could not be read. */
     sourceFailed: (p: { name: string }) => string;
+    /**
+     * Where a card dropped at a point lands, as the ghost says it and the history names its drop (#1390): the zone
+     * holding the point, if one does, and the point as the drawing's scale unit measures it — `Cage A · 6.04, 2.91 m`.
+     */
+    dropAt: (p: { zone: string | undefined; x: string; y: string; unit: string | undefined }) => string;
+    /** What a card dropped on an entity lands on, as the ghost says it — `onto A03`; `name` is the entity's. */
+    dropOnto: (p: { name: string }) => string;
+    /** A link, as a drop's words name it: by its ends' items — `A01 → ODF-1`. */
+    linkEnds: (p: { from: string; to: string }) => string;
+    /** The entities of a kind a card's ⏎ drops on, several of them — `3 racks`; `name` is the kind's, as running text writes it. */
+    dropMany: (p: SchematicCount & { name: string }) => string;
+    /** Why a drop is refused where the drag rests: red under the ghost, and for a card's ⏎ in the footer. */
+    dropRefused: (p: SchematicDropRefusalWord) => string;
+    /** Where a drag that lands nowhere rests, as a screen reader hears it. */
+    dropCanvas: () => string;
+    /**
+     * A drop's step in the history, and its Save's — `Drop 42U rack · 8 kW at Cage A · 6.04, 2.91 m`, `Drop Uplink ·
+     * 100G on A01 → ODF-1`: `where` is where it lands, and `onto` whether that is an entity.
+     */
+    dropLabel: (p: { card: string; where: string; onto: boolean }) => string;
 }
+
+/**
+ * Why a drop is refused, as its words say it (#1390): outside the drawing; no
+ * entity of the card's kind under the drag; its kind read only; or its kind's
+ * session taking no edit now — `kind` is the kind's name, as running text
+ * writes it.
+ */
+export type SchematicDropRefusalWord =
+    | { readonly why: "outside" }
+    | { readonly why: "onto" | "readOnly" | "busy"; readonly kind: string };
 
 /** A tab of the library, as its words name it: its own, or an author's (`tab`). */
 export type SchematicLibraryTabWord = "templates" | "backlog" | "index" | "layers" | "tab";
@@ -163,6 +194,19 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 
 /** Words as a sentence starts them. */
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The article a noun takes, by the sound English spelling gives its first letter. */
+const article = (noun: string): string => (/^[aeiou]/i.test(noun) ? "an" : "a");
+
+/** Why a drop is refused, in English. */
+function dropRefused(p: SchematicDropRefusalWord): string {
+    switch (p.why) {
+        case "outside": return "Outside the drawing";
+        case "onto": return `Drop onto ${article(p.kind)} ${p.kind}`;
+        case "readOnly": return `${capital(p.kind)}s are read only`;
+        case "busy": return `${capital(p.kind)}s take no edit now`;
+    }
+}
 
 /** Each of the library's own tabs' name. */
 const TAB_NAMES: { readonly [T in Exclude<SchematicLibraryTabWord, "tab">]: string } = {
@@ -260,6 +304,13 @@ export const schematicMessages: SchematicMessages = {
     sourceUnavailable: ({ name }) => `${capital(name)} results unavailable`,
     sourceChanged: ({ name }) => `${capital(name)} results changed; retry the narrowing.`,
     sourceFailed: ({ name }) => `Could not load ${name} results`,
+    dropAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
+    dropOnto: ({ name }) => `onto ${name}`,
+    linkEnds: ({ from, to }) => `${from} → ${to}`,
+    dropMany: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
+    dropRefused,
+    dropCanvas: () => "the canvas",
+    dropLabel: ({ card, where, onto }) => `Drop ${card} ${onto ? "on" : "at"} ${where}`,
 };
 
 /** The words a Schematic speaks: its message table, and its locale's formatters. */

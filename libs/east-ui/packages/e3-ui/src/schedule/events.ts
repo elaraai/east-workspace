@@ -91,7 +91,7 @@ import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, Tic
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
-import { checkKeyField, fieldOf, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
+import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
 import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
@@ -979,36 +979,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         return result;
     });
     // A setter for every field, at any depth: an inspector edit writes one (`field`), its value as bytes at the field's type.
-    const setters: { path: readonly string[]; set: ExprType<FunctionType<[EastType, BlobType], EastType>> }[] = [];
-    const setterOf = (prefix: readonly string[], name: string, type: EastType): ExprType<FunctionType<[EastType, BlobType], EastType>> =>
-        East.function([rowType, BlobType], rowType, (_$, row, bytes) => {
-            const value = bytes.decodeBeast(type, "v2") as ExprType<EastType>;
-            // The structs down the path, each with the field below it replaced, rebuilt from the leaf up.
-            const chain: { struct: StructType; field: string; at: ExprType<EastType> }[] = [];
-            let at = row as ExprType<EastType>;
-            let struct: StructType = rowType;
-            for (const step of prefix) {
-                chain.push({ struct, field: step, at });
-                at = fieldOf(at, step);
-                struct = (struct.fields as Record<string, EastType>)[step] as StructType;
-            }
-            const leaf = struct;
-            const leafAt = at;
-            let next = East.value(Object.fromEntries(Object.keys(leaf.fields).map((f) => [f, f === name ? value : fieldOf(leafAt, f)])) as never, leaf) as ExprType<EastType>;
-            for (let i = chain.length - 1; i >= 0; i--) {
-                const link = chain[i]!;
-                const inner = next;
-                next = East.value(Object.fromEntries(Object.keys(link.struct.fields).map((f) => [f, f === link.field ? inner : fieldOf(link.at, f)])) as never, link.struct) as ExprType<EastType>;
-            }
-            return next as never;
-        }) as unknown as ExprType<FunctionType<[EastType, BlobType], EastType>>;
-    const collect = (struct: StructType, prefix: readonly string[]): void => {
-        for (const [name, type] of Object.entries(struct.fields as Record<string, EastType>)) {
-            setters.push({ path: [...prefix, name], set: setterOf(prefix, name, type) });
-            if (type.type === "Struct") collect(type, [...prefix, name]);
-        }
-    };
-    collect(rowType, []);
+    const setters = fieldSetters(rowType);
 
     /**
      * The reads a build's events come by (#1199, #1343): through the kind's source of its builder's slice, its

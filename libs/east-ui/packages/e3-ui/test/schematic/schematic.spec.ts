@@ -624,6 +624,46 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.equal(row.notes.type, "none");
     });
 
+    hostTest("an author's card sets its fields: each write at its path, in order, every other field as it was; a write naming no field writes nothing (#1390)", () => {
+        const written = racks.set(rackBytes(A01), [
+            { path: ["owner"], value: encodeBeast2For(StringType)("Elmway College") },
+            { path: ["notes"], value: encodeBeast2For(OptionType(StringType))(none) },
+        ]);
+        if (written.type !== "some") assert.fail("both fields are the rack's");
+        assert.ok(rackEqual(rackOf(written.value), { ...A01, owner: "Elmway College", notes: none }));
+        // A role's field is a field of the row too: a card that sets it moves the rack.
+        const moved = racks.set(rackBytes(A01), [{ path: ["x"], value: encodeBeast2For(FloatType)(9.0) }]);
+        if (moved.type !== "some") assert.fail("x is the rack's");
+        assert.ok(rackEqual(rackOf(moved.value), { ...A01, x: 9.0 }));
+        // Two writes of one field: the later one stands.
+        const twice = racks.set(rackBytes(A01), [
+            { path: ["hall"], value: encodeBeast2For(StringType)("Hall 2") }, { path: ["hall"], value: encodeBeast2For(StringType)("Hall 3") },
+        ]);
+        if (twice.type !== "some") assert.fail("hall is the rack's");
+        assert.equal(rackOf(twice.value).hall, "Hall 3");
+        assert.equal(racks.set(rackBytes(A01), [{ path: ["tenant"], value: encodeBeast2For(StringType)("Elmway College") }]).type, "none", "a field the row lacks");
+        assert.equal(racks.set(rackBytes(A01), [
+            { path: ["owner"], value: encodeBeast2For(StringType)("Elmway College") }, { path: ["owner", "name"], value: encodeBeast2For(StringType)("x") },
+        ]).type, "none", "a path into a field that is no struct names no field");
+    });
+
+    hostTest("a card's write reaches a field inside a struct of the row by its path, the struct's other fields as they were", () => {
+        const Spec = StructType({ units: IntegerType, kw: FloatType });
+        const Shelf = StructType({ name: StringType, x: FloatType, y: FloatType, spec: Spec });
+        const S1 = { name: "S1", x: 1.0, y: 2.0, spec: { units: 42n, kw: 8.0 } };
+        const shelves = kindOf(Schematic.Types.ItemKind, ($) => {
+            const record = $.let(recordHandle(DictType(StringType, Shelf), new Map([["S1", S1]]), "shelves")());
+            return Schematic.items(record, { name: "Shelf", icon: "server", x: "x", y: "y", label: "name" }).build("shelves");
+        });
+        const written = shelves.set(encodeBeast2For(Shelf)(S1), [{ path: ["spec", "kw"], value: encodeBeast2For(FloatType)(12.0) }]);
+        if (written.type !== "some") assert.fail("spec.kw is the shelf's");
+        assert.ok(equalFor(Shelf)(decodeBeast2For(Shelf)(written.value), { ...S1, spec: { units: 42n, kw: 12.0 } }));
+        // The struct whole is a field too.
+        const whole = shelves.set(encodeBeast2For(Shelf)(S1), [{ path: ["spec"], value: encodeBeast2For(Spec)({ units: 48n, kw: 12.0 }) }]);
+        if (whole.type !== "some") assert.fail("spec is the shelf's");
+        assert.ok(equalFor(Shelf)(decodeBeast2For(Shelf)(whole.value), { ...S1, spec: { units: 48n, kw: 12.0 } }));
+    });
+
     hostTest("a drafted row's roles are those its rows give the stored one", () => {
         const rows = racks.rows();
         if (rows.type !== "some") assert.fail("a record read whole holds its rows");
@@ -776,6 +816,25 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
         assert.ok(equalFor(OptionType(Schematic.Types.Status))(a01.status, some({ label: "Hot", tone: variant("danger", null), ring: false })));
         assert.equal(read.value.has("A02"), false, "a rack with no details row shows none");
         assert.equal(details.editable, false);
+        // A details row's fields are set as a kind's are.
+        const set = details.set(encodeBeast2For(Load)(LOADS.get("A01")!), [{ path: ["kw"], value: encodeBeast2For(FloatType)(6.5) }]);
+        if (set.type !== "some") assert.fail("kw is the load's");
+        assert.ok(equalFor(Load)(decodeBeast2For(Load)(set.value), { kw: 6.5, cap: 8.0, alarm: variant("hot", null) }));
+    });
+
+    hostTest("a link's and a net's fields are set as an item's are: a fibre run's speed, a feed's name", () => {
+        const u1 = FIBRE.get("u1")!;
+        const fibre = links.set(fibreBytes(u1), [{ path: ["speed"], value: encodeBeast2For(StringType)("400G") }]);
+        if (fibre.type !== "some") assert.fail("speed is the run's");
+        assert.ok(equalFor(FibreType)(fibreOf(fibre.value), { ...u1, speed: "400G" }));
+        const nets = kindOf(Schematic.Types.NetKind, ($) => {
+            const record = $.let(feedsRecord());
+            return Schematic.nets(record, { name: "Feed", icon: "plug", sources: { field: "supply", of: "racks" }, destinations: { field: "racks", of: "racks" } }).build("feeds");
+        });
+        const f1 = FEEDS.get("f1")!;
+        const feed = nets.set(encodeBeast2For(Feed)(f1), [{ path: ["name"], value: encodeBeast2For(StringType)("Feed A") }]);
+        if (feed.type !== "some") assert.fail("name is the feed's");
+        assert.ok(equalFor(Feed)(decodeBeast2For(Feed)(feed.value), { ...f1, name: "Feed A" }));
     });
 });
 

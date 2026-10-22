@@ -76,15 +76,18 @@ test("component renderer changes retain shared and new checks and union explicit
     assert.ok(!selected.some(t => t.includes(" › roster.spec.ts:") || t.includes(" › plan-geometry.spec.ts:")));
 });
 
-test("the Schematic's renderer narrows to its own frame's suite and the shared checks, which hold its hosts, and none of another component's own (#1384, #1387)", () => {
+test("the Schematic's renderer narrows to its own suites and the shared checks, which hold its hosts, and none of another component's own (#1384, #1387–#1390)", () => {
     const impact = classifyChanges(["libs/east-ui/packages/e3-ui-components/src/schematic/canvas/paint.ts"]);
     assert.deepEqual({ mode: impact.mode, components: impact.components }, { mode: "focused", components: ["schematic"] });
     const selected = selectTests(suite(), impact);
-    for (const spec of ["schematic-frame", "foundations", "visual-invariants", "toolbar-touch", "builder-loading"]) {
+    for (const spec of ["schematic-frame", "schematic-editing", "schematic-library", "schematic-drop", "foundations", "visual-invariants", "toolbar-touch", "builder-loading"]) {
         const original = suite().filter(t => t.includes(` › ${spec}.spec.ts:`));
         assert.ok(original.length > 0 && original.every(t => selected.includes(t)), spec);
     }
     assert.ok(!selected.some(t => t.includes(" › roster.spec.ts:") || t.includes(" › flowchart-records.spec.ts:")));
+    // Another component's change runs none of the Schematic's own suites.
+    const flowchart = selectTests(suite(), classifyChanges(["libs/east-ui/packages/e3-ui-components/src/flowchart/index.tsx"]));
+    assert.ok(!flowchart.some(t => /› schematic-(?:drop|editing|frame|library)\.spec\.ts:/.test(t)));
 });
 
 test("Playwright resolves focused lists and all their smaller shards exactly once", () => {

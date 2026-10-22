@@ -24,8 +24,12 @@
  *   it — drafted, else as the record holds it — through its kind's `write`, so
  *   only its roles' fields move (SC2); a new row is its kind's `create`, its
  *   key minted unique among every key the Schematic has read and drafted
- *   (`mintKey`, SC7); a deleted one is removed. A gesture any of whose rows its
- *   kind refuses records nothing.
+ *   (`mintKey`, SC7); a deleted one is removed. A drop (#1390) writes the same
+ *   way: a template's new item through its kind's `create`; a link or net
+ *   template's values over a link or a net through its kind's `create` over
+ *   the ends or the sides its row holds, so they and its key stay as they are
+ *   (SC11); an author's card's fields through its kind's `set`. A gesture any
+ *   of whose rows its kind refuses records nothing.
  * - **Its drafts.** Each draft is decoded once: its roles read through its
  *   kind's `read`, kept while its session keeps the entry's version — what the
  *   frame draws over the stored rows (`drafted.ts`).
@@ -37,7 +41,7 @@
  */
 
 import { useCallback, useMemo, useRef } from "react";
-import { StringType, equalFor, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, equalFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditHistory, EntryVersion, Origin } from "@elaraai/east-ui-components";
 import {
@@ -119,6 +123,11 @@ function someOf<T>(value: option<T>): T | undefined {
     return value.type === "some" ? value.value : undefined;
 }
 
+/** Every kind of the payload, in the Schematic's order of its sorts: items', zones', links' and nets'. */
+function kindsOf(value: Pick<SchematicValue, "items" | "zones" | "links" | "nets">): readonly AnyKind[] {
+    return [...value.items, ...value.zones, ...value.links, ...value.nets];
+}
+
 /**
  * The Schematic's sessions over its records, and their drafts (see the module
  * docs).
@@ -131,7 +140,7 @@ function someOf<T>(value: option<T>): T | undefined {
  */
 export function useSchematicEditing(value: SchematicValue, storageKey: string, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[],
     held: SchematicHeldRows): SchematicEditing {
-    const kinds = useMemo((): readonly AnyKind[] => [...value.items, ...value.zones, ...value.links, ...value.nets],
+    const kinds = useMemo((): readonly AnyKind[] => kindsOf({ items: value.items, zones: value.zones, links: value.links, nets: value.nets }),
         [value.items, value.zones, value.links, value.nets]);
     // Each kind bound with its patch door, and each one's details so bound, in the Schematic's order of its sorts — none
     // while the Schematic is read only.
@@ -237,6 +246,37 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                     const row = of(payload.nets, slot)?.create(edit.sides, edit.values);
                     if (row === undefined || row.type !== "some") return false;
                     changes.push({ kind: slot, id, row: row.value, created: true });
+                    break;
+                }
+                case "item": {
+                    const row = of(payload.items, slot)?.create(edit.at, edit.values);
+                    if (row === undefined || row.type !== "some") return false;
+                    changes.push({ kind: slot, id, row: row.value, created: true });
+                    break;
+                }
+                case "retype": {
+                    // A template's values over the ends or the sides the row holds as the gesture finds it: they and its key stay.
+                    const link = of(payload.links, slot);
+                    const net = link === undefined ? of(payload.nets, slot) : undefined;
+                    if (link !== undefined) {
+                        changes.push({ kind: slot, id, rewrite: (row) => {
+                            const roles = link.read(row, id);
+                            return someOf(link.create({ from: roles.from, to: roles.to }, some(edit.values)));
+                        } });
+                    } else if (net !== undefined) {
+                        changes.push({ kind: slot, id, rewrite: (row) => {
+                            const roles = net.read(row, id);
+                            return someOf(net.create({ sources: roles.sources, destinations: roles.destinations }, some(edit.values)));
+                        } });
+                    } else {
+                        return false;
+                    }
+                    break;
+                }
+                case "set": {
+                    const kind = of(kindsOf(payload), slot);
+                    if (kind === undefined) return false;
+                    changes.push({ kind: slot, id, rewrite: (row) => someOf(kind.set(row, [...edit.sets])) });
                     break;
                 }
             }

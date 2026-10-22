@@ -169,6 +169,14 @@ export interface PaintInput {
      * endpoint connector handles for re-targeting. A net LEG selection
      * narrows the halo to that one stub (#189 follow-up). */
     selectedLink?: { key: string; editable: boolean; leg?: { end: "source" | "destination"; item: string } };
+    /**
+     * Where a library card's drop lands while its drag rests there (#1390):
+     * the point a template's item or a backlog row lands at, in world units —
+     * a ring there — or the entity a card lands on, by its id: a zone's
+     * dashed brand edge, a link's or a net's brand wash, a marker's brand
+     * ring. A card-tier item's mark is its DOM card's (`data-drop-target`).
+     */
+    dropMark?: { kind: "point"; x: number; y: number } | { kind: "entity"; id: string };
 }
 
 const css = (c: RGB, a = 1): string =>
@@ -672,9 +680,11 @@ function drawEdgeLabel(
 
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
-    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, tints, effect, layerHiddenKeys, layerAlpha, draftLink, session, connectFlash, selectedLink } = input;
+    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, tints, effect, layerHiddenKeys, layerAlpha, draftLink, session, connectFlash, selectedLink, dropMark } = input;
     // An entity's colour by its id, as the bridge resolved it; else its kind's ground.
     const tintOf = (key: string, ground: RGB): string => css(tints.get(key) ?? ground);
+    // The entity a library card's drop lands on, by its id (#1390).
+    const dropOn = dropMark?.kind === "entity" ? dropMark.id : undefined;
     const wx = (x: number) => x * cam.ppu + cam.tx;
     const wy = (y: number) => y * cam.ppu + cam.ty;
     const ppu = cam.ppu;
@@ -830,6 +840,29 @@ export function paintSchematic(input: PaintInput): void {
             ctx.restore();
         }
 
+        // The zone a card's drop lands on (#1390): the brand's wash, under a dashed brand edge — a selection's is solid.
+        if (dropOn === zone.key) {
+            ctx.save();
+            ctx.beginPath();
+            if (geom !== undefined && geom.type === "circle") {
+                ctx.arc(x + w / 2, y + h / 2, geom.value.radius * ppu, 0, Math.PI * 2);
+            } else if (geom !== undefined && geom.type === "polygon") {
+                traceVertices(ctx, placedVertices(anchor, geom.value.vertices).map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge })), true);
+            } else {
+                ctx.rect(x, y, w, h);
+            }
+            ctx.globalAlpha = 0.5;
+            ctx.fillStyle = css(p.brandTint);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.setLineDash([6, 4]);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = css(p.brandSolid);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+        }
+
         // eyebrow label at the bbox top-left (the minimap's anchor), in the mono face
         if (w >= zone.label.length * 6.2 + 24) {
             ctx.font = p.eyebrowFont;
@@ -880,6 +913,16 @@ export function paintSchematic(input: PaintInput): void {
         // Its style's tone, or its style's own: a solid run the brand's, a dashed one muted.
         const color = tintOf(link.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
         ctx.lineCap = "round";
+        // The link a card's drop lands on (#1390): the brand's wash, wide under its line.
+        if (dropOn === link.key) {
+            ctx.save();
+            ctx.lineWidth = weight + 10;
+            ctx.strokeStyle = css(p.brandSolid, 0.3);
+            ctx.beginPath();
+            traceRounded(ctx, pts, corner);
+            ctx.stroke();
+            ctx.restore();
+        }
         ctx.strokeStyle = color;
         ctx.lineWidth = weight;
         ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
@@ -958,8 +1001,18 @@ export function paintSchematic(input: PaintInput): void {
         const geo = netGeometry(srcPts, dstPts, net.via);
         ctx.save();
         ctx.lineCap = "round";
-        ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
         const trunkPts = routed(geo.trunk);
+        // The net a card's drop lands on (#1390): the brand's wash, wide under its trunk, its bars and its stubs.
+        if (dropOn === net.key) {
+            ctx.lineWidth = weight + 10;
+            ctx.strokeStyle = css(p.brandSolid, 0.3);
+            for (const pl of [trunkPts, ...geo.bars.map(bar => bar.map(toScreen)), ...geo.stubs.map(stub => stub.map(toScreen))]) {
+                ctx.beginPath();
+                traceRounded(ctx, pl, corner);
+                ctx.stroke();
+            }
+        }
+        ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
         ctx.strokeStyle = color;
         ctx.lineWidth = weight + 1;
         ctx.beginPath();
@@ -1284,6 +1337,33 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.fillText(item.label, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
             }
         }
+        ctx.restore();
+        // The marker a card's drop lands on (#1390): a brand ring about it, wider than a selection's.
+        if (dropOn === item.key) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(x, y, (tier === "label" ? 18 : 11) + 4, 0, Math.PI * 2);
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = css(p.brandSolid);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    // ---- where a template's item or a backlog row lands (#1390) --------------
+    // A ring at the drop point, over every marker: the item's centre once it lands.
+    if (dropMark?.kind === "point") {
+        const x = wx(dropMark.x), y = wy(dropMark.y);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = css(p.brandSolid);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = css(p.brandSolid);
+        ctx.fill();
         ctx.restore();
     }
 }

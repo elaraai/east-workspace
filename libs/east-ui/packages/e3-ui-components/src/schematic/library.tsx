@@ -35,9 +35,18 @@
  * are — whose cards are keyed as the canvas names what they are: a template's and a
  * backlog row's by its kind's slot and its key, as East prints a
  * `Schematic.Types.Ref`; an author's by its row's key. A click selects a card,
- * and a click on the selected card lets it go. The cards drag from the
- * libraries `${schematicKeys(id).library}:<the tab's key>` once the canvas
- * takes them (#1390).
+ * and a click on the selected card lets it go: the template selected is what
+ * a Connect's new link or net takes its fields from (§4.3). The frame keeps
+ * which card each tab has selected.
+ *
+ * Each card that drops is a drag source (#1390): every template, every
+ * backlog row, and an author's tab's cards when its patch names a kind. They
+ * drag from the libraries `${schematicKeys(id).library}:<the tab's key>`
+ * ({@link schematicLibraryId}), which the canvas takes drops from
+ * (`use-drop.ts`). A card that drops takes ⏎ too — dropped on the selection,
+ * or at the view's centre — and on a touch screen a tap on the selected card
+ * does the same, so no drop needs a precise drag (SC13); the tap leaves it
+ * selected, for the next.
  *
  * The pane is the frame's start pane, 272px open, its open tab and its
  * collapsed state kept under the Schematic's `id`; collapsed, its rail counts
@@ -46,12 +55,12 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, equalFor, none, some } from "@elaraai/east";
 import type { schematicKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraLibrary, getSomeorUndefined,
+    EastChakraLibrary, getSomeorUndefined, useCoarsePointer,
     type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
 } from "@elaraai/east-ui-components";
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
@@ -158,6 +167,12 @@ export interface SchematicLibraryProps {
     readonly words: SchematicWords;
     /** What each source of the rail its tabs follow shows: each templates record's, and each an author's tab names. */
     readonly followed: FollowedSources;
+    /** The card each card tab has selected, by the tab's key: the frame's. */
+    readonly picked: ReadonlyMap<string, string>;
+    /** A click on a card of a tab, by the tab's key and the card's: it selects the card, or lets the selected one go. */
+    readonly onPick: (tabKey: string, key: string) => void;
+    /** A card's ⏎ (#1390, SC13): the card, by its library and its key, dropped on the selection or at the view's centre. */
+    readonly enter?: ((library: string, key: string) => void) | undefined;
 }
 
 /** A tab's narrowing in the Schematic's words: the shared narrowing, its empty state said by its message table. */
@@ -198,27 +213,37 @@ function templatesTab(value: SchematicValue, followed: FollowedSources, words: S
  * @returns The pane — its tabs the ones `library` lists, each with its count — or `undefined`, no pane, when `library` lists none
  */
 export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameDock | undefined {
-    const { value, zones, items, backlog, backlogNarrowing, layers, layerCounts, layerView, onLayerView, inView, selected, onReveal, keys, words, followed } = props;
+    const {
+        value, zones, items, backlog, backlogNarrowing, layers, layerCounts, layerView, onLayerView, inView, selected, onReveal, keys, words, followed,
+        picked, onPick, enter,
+    } = props;
     const m = words.m;
     const styles = useSlotRecipe({ key: "schematic" })() as Styles;
     const library = value.library;
     const listsBacklog = library.some((tab) => tab.type === "backlog");
+    // A touch screen: a tap on the selected card drops it, as its ⏎ does (SC13).
+    const coarse = useCoarsePointer();
 
-    // The card each card tab's click selected, by the tab's key: a click on another moves it, a click on it lets it go.
-    const [picked, setPicked] = useState<ReadonlyMap<string, string>>(() => new Map());
-    const onCard = useCallback((tabKey: string, key: string) => {
-        setPicked((was) => {
-            const next = new Map(was);
-            const chosen = was.get(tabKey);
-            if (chosen !== undefined && stringEqual(chosen, key)) next.delete(tabKey);
-            else next.set(tabKey, key);
-            return next;
-        });
-    }, []);
     const isPicked = useCallback((tabKey: string, key: string) => {
         const chosen = picked.get(tabKey);
         return chosen !== undefined && stringEqual(chosen, key);
     }, [picked]);
+    // Each tab whose cards drop takes ⏎ on a card (#1390): the card, dropped on the selection or at the view's centre —
+    // one function per tab, held still. An author's tab drops when its patch names a kind.
+    const enters = useMemo(() => new Map(library.flatMap((tab): [string, (key: string) => void][] => {
+        if (enter === undefined) return [];
+        const drops = tab.type === "templates" || tab.type === "backlog" || (tab.type === "tab" && tab.value.drop.type === "some");
+        if (!drops) return [];
+        const tabKey = schematicTabKey(tab);
+        const id = schematicLibraryId(keys, tabKey);
+        return [[tabKey, (key: string) => enter(id, key)]];
+    })), [library, keys, enter]);
+    // A click on a card selects it, or lets the selected one go; on a touch screen, a tap on the selected card is its ⏎ (SC13).
+    const onCard = useCallback((tabKey: string, key: string) => {
+        const onEnter = enters.get(tabKey);
+        if (coarse && onEnter !== undefined && isPicked(tabKey, key)) onEnter(key);
+        else onPick(tabKey, key);
+    }, [enters, coarse, isPicked, onPick]);
     const groupBy = useMemo(() => [{ key: "group", label: m.libraryGroupBy() }], [m]);
     const noun = useCallback((tab: SchematicLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
     const empty = useCallback((tab: SchematicLibraryTabWord, name: string): LibraryEmpty => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
@@ -232,8 +257,8 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
             const icon = getSomeorUndefined(template.icon) ?? (kind.icon === "" ? undefined : kind.icon);
             return scheduleLibraryCard({
                 key, label: template.name, sublabel: some(kind.name), icon: icon === undefined ? none : some(icon), status: none, trailing: none,
-                // A template drags once the canvas takes it (#1390).
-                draggable: false, filtered: false, placed: isPicked("templates", key),
+                // An item kind's lands on the canvas, a link or a net kind's on a link or a net of its kind (#1390).
+                draggable: true, filtered: false, placed: isPicked("templates", key),
                 search: some([template.name, kind.name, getSomeorUndefined(template.group) ?? ""].filter((text) => text !== "").join(" · ")),
                 groups: new Map([["group", m.templateGroup({ kind: kind.name, group: getSomeorUndefined(template.group) })]]),
             });
@@ -254,8 +279,8 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
             const line = m.backlogLine({ kind: name, sublabel: getSomeorUndefined(roles.sublabel) });
             return scheduleLibraryCard({
                 key: id, label: roles.label, sublabel: some(line), icon: icon === undefined ? none : some(icon), status: roles.status, trailing: none,
-                // A backlog row drags once the canvas places it (#1390).
-                draggable: false, filtered: false, placed: isPicked("backlog", id),
+                // A drop places it where it lands (#1390, SC4).
+                draggable: true, filtered: false, placed: isPicked("backlog", id),
                 search: some([roles.label, ref.key, line].join(" · ")),
                 groups: new Map([["group", name]]),
             });
@@ -280,6 +305,8 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
     const authorLibraries = useMemo(() => new Map(authorTabs.map((tab): [string, LibraryValue] => {
         const tabKey = `tab:${tab.name}`;
         const icon = getSomeorUndefined(tab.icon);
+        // Its cards drag when its patch names the kind they land on (#1390).
+        const drops = tab.drop.type === "some";
         return [tabKey, scheduleLibrary({
             id: schematicLibraryId(keys, tabKey),
             items: (authorFollows.get(tabKey)?.cards ?? tab.cards).map((card) => {
@@ -288,8 +315,7 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
                 return scheduleLibraryCard({
                     key: card.key, label: card.label, sublabel: meta === undefined ? none : some(meta), icon: icon === undefined ? none : some(icon),
                     status: none, trailing: none,
-                    // A card whose tab declares a drop drags once the canvas takes it (#1390).
-                    draggable: false, filtered: false, placed: isPicked(tabKey, card.key),
+                    draggable: drops, filtered: false, placed: isPicked(tabKey, card.key),
                     search: some([card.key, card.label, meta ?? ""].filter((text) => text !== "").join(" · ")),
                     groups: group === undefined ? new Map() : new Map([["group", group]]),
                 });
@@ -315,7 +341,7 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
                     return {
                         key: "templates", label: m.libraryTab({ tab: "templates" }), count: templatesFollow.count, shown: templates.items.length,
                         body: body("templates", templatesFollow.pane, (
-                            <EastChakraLibrary value={templates} storageKey={`${keys.library}.templates`}
+                            <EastChakraLibrary value={templates} storageKey={`${keys.library}.templates`} onCardEnter={enters.get("templates")}
                                 empty={templatesFollow.empty === undefined ? undefined : empty("templates", "")}
                                 narrowing={narrowingOf(templatesFollow.narrowing, "templates", "", words)} />
                         )),
@@ -324,7 +350,8 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
                     return {
                         key: "backlog", label: m.libraryTab({ tab: "backlog" }), count: backlogLibrary.items.length, shown: backlogLibrary.items.length,
                         body: body("backlog", {}, (
-                            <EastChakraLibrary value={backlogLibrary} storageKey={`${keys.library}.backlog`} empty={empty("backlog", "")} narrowing={backlogNarrowed} />
+                            <EastChakraLibrary value={backlogLibrary} storageKey={`${keys.library}.backlog`} onCardEnter={enters.get("backlog")}
+                                empty={empty("backlog", "")} narrowing={backlogNarrowed} />
                         )),
                     };
                 case "index":
@@ -349,7 +376,7 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
                     return {
                         key: tabKey, label: tab.value.name, count: follows.count, shown: cards.items.length,
                         body: body(tabKey, follows.pane, (
-                            <EastChakraLibrary value={cards} storageKey={`${keys.library}.${tabKey}`}
+                            <EastChakraLibrary value={cards} storageKey={`${keys.library}.${tabKey}`} onCardEnter={enters.get(tabKey)}
                                 empty={follows.empty === undefined ? undefined : empty("tab", tab.value.name)}
                                 narrowing={narrowingOf(follows.narrowing, "tab", name, words)} />
                         )),
@@ -364,5 +391,5 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
             tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
     }, [library, m, words, styles.libraryPane, templates, templatesFollow, backlogLibrary, backlogNarrowed, zones, items, kindName, inView, selected, onReveal,
-        layers, layerView, onLayerView, layerCounts, authorLibraries, authorFollows, keys, empty, listsBacklog]);
+        layers, layerView, onLayerView, layerCounts, authorLibraries, authorFollows, keys, empty, listsBacklog, enters]);
 }

@@ -53,7 +53,14 @@ focusable tree around the shared virtual rows, marking the zone the viewport
 is in; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
 the UI store under the `id` (`layers-view.ts`), which the canvas obeys — a
 locked layer's entities select by no path; and an author's tabs, each
-following its source. The
+following its source. Its cards drop on the canvas (#1390): `drop.ts` plans
+what a card does where it lands, pure — a template adds an item at the point,
+written at the screen's resolution, or gives a link or a net of its kind its
+values; a backlog row is placed; an author's card sets its `Schematic.patch`
+through the kind's `set` — and `use-drop.ts` is the drop target, the canvas
+its one cell, each drop and each card's ⏎ (a touch screen's tap on the
+selected card) one step of the history; the canvas paints where a card lands,
+and takes none of the shared stage's frame or wash. The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it
