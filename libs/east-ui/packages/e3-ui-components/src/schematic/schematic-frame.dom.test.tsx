@@ -106,12 +106,21 @@ test("the steps walk the items in order, flying to each and selecting it; Zoom a
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "pdus", key: "PDU-A" }])));
     await act(async () => { fireEvent.click(getByRole("button", { name: "Previous item" })); });
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A05" }])));
-    // Zoom in moves the cards' camera; Fit puts it back.
-    const layer = card(container, "racks", "A05")!.parentElement!;
-    await act(async () => { fireEvent.click(getByRole("button", { name: "Zoom in" })); });
-    await waitFor(() => expect(Number(layer.style.getPropertyValue("--cam-ppu"))).toBeGreaterThan(PPU));
+    // The camera flies back to it: the selection lands as the fly begins, and the card draws, selected, on the way. The layer the
+    // cards ride holds the camera, and stays while a card comes and goes with the fly.
+    const layer = await waitFor(() => {
+        const a05 = card(container, "racks", "A05");
+        expect(a05?.hasAttribute("data-selected")).toBe(true);
+        return a05!.parentElement!;
+    });
+    // Fit puts the camera over the whole floor, superseding the fly; Zoom in moves it; Fit puts it back.
+    const ppu = () => Number(layer.style.getPropertyValue("--cam-ppu"));
     await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
-    await waitFor(() => expect(Number(layer.style.getPropertyValue("--cam-ppu"))).toBeCloseTo(PPU, 6));
+    await waitFor(() => expect(ppu()).toBeCloseTo(PPU, 6));
+    await act(async () => { fireEvent.click(getByRole("button", { name: "Zoom in" })); });
+    await waitFor(() => expect(ppu()).toBeGreaterThan(PPU));
+    await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
+    await waitFor(() => expect(ppu()).toBeCloseTo(PPU, 6));
 });
 
 test("the tools: the data centre's every one, its Move over its editable racks and Connect over its fibre runs; the tool held is the viewer's, kept under the Schematic's id", async () => {
