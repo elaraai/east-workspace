@@ -22,8 +22,8 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { East, IntegerType, StringType, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Data } from "@elaraai/e3-ui/internal";
-import { RecordSlicesChromeType, RecordSliceWhereType, Slice, recordSlicesChrome } from "@elaraai/east-ui/internal";
+import { Data, Sheet } from "@elaraai/e3-ui/internal";
+import { RecordSlicesChromeType, RecordSliceWhereType, Reactive, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { E3Request } from "../e3-web.test-utils.js";
@@ -159,6 +159,46 @@ test("the hit check: a segment whose rows disagree with where e3 placed the narr
     expect(ui.numbers().slice(0, 3)).toEqual(["1", "4", "7"]);
     expect(ui.hits().slice(0, 3)).toEqual([true, true, true]);
     expect(ui.row("JOB-10001")).toBeNull();
+});
+
+/** The flagged rows of the benchmark's record, drawn over it: a sheet whose rows source narrows them to the flag. */
+const flaggedRows = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const slice = $.let(Slice.bindRecords("test.lens.turns", {
+        rows: {
+            source: Data.bindPaged(ex.lensBenchRows, { indexes: [ex.lensBenchByGroup, ex.lensBenchByFlag] }),
+            fields: { group: { label: "Group" }, flag: { label: "Flag" } }, initial: { flag: [true] },
+        },
+    }));
+    return Sheet({ slice: { slice }, columns: { group: Sheet.column.integer(ex.LensBenchRow, { header: "Group" }) } });
+}))) };
+
+test("a view meeting more segments of matches than one turn of reads takes reads them all, a turn at a time, and draws every match — no band left reading", async () => {
+    // A hundred thousand rows, one flagged every five thousand: a record segment holds at most 4,096 rows, so each of
+    // the twenty flagged rows is in a segment of its own, and the view, two thousand pixels tall, meets every one.
+    const BENCH = `records.${ex.lensBenchRows.name}`;
+    const stored = new Map<string, ValueTypeOf<typeof ex.LensBenchRow>>();
+    for (let i = 0; i < 100_000; i++) stored.set(`R${String(i).padStart(6, "0")}`, { group: BigInt(i % 10), flag: i % 5_000 === 0 });
+    await h.patch(ex.lensBenchRows, stored);
+    const placements = h.e3.answers((request) => request.kind === "place" && request.dataset === BENCH);
+    const ui = await h.mount(flaggedRows, { storageKey: "sheet-lens-turns" });
+    const rows = () => [...ui.container.querySelectorAll<HTMLElement>('[data-frame-slot="main"] [data-slot="row"][data-row-id]')];
+    const flagged = Array.from({ length: 20 }, (_x, i) => i * 5_000);
+    await waitFor(() => expect(rows().map((r) => r.dataset["rowId"])).toEqual(flagged.map((p) => `R${String(p).padStart(6, "0")}`)), { timeout: 20_000 });
+    await settle();
+    // Every match at its number, marked, and no band left reading: the segments past the first turn were read in the next.
+    expect(rows().map((r) => r.querySelector('[data-slot="gutterNumber"]')!.textContent)).toEqual(flagged.map((p) => String(p + 1)));
+    expect(rows().every((r) => r.querySelector('[data-slot="gutterNumber"]')!.hasAttribute("data-hit"))).toBe(true);
+    expect(ui.container.querySelector('[data-frame-slot="main"] [data-slot="band"][data-band="reading"]')).toBeNull();
+    expect(ui.container.querySelector('[data-slot="toolbarCount"]')?.textContent).toBe("20 matches");
+    // e3 placed the matches in twenty segments: more than one turn reads.
+    const segments = placements.flatMap((answer) => (JSON.parse(new TextDecoder().decode(answer.body)) as { segments: { rows: number }[] }).segments)
+        .filter((segment) => segment.rows > 0);
+    expect(segments.length).toBe(20);
+    expect(segments.length).toBeGreaterThan(LENS_BUDGET);
+    // No row asked of twice, and never the record whole, a row by its key or the narrowing's runs.
+    const asked = h.requests("within", BENCH).map(keysOf);
+    expect(new Set(asked.flat()).size).toBe(asked.flat().length);
+    expect([h.requests("read", BENCH), h.requests("rows", BENCH), h.requests("runs", BENCH)]).toEqual([[], [], []]);
 });
 
 test("its reads follow the view: scrolled to the record's end, it reads the segments there, a page and an ask each, and draws the last match at its number", async () => {

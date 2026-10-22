@@ -181,13 +181,15 @@ its own words for a narrowing that failed; a tab over several sources — the
 Sheet's Rows tab over its templates lists, the Calendar's templates — is
 `sourcesTab`, each card following its own source (#1343, #1345). A read that
 lands in many settles — a window over several sources' interval indexes, each
-some fifty-five key searches that land as one burst a source (#1360) — runs in a
-component of its own that hands the frame what it read only when that moves, as
-the Calendar's `CalendarDataReader` does: a tracked read in the frame re-renders
-the whole frame at every settle (#1343). The paging runtime applies each
-search's answer as it lands, and re-fires the burst's readers once its last
-member is done: the searches of one source's rows launched in one turn. A
-window re-fires as it lands, so rows appear as they arrive. The Calendar reads
+some fifty-five key searches, which a record Slice asks as one batched request
+a source (`seekAll`, #1351) — runs in a component of its own that hands the
+frame what it read only when that moves, as the Calendar's
+`CalendarDataReader` does: a tracked read in the frame re-renders the whole
+frame at every settle (#1343). A batch re-fires its readers once, as it lands;
+single searches of one source's rows launched in one turn are a burst, whose
+answers the paging runtime applies as they land, re-firing the burst's readers
+once its last member is done (#1360). A window re-fires as it lands, so rows
+appear as they arrive. The Calendar reads
 one date window across its event sources (#1343): the first event source holding
 a range leads, its range editor the time navigator's Range panel and every event
 source's range out of the rail; navigation writes the window into each, and a
@@ -213,8 +215,11 @@ with one popup and normal keyboard focus return. Never copy another control
 family into a builder.
 
 Trace every choice to the source. Plan pages its `rows` source and reads each
-event kind through its own (#1344), the Sheet pages its `rows` source (its lens
-is off until #1349) and the Flowchart
+event kind through its own (#1344), the Sheet draws its `rows` source's
+narrowing over the record's rows as the lens (#1349: e3 places the narrowing's
+rows from the index, `recordSlicePlace`, and the lens reads the segments that
+hold them near the view, a page and one `recordSliceWithinAt` each, never a
+segment with no match) and the Flowchart pages
 its `flows` source (#1346), Calendar event kinds read its interval queries, the
 Roster and the Allocation read their period's events through their kind's
 source, the period their navigation writes into it
@@ -238,8 +243,10 @@ until the replacement lands, then swap atomically. Reset the new paging origin.
 A rail's source keeps its id under every narrowing and names the narrowing it
 serves (`query()`, a live source, #1354): a reader keys what it keeps by it as
 by the revision (`snapshotOf`), the Plan's driver taking a new narrowing as a
-new result, the Sheet naming each narrowing's rows apart by the source and the
-narrowing together, and the visibility scan starting again. Editing keeps the
+new result, the Sheet's lens keeping what it read by the revision and the
+narrowing — a new choice keeps the rows and asks again which it holds — and its
+key search starting afresh with each narrowing, and the visibility scan
+starting again. Editing keeps the
 revision alone, so a Save confirms against the record's state whatever the
 narrowing.
 Pending is not empty; errors retain usable data and offer Retry. Mark retained
@@ -259,8 +266,10 @@ whatever the indexed visibility query hides.
 Keep page eviction enabled and independent of sessions. `PagedRuntime` retains
 at most 24 decoded windows; record Slice retains 32 windows capped at 2,048 rows
 each, and the bounds of at most 1,024 landed searches a revision, so a read
-again asks only the searches still pending (#1360). Never raise those bounds or
-pin every page to make Save or a scan finish.
+again asks only the searches still pending (#1360). The Sheet's lens has at
+most 16 pages in flight (`LENS_BUDGET`), reading the segments a view wants a
+turn at a time and keeping only what that view wants (#1349). Never raise those
+bounds or pin every page to make Save or a scan finish.
 Use the shared session's bounded primary-read batches and retain only confirmed
 facts at the committed revision. Save membership checks also accumulate facts
 at one revision. Partial provider pages must resume within their bounded window.

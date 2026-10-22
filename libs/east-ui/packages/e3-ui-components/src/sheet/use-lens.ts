@@ -15,10 +15,12 @@
  * - **Segments near the view.** Each segment of matches the view meets, and
  *   the nearest beyond it either side, is read — its rows through the sheet's
  *   rows source, by position, and which of them the narrowing holds through
- *   `recordSliceWithinAt`, over the same page — as far as the lens's budget of
- *   reads allows, so the record Slice's and the paging runtime's bounded
- *   caches hold what it reads. A segment with no match is never read; a run
- *   the planner opened is read where it is drawn.
+ *   `recordSliceWithinAt`, over the same page — a turn at a time, at most the
+ *   lens's budget of pages in flight, so the record Slice's and the paging
+ *   runtime's bounded caches hold every page it waits on; what has landed is
+ *   kept while the view wants it, so a view meeting more segments than one
+ *   turn reads is read whole, turn by turn. A segment with no match is never
+ *   read; a run the planner opened is read where it is drawn.
  * - **What it has read** is kept by the record's revision and the narrowing:
  *   a choice keeps the rows, its matches asked again; a new revision reads
  *   both again. Until a new narrowing or revision is laid out — its placement
@@ -43,7 +45,7 @@ import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { recordSlicePlace, recordSliceSeek, recordSliceWithinAt } from "@elaraai/east-ui-components/internal";
 import {
-    layoutLens, lensDemand, lensPieces, lensRegions,
+    layoutLens, lensDemand, lensPieces, lensReadInTurns, lensRegions,
     type LensFacts, type LensGeometry, type LensLayout, type LensPiece, type LensPlacement, type LensRow, type LensSegmentState, type LensWords,
 } from "./lens-layout.js";
 import type { LensRun } from "./lens.js";
@@ -52,7 +54,7 @@ import type { SheetPagedSourceValue, SheetRevealValue, SheetRowValue } from "./v
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 
-/** The most pages the lens reads at once: well within the record Slice's 32 cached pages and the paging runtime's held answers. */
+/** The most pages the lens has in flight at once: well within the record Slice's 32 cached pages and the paging runtime's held answers. */
 export const LENS_BUDGET = 16;
 
 /** The segments past the view on either side the lens reads. */
@@ -253,35 +255,37 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         let pieces: LensPiece[] = [];
         if (placement !== undefined) {
             pieces = lensPieces(lensRegions(placement), reveals);
-            const demand = lensDemand(pieces, viewFrom, viewTo, LENS_BEYOND, LENS_BUDGET);
-            for (const p of pieces) {
-                if (!demand.has(p.key)) continue;
-                const failed = cache.failures.get(p.key);
-                if (failed !== undefined) { landed.set(p.key, { error: failed }); continue; }
-                const piece: LandedPiece = {};
+            const wanted = lensDemand(pieces, viewFrom, viewTo, LENS_BEYOND);
+            // A piece has landed whole once its rows — and, over a segment of matches, which of them the narrowing
+            // holds — are kept; a failed one is not asked again until a Retry.
+            const whole = (p: LensPiece): boolean => cache.failures.has(p.key)
+                || (cache.rows.has(p.key) && (p.segment === undefined || cache.hits.has(p.key)));
+            lensReadInTurns(wanted, whole, (p) => {
                 try {
-                    let rows = cache.rows.get(p.key);
-                    if (rows === undefined) {
+                    if (!cache.rows.has(p.key)) {
                         const page = source.page(BigInt(p.from), BigInt(p.count));
-                        if (page.type === "some") { rows = page.value as readonly SheetRowValue[]; cache.rows.set(p.key, rows); }
+                        if (page.type === "some") cache.rows.set(p.key, page.value as readonly SheetRowValue[]);
                     }
-                    piece.rows = rows;
-                    if (p.segment !== undefined) {
-                        let hits = cache.hits.get(p.key);
-                        if (hits === undefined) {
-                            const asked = recordSliceWithinAt(part, where, BigInt(p.from), BigInt(p.count));
-                            if (asked.type === "some") { hits = asked.value; cache.hits.set(p.key, hits); }
-                        }
-                        piece.hits = hits;
+                    if (p.segment !== undefined && !cache.hits.has(p.key)) {
+                        const asked = recordSliceWithinAt(part, where, BigInt(p.from), BigInt(p.count));
+                        if (asked.type === "some") cache.hits.set(p.key, asked.value);
                     }
                 } catch (err) {
                     console.error(`[Sheet] the lens could not read rows ${p.from + 1}–${p.from + p.count}:`, err);
-                    const reason = readFailure(err);
-                    cache.failures.set(p.key, reason);
-                    piece.error = reason;
+                    cache.failures.set(p.key, readFailure(err));
                 }
-                if (piece.error === undefined && (piece.rows === undefined || (p.segment !== undefined && piece.hits === undefined))) pending = true;
-                landed.set(p.key, piece);
+                return whole(p);
+            }, LENS_BUDGET);
+            // Every piece wanted, as far as it has landed: one still to land — in flight, or waiting for a later
+            // turn — keeps the layout from being the narrowing's yet.
+            for (const group of wanted) {
+                for (const p of group) {
+                    const failed = cache.failures.get(p.key);
+                    if (failed !== undefined) { landed.set(p.key, { error: failed }); continue; }
+                    const piece: LandedPiece = { rows: cache.rows.get(p.key), hits: p.segment === undefined ? undefined : cache.hits.get(p.key) };
+                    if (piece.rows === undefined || (p.segment !== undefined && piece.hits === undefined)) pending = true;
+                    landed.set(p.key, piece);
+                }
             }
             // What left the view leaves the cache: the record Slice and the paging runtime keep their own, bounded.
             for (const key of [...cache.rows.keys()]) if (!landed.has(key)) cache.rows.delete(key);
