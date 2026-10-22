@@ -27,14 +27,23 @@
  * - **main** — the canvas (`canvas/view.tsx`), filling main, the minimap and
  *   the scale bar on it and no control of its own; the toolbar drives its
  *   camera and its steps through its handle;
- * - **the footer** — the counts (`counts.ts`) and each record's last save
+ * - **the footer** — the counts (`counts.ts`), each record's last save, the
+ *   changes waiting on Save, each Save's notice and why a gesture was refused
  *   (`footer.tsx`);
  * - **the banners** — a kind whose read failed, each with Retry: a kind read
  *   through its source of the slice asks the source again, and one read whole
- *   is read again;
+ *   is read again; and each record's session's (`SessionBanners`), titled by
+ *   its kind;
  * - **the skeleton** — `BuilderFrame.loading` covers the frame until every
  *   kind has been read once (or its read failed); later reads keep the canvas
  *   and what it draws until they land (§6.5, §10.4).
+ *
+ * Every gesture is one step of one history over a session per record the
+ * Schematic writes (`editing.ts`, #1388): the canvas records each gesture's
+ * edits (`edits.ts`), and draws the stored rows with the drafts in place
+ * (`drafted.ts`). The history item ends the toolbar while a record is edited —
+ * Undo, Redo, Discard and Save — and ⌘Z, ⇧⌘Z and ⌘Y take it anywhere in the
+ * frame but a field typed into.
  *
  * The layers hide, lock and dim the entities on them as their author defaults
  * say (`canvas/layers.ts`). The host hears the whole selection through
@@ -47,19 +56,22 @@
 
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { ArrayType, equalFor, equivalentFor } from "@elaraai/east";
+import { ArrayType, StringType, equalFor, equivalentFor } from "@elaraai/east";
 import { Schematic, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, focusKeySearch, getSomeorUndefined, implementUIComponent, useDataStable, useFormatters,
+    BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
+    implementUIComponent, typedInto, useDataStable, useFormatters, type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import { SchematicCanvas, type SchematicCanvasHandle } from "./canvas/view.js";
-import type { DrawnItem, DrawnLink, DrawnNet, DrawnZone } from "./canvas/drawn.js";
+import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle } from "./canvas/view.js";
+import { entityId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, type SchematicData, type SchematicValue } from "./data.js";
 import { schematicCounts } from "./counts.js";
+import { draftedDrawing, type DraftedCache } from "./drafted.js";
+import { recordSlot, useSchematicEditing } from "./editing.js";
 import { useFindItem, type FindableItem } from "./find.js";
-import { SchematicFooter, savedRecords } from "./footer.js";
+import { SchematicFooter, savedRecords, type SchematicNotice } from "./footer.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
 import { useSchematicToolbarItems } from "./toolbar.js";
 import { offeredTools, toolsInForce, useSchematicTools } from "./tools.js";
@@ -72,6 +84,7 @@ type Styles = Record<string, SystemStyleObject>;
 // is never replaced by a closure-only change.
 const schematicEqual = equivalentFor(Schematic.Types.Payload);
 const layersEqual = equalFor(ArrayType(Schematic.Types.Layer));
+const stringEqual = equalFor(StringType);
 
 export type { SchematicValue } from "./data.js";
 
@@ -91,7 +104,10 @@ export type SchematicNetValue = DrawnNet;
 export interface EastChakraSchematicProps {
     /** The payload, decoded. */
     value: SchematicValue;
-    /** The structural storage key: the frame keeps its panes under the Schematic's `id` (`schematicKeys(id).frame`). */
+    /**
+     * The structural storage key: the editing's sessions are kept under it and the Schematic's `id` (#1388), and the
+     * frame keeps its panes under the `id` (`schematicKeys(id).frame`).
+     */
     storageKey: string;
 }
 
@@ -103,7 +119,7 @@ export interface EastChakraSchematicProps {
  * @param props - The payload and its storage key
  * @returns The Schematic, in its frame
  */
-export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: EastChakraSchematicProps) {
+export const EastChakraSchematic = memo(function EastChakraSchematic({ value, storageKey }: EastChakraSchematicProps) {
     const [data, setData] = useState<SchematicData>(INITIAL_SCHEMATIC_DATA);
     // A Retry of a kind read whole reads every kind again: the read's attempt moves.
     const [attempt, setAttempt] = useState(0);
@@ -111,7 +127,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value }: 
     return (
         <>
             <SchematicDataReader value={value} attempt={attempt} onData={setData} />
-            <SchematicFrame value={value} data={data} readAgain={readAgain} />
+            <SchematicFrame value={value} data={data} readAgain={readAgain} storageKey={storageKey} />
         </>
     );
 }, (prev, next) => schematicEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
@@ -124,10 +140,12 @@ interface SchematicFrameProps {
     readonly data: SchematicData;
     /** Reads every kind again: a Retry of a kind read whole. */
     readonly readAgain: () => void;
+    /** The structural storage key: the editing's sessions are kept under it and the Schematic's `id`. */
+    readonly storageKey: string;
 }
 
 /** The frame, its regions holding the Schematic's parts over one shared state — see the module docs. */
-function SchematicFrame({ value, data, readAgain }: SchematicFrameProps) {
+function SchematicFrame({ value, data, readAgain, storageKey }: SchematicFrameProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as Styles;
     // The counts and the dates, in the app's locale (#850), and the Schematic's words.
     const formatters = useFormatters();
@@ -137,9 +155,25 @@ function SchematicFrame({ value, data, readAgain }: SchematicFrameProps) {
     const keys = useMemo(() => schematicKeys(id), [id]);
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
 
+    // ── The editing (#1388, §7): one history over a session per record it writes ─────
+    // Each kind read through its source: its Save's notice counts what leaves the source's narrowing.
+    const recordSlices = useMemo(() => [...value.items, ...value.zones, ...value.links, ...value.nets].flatMap((kind) => {
+        const part = kind.editable ? sourcePart(chrome, kind.key) : undefined;
+        return part === undefined ? [] : [part];
+    }), [value.items, value.zones, value.links, value.nets, chrome]);
+    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held);
+    const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
+    // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
+    const draftedCache = useRef<DraftedCache>(new WeakMap());
+    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current), [data.drawn, data.held, editing.drafts]);
+    const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: editing.record, mint: editing.mint } : undefined),
+        [editing.edits, editing.record, editing.mint]);
+    // Why the last gesture was refused, until one is recorded or Esc.
+    const [refusal, setRefusal] = useState<string | undefined>(undefined);
+
     // ── The layers: what their author defaults hide, lock and dim ───────
     const layerValues = useDataStable(value.layers, layersEqual);
-    const layers = useMemo(() => layerState(layerValues, data.drawn), [layerValues, data.drawn]);
+    const layers = useMemo(() => layerState(layerValues, drawing), [layerValues, drawing]);
 
     // ── The tools (§6.1): the viewer's, as the Schematic offers them ─────
     // Connect over a link kind bound with its patch door, Move over such an item kind; `readOnly` offers neither.
@@ -162,11 +196,11 @@ function SchematicFrame({ value, data, readAgain }: SchematicFrameProps) {
 
     // ── Find (§6.1): the items the drawing shows, by their keys ─────────
     const kindsBySlot = useMemo(() => new Map(value.items.map((kind, order) => [kind.key, { name: kind.name, order }] as const)), [value.items]);
-    const findable = useMemo((): FindableItem[] => data.drawn.items.flatMap((item) => {
+    const findable = useMemo((): FindableItem[] => drawing.items.flatMap((item) => {
         const kind = kindsBySlot.get(item.ref.kind);
         return layers.hidden.has(item.key) || kind === undefined ? []
             : [{ id: item.key, key: item.ref.key, label: item.label, kind: kind.name, order: kind.order }];
-    }), [data.drawn.items, layers.hidden, kindsBySlot]);
+    }), [drawing.items, layers.hidden, kindsBySlot]);
     const reveal = useCallback((entity: string) => canvasRef.current?.reveal(entity), []);
     const find = useFindItem(findable, words.m.findNoMatches(), reveal);
 
@@ -181,28 +215,61 @@ function SchematicFrame({ value, data, readAgain }: SchematicFrameProps) {
         return named;
     }, [value.items, value.links, value.nets, words]);
     const toolbarRef = useRef<HTMLDivElement>(null);
+    // The history's acts: whatever has the focus lets it go first — a field commits what it holds.
+    const history = editing.history;
+    const onAction = useCallback((action: HistoryAction) => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement) active.blur();
+        history.act(action);
+    }, [history]);
+    // An issue a Save raised: the canvas flies to the item it names, and selects it.
+    const sessions = editing.schedule.sessions;
+    const onIssue = useCallback((issue: EditIssue) => {
+        const key = history.sourceOf(issue);
+        const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
+        if (part !== undefined) reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }));
+    }, [history, sessions, reveal]);
+    const historyItem = editing.edits
+        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, onAction })
+        : undefined;
     const items = useSchematicToolbarItems({
         styles, words, chrome, nouns, tools, held, links: linkChoices, onTools: pickTools, find,
-        onZoom: zoomBy, onFit: fit, selected, onStep: step,
+        onZoom: zoomBy, onFit: fit, selected, onStep: step, history: historyItem,
     });
-    // ⌘F, or Ctrl+F, anywhere in the frame: Find, in whichever form the row holds it.
+    // ⌘F, or Ctrl+F, anywhere in the frame: Find, in whichever form the row holds it; ⌘Z, ⇧⌘Z and ⌘Y the history's,
+    // but in a field typed into, whose own they are.
+    const edits = editing.edits;
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-        if (event.defaultPrevented || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "f") return;
-        if (focusKeySearch(toolbarRef.current)) event.preventDefault();
-    }, []);
+        if (event.defaultPrevented) return;
+        if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+            if (focusKeySearch(toolbarRef.current)) event.preventDefault();
+            return;
+        }
+        const action = historyShortcut(event);
+        if (action === undefined || !edits || typedInto(event.target)) return;
+        event.preventDefault();
+        onAction(action);
+    }, [edits, onAction]);
 
     // ── The footer (§6.3) ───────────────────────────────────────────────
     const counted = useMemo(() => ({
         items: value.items.map((kind) => ({ key: kind.key, name: kind.name })),
         zones: value.zones.length > 0, links: value.links.length > 0, nets: value.nets.length > 0,
     }), [value.items, value.zones, value.links, value.nets]);
-    const counts = useMemo(() => schematicCounts(counted, data.drawn, layers), [counted, data.drawn, layers]);
+    const counts = useMemo(() => schematicCounts(counted, drawing, layers), [counted, drawing, layers]);
     // Each item kind read through its source of the slice: its record's total is its rows.
     const sources = useMemo(() => new Map(value.items.flatMap((kind) => {
         const part = sourcePart(chrome, kind.key);
         return part === undefined ? [] : [[kind.key, part] as const];
     })), [value.items, chrome]);
     const records = useMemo(() => savedRecords(value), [value]);
+    // Each kind read through its source that writes: a Save's notice counts the rows it took out of the source's narrowing.
+    const notices = useMemo((): SchematicNotice[] => [...value.items, ...value.zones, ...value.links, ...value.nets].flatMap((kind) => {
+        const part = kind.editable && !value.readOnly ? sourcePart(chrome, kind.key) : undefined;
+        const name = kind.name.toLocaleLowerCase(words.locale);
+        return part === undefined ? [] : [{ slot: kind.key, slice: part, singular: words.m.kindNoun({ name, plural: false }), plural: words.m.kindNoun({ name, plural: true }) }];
+    }), [value.items, value.zones, value.links, value.nets, value.readOnly, chrome, words]);
+    const pending = edits ? history.pending : undefined;
 
     // ── The banners (§6.4, SC32): a kind whose read failed, with Retry ──
     const kindName = useMemo(() => new Map([...value.items, ...value.zones, ...value.links, ...value.nets].map((kind) => [kind.key, kind.name] as const)),
@@ -214,8 +281,20 @@ function SchematicFrame({ value, data, readAgain }: SchematicFrameProps) {
         else readAgain();
     }, [chrome, readAgain]);
     const failures = [...data.failures];
-    const banners = failures.length === 0 && data.error === undefined ? undefined : (
+    // Each record's session's banners, titled by its kind, an issue placed by the item it names.
+    const labels = useMemo(() => new Map(drawing.items.map((item) => [item.key, item.label] as const)), [drawing.items]);
+    const sessionName = (key: string) => {
+        const slot = recordSlot(key);
+        const name = kindName.get(slot) ?? slot;
+        return stringEqual(slot, key) ? name : words.m.detailsName({ name });
+    };
+    const banners = failures.length === 0 && data.error === undefined && sessions.length === 0 ? undefined : (
         <>
+            {sessions.map((part) => (
+                <SessionBanners key={part.key} session={part.session} words={editingWords} name={sessionName(part.kind)}
+                    where={(issue) => labels.get(entityId({ kind: recordSlot(part.kind), key: issue.entry })) ?? issue.entry}
+                    onAction={(action) => history.actOn(part.key, action)} />
+            ))}
             {failures.map(([slot, message]) => (
                 <Box key={slot} data-schematic-banner={slot}>
                     <BannerView status="error" title={words.m.kindUnavailable({ name: kindName.get(slot) ?? slot })} description={message}
@@ -240,11 +319,12 @@ function SchematicFrame({ value, data, readAgain }: SchematicFrameProps) {
                 toolbar={items}
                 toolbarRef={toolbarRef}
                 banners={banners}
-                footer={<SchematicFooter styles={styles} words={words} counts={counts} rows={data.rows} sources={sources} records={records} />}
+                footer={<SchematicFooter styles={styles} words={words} counts={counts} rows={data.rows} sources={sources} records={records}
+                    pending={pending} notices={notices} refusal={refusal} />}
                 onKeyDown={onKeyDown}
             >
-                <SchematicCanvas ref={canvasRef} value={value} data={data.drawn} layers={layers} tool={held.tool} linkKind={held.link}
-                    words={words} onSelected={setSelected} />
+                <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} tool={held.tool} linkKind={held.link}
+                    words={words} editing={canvasEditing} onRefused={setRefusal} onSelected={setSelected} />
             </BuilderFrame>
         </Box>
     );

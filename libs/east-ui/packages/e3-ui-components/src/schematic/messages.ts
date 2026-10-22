@@ -9,8 +9,11 @@
  * through the items, the View popover a phone's row folds them into, and what
  * the rail counts a templates list's source in; the footer's counts and each
  * record's last save; the banner over a kind whose read failed, and its
- * Retry; the canvas's and the frame's accessible names. A host translates the
- * Schematic where it translates its formatters.
+ * Retry; the canvas's and the frame's accessible names; and its editing's
+ * (#1388): the changes waiting on Save, what a Save's notice counts a kind's
+ * rows in, a details record's banners, why a connection's draft doesn't snap
+ * or a Delete is refused, and each gesture's step in the history. A host
+ * translates the Schematic where it translates its formatters.
  *
  * @packageDocumentation
  */
@@ -82,7 +85,28 @@ export interface SchematicMessages {
     drawingUnavailable: () => string;
     /** The banner's button, which reads again. */
     retry: () => string;
+    /** The changes waiting on Save, every record's — `3 pending` (#1388). */
+    pending: (p: SchematicCount) => string;
+    /**
+     * What a Save's notice counts a kind's rows in, a row or several (`RecordSliceSaveNotice`): `name` is the
+     * kind's, as running text writes it — `rack`, `racks`.
+     */
+    kindNoun: (p: { name: string; plural: boolean }) => string;
+    /** A kind's details' session, as its banners are titled — `Rack details`. */
+    detailsName: (p: { name: string }) => string;
+    /**
+     * Why a connection's draft doesn't snap: its kind's end — `start` a link's from or a net's sources, `end` a
+     * link's to or a net's destinations — holds no item of the target's kind: `Fibre run can't end at PDU-A`.
+     */
+    endRefused: (p: { kind: string; end: "start" | "end"; item: string }) => string;
+    /** Why a Delete was refused: a link or a net bound read only names an item it would delete. */
+    deleteRefused: (p: { item: string; kind: string; key: string }) => string;
+    /** A gesture's label in the history: what it did, and to how many. */
+    step: (p: { step: SchematicStep; name: string; n: number }) => string;
 }
+
+/** A gesture, as the history labels its step. */
+export type SchematicStep = "move" | "connect" | "net" | "retarget" | "extend" | "delete";
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
@@ -129,6 +153,19 @@ export const schematicMessages: SchematicMessages = {
     kindUnavailable: ({ name }) => `${name} rows could not be read`,
     drawingUnavailable: () => "The drawing could not be read",
     retry: () => "Retry",
+    pending: ({ count }) => `${count} pending`,
+    kindNoun: ({ name, plural }) => (plural ? `${name}s` : name),
+    detailsName: ({ name }) => `${name} details`,
+    endRefused: ({ kind, end, item }) => `${kind} can't ${end === "start" ? "start" : "end"} at ${item}`,
+    deleteRefused: ({ item, kind, key }) => `${item} isn't deleted: ${kind} ${key} names it, and is read only`,
+    step: ({ step, name, n }) => ({
+        move: `Move ${n} ${plural(n, "item", "items")}`,
+        connect: `Connect a ${name}`,
+        net: `Grow a ${name}`,
+        retarget: `Retarget a ${name}`,
+        extend: `Extend a ${name}`,
+        delete: `Delete ${n} ${plural(n, "row", "rows")}`,
+    })[step],
 };
 
 /** The words a Schematic speaks: its message table, and its locale's formatters. */

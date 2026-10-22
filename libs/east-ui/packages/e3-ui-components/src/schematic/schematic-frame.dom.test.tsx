@@ -7,11 +7,13 @@
  * The Schematic in its frame, on e3 itself (#1387, `Schematic Builder Spec.md`
  * §6): each example mounted as the showcase mounts it, its kinds' records read
  * through e3-web. The toolbar holds §6.1's items in order (SC24) — the rail,
- * the tools, the zoom and Fit, Find, the steps while something is selected —
- * and folds the rail first, then its own; the tool held is the viewer's, kept
+ * the tools, the zoom and Fit, Find, the steps while something is selected,
+ * and the history while a record is edited — and folds the rail first, then
+ * its own, the history last; the tool held is the viewer's, kept
  * under the Schematic's `id`, and Connect's menu picks the link kind it draws.
  * The keys (SC28): arrows step the selection, Esc clears it, Del deletes the
- * selected link, Space and Ctrl hold Select and Zoom box, ⌘F focuses Find. The
+ * selected link (a step of the editing's history, #1388), Space and Ctrl hold
+ * Select and Zoom box, ⌘F focuses Find. The
  * footer counts each item kind's items drawn of its rows, the zones, links and
  * nets, and each record's last save (§6.3). The frame's skeleton covers the
  * first read, later reads keep the canvas, and a failed read is a banner with
@@ -81,25 +83,27 @@ async function dataCentre() {
 
 // ── The toolbar (§6.1, SC24) ────────────────────────────────────────────────
 
-test("the toolbar holds §6.1's items in order — the rail, the tools, the zoom and Fit, Find, and the steps while something is selected — and folds the rail first (SC24)", async () => {
+test("the toolbar holds §6.1's items in order — the rail, the tools, the zoom and Fit, Find, the steps while something is selected, and the history — and folds the rail first (SC24)", async () => {
     const { container } = await dataCentre();
     const rail = itemsOf(container).filter((key) => key.startsWith("record-"));
     expect(rail.length).toBeGreaterThan(0);
-    expect(itemsOf(container)).toEqual([...rail, "tools", "zoom", "seek"]);
-    // The rail's steps come first, its summary's after them; then the Schematic's own, the View last, one move.
+    // The data centre edits its records: the history ends the row (#1388).
+    expect(itemsOf(container)).toEqual([...rail, "tools", "zoom", "seek", "history"]);
+    // The rail's steps come first, its summary's after them; then the Schematic's own, the View last, one move; and the
+    // history's after every one of them.
     const own = ["tools>1", "seek>1", "tools>2", "tools>3", "zoom>1", "seek>2"];
     const ladder = ladderOf(container);
-    expect(ladder.filter((step) => !step.startsWith("record-"))).toEqual(own);
-    expect(ladder.slice(0, ladder.length - own.length).every((step) => step.startsWith("record-"))).toBe(true);
+    expect(ladder.filter((step) => !step.startsWith("record-"))).toEqual([...own, "history>1"]);
+    expect(ladder.slice(0, ladder.length - own.length - 1).every((step) => step.startsWith("record-"))).toBe(true);
     // Something selected: the steps to the previous and the next item show, after Find, and fold into the View with it.
     hits(container, [["racks", "A05", 16.8, 2.9]]);
     await tap(canvasOf(container), PPU, 16.8, 2.9);
-    await waitFor(() => expect(itemsOf(container)).toEqual([...rail, "tools", "zoom", "seek", "step"]));
-    expect(ladderOf(container).filter((step) => !step.startsWith("record-"))).toEqual([...own, "step>1"]);
+    await waitFor(() => expect(itemsOf(container)).toEqual([...rail, "tools", "zoom", "seek", "step", "history"]));
+    expect(ladderOf(container).filter((step) => !step.startsWith("record-"))).toEqual([...own, "step>1", "history>1"]);
     // Nothing selected again: the steps go.
     fireEvent.pointerEnter(canvasOf(container));
     await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
-    await waitFor(() => expect(itemsOf(container)).toEqual([...rail, "tools", "zoom", "seek"]));
+    await waitFor(() => expect(itemsOf(container)).toEqual([...rail, "tools", "zoom", "seek", "history"]));
 });
 
 test("the steps walk the items in order, flying to each and selecting it; Zoom and Fit move the camera", async () => {
@@ -312,9 +316,10 @@ test("the footer counts each item kind's items drawn of its rows, the zones, the
     await waitFor(() => expect(footerOf(container).slice(0, 7)).toEqual([
         "Rack 5 of 7", "Network frame 3", "Cooling unit 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets",
     ]));
-    // The racks, the cooling units and the fibre runs are bound with their patch doors: each record's last save, its time today.
+    // The racks, the cooling units, the fibre runs, the power feeds and the fibre trunks are bound with their patch doors: each
+    // record's last save, its time today.
     await waitFor(() => expect(footerOf(container).slice(7).map((line) => line?.replace(/saved .*$/u, "saved"))).toEqual([
-        "Rack saved", "Cooling unit saved", "Fibre run saved",
+        "Rack saved", "Cooling unit saved", "Fibre run saved", "Power feed saved", "Fibre trunk saved",
     ]));
     // Another session takes A05 off the floor: four drawn of seven.
     const racks = await h.read(ex.schematicRacks);

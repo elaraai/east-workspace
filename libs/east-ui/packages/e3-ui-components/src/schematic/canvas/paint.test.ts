@@ -286,11 +286,25 @@ describe("netGeometry (bus-bar nets)", () => {
         expect(geo.taps).toEqual([{ x: 18.4, y: 6 }]);
     });
 
+    it("each stub names its leg: a side with one member draws no stub, so the destinations' stubs come first (#1388)", () => {
+        // One power distribution unit feeding two racks: the supply side is a bare anchor.
+        const geo = netGeometry([{ x: 18.6, y: 4.2 }], [{ x: 13.2, y: 2.9 }, { x: 16.8, y: 2.9 }], []);
+        expect(geo.stubs).toHaveLength(2);
+        expect(geo.legs).toEqual([{ end: "destination", index: 0 }, { end: "destination", index: 1 }]);
+        expect(geo.stubs.map(st => st[0])).toEqual([{ x: 13.2, y: 2.9 }, { x: 16.8, y: 2.9 }]);
+        // Two each side: the sources' stubs, then the destinations'.
+        const both = netGeometry([{ x: 0, y: 0 }, { x: 0, y: 4 }], [{ x: 10, y: 0 }, { x: 10, y: 4 }], []);
+        expect(both.legs).toEqual([
+            { end: "source", index: 0 }, { end: "source", index: 1 }, { end: "destination", index: 0 }, { end: "destination", index: 1 },
+        ]);
+    });
+
     it("1→1 with no waypoints degrades to a plain link — no bars, stubs, or dots", () => {
         const geo = netGeometry([{ x: 1, y: 1 }], [{ x: 5, y: 1 }], []);
         expect(geo.trunk).toEqual([{ x: 1, y: 1 }, { x: 5, y: 1 }]);
         expect(geo.bars).toEqual([]);
         expect(geo.stubs).toEqual([]);
+        expect(geo.legs).toEqual([]);
         expect(geo.taps).toEqual([]);
     });
 

@@ -8,7 +8,8 @@
  * `Schematic Builder Spec.md` §6, "The canvas's theme and styles"): the root
  * the frame fills; the canvas filling main, its metric grid, its paint layer
  * and its card layer; the item cards (icon · label · status dot · meter ·
- * metric); the zoom and marquee boxes; the scale bar and the minimap, which
+ * metric); the zoom and marquee boxes; a refused connection's caption, the
+ * shared drag caption placed on the canvas (#1388); the scale bar and the minimap, which
  * stay on the canvas; the theme bridge's probe; the toolbar's tool controls
  * and the View popover's; and the footer, on the shared `builder-footer`
  * rail. The canvas holds no control of its own: what was its control column
@@ -112,7 +113,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "root", "canvas", "paint", "grid", "cardLayer",
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
-        "selectBox", "selectBoxCount", "scaleBar", "scaleRuler", "scaleLabel",
+        "selectBox", "selectBoxCount", "draftCaption", "scaleBar", "scaleRuler", "scaleLabel",
         "minimap", "minimapZone", "minimapViewport",
         "probe", "tools", "viewControls", "footer", "footerItem",
     ],
@@ -311,6 +312,18 @@ export const schematicSlotRecipe = defineSlotRecipe({
             color: "brand.contrast",
             pointerEvents: "none",
         },
+        /* A refused connection's caption (#1388, SC9): the shared drag caption
+         * (`[data-drag-caption][data-refused]`, the theme's global part) under
+         * the item the draft would end at, its place the camera's, as a card's
+         * is — clear of the card, over the cards, taking no pointer. */
+        draftCaption: {
+            position: "absolute",
+            left: "0",
+            top: "0",
+            translate: "-50% 20px",
+            pointerEvents: "none",
+            zIndex: "4",
+        },
         /* Map-style ruler at the canvas's bottom-right — a bare bottom bracket
          * with quarter ticks and the distance floating above it; a text halo
          * keeps it legible (the Mapbox convention). */
@@ -403,8 +416,8 @@ export const schematicSlotRecipe = defineSlotRecipe({
             gap: "{spacing.2}",
             marginBottom: "{spacing.3}",
         },
-        /* The footer, on the shared builder rail (§6.3). */
+        /* The footer, on the shared builder rail (§6.3); why the last gesture was refused in the danger ink (#1388). */
         footer: builderFooter,
-        footerItem: builderFooterItem,
+        footerItem: { ...builderFooterItem, "&[data-schematic-refused]": { color: "fg.danger" } },
     },
 });

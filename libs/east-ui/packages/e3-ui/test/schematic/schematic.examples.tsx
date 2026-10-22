@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, example, none,
-    some, variant,
+    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType, VariantType, example,
+    none, some, variant,
 } from "@elaraai/east";
 import { Box, Button, Reactive, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Record, Schematic } from "@elaraai/e3-ui";
@@ -195,6 +195,8 @@ export const DcFibre = StructType({
 });
 /** A power feed: power distribution units feeding racks. */
 export const DcFeed = StructType({ supply: ArrayType(StringType), racks: ArrayType(StringType), label: StringType, load: StringType, system: StringType });
+/** A fibre trunk: one cable gathering several racks' runs into a frame. */
+export const DcTrunk = StructType({ racks: ArrayType(StringType), frames: ArrayType(StringType), label: OptionType(StringType), system: StringType });
 /** What a rack template gives a new rack: every field of a rack but its centre, which the drop places. */
 export const DcRackValues = StructType({ name: StringType, w: FloatType, h: FloatType, model: StringType, hall: StringType, system: StringType, owner: StringType });
 /** A rack template: its card's name and group, and the rack it creates. */
@@ -248,19 +250,33 @@ export const schematicAreas = e3.record("schematic_areas", DictType(StringType, 
     ["net-room", { name: "Network room", x: 19.0, y: 7.8, w: 8.4, h: 3.8, kind: variant("room", null), system: "structure" }],
     ["hot-a", { name: "Hot aisle A · 1.0 m", x: 0.6, y: 12.9, w: 18.0, h: 0.9, kind: variant("hot", null), system: "cooling" }],
 ]));
-export const schematicFibre = e3.record("schematic_fibre", DictType(StringType, DcFibre), new Map([
+/** The floor's fibre runs, as its record and the frozen floor's hold them. */
+const dcFibreRuns = new Map([
     ["u1", { from: variant("rack", "A01"), to: variant("frame", "ODF-1"), path: [], label: some("uplink"), speed: some("100G"), cable: variant("fibre", null), system: "network" }],
     ["u2", { from: variant("rack", "A02"), to: variant("frame", "ODF-1"), path: [], label: some("uplink"), speed: some("100G"), cable: variant("fibre", null), system: "network" }],
     ["u2m", { from: variant("rack", "A02"), to: variant("frame", "ODF-1"), path: [], label: some("OOB mgmt"), speed: none, cable: variant("logical", null), system: "network" }],
     ["u3", { from: variant("rack", "A03"), to: variant("frame", "ODF-1"), path: [], label: none, speed: none, cable: variant("fibre", null), system: "network" }],
     ["u4", { from: variant("rack", "A04"), to: variant("frame", "ODF-1"), path: [], label: none, speed: some("2 × 100G"), cable: variant("fibre", null), system: "network" }],
     ["x1", { from: variant("frame", "MMR-1"), to: variant("frame", "CORE-1"), path: [{ x: 26.0, y: 6.6 }], label: none, speed: some("2 × 10G"), cable: variant("logical", null), system: "network" }],
-]));
+]);
+export const schematicFibre = e3.record("schematic_fibre", DictType(StringType, DcFibre), dcFibreRuns);
 export const schematicFibrePatch = e3.mutation.patch(schematicFibre);
+/** The fibre runs of a floor whose cabling is frozen: the same runs, which no Save changes. */
+export const schematicFrozenFibre = e3.record("schematic_frozen_fibre", DictType(StringType, DcFibre), dcFibreRuns);
+/** The frozen floor's door, a checked one: it refuses every change, naming why — what a Save over it is answered. */
+export const schematicFrozenFibrePatch = e3.mutation.reduce("patch", schematicFrozenFibre,
+    East.function([DictType(StringType, DcFibre), PatchType(DictType(StringType, DcFibre))], DictType(StringType, DcFibre), ($, runs, _patch) => {
+        $.error("the fibre runs are frozen");
+        return runs;
+    }));
 export const schematicFeeds = e3.record("schematic_feeds", DictType(StringType, DcFeed), new Map([
     ["feed-a", { supply: ["PDU-A"], racks: ["A01", "A02", "A03"], label: "PDU-A · A side", load: "16.5 kW", system: "power" }],
     ["feed-b", { supply: ["PDU-B"], racks: ["A04", "A05"], label: "PDU-B · A side", load: "11.6 kW", system: "power" }],
 ]));
+export const schematicFeedsPatch = e3.mutation.patch(schematicFeeds);
+/** The floor's fibre trunks: none yet — a Shift-connect from racks to a frame gathers their runs into one. */
+export const schematicTrunks = e3.record("schematic_trunks", DictType(StringType, DcTrunk), new Map());
+export const schematicTrunksPatch = e3.mutation.patch(schematicTrunks);
 export const schematicRackTemplates = e3.record("schematic_rack_templates", DictType(StringType, DcRackTemplate), new Map([
     ["r42", { name: "42U rack · 8 kW", group: "Racks", values: { name: "New 42U rack", w: 3.2, h: 1.2, model: "42U · 8 kW", hall: "Cage A", system: "power", owner: "" } }],
     ["r48", { name: "48U rack · 12 kW", group: "Racks", values: { name: "New 48U rack", w: 3.2, h: 1.2, model: "48U · 12 kW", hall: "Cage A", system: "power", owner: "" } }],
@@ -280,8 +296,9 @@ export const schematicDataCentre = example({
         "Schematic", "Schematic.items", "Schematic.zones", "Schematic.links", "Schematic.nets", "Schematic.details", "Schematic.templates",
         "Schematic.layers", "Schematic.library", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "records", "details", "templates", "backlog",
         "layers", "narrowed", "inspector", "accessor", "id", "onSelect", "canConnect", "Schematic.Types.Ref", "Schematic.Types.Candidate", "veto",
+        "editing", "Save", "undo", "Move", "Connect", "nets",
     ],
-    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds; the inspector; the whole selection kept by the host; and in the library every kind's templates, the racks with no position, the zones' index and the layers, a systems record",
+    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, the racks with no position, the zones' index and the layers, a systems record",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const racks = $.let(Record.bind(schematicRacks, [schematicRacksPatch]));
@@ -292,7 +309,8 @@ export const schematicDataCentre = example({
             const cooling = $.let(Record.bind(schematicCooling, [schematicCoolingPatch]));
             const areas = $.let(Data.bind(schematicAreas));
             const fibre = $.let(Record.bind(schematicFibre, [schematicFibrePatch]));
-            const feeds = $.let(Data.bind(schematicFeeds));
+            const feeds = $.let(Record.bind(schematicFeeds, [schematicFeedsPatch]));
+            const trunks = $.let(Record.bind(schematicTrunks, [schematicTrunksPatch]));
             const systems = $.let(Data.bind(schematicSystems));
             const rackTemplates = $.let(Data.bind(schematicRackTemplates));
             const fibreTemplates = $.let(Data.bind(schematicFibreTemplates));
@@ -406,6 +424,12 @@ export const schematicDataCentre = example({
                                 name: "Power feed", icon: "plug-circle-bolt", layer: "system",
                                 sources: { field: "supply", of: "pdus" }, destinations: { field: "racks", of: "racks" },
                                 label: (f) => some(f.label), metric: (f) => some(f.load),
+                            }),
+                            // A Shift-connect from racks to a frame grows its first run into a trunk of them.
+                            trunks: Schematic.nets(trunks, {
+                                name: "Fibre trunk", icon: "diagram-project", layer: "system",
+                                sources: { field: "racks", of: "racks" }, destinations: { field: "frames", of: "network" },
+                                label: (t) => t.label,
                             }),
                         }}
                         layers={Schematic.layers(systems.read(), {

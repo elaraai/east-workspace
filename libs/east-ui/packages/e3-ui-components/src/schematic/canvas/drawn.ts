@@ -17,7 +17,7 @@
  * @packageDocumentation
  */
 
-import { ArrayType, FloatType, OptionType, StringType, StructType, printFor, type ValueTypeOf, type option } from "@elaraai/east";
+import { ArrayType, FloatType, OptionType, StringType, StructType, parseFor, printFor, type ValueTypeOf, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 
 const T = Schematic.Types;
@@ -155,6 +155,20 @@ export const EMPTY_DRAWN: SchematicDrawn = { items: [], zones: [], links: [], ne
 
 /** An entity's id on the canvas: its reference, as East prints it — its kind's slot and its key. */
 export const entityId: (ref: SchematicRef) => string = printFor(T.Ref);
+
+const parseRef = parseFor(T.Ref);
+
+/**
+ * An entity's reference from its id on the canvas: what {@link entityId}
+ * printed, read back — a link's end, a net's member, by the id it draws under.
+ *
+ * @param id - The entity's id
+ * @returns Its reference; `undefined` for text no reference prints as
+ */
+export function refOfId(id: string): SchematicRef | undefined {
+    const read = parseRef(id);
+    return read.success ? read.value : undefined;
+}
 
 /** An Option the kind gives, else its details', else none. */
 function either<V>(own: option<V>, details: option<V> | undefined): option<V> {

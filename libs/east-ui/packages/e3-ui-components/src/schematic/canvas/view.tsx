@@ -10,10 +10,14 @@
  * the frame's toolbar holds the tools, the zoom, Fit, Find and the steps, and
  * drives the camera through this canvas's handle ({@link SchematicCanvasHandle});
  * the tool held and the link kind Connect draws are the frame's. What it draws
- * is its reader's (`data.ts`), each kind's rows as their roles give them; what
- * its layers hide, lock and dim is the frame's (`layers.ts`). Every colour and
- * font it draws is the design system's, read through the theme bridge
- * (`theme.tsx`).
+ * is its reader's (`data.ts`), each kind's rows as their roles give them, the
+ * editing session's drafts in place (`drafted.ts`, #1388); what its layers
+ * hide, lock and dim is the frame's (`layers.ts`). Every colour and font it
+ * draws is the design system's, read through the theme bridge (`theme.tsx`).
+ * Every gesture that writes — Move, Connect and its Shift session, Retarget,
+ * Extend and Del — is one step of the editing's history: the gesture's edits
+ * (`edits.ts`) recorded through the frame's editing, nothing held here but a
+ * Move's preview while its drag is under way.
  *
  * Its gestures, its selection funnels, its camera and its paint path are the
  * ones `CLAUDE.md` holds to its invariants: no render-phase ref write, one
@@ -29,13 +33,13 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, library, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
-import { ArrayType, equalFor, none, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, StringType, equalFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { getSomeorUndefined } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, typedInto, type Origin } from "@elaraai/east-ui-components";
 import { LINK_HIT_SLOP, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, placedVertices, zoneAnchor, LINK_LANE_GAP, type RGB, type SchematicPalette } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, marqueeHits } from "./selection";
 import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers } from "./model";
-import { entityId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
+import { entityId, refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
     IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, makeRafCoalescer, nextMode, zoomAbout,
@@ -44,7 +48,11 @@ import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
 import { entityTints, itemTint, tintAttributes, tintsOf } from "./tints";
 import type { SchematicLayerState } from "./layers";
 import type { SchematicValue } from "../data.js";
-import type { SchematicWords } from "../messages.js";
+import {
+    clampDelta, connectCandidate, connectStep, deleteEdits, editKinds, extendEdits, linkRefusal, moveEdits, retargetEdits,
+    type ConnectDragArgs, type ConnectSession, type EditRefusal, type Mover, type NetLeg, type SchematicEdit, type SessionDrawn,
+} from "../edits.js";
+import type { SchematicStep, SchematicWords } from "../messages.js";
 import type { SchematicTool } from "../tools.js";
 
 library.add(fas);
@@ -52,34 +60,7 @@ library.add(fas);
 /** What `onSelect` hears: the whole selection, each entity by its kind and key. */
 const SelectedType = ArrayType(Schematic.Types.Ref);
 const selectedEqual = equalFor(SelectedType);
-
-/** Fold connect-session gesture pairs into net endpoints with MEMBERSHIP
- *  semantics: the first drag fixes the upstream side; a drag FROM an existing
- *  member adds the NEW item downstream; a drag from a new item INTO the net
- *  joins upstream; a member never flips sides. Shared by the session commit
- *  and the dashed bus preview so the proposal IS what gets reported. */
-function foldSessionNet(links: readonly { from: string; to: string }[]): { sources: string[]; destinations: string[] } {
-    let sources: string[] = [];
-    let destinations: string[] = [];
-    for (const l of links) {
-        const isMember = (k: string): boolean => sources.includes(k) || destinations.includes(k);
-        if (sources.length === 0 && destinations.length === 0) {
-            sources = [l.from]; destinations = [l.to];
-        } else if (isMember(l.from) && !isMember(l.to)) {
-            destinations = [...destinations, l.to];
-        } else if (!isMember(l.from) && isMember(l.to)) {
-            sources = [...sources, l.from];
-        } else if (!isMember(l.from) && !isMember(l.to)) {
-            sources = [...sources, l.from];
-            destinations = [...destinations, l.to];
-        }
-        // both ends already members → membership unchanged
-    }
-    return { sources, destinations };
-}
-
-/** One selected net LEG — a stub identified by its side + endpoint item. */
-type NetLeg = { end: "source" | "destination"; item: string };
+const stringEqual = equalFor(StringType);
 
 /**
  * A connect drag in flight (#176): the item it runs from, whether Shift was
@@ -90,6 +71,33 @@ type ConnectDrag = { from: string; additive: boolean; retarget?: { key: string; 
 
 type SlotStyles = Record<string, SystemStyleObject>;
 type Pt = { x: number; y: number };
+
+/** No drag moves anything. */
+const NO_MOVES: ReadonlyMap<string, Pt> = new Map();
+
+/**
+ * How the canvas records its gestures (#1388): the Schematic's editing, which
+ * writes each gesture's edits as one step of its history.
+ */
+export interface SchematicCanvasEditing {
+    /**
+     * Records one gesture's edits as one step.
+     *
+     * @param edits - The rows it changes, and how
+     * @param origin - The gesture
+     * @param label - Its label in the history
+     * @returns Whether anything was recorded
+     */
+    readonly record: (edits: readonly SchematicEdit[], origin: Origin, label: string) => boolean;
+    /**
+     * A new row's key: unique among every key the Schematic has read and drafted of the kind, and those given.
+     *
+     * @param slot - The kind's slot
+     * @param minted - The keys the gesture has minted already
+     * @returns The key
+     */
+    readonly mint: (slot: string, minted: ReadonlySet<string>) => string;
+}
 
 const MAX_ZOOM = 40;
 /** LOD thresholds in px per world unit: card ⇢ labelled dot ⇢ dot. */
@@ -114,37 +122,6 @@ function dispatchEast(name: string, run: () => unknown): void {
             console.error(`[Schematic] ${name} callback failed:`, err);
         }
     });
-}
-
-/** A connect session grown past one pair becomes a NET (#189) of the net kind
- *  the canvas draws in: default solid style, orthogonal trunk, no label /
- *  waypoints / layer. */
-function mkCreatedNet(ref: SchematicRef, sources: readonly string[], destinations: readonly string[]): DrawnNet {
-    return {
-        key: entityId(ref),
-        ref,
-        sources: [...sources],
-        destinations: [...destinations],
-        label: none, metric: none,
-        style: variant("solid", { tone: none, weight: none }),
-        route: variant("orthogonal", { corner: none }),
-        via: [],
-        layer: none,
-    } as DrawnNet;
-}
-
-/** A freshly-drawn link (a connect gesture) of the link kind the Connect tool
- *  draws: default solid style, orthogonal route, no label / waypoints / layer
- *  — constructed with variant()/none per the interop rules. */
-function mkCreatedLink(ref: SchematicRef, from: string, to: string): DrawnLink {
-    return {
-        key: entityId(ref), ref, from, to,
-        label: none, metric: none,
-        style: variant("solid", { tone: none, weight: none }),
-        route: variant("orthogonal", { corner: none }),
-        via: [],
-        layer: none,
-    } as DrawnLink;
 }
 
 /** Whether an item's status shows as an open ring, as a tentative one does. */
@@ -193,7 +170,7 @@ export interface SchematicCanvasHandle {
 export interface SchematicCanvasProps {
     /** The payload, decoded. */
     readonly value: SchematicValue;
-    /** What the canvas draws: its reader's. */
+    /** What the canvas draws: its reader's stored rows, the editing session's drafts in place (#1388). */
     readonly data: SchematicDrawn;
     /** What the layers hide, lock and dim. */
     readonly layers: SchematicLayerState;
@@ -203,6 +180,10 @@ export interface SchematicCanvasProps {
     readonly linkKind: string | undefined;
     /** The Schematic's words. */
     readonly words: SchematicWords;
+    /** How the canvas records its gestures; `undefined` where no record is edited. */
+    readonly editing: SchematicCanvasEditing | undefined;
+    /** Told why a gesture was refused — a Delete a read-only link or net blocks — or, `undefined`, that one has been recorded since. */
+    readonly onRefused: (words: string | undefined) => void;
     /** Told whether anything is selected — an item, a zone, a link or a net — as that changes. */
     readonly onSelected: (selected: boolean) => void;
     /** The canvas's handle, the frame's. */
@@ -213,9 +194,10 @@ export interface SchematicCanvasProps {
  * The Schematic's canvas (see the module docs): map-grade navigation — wheel
  * zoom about the cursor, drag pan, animated fly-to, semantic zoom (status dots
  * ⇢ labelled dots ⇢ full cards), rbush viewport culling, an adaptive scale bar
- * and a minimap with a draggable viewport.
+ * and a minimap with a draggable viewport — and its gestures, each one step of
+ * the editing's history.
  */
-export const SchematicCanvas = memo(function SchematicCanvas({ value, data, layers, tool, linkKind, words, onSelected, ref }: SchematicCanvasProps) {
+export const SchematicCanvas = memo(function SchematicCanvas({ value, data, layers, tool, linkKind, words, editing, onRefused, onSelected, ref }: SchematicCanvasProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
 
@@ -224,15 +206,16 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     // Zone (area) selection (#177) — a separate set from item selection, committed
     // through its own funnel below (declared here so early callbacks can reference it).
     const [zoneSelection, setZoneSelection] = useState<ReadonlySet<string>>(EMPTY_STRING_SET);
-    // Editing (#176, #179) follows the kinds' bindings (§1, rule 4): the Connect
-    // tool draws the link kind the frame's Connect menu chose, of those bound with
-    // their patch door; a Shift session grows a net of the first such net kind; and
-    // the Move tool moves the items of the item kinds so bound. `readOnly` makes
-    // every kind read only.
-    const readOnly = value.readOnly;
-    const netKind = readOnly ? undefined : value.nets.find(kind => kind.editable)?.key;
-    const linkEditEnabled = linkKind !== undefined;
-    const movableKinds = useMemo(() => new Set(readOnly ? [] : value.items.filter(kind => kind.editable).map(kind => kind.key)), [readOnly, value.items]);
+    // Editing (#1388) follows the kinds' bindings (§1, rule 4): a kind bound with
+    // its patch door writes, and none does while the Schematic is read only
+    // (`edits.ts`' `editKinds`, SC14). The Connect tool draws the link kind the
+    // frame's Connect menu chose; a Shift session grows into the first net kind
+    // whose sides hold its items; the Move tool moves the items of the item kinds
+    // that write; Del deletes what is selected of them. Each gesture is one step
+    // of the editing's history.
+    const kinds = useMemo(() => editKinds({ items: value.items, links: value.links, nets: value.nets, readOnly: value.readOnly }),
+        [value.items, value.links, value.nets, value.readOnly]);
+    const movableKinds = kinds.items;
     // The selected link (single, #176) — selection works even when read-only
     // (inspection, and the host's `onSelect`); the connector handles / delete do not. A net
     // STUB click selects one LEG (`leg` non-null): the halo narrows to that stub
@@ -242,56 +225,23 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     const showGrid = getSomeorUndefined(value.grid) ?? true;
     const showMinimap = getSomeorUndefined(value.minimap) ?? data.items.length >= MINIMAP_AUTO;
 
-    // --- Local link state (#176, draw mode) — the form-input model. ----------
-    // Created / re-targeted / deleted deltas over the links read; a change to
-    // the links' DATA REPLACES the local edits (the records are the source of
-    // truth on change, like form inputs) — a closure-only change keeps them
-    // (#809).
-    const [linkEdits, setLinkEdits] = useState<{
-        created: readonly DrawnLink[];
-        createdNets: readonly DrawnNet[];
-        retarget: ReadonlyMap<string, { from: string; to: string }>;
-        deleted: ReadonlySet<string>;
-        /** Leg deletions (#189): full replacement endpoints per edited net. */
-        netEdits: ReadonlyMap<string, { sources: readonly string[]; destinations: readonly string[] }>;
-    }>({ created: [], createdNets: [], retarget: new Map(), deleted: new Set(), netEdits: new Map() });
-    useEffect(() => {
-        setLinkEdits({ created: [], createdNets: [], retarget: new Map(), deleted: new Set(), netEdits: new Map() });
-    }, [data.links, data.nets]);
-    const hasLinkEdits = linkEdits.created.length > 0 || linkEdits.createdNets.length > 0
-        || linkEdits.retarget.size > 0 || linkEdits.deleted.size > 0 || linkEdits.netEdits.size > 0;
-    const effectiveLinks = useMemo<DrawnLink[]>(() => {
-        if (!hasLinkEdits) return data.links;
-        const base = data.links
-            .filter(l => !linkEdits.deleted.has(l.key))
-            .map(l => {
-                const rt = linkEdits.retarget.get(l.key);
-                return rt !== undefined ? { ...l, from: rt.from, to: rt.to } : l;
-            });
-        return [...base, ...linkEdits.created];
-    }, [data.links, linkEdits, hasLinkEdits]);
-    const effectiveNets = useMemo<DrawnNet[]>(() => {
-        if (!hasLinkEdits) return data.nets;
-        // Membership edits apply AFTER the concat so leg-deletes also cover nets
-        // created locally this session.
-        return [...data.nets.filter(n => !linkEdits.deleted.has(n.key)), ...linkEdits.createdNets].map(n => {
-            const e = linkEdits.netEdits.get(n.key);
-            return e !== undefined ? { ...n, sources: [...e.sources], destinations: [...e.destinations] } : n;
-        });
-    }, [data.nets, linkEdits, hasLinkEdits]);
     // Each entity's reference by its id on the canvas: what the host hears an
-    // entity named by — the links and nets the canvas drafted among them, each
-    // under its kind's slot and the key the canvas gave it (#1401, D34).
+    // entity named by — the links and nets drafted among them, each under its
+    // kind's slot and its minted key (#1401, D34).
     const refById = useMemo(() => {
         const refs = new Map<string, SchematicRef>();
-        for (const entity of [...data.items, ...data.zones, ...effectiveLinks, ...effectiveNets]) refs.set(entity.key, entity.ref);
+        for (const entity of [...data.items, ...data.zones, ...data.links, ...data.nets]) refs.set(entity.key, entity.ref);
         return refs;
-    }, [data.items, data.zones, effectiveLinks, effectiveNets]);
+    }, [data.items, data.zones, data.links, data.nets]);
+    // Whether the selected link writes: its connector handles show, and a re-target writes it.
+    const selectedLinkEditable = selectedLink !== null && kinds.links.get(refById.get(selectedLink.key)?.kind ?? "")?.editable === true;
+    // Each item's label by its id: what a refusal's words name it by.
+    const labelById = useMemo(() => new Map(data.items.map((item) => [item.key, item.label] as const)), [data.items]);
     // Connection veto (#176, #1401 D34): gates the connect GESTURE itself — the
     // one channel behind pairwise links, every Shift-session extension (nets),
     // and endpoint re-targets — so all three obey the same rule. It hears the
     // gesture's candidate: the link or net kind it writes and its two items;
-    // `none` allows it, and words refuse it (the draft shows them, #1388).
+    // `none` allows it, and words refuse it, which the draft shows (#1388).
     // Verdicts cache per (kind, from, to) (reset when the fn changes) so the
     // pointermove probe never re-runs the East function for the same
     // candidate; a THROWING veto logs and ALLOWS (fail-open) so a broken
@@ -317,26 +267,23 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         connectVerdictRef.current.set(cacheKey, refusal);
         return refusal ?? undefined;
     }, [canConnectFn, refById]);
-    // --- Local item positions (#179, move tool) — the form-input model. -------
-    // A position overlay over the items read, applied UPSTREAM of the working set
-    // so centers / rbush / LOD / nav / link endpoints all follow a move for free;
-    // a reactive change to the items' DATA REPLACES the local moves.
-    const [itemMoves, setItemMoves] = useState<ReadonlyMap<string, Pt>>(new Map());
-    useEffect(() => { setItemMoves(new Map()); }, [data.items]);
+    // --- A Move's preview (#179, #1388) — while its drag is under way. ----------
+    // Each item the drag moves, where it has it: applied UPSTREAM of the working set
+    // so centers / rbush / LOD / nav / link endpoints all follow it. The release
+    // records the move as one step, its preview going as its drafts draw; Esc or a
+    // lost pointer drops the preview and records nothing (SC8).
+    const [dragMoves, setDragMoves] = useState<ReadonlyMap<string, Pt>>(NO_MOVES);
     const movedItems = useMemo(() => {
-        if (itemMoves.size === 0) return data.items;
+        if (dragMoves.size === 0) return data.items;
         return data.items.map(it => {
-            const m = itemMoves.get(it.key);
+            const m = dragMoves.get(it.key);
             return m !== undefined ? { ...it, x: m.x, y: m.y } : it;
         });
-    }, [data.items, itemMoves]);
-    // The ONE seam feeding local link/net edits to the canvas painter: paint sees
-    // a value whose links + nets are the effective sets; everything else untouched.
-    // Built over the DATA identity, so a closure-only change never repaints.
-    const paintValue = useMemo(() => (hasLinkEdits || itemMoves.size > 0)
-        ? { ...data, items: movedItems, links: effectiveLinks, nets: effectiveNets }
-        : data,
-    [data, movedItems, itemMoves, effectiveLinks, effectiveNets, hasLinkEdits]);
+    }, [data.items, dragMoves]);
+    // The ONE seam into the painter: what the canvas draws, its items where a
+    // Move's preview has them. Built over the drawing's identity, so a
+    // closure-only change never repaints.
+    const paintValue = useMemo(() => (dragMoves.size > 0 ? { ...data, items: movedItems } : data), [data, movedItems, dragMoves]);
 
     // Selection state, consolidated (#172): the selected SET and the anchor (the
     // last-touched key driving prev/next stepping) commit ATOMICALLY as one
@@ -400,14 +347,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         selectedNowRef.current = { ...selectedNowRef.current, link: next === null ? null : next.key };
         reportSelection();
     }, [reportSelection]);
-    // Selected-link hygiene: clear when the link leaves the effective set
-    // (deleted locally or dropped by a prop change), through the link's funnel,
-    // so the host hears it.
+    // Selected-link hygiene: clear when the link leaves the drawing (deleted —
+    // a draft, or another session's commit — or taken back by Undo), through the
+    // link's funnel, so the host hears it.
     useEffect(() => {
         const prev = renderSnapRef.current.selectedLink;
         if (prev === null) return;
-        const net = effectiveNets.find(n => n.key === prev.key);
-        if (net === undefined && !effectiveLinks.some(l => l.key === prev.key)) {
+        const net = data.nets.find(n => n.key === prev.key);
+        if (net === undefined && !data.links.some(l => l.key === prev.key)) {
             commitLinkSelection(null);
             return;
         }
@@ -416,7 +363,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             const side = prev.leg.end === "source" ? net.sources : net.destinations;
             if (!side.includes(prev.leg.item)) commitLinkSelection({ key: prev.key, leg: null });
         }
-    }, [effectiveLinks, effectiveNets, commitLinkSelection]);
+    }, [data.links, data.nets, commitLinkSelection]);
 
     // --- Layers: what the frame's layer state hides, locks and dims. ----------
     const layerHiddenKeys = layers.hidden;
@@ -465,12 +412,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     const gridRef = useRef<HTMLDivElement | null>(null);
 
     // --- The theme bridge (#1387): every colour and font the canvas draws in ----
-    // The colours the drawing names, each entity's by its id: read from what the
-    // reader drew, which keeps its identity while nothing it shows moves — a
-    // gesture's moves and drafts keep their entities' colours, and a link the
-    // canvas drafts draws in its style's own. The probe holds one element per
-    // colour; the commit-phase snapshot below reads it when the colours named or
-    // the theme change, never in the render body.
+    // The colours the drawing names, each entity's by its id: read from what is
+    // drawn — the reader's rows, the drafts in place — which keeps its identity
+    // while nothing it shows moves, so a Move's preview keeps its items' colours,
+    // and a drafted link draws in its style's own. The probe holds one element
+    // per colour; the commit-phase snapshot below reads it when the colours named
+    // or the theme change, never in the render body.
     const tintIndex = useMemo(() => tintsOf(data), [data]);
     const themeVersion = useThemeVersion();
     const probeRef = useRef<HTMLDivElement | null>(null);
@@ -533,32 +480,86 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     // `mode` distinguishes a zoom-box from a marquee; `additive` latches Shift at
     // pointer-down (marquee unions rather than replaces).
     // Connect-tool gesture (#176): the live drag (pointer-capture scoped) and its
-    // render state (the draft edge painted on the canvas). A SESSION accumulates
-    // Shift-added connections, the links and the net it draws shown as they are.
+    // render state (the draft edge painted on the canvas). A SESSION (Shift) keeps
+    // the links its drags drew — or the selected link it was seeded with — and
+    // the net they grew into (`edits.ts`' `ConnectSession`), each read from the
+    // drawing as it stands when the next drag lands.
     const connectDragRef = useRef<ConnectDrag | null>(null);
-    // Move-tool drag (#179): the pressed key, every key moving (group move rides
-    // the selection), each mover's ORIGINAL position (for Esc/cancel revert), and
-    // the world start point of the gesture.
-    const moveDragRef = useRef<{ key: string; keys: readonly string[]; orig: ReadonlyMap<string, Pt>; startWorld: Pt } | null>(null);
-    // A vetoed draft keeps the veto's words (`reason`), which the draft shows with the editing session (#1388).
+    // Move-tool drag (#179): the pressed key, the items moving (a group move rides
+    // the selection) where the drag found them, the world start point of the
+    // gesture, and the delta it has them at, clamped to the extent (SC8).
+    const moveDragRef = useRef<{ key: string; movers: readonly (Mover & { readonly id: string })[]; startWorld: Pt; delta: { dx: number; dy: number } } | null>(null);
+    // A refused draft keeps the refusal's words (`reason`) — its kind's, or the veto's — which it shows (SC9).
     const [connectDraft, setConnectDraft] = useState<{ from: string; toWorld: Pt; target: string | undefined; forbidden?: string; reason?: string | undefined } | null>(null);
-    const linkSessionRef = useRef<{ key: string; links: readonly { key: string; from: string; to: string }[]; drawn: "link" | "net" | "none"; seeded: readonly string[] } | null>(null);
-    const linkKeyCounter = useRef(0);
-    // The candidate a connect drag would write, vetted (#1401, D34): a re-target
-    // writes its link, an Extend its net, a Shift session the net it grows (when
-    // there is a net kind to grow), and any other drag a link of the Connect
-    // tool's kind. Re-targets vet in the link's REAL direction — the fixed end may
-    // be either side. The veto's words, or `undefined` when it allows it.
+    const linkSessionRef = useRef<ConnectSession | undefined>(undefined);
+    // The session's links' ends and its net's sides, as the drawing holds them now: Undo, Redo or another gesture
+    // between two of its drags is the session's too.
+    const sessionDrawn = useMemo((): SessionDrawn => {
+        const links = new Map(data.links.map((link) => [link.key, link] as const));
+        const nets = new Map(data.nets.map((net) => [net.key, net] as const));
+        const refs = (ids: readonly string[]) => ids.flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; });
+        return {
+            ends: (ref) => {
+                const link = links.get(entityId(ref));
+                const from = link === undefined ? undefined : refOfId(link.from);
+                const to = link === undefined ? undefined : refOfId(link.to);
+                return from === undefined || to === undefined ? undefined : { from, to };
+            },
+            sides: (ref) => {
+                const net = nets.get(entityId(ref));
+                return net === undefined ? undefined : { sources: refs(net.sources), destinations: refs(net.destinations) };
+            },
+        };
+    }, [data.links, data.nets]);
+    // An item a gesture names: its reference, and its label for a refusal's words.
+    const itemOf = useCallback((id: string) => {
+        const ref = refById.get(id);
+        return ref === undefined ? undefined : { ref, label: labelById.get(id) ?? ref.key };
+    }, [refById, labelById]);
+    /** A refusal's words. */
+    const refusalWords = useCallback((refusal: EditRefusal): string => (refusal.why === "end"
+        ? words.m.endRefused({ kind: refusal.kind, end: refusal.end, item: refusal.item })
+        : words.m.deleteRefused({ item: refusal.item, kind: refusal.kind, key: refusal.key })), [words]);
+    /** A connect drag onto a target, as the edits read it: the open session, Shift, the Connect tool's kind and its items. */
+    const dragArgs = useCallback((cd: Pick<ConnectDrag, "from" | "additive">, target: string): ConnectDragArgs | undefined => {
+        const from = itemOf(cd.from), to = itemOf(target);
+        if (from === undefined || to === undefined) return undefined;
+        return {
+            session: linkSessionRef.current, shift: cd.additive, linkKind, from, to, drawn: sessionDrawn,
+            labelOf: (ref) => labelById.get(entityId(ref)) ?? ref.key,
+        };
+    }, [itemOf, linkKind, sessionDrawn, labelById]);
+    // Why a connect drag can't land on a target (SC9, #1401 D34): the end of its
+    // kind that holds no item of the target's slot, else the veto's words. A
+    // re-target writes its link, vetted in the link's REAL direction — the fixed
+    // end may be either side; an Extend its net; a Shift session the net it grows
+    // into, when a net kind holds its items; any other drag a link of the Connect
+    // tool's kind. `undefined` when it may land.
     const candidateRefusal = useCallback((cd: ConnectDrag, target: string): string | undefined => {
+        const fixed = itemOf(cd.from), moving = itemOf(target);
+        if (fixed === undefined || moving === undefined) return undefined;
         if (cd.retarget !== undefined) {
-            const kind = refById.get(cd.retarget.key)?.kind ?? linkKind;
-            if (kind === undefined) return undefined;
-            return cd.retarget.movingEnd === "from" ? connectRefusal(kind, target, cd.from) : connectRefusal(kind, cd.from, target);
+            const slot = refById.get(cd.retarget.key)?.kind;
+            const link = slot === undefined ? undefined : kinds.links.get(slot);
+            if (slot === undefined || link === undefined) return undefined;
+            const toFrom = cd.retarget.movingEnd === "from";
+            const refusal = toFrom ? linkRefusal(link, moving, fixed) : linkRefusal(link, fixed, moving);
+            if (refusal !== undefined) return refusalWords(refusal);
+            return toFrom ? connectRefusal(slot, target, cd.from) : connectRefusal(slot, cd.from, target);
         }
-        const kind = cd.netExtend !== undefined ? refById.get(cd.netExtend)?.kind
-            : cd.additive && linkSessionRef.current !== null && netKind !== undefined ? netKind : linkKind;
-        return kind === undefined ? undefined : connectRefusal(kind, cd.from, target);
-    }, [connectRefusal, refById, linkKind, netKind]);
+        if (cd.netExtend !== undefined) {
+            const slot = refById.get(cd.netExtend)?.kind;
+            const net = slot === undefined ? undefined : kinds.nets.get(slot);
+            if (slot === undefined || net === undefined) return undefined;
+            if (!stringEqual(moving.ref.kind, net.destinations)) return refusalWords({ why: "end", kind: net.name, end: "end", item: moving.label });
+            return connectRefusal(slot, cd.from, target);
+        }
+        const args = dragArgs(cd, target);
+        if (args === undefined) return undefined;
+        const candidate = connectCandidate(kinds, args);
+        if (candidate.refusal !== undefined) return refusalWords(candidate.refusal);
+        return candidate.kind === undefined ? undefined : connectRefusal(candidate.kind, cd.from, target);
+    }, [itemOf, refById, kinds, refusalWords, connectRefusal, dragArgs]);
     // One-shot connect flash (the draw-in + endpoint rings), driven by a short
     // rAF loop like the pulse ticker — phase read at paint time from the ref.
     const connectFlashRef = useRef<{ from: string; to: string; t0: number } | null>(null);
@@ -712,11 +713,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         if (ppuLive === 0) return undefined;
         const rect = host.getBoundingClientRect();
         const sx = clientX - rect.left, sy = clientY - rect.top;
-        const lanes = paintParallelLanes(effectiveLinks, l =>
+        const lanes = paintParallelLanes(data.links, l =>
             !layerHiddenKeys.has(l.key) && centers.has(l.from) && centers.has(l.to) && l.via.length === 0);
         let best: { key: string; leg: NetLeg | null } | undefined;
         let bestD = Infinity;
-        for (const link of effectiveLinks) {
+        for (const link of data.links) {
             if (layerHiddenKeys.has(link.key) || lockedKeys.has(link.key)) continue;
             const from = centers.get(link.from), to = centers.get(link.to);
             if (from === undefined || to === undefined) continue;
@@ -739,7 +740,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         }
         // Nets (#189): trunk, header bars, and every stub are clickable — the
         // SAME netGeometry the painter draws, so the target equals the drawing.
-        for (const net of effectiveNets) {
+        for (const net of data.nets) {
             if (layerHiddenKeys.has(net.key) || lockedKeys.has(net.key)) continue;
             const srcK = net.sources.filter(k => centers.has(k));
             const dstK = net.destinations.filter(k => centers.has(k));
@@ -752,11 +753,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             const routePts = (anchors: readonly Pt[]): Pt[] => orth ? orthogonalize(anchors.map(toScreen)) : anchors.map(toScreen);
             const weight = net.style.value.weight.type === "some" ? net.style.value.weight.value
                 : (net.style.type === "solid" ? 2.5 : 1.5);
-            // Trunk + bars hit the WHOLE net; a stub hits its LEG (stubs are in
-            // netGeometry input order: sources then destinations).
-            const legOf = (stubIdx: number): NetLeg => stubIdx < srcK.length
-                ? { end: "source", item: srcK[stubIdx]! }
-                : { end: "destination", item: dstK[stubIdx - srcK.length]! };
+            // Trunk + bars hit the WHOLE net; a stub hits its LEG, as the geometry
+            // names each stub's: a side with one member draws no stub (#1388).
+            const legOf = (stubIdx: number): NetLeg => {
+                const leg = geo.legs[stubIdx]!;
+                return leg.end === "source" ? { end: "source", item: srcK[leg.index]! } : { end: "destination", item: dstK[leg.index]! };
+            };
             const whole: Pt[][] = [routePts(geo.trunk), ...geo.bars.map(bar => bar.map(toScreen))];
             for (const pl of whole) {
                 const d = distanceToPolyline(pl, sx, sy);
@@ -768,7 +770,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             }
         }
         return best;
-    }, [effectiveLinks, effectiveNets, centers, layerHiddenKeys, lockedKeys]);
+    }, [data.links, data.nets, centers, layerHiddenKeys, lockedKeys]);
     // Click-select a link or a net — selection works read-only (inspection
     // channel); the host hears it in the whole selection, named by its kind and key.
     const selectLink = useCallback((key: string, leg: NetLeg | null = null) => {
@@ -819,7 +821,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         layerHiddenKeys, layerAlpha,
         effectiveTool, isBoxTool,
         connectDraftWorld,
-        selectedLink, linkEditEnabled,
+        selectedLink, selectedLinkEditable,
         palette: null as SchematicPalette | null,
         tints: NO_TINTS,
     };
@@ -881,13 +883,13 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && Object.is(last.val, snap.value)
             && last.lay === snap.layerHiddenKeys && last.alp === snap.layerAlpha
             && last.dl === snap.connectDraftWorld && last.cf === cfPhase
-            && last.slk === snap.selectedLink && last.sle === snap.linkEditEnabled) return;
+            && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
             sel: snap.renderSelected, zsel: snap.zoneSelection, pal, tints: snap.tints, w: sz.w, h: sz.h, dpr: dprLive, val: snap.value,
             lay: snap.layerHiddenKeys, alp: snap.layerAlpha,
             dl: snap.connectDraftWorld, cf: cfPhase,
-            slk: snap.selectedLink, sle: snap.linkEditEnabled,
+            slk: snap.selectedLink, sle: snap.selectedLinkEditable,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -910,7 +912,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
                 ...(cf !== null ? { connectFlash: { from: snap.centers.get(cf.from), to: snap.centers.get(cf.to), phase: cfPhase } } : {}),
                 ...(snap.selectedLink !== null ? {
                     selectedLink: {
-                        key: snap.selectedLink.key, editable: snap.linkEditEnabled,
+                        key: snap.selectedLink.key, editable: snap.selectedLinkEditable,
                         ...(snap.selectedLink.leg !== null ? { leg: snap.selectedLink.leg } : {}),
                     },
                 } : {}),
@@ -1029,9 +1031,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         }
         commitZoneSelection(next);
     }, [commitZoneSelection]);
-    // End the open connect session (Esc, tool switch, or a plain new drag).
+    // End the open connect session (Esc, tool switch, a plain new drag, or any other gesture).
     const endLinkSession = useCallback(() => {
-        linkSessionRef.current = null;
+        linkSessionRef.current = undefined;
     }, []);
     // ~450ms one-shot flash driving repaints via the same identity-checked apply.
     const startConnectFlash = useCallback(() => {
@@ -1051,130 +1053,88 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         flashRafRef.current = requestAnimationFrame(tick);
     }, [applyCamera]);
     useEffect(() => () => { if (flashRafRef.current !== null) cancelAnimationFrame(flashRafRef.current); }, []);
-    // Commit a connect gesture: extend / start the session, draw a link of the
-    // Connect tool's kind and play the flash. With a net kind to draw in, a
-    // Shift session grows into a net of it.
+    /**
+     * Records one gesture's edits as one step of the editing's history (#1388),
+     * labelled for it; one recorded says no refusal any more.
+     *
+     * @returns Whether anything was recorded
+     */
+    const recordStep = useCallback((edits: readonly SchematicEdit[], origin: Origin, step: SchematicStep, name: string, n: number): boolean => {
+        if (editing === undefined || edits.length === 0) return false;
+        const recorded = editing.record(edits, origin, words.m.step({ step, name: name.toLocaleLowerCase(words.locale), n }));
+        if (recorded) onRefused(undefined);
+        return recorded;
+    }, [editing, words, onRefused]);
+    // Commit a connect gesture (SC9): a link of the Connect tool's kind — or,
+    // Shift held in an open session, the net the session grows into, absorbing
+    // its links — each new row's key minted, one step; then the flash.
     const commitConnect = useCallback((from: string, to: string, shift: boolean) => {
-        if (linkKind === undefined) return;
-        const linkRef = { kind: linkKind, key: `connect-${++linkKeyCounter.current}` };
-        const created = mkCreatedLink(linkRef, from, to);
-        const ep = { key: created.key, from, to };
-        const open = shift ? linkSessionRef.current : null;
-        const links = open !== null ? [...open.links, ep] : [ep];
-        const seeded = open !== null ? open.seeded : [];
-        // The session's net keeps one key across the session's commits (#189).
-        const netRef = netKind === undefined ? undefined
-            : { kind: netKind, key: open !== null ? open.key : `net-${++linkKeyCounter.current}` };
-        const sessionKey = netRef !== undefined ? netRef.key : linkRef.key;
-        let drawn: "link" | "net" | "none" = "none";
-        if (open === null || netRef === undefined) {
-            // A plain drag — or any drag with no net kind to grow — draws a pairwise link.
-            drawn = "link";
-            setLinkEdits({ ...linkEdits, created: [...linkEdits.created, created] });
-        } else {
-            // The first Shift-extension CONVERTS the session's pairwise link
-            // into a growing NET (same session key, #189); later extensions
-            // update that net in place.
-            drawn = "net";
-            const { sources: netSources, destinations: netDestinations } = foldSessionNet(links);
-            const net = mkCreatedNet(netRef, netSources, netDestinations);
-            const priorLinkKey = open.drawn === "link" ? open.links[0]?.key : undefined;
-            // Seeded (absorbed) links leave the picture with the net's
-            // arrival — from BOTH pools: locally-created links are filtered
-            // out of `created` (the deleted overlay only guards read links),
-            // read links join the deleted overlay.
-            const seededSet = new Set(seeded);
-            const deleted = seeded.length > 0
-                ? new Set([...linkEdits.deleted, ...seeded])
-                : linkEdits.deleted;
-            setLinkEdits({
-                ...linkEdits,
-                created: linkEdits.created.filter(l => l.key !== priorLinkKey && !seededSet.has(l.key)),
-                createdNets: [
-                    ...linkEdits.createdNets.filter(n => n.key !== net.key),
-                    net,
-                ],
-                deleted,
-            });
-        }
-        linkSessionRef.current = { key: sessionKey, links, drawn, seeded };
+        if (editing === undefined) return;
+        const args = dragArgs({ from, additive: shift }, to);
+        if (args === undefined) return;
+        const minted = new Set<string>();
+        const step = connectStep(kinds, args, (slot) => {
+            const key = editing.mint(slot, minted);
+            minted.add(key);
+            return key;
+        }, none);
+        if (step === undefined) return;
+        const grown = step.edits.find((edit) => edit.op === "net" || edit.op === "sides");
+        const slot = (grown ?? step.edits.find((edit) => edit.op === "link"))?.ref.kind;
+        if (slot === undefined) return;
+        const name = (grown !== undefined ? kinds.nets.get(slot)?.name : kinds.links.get(slot)?.name) ?? slot;
+        if (!recordStep(step.edits, "insert", grown !== undefined ? "net" : "connect", name, 1)) return;
+        linkSessionRef.current = step.session;
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
-    }, [linkKind, netKind, linkEdits, startConnectFlash]);
-    // Re-target a selected link's endpoint (connector-handle drag): local-first
-    // (created links edit in place; read links via the retarget overlay).
+    }, [editing, dragArgs, kinds, recordStep, startConnectFlash]);
+    // Re-target a selected link's end (connector-handle drag, SC10): the end it
+    // moves written, one step.
     const commitRetarget = useCallback((key: string, movingEnd: "from" | "to", target: string) => {
-        const lk = effectiveLinks.find(l => l.key === key);
-        if (lk === undefined) return;
-        const from = movingEnd === "from" ? target : lk.from;
-        const to = movingEnd === "to" ? target : lk.to;
-        if (from === to) return;   // a self-link never commits
-        const createdIdx = linkEdits.created.findIndex(l => l.key === key);
-        if (createdIdx >= 0) {
-            const created = [...linkEdits.created];
-            created[createdIdx] = { ...created[createdIdx]!, from, to };
-            setLinkEdits({ ...linkEdits, created });
-        } else {
-            const retarget = new Map(linkEdits.retarget);
-            retarget.set(key, { from, to });
-            setLinkEdits({ ...linkEdits, retarget });
-        }
-        connectFlashRef.current = { from, to, t0: performance.now() };
+        const link = data.links.find(l => stringEqual(l.key, key));
+        const from = link === undefined ? undefined : refOfId(link.from);
+        const to = link === undefined ? undefined : refOfId(link.to);
+        const onto = refById.get(target);
+        if (link === undefined || from === undefined || to === undefined || onto === undefined) return;
+        const edits = retargetEdits({ ref: link.ref, ends: { from, to } }, movingEnd, onto);
+        if (!recordStep(edits, "move", "retarget", kinds.links.get(link.ref.kind)?.name ?? link.ref.kind, 1)) return;
+        endLinkSession();
+        connectFlashRef.current = { from: movingEnd === "from" ? target : link.from, to: movingEnd === "to" ? target : link.to, t0: performance.now() };
         startConnectFlash();
-    }, [effectiveLinks, linkEdits, startConnectFlash]);
-    // Extend a selected NET by one member (Shift-drag out of a member): the
-    // dragged-to item joins DOWNSTREAM, a local netEdits overlay — the exact
-    // mirror of leg-delete.
+    }, [data.links, refById, kinds, recordStep, endLinkSession, startConnectFlash]);
+    // Extend a selected NET by one member (Shift-drag out of a member, SC10):
+    // the dragged-to item joins its destinations, one step.
     const commitNetExtend = useCallback((netKey: string, from: string, to: string) => {
-        const net = effectiveNets.find(n => n.key === netKey);
-        if (net === undefined) return;
-        if (net.sources.includes(to) || net.destinations.includes(to)) return;   // already a member
-        const fromIsMember = net.sources.includes(from) || net.destinations.includes(from);
-        if (!fromIsMember) return;
-        const sources = [...net.sources];
-        const destinations = [...net.destinations, to];
-        const netEdits = new Map(linkEdits.netEdits);
-        netEdits.set(netKey, { sources, destinations });
-        setLinkEdits({ ...linkEdits, netEdits });
+        const net = data.nets.find(n => stringEqual(n.key, netKey));
+        const onto = refById.get(to);
+        if (net === undefined || onto === undefined) return;
+        if (!net.sources.some((id) => stringEqual(id, from)) && !net.destinations.some((id) => stringEqual(id, from))) return;
+        const sides = sessionDrawn.sides(net.ref);
+        if (sides === undefined) return;
+        const edits = extendEdits({ ref: net.ref, sides }, onto);
+        if (!recordStep(edits, "insert", "extend", kinds.nets.get(net.ref.kind)?.name ?? net.ref.kind, 1)) return;
+        endLinkSession();
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
-    }, [effectiveNets, linkEdits, startConnectFlash]);
-    // Delete the selected link (Del / Backspace while editable): created links
-    // drop locally; read links join the deleted overlay.
-    const deleteSelectedLink = useCallback(() => {
-        const selL = renderSnapRef.current.selectedLink;
-        if (selL === null || !renderSnapRef.current.linkEditEnabled) return;
-        const key = selL.key;
-        // A selected LEG deletes just that endpoint (#189): the membership
-        // overlay replaces the net's endpoint sets locally; emptying a side falls
-        // through to whole-net delete.
-        if (selL.leg !== null) {
-            const net = effectiveNets.find(n => n.key === key);
-            if (net !== undefined) {
-                const leg = selL.leg;
-                const sources = leg.end === "source" ? net.sources.filter(k => k !== leg.item) : [...net.sources];
-                const destinations = leg.end === "destination" ? net.destinations.filter(k => k !== leg.item) : [...net.destinations];
-                if (sources.length > 0 && destinations.length > 0) {
-                    const netEdits = new Map(linkEdits.netEdits);
-                    netEdits.set(key, { sources, destinations });
-                    setLinkEdits({ ...linkEdits, netEdits });
-                    commitLinkSelection({ key, leg: null });
-                    return;
-                }
-            }
+    }, [data.nets, refById, sessionDrawn, kinds, recordStep, endLinkSession, startConnectFlash]);
+    // Delete what is selected (Del / Backspace, SC5, SC10, D7): the selected link
+    // or net, or a net leg's item off its side, and the selected items with every
+    // link and net leg naming one — one step; refused, in its words, where a link
+    // or a net bound read only names an item it would delete.
+    const deleteSelection = useCallback((): boolean => {
+        if (editing === undefined) return false;
+        const snap = renderSnapRef.current;
+        const selection = { items: snap.selection.selected, link: snap.selectedLink };
+        if (selection.items.size === 0 && selection.link === null) return false;
+        const result = deleteEdits(kinds, data, selection);
+        if ("refusal" in result) {
+            onRefused(refusalWords(result.refusal));
+            return true;
         }
-        if (linkEdits.created.some(l => l.key === key)) {
-            setLinkEdits({ ...linkEdits, created: linkEdits.created.filter(l => l.key !== key) });
-        } else if (linkEdits.createdNets.some(n => n.key === key)) {
-            setLinkEdits({ ...linkEdits, createdNets: linkEdits.createdNets.filter(n => n.key !== key) });
-        } else {
-            // Read links AND nets share the deleted overlay.
-            const deleted = new Set(linkEdits.deleted);
-            deleted.add(key);
-            setLinkEdits({ ...linkEdits, deleted });
-        }
-        commitLinkSelection(null);
-    }, [linkEdits, effectiveNets, commitLinkSelection]);
+        if (!recordStep(result.edits, "remove", "delete", "", result.edits.length)) return false;
+        endLinkSession();
+        return true;
+    }, [editing, kinds, data, onRefused, refusalWords, recordStep, endLinkSession]);
 
     const flyToItem = useCallback((item: DrawnItem) => {
         flyTo({ x: item.x - 4, y: item.y - 3, w: 8, h: 6 });
@@ -1191,13 +1151,16 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     }, [itemOrder, flyToItem, selection.anchor]);
     // Keyboard traversal (#183 WS7): with the canvas focused, arrows step the
     // selection through the deterministic item order (the toolbar's steps'
-    // exact path — fly + select). Enter opens the selection in the inspector's
-    // Details, with the inspector (#1391). Esc / Space / Ctrl / Del stay on the
-    // window handler.
+    // exact path — fly + select), and Del deletes it (#1388). Enter opens the
+    // selection in the inspector's Details, with the inspector (#1391). Esc /
+    // Space / Ctrl stay on the window handler, which hears Del too while the
+    // pointer is over the canvas.
     const onCanvasKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); stepSelection(1); }
         else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); stepSelection(-1); }
-    }, [stepSelection]);
+        // Del deletes what is selected, as one step (#1388, SC5).
+        else if ((e.key === "Delete" || e.key === "Backspace") && deleteSelection()) e.preventDefault();
+    }, [stepSelection, deleteSelection]);
 
     // Wheel zooms about the cursor (no modifier — a dedicated canvas owns the
     // wheel, like any map); attached non-passively so preventDefault stops the
@@ -1350,12 +1313,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
                 const wxp = ppuLive > 0 ? (e.clientX - r.left - cam.tx) / ppuLive : 0;
                 const wyp = ppuLive > 0 ? (e.clientY - r.top - cam.ty) / ppuLive : 0;
                 const keys = snap.selection.selected.has(k) ? [...snap.selection.selected].filter(movable) : [k];
-                const orig = new Map<string, Pt>();
-                for (const kk of keys) {
-                    const c = snap.centers.get(kk);
-                    if (c !== undefined) orig.set(kk, { x: c.x, y: c.y });
-                }
-                moveDragRef.current = { key: k, keys: [...orig.keys()], orig, startWorld: { x: wxp, y: wyp } };
+                // Each item moving, where the drag found it: drafted, the read's, as the canvas draws it.
+                const movers = keys.flatMap((id) => {
+                    const c = snap.centers.get(id), ref = refById.get(id);
+                    return c === undefined || ref === undefined ? [] : [{ id, ref, x: c.x, y: c.y }];
+                });
+                moveDragRef.current = { key: k, movers, startWorld: { x: wxp, y: wyp }, delta: { dx: 0, dy: 0 } };
                 return;
             }
         }
@@ -1364,9 +1327,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         // anchors at the FIXED end and follows the cursor. SHIFT skips the
         // handle: Shift-drag from a selected link's endpoint SEEDS a net
         // session instead (plain = retarget, Shift = extend).
-        if (!e.shiftKey && renderSnapRef.current.linkEditEnabled && renderSnapRef.current.selectedLink !== null) {
+        if (!e.shiftKey && renderSnapRef.current.selectedLinkEditable && renderSnapRef.current.selectedLink !== null) {
             const snap = renderSnapRef.current;
-            const lk2 = effectiveLinks.find(l => l.key === snap.selectedLink?.key);
+            const lk2 = data.links.find(l => l.key === snap.selectedLink?.key);
             const cam2 = cameraRef.current;
             const ppu2 = snap.fit * cam2.zoom;
             if (lk2 !== undefined && ppu2 > 0) {
@@ -1392,7 +1355,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             if (from !== undefined) {
                 // A non-Shift press starts a NEW proposal — the open session
                 // (and its dashed preview) ends now, not at commit.
-                if (!e.shiftKey && linkSessionRef.current !== null) endLinkSession();
+                if (!e.shiftKey && linkSessionRef.current !== undefined) endLinkSession();
                 transition("cancel");
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const cam = cameraRef.current;
@@ -1401,24 +1364,21 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
                 const wyp = ppuLive > 0 ? (e.clientY - r.top - cam.ty) / ppuLive : 0;
                 connectDragRef.current = { from, additive: e.shiftKey };
                 // Shift-drag FROM the SELECTED thing extends it (#189 UX):
-                // a selected NET member drags a membership ADD; a selected
-                // pairwise link's endpoint SEEDS the session with that link
-                // (it gets absorbed into the new net on commit).
-                if (e.shiftKey && linkSessionRef.current === null) {
+                // a selected NET member drags a membership ADD (Extend); a
+                // selected link's endpoint SEEDS the session with that link,
+                // which the net it grows into absorbs — each only of a kind
+                // that writes.
+                if (e.shiftKey && linkSessionRef.current === undefined) {
                     const selL = renderSnapRef.current.selectedLink;
                     if (selL !== null && selL.leg === null) {
-                        const selNet = effectiveNets.find(n => n.key === selL.key);
-                        if (selNet !== undefined && (selNet.sources.includes(from) || selNet.destinations.includes(from))) {
+                        const selNet = data.nets.find(n => stringEqual(n.key, selL.key));
+                        const member = selNet !== undefined && (selNet.sources.some((id) => stringEqual(id, from)) || selNet.destinations.some((id) => stringEqual(id, from)));
+                        if (selNet !== undefined && member && kinds.nets.get(selNet.ref.kind)?.editable === true) {
                             connectDragRef.current = { from, additive: true, netExtend: selNet.key };
                         } else {
-                            const selLink = effectiveLinks.find(l => l.key === selL.key);
-                            if (selLink !== undefined && (selLink.from === from || selLink.to === from)) {
-                                linkSessionRef.current = {
-                                    key: `net-${++linkKeyCounter.current}`,
-                                    links: [{ key: selLink.key, from: selLink.from, to: selLink.to }],
-                                    drawn: "none",
-                                    seeded: [selLink.key],
-                                };
+                            const selLink = data.links.find(l => stringEqual(l.key, selL.key));
+                            if (selLink !== undefined && (stringEqual(selLink.from, from) || stringEqual(selLink.to, from)) && kinds.links.get(selLink.ref.kind)?.editable === true) {
+                                linkSessionRef.current = { links: [selLink.ref], net: undefined };
                             }
                         }
                     }
@@ -1446,7 +1406,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         if (linkSessionRef.current !== null) endLinkSession();
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-    }, [transition, itemKeyAt, effectiveLinks, effectiveNets, endLinkSession, refById, movableKinds]);
+    }, [transition, itemKeyAt, data.links, data.nets, endLinkSession, refById, movableKinds, kinds]);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
         // Pinch-zoom (#353): with two live touches the gesture owns the
         // canvas — zoom about the midpoint, ratio of successive distances.
@@ -1468,8 +1428,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
                 return;
             }
         }
-        // Move drag (#179): every mover follows the shared world delta, clamped
-        // to the extent; a PURE functional merge preserves other items' moves.
+        // Move drag (#179, SC8): every mover follows the shared world delta,
+        // clamped so each stays within the extent — rigidly, the movers keeping
+        // their places to one another — previewed until the release records it.
         const md = moveDragRef.current;
         if (md !== null) {
             const host = e.currentTarget as HTMLElement;
@@ -1477,15 +1438,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             const cam = cameraRef.current;
             const ppuLive = renderSnapRef.current.fit * cam.zoom;
             if (ppuLive > 0) {
-                const dx = (e.clientX - r.left - cam.tx) / ppuLive - md.startWorld.x;
-                const dy = (e.clientY - r.top - cam.ty) / ppuLive - md.startWorld.y;
-                setItemMoves(prev => {
-                    const next = new Map(prev);
-                    for (const [kk, o] of md.orig) {
-                        next.set(kk, { x: Math.min(Math.max(o.x + dx, 0), W), y: Math.min(Math.max(o.y + dy, 0), H) });
-                    }
-                    return next;
-                });
+                const delta = clampDelta(md.movers, (e.clientX - r.left - cam.tx) / ppuLive - md.startWorld.x,
+                    (e.clientY - r.top - cam.ty) / ppuLive - md.startWorld.y, { width: W, height: H });
+                md.delta = delta;
+                setDragMoves(new Map(md.movers.map((m) => [m.id, { x: m.x + delta.dx, y: m.y + delta.dy }] as const)));
             }
             return;
         }
@@ -1569,9 +1525,13 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             touchesRef.current.delete(e.pointerId);
             if (touchesRef.current.size < 2) pinchRef.current = null;
         }
-        // Move release (#179): the moved items stay where the drag left them.
-        if (moveDragRef.current !== null) {
+        // Move release (#179, SC8): the move recorded as one step, its preview
+        // giving way to its drafts; a release where it began records nothing.
+        const md = moveDragRef.current;
+        if (md !== null) {
             moveDragRef.current = null;
+            if (recordStep(moveEdits(md.movers, md.delta), "move", "move", "", md.movers.length)) endLinkSession();
+            setDragMoves(NO_MOVES);
             return;
         }
         // Connect release (#176): over a valid target commits the gesture
@@ -1651,22 +1611,17 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
                 else if (!e.shiftKey) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
             }
         }
-    }, [endPan, pickAt, flyTo, collectMarquee, commitSelection, clearSelection, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, candidateRefusal, commitNetExtend, commitLinkSelection]);
+    }, [endPan, pickAt, flyTo, collectMarquee, commitSelection, clearSelection, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, candidateRefusal, commitNetExtend, commitLinkSelection, recordStep, endLinkSession]);
     // pointercancel / lost capture: a pan OR select-drag that loses its grip
     // mid-gesture must still end (issue #57, P10). After a normal release the
     // pan is already ended (panRef null) so this is a no-op then, and it never
     // cancels a fly the tap may have just started.
     const onCanvasPointerCancel = useCallback(() => {
         movedRef.current = false;
-        // Revert an in-flight move to its drag-start positions.
-        const md = moveDragRef.current;
-        if (md !== null) {
+        // A move that loses its pointer records nothing: its items stay where they were (SC8).
+        if (moveDragRef.current !== null) {
             moveDragRef.current = null;
-            setItemMoves(prev => {
-                const next = new Map(prev);
-                for (const [kk, o] of md.orig) next.set(kk, o);
-                return next;
-            });
+            setDragMoves(NO_MOVES);
         }
         connectDragRef.current = null;
         setConnectDraft(null);
@@ -1718,34 +1673,27 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     }, [tool, endLinkSession]);
 
     // Momentary tool overrides (#153): while the schematic is hovered, holding
-    // Space → Select, Ctrl → Zoom box, reverting on release. Escape (#159) cancels
-    // an in-flight gesture or, failing that, clears the selection. Gated on hover
-    // so the page's Space-scroll / Ctrl-modifier is untouched elsewhere; window
-    // blur and pointer-leave clear a stuck override.
+    // Space → Select, Ctrl → Zoom box, reverting on release. Del deletes what is
+    // selected (#1388). Escape (#159) cancels an in-flight gesture or, failing
+    // that, clears the selection, and drops a refusal's words. Gated on hover so
+    // the page's Space-scroll / Ctrl-modifier is untouched elsewhere — and never
+    // on a key typed into a field, Find's box among them, which is the field's,
+    // nor one the canvas has heard itself; window blur and pointer-leave clear a
+    // stuck override.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
-            if (!hoveredRef.current) return;
+            if (!hoveredRef.current || e.defaultPrevented || typedInto(e.target)) return;
             // preventDefault on EVERY Space (incl. auto-repeat) so the page never
             // scrolls while panning; only the first sets the tool.
             if (e.code === "Space") { e.preventDefault(); if (!e.repeat) setTempTool("select"); }
             else if (e.key === "Control" && !e.repeat) setTempTool("zoom");
-            else if ((e.key === "Delete" || e.key === "Backspace") && renderSnapRef.current.selectedLink !== null) {
-                e.preventDefault();
-                deleteSelectedLink();
-            }
+            else if (e.key === "Delete" || e.key === "Backspace") { if (deleteSelection()) e.preventDefault(); }
             else if (e.key === "Escape") {
-                if (moveDragRef.current !== null) {
-                    const md = moveDragRef.current;
-                    moveDragRef.current = null;
-                    setItemMoves(prev => {
-                        const next = new Map(prev);
-                        for (const [kk, o] of md.orig) next.set(kk, o);
-                        return next;
-                    });
-                }
+                onRefused(undefined);
+                if (moveDragRef.current !== null) { moveDragRef.current = null; setDragMoves(NO_MOVES); }
                 else if (connectDragRef.current !== null) { connectDragRef.current = null; setConnectDraft(null); }
                 else if (selStartRef.current !== null) { selStartRef.current = null; setBoxDrag(null); }
-                else if (linkSessionRef.current !== null) endLinkSession();
+                else if (linkSessionRef.current !== undefined) endLinkSession();
                 else if (renderSnapRef.current.selection.selected.size > 0
                     || renderSnapRef.current.zoneSelection.size > 0
                     || renderSnapRef.current.selectedLink !== null) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
@@ -1763,7 +1711,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             window.removeEventListener("keyup", onKeyUp);
             window.removeEventListener("blur", clear);
         };
-    }, [clearSelection, clearZoneSelection, endLinkSession, deleteSelectedLink, commitLinkSelection]);
+    }, [clearSelection, clearZoneSelection, endLinkSession, deleteSelection, commitLinkSelection, onRefused]);
     // Minimap is a camera writer (jump on press, follow on drag — invariant 8).
     const minimapDragRef = useRef(false);
     const minimapJump = useCallback((el: HTMLElement, clientX: number, clientY: number) => {
@@ -1872,6 +1820,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
                                 </Box>
                             );
                         })}
+                        {/* A refused connection's words under the item its draft would end at (SC9), in the shared
+                            drag caption, moving with the camera as the cards do. */}
+                        {connectDraft?.forbidden !== undefined && connectDraft.reason !== undefined && centers.has(connectDraft.forbidden) && (
+                            <Box css={styles.draftCaption} data-schematic-refusal=""
+                                style={{ transform: cardTranslateCss(centers.get(connectDraft.forbidden)!.x, centers.get(connectDraft.forbidden)!.y) }}>
+                                <div data-drag-caption="" data-refused="">{connectDraft.reason}</div>
+                            </Box>
+                        )}
                     </Box>
                     {/* Drag box overlay — zoom (#153) or marquee (#159). The marquee
                         carries a live hit-count badge. Screen-space, host-relative. */}
