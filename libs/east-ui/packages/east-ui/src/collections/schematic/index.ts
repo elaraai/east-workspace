@@ -5,9 +5,9 @@
 
 /**
  * `Schematic` — a 2D world-coordinate canvas for placing real-world
- * entities (tanks, bays, lines, nodes, cells) in space, plus annotation
- * zones (rooms, walkways) and key-addressed links, all from flat data
- * tables with chart-style field encodings. Interaction is opt-in per
+ * entities (racks, power and cooling units, switches) in space, plus
+ * annotation zones (halls, cages, aisles) and key-addressed links, all from
+ * flat data tables with chart-style field encodings. Interaction is opt-in per
  * channel (selection, camera, zone / link / net editing, item moves,
  * hover cards) — with nothing bound it is a read-only picture; appearance
  * belongs to the linked Library entry; position and live metrics are
@@ -219,7 +219,7 @@ function toneOption(tone: SubtypeExprOrValue<SchematicToneType> | SchematicToneL
 
 /**
  * Builds an `outline` zone pattern value — the dashed boundary with an
- * eyebrow label (rooms, cells).
+ * eyebrow label (halls, cages).
  *
  * @param config - Optional style configuration (`tone`)
  * @returns A `SchematicZonePatternType` value
@@ -229,8 +229,8 @@ function outline(config?: SchematicPatternConfig) {
 }
 
 /**
- * Builds a `hatch` zone pattern value — the hatched band (walkways,
- * aisles, exclusion strips).
+ * Builds a `hatch` zone pattern value — the hatched band (hot and cold
+ * aisles, exclusion zones).
  *
  * @param config - Optional style configuration (`tone`, `spacing`, `angle`)
  * @returns A `SchematicZonePatternType` value
@@ -244,7 +244,7 @@ function hatch(config?: SchematicPatternConfig) {
 }
 
 /**
- * Builds a `solid` link style value — a physical run (pipe, conveyor).
+ * Builds a `solid` link style value — a physical run (fibre, power cable).
  *
  * @param config - Optional stroke configuration (`tone`, `weight`)
  * @returns A `SchematicLinkStyleType` value
@@ -297,7 +297,7 @@ export type SchematicVertices =
 
 /** Optional configuration for {@link polyline}. */
 export interface SchematicPolylineConfig {
-    /** Band width in world units — the stroke widens into a road / aisle. */
+    /** Band width in world units — the stroke widens into a duct bank / aisle. */
     width?: number;
 }
 
@@ -330,8 +330,8 @@ function rect(): ExprType<SchematicGeometryType> {
 
 /**
  * Builds a `circle` geometry value — a circle centred on the entity anchor
- * (an item's `x/y`, or a zone's bounding-box centre). Models tanks, silos,
- * and round equipment without flattening to a polygon.
+ * (an item's `x/y`, or a zone's bounding-box centre). Models columns,
+ * cooling towers and other round equipment without flattening to a polygon.
  *
  * @param radius - Circle radius in world units
  * @returns A `SchematicGeometryType` value
@@ -342,7 +342,7 @@ function circle(radius: SubtypeExprOrValue<FloatType>): ExprType<SchematicGeomet
 
 /**
  * Builds a `polyline` geometry value — an open, arc-aware polyline in world
- * coordinates, optionally widened into a band (a road / aisle / walkway).
+ * coordinates, optionally widened into a band (a duct bank / aisle).
  *
  * @param vertices - Vertices in world coords, in order (each `{ x, y, bulge? }`; `bulge` defaults to `0`)
  * @param config - Optional `width` band in world units
@@ -530,7 +530,7 @@ export interface SchematicLinkFields {
 }
 
 /**
- * Author-facing fields for one net (manifold / bus), produced by the `net`
+ * Author-facing fields for one net (bus / trunk), produced by the `net`
  * mapper — many `sources` feeding many `destinations` through one trunk.
  */
 export interface SchematicNetFields {
@@ -650,7 +650,7 @@ export interface SchematicConfig<
     links?: SubtypeExprOrValue<ArrayType<L>>;
     /** Links row mapper; omit when `links` is already `ArrayType(Schematic.Types.Link)`. */
     link?: (link: ExprType<L>) => SchematicLinkFields;
-    /** Optional nets — manifold / bus rows (one row = many sources → many destinations). */
+    /** Optional nets — bus rows (one row = many sources → many destinations). */
     nets?: SubtypeExprOrValue<ArrayType<N>>;
     /** Maps a net row to its {@link SchematicNetFields} (or passes a resolved {@link SchematicNetType} through). */
     net?: (net: ExprType<N>) => SchematicNetFields;
@@ -954,18 +954,18 @@ function buildRoot(
  *
  * @example
  * ```ts
- * import { East, variant } from "@elaraai/east";
- * import { Schematic, UIComponentType } from "@elaraai/east-ui";
+ * import { East } from "@elaraai/east";
+ * import { Schematic, UIComponentType } from "@elaraai/east-ui/internal";
  *
  * const example = East.function([], UIComponentType, _$ =>
  *     Schematic.Root(
- *         [{ id: "UNIT-04", x: 3.0, y: 2.0, kind: "unit", fill: 28.8, cap: 40.0 }],
+ *         [{ id: "A01", x: 2.4, y: 2.9, kind: "42U · 8 kW", used: 5.2, cap: 8.0 }],
  *         {
- *             extent: { width: 30, height: 12 },
+ *             extent: { width: 28, height: 12 },
  *             item: e => ({
  *                 key: e.id, x: e.x, y: e.y, label: e.id,
  *                 sublabel: e.kind,
- *                 meter: { value: e.fill, max: e.cap },
+ *                 meter: { value: e.used, max: e.cap },
  *             }),
  *         },
  *     ),
@@ -1009,19 +1009,19 @@ export const Schematic = {
      *
      * @remarks
      * Links address endpoints by item key, so they survive repositioning;
-     * `via` waypoints route around zones. A walkway band is a zone with
-     * `pattern: variant("hatch", null)`.
+     * `via` waypoints route around zones. A hot or cold aisle is a zone with
+     * `pattern: Schematic.hatch()`.
      *
      * @example
      * ```ts
      * import { East } from "@elaraai/east";
-     * import { Schematic, UIComponentType } from "@elaraai/east-ui";
+     * import { Schematic, UIComponentType } from "@elaraai/east-ui/internal";
      *
      * const example = East.function([], UIComponentType, _$ =>
      *     Schematic.Root(
-     *         [{ id: "UNIT-04", x: 3.0, y: 2.0 }],
+     *         [{ id: "A01", x: 2.4, y: 2.9 }],
      *         {
-     *             extent: { width: 30, height: 12 },
+     *             extent: { width: 28, height: 12 },
      *             item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
      *         },
      *     ),
@@ -1093,8 +1093,8 @@ export const Schematic = {
     rect,
     /**
      * Builds a `circle` geometry value — a circle centred on the entity
-     * anchor (an item's `x/y`, or a zone's bbox centre). Models tanks, silos,
-     * and round equipment.
+     * anchor (an item's `x/y`, or a zone's bbox centre). Models columns,
+     * cooling towers and other round equipment.
      *
      * @param radius - Circle radius in world units
      * @returns A `SchematicGeometryType` value
@@ -1107,7 +1107,7 @@ export const Schematic = {
     circle,
     /**
      * Builds a `polyline` geometry value — an open, arc-aware polyline in
-     * world coordinates, optionally widened into a band (a road / aisle).
+     * world coordinates, optionally widened into a band (a duct bank / aisle).
      * Each vertex's `bulge` curves the edge to the next vertex (0 = straight).
      *
      * @param vertices - Vertices in world coords, in order (`{ x, y, bulge? }`)
@@ -1337,7 +1337,7 @@ export const Schematic = {
          */
         LinkEditEvent: SchematicLinkEditEventType,
         /**
-         * A net — a manifold / bus link (many `sources` → many `destinations`,
+         * A net — a bus link (many `sources` → many `destinations`,
          * drawn as a trunk with branches).
          *
          * @property key - Net identity

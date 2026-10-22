@@ -6,13 +6,14 @@
 /**
  * Unit tests for the pure selection rules (`selection.ts`) — the managed slice
  * `in`-clause splice (the selection→slice bridge) and the marquee hit
- * collection. Fixtures are real East values typed from the Slice's East types,
- * built with `variant()` / `some` / `none` and East Sets.
+ * collection. Fixtures are real East values typed from the Slice's and the
+ * Schematic's East types, built with `variant()` / `some` / `none`, East Sets
+ * and the types' default values.
  */
 
 import { describe, it, expect } from "vitest";
-import { SortedSet, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant } from "@elaraai/east";
-import { Slice } from "@elaraai/east-ui/internal";
+import { SortedSet, StringType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { Schematic, Slice } from "@elaraai/east-ui/internal";
 import RBush from "rbush";
 import {
     EMPTY_STRING_SET,
@@ -56,7 +57,7 @@ describe("isSelectionClause / managedSelectionSet", () => {
     });
 
     it("reads the managed key set, defaulting to the shared empty set", () => {
-        const filters = [eqClause("kind", "unit"), inClause("id", ["A", "B"])];
+        const filters = [eqClause("kind", "rack"), inClause("id", ["A", "B"])];
         expect([...managedSelectionSet(filters, "id")].sort()).toEqual(["A", "B"]);
         expect(managedSelectionSet(filters, "missing")).toBe(EMPTY_STRING_SET);
         expect(managedSelectionSet([], "id")).toBe(EMPTY_STRING_SET);
@@ -65,7 +66,7 @@ describe("isSelectionClause / managedSelectionSet", () => {
 
 describe("sliceWithSelection", () => {
     it("appends the managed clause when absent, leaving other clauses + state fields untouched", () => {
-        const s = state([eqClause("kind", "unit")]);
+        const s = state([eqClause("kind", "rack")]);
         const out = sliceWithSelection(s, "id", ["A", "B"]);
         expect(out.filters).toHaveLength(2);
         expect(out.filters[0]).toBe(s.filters[0]);                       // other clause untouched, position kept
@@ -75,7 +76,7 @@ describe("sliceWithSelection", () => {
     });
 
     it("replaces the managed clause IN PLACE (order preserved)", () => {
-        const s = state([inClause("id", ["A"]), eqClause("kind", "unit")]);
+        const s = state([inClause("id", ["A"]), eqClause("kind", "rack")]);
         const out = sliceWithSelection(s, "id", ["B", "C"]);
         expect(out.filters).toHaveLength(2);
         expect(isSelectionClause(out.filters[0]!, "id")).toBe(true);     // still first
@@ -84,11 +85,11 @@ describe("sliceWithSelection", () => {
     });
 
     it("removes the managed clause when the selection empties, and is a no-op-shape when absent", () => {
-        const s = state([eqClause("kind", "unit"), inClause("id", ["A"])]);
+        const s = state([eqClause("kind", "rack"), inClause("id", ["A"])]);
         const out = sliceWithSelection(s, "id", []);
         expect(out.filters).toHaveLength(1);
         expect(isSelectionClause(out.filters[0]!, "id")).toBe(false);
-        const s2 = state([eqClause("kind", "unit")]);
+        const s2 = state([eqClause("kind", "rack")]);
         expect(sliceWithSelection(s2, "id", []).filters).toHaveLength(1);
     });
 
@@ -116,8 +117,10 @@ describe("sliceWithSelection", () => {
 describe("marqueeHits", () => {
     // Padded boxes (±2 world units), mirroring the culling tree: an item whose
     // PADDING overlaps the region but whose CENTER is outside must not select.
-    const box = (key: string, x: number, y: number): ItemBox =>
-        ({ minX: x - 2, minY: y - 2, maxX: x + 2, maxY: y + 2, item: { key, x, y } as ItemBox["item"] });
+    const box = (key: string, x: number, y: number): ItemBox => ({
+        minX: x - 2, minY: y - 2, maxX: x + 2, maxY: y + 2,
+        item: { ...defaultValue<typeof Schematic.Types.Item>(Schematic.Types.Item), key, label: key, x, y },
+    });
     const tree = () => {
         const t = new RBush<ItemBox>();
         t.load([box("A", 5, 5), box("B", 9, 5), box("C", 11.5, 5), box("D", 30, 30)]);

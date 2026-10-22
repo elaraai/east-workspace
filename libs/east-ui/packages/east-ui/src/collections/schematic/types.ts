@@ -53,16 +53,16 @@ export type SchematicToneType = typeof SchematicToneType;
 /**
  * Zone render pattern — each case carries its style configuration.
  *
- * @property outline - Dashed boundary with an eyebrow label (rooms, cells)
- * @property hatch - Hatched band (walkways, aisles, exclusion strips)
+ * @property outline - Dashed boundary with an eyebrow label (halls, cages)
+ * @property hatch - Hatched band (hot and cold aisles, exclusion zones)
  */
 export const SchematicZonePatternType = VariantType({
-    /** Dashed boundary with an eyebrow label (rooms, cells) */
+    /** Dashed boundary with an eyebrow label (halls, cages) */
     outline: StructType({
         /** Stroke tone (default `muted`) */
         tone: OptionType(SchematicToneType),
     }),
-    /** Hatched band (walkways, aisles, exclusion strips) */
+    /** Hatched band (hot and cold aisles, exclusion zones) */
     hatch: StructType({
         /** Hatch-line tone (default `muted`) */
         tone: OptionType(SchematicToneType),
@@ -81,11 +81,11 @@ export type SchematicZonePatternType = typeof SchematicZonePatternType;
 /**
  * Link render style — each case carries its stroke configuration.
  *
- * @property solid - A physical run (pipe, conveyor)
+ * @property solid - A physical run (fibre, power cable)
  * @property dashed - A routing / logical connection
  */
 export const SchematicLinkStyleType = VariantType({
-    /** A physical run (pipe, conveyor) */
+    /** A physical run (fibre, power cable) */
     solid: StructType({
         /** Stroke tone (default `brand`) */
         tone: OptionType(SchematicToneType),
@@ -106,7 +106,7 @@ export const SchematicLinkStyleType = VariantType({
  *
  * @remarks
  * `orthogonal` (the default) routes axis-aligned with rounded corners —
- * the conventional pipe-diagram look; `direct` draws straight segments
+ * the conventional cable-plan look; `direct` draws straight segments
  * between anchors. `via` waypoints apply in both modes.
  *
  * @property orthogonal - Axis-aligned with rounded corners
@@ -158,7 +158,7 @@ export type SchematicPointType = typeof SchematicPointType;
  * straight segment; nonzero is a circular arc where
  * `bulge = tan(includedAngle / 4)` and the sign gives the turn direction
  * (positive = counter-clockwise in world space). One polyline / polygon thus
- * stores true curved kerbs / walls exactly — no flattening into many short
+ * stores true curved walls / cable routes exactly — no flattening into many short
  * segments. For a closed `polygon`, the last vertex's `bulge` applies to the
  * closing edge back to the first vertex.
  *
@@ -191,12 +191,12 @@ export type SchematicVertexType = typeof SchematicVertexType;
  * (`none`) means today's behaviour — a zone is its rect, an item is its
  * point + icon. `circle` centres on the entity anchor (an item's `x/y`, a
  * zone's bbox centre). `polyline` / `polygon` carry {@link SchematicVertexType}
- * vertices in world coords, each with a DXF `bulge`, so curved kerbs / walls
- * are exact (no flattening); all of them paint on the Canvas2D layer, while
+ * vertices in world coords, each with a DXF `bulge`, so curved walls / cable
+ * routes are exact (no flattening); all of them paint on the Canvas2D layer, while
  * `rect` keeps the marker fast path.
  *
  * @property rect - Axis-aligned box (zones: the `x/y/width/height` box; items: the point / marker form)
- * @property circle - Circle centred on the entity anchor; `radius` in world units (tanks, silos)
+ * @property circle - Circle centred on the entity anchor; `radius` in world units (columns, cooling towers)
  * @property polyline - Open, arc-aware polyline in world coords; optional world-space band `width`
  * @property polygon - Closed, arc-aware polygon in world coords (>= 3 vertices, auto-closed)
  */
@@ -212,7 +212,7 @@ export const SchematicGeometryType = VariantType({
     polyline: StructType({
         /** Vertices in world coords, in order (each carries a DXF bulge). */
         vertices: ArrayType(SchematicVertexType),
-        /** Optional band width in world units — the stroke widens into a road / aisle. */
+        /** Optional band width in world units — the stroke widens into a duct bank / aisle. */
         width: OptionType(FloatType),
     }),
     /** Closed, arc-aware polygon in world coords (>= 3 vertices, auto-closed). */
@@ -301,7 +301,7 @@ export const SchematicItemType = StructType({
 export type SchematicItemType = typeof SchematicItemType;
 
 /**
- * A resolved annotation zone (room, cell, walkway band).
+ * A resolved annotation zone (hall, cage, aisle band).
  *
  * @property key - Zone identity
  * @property label - Mono eyebrow label on the boundary
@@ -630,7 +630,7 @@ export type SchematicViewportEventType = typeof SchematicViewportEventType;
  * `childItemKeys` reports the items sitting **inside** the selected zones —
  * an item counts when its innermost containing zone, or any of that zone's
  * ancestors, is selected (so selecting a hall includes items in its nested
- * cells). Items always take hit-test precedence: tapping an item never
+ * cages). Items always take hit-test precedence: tapping an item never
  * selects its host zone.
  *
  * @property key - The zone that triggered the change (some for a tap; none for a clear)
@@ -667,7 +667,7 @@ export type SchematicZoneSelectionEventType = typeof SchematicZoneSelectionEvent
  * **pure connection event** — nothing is added; only `onCreateLink` fires
  * (with the pair, the accumulated session, and any existing links between the
  * endpoints), and the gesture stays repeatable — the channel for planning
- * operations between plant areas rather than drawing pipes.
+ * operations between rooms rather than drawing cable runs.
  *
  * @property draw - The gesture draws a physical link (local-state-first)
  * @property connect - The gesture only fires the event (nothing added; repeatable)
@@ -733,12 +733,12 @@ export const SchematicNetEndpointsType = StructType({
 export type SchematicNetEndpointsType = typeof SchematicNetEndpointsType;
 
 /**
- * A net — a manifold / bus link joining MANY sources to MANY destinations as
- * ONE entity, rendered as a trunk with per-endpoint branches.
+ * A net — a bus link joining MANY sources to MANY destinations as ONE
+ * entity, rendered as a trunk with per-endpoint branches.
  *
  * @remarks
- * Use a net when the real topology is a shared run (a CIP manifold feeding
- * 30 units, a header bridging two banks) — one row instead of a pairwise
+ * Use a net when the real topology is a shared run (a PDU feeding 30
+ * racks, a trunk joining two switches) — one row instead of a pairwise
  * `links` explosion. The trunk routes like a link (`route`, with `via` as
  * TRUNK waypoints); each source branches into the trunk head, each
  * destination off the tail. A branch drops when its endpoint item is hidden
@@ -777,7 +777,7 @@ export const SchematicNetType = StructType({
 });
 
 /**
- * Type representing a net (manifold / bus link).
+ * Type representing a net (bus link).
  */
 export type SchematicNetType = typeof SchematicNetType;
 

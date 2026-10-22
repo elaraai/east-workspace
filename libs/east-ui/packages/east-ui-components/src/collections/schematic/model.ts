@@ -26,7 +26,7 @@ export interface NavZone {
 
 /** Nest zones by smallest-containing-rect and place items into their
  * smallest containing zone — the drawing IS the hierarchy. Hatch zones
- * are annotations (walkways, exclusion strips), not containers: they
+ * are annotations (aisles, exclusion zones), not containers: they
  * never host items. */
 export function buildNavTree(zones: readonly SchematicZoneValue[], items: readonly SchematicItemValue[]): { roots: NavZone[]; floor: SchematicItemValue[]; zoneOf: Map<string, string>; parentOf: Map<string, string> } {
     const nodes = new Map<string, NavZone>();

@@ -179,7 +179,7 @@ describe("hatch sweep bound (P3)", () => {
 
 describe("markerHitbox / markerHit (P11)", () => {
     const cam = { ppu: 10, tx: 0, ty: 0 };
-    const item = { x: 5, y: 5, label: "TANK-04" };   // anchor → screen (50, 50)
+    const item = { x: 5, y: 5, label: "RACK-07" };   // anchor → screen (50, 50)
 
     it("a dot is clickable across its full drawn extent plus touch slop", () => {
         const box = markerHitbox(item, "dot", cam, () => 0);
@@ -250,39 +250,40 @@ describe("parallelLanes (#180 fan-out)", () => {
     });
 });
 
-describe("netGeometry (bus-bar manifolds)", () => {
-    it("1→N column: vertical header bar offset toward the trunk, stubs per unit, interior taps only", () => {
-        // The schematicNets CIP fixture: one source at (2,6), four units at x=9.
+describe("netGeometry (bus-bar nets)", () => {
+    it("1→N column: vertical header bar offset toward the trunk, a stub per rack, interior taps only", () => {
+        // The schematicNets PDU fixture: PDU-1 at (2.5,6.5), four racks at x=10.
         const geo = netGeometry(
-            [{ x: 2, y: 6 }],
-            [{ x: 9, y: 2 }, { x: 9, y: 4.5 }, { x: 9, y: 7 }, { x: 9, y: 9.5 }],
+            [{ x: 2.5, y: 6.5 }],
+            [{ x: 10, y: 1.8 }, { x: 10, y: 4.6 }, { x: 10, y: 7.4 }, { x: 10, y: 10.2 }],
             [],
         );
-        // Bar clearance = clamp(gap(7) * 0.3, 0.9, 3) = 2.1 toward the source.
-        expect(geo.bars).toEqual([[{ x: 6.9, y: 2 }, { x: 6.9, y: 9.5 }]]);
-        // Trunk runs source → mid-bar tap; no waypoints.
-        expect(geo.trunk).toEqual([{ x: 2, y: 6 }, { x: 6.9, y: 6 }]);
-        // One horizontal stub per unit, landing on the bar.
+        // Bar clearance = clamp(gap(7.5) * 0.3, 0.9, 3) = 2.25 toward the source.
+        expect(geo.bars).toEqual([[{ x: 7.75, y: 1.8 }, { x: 7.75, y: 10.2 }]]);
+        // Trunk runs source → the bar tap level with it; no waypoints.
+        expect(geo.trunk).toEqual([{ x: 2.5, y: 6.5 }, { x: 7.75, y: 6.5 }]);
+        // One horizontal stub per rack, landing on the bar.
         expect(geo.stubs).toHaveLength(4);
         expect(geo.stubs.map(st => st[1])).toEqual([
-            { x: 6.9, y: 2 }, { x: 6.9, y: 4.5 }, { x: 6.9, y: 7 }, { x: 6.9, y: 9.5 },
+            { x: 7.75, y: 1.8 }, { x: 7.75, y: 4.6 }, { x: 7.75, y: 7.4 }, { x: 7.75, y: 10.2 },
         ]);
         // Dots ONLY at 3-way joins: the two interior stubs + the trunk tap —
         // the span-end stubs are plain elbows.
-        expect(geo.taps).toEqual([{ x: 6.9, y: 4.5 }, { x: 6.9, y: 7 }, { x: 6.9, y: 6 }]);
+        expect(geo.taps).toEqual([{ x: 7.75, y: 4.6 }, { x: 7.75, y: 7.4 }, { x: 7.75, y: 6.5 }]);
     });
 
     it("2→1 with a via waypoint: bar offset clamps to the 0.9 minimum and the trunk threads the via", () => {
-        // The schematicNets header fixture: PK-A/PK-B → DOCK via (20,6).
+        // The schematicNets uplinks fixture: TOR-A/TOR-B → SPINE via (20,6).
         const geo = netGeometry(
-            [{ x: 17, y: 3.5 }, { x: 17, y: 8 }],
-            [{ x: 23, y: 6 }],
+            [{ x: 17.5, y: 3.4 }, { x: 17.5, y: 8.2 }],
+            [{ x: 24, y: 6 }],
             [{ x: 20, y: 6 }],
         );
-        expect(geo.bars).toEqual([[{ x: 17.9, y: 3.5 }, { x: 17.9, y: 8 }]]);
-        expect(geo.trunk).toEqual([{ x: 17.9, y: 6 }, { x: 20, y: 6 }, { x: 23, y: 6 }]);
+        // gap(2.5) * 0.3 = 0.75, under the 0.9 minimum.
+        expect(geo.bars).toEqual([[{ x: 18.4, y: 3.4 }, { x: 18.4, y: 8.2 }]]);
+        expect(geo.trunk).toEqual([{ x: 18.4, y: 6 }, { x: 20, y: 6 }, { x: 24, y: 6 }]);
         // Both stubs land at the bar ENDS → elbows; the only dot is the trunk tap.
-        expect(geo.taps).toEqual([{ x: 17.9, y: 6 }]);
+        expect(geo.taps).toEqual([{ x: 18.4, y: 6 }]);
     });
 
     it("1→1 with no waypoints degrades to a plain link — no bars, stubs, or dots", () => {

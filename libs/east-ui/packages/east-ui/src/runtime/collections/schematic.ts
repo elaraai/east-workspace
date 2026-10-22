@@ -14,35 +14,35 @@ import {
 import { UIComponentType } from "../../component.js";
 
 /**
- * `<Schematic>` — a read-only 2D world-coordinate canvas for placing
- * real-world entities (tanks, bays, lines, cells) in space, plus
- * annotation zones (rooms, hatched walkways) and key-addressed links — all
- * from flat data tables with chart-style field encodings. Renders bare like
+ * `<Schematic>` — a 2D world-coordinate canvas for placing real-world
+ * entities (racks, power and cooling units, switches) in space, plus
+ * annotation zones (halls, cages, hatched aisles) and key-addressed links —
+ * all from flat data tables, each row mapped to its fields. Renders bare like
  * Table; identity chrome is host composition.
  *
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/east-ui` pragma
- * import { East, variant } from "@elaraai/east";
+ * import { East, variant, some } from "@elaraai/east";
  * import { Schematic, UIComponentType } from "@elaraai/east-ui";
  *
- * const plant = East.function([], UIComponentType, _$ => (
+ * const floor = East.function([], UIComponentType, _$ => (
  *     <Schematic
- *         extent={{ width: 30, height: 12 }}
+ *         extent={{ width: 28, height: 12 }}
  *         items={[
- *             { id: "UNIT-04", x: 4.0, y: 2.5, kind: "unit · 40 kL", fill: 28.8, cap: 40.0,
- *               state: variant("some", variant("success", null)) },
+ *             { id: "A01", x: 2.4, y: 2.9, kind: "42U · 8 kW", used: 5.2, cap: 8.0,
+ *               state: some(variant("success", null)) },
  *         ]}
- *         item={{
- *             key: e => e.id, x: e => e.x, y: e => e.y, label: e => e.id,
- *             sublabel: e => e.kind, icon: "database",
- *             status: e => e.state,
- *             meter: { value: e => e.fill, max: e => e.cap },
- *         }}
- *         zones={[{ id: "hall-b", name: "Hall B", x: 0.5, y: 0.5, w: 18.0, h: 5.0,
+ *         item={e => ({
+ *             key: e.id, x: e.x, y: e.y, label: e.id,
+ *             sublabel: e.kind, icon: "server",
+ *             status: e.state,
+ *             meter: { value: e.used, max: e.cap },
+ *         })}
+ *         zones={[{ id: "cage-a", name: "Cage A", x: 0.6, y: 0.6, w: 19.6, h: 4.6,
  *                   pattern: Schematic.outline() }]}
- *         zone={{ key: z => z.id, label: z => z.name, x: z => z.x, y: z => z.y,
- *                 width: z => z.w, height: z => z.h, pattern: z => z.pattern }}
+ *         zone={z => ({ key: z.id, label: z.name, x: z.x, y: z.y,
+ *                       width: z.w, height: z.h, pattern: z.pattern })}
  *         scaleUnit="m"
  *     />
  * ));

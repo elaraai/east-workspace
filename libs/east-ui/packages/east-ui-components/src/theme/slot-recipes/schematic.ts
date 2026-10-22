@@ -6,7 +6,7 @@
 /**
  * Schematic slot recipe — the read-only 2D canvas per the `schematic`
  * pattern: paper-wash canvas, dashed zone outlines with mono eyebrow
- * labels, hatched walkway bands, solid pipe runs / dashed routing links,
+ * labels, hatched aisle bands, solid cable runs / dashed logical links,
  * and node cards (icon · label · status dot · meter · metric). Selection
  * gets the ink outline.
  */
@@ -61,7 +61,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
              * application surface — ring only for :focus-visible. */
             _focusVisible: { outline: "none", boxShadow: "{shadows.focus}" },
         },
-        /* Metric grid per the spec plant-floor canvas — minor lines with a
+        /* Metric grid per the spec's floor canvas — minor lines with a
          * heavier major rule; the major cell equals the scale legend. The
          * grid is the ground layer of the canvas contrast hierarchy
          * (ground ⇢ annotation ⇢ content): felt, never read. */
@@ -168,7 +168,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 strokeWidth: "1px",
                 strokeDasharray: "4 3",
             },
-            /* Polyline is a run / road: a thin centre-line, or a soft band
+            /* Polyline is a run / route: a thin centre-line, or a soft band
              * when a world-space width is set inline. */
             "& path[data-shape=polyline]": {
                 strokeWidth: "1.5px",

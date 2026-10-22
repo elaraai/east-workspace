@@ -51,7 +51,7 @@ export type SchematicGeometryValue = ValueTypeOf<typeof Schematic.Types.Geometry
 /** East Schematic link value type. */
 export type SchematicLinkValue = ValueTypeOf<typeof Schematic.Types.Link>;
 
-/** East Schematic net (manifold / bus) value type. */
+/** East Schematic net (bus / trunk) value type. */
 export type SchematicNetValue = ValueTypeOf<typeof Schematic.Types.Net>;
 
 /** East Schematic layer value type. */
@@ -816,7 +816,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // --- Zone (area) selection (#177). ---------------------------------------
     // The items inside a selected-zone set: an item counts when its innermost
     // containing zone or ANY of that zone's ancestors is selected (selecting a
-    // hall includes items in its nested cells). Inverts the nav's zoneOf/parentOf.
+    // hall includes items in its nested cages). Inverts the nav's zoneOf/parentOf.
     const zoneChildItems = useCallback((zones: ReadonlySet<string>): string[] => {
         if (zones.size === 0) return [];
         const out: string[] = [];
@@ -851,7 +851,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // The innermost selectable zone under a screen point: OUTLINE zones only
     // (hatch bands are annotations, mirroring the nav's host contract), honouring
     // explicit circle / polygon geometry, skipping locked-layer zones; smallest
-    // containing zone wins so nested cells select before their hall.
+    // containing zone wins so nested cages select before their hall.
     const zoneKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number): string | undefined => {
         const snap = renderSnapRef.current;
         if (snap.size === null) return undefined;
@@ -956,7 +956,7 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         if (onSelectLinkFn) { const fn = onSelectLinkFn; dispatchEast("onSelectLink", () => fn(key)); }
     }, [onSelectLinkFn]);
 
-    // Duplicate zone labels are real (tank farms repeat a code) — the
+    // Duplicate zone labels are real (each floor's halls repeat names) — the
     // navigator needs a unique handle per row, so repeats get an ordinal.
     const zoneDisplay = useMemo(() => {
         const counts = new Map<string, number>();

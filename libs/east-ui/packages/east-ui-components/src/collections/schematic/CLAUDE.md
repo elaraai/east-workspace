@@ -87,7 +87,7 @@ goes in a pure module with unit tests, not in the component.
     pointerup recomputes at commit). The frame rect and LOD tiers are
     memoised on their input identities. Anything per-pointermove must be
     O(visible), not O(items).
-14. `schematicStress` (examples) is the manual perf probe — 320 items
+14. `schematicStress` (examples) is the manual perf probe — 3,000 racks
     through the LOD bands; verify pan/zoom smoothness + declutter behaviour
     in the showcase after paint-path changes (visual snapshots are the
     regression gate; this sandbox cannot run them — use CI).

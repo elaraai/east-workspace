@@ -8,51 +8,52 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { variant, some, none, type ValueTypeOf } from "@elaraai/east";
+import { defaultValue, variant, some, none, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/east-ui/internal";
 import { buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./model";
 
 type ItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
 type ZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;
 
+/** An item at (x, y): the Item type's default value, keyed and placed. */
 function item(key: string, x: number, y: number, label = key): ItemValue {
-    return {
-        key, x, y, label,
-        sublabel: none, icon: none, status: none, meter: none, metric: none,
-        width: none, footprint: none, tone: none, color: none, layer: none,
-    } as unknown as ItemValue;
+    return { ...defaultValue<typeof Schematic.Types.Item>(Schematic.Types.Item), key, x, y, label };
 }
 
+/** A zone over a rect: the Zone type's default value, keyed, placed and patterned. */
 function zone(key: string, x: number, y: number, width: number, height: number, pattern: "outline" | "hatch" = "outline"): ZoneValue {
     return {
+        ...defaultValue<typeof Schematic.Types.Zone>(Schematic.Types.Zone),
         key, label: key, x, y, width, height,
-        pattern: variant(pattern, null), geometry: none, tone: none, color: none, layer: none,
-    } as unknown as ZoneValue;
+        pattern: pattern === "hatch"
+            ? variant("hatch", { tone: none, spacing: none, angle: none })
+            : variant("outline", { tone: none }),
+    };
 }
 
 describe("buildNavTree", () => {
     test("nests zones by smallest containing rect and hosts items in their smallest outline zone", () => {
         const hall = zone("hall", 0, 0, 20, 10);
-        const cell = zone("cell", 1, 1, 5, 4);
-        const tank = item("T1", 2, 2);       // inside cell (and hall) → cell wins
-        const packer = item("P1", 15, 5);    // inside hall only
-        const yard = item("Y1", 30, 30);     // outside every zone → floor
-        const { roots, floor, zoneOf, parentOf } = buildNavTree([hall, cell], [tank, packer, yard]);
+        const cage = zone("cage", 1, 1, 5, 4);
+        const rack = item("R1", 2, 2);         // inside cage (and hall) → cage wins
+        const pdu = item("P1", 15, 5);         // inside hall only
+        const generator = item("G1", 30, 30);  // outside every zone → floor
+        const { roots, floor, zoneOf, parentOf } = buildNavTree([hall, cage], [rack, pdu, generator]);
         expect(roots.map(r => r.zone.key)).toEqual(["hall"]);
-        expect(roots[0]!.children.map(c => c.zone.key)).toEqual(["cell"]);
-        expect(parentOf.get("cell")).toBe("hall");
-        expect(zoneOf.get("T1")).toBe("cell");
+        expect(roots[0]!.children.map(c => c.zone.key)).toEqual(["cage"]);
+        expect(parentOf.get("cage")).toBe("hall");
+        expect(zoneOf.get("R1")).toBe("cage");
         expect(zoneOf.get("P1")).toBe("hall");
-        expect(floor.map(f => f.key)).toEqual(["Y1"]);
+        expect(floor.map(f => f.key)).toEqual(["G1"]);
     });
 
     test("hatch zones are annotations — they never host items and never parent", () => {
-        const walkway = zone("walk", 0, 0, 20, 10, "hatch");
-        const inside = item("T1", 5, 5);
-        const { roots, floor, zoneOf } = buildNavTree([walkway], [inside]);
-        expect(roots.map(r => r.zone.key)).toEqual(["walk"]);   // still listed…
-        expect(zoneOf.has("T1")).toBe(false);                    // …but hosts nothing
-        expect(floor.map(f => f.key)).toEqual(["T1"]);
+        const aisle = zone("aisle", 0, 0, 20, 10, "hatch");
+        const inside = item("R1", 5, 5);
+        const { roots, floor, zoneOf } = buildNavTree([aisle], [inside]);
+        expect(roots.map(r => r.zone.key)).toEqual(["aisle"]);  // still listed…
+        expect(zoneOf.has("R1")).toBe(false);                    // …but hosts nothing
+        expect(floor.map(f => f.key)).toEqual(["R1"]);
     });
 });
 
@@ -86,7 +87,7 @@ describe("tierSize", () => {
     test("label tier scales with label length; card tier honours an explicit width", () => {
         expect(tierSize(item("X", 0, 0, "AB"), "label", 30).w)
             .toBeLessThan(tierSize(item("Y", 0, 0, "A MUCH LONGER LABEL"), "label", 30).w);
-        const wide = { ...item("W", 0, 0), width: some(4) } as unknown as ItemValue;
+        const wide: ItemValue = { ...item("W", 0, 0), width: some(4) };
         expect(tierSize(wide, "card", 30).w).toBe(120);   // 4 world units × 30 ppu
     });
 });
