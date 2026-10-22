@@ -31,18 +31,12 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { DATA_CENTRE, card, openSchematic, sizeTo } from "./schematic-page";
+import { DATA_CENTRE, card, centred, openSchematic, openTab, pane, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 import { token } from "./tokens";
 
-/** The library pane. */
-const pane = (root: Locator) => root.locator("[data-frame-slot='start']");
-
 /** The open tab's panel. */
 const panel = (root: Locator) => pane(root).locator("[role='tabpanel']:not([hidden])");
-
-/** A tab's accessible name: its name, and its count after it. */
-const named = (name: string) => new RegExp(`^${name}( |$)`);
 
 /** Every tab's name with its count, in order: the row's, then those its `+n` menu holds. */
 async function tabNames(page: Page, root: Locator): Promise<string[]> {
@@ -54,22 +48,6 @@ async function tabNames(page: Page, root: Locator): Promise<string[]> {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
     return [...onRow, ...inMenu];
-}
-
-/**
- * Opens a tab of the library: from its row, or — folded — from its `+n` menu, which puts it on the row; the menu gone
- * before the tab is read, so none of it lies over the tab's first rows.
- */
-async function openTab(page: Page, root: Locator, name: string): Promise<void> {
-    const tab = pane(root).getByRole("tab", { name: named(name) });
-    if (await tab.count() > 0) await tab.click();
-    else {
-        await pane(root).locator("[data-dock-more]").click();
-        await page.getByRole("menuitem", { name: named(name) }).click();
-        await expect(page.getByRole("menu")).toHaveCount(0);
-    }
-    await expect(pane(root).getByRole("tab", { name: named(name) })).toHaveAttribute("aria-selected", "true");
-    await settled(page);
 }
 
 /** An Index row, by its name. */
@@ -96,7 +74,7 @@ test.describe("The Schematic's library (#1389)", () => {
             const root = await openSchematic(page, DATA_CENTRE, theme);
             const start = pane(root);
             expect(await start.evaluate((el) => [el.getAttribute("data-pane-mode"), Math.round(el.getBoundingClientRect().width)])).toEqual(["pinned", 272]);
-            expect(await tabNames(page, root)).toEqual(["Templates 5", "Backlog 2", "Index 5", "Layers 4"]);
+            expect(await tabNames(page, root)).toEqual(["Templates 5", "Backlog 2", "Index 5", "Layers 4", "Owners 3"]);
             expect(await start.locator("[data-dock-tabs]").evaluate((el) => Math.round(el.parentElement!.getBoundingClientRect().height))).toBe(44);
             for (const [tab, count] of [["Templates", 5], ["Backlog", 2]] as const) {
                 await openTab(page, root, tab);
@@ -265,6 +243,8 @@ test.describe("The Schematic's library on a phone (#1389)", () => {
                     await settled(page);
                 }
                 if (at === "in a 294px parent") await sizeTo(page, root, 294);
+                // In the window's middle: a narrower page reflows what lies above the Schematic, and a point is hit only in view.
+                await centred(page, root);
                 const start = pane(root);
                 await expect(start, at).toHaveAttribute("data-pane-mode", "overlay");
                 await start.getByRole("button", { name: "Expand Library" }).tap();

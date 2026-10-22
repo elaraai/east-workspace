@@ -15,11 +15,16 @@
  * links (a link's ends) check and read such a field through these, each
  * naming the option and what the keys are of in its own words.
  *
+ * A row's fields are written by name too ({@link fieldSetters}): a setter for
+ * every field at any depth, which an inspector's edit of a Schedule kind's
+ * field writes through, and an author's card dropped on a Schematic entity
+ * (#1390).
+ *
  * @packageDocumentation
  */
 
 import {
-    East, OptionType, StringType, isTypeEqual, none, some, variant,
+    BlobType, East, OptionType, StringType, isTypeEqual, none, some, variant,
     type EastType, type ExprType, type FunctionType, type StructType,
 } from "@elaraai/east";
 import { ScheduleResourceRefType } from "./types.js";
@@ -40,6 +45,59 @@ export type FieldsOf<R extends StructType, T> = { [F in FieldName<R>]: R["fields
  */
 export function fieldOf(row: unknown, name: string): ExprType<EastType> {
     return (row as Record<string, ExprType<EastType>>)[name]!;
+}
+
+/** One field of a row, at any depth, and what a write of its value leaves the row. */
+export interface FieldSetter {
+    /** The field's path: its name, after the names of the structs it is in. */
+    readonly path: readonly string[];
+    /** `(row, bytes)` → the row with the field set to the value the bytes hold at the field's type, every other field as it was. */
+    readonly set: ExprType<FunctionType<[EastType, BlobType], EastType>>;
+}
+
+/**
+ * A setter for every field of a row, at any depth: what an inspector's edit of
+ * one field writes through — a Schedule kind's `field` gesture — and an
+ * author's card's patch dropped on a Schematic entity, a field at a time
+ * (#1390). Each takes the field's value as bytes at the field's type, and
+ * rebuilds the structs down its path from the leaf up, every other field as it
+ * was.
+ *
+ * @param rowType - The row type
+ * @returns Each field's setter: a field, then the fields of a struct it holds, in the row's order
+ */
+export function fieldSetters(rowType: StructType): FieldSetter[] {
+    const setters: FieldSetter[] = [];
+    const setterOf = (prefix: readonly string[], name: string, type: EastType): ExprType<FunctionType<[EastType, BlobType], EastType>> =>
+        East.function([rowType, BlobType], rowType, (_$, row, bytes) => {
+            const value = bytes.decodeBeast(type, "v2") as ExprType<EastType>;
+            // The structs down the path, each with the field below it replaced, rebuilt from the leaf up.
+            const chain: { struct: StructType; field: string; at: ExprType<EastType> }[] = [];
+            let at = row as ExprType<EastType>;
+            let struct: StructType = rowType;
+            for (const step of prefix) {
+                chain.push({ struct, field: step, at });
+                at = fieldOf(at, step);
+                struct = (struct.fields as Record<string, EastType>)[step] as StructType;
+            }
+            const leaf = struct;
+            const leafAt = at;
+            let next = East.value(Object.fromEntries(Object.keys(leaf.fields).map((f) => [f, f === name ? value : fieldOf(leafAt, f)])) as never, leaf) as ExprType<EastType>;
+            for (let i = chain.length - 1; i >= 0; i--) {
+                const link = chain[i]!;
+                const inner = next;
+                next = East.value(Object.fromEntries(Object.keys(link.struct.fields).map((f) => [f, f === link.field ? inner : fieldOf(link.at, f)])) as never, link.struct) as ExprType<EastType>;
+            }
+            return next as never;
+        }) as unknown as ExprType<FunctionType<[EastType, BlobType], EastType>>;
+    const collect = (struct: StructType, prefix: readonly string[]): void => {
+        for (const [name, type] of Object.entries(struct.fields as Record<string, EastType>)) {
+            setters.push({ path: [...prefix, name], set: setterOf(prefix, name, type) });
+            if (type.type === "Struct") collect(type, [...prefix, name]);
+        }
+    };
+    collect(rowType, []);
+    return setters;
 }
 
 /**

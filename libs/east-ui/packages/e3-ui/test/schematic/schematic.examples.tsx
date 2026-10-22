@@ -207,6 +207,8 @@ export const DcFibreValues = StructType({
 });
 /** A fibre template: its card's name and system, and what it gives a run. */
 export const DcFibreTemplate = StructType({ name: StringType, system: StringType, values: DcFibreValues });
+/** A tenant of the floor: the owner a rack is let to, and who looks after its racks. */
+export const DcOwner = StructType({ name: StringType, contact: StringType });
 
 export const schematicRacks = e3.record("schematic_racks", DictType(StringType, DcRack), new Map([
     ["A01", { name: "A01", x: some(2.4), y: some(2.9), w: 3.2, h: 1.2, model: "42U · 8 kW", hall: "Cage A", system: "power", owner: "Harbour Labs" }],
@@ -290,15 +292,20 @@ export const schematicFibreTemplates = e3.record("schematic_fibre_templates", Di
         values: { path: [], label: some("OOB mgmt"), speed: none, cable: variant("logical", null), system: "network" } }],
 ]));
 export const schematicFibreTemplatesBySystem = e3.recordIndex("schematic_fibre_templates_by_system", schematicFibreTemplates, { on: ["system"] });
+export const schematicOwners = e3.record("schematic_owners", DictType(StringType, DcOwner), new Map([
+    ["elmway", { name: "Elmway College", contact: "IT services" }],
+    ["harbour", { name: "Harbour Labs", contact: "Network desk" }],
+    ["northwind", { name: "Northwind Media", contact: "Facilities" }],
+]));
 
 export const schematicDataCentre = example({
     keywords: [
         "Schematic", "Schematic.items", "Schematic.zones", "Schematic.links", "Schematic.nets", "Schematic.details", "Schematic.templates",
-        "Schematic.layers", "Schematic.library", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "records", "details", "templates", "backlog",
-        "layers", "narrowed", "inspector", "accessor", "id", "onSelect", "canConnect", "Schematic.Types.Ref", "Schematic.Types.Candidate", "veto",
-        "editing", "Save", "undo", "Move", "Connect", "nets",
+        "Schematic.layers", "Schematic.library", "Schematic.library.tab", "Schematic.patch", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "records",
+        "details", "templates", "backlog", "layers", "narrowed", "inspector", "accessor", "id", "onSelect", "canConnect", "Schematic.Types.Ref",
+        "Schematic.Types.Candidate", "veto", "editing", "Save", "undo", "Move", "Connect", "nets", "drag and drop", "drop",
     ],
-    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, the racks with no position, the zones' index and the layers, a systems record",
+    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const racks = $.let(Record.bind(schematicRacks, [schematicRacksPatch]));
@@ -314,6 +321,7 @@ export const schematicDataCentre = example({
             const systems = $.let(Data.bind(schematicSystems));
             const rackTemplates = $.let(Data.bind(schematicRackTemplates));
             const fibreTemplates = $.let(Data.bind(schematicFibreTemplates));
+            const owners = $.let(Data.bind(schematicOwners));
             // A cooling unit's own Details: its setpoint, and a button that lowers it — the edited unit goes back through `update`.
             const coolingDetails = $.const(East.function([DcCooling, FunctionType([DcCooling], NullType)], UIComponentType, ($2, unit, update) => {
                 const lower = $2.const(East.function([], NullType, ($3) => {
@@ -440,6 +448,11 @@ export const schematicDataCentre = example({
                             Schematic.library.backlog(),
                             Schematic.library.index(),
                             Schematic.library.layers(),
+                            // The floor's owners: a card dropped on a rack — its patch is over a rack's row — makes it the rack's owner.
+                            Schematic.library.tab(owners.read(), {
+                                name: "Owners", icon: "building", label: (o) => o.name, meta: (o) => some(o.contact),
+                                drop: (o) => Schematic.patch(DcRack, { owner: o.name }),
+                            }),
                         ]}
                     />
                 </Box>

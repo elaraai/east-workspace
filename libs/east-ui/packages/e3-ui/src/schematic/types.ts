@@ -21,7 +21,7 @@ import {
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { StatusTokenType } from "@elaraai/east-ui";
 import { EditingReadinessType, EditingType, FieldSpecType } from "@elaraai/east-ui/internal";
-import { ScheduleEntriesType, ScheduleReadyEntryType } from "../schedule/types.js";
+import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
 import { RowInspectorType } from "../utils/row-inspector.js";
 
 // ============================================================================
@@ -630,6 +630,7 @@ const ReadyType = FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(Ed
  * @property fields - The inspector's form over the fields no role writes (`Fields`)
  * @property inspector - The kind's own Details in place of its form, over bytes
  * @property ready - The app's check on drafted rows, one result each
+ * @property set - The row with each field write applied in order — a field at any depth, its value as bytes at the field's type — and every other field as it was: what an author's card dropped on an entity sets (#1390); `none` for a write naming no field of the row
  * @property rowType - The record's row type
  */
 const RecordSideFields = {
@@ -640,6 +641,7 @@ const RecordSideFields = {
     fields: ArrayType(FieldSpecType),
     inspector: OptionType(RowInspectorType),
     ready: OptionType(ReadyType),
+    set: FunctionType([BlobType, ArrayType(ScheduleFieldWriteType)], OptionType(BlobType)),
     rowType: EastTypeType,
 } as const;
 

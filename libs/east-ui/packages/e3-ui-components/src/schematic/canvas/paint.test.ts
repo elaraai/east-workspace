@@ -7,15 +7,21 @@
  * Numerical tests for the DXF bulge-arc geometry in {@link arcFromBulge}. The
  * paint layer can't be pixel-snapshotted here, so these assert the maths an arc
  * renders from: centre, radius, endpoints-on-circle, and — the bit a data test
- * can't catch — that the arc bulges to the side the bulge sign dictates.
+ * can't catch — that the arc bulges to the side the bulge sign dictates. A
+ * drop's marks (#1390) are asserted over a 2D context that records what each
+ * stroke and fill draws: its style, width, dash and alpha, and its path's
+ * arcs.
  */
 
 import { describe, it, expect } from "vitest";
+import { defaultValue, none, some, variant } from "@elaraai/east";
+import { Schematic } from "@elaraai/e3-ui/internal";
+import { drawnItem, drawnLink, drawnZone, type SchematicDrawn } from "./drawn";
 import {
     netGeometry,
     MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS,
     arcFromBulge, hatchLineCount, hatchSpacing, hatchSweepBounds, markerHit, markerHitbox, type BulgeArc,
-    parallelLanes, polylineMidpoint,
+    paintSchematic, parallelLanes, polylineMidpoint, type PaintInput, type RGB, type SchematicPalette,
 } from "./paint";
 
 type Pt = { x: number; y: number };
@@ -324,5 +330,118 @@ describe("netGeometry (bus-bar nets)", () => {
         // Trunk drops from the bar tap under the sink's x.
         expect(geo.trunk[0]).toEqual({ x: 5, y: 3.8 });
         expect(geo.taps).toEqual([{ x: 5, y: 3.8 }]);   // mid stub + trunk tap coincide → ONE dot
+    });
+});
+
+// ============================================================================
+// A drop's marks (#1390)
+// ============================================================================
+
+/** One stroke or fill as a context drew it: its style, its width, its dash, its alpha, and the arcs its path holds. */
+interface Drawn {
+    readonly op: "stroke" | "fill";
+    readonly style: string;
+    readonly width: number;
+    readonly dash: readonly number[];
+    readonly alpha: number;
+    readonly arcs: readonly { readonly x: number; readonly y: number; readonly r: number }[];
+}
+
+/** A Canvas2D context that records each stroke and fill: what the paint layer drew, without pixels. */
+function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[] } {
+    const drawn: Drawn[] = [];
+    let state = { strokeStyle: "", fillStyle: "", lineWidth: 1, globalAlpha: 1, dash: [] as number[] };
+    const saved: (typeof state)[] = [];
+    let arcs: { x: number; y: number; r: number }[] = [];
+    const record = (op: "stroke" | "fill") => drawn.push({
+        op, style: op === "stroke" ? state.strokeStyle : state.fillStyle, width: state.lineWidth, dash: [...state.dash], alpha: state.globalAlpha, arcs: [...arcs],
+    });
+    const ctx = {
+        canvas: { width: 300, height: 200 },
+        get strokeStyle() { return state.strokeStyle; }, set strokeStyle(v: string) { state.strokeStyle = v; },
+        get fillStyle() { return state.fillStyle; }, set fillStyle(v: string) { state.fillStyle = v; },
+        get lineWidth() { return state.lineWidth; }, set lineWidth(v: number) { state.lineWidth = v; },
+        get globalAlpha() { return state.globalAlpha; }, set globalAlpha(v: number) { state.globalAlpha = v; },
+        lineJoin: "miter", lineCap: "butt", font: "", textBaseline: "alphabetic", lineDashOffset: 0,
+        save() { saved.push({ ...state, dash: [...state.dash] }); },
+        restore() { state = saved.pop() ?? state; },
+        setLineDash(dash: number[]) { state.dash = [...dash]; },
+        setTransform() {}, clearRect() {}, clip() {}, closePath() {},
+        beginPath() { arcs = []; },
+        moveTo() {}, lineTo() {}, quadraticCurveTo() {}, rect() {}, roundRect() {},
+        arc(x: number, y: number, r: number) { arcs.push({ x, y, r }); },
+        stroke() { record("stroke"); },
+        fill() { record("fill"); },
+        strokeRect() { record("stroke"); },
+        fillRect() { record("fill"); },
+        fillText() {},
+        measureText(text: string) { return { width: text.length * 6 }; },
+    };
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn };
+}
+
+/** A palette whose every role is its own colour: the brand's line `rgb(10,20,30)`, its wash `rgb(40,50,60)`. */
+const PALETTE: SchematicPalette = (() => {
+    const roles = ["brandMark", "brandSolid", "brandTint", "fg", "fgStrong", "fgMuted", "fgSubtle", "fgFaint", "bgSurface", "bgCanvas",
+        "borderSubtle", "borderStrong", "statusPos", "statusNeg", "statusWarn", "statusInfo"] as const;
+    const palette = Object.fromEntries(roles.map((role, i): [string, RGB] => [role, [i, i, i]])) as unknown as SchematicPalette;
+    return { ...palette, brandSolid: [10, 20, 30], brandTint: [40, 50, 60], labelFont: "10px mono", eyebrowFont: "9px mono" };
+})();
+
+describe("a drop's marks (#1390)", () => {
+    const T = Schematic.Types;
+    const A = { kind: "racks", key: "A" }, B = { kind: "racks", key: "B" };
+    const a = drawnItem(A, { ...defaultValue<typeof T.Item>(T.Item), position: some({ x: 2, y: 2 }), label: "A" }, undefined)!;
+    const b = drawnItem(B, { ...defaultValue<typeof T.Item>(T.Item), position: some({ x: 8, y: 2 }), label: "B" }, undefined)!;
+    const run = drawnLink({ kind: "fibre", key: "u1" }, {
+        ...defaultValue<typeof T.Link>(T.Link), from: A, to: B, route: variant("direct", null), style: variant("solid", { tone: none, weight: none }),
+    });
+    const cage = drawnZone({ kind: "areas", key: "cage" }, {
+        ...defaultValue<typeof T.Zone>(T.Zone), x: 10, y: 10, width: 4, height: 4, label: "Cage", pattern: variant("outline", { tone: none }),
+    });
+    const DRAWN: SchematicDrawn = { items: [a, b], zones: [cage], links: [run], nets: [] };
+
+    /** What a frame paints at 10 px a unit, the items as dots, with a drop's mark or none. */
+    function paint(dropMark?: PaintInput["dropMark"]): Drawn[] {
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: DRAWN, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: [a, b], tiers: new Map([[a.key, "dot"], [b.key, "dot"]]), selected: new Set(), selectedZones: new Set(),
+            centers: new Map([[a.key, { x: 2, y: 2 }], [b.key, { x: 8, y: 2 }]]), palette: PALETTE, tints: new Map(),
+            ...(dropMark === undefined ? {} : { dropMark }),
+        });
+        return drawn;
+    }
+    const BRAND_WASH = "rgba(10,20,30,0.3)";
+    const BRAND = "rgb(10,20,30)";
+
+    it("with no drag resting, nothing of the brand's line is drawn but the run itself", () => {
+        expect(paint().filter((d) => d.style === BRAND_WASH)).toEqual([]);
+        expect(paint().filter((d) => d.style === BRAND && d.op === "stroke").map((d) => d.width)).toEqual([2.5]);
+    });
+
+    it("the run a card lands on takes the brand's wash, wide under its line", () => {
+        expect(paint({ kind: "entity", id: run.key }).filter((d) => d.style === BRAND_WASH).map((d) => [d.op, d.width])).toEqual([["stroke", 12.5]]);
+    });
+
+    it("the marker a card lands on takes a brand ring about it, wider than a selection's", () => {
+        const rings = paint({ kind: "entity", id: a.key }).filter((d) => d.style === BRAND && d.op === "stroke" && d.arcs.length > 0);
+        expect(rings.map((d) => [d.width, d.arcs])).toEqual([[2.5, [{ x: 20, y: 20, r: 15 }]]]);
+    });
+
+    it("the zone a card lands on takes the brand's wash under a dashed brand edge — a selection's edge is solid", () => {
+        const marks = paint({ kind: "entity", id: cage.key });
+        // The zones paint under the runs: the zone's dashed edge, then the run's own line.
+        expect(marks.filter((d) => d.style === BRAND && d.op === "stroke").map((d) => [d.width, d.dash])).toEqual([[2, [6, 4]], [2.5, []]]);
+        expect(marks.filter((d) => d.style === "rgb(40,50,60)" && d.op === "fill").map((d) => d.alpha)).toEqual([0.5]);
+    });
+
+    it("the point a template's item or a backlog row lands at takes a ring, and a dot at its centre, over every marker", () => {
+        const marks = paint({ kind: "point", x: 5, y: 7 });
+        const last = marks.slice(-2);
+        expect(last.map((d) => [d.op, d.style, d.arcs])).toEqual([
+            ["stroke", BRAND, [{ x: 50, y: 70, r: 8 }]],
+            ["fill", BRAND, [{ x: 50, y: 70, r: 2.5 }]],
+        ]);
     });
 });

@@ -164,7 +164,7 @@ async function clearFilters(container: HTMLElement) {
 
 test("the library holds the tabs `library` lists, in its order, each with its count; collapsed, its rail counts the backlog", async () => {
     const { container } = await dataCentre();
-    expect(tabs(container)).toEqual(["Templates 5", "Backlog 2", "Index 5", "Layers 4"]);
+    expect(tabs(container)).toEqual(["Templates 5", "Backlog 2", "Index 5", "Layers 4", "Owners 3"]);
     await act(async () => { fireEvent.click(within(pane(container)).getByRole("button", { name: `Collapse ${m.libraryPane()}` })); });
     await settle();
     const rail = pane(container).querySelector(`[title='${m.libraryPane()}']`)!;
@@ -185,8 +185,8 @@ test("the Templates tab lists every kind's templates in its record's key order, 
         { key: id("fibre", "oob"), label: "Out-of-band management", meta: "Fibre run", icon: "fas bolt", picked: false },
         { key: id("fibre", "uplink"), label: "Uplink · 100G", meta: "Fibre run", icon: "fas bolt", picked: false },
     ]);
-    // Until the canvas takes a drop (#1390), no card drags: a click picks one, and a click on it lets it go.
-    expect(panel(container).querySelector("[data-draggable], [data-drag-grip]")).toBeNull();
+    // Every template drags onto the canvas (#1390); a click picks one, and a click on it lets it go.
+    expect(cards(container).map((c) => libraryCard(container, c.key!).hasAttribute("data-draggable"))).toEqual([true, true, true, true, true]);
     await act(async () => { fireEvent.click(libraryCard(container, id("racks", "r42"))); });
     await waitFor(() => expect(cards(container).filter((c) => c.picked).map((c) => c.key)).toEqual([id("racks", "r42")]));
     await act(async () => { fireEvent.click(libraryCard(container, id("fibre", "oob"))); });
@@ -235,6 +235,8 @@ test("an author's tab lists its rows' cards, and follows the source it names: `2
     await settle();
     await waitFor(() => expect(tabs(container)).toEqual(["Racks 7"]));
     expect(heads(container)).toEqual([["Cage A", "7"]]);
+    // Its cards set nothing where they land — the tab gives no `drop` — so none drags (#1390).
+    expect(panel(container).querySelector("[data-draggable]")).toBeNull();
     expect(cards(container).map((c) => [c.key, c.label, c.meta, c.icon])).toEqual([
         ["A01", "A01", "Harbour Labs", "fas server"], ["A02", "A02", "Harbour Labs", "fas server"], ["A03", "A03", "Northwind Media", "fas server"],
         ["A04", "A04", "Northwind Media", "fas server"], ["A05", "A05", "Elmway College", "fas server"], ["A06", "A06", "Elmway College", "fas server"],

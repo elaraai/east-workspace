@@ -20,6 +20,35 @@ export interface NavZone {
     items: SchematicItemValue[];
 }
 
+/** Whether a zone's box holds a world point, its edges among it. */
+const contains = (outer: SchematicZoneValue, x: number, y: number): boolean =>
+    x >= outer.x && x <= outer.x + outer.width && y >= outer.y && y <= outer.y + outer.height;
+
+/**
+ * The zones that host items, smallest first: the outline zones — a hatched
+ * one is an annotation (an aisle, an exclusion zone), never a container.
+ *
+ * @param zones - The zones
+ * @returns The hosts, by their boxes' areas, smallest first
+ */
+export function hostZones(zones: readonly SchematicZoneValue[]): SchematicZoneValue[] {
+    return [...zones].sort((a, b) => (a.width * a.height) - (b.width * b.height)).filter(z => z.pattern.type === "outline");
+}
+
+/**
+ * The zone an item at a world point is filed under: the smallest host whose
+ * box holds the point — the Index's, and the zone a drop's words say a card
+ * lands in (#1390).
+ *
+ * @param hosts - The hosts, smallest first ({@link hostZones})
+ * @param x - The point's world x
+ * @param y - The point's world y
+ * @returns The zone, or `undefined` for a point no host holds
+ */
+export function zoneHolding(hosts: readonly SchematicZoneValue[], x: number, y: number): SchematicZoneValue | undefined {
+    return hosts.find(z => contains(z, x, y));
+}
+
 /** Nest zones by smallest-containing-rect and place items into their
  * smallest containing zone — the drawing IS the hierarchy. Hatch zones
  * are annotations (aisles, exclusion zones), not containers: they
@@ -27,8 +56,6 @@ export interface NavZone {
 export function buildNavTree(zones: readonly SchematicZoneValue[], items: readonly SchematicItemValue[]): { roots: NavZone[]; floor: SchematicItemValue[]; zoneOf: Map<string, string>; parentOf: Map<string, string> } {
     const nodes = new Map<string, NavZone>();
     const sorted = [...zones].sort((a, b) => (a.width * a.height) - (b.width * b.height));
-    const contains = (outer: SchematicZoneValue, x: number, y: number) =>
-        x >= outer.x && x <= outer.x + outer.width && y >= outer.y && y <= outer.y + outer.height;
     for (const zone of zones) nodes.set(zone.key, { zone, children: [], items: [] });
 
     const roots: NavZone[] = [];
@@ -42,11 +69,11 @@ export function buildNavTree(zones: readonly SchematicZoneValue[], items: readon
             parentOf.set(zone.key, parent.key);
         } else roots.push(nodes.get(zone.key)!);
     }
-    const hosts = sorted.filter(z => z.pattern.type === "outline");
+    const hosts = hostZones(zones);
     const floor: SchematicItemValue[] = [];
     const zoneOf = new Map<string, string>();
     for (const item of items) {
-        const host = hosts.find(z => contains(z, item.x, item.y));
+        const host = zoneHolding(hosts, item.x, item.y);
         if (host !== undefined) {
             nodes.get(host.key)!.items.push(item);
             zoneOf.set(item.key, host.key);

@@ -8,7 +8,7 @@
  * `Schematic Builder Spec.md` §6, "The canvas's theme and styles"): the root
  * the frame fills; the canvas filling main, its metric grid, its paint layer
  * and its card layer; the item cards (icon · label · status dot · meter ·
- * metric); the zoom and marquee boxes; a refused connection's caption, the
+ * metric), and the card a drop lands on (#1390); the zoom and marquee boxes; a refused connection's caption, the
  * shared drag caption placed on the canvas (#1388); the scale bar and the minimap, which
  * stay on the canvas; the theme bridge's probe; the toolbar's tool controls
  * and the View popover's; the library's tabs (#1389) — a tab's body, the
@@ -157,6 +157,14 @@ export const schematicSlotRecipe = defineSlotRecipe({
             '&[data-tool="move"]': { cursor: "move", "&:active": { cursor: "move" } },
             "&[data-forbidden]": { cursor: "not-allowed", "&:active": { cursor: "not-allowed" } },
             _focusVisible: { outline: "none", boxShadow: "focusInset" },
+            /* The canvas is the Schematic's one drop cell (#1390): its own marks
+             * — a zone's tint, a link's wash, a ring round a marker or a point, a
+             * card's brand — stand in for the shared stage's frame and wash over
+             * the whole floor, so the stage keeps only its not-allowed cursor
+             * where a drop is refused; the ghost's red caption says why. */
+            "&[data-drag-cell][data-drop-valid]::before, &[data-drag-cell][data-drop-active]::before, &[data-drag-cell][data-drop-invalid]::before": { content: "none" },
+            "&[data-drag-cell][data-drop-active], &[data-drag-cell][data-drop-invalid]": { background: "bg.canvas" },
+            "&[data-drag-cell][data-drop-invalid]": { cursor: "not-allowed", "&::after": { content: "none" } },
         },
         /* The paint layer: the Canvas2D surface over the grid. */
         paint: {
@@ -228,6 +236,17 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-forbidden]": {
                 borderColor: "{colors.status.neg}",
                 boxShadow: "0 0 0 2px color-mix(in oklch, {colors.status.neg} 45%, transparent)",
+            },
+            /* A drop's target (#1390): the card a dragged library card would
+             * land on — the brand's tint on its paper and the brand's solid
+             * edge, 2px as the Flowchart's drop target's, the mark the canvas
+             * paints round a marker, a zone or a link; a selected card's ring
+             * takes the brand while it is one. */
+            "&[data-drop-target]": {
+                background: "brandTint",
+                borderColor: "{colors.brand.solid}",
+                boxShadow: "0 0 0 1px {colors.brand.solid}",
+                outlineColor: "{colors.brand.solid}",
             },
         },
         itemHead: {

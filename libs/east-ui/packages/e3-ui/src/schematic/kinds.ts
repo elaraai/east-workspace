@@ -34,7 +34,8 @@
  *
  * A kind closes the record behind East functions over beast2 bytes (§4.8): its
  * stored rows a read holds, each one's roles beside its bytes; a drafted row's
- * roles; a gesture's write and a new row; the shared editing session over the
+ * roles; a gesture's write and a new row; the fields an author's card sets,
+ * any field at any depth (#1390); the shared editing session over the
  * record with its patch door; the record read by key; its history, its form,
  * its own inspector and the app's check. So the payload is one type whatever
  * the rows hold, and the renderer needs no row type. A kind's record is keyed
@@ -54,9 +55,9 @@ import { EditingReadinessType, Fields, FieldSpecType, resolveRowSource, type Fie
 import { RecordOutcomeType } from "../bind/record.js";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import type { ScheduleResourceOf, ScheduleStatusCasesOf, ScheduleStatusField } from "../schedule/events.js";
-import { checkKeyField, fieldOf, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "../schedule/fields.js";
+import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "../schedule/fields.js";
 import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
-import { ScheduleEntriesType, ScheduleReadyEntryType } from "../schedule/types.js";
+import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
 import { checkEntries, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { checkedSchematicTemplates, isSchematicTemplates, type SchematicTemplates } from "./templates.js";
@@ -394,6 +395,40 @@ function readyOf(rowType: StructType, ready: ((row: ExprType<EastType>, key: Exp
     });
 }
 
+/**
+ * The row with each of a card's field writes applied in order, and every other
+ * field as it was (#1390): what an author's card dropped on an entity sets —
+ * the fields its `Schematic.patch` sets, each a field at any depth, its value
+ * as bytes at the field's type — through the setter Schedule's kinds write an
+ * inspector's edit with (`fieldSetters`).
+ *
+ * @param rowType - The record's row type
+ * @returns `(bytes, writes)` → the row written; `none` when a write names no field of the row
+ */
+function rowSetter(rowType: StructType) {
+    const setters = fieldSetters(rowType);
+    return East.function([BlobType, ArrayType(ScheduleFieldWriteType)], OptionType(BlobType), ($, bytes, writes) => {
+        // Each setter's path as East holds it: a field is named by its steps, never by text a dotted name could mimic.
+        const fns = setters.map((setter) => ({ path: $.const([...setter.path], ArrayType(StringType)), set: $.const(setter.set) }));
+        const row = $.let(bytes.decodeBeast(rowType, "v2") as ExprType<EastType>, rowType);
+        const named = $.let(true);
+        $.for(writes, ($2, write) => {
+            const found = $2.let(false);
+            for (const fn of fns) {
+                $2.if(East.equal(write.path, fn.path), ($3) => {
+                    $3.assign(row, fn.set(row, write.value) as never);
+                    $3.assign(found, true);
+                });
+            }
+            $2.if(found.not(), ($3) => { $3.assign(named, false); });
+        });
+        return named.ifElse(
+            (_$2) => East.value(some(East.Blob.encodeBeast(row, "v2")), OptionType(BlobType)),
+            (_$2) => East.value(none, OptionType(BlobType)),
+        );
+    });
+}
+
 /** What every kind and every details record declare beside their roles. */
 interface RecordSide {
     /** A paged read of the record's own entries, for an editable record read through its source. */
@@ -408,8 +443,8 @@ interface RecordSide {
 
 /**
  * A record's side of a kind on the wire: whether it is editable, its session
- * and its read by key, its history, its form, its own Details and the app's
- * check.
+ * and its read by key, its history, its form, its own Details, the app's
+ * check, and the setter an author's card writes its fields through.
  *
  * @param bound - The record's binding
  * @param entries - Its `entries`, checked
@@ -452,6 +487,7 @@ function recordSide(bound: Bound, entries: ExprType<EastType> | undefined, byKey
         fields: East.value(form, ArrayType(FieldSpecType)),
         inspector: inspector === undefined ? East.value(none, OptionType(RowInspectorType)) : some(inspector),
         ready: ready === undefined ? none : some(ready),
+        set: rowSetter(rowType),
         rowType: toEastTypeValue(rowType),
     };
 }

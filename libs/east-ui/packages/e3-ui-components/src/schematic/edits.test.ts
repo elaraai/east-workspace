@@ -7,13 +7,14 @@
  * net, which absorbs the links it grew from (SC9); a Retarget's end and an
  * Extend's destination (SC10); a Delete's rows, every link and net leg naming
  * a deleted item among them, and its refusal where a read-only link or net
- * names one (SC5, D7); and the refusals of an end no kind's field holds.
- * Fixtures are real East values typed from the Schematic's East types; each
- * gesture's edits are compared as East prints them.
+ * names one (SC5, D7); and the refusals of an end no kind's field holds; and
+ * a new link's or net's values, the selected template's of its kind (§4.3,
+ * #1390). Fixtures are real East values typed from the Schematic's East
+ * types; each gesture's edits are compared as East prints them.
  */
 
 import { describe, expect, test } from "vitest";
-import { OptionType, StringType, defaultValue, equalFor, none, printFor, some } from "@elaraai/east";
+import { ArrayType, BlobType, OptionType, StringType, StructType, defaultValue, equalFor, none, printFor, some, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import { drawnItem, drawnLink, drawnNet, entityId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import {
@@ -27,6 +28,11 @@ const printRef = printFor(T.Ref);
 const printAt = printFor(OptionType(T.Point));
 const printEnds = printFor(T.Ends);
 const printSides = printFor(T.Sides);
+const printValues = printFor(OptionType(BlobType));
+const printBlob = printFor(BlobType);
+/** A field an author's card sets, as an author's tab's card carries it. */
+const FieldWriteType = StructType({ path: ArrayType(StringType), value: BlobType });
+const printWrites = printFor(ArrayType(FieldWriteType));
 
 /** An edit as East prints what it writes: its op, its row's reference, and its value. */
 function printed(edit: SchematicEdit): string {
@@ -36,9 +42,15 @@ function printed(edit: SchematicEdit): string {
         case "sides": return `sides ${printRef(edit.ref)} ${printSides(edit.sides)}`;
         case "link": return `link ${printRef(edit.ref)} ${printEnds(edit.ends)}`;
         case "net": return `net ${printRef(edit.ref)} ${printSides(edit.sides)}`;
+        case "item": return `item ${printRef(edit.ref)} ${printAt(edit.at)} ${printValues(edit.values)}`;
+        case "retype": return `retype ${printRef(edit.ref)} ${printBlob(edit.values)}`;
+        case "set": return `set ${printRef(edit.ref)} ${printWrites([...edit.sets])}`;
         case "remove": return `remove ${printRef(edit.ref)}`;
     }
 }
+
+/** No template selected: a new link's or net's other fields take their types' defaults. */
+const DEFAULTS = (_slot: string): option<Uint8Array> => none;
 
 const ref = (kind: string, key: string): SchematicRef => ({ kind, key });
 const A01 = ref("racks", "A01"), A02 = ref("racks", "A02"), A03 = ref("racks", "A03");
@@ -183,7 +195,7 @@ describe("a session's fold", () => {
 
 describe("Connect and its Shift session (SC9)", () => {
     test("a plain drag records a link of the Connect tool's kind, its key minted, and opens a session of it", () => {
-        const step = connectStep(KINDS, drag(A02, ODF), minter(), none)!;
+        const step = connectStep(KINDS, drag(A02, ODF), minter(), DEFAULTS)!;
         expect(step.edits.map(printed)).toEqual([`link ${printRef(ref("fibre", "fibre-new-1"))} ${printEnds({ from: A02, to: ODF })}`]);
         expect(step.session.links.map((at) => printRef(at))).toEqual([printRef(ref("fibre", "fibre-new-1"))]);
         expect(step.session.net).toBeUndefined();
@@ -192,18 +204,18 @@ describe("Connect and its Shift session (SC9)", () => {
     test("its kind's end holding no item of the target's slot refuses it, naming the end — nothing is recorded", () => {
         expect(connectCandidate(KINDS, drag(A01, PDU))).toEqual({ kind: "fibre", refusal: { why: "end", kind: "Fibre run", end: "end", item: "PDU-A" } });
         expect(connectCandidate(KINDS, drag(PDU, A01)).refusal).toEqual({ why: "end", kind: "Fibre run", end: "start", item: "PDU-A" });
-        expect(connectStep(KINDS, drag(A01, PDU), minter(), none)).toBeUndefined();
+        expect(connectStep(KINDS, drag(A01, PDU), minter(), DEFAULTS)).toBeUndefined();
         expect(linkRefusal(KINDS.links.get("fibre")!, { ref: A01, label: "A01" }, { ref: ODF, label: "ODF-1" })).toBeUndefined();
     });
 
     test("the first Shift-drag grows the session into a net of the kind that holds it, deleting the link it absorbs — one step", () => {
-        const first = connectStep(KINDS, drag(A02, ODF), minter(), none)!;
+        const first = connectStep(KINDS, drag(A02, ODF), minter(), DEFAULTS)!;
         // The drawing holds the new run as its first step left it.
         const drawn = { links: [...DRAWN.links, link(first.session.links[0]!, A02, ODF)], nets: DRAWN.nets };
         const mint = minter();
         const args = drag(A03, ODF, { session: first.session, shift: true, drawn });
         expect(connectCandidate(KINDS, args)).toEqual({ kind: "trunks", refusal: undefined });
-        const grown = connectStep(KINDS, args, mint, none)!;
+        const grown = connectStep(KINDS, args, mint, DEFAULTS)!;
         expect(grown.edits.map(printed)).toEqual([
             `remove ${printRef(first.session.links[0]!)}`,
             `net ${printRef(ref("trunks", "trunks-new-1"))} ${printSides({ sources: [A02, A03], destinations: [ODF] })}`,
@@ -216,9 +228,9 @@ describe("Connect and its Shift session (SC9)", () => {
         const trunk = ref("trunks", "t1");
         const drawn = { links: DRAWN.links, nets: [...DRAWN.nets, net(trunk, [A02, A03], [ODF])] };
         const session: ConnectSession = { links: [], net: trunk };
-        const step = connectStep(KINDS, drag(A01, ODF, { session, shift: true, drawn }), minter(), none)!;
+        const step = connectStep(KINDS, drag(A01, ODF, { session, shift: true, drawn }), minter(), DEFAULTS)!;
         expect(step.edits.map(printed)).toEqual([`sides ${printRef(trunk)} ${printSides({ sources: [A02, A03, A01], destinations: [ODF] })}`]);
-        expect(connectStep(KINDS, drag(A02, ODF, { session, shift: true, drawn }), minter(), none)).toBeUndefined();
+        expect(connectStep(KINDS, drag(A02, ODF, { session, shift: true, drawn }), minter(), DEFAULTS)).toBeUndefined();
         // From the frame to a rack: the rack would join downstream, among the frames, where the trunk holds none — the
         // draft names it.
         expect(connectCandidate(KINDS, drag(ODF, A01, { session, shift: true, drawn })).refusal)
@@ -227,10 +239,10 @@ describe("Connect and its Shift session (SC9)", () => {
     });
 
     test("a session no net kind holds adds a link a drag, each absorbed if a later fold is held", () => {
-        const first = connectStep(KINDS, drag(A01, ODF), minter(), none)!;
+        const first = connectStep(KINDS, drag(A01, ODF), minter(), DEFAULTS)!;
         const drawn = { links: [...DRAWN.links, link(first.session.links[0]!, A01, ODF)], nets: DRAWN.nets };
         // A01 → A02 folds a rack onto the frames' side: no net kind holds it, so a second run.
-        const second = connectStep(KINDS, drag(A01, A02, { session: first.session, shift: true, drawn }), minter(), none)!;
+        const second = connectStep(KINDS, drag(A01, A02, { session: first.session, shift: true, drawn }), minter(), DEFAULTS)!;
         expect(second.edits.map((edit) => edit.op)).toEqual(["link"]);
         expect(second.session.links).toHaveLength(2);
     });
@@ -238,8 +250,20 @@ describe("Connect and its Shift session (SC9)", () => {
     test("a session the drawing no longer holds — taken back by Undo — is over: the drag records a plain link", () => {
         const session: ConnectSession = { links: [ref("fibre", "gone")], net: undefined };
         expect(connectCandidate(KINDS, drag(A03, ODF, { session, shift: true }))).toEqual({ kind: "fibre", refusal: undefined });
-        const step = connectStep(KINDS, drag(A03, ODF, { session, shift: true }), minter(), none)!;
+        const step = connectStep(KINDS, drag(A03, ODF, { session, shift: true }), minter(), DEFAULTS)!;
         expect(step.edits.map((edit) => edit.op)).toEqual(["link"]);
+    });
+
+    test("a new link or net takes its other fields from the template of its own kind the library has selected, and from none of another kind's (§4.3, #1390)", () => {
+        // A fibre run's template selected: the run takes its values; the trunk the session grows into, of another kind, its defaults.
+        const uplink = new Uint8Array([1, 2, 3]);
+        const fibreTemplate = (slot: string): option<Uint8Array> => (stringEqual(slot, "fibre") ? some(uplink) : none);
+        const values = (edit: SchematicEdit | undefined) => (edit !== undefined && (edit.op === "link" || edit.op === "net") ? printValues(edit.values) : "no new row");
+        const first = connectStep(KINDS, drag(A02, ODF), minter(), fibreTemplate)!;
+        expect(values(first.edits[0])).toBe(printValues(some(uplink)));
+        const drawn = { links: [...DRAWN.links, link(first.session.links[0]!, A02, ODF)], nets: DRAWN.nets };
+        const grown = connectStep(KINDS, drag(A03, ODF, { session: first.session, shift: true, drawn }), minter(), fibreTemplate)!;
+        expect(values(grown.edits.find((edit) => edit.op === "net"))).toBe(printValues(none));
     });
 });
 

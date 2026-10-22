@@ -34,6 +34,11 @@
  * refused before its draft snaps, naming the end, as the connect veto's words
  * are (SC9).
  *
+ * A library card's drop (#1390, `drop.ts`) writes its rows as edits too: an
+ * item template's new item, a backlog row placed, a link or net template's
+ * values written over a link or a net of its kind, and an author's card's
+ * fields set on an entity.
+ *
  * @packageDocumentation
  */
 
@@ -48,6 +53,10 @@ type Point = ValueTypeOf<typeof Schematic.Types.Point>;
 export type SchematicEnds = ValueTypeOf<typeof Schematic.Types.Ends>;
 /** A net's sides, as a gesture writes them. */
 export type SchematicSides = ValueTypeOf<typeof Schematic.Types.Sides>;
+/** An author's tab, decoded. */
+type AuthorTabValue = Extract<SchematicValue["library"][number], { type: "tab" }>["value"];
+/** One field an author's card sets (#1390): its path, and its value as bytes at the field's type. */
+export type SchematicFieldWrite = AuthorTabValue["cards"][number]["sets"][number];
 
 const stringEqual = equalFor(StringType);
 const sidesEqual = equalFor(Schematic.Types.Sides);
@@ -61,6 +70,12 @@ const sidesEqual = equalFor(Schematic.Types.Sides);
  * - `sides`: a net's sides;
  * - `link`, `net`: a new link or net, its key minted, its other fields its
  *   type's defaults or a template's values;
+ * - `item`: a new item, its key minted, at its centre, its other fields a
+ *   template's values or their types' defaults (#1390);
+ * - `retype`: a link's or a net's fields a template of its kind gives, its
+ *   ends or its sides and its key as they are (#1390);
+ * - `set`: the fields an author's card sets, every other field as it was
+ *   (#1390);
  * - `remove`: the row deleted.
  */
 export type SchematicEdit =
@@ -69,6 +84,9 @@ export type SchematicEdit =
     | { readonly op: "sides"; readonly ref: SchematicRef; readonly sides: SchematicSides }
     | { readonly op: "link"; readonly ref: SchematicRef; readonly ends: SchematicEnds; readonly values: option<Uint8Array> }
     | { readonly op: "net"; readonly ref: SchematicRef; readonly sides: SchematicSides; readonly values: option<Uint8Array> }
+    | { readonly op: "item"; readonly ref: SchematicRef; readonly at: option<Point>; readonly values: option<Uint8Array> }
+    | { readonly op: "retype"; readonly ref: SchematicRef; readonly values: Uint8Array }
+    | { readonly op: "set"; readonly ref: SchematicRef; readonly sets: readonly SchematicFieldWrite[] }
     | { readonly op: "remove"; readonly ref: SchematicRef };
 
 /** A link kind, as the edits read it: its name, whether it writes, and the item slots each end holds keys of. */
@@ -386,10 +404,11 @@ export interface ConnectStep {
  * @param kinds - The Schematic's kinds
  * @param args - The drag
  * @param mint - A new key for a row of a kind
- * @param values - What a new link's or net's other fields take: a template's values; `none`, their types' defaults
+ * @param values - What a new link's or net's other fields take, by its kind's slot: the values of the template of that kind
+ *   the library has selected (§4.3, #1390); `none`, their types' defaults
  * @returns The step; `undefined` for a drag that writes nothing — one its kind refuses, or one between two members of the net
  */
-export function connectStep(kinds: EditKinds, args: ConnectDragArgs, mint: (slot: string) => string, values: option<Uint8Array>): ConnectStep | undefined {
+export function connectStep(kinds: EditKinds, args: ConnectDragArgs, mint: (slot: string) => string, values: (slot: string) => option<Uint8Array>): ConnectStep | undefined {
     const candidate = connectCandidate(kinds, args);
     const slot = candidate.kind;
     if (slot === undefined || candidate.refusal !== undefined) return undefined;
@@ -398,7 +417,7 @@ export function connectStep(kinds: EditKinds, args: ConnectDragArgs, mint: (slot
     if (kinds.links.has(slot)) {
         // A link: the session's first, or one more of a session no net kind holds.
         const ref = { kind: slot, key: mint(slot) };
-        return { edits: [{ op: "link", ref, ends: pair, values }], session: { links: [...(open?.links ?? []), ref], net: undefined } };
+        return { edits: [{ op: "link", ref, ends: pair, values: values(slot) }], session: { links: [...(open?.links ?? []), ref], net: undefined } };
     }
     if (open === undefined) return undefined;
     const sides = foldPair(open.sides, pair);
@@ -410,7 +429,7 @@ export function connectStep(kinds: EditKinds, args: ConnectDragArgs, mint: (slot
     // The session grows into a net, which absorbs its links.
     const net = { kind: slot, key: mint(slot) };
     return {
-        edits: [...open.links.map((ref): SchematicEdit => ({ op: "remove", ref })), { op: "net", ref: net, sides, values }],
+        edits: [...open.links.map((ref): SchematicEdit => ({ op: "remove", ref })), { op: "net", ref: net, sides, values: values(slot) }],
         session: { links: [], net },
     };
 }

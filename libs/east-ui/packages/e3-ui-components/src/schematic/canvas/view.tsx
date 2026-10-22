@@ -21,6 +21,18 @@
  * flies to a zone or an item and selects it through the handle, and hears
  * the canvas's selection and the zone its viewport is in.
  *
+ * Where a tab of the library drops (#1390), the canvas is one drop cell of the
+ * shared drag layer, on the frame's drop target (`use-drop.ts`): it works out
+ * where a drag rests from its own drawing (`drop.ts`' `restsAt`) — the point
+ * under the pointer, at the screen's resolution, for a card that adds or
+ * places an item; the entity of the card's kind under it, never a locked
+ * layer's, for one that lands on an entity — and, while the drop there lands,
+ * marks it: a ring at the point, or the entity's drop mark. An item a drop
+ * adds or places comes back through the handle's `select`, selected where it
+ * stands; a card's ⏎ asks it for the view's centre. A Connect's new link or
+ * net takes its other fields from the template of its kind the library has
+ * selected (§4.3).
+ *
  * Its gestures, its selection funnels, its camera and its paint path are the
  * ones `CLAUDE.md` holds to its invariants: no render-phase ref write, one
  * commit-phase snapshot, the paint's identity short-circuit, the fly before
@@ -35,9 +47,11 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, library, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
-import { ArrayType, StringType, equalFor, none, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, StringType, equalFor, type ValueTypeOf, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { getSomeorUndefined, typedInto, type Origin } from "@elaraai/east-ui-components";
+import {
+    getSomeorUndefined, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload, type DropCellOptions, type Origin,
+} from "@elaraai/east-ui-components";
 import { LINK_HIT_SLOP, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, placedVertices, zoneAnchor, LINK_LANE_GAP, type RGB, type SchematicPalette } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, marqueeHits } from "./selection";
 import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers } from "./model";
@@ -50,6 +64,9 @@ import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
 import { entityTints, itemTint, tintAttributes, tintsOf } from "./tints";
 import type { SchematicLayerState } from "./layers";
 import type { SchematicValue } from "../data.js";
+import {
+    NOWHERE, dropPoint, markEqual, markOf, printDropAt, readDropAt, restsAt, type SchematicCanvasDrop, type SchematicDropMark, type SchematicDropPoint,
+} from "../drop.js";
 import { zoneInView } from "../index-tree.js";
 import {
     clampDelta, connectCandidate, connectStep, deleteEdits, editKinds, extendEdits, linkRefusal, moveEdits, retargetEdits,
@@ -110,6 +127,8 @@ const LOD_LABEL_PPU = 16;
 const MINIMAP_AUTO = 25;
 /** No entity's colour resolved: what the canvas paints by before the probe is first read. */
 const NO_TINTS: ReadonlyMap<string, RGB> = new Map();
+/** Where a drag rests over the canvas before it says otherwise: on nothing of its card's kind (#1390). */
+const NOWHERE_AT = printDropAt(NOWHERE);
 
 /** Runs an author's East callback off the event turn (queueMicrotask, per
  *  the interactive-state pattern) with error isolation — a throwing callback
@@ -172,6 +191,14 @@ export interface SchematicCanvasHandle {
     step(delta: 1 | -1): void;
     /** Flies to an item or a zone, by its id, and selects it: Find's pick, and the Index's (#1389). */
     reveal(id: string): void;
+    /**
+     * Selects an item, by its id, once the drawing draws it — the item a drop added or placed (#1390): selected where it
+     * stands, the camera where it is. One the next drawing doesn't draw — its layer hidden, the rail narrowing it out —
+     * selects nothing.
+     */
+    select(id: string): void;
+    /** The view's centre, at the screen's resolution: where a card's ⏎ adds or places an item (#1390); `undefined` while the canvas has no size. */
+    centre(): SchematicDropPoint | undefined;
 }
 
 /** Props of {@link SchematicCanvas}. */
@@ -196,6 +223,13 @@ export interface SchematicCanvasProps {
     readonly onSelection: (ids: ReadonlySet<string>) => void;
     /** Told the zone the viewport is in, by its id — `undefined` for none — as that changes (#1389): the Index marks it. */
     readonly onZoneInView?: ((zone: string | undefined) => void) | undefined;
+    /** The canvas's drop cell, where a tab of the library drops (#1390); `undefined`, it takes no drop. */
+    readonly drop?: SchematicCanvasDrop | undefined;
+    /**
+     * What a Connect's new link or net takes its other fields from, by its kind's slot (§4.3, #1390): the values of the
+     * template of that kind the library has selected; `none`, their types' defaults.
+     */
+    readonly connectValues: (slot: string) => option<Uint8Array>;
     /** The canvas's handle, the frame's. */
     readonly ref?: Ref<SchematicCanvasHandle> | undefined;
 }
@@ -207,7 +241,9 @@ export interface SchematicCanvasProps {
  * and a minimap with a draggable viewport — and its gestures, each one step of
  * the editing's history.
  */
-export const SchematicCanvas = memo(function SchematicCanvas({ value, data, layers, tool, linkKind, words, editing, onRefused, onSelection, onZoneInView, ref }: SchematicCanvasProps) {
+export const SchematicCanvas = memo(function SchematicCanvas({
+    value, data, layers, tool, linkKind, words, editing, onRefused, onSelection, onZoneInView, drop, connectValues, ref,
+}: SchematicCanvasProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
 
@@ -504,6 +540,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     const moveDragRef = useRef<{ key: string; movers: readonly (Mover & { readonly id: string })[]; startWorld: Pt; delta: { dx: number; dy: number } } | null>(null);
     // A refused draft keeps the refusal's words (`reason`) — its kind's, or the veto's — which it shows (SC9).
     const [connectDraft, setConnectDraft] = useState<{ from: string; toWorld: Pt; target: string | undefined; forbidden?: string; reason?: string | undefined } | null>(null);
+    // Where a library card's drag rests while its drop lands there (#1390): the point it lands at, or the entity it
+    // lands on — what the canvas marks. A drag over, nothing stays marked.
+    const dragging = useDragLayerOptional()?.active ?? false;
+    const [dropMark, setDropMark] = useState<SchematicDropMark | undefined>(undefined);
+    useEffect(() => { if (!dragging) setDropMark(undefined); }, [dragging]);
     const linkSessionRef = useRef<ConnectSession | undefined>(undefined);
     // The session's links' ends and its net's sides, as the drawing holds them now: Undo, Redo or another gesture
     // between two of its drags is the session's too.
@@ -707,8 +748,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     // The innermost selectable zone under a screen point: OUTLINE zones only
     // (hatch bands are annotations, mirroring the Index's host contract), honouring
     // explicit circle / polygon geometry, skipping locked-layer zones; smallest
-    // containing zone wins so nested cages select before their hall.
-    const zoneKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number): string | undefined => {
+    // containing zone wins so nested cages select before their hall. `accept`
+    // narrows it to the zones a drop's card lands on (#1390).
+    const zoneKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number, accept?: (id: string) => boolean): string | undefined => {
         const snap = renderSnapRef.current;
         if (snap.size === null) return undefined;
         const cam = cameraRef.current;
@@ -721,6 +763,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         for (const z of shownZones) {
             if (z.pattern.type !== "outline") continue;
             if (lockedKeys.has(z.key)) continue;
+            if (accept !== undefined && !accept(z.key)) continue;
             const geom = getSomeorUndefined(z.geometry);
             // Its geometry is drawn about its box's centre (D22).
             const anchor = zoneAnchor(z);
@@ -743,7 +786,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     // The link under a screen point (#176): every visible link's ROUTED screen
     // polyline — fan lanes included, so the clickable path equals the drawn one
     // — tested segment-wise within the stroke weight + slop; nearest wins.
-    const linkKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number): { key: string; leg: NetLeg | null } | undefined => {
+    // `accept` narrows it to the links and nets a drop's card lands on (#1390).
+    const linkKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number, accept?: (id: string) => boolean): { key: string; leg: NetLeg | null } | undefined => {
         const snap = renderSnapRef.current;
         if (snap.size === null) return undefined;
         const cam = cameraRef.current;
@@ -757,6 +801,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         let bestD = Infinity;
         for (const link of data.links) {
             if (layerHiddenKeys.has(link.key) || lockedKeys.has(link.key)) continue;
+            if (accept !== undefined && !accept(link.key)) continue;
             const from = centers.get(link.from), to = centers.get(link.to);
             if (from === undefined || to === undefined) continue;
             const anchors = [from, ...link.via, to].map(q => ({ x: q.x * ppuLive + cam.tx, y: q.y * ppuLive + cam.ty }));
@@ -780,6 +825,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         // SAME netGeometry the painter draws, so the target equals the drawing.
         for (const net of data.nets) {
             if (layerHiddenKeys.has(net.key) || lockedKeys.has(net.key)) continue;
+            if (accept !== undefined && !accept(net.key)) continue;
             const srcK = net.sources.filter(k => centers.has(k));
             const dstK = net.destinations.filter(k => centers.has(k));
             const srcPts = srcK.map(k => centers.get(k)!);
@@ -856,12 +902,13 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     // dependency list) to drift. The palette and each entity's colour are read
     // there too, from the probe the commit just laid out.
     const renderSnap = {
-        value: paintValue, size, fit, dpr, visibleItems, tiers,
+        value: paintValue, drawn: data, size, fit, dpr, visibleItems, tiers,
         selection, zoneSelection, renderSelected, centers,
         layerHiddenKeys, layerAlpha,
         effectiveTool, isBoxTool,
         connectDraftWorld,
         selectedLink, selectedLinkEditable,
+        dropMark,
         palette: null as SchematicPalette | null,
         tints: NO_TINTS,
     };
@@ -876,7 +923,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         zoom: number; tx: number; ty: number; vis: unknown; tiers: unknown;
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; tints: unknown; w: number; h: number; dpr: number; val: unknown;
         lay: unknown; alp: unknown;
-        dl: unknown; cf: number; slk: unknown; sle: boolean;
+        dl: unknown; cf: number; slk: unknown; sle: boolean; dm: unknown;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -923,13 +970,13 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             && last.w === sz.w && last.h === sz.h && last.dpr === dprLive && Object.is(last.val, snap.value)
             && last.lay === snap.layerHiddenKeys && last.alp === snap.layerAlpha
             && last.dl === snap.connectDraftWorld && last.cf === cfPhase
-            && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable) return;
+            && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable && last.dm === snap.dropMark) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
             sel: snap.renderSelected, zsel: snap.zoneSelection, pal, tints: snap.tints, w: sz.w, h: sz.h, dpr: dprLive, val: snap.value,
             lay: snap.layerHiddenKeys, alp: snap.layerAlpha,
             dl: snap.connectDraftWorld, cf: cfPhase,
-            slk: snap.selectedLink, sle: snap.selectedLinkEditable,
+            slk: snap.selectedLink, sle: snap.selectedLinkEditable, dm: snap.dropMark,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -956,6 +1003,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
                         ...(snap.selectedLink.leg !== null ? { leg: snap.selectedLink.leg } : {}),
                     },
                 } : {}),
+                // Where a library card's drop lands (#1390): the point, or the entity it lands on.
+                ...(snap.dropMark !== undefined ? { dropMark: snap.dropMark } : {}),
             });
         } catch (err) {
             console.error("[Schematic] paint failed (frame skipped):", err);
@@ -1107,7 +1156,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     }, [editing, words, onRefused]);
     // Commit a connect gesture (SC9): a link of the Connect tool's kind — or,
     // Shift held in an open session, the net the session grows into, absorbing
-    // its links — each new row's key minted, one step; then the flash.
+    // its links — each new row's key minted, its other fields the template of
+    // its kind the library has selected (§4.3), one step; then the flash.
     const commitConnect = useCallback((from: string, to: string, shift: boolean) => {
         if (editing === undefined) return;
         const args = dragArgs({ from, additive: shift }, to);
@@ -1117,7 +1167,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             const key = editing.mint(slot, minted);
             minted.add(key);
             return key;
-        }, none);
+        }, connectValues);
         if (step === undefined) return;
         const grown = step.edits.find((edit) => edit.op === "net" || edit.op === "sides");
         const slot = (grown ?? step.edits.find((edit) => edit.op === "link"))?.ref.kind;
@@ -1127,7 +1177,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         linkSessionRef.current = step.session;
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
-    }, [editing, dragArgs, kinds, recordStep, startConnectFlash]);
+    }, [editing, dragArgs, kinds, recordStep, startConnectFlash, connectValues]);
     // Re-target a selected link's end (connector-handle drag, SC10): the end it
     // moves written, one step.
     const commitRetarget = useCallback((key: string, movingEnd: "from" | "to", target: string) => {
@@ -1240,8 +1290,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     // shape's exact painted geometry, then (2) the real DOM card under the
     // pointer, then (3) the nearest dot/label marker against its FULL rendered
     // extent (P11). Reads the LIVE camera so a tap maps to what was painted
-    // (invariant 4). Returns whether anything was selected.
-    const itemKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number): string | undefined => {
+    // (invariant 4). Returns whether anything was selected. `accept` narrows it
+    // to the items a drop's card lands on (#1390).
+    const itemKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number, accept?: (id: string) => boolean): string | undefined => {
         const sz = renderSnapRef.current.size;
         if (sz === null) return undefined;
         const cam = cameraRef.current;
@@ -1254,6 +1305,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         // Items in a locked layer are non-interactive — the pick falls through them.
         for (const it of visibleItems) {
             if (lockedKeys.has(it.key)) continue;
+            if (accept !== undefined && !accept(it.key)) continue;
             if ((tiers.get(it.key) ?? lod) !== "card") continue;
             const fp = getSomeorUndefined(it.footprint);
             if (fp === undefined || fp.type === "rect") continue;
@@ -1270,7 +1322,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         if (typeof document !== "undefined") {
             const cardKey = document.elementFromPoint(clientX, clientY)
                 ?.closest("[data-card-key]")?.getAttribute("data-card-key");
-            if (cardKey !== null && cardKey !== undefined && !lockedKeys.has(cardKey)) return cardKey;
+            if (cardKey !== null && cardKey !== undefined && !lockedKeys.has(cardKey) && (accept === undefined || accept(cardKey))) return cardKey;
         }
         // 3) dot / label markers: nearest hit against the full rendered extent (P11).
         const ctx = drawRef.current?.getContext("2d") ?? null;
@@ -1283,6 +1335,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
         let best: DrawnItem | null = null, bestD = Infinity;
         for (const it of visibleItems) {
             if (lockedKeys.has(it.key)) continue;
+            if (accept !== undefined && !accept(it.key)) continue;
             const tier = tiers.get(it.key) ?? lod;
             if (tier === "card") continue;
             const box = markerHitbox(it, tier, camScreen, t => measuring ? ctx.measureText(t).width : t.length * 6);
@@ -1317,6 +1370,90 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
     const collectMarquee = useCallback((region: { minX: number; minY: number; maxX: number; maxY: number }): Set<string> =>
         marqueeHits(index, region, lockedKeys, EMPTY_STRING_SET),
     [index, lockedKeys]);
+
+    // --- Drops (#1390): the canvas is one drop cell of the shared drag layer. ----
+    // Where a drag rests is worked out from the drawing as it stands: the point
+    // under the pointer, for a card that adds or places an item; the entity of
+    // the card's kind under it — never a locked layer's — for one that lands on
+    // an entity; and marked while the drop there lands.
+    const sortOf = useMemo(() => new Map<string, "items" | "zones" | "links">([
+        ...value.items.map((kind) => [kind.key, "items"] as const),
+        ...value.zones.map((kind) => [kind.key, "zones"] as const),
+        ...[...value.links, ...value.nets].map((kind) => [kind.key, "links"] as const),
+    ]), [value.items, value.zones, value.links, value.nets]);
+    /**
+     * The entity of a kind under a client point, by the kind's slot: what a card of that kind lands on. An item's card
+     * covers what is drawn under it, as it does from a tap: a zone or a link it covers takes no drop there.
+     */
+    const entityAt = useCallback((kind: string, clientX: number, clientY: number): SchematicRef | undefined => {
+        const host = canvasRef.current;
+        if (host === null) return undefined;
+        const accept = (id: string): boolean => { const ref = refById.get(id); return ref !== undefined && stringEqual(ref.kind, kind); };
+        const sort = sortOf.get(kind);
+        if (sort !== "items" && typeof document !== "undefined") {
+            const covering = document.elementFromPoint(clientX, clientY)?.closest("[data-card-key]")?.getAttribute("data-card-key");
+            if (covering !== null && covering !== undefined && !lockedKeys.has(covering)) return undefined;
+        }
+        const id = sort === "items" ? itemKeyAt(host, clientX, clientY, accept)
+            : sort === "zones" ? zoneKeyAt(host, clientX, clientY, accept)
+                : sort === "links" ? linkKeyAt(host, clientX, clientY, accept)?.key : undefined;
+        return id === undefined ? undefined : refById.get(id);
+    }, [refById, sortOf, itemKeyAt, zoneKeyAt, linkKeyAt, lockedKeys]);
+    /** Where a drag rests at a client point, for what it carries: the coordinate its drop's `CellRef` names. */
+    const resolveDrop = useCallback((clientX: number, clientY: number, payload: DragPayload): CellCoord => {
+        const surface = drop?.surface ?? "";
+        const card = drop?.cardOf(payload);
+        const host = canvasRef.current;
+        const snap = renderSnapRef.current;
+        if (card === undefined || host === null || snap.size === null || snap.fit === 0) return { surface, row: NOWHERE_AT, slot: "" };
+        const rect = host.getBoundingClientRect();
+        const cam = cameraRef.current;
+        const ppuLive = snap.fit * cam.zoom;
+        const point = dropPoint({ x: (clientX - rect.left - cam.tx) / ppuLive, y: (clientY - rect.top - cam.ty) / ppuLive }, ppuLive);
+        return { surface, row: printDropAt(restsAt(card, point, (kind) => entityAt(kind, clientX, clientY))), slot: "" };
+    }, [drop, entityAt]);
+    /**
+     * The drop cell's behaviour: the frame's words for where a drag rests, the canvas marking it. The caption is asked
+     * each time the drag rests over the canvas, whether its drop lands there or not: the mark follows it — where the
+     * drop lands, or nothing where it is refused — and goes when the drag rests elsewhere.
+     */
+    const dropOptions = useMemo((): DropCellOptions | undefined => {
+        if (drop === undefined) return undefined;
+        return {
+            ...drop.options,
+            caption: (coord, payload, allowed) => {
+                const card = drop.cardOf(payload);
+                const at = readDropAt(coord.row);
+                const mark = card === undefined || at === undefined ? undefined : markOf(drop.plan(card, at));
+                setDropMark((was) => (markEqual(was, mark) ? was : mark));
+                return drop.options.caption(coord, payload, allowed);
+            },
+            onLeave: () => setDropMark(undefined),
+        };
+    }, [drop]);
+    const dropCell = useDropCell(drop === undefined || size === null ? null : { surface: drop.surface, row: NOWHERE_AT, slot: "" },
+        false, drop?.canDrop, resolveDrop, dropOptions);
+    const setCanvasElement = useCallback((el: HTMLDivElement | null) => {
+        canvasRef.current = el;
+        dropCell(el);
+    }, [dropCell]);
+    // An item a drop added or placed (#1390), selected once the drawing draws it — or, a drawing that doesn't, nothing.
+    const pendingSelectRef = useRef<{ readonly id: string; readonly seen: unknown } | undefined>(undefined);
+    const [selectAsked, setSelectAsked] = useState(0);
+    useEffect(() => {
+        const pending = pendingSelectRef.current;
+        if (pending === undefined) return;
+        if (items.some((it) => stringEqual(it.key, pending.id))) {
+            pendingSelectRef.current = undefined;
+            if (lockedKeys.has(pending.id)) return;
+            commitSelection(new Set([pending.id]), { anchor: pending.id });
+            clearZoneSelection();
+            commitLinkSelection(null);
+            return;
+        }
+        // A new drawing that doesn't draw it — its layer hidden, the rail narrowing it out — selects nothing.
+        if (!Object.is(data, pending.seen)) pendingSelectRef.current = undefined;
+    }, [items, data, selectAsked, lockedKeys, commitSelection, clearZoneSelection, commitLinkSelection]);
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
@@ -1717,6 +1854,18 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
             commitLinkSelection(null);
             commitZoneSelection(new Set([zone.key]));
         },
+        select: (id) => {
+            // Asked as the drop records itself: its item draws in the drawing that holds its draft.
+            pendingSelectRef.current = { id, seen: renderSnapRef.current.drawn };
+            setSelectAsked((n) => n + 1);
+        },
+        centre: () => {
+            const snap = renderSnapRef.current;
+            if (snap.size === null || snap.fit === 0) return undefined;
+            const cam = cameraRef.current;
+            const ppuLive = snap.fit * cam.zoom;
+            return dropPoint({ x: (snap.size.w / 2 - cam.tx) / ppuLive, y: (snap.size.h / 2 - cam.ty) / ppuLive }, ppuLive);
+        },
     }), [zoomBy, resetView, stepSelection, items, lockedKeys, flyToItem, shownZones, flyTo, commitSelection, commitLinkSelection, commitZoneSelection]);
 
     // Leaving the Connect tool cancels any in-flight draft and ends the session.
@@ -1794,7 +1943,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
 
     return (
         <Box
-            ref={canvasRef}
+            ref={setCanvasElement}
             css={styles.canvas}
             data-schematic-canvas=""
             data-tool={effectiveTool}
@@ -1850,6 +1999,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({ value, data, laye
                                     {...(isSelected ? { "data-selected": "" } : {})}
                                     {...(isLockedCard ? { "data-locked": "" } : {})}
                                     {...(connectDraft?.forbidden === item.key ? { "data-forbidden": "" } : {})}
+                                    {...(dropMark?.kind === "entity" && stringEqual(dropMark.id, item.key) ? { "data-drop-target": "" } : {})}
                                     style={{
                                         left: 0, top: 0,
                                         transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,

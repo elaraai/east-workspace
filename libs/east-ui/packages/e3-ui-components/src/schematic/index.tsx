@@ -40,7 +40,18 @@
  *   to what it names — the Layers tab, whose choices the canvas obeys
  *   (`layers-view.ts`), and the author's tabs, each following the source of
  *   the rail it names (`FollowSources`), whose failed narrowing is a banner
- *   with Retry;
+ *   with Retry. Which card each tab has selected is the frame's: the
+ *   template selected is what a Connect's new link or net takes its fields
+ *   from (§4.3);
+ * - **the drops** (#1390, `use-drop.ts`): the library's cards land on the
+ *   canvas, the Schematic's drop target — an item template adding an item
+ *   where it lands, a backlog row placed there, a link or net template
+ *   writing its values over a link or a net of its kind, an author's card
+ *   setting its fields on an entity of the kind its patch names — each one
+ *   step of the history, an item it adds or places selected; ⏎ on a card,
+ *   and on a touch screen a tap on the selected card, drops it on the
+ *   selection or at the view's centre, and where that is refused the footer
+ *   says why;
  * - **the skeleton** — `BuilderFrame.loading` covers the frame until every
  *   kind has been read once (or its read failed); later reads keep the canvas
  *   and what it draws until they land (§6.5, §10.4).
@@ -64,7 +75,7 @@
 
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { ArrayType, StringType, equalFor, equivalentFor } from "@elaraai/east";
+import { ArrayType, StringType, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
 import { Schematic, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
@@ -74,11 +85,14 @@ import { FollowSources, type FollowedSources } from "../shared/schedule/follow-s
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle } from "./canvas/view.js";
-import { entityId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone } from "./canvas/drawn.js";
+import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
+import { hostZones, zoneHolding } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, type SchematicData, type SchematicValue } from "./data.js";
 import { schematicCounts } from "./counts.js";
 import { draftedDrawing, type DraftedCache } from "./drafted.js";
+import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
+import type { SchematicEdit } from "./edits.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
 import { useFindItem, type FindableItem } from "./find.js";
 import { SchematicFooter, savedRecords, type SchematicNotice } from "./footer.js";
@@ -87,6 +101,7 @@ import { useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.j
 import { schematicMessages, type SchematicWords } from "./messages.js";
 import { useSchematicToolbarItems } from "./toolbar.js";
 import { offeredTools, toolsInForce, useSchematicTools } from "./tools.js";
+import { useSchematicDrop } from "./use-drop.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
@@ -202,6 +217,9 @@ function SchematicFollows(props: SchematicFrameProps) {
 /** No entity selected. */
 const NOTHING_SELECTED: ReadonlySet<string> = new Set();
 
+/** No card of the library selected. */
+const NO_PICKS: ReadonlyMap<string, string> = new Map();
+
 /** The frame, its regions holding the Schematic's parts over one shared state — see the module docs. */
 function SchematicFrame({ value, data, readAgain, storageKey, followed }: SchematicFrameProps & { readonly followed: FollowedSources }) {
     const styles = useSlotRecipe({ key: "schematic" })() as Styles;
@@ -255,6 +273,31 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
     const fit = useCallback(() => canvasRef.current?.fit(), []);
     const step = useCallback((delta: 1 | -1) => canvasRef.current?.step(delta), []);
+
+    // ── The library's selected cards (#1389, #1390): each card tab's, by the tab's key ──
+    // A click selects a card, and a click on the selected one lets it go.
+    const [picked, setPicked] = useState<ReadonlyMap<string, string>>(NO_PICKS);
+    const onPick = useCallback((tabKey: string, key: string) => {
+        setPicked((was) => {
+            const next = new Map(was);
+            const chosen = was.get(tabKey);
+            if (chosen !== undefined && stringEqual(chosen, key)) next.delete(tabKey);
+            else next.set(tabKey, key);
+            return next;
+        });
+    }, []);
+    // The template the Templates tab has selected, of a link or a net kind: what a Connect's new link or net of its kind
+    // takes its other fields from (§4.3).
+    const pickedTemplate = useMemo(() => {
+        const id = picked.get("templates");
+        const ref = id === undefined ? undefined : refOfId(id);
+        if (ref === undefined) return undefined;
+        const kind = [...value.links, ...value.nets].find((k) => stringEqual(k.key, ref.kind));
+        const template = kind?.templates.find((t) => stringEqual(t.key, ref.key));
+        return kind === undefined || template === undefined ? undefined : { slot: kind.key, values: template.values };
+    }, [picked, value.links, value.nets]);
+    const connectValues = useCallback((slot: string): option<Uint8Array> =>
+        (pickedTemplate !== undefined && stringEqual(pickedTemplate.slot, slot) ? some(pickedTemplate.values) : none), [pickedTemplate]);
 
     // ── Find (§6.1): the items the drawing shows, by their keys ─────────
     const kindsBySlot = useMemo(() => new Map(value.items.map((kind, order) => [kind.key, { name: kind.name, order }] as const)), [value.items]);
@@ -344,9 +387,46 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
     // The zone the viewport is in, which the Index marks: the canvas tells it only while the library lists the Index.
     const [inView, setInView] = useState<string | undefined>(undefined);
     const listsIndex = value.library.some((tab) => tab.type === "index");
+
+    // ── The drops (#1390, §7, §8): the library's cards, onto the canvas ──
+    // Each kind, as a drop reads it: its name, and whether it writes — bound with its patch door, the Schematic not read only.
+    const dropKinds = useMemo(() => new Map<string, SchematicDropKind>([...value.items, ...value.zones, ...value.links, ...value.nets]
+        .map((kind) => [kind.key, { name: kind.name, writes: kind.editable && !value.readOnly }] as const)),
+    [value.items, value.zones, value.links, value.nets, value.readOnly]);
+    // Each entity's name, as a drop's words say it: an item's or a zone's label, a link's ends, a net's label or its key.
+    const names = useMemo(() => {
+        const out = new Map<string, string>();
+        for (const item of drawing.items) out.set(item.key, item.label);
+        for (const zone of drawing.zones) out.set(zone.key, zone.label);
+        const end = (id: string) => out.get(id) ?? refOfId(id)?.key ?? id;
+        for (const link of drawing.links) out.set(link.key, words.m.linkEnds({ from: end(link.from), to: end(link.to) }));
+        for (const net of drawing.nets) out.set(net.key, getSomeorUndefined(net.label) ?? net.ref.key);
+        return out;
+    }, [drawing, words]);
+    // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
+    const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
+    const editingNow = editing.schedule;
+    const dropContext = useCallback((): SchematicDropContext => ({
+        extent: value.extent,
+        kinds: dropKinds,
+        available: (slot) => editingNow.available(slot),
+        nameOf: (ref) => names.get(entityId(ref)),
+        zoneAt: (point) => zoneHolding(hosts, point.x, point.y)?.label,
+    }), [value.extent, dropKinds, editingNow, names, hosts]);
+    const recordEdits = editing.record;
+    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordEdits(edits, "drop", label), [recordEdits]);
+    // What the canvas has selected, each entity by its reference: what a card's ⏎ drops on.
+    const selectedRefs = useCallback((): SchematicRef[] => [...selection].flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; }), [selection]);
+    const viewCentre = useCallback(() => canvasRef.current?.centre(), []);
+    const selectDropped = useCallback((id: string) => canvasRef.current?.select(id), []);
+    const drop = useSchematicDrop({
+        value, backlog, keys, context: dropContext, record: recordDrop, mint: editing.mint, selection: selectedRefs, centre: viewCentre,
+        select: selectDropped, notice: setRefusal, words, unit: getSomeorUndefined(value.scaleUnit),
+    });
+
     const library = useSchematicLibrary({
         value, zones: shownZones, items: shownItems, backlog, backlogNarrowing, layers: layerValues, layerCounts, layerView, onLayerView: setLayerView,
-        inView, selected: selection, onReveal: reveal, keys, words, followed,
+        inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter,
     });
 
     // ── The footer (§6.3) ───────────────────────────────────────────────
@@ -431,7 +511,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
                 onKeyDown={onKeyDown}
             >
                 <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} tool={held.tool} linkKind={held.link}
-                    words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={setSelection} onZoneInView={listsIndex ? setInView : undefined} />
+                    words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={setSelection} onZoneInView={listsIndex ? setInView : undefined}
+                    drop={drop.canvas} connectValues={connectValues} />
             </BuilderFrame>
         </Box>
     );

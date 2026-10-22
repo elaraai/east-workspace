@@ -151,7 +151,13 @@ a candidate with the refusal's words. The library's tabs are
 `templates()`, `backlog()` (every item kind's rows with no position), the
 zones' `index()` and the `layers()`, drawn in the frame's start pane
 (#1389), each card tab following its source of the rail; the Layers tab's
-choices are the viewer's, kept under the `id`. Every gesture is one step of one history
+choices are the viewer's, kept under the `id`. Its cards drop on the canvas
+(#1390): a template's `values` give a new item every field but its centre,
+and a link or a net of its kind every field but its ends or sides; a backlog
+row is placed; an author's tab's `drop`, a `Schematic.patch(R, { … })`, sets
+those fields on an entity of `R`'s kind through the kind's `set`, a wire
+function over the row's field setters — `schedule/fields.ts`' `fieldSetters`,
+which the Schedule kinds' `field` gesture writes through too. Every gesture is one step of one history
 over a session per record it writes (#1388): Move writes an item's centre,
 Connect a new link under a key minted unique, a Shift session the net it grows
 into, Retarget and Extend a link's end and a net's side, and Del the rows it
