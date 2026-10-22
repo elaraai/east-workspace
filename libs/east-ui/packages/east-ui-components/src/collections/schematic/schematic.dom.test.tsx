@@ -32,52 +32,40 @@ if (typeof globalThis.ResizeObserver === "undefined") {
     });
 }
 
+/** An item at (x, y): the Item type's default value, keyed and placed. */
 function item(key: string, x: number, y: number): SchematicItemValue {
-    return {
-        key, x, y, label: key,
-        sublabel: none, icon: none, status: none, meter: none, metric: none,
-        width: none, footprint: none, tone: none, color: none, layer: none,
-    } as unknown as SchematicItemValue;
+    return { ...defaultValue<typeof Schematic.Types.Item>(Schematic.Types.Item), key, label: key, x, y };
 }
 
+/** Three items in a cage, an uplink between two of them and a bus from one to the other two. */
 function mkValue(): SchematicValue {
     const link: SchematicLinkValue = {
-        key: "l1", from: "A", to: "B",
-        label: some("feed"), metric: none,
+        ...defaultValue<typeof Schematic.Types.Link>(Schematic.Types.Link),
+        key: "l1", from: "A", to: "B", label: some("uplink"),
         style: variant("solid", { tone: none, weight: none }),
         route: variant("orthogonal", { corner: none }),
-        via: [], layer: none,
-    } as unknown as SchematicLinkValue;
+    };
     const net: SchematicNetValue = {
+        ...defaultValue<typeof Schematic.Types.Net>(Schematic.Types.Net),
         key: "n1", sources: ["A"], destinations: ["B", "C"],
-        label: none, metric: none,
         style: variant("solid", { tone: none, weight: none }),
         route: variant("orthogonal", { corner: none }),
-        via: [], layer: none,
-    } as unknown as SchematicNetValue;
+    };
     const zone: SchematicZoneValue = {
-        key: "z1", label: "Hall", x: 0, y: 0, width: 10, height: 6,
-        pattern: variant("outline", null), geometry: none, tone: none, color: none, layer: none,
-    } as unknown as SchematicZoneValue;
+        ...defaultValue<typeof Schematic.Types.Zone>(Schematic.Types.Zone),
+        key: "z1", label: "Cage A", x: 0, y: 0, width: 10, height: 6,
+        pattern: variant("outline", { tone: none }),
+    };
     return {
+        ...defaultValue<typeof Schematic.Types.Schematic>(Schematic.Types.Schematic),
         extent: { width: 20, height: 10 },
         items: [item("A", 2, 2), item("B", 8, 2), item("C", 8, 6)],
         zones: [zone],
         links: [link],
         nets: [net],
         scaleUnit: some("m"),
-        grid: none, navigator: none, minimap: none, slice: none,
-        sliceEffect: none, layers: none, height: none,
-        onSelect: none, selectionMode: some(variant("multiple", null)),
-        onSelectionChange: none, sliceSelectField: none, selectZoomFocus: none,
-        onViewportChange: none, onItemOpen: none,
-        onSelectZone: none, onZoneSelectionChange: none,
-        linkMode: none, onCreateLink: none, onSelectLink: none,
-        onEditLink: none, onDeleteLink: none,
-        readOnly: none, readOnlyLinks: none, readOnlyItems: none,
-        onMoveItem: none,
-        itemHover: none, zoneHover: none, linkHover: none,
-    } as unknown as SchematicValue;
+        selectionMode: some(variant("multiple", null)),
+    };
 }
 
 describe("EastChakraSchematic (jsdom mount)", () => {
@@ -96,7 +84,7 @@ describe("EastChakraSchematic (jsdom mount)", () => {
                 <EastChakraSchematic value={mkValue()} storageKey="dom-smoke-2" />
             </ChakraProvider>,
         );
-        const next = { ...mkValue(), items: [item("A", 1, 1)], links: [], nets: [] } as SchematicValue;
+        const next: SchematicValue = { ...mkValue(), items: [item("A", 1, 1)], links: [], nets: [] };
         first.rerender(
             <ChakraProvider value={system}>
                 <EastChakraSchematic value={next} storageKey="dom-smoke-2" />

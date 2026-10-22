@@ -10,7 +10,7 @@ import * as ex from "./schematic.examples.js";
 
 describeEast("Schematic", (test) => {
     Assert.examples(test, {
-        schematicPlant: ex.schematicPlant,
+        schematicFloor: ex.schematicFloor,
         schematicStress: ex.schematicStress,
         schematicLinkEdit: ex.schematicLinkEdit,
         schematicNets: ex.schematicNets,
@@ -61,7 +61,7 @@ describeEast("Schematic", (test) => {
 
     test("resolves items with defaults", $ => {
         const sch = $.let(Schematic.Root(
-            [{ id: "T1", x: 3.0, y: 2.0 }],
+            [{ id: "A01", x: 3.0, y: 2.0 }],
             {
                 extent: { width: 10, height: 5 },
                 item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
@@ -71,7 +71,7 @@ describeEast("Schematic", (test) => {
 
         $(Assert.equal(root.extent.width, 10.0));
         $(Assert.equal(root.items.size(), 1n));
-        $(Assert.equal(root.items.get(0n).key, "T1"));
+        $(Assert.equal(root.items.get(0n).key, "A01"));
         $(Assert.equal(root.items.get(0n).status.hasTag("none"), true));
         $(Assert.equal(root.items.get(0n).meter.hasTag("none"), true));
         $(Assert.equal(root.zones.size(), 0n));
@@ -86,7 +86,7 @@ describeEast("Schematic", (test) => {
             {
                 extent: { width: 10, height: 5 },
                 item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
-                zones: [{ id: "z1", name: "Hall", x: 0.0, y: 0.0, w: 5.0, h: 3.0 }],
+                zones: [{ id: "z1", name: "Cage A", x: 0.0, y: 0.0, w: 5.0, h: 3.0 }],
                 zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h }),
                 links: [{ id: "l1", src: "A", dst: "B" }],
                 link: l => ({ key: l.id, from: l.src, to: l.dst }),
@@ -111,9 +111,9 @@ describeEast("Schematic", (test) => {
                     status: e.state,
                     meter: { value: e.fill, max: e.cap },
                 }),
-                zones: [{ id: "z1", name: "Aisle", x: 0.0, y: 3.0, w: 10.0, h: 1.0, p: Schematic.hatch({ spacing: 10.0 }) }],
+                zones: [{ id: "z1", name: "Cold aisle", x: 0.0, y: 3.0, w: 10.0, h: 1.0, p: Schematic.hatch({ spacing: 10.0 }) }],
                 zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, pattern: z.p }),
-                links: [{ id: "l1", src: "A", dst: "A", s: Schematic.dashed({ tone: "ink" }), via: [{ x: 5.0, y: 2.0 }], lbl: "recirc", m: "2 m³/h" }],
+                links: [{ id: "l1", src: "A", dst: "A", s: Schematic.dashed({ tone: "ink" }), via: [{ x: 5.0, y: 2.0 }], lbl: "loopback", m: "10 Gbps" }],
                 link: l => ({ key: l.id, from: l.src, to: l.dst, style: l.s, via: l.via, label: l.lbl, metric: l.m }),
             },
         ));
@@ -127,8 +127,8 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.links.get(0n).route.hasTag("orthogonal"), true));
         $(Assert.equal(root.zones.get(0n).pattern.unwrap("hatch").spacing.unwrap("some"), 10.0));
         $(Assert.equal(root.links.get(0n).via.get(0n).x, 5.0));
-        $(Assert.equal(root.links.get(0n).label.unwrap("some"), "recirc"));
-        $(Assert.equal(root.links.get(0n).metric.unwrap("some"), "2 m³/h"));
+        $(Assert.equal(root.links.get(0n).label.unwrap("some"), "loopback"));
+        $(Assert.equal(root.links.get(0n).metric.unwrap("some"), "10 Gbps"));
     });
 
     test("item footprint and zone geometry default to none", $ => {
@@ -165,7 +165,7 @@ describeEast("Schematic", (test) => {
             [
                 { id: "P", x: 3.0, y: 3.0, r: 0.0, round: false,
                   pts: [{ x: 1.0, y: 1.0, bulge: 0.0 }, { x: 5.0, y: 1.0, bulge: 0.5 }, { x: 3.0, y: 5.0, bulge: 0.0 }] },
-                { id: "T", x: 8.0, y: 2.0, r: 1.5, round: true,
+                { id: "C", x: 8.0, y: 2.0, r: 1.5, round: true,
                   pts: [{ x: 8.0, y: 2.0, bulge: 0.0 }] },
             ],
             {
@@ -174,7 +174,7 @@ describeEast("Schematic", (test) => {
                     key: e.id, x: e.x, y: e.y, label: e.id,
                     footprint: e.round.ifElse(_$ => Schematic.circle(e.r), _$ => Schematic.polygon(e.pts)),
                 }),
-                zones: [{ id: "r", name: "Rd", x: 0.0, y: 4.0, w: 9.0, h: 2.0,
+                zones: [{ id: "r", name: "Duct", x: 0.0, y: 4.0, w: 9.0, h: 2.0,
                           pl: [{ x: 0.5, y: 5.0, bulge: 0.0 }, { x: 8.5, y: 5.0, bulge: 0.0 }] }],
                 zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, geometry: Schematic.polyline(z.pl, { width: 0.8 }) }),
             },
@@ -289,18 +289,18 @@ describeEast("Schematic", (test) => {
 
     test("layers declaration + per-entity layer tags (items / zones / links) carry through", $ => {
         const sch = $.let(Schematic.Root(
-            [{ id: "A", x: 1.0, y: 1.0, sys: "process" }, { id: "B", x: 5.0, y: 1.0, sys: "maintenance" }],
+            [{ id: "A", x: 1.0, y: 1.0, sys: "power" }, { id: "B", x: 5.0, y: 1.0, sys: "network" }],
             {
                 extent: { width: 8, height: 6 },
                 item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id, layer: e.sys }),
                 zones: [{ id: "z", name: "Z", x: 0.0, y: 0.0, w: 4.0, h: 3.0 }],
-                zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "shell" }),
-                links: [{ id: "l", src: "A", dst: "B", lyr: "utilities" }],
+                zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, layer: "structure" }),
+                links: [{ id: "l", src: "A", dst: "B", lyr: "cooling" }],
                 link: l => ({ key: l.id, from: l.src, to: l.dst, layer: l.lyr }),
                 layers: [
-                    { key: "shell", label: "Shell", tone: "muted", locked: true, opacity: 0.5 },
-                    { key: "process", label: "Process", tone: "brand" },
-                    { key: "maintenance", label: "Maint", visible: false },
+                    { key: "structure", label: "Structure", tone: "muted", locked: true, opacity: 0.5 },
+                    { key: "power", label: "Power", tone: "brand" },
+                    { key: "network", label: "Network", visible: false },
                 ],
             },
         ));
@@ -308,21 +308,21 @@ describeEast("Schematic", (test) => {
 
         const ls = $.let(root.layers.unwrap("some"));
         $(Assert.equal(ls.size(), 3n));
-        const shell = $.let(ls.get(0n));
-        $(Assert.equal(shell.key, "shell"));
-        $(Assert.equal(shell.label, "Shell"));
-        $(Assert.equal(shell.locked.unwrap("some"), true));
-        $(Assert.equal(shell.opacity.unwrap("some"), 0.5));
-        $(Assert.equal(shell.tone.unwrap("some").hasTag("muted"), true));
+        const structure = $.let(ls.get(0n));
+        $(Assert.equal(structure.key, "structure"));
+        $(Assert.equal(structure.label, "Structure"));
+        $(Assert.equal(structure.locked.unwrap("some"), true));
+        $(Assert.equal(structure.opacity.unwrap("some"), 0.5));
+        $(Assert.equal(structure.tone.unwrap("some").hasTag("muted"), true));
         // Unset author visibility ⇒ `none` (resolves to visible); an explicit `false` ships hidden.
-        $(Assert.equal(shell.visible.hasTag("none"), true));
+        $(Assert.equal(structure.visible.hasTag("none"), true));
         $(Assert.equal(ls.get(2n).visible.unwrap("some"), false));
 
         // Per-entity layer tags across all three kinds.
-        $(Assert.equal(root.items.get(0n).layer.unwrap("some"), "process"));
-        $(Assert.equal(root.items.get(1n).layer.unwrap("some"), "maintenance"));
-        $(Assert.equal(root.zones.get(0n).layer.unwrap("some"), "shell"));
-        $(Assert.equal(root.links.get(0n).layer.unwrap("some"), "utilities"));
+        $(Assert.equal(root.items.get(0n).layer.unwrap("some"), "power"));
+        $(Assert.equal(root.items.get(1n).layer.unwrap("some"), "network"));
+        $(Assert.equal(root.zones.get(0n).layer.unwrap("some"), "structure"));
+        $(Assert.equal(root.links.get(0n).layer.unwrap("some"), "cooling"));
     });
 
     test("no layers ⇒ root.layers none and each entity layer none", $ => {
@@ -340,11 +340,11 @@ describeEast("Schematic", (test) => {
 
     test("net mapper carries sources / destinations / label through; defaults fill the rest", $ => {
         const sch = $.let(Schematic.Root(
-            [{ id: "M", x: 1.0, y: 1.0 }, { id: "A", x: 5.0, y: 1.0 }, { id: "B", x: 5.0, y: 3.0 }],
+            [{ id: "P", x: 1.0, y: 1.0 }, { id: "A", x: 5.0, y: 1.0 }, { id: "B", x: 5.0, y: 3.0 }],
             {
                 extent: { width: 8, height: 4 },
                 item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
-                nets: [{ id: "n1", srcs: ["M"], dsts: ["A", "B"], name: "supply" }],
+                nets: [{ id: "n1", srcs: ["P"], dsts: ["A", "B"], name: "A side" }],
                 net: n => ({ key: n.id, sources: n.srcs, destinations: n.dsts, label: n.name }),
             },
         ));
@@ -355,7 +355,7 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(net.sources.size(), 1n));
         $(Assert.equal(net.destinations.size(), 2n));
         $(Assert.equal(net.destinations.get(1n), "B"));
-        $(Assert.equal(net.label.unwrap("some"), "supply"));
+        $(Assert.equal(net.label.unwrap("some"), "A side"));
         $(Assert.equal(net.metric.hasTag("none"), true));
         $(Assert.equal(net.style.hasTag("solid"), true));
         $(Assert.equal(net.route.hasTag("orthogonal"), true));

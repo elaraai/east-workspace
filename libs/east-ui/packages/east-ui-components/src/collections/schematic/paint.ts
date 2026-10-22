@@ -197,7 +197,7 @@ export function orthogonalize(points: Pt[]): Pt[] {
     return out;
 }
 
-/** Trace `pts` into `ctx`, rounding corners by up to `radius` (rounded pipe look). */
+/** Trace `pts` into `ctx`, rounding corners by up to `radius` (rounded cable-tray look). */
 function traceRounded(ctx: CanvasRenderingContext2D, pts: Pt[], radius: number): void {
     if (pts.length === 0) return;
     ctx.moveTo(pts[0]!.x, pts[0]!.y);
@@ -529,7 +529,7 @@ interface NetSide {
     taps: Pt[];
 }
 
-/** Net (manifold / bus) geometry, world space — shared verbatim by the
+/** Net (bus / trunk) geometry, world space — shared verbatim by the
  *  painter and the hit-test so the clickable shape equals the drawn one. */
 export interface NetGeometry {
     /** Trunk polyline: source anchor → via… → destination anchor. */
@@ -539,8 +539,9 @@ export interface NetGeometry {
     taps: Pt[];
 }
 
-/** Resolve one endpoint group to a header BAR + stubs (P&ID bus-bar
- *  convention), or a bare anchor when the group is a single point.
+/** Resolve one endpoint group to a header BAR + stubs (the bus-bar
+ *  convention of a one-line diagram), or a bare anchor when the group is a
+ *  single point.
  *
  *  The bar runs along the group's larger spread axis, offset from the
  *  cluster TOWARD the trunk (30% of the gap, clamped to [0.9, 3] world
@@ -889,7 +890,7 @@ export function paintSchematic(input: PaintInput): void {
         ctx.lineCap = "butt";
     }
 
-    // ---- nets: manifold / bus trunks with branches (#189) --------------------
+    // ---- nets: bus trunks with branches (#189) ---------------------------------
     // One entity, many endpoints: the trunk spine runs head-junction → via… →
     // tail-junction (routed like a link; via = TRUNK waypoints; empty via ⇒
     // centroid heuristic); each resolved source branches into the head, each
@@ -946,7 +947,7 @@ export function paintSchematic(input: PaintInput): void {
             ctx.stroke();
         }
         ctx.setLineDash([]);
-        // Junction dots: 3-way taps on the bars (P&ID convention — a dot
+        // Junction dots: 3-way taps on the bars (one-line diagram convention — a dot
         // means lines JOIN; plain elbows and crossings stay dot-free).
         ctx.fillStyle = css(color);
         for (const j of geo.taps.map(toScreen)) {

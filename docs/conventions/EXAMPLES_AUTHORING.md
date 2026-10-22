@@ -303,7 +303,7 @@ examples are under the slot budget already and are exempt.)
    referencing script is updated in the same PR — never silently
    broken).
 5. **`<name>Stress`** — perf/scale demonstrations (virtualized rows,
-   500-unit schematic). Keep.
+   the 3,000-rack schematic). Keep.
 
 ### Panel construction
 
