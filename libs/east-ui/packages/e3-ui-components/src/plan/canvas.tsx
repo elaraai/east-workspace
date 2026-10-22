@@ -123,6 +123,7 @@ import {
     ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
+import { cellSpanOf, createCellSpanStore } from "./root/cells.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -350,7 +351,14 @@ export function usePlanCanvas({
         () => (editing.enabled ? [{ key: editing.historyKey, session: editing.session }] : NO_JOINED),
         [editing.enabled, editing.historyKey, editing.session]);
     const eventRange = useMemo(() => eventReadRange(scale), [scale]);
-    const eventEditing = usePlanEventEditing({ kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices });
+    // The event kinds' rows as last read (#1192): read by a component of their own below, which hands them over as they move.
+    const standIn = useMemo(() => initialEventLead(events), [events]);
+    const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
+    const lead = readLead ?? standIn;
+    // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold.
+    const eventEditing = usePlanEventEditing({
+        kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: lead.cells?.held,
+    });
     const history = eventEditing.history;
     historyRef.current = history;
 
@@ -360,9 +368,8 @@ export function usePlanCanvas({
     // rail narrows the resources it shows (#1344): they lead every other row
     // as fixed blocks. Read by a component of their own (`PlanEventsReader`,
     // in `provide`), which hands them over only when they move.
-    const standIn = useMemo(() => initialEventLead(events), [events]);
-    const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
-    const lead = readLead ?? standIn;
+    // The paged kind's rows in view, as the body reports them at rest (#1039): what the reader of its kinds' cells reads.
+    const [cellSpans] = useState(createCellSpanStore);
     // The event kinds' rows ahead of the drafted root's own, and its links'
     // event ends named where the events draw — over a paged resource kind's
     // windows when a kind pages (#1199).
@@ -653,6 +660,20 @@ export function usePlanCanvas({
     // sticky chrome above its rows.
     const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
     const reportRange = usePlanRangeReport(body.items, controller);
+    // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them.
+    const pagingOrigin = paging.origin;
+    const onRangeChange = useCallback((
+        range: { startIndex: number; endIndex: number }, isScrolling: boolean, center?: { index: number; withinPx: number },
+    ) => {
+        reportRange(range, isScrolling, center);
+        if (isScrolling) return;
+        const inView: { key: string; path: readonly string[] }[] = [];
+        for (let i = range.startIndex; i <= range.endIndex; i++) {
+            const item = body.items[i];
+            if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: item.row.row.id.value.path });
+        }
+        cellSpans.set(cellSpanOf(inView, pagingOrigin));
+    }, [reportRange, body.items, pagingOrigin, cellSpans]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing
@@ -987,8 +1008,13 @@ export function usePlanCanvas({
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
     const densityTag = style !== undefined ? getSomeorUndefined(style.density)?.type : undefined;
+    // The reader takes the root's own links, their event ends as the author named them: the canvas's are named where
+    // the events draw, which is what the reader's cells decide (#1039).
     const eventsReader = events !== undefined
-        ? <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources} onLead={setLead} />
+        ? (
+            <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources}
+                kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} onLead={setLead} />
+        )
         : null;
     const provide = (children: ReactNode): ReactNode => {
         const provided = (
@@ -1325,7 +1351,7 @@ export function usePlanCanvas({
                         tabIndex: 0,
                         onFocus: onGridFocus,
                     }}
-                    onRangeChange={paged ? reportRange : undefined}
+                    onRangeChange={paged ? onRangeChange : undefined}
                     // Unbounded, a large canvas mounts only what its
                     // scrolling ancestor shows (#812) — the same threshold
                     // whatever the source. A smaller paged canvas mounts
@@ -1406,6 +1432,7 @@ export function usePlanCanvas({
             transport, search, diagnostics,
             history: historyProps, sessions, where,
             events: kinds.length > 0 ? eventEditing : undefined,
+            cells: lead.cells,
             footer: data.footer,
             id: getSomeorUndefined(data.id),
             narrow,

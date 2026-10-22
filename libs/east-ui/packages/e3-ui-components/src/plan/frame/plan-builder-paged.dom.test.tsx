@@ -65,6 +65,7 @@ import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
+import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-windows": ex, "plan/plan": rowDrop, "plan/plan-events": events });
@@ -366,46 +367,6 @@ describe("the backlog read through the rail's interval index (PB54, #1344)", () 
 // ============================================================================
 // The presses, paged (PB55)
 // ============================================================================
-
-/**
- * What the unbounded canvas reads from the page it scrolls in (#812), for a
- * jsdom that lays nothing out: the canvas sits at the top of a tall document,
- * `window.scrollTo` moves `scrollY` and fires `scroll`, and the rows' top
- * moves with it — as `plan-paged-seek.dom.test.tsx` stands in for it.
- *
- * @returns The restore
- */
-function emulateWindowScroll(): () => void {
-    let y = 0;
-    const html = document.documentElement;
-    const saved = {
-        scrollY: Object.getOwnPropertyDescriptor(window, "scrollY"),
-        scrollTo: Object.getOwnPropertyDescriptor(window, "scrollTo"),
-        rect: Element.prototype.getBoundingClientRect,
-    };
-    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
-    Object.defineProperty(window, "scrollTo", {
-        configurable: true,
-        writable: true,
-        value: (arg: ScrollToOptions | number) => {
-            y = Math.max(0, typeof arg === "number" ? arg : (arg.top ?? y));
-            window.dispatchEvent(new Event("scroll"));
-        },
-    });
-    Object.defineProperty(html, "scrollHeight", { configurable: true, get: () => 100_000_000 });
-    Element.prototype.getBoundingClientRect = function (this: Element) {
-        if (this.hasAttribute("data-virtual-extent")) {
-            return { x: 0, y: -y, top: -y, left: 0, right: 1024, bottom: -y, width: 1024, height: 0, toJSON: () => ({}) } as DOMRect;
-        }
-        return saved.rect.call(this);
-    };
-    return () => {
-        if (saved.scrollY !== undefined) Object.defineProperty(window, "scrollY", saved.scrollY);
-        if (saved.scrollTo !== undefined) Object.defineProperty(window, "scrollTo", saved.scrollTo);
-        delete (html as { scrollHeight?: number }).scrollHeight;
-        Element.prototype.getBoundingClientRect = saved.rect;
-    };
-}
 
 /** A press's row height, at the default density: a two-line gutter, its hall the second line. */
 const ROW_PX = PLAN_GEOMETRY.default.rowStacked;

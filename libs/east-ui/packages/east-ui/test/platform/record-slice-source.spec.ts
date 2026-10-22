@@ -480,3 +480,79 @@ test("a reader that does not batch finds cells by single searches, all started t
     assert.deepEqual(source.seeks, [...cellA.queries, cellB.queries[0]!], "a search landed is not asked again in the pass");
     assert.deepEqual(source.pages, [{ row: 10n, count: 3n }, { row: 13n, count: 2n }, { row: 40n, count: 4n }]);
 });
+
+test("a cell a batch still in flight asks waits on it: a read wanting it asks that batch again as it was, and only the cells no batch asks in one more (#1039)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    source.pending(true);
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cellA, cellC]), none);
+    // The view moves while it is in flight: `c` waits on the batch asking it, and `b`, which none asks, is asked alone.
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cellC]), none);
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cellB, cellC]), none);
+    const first = [...cellA.queries, ...cellC.queries];
+    assert.deepEqual(source.batches, [first, first, first, cellB.queries], "the batch in flight asked again as it was, never a part of it");
+    // Both land: every cell they ask is found, `a` among them, and kept.
+    source.pending(false);
+    const found = unwrap(engine.cellRuns("jobs_by_press_week", [cellB, cellC]));
+    assert.deepEqual([...found].map(([id, runs]) => [id, runs.total]), [["b", 7n], ["c", 1n]]);
+    assert.deepEqual(source.batches.slice(4), [cellB.queries, first], "each batch asked again as it was, in the order its cells are wanted");
+    assert.equal(unwrap(engine.cellRuns("jobs_by_press_week", [cellA])).get("a")!.total, 5n, "a cell its batch found, which no read waited on");
+    assert.equal(source.batches.length, 6, "found when its batch landed: asked nothing");
+    // Another revision lets every batch in flight go: its cells are asked again.
+    source.pending(true);
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [{ id: "a", queries: [search("w3", "k2")] }]), none);
+    source.revision(some("B"));
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cellC]), none);
+    assert.deepEqual(source.batches.slice(6), [[search("w3", "k2")], cellC.queries]);
+});
+
+test("a run a read still in flight asks waits on it: a read wanting it asks that read again as it was, and only the runs no read asks in one more (#1039)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    unwrap(engine.cellRuns("jobs_by_press_week", [cellA, cellB, cellC]));
+    source.pending(true);
+    assert.deepEqual(engine.cellEntries("jobs_by_press_week", [cellA, cellB]), none);
+    assert.deepEqual(engine.cellEntries("jobs_by_press_week", [cellB, cellC]), none);
+    const first = [{ row: 10n, count: 3n }, { row: 13n, count: 2n }, { row: 40n, count: 4n }];
+    assert.deepEqual(source.runs, [first, first, [{ row: 70n, count: 1n }]], "`b`'s runs wait on the read asking them; `c`'s, which none asks, are read alone");
+    source.pending(false);
+    const read = unwrap(engine.cellEntries("jobs_by_press_week", [cellB, cellC]));
+    assert.deepEqual([read.get("b"), read.get("c")], [[40n, 41n, 42n, 43n, 10n, 11n, 12n], [70n]]);
+    assert.deepEqual(source.runs.slice(3), [first, [{ row: 70n, count: 1n }]]);
+    // Landed, the reads are let go: nothing is kept here, so a cell read again is read again.
+    unwrap(engine.cellEntries("jobs_by_press_week", [cellC]));
+    assert.deepEqual(source.runs.slice(5), [[{ row: 70n, count: 1n }]]);
+    assert.equal(source.batches.length, 1, "its cells were found once");
+});
+
+test("past its bound of batches in flight, the oldest is let go: a cell waiting on it is asked again (#1039)", () => {
+    const ranges = new Map(Array.from({ length: 40 }, (_, i): [string, Range] => [`w${i}|k1`, { row: BigInt(10 * i), count: 1n }]));
+    const source = cellSource(ranges);
+    const engine = new RecordSliceSource(source.reader);
+    source.pending(true);
+    const cell = (i: number) => ({ id: `c${i}`, queries: [search(`w${i}`, "k1")] });
+    for (let i = 0; i < 33; i++) assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cell(i)]), none);
+    assert.equal(source.batches.length, 33);
+    // The newest still waits on its batch; the oldest, let go, is a batch of its own again.
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cell(32)]), none);
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cell(0)]), none);
+    assert.deepEqual(source.batches.slice(33), [cell(32).queries, cell(0).queries]);
+    source.pending(false);
+    assert.equal(unwrap(engine.cellRuns("jobs_by_press_week", [cell(0), cell(32)])).size, 2);
+});
+
+test("a revision not known for a moment lets nothing kept go: known again, the same revision asks nothing again (#1039)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    unwrap(engine.cellEntries("jobs_by_press_week", [cellA]));
+    const asked = [source.batches.length, source.runs.length];
+    source.revision(none);
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cellA]), none, "nothing is answered while the revision is unknown");
+    source.revision(some("A"));
+    assert.equal(unwrap(engine.cellRuns("jobs_by_press_week", [cellA])).get("a")!.total, 5n);
+    assert.deepEqual([source.batches.length, source.runs.length], asked, "the cell found at the revision stands for it again");
+    // Another revision lets it go.
+    source.revision(some("B"));
+    unwrap(engine.cellRuns("jobs_by_press_week", [cellA]));
+    assert.equal(source.batches.length, asked[0]! + 1);
+});

@@ -66,7 +66,9 @@ import {
     type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { CanDropFnType, EastUI, RowSourceType, type UIElement } from "@elaraai/east-ui";
-import { resolveRowSource, type RecordSliceAffordance, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
+import {
+    RecordSliceConfigType, RecordSliceTileType, resolveRowSource, type RecordSliceAffordance, type RecordSlicesChromeOptions,
+} from "@elaraai/east-ui/internal";
 import { PlanEventKindType, PlanResourcesType, ScheduleCandidateType } from "../schedule/types.js";
 import { scheduleCheck, scheduleTitled } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
@@ -81,7 +83,10 @@ import { planSeriesKeys } from "./series.js";
 import { PlanEventBlocksType, PlanEventPagedType, createEventBlocks, createEventPaged, eventDrawsOf } from "./event-rows.js";
 import { PlanLibraryTabType, buildLibrary, type PlanLibraryTab } from "./library.js";
 
-export { PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventShownType } from "./event-rows.js";
+export {
+    PlanEventBlocksType, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventReadsType, PlanEventShadeType, PlanEventShadingType,
+    PlanEventShownType,
+} from "./event-rows.js";
 
 // ============================================================================
 // The Plan's shared keys
@@ -379,6 +384,108 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
     return check(East.value(links as SubtypeExprOrValue<ArrayType<PlanLinkType>>, ArrayType(PlanLinkType)));
 }
 
+/** A series or a summary index's place among a source's: which it is, the fields it files by, and its tile. */
+const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(StringType), tile: RecordSliceTileType });
+
+/**
+ * An event kind's series and summary indexes (#1039), checked as the Plan is
+ * evaluated — its source lists its record's indexes, which a Plan reads only
+ * then — and refused in words naming the change to make: one filed by another
+ * field than the kind's resource, or over other times than its events'; a
+ * series index for a kind not placed on a paged resource kind alone; two
+ * series, or two summaries, by one tile over the same fields; and a series
+ * index with no summary beside it, whose shading draws past the budget.
+ *
+ * @param slot - The event kind's slot
+ * @param kind - The event kind
+ * @param resources - The resource kinds, by slot
+ * @param config - The controls of the kind's source of the slice, its indexes among them
+ * @returns The check, an expression run for its refusal
+ */
+function checkedTilings(
+    slot: string,
+    kind: ScheduleEventKind<EastType, EastType>,
+    resources: readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[],
+    config: ExprType<RecordSliceConfigType>,
+): ExprType<NullType> {
+    const where = `Plan: events.${slot}'s source lists the`;
+    const field = kind.resourceField;
+    const { start, end } = kind.times;
+    const paged = resources.find(([, r]) => r.window !== undefined)?.[0];
+    const whole = kind.takes.filter((s) => s !== paged);
+    const alone = paged !== undefined && whole.length === 0 && kind.takes.includes(paged);
+    const unpaged = paged === undefined
+        ? ", and no resource kind is paged — a series index reads the events of a paged resource kind's rows a window at a time: " +
+            "page the resources (Data.bindPaged), or leave the index out"
+        : `, and the kind is placed on ${whole.map((s) => `resources.${s}`).join(" and ")}, read whole — a series index reads the events ` +
+            `of a paged resource kind's rows a window at a time: list it for a kind placed on resources.${paged} alone, or leave it out`;
+    const check = East.function([RecordSliceConfigType], NullType, ($, held) => {
+        // Each index's place by its text, as East prints it: a Dict's key is of an immutable type, and a place holds an Array.
+        const seen = $.let(new Map(), DictType(StringType, StringType));
+        const series = $.let(none, OptionType(StringType));
+        const summaries = $.let(0n, IntegerType);
+        $.for(held.indexes, ($2, index) => {
+            for (const arm of ["series", "summary"] as const) {
+                $2.match(index[arm], {
+                    some: ($3, tiling) => {
+                        const named = $3.let(East.value(`${where} ${arm} index "`).concat(index.name).concat("\""));
+                        // A refusal known at build ends the branch: nothing after it runs.
+                        if (field === undefined) {
+                            $3.error(named.concat(", and the kind places its events on no resource — a series or a summary index files events by " +
+                                "their resource: give the kind `resource`, or leave the index out"));
+                            return;
+                        }
+                        if (arm === "series" && !alone) {
+                            $3.error(named.concat(unpaged));
+                            return;
+                        }
+                        // Filed by the kind's resource, over its events' times.
+                        $3.if(tiling.key.equal(field).not(), ($4) => {
+                            $4.error(named.concat(", filed by \"").concat(tiling.key).concat(`" — a Plan reads it by the kind's resource field: key: "${field}"`));
+                        });
+                        $3.if(tiling.from.equal(start).not().or(() => tiling.to.equal(end).not()), ($4) => {
+                            $4.error(named.concat(", over \"").concat(tiling.from).concat("\" to \"").concat(tiling.to)
+                                .concat(`" — a Plan reads it over the kind's own times: from: "${start}", to: "${end}"`));
+                        });
+                        if (arm === "series") {
+                            $3.assign(series, some(index.name));
+                        } else {
+                            $3.assign(summaries, summaries.add(1n));
+                        }
+                        // One of each by a tile over the same fields.
+                        const place = $3.let({ summary: arm === "summary", fields: index.fields, tile: tiling.tile }, TilingKeyType);
+                        const at = $3.let(East.print(place));
+                        $3.if(seen.has(at), ($4) => {
+                            const tile = $4.let(tiling.tile.match({
+                                day: (_$5) => East.value("day", StringType),
+                                week: (_$5) => East.value("week", StringType),
+                                month: (_$5) => East.value("month", StringType),
+                                quarter: (_$5) => East.value("quarter", StringType),
+                                year: (_$5) => East.value("year", StringType),
+                            }));
+                            $4.error(East.value(`${where} ${arm} indexes "`).concat(seen.get(at)).concat("\" and \"").concat(index.name)
+                                .concat("\", each by the ").concat(tile).concat(" over the same fields — list one"));
+                        });
+                        $3(seen.insert(at, index.name));
+                    },
+                });
+            }
+        });
+        // A series index's events draw while they fit the budget, its summary's shading past it.
+        $.match(series, {
+            some: ($2, name) => {
+                $2.if(summaries.equal(0n), ($3) => {
+                    $3.error(East.value(`${where} series index "`).concat(name).concat("\", and no summary index — the Plan draws a series " +
+                        "index's events while they fit, and its summary's shading past that: declare e3.recordIndex.summary(name, record, " +
+                        "{ key, from, to, tile }) over the same record and list it beside the series index"));
+                });
+            },
+        });
+        return null;
+    });
+    return check(config);
+}
+
 // ============================================================================
 // The payload
 // ============================================================================
@@ -402,7 +509,10 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
  *   `rows` source, a paged resource kind or one not keyed by String its source would narrow, and a kind's own `slice` or
  *   `filter` (#1344); a templates list written in the code or naming no source of the slice (#1340); and everything the
  *   canvas refuses ({@link createPlanRoot}). An axis held in a variable, and links whose kinds are not known at build,
- *   are refused in the same words as the Plan is evaluated
+ *   are refused in the same words as the Plan is evaluated; so are the series and summary indexes an event kind's source
+ *   lists (#1039), which the Plan reads only then: one filed by another field than the kind's resource, or over other
+ *   times than its events'; a series index for a kind not placed on a paged resource kind alone; two series, or two
+ *   summaries, by one tile over the same fields; and a series index with no summary beside it
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
@@ -525,6 +635,11 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         if (events !== undefined) {
             checkPagedKinds(resourceKinds, data);
             checkEventRows(resourceKinds, eventKinds, canvas.series, rows);
+            // The series and summary indexes each event kind's source lists (#1039), its record's, read as the Plan is evaluated.
+            for (const [slot, kind] of eventKinds) {
+                const part = bound.parts[slot] as unknown as { config: ExprType<RecordSliceConfigType> } | undefined;
+                if (part !== undefined) $(checkedTilings(slot, kind, resourceKinds, part.config));
+            }
         }
         const tabs = buildLibrary(library, { resources: resourceKinds, events: eventKinds, rows, picked, sources: sources.names });
         if (events === undefined) {

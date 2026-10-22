@@ -12,17 +12,21 @@
  * backlog of the kinds that keep one — its events the Backlog tab's cards
  * (#1344) — and the newest commit to any kind's record; the last counts while
  * a read is in flight or has failed. The same read finds the overlaps among
- * the window's events of the kinds that warn of them (#1198).
+ * the window's events of the kinds that warn of them (#1198). A kind read by
+ * its cells (#1039) counts its window's events exactly from its source, as the
+ * rail counts them, and its hours over the rows drawn.
  */
 
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { none, some, variant } from "@elaraai/east";
+import { BlobType, OptionType, SortedMap, StringType, compareFor, equalFor, none, some, variant } from "@elaraai/east";
 import { UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { scheduleOverlaps } from "../../shared/schedule/overlaps.js";
 import { utcAt } from "../plan.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
+import type { PlanCellsRead } from "../root/cells.js";
+import type { PlanEventPart } from "../root/sources.js";
 import { usePlanEventCounts, type PlanEventItemValue, type PlanEventKindValue } from "./counts.js";
 
 beforeEach(() => { initializeStore(new UIStore()); });
@@ -44,10 +48,12 @@ type Answer = () => ReturnType<PlanEventKindValue["planItems"]>;
  * answering what it is given — its overlaps allowed unless it warns of them,
  * so its items need no times.
  */
-function kind(k: { items: Answer; backlog?: Answer; commits?: readonly Date[]; asked?: [Date, Date][]; warns?: boolean }): PlanEventKindValue {
+function kind(k: { items: Answer; backlog?: Answer; commits?: readonly Date[]; asked?: [Date, Date][]; warns?: boolean; key?: string; reads?: unknown[] }): PlanEventKindValue {
     return {
-        planItems: (from: Date, to: Date) => {
+        key: k.key ?? "job",
+        planItems: (from: Date, to: Date, _drafts: unknown, read: unknown) => {
             k.asked?.push([from, to]);
+            k.reads?.push(read);
             return k.items();
         },
         backlog: k.backlog !== undefined,
@@ -81,7 +87,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         const { result } = renderHook(() => usePlanEventCounts(kinds, scale));
         // The backlog's events are the Backlog tab's cards, each with its kind, in the kinds' order (#1344).
         expect(result.current).toEqual({
-            events: 5, minutes: 300, backlog: 2, saved: utcAt("2026-10-12T08:30:00"), overlaps: NO_OVERLAPS,
+            events: 5, minutes: 300, drawn: false, backlog: 2, saved: utcAt("2026-10-12T08:30:00"), overlaps: NO_OVERLAPS,
             unscheduled: [{ kind: kinds[0], item: item() }, { kind: kinds[0], item: item() }],
         });
         expect(result.current!.unscheduled[0]!.kind).toBe(kinds[0]);
@@ -91,7 +97,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
 
     test("no kind keeps a backlog: none is counted; no commit, no last save; no kinds, no counts", () => {
         const plain = renderHook(() => usePlanEventCounts([kind({ items: () => some([item()]) as never })], scale));
-        expect(plain.result.current).toEqual({ events: 1, minutes: 60, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(plain.result.current).toEqual({ events: 1, minutes: 60, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         const bare = renderHook(() => usePlanEventCounts([], scale));
         expect(bare.result.current).toBeUndefined();
     });
@@ -102,7 +108,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         const kindsNow = () => [kind({ items: () => answer() })];
         const { result, rerender } = renderHook(({ kinds }) => usePlanEventCounts(kinds, scale), { initialProps: { kinds: kindsNow() } });
         const first = result.current;
-        expect(first).toEqual({ events: 1, minutes: 60, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(first).toEqual({ events: 1, minutes: 60, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         // In flight: the last counts stand.
         answer = () => none;
         rerender({ kinds: kindsNow() });
@@ -120,10 +126,38 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         // An answer moves them.
         answer = () => some([item(), item()]) as never;
         rerender({ kinds: kindsNow() });
-        expect(result.current).toEqual({ events: 2, minutes: 120, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(result.current).toEqual({ events: 2, minutes: 120, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         // No event kinds: nothing to count, and nothing held.
         rerender({ kinds: [] });
         expect(result.current).toBeUndefined();
+    });
+
+    test("a kind read by its cells counts its window's events exactly, from its source as the rail does — its hours over the rows drawn, read from its cells (#1039)", () => {
+        const reads: unknown[] = [];
+        const jobs = kind({ key: "job", items: () => some([item(), item()]) as never, reads });
+        const cellsOfJobs = new Uint8Array([7, 1]);
+        const cells = {
+            reads: new SortedMap([["job", cellsOfJobs]], compareFor(StringType)),
+            shading: new SortedMap([], compareFor(StringType)),
+            drafts: new SortedMap([], compareFor(StringType)),
+            held: new Map(), notices: [], reading: false,
+        } as PlanCellsRead;
+        // Its source counts 42 events in the window: the cells around the rows in view hold two of them.
+        let counted: ReturnType<PlanEventPart["part"]["count"]> = some(42n);
+        // A new list each time, so the counts are read again.
+        const partsNow = () => [{ kind: jobs, part: { count: () => counted } }] as unknown as PlanEventPart[];
+        const { result, rerender } = renderHook(({ parts }) => usePlanEventCounts([jobs], scale, undefined, cells, parts), { initialProps: { parts: partsNow() } });
+        expect(result.current).toEqual({ events: 42, minutes: 120, drawn: true, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(reads.length).toBeGreaterThan(0);
+        expect(reads.every((read) => equalFor(OptionType(BlobType))(read as never, some(cellsOfJobs)))).toBe(true);
+        // Its count in flight: the last counts stand; counted again, they move.
+        const first = result.current;
+        counted = none;
+        rerender({ parts: partsNow() });
+        expect(result.current).toBe(first);
+        counted = some(43n);
+        rerender({ parts: partsNow() });
+        expect(result.current!.events).toBe(43);
     });
 });
 

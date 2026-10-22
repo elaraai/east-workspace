@@ -23,6 +23,7 @@ import type { PlanWords } from "../words.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
 import type { PlanDiagnostics } from "../shell/Diagnostics.js";
 import type { PlanTransport } from "../shell/transport.js";
+import type { PlanCellsRead } from "./cells.js";
 import type { PlanCanvasInspect } from "./inspect.js";
 import type { PlanEventPart, PlanSlicesChrome, PlanSourcePart } from "./sources.js";
 import type { PlanWindowPart } from "./window.js";
@@ -92,6 +93,12 @@ export interface PlanChrome {
     sessions: readonly PlanSessionBanner[];
     /** The event kinds' editing (#1194): their drafts, and their gestures; `undefined` for a Plan without event kinds. */
     events: PlanEventEditing | undefined;
+    /**
+     * The kinds' cells (#1039): what a kind read by its cells draws from — what the footer counts over the rows drawn, and
+     * the inspector's row reads — every kind's drafts as the seams take them, and the kinds drawing the notice;
+     * `undefined` for a Plan reading no kind by its cells.
+     */
+    cells: PlanCellsRead | undefined;
     /** Where one of the session's issues is: its entry's first row on the canvas, by name. */
     where: (issue: EditIssue) => string;
     /** The author's footer items, in order. */

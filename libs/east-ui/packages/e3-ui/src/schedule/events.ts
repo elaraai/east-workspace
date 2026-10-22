@@ -485,6 +485,14 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      */
     readonly allocationValues: StructType;
     /**
+     * The fields its events' times are (#1039): its `start` and `end`, or its
+     * `at` twice for an instant kind — the fields a series or a summary index
+     * of its record files its events by, as a Plan holds it to.
+     */
+    readonly times: { readonly start: string; readonly end: string };
+    /** The field naming its events' resource (#1039); `undefined` for a kind with no `resource`. */
+    readonly resourceField: string | undefined;
+    /**
      * The kind on the wire, under its slot: the Calendar's, which takes no
      * notice of Plan's options.
      *
@@ -881,6 +889,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     // ── The East the seams share ─────────────────────────────────────────
     const draftType = EditingDraftFieldType(rowType);
     const EntryRowType = StructType({ id: StringType, key: keyType, row: rowType });
+    // The stored entries a reader read by a series index's cells (#1039), each its key and its row.
+    const CellsType = ArrayType(StructType({ key: keyType, row: rowType }));
     // The entry a draft leaves: the drafted entry, none for one deleted, the held one for a draft it cannot read.
     const drafted = East.function([BlobType, OptionType(rowType)], OptionType(rowType), (_$, bytes, held) =>
         bytes.decodeBeast(draftType, "v2").match({
@@ -1010,6 +1020,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         readonly days: ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>> | undefined;
         /** The backlog's rows, the window `[from, to)` the canvas reads given; `undefined`, the record whole. */
         readonly backlog: ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>> | undefined;
+        /**
+         * The backlog's rows alone, never the window's (#1039): what a kind a reader reads by its cells holds beside
+         * them; `undefined`, the record whole.
+         */
+        readonly alone: ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>> | undefined;
         /** The rows with the drafts in place: a narrowed kind's leave out drafts its narrowing does not hold. */
         readonly withDrafts: ExprType<FunctionType<[EastType, EastType], EastType>>;
     }
@@ -1020,13 +1035,15 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     `Slice.bindRecords (one named "${slot}") — give one of those with it`);
             }
             const unscheduled = backlogWindow === undefined ? undefined : scheduleBacklogWindow(backlogWindow, keyType, rowType, where) as unknown as ExprType<FunctionType<[], OptionType<DictType<EastType, EastType>>>>;
+            // A backlog index's read takes no window: the window is given, and read past.
+            const backlog = unscheduled === undefined ? undefined : East.function([DateTimeType, DateTimeType], OptionType(HeldType), ($, _from, _to) => {
+                const read = $.const(unscheduled);
+                return read();
+            });
             return {
                 days: dayWindow === undefined ? undefined : scheduleDayWindow(dayWindow, keyType, rowType, where),
-                // A backlog index's read takes no window: the window is given, and read past.
-                backlog: unscheduled === undefined ? undefined : East.function([DateTimeType, DateTimeType], OptionType(HeldType), ($, _from, _to) => {
-                    const read = $.const(unscheduled);
-                    return read();
-                }),
+                backlog,
+                alone: backlog,
                 withDrafts: withDraftsFor(false) as never,
             };
         }
@@ -1038,7 +1055,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 "or its editing's, is read by its key: give `entries` beside it, Data.bindPaged(record), the record's own entries");
         }
         const scheduled = scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, false, where);
-        if (!optional) return { days: scheduled, backlog: undefined, withDrafts: withDraftsFor(true) as never };
+        if (!optional) return { days: scheduled, backlog: undefined, alone: undefined, withDrafts: withDraftsFor(true) as never };
         // A kind with a backlog reads both through its source as one: what its narrowing holds over the window and in
         // its backlog. A draft then moves an event between the two by its times alone, and a draft the narrowing does
         // not hold never shows in either (#1343).
@@ -1060,7 +1077,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             });
             return result;
         });
-        return { days: both, backlog: both, withDrafts: withDraftsFor(true) as never };
+        return { days: both, backlog: both, alone: backlogged, withDrafts: withDraftsFor(true) as never };
     };
 
     /** An item seam over a window: the events whose items `itemFn` makes that overlap `[from, to)`. */
@@ -1128,6 +1145,124 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 });
             }
             return result;
+        });
+
+    // ── A kind a reader reads by a series index's cells (#1039) ──────────
+    // The reader gives the entries it read as one beast2 of `CellsType`; a long event its cells repeat, tile by tile,
+    // is one entry, held once by its key. Every draft it gives shows: it gives a draft of an entry it did not read only
+    // where its narrowing holds the entry, or the record does not.
+    /** The entries a reader read by cells, as the record's rows by key. */
+    const cellsHeld = East.function([BlobType], HeldType, ($, bytes) => {
+        const entries = $.const(bytes.decodeBeast(CellsType, "v2"));
+        const held = $.let(new Map(), HeldType);
+        $.for(entries, ($2, entry) => {
+            $2(held.insertOrUpdate(entry.key, entry.row, (_$3, _was, now) => now));
+        });
+        return held;
+    });
+    /** Every draft given in place over the entries a reader read by cells, as `withDraftsFor` gives them. */
+    const cellsInPlace = withDraftsFor(false) as unknown as ExprType<FunctionType<[DictType<EastType, EastType>, typeof ScheduleDraftsType], ArrayType<typeof EntryRowType>>>;
+    /** An item seam over the entries a reader read by cells: the events whose items `itemFn` makes that overlap `[from, to)`, by the views' rule. */
+    const cellsOf = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>) =>
+        East.function([BlobType, DateTimeType, DateTimeType, ScheduleDraftsType], ArrayType(itemType), ($, bytes, from, to, drafts) => {
+            const hold = $.const(cellsHeld);
+            const inPlace = $.const(cellsInPlace);
+            const item = $.const(itemFn);
+            const out = $.let([], ArrayType(itemType));
+            $.for(inPlace(hold(bytes), drafts), ($2, entry) => {
+                const one = $2.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
+                $2.match(one.start, {
+                    some: ($3, s) => {
+                        $3.match(one.end, {
+                            some: ($4, e) => {
+                                $4.if(East.less(s, to).and(() => East.greater(e, from).or(() => East.greaterEqual(s, from))), ($5) => {
+                                    $5(out.pushLast(one as unknown as ExprType<EastType>));
+                                });
+                            },
+                        });
+                    },
+                });
+            });
+            return out;
+        });
+    /**
+     * A backlog seam beside the entries a reader read by cells: the backlog read alone, never the window, with those
+     * entries held beside it — a draft moves an event between them by its times alone — the rows with no time, as
+     * `itemFn` makes them.
+     */
+    const backlogBeside = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>, reads: Reads) =>
+        East.function([BlobType, DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(itemType)), ($, bytes, from, to, drafts) => {
+            const result = $.let(East.value(some([]), OptionType(ArrayType(itemType))), OptionType(ArrayType(itemType)));
+            if (optional) {
+                const hold = $.const(cellsHeld);
+                const inPlace = $.const(cellsInPlace);
+                const item = $.const(itemFn);
+                let read: ExprType<OptionType<DictType<EastType, EastType>>>;
+                if (reads.alone === undefined) {
+                    read = $.let(East.value(some(readAll()), OptionType(HeldType)));
+                } else {
+                    const alone = $.const(reads.alone);
+                    read = $.let(alone(from, to));
+                }
+                $.assign(result, East.value(none, OptionType(ArrayType(itemType))));
+                $.match(read, {
+                    some: ($2, rows) => {
+                        const all = $2.let(hold(bytes));
+                        $2(all.unionInPlace(rows, (_$3, held) => held));
+                        const out = $2.let([], ArrayType(itemType));
+                        $2.for(inPlace(all, drafts), ($3, entry) => {
+                            const one = $3.const(item(entry)) as unknown as ExprType<ScheduleItemType>;
+                            $3.if(one.start.hasTag("none"), ($4) => { $4(out.pushLast(one as unknown as ExprType<EastType>)); });
+                        });
+                        $2.assign(result, East.value(some(out), OptionType(ArrayType(itemType))));
+                    },
+                });
+            }
+            return result;
+        });
+    /**
+     * One event by its key's text, the drafts in place, of a kind a reader reads by cells: the drafts, then its row as
+     * the reader holds it (`held`, none for one it does not), then the backlog read alone, then its key — never the
+     * window.
+     */
+    const readBeside = (makeItem: ExprType<FunctionType<[EastType], EastType>>, readType: StructType, reads: Reads) =>
+        East.function([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(BlobType)], OptionType(readType), ($, id, drafts, from, to, held) => {
+            const parse = $.const(keyOf);
+            const make = $.const(makeItem);
+            const key = $.const(parse(id));
+            const row = $.let(East.value(none, OptionType(rowType)), OptionType(rowType));
+            const unread = $.let(true, BooleanType);
+            $.if(drafts.has(id), ($2) => {
+                $2.match(drafts.get(id).decodeBeast(draftType, "v2"), {
+                    value: ($3, entry) => {
+                        $3.assign(row, East.value(some(entry), OptionType(rowType)));
+                        $3.assign(unread, false);
+                    },
+                    missing: ($3) => { $3.assign(unread, false); },
+                });
+            });
+            $.if(unread, ($2) => {
+                $2.match(held, { some: ($3, bytes) => { $3.assign(row, East.value(some(bytes.decodeBeast(rowType, "v2")), OptionType(rowType)) as never); } });
+                if (reads.alone !== undefined) {
+                    const alone = $2.const(reads.alone);
+                    $2.if(row.hasTag("none"), ($3) => {
+                        $3.match(alone(from, to), { some: ($4, rows) => { $4.assign(row, rows.tryGet(key) as never); } });
+                    });
+                }
+                if (byKey === undefined) {
+                    const all = $2.const(readAll());
+                    $2.if(row.hasTag("none"), ($3) => { $3.assign(row, all.tryGet(key) as never); });
+                } else {
+                    const find = $2.const(byKey);
+                    $2.if(row.hasTag("none"), ($3) => {
+                        $3.match(find(id), { held: ($4, stored) => { $4.assign(row, East.value(some(stored as ExprType<EastType>), OptionType(rowType)) as never); } });
+                    });
+                }
+            });
+            return row.match({
+                some: (_$2, r) => East.value(some({ item: make({ id, key, row: r }), row: East.Blob.encodeBeast(r, "v2") }) as never, OptionType(readType)),
+                none: (_$2) => East.value(none, OptionType(readType)),
+            });
         });
 
     const readEvent = (makeItem: ExprType<FunctionType<[EastType], EastType>>, readType: StructType, reads: Reads) => East.function([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(readType), ($, id, drafts, from, to) => {
@@ -1397,6 +1532,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         roles: [...rosterGiven, ...allocationGiven],
         partsOf: config.parts?.of,
         allocationValues,
+        times: { start: startField, end: endField },
+        resourceField: resource?.field,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
             return East.value(kindParts(slot, part, formSpecs).fields as never, ScheduleKindType);
         },
@@ -1598,18 +1735,68 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             // is the record's: read whole, or for a kind read a window at a time (#1199) looked for first among the
             // rows its windows hold over [from, to) and its backlog's, where a gesture's event is drawn, then read
             // by its key.
-            const planEvent = readEvent(planItemOf, PlanEventReadType, parts.reads);
+            // A kind a reader reads by its series index's cells (#1039) is given what it read, and never reads the
+            // window: its events from the entries, its backlog read alone beside them, one event from the row the
+            // reader holds of it.
+            const windowed = readEvent(planItemOf, PlanEventReadType, parts.reads);
+            const beside = readBeside(planItemOf, PlanEventReadType, parts.reads);
+            const planEvent = East.function(
+                [StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(PlanEventReadType),
+                ($, id, drafts, from, to, held) => {
+                    const overWindow = $.const(windowed);
+                    const byCells = $.const(beside);
+                    return held.match({
+                        none: (_$2) => overWindow(id, drafts, from, to),
+                        some: (_$2, row) => byCells(id, drafts, from, to, row),
+                    });
+                });
+            const window = windowOf(PlanEventItemType, planItemOf, parts.reads);
+            const cells = cellsOf(PlanEventItemType, planItemOf);
+            const planItems = East.function(
+                [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType)),
+                ($, from, to, drafts, read) => {
+                    const overWindow = $.const(window);
+                    const fromCells = $.const(cells);
+                    return read.match({
+                        none: (_$2) => overWindow(from, to, drafts),
+                        some: (_$2, bytes) => East.value(some(fromCells(bytes, from, to, drafts)) as never, OptionType(ArrayType(PlanEventItemType))),
+                    });
+                });
+            const backlog = backlogOf(PlanEventItemType, planItemOf, parts.reads);
+            const backlogByCells = backlogBeside(PlanEventItemType, planItemOf, parts.reads);
+            const planUnscheduled = East.function(
+                [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType)),
+                ($, from, to, drafts, read) => {
+                    const overWindow = $.const(backlog);
+                    const besideCells = $.const(backlogByCells);
+                    return read.match({
+                        none: (_$2) => overWindow(from, to, drafts),
+                        some: (_$2, bytes) => besideCells(bytes, from, to, drafts),
+                    });
+                });
             const name = (field: string | undefined) => (field === undefined ? none : some(field));
+            // The `.east` text of the value the resource field holds for a resource, or for none: what a series or a
+            // summary index of the record files the resource's events under (#1039), the key a reader's cells search for.
+            const seriesKey = East.function([RefOption], OptionType(StringType), ($, ref) => {
+                const result = $.let(none, OptionType(StringType));
+                if (resourceValue !== undefined) {
+                    const resolve = $.const(resourceValue);
+                    $.match(resolve(ref), { some: ($2, value) => { $2.assign(result, some(East.print(value))); } });
+                }
+                return result;
+            });
             return East.value({
                 ...parts.fields,
                 draw: variant(draw, null),
                 instant: instantKind,
                 overlaps: variant(overlaps, null),
                 roles: { state: name(stateField), quantity: name(quantityField), lane: name(laneField) },
-                planItems: windowOf(PlanEventItemType, planItemOf, parts.reads),
-                planUnscheduled: backlogOf(PlanEventItemType, planItemOf, parts.reads),
+                planItems,
+                planUnscheduled,
                 planEvent,
                 inspector: inspector === undefined ? East.value(none, OptionType(RowInspectorType)) : East.value(some(inspector), OptionType(RowInspectorType)),
+                seriesKey,
+                cellsType: toEastTypeValue(CellsType),
             } as never, PlanEventKindType);
         },
     };
