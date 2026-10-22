@@ -66,8 +66,9 @@ export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, useRec
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";
 export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
 // Whether a record Slice still holds its seed — its `initial`, written over by nothing — which a builder's restored view replaces;
-// and where its narrowing's rows sit in the record, and which of some rows it holds (#1349) — the Sheet's lens.
-export { recordSliceSeeded, recordSlicePlace, recordSliceWithin } from "./platform/slice/record.js";
+// and where its narrowing's rows sit in the record, which of some rows — or of the record's own, by position — it holds, and where
+// a key lands in the record's own order (#1349) — the Sheet's lens.
+export { recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";

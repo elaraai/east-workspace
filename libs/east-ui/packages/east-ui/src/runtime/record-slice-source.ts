@@ -328,7 +328,9 @@ export class RecordSliceSource<T> {
 
     /**
      * Which of some entries a narrowing's resolved runs hold (#1349), each
-     * answered by the reader from the runs: no row is examined here.
+     * answered by the reader from the runs: no row is examined here. Past
+     * {@link MAX_RECORD_SLICE_BATCH} entries, they are asked as several reads,
+     * all in this pass, as `resolve` asks a plan's searches.
      *
      * @param plan - Current narrowing
      * @param entries - The entries asked of: each one's index key text and primary key
@@ -340,9 +342,15 @@ export class RecordSliceSource<T> {
         const resolved = this.resolve(plan);
         if (resolved.type === "none") return none;
         if (entries.length === 0) return some([]);
-        const within = this.reader.withinAll(resolved.value.index, resolved.value.runs, entries);
-        if (this.current() !== resolved.value.revision || within.type === "none") return none;
-        return within;
+        const answers: boolean[] = [];
+        let pending = false;
+        for (let at = 0; at < entries.length; at += MAX_RECORD_SLICE_BATCH) {
+            const part = this.reader.withinAll(resolved.value.index, resolved.value.runs, entries.slice(at, at + MAX_RECORD_SLICE_BATCH));
+            if (part.type === "none") pending = true;
+            else answers.push(...part.value);
+        }
+        if (this.current() !== resolved.value.revision || pending) return none;
+        return some(answers);
     }
 
     /**

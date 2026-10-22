@@ -844,9 +844,8 @@ const CALENDAR_LADDER: ReadonlyArray<readonly [string, number]> = [
  *  then the strip folds into one chip, the open view's tab (#1221, SB20); and
  *  last, where the sheet has a key search, the chip and the search fold into
  *  its popover, one move (#1345). The count and the context switch are the
- *  lens's, which is off until #1349 brings it back over records: until then
- *  the sheet draws neither, and only the tabs' and the search's steps are
- *  read. */
+ *  lens's over the record (#1349): the stress sheet opens on a view that
+ *  narrows its rows, so its row holds both. */
 function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const tabs = state.get("tabs");
     // With a key search the strip has one rung more: its chip folding with the search into its popover.

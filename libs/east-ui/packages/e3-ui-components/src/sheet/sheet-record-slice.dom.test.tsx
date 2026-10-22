@@ -30,15 +30,18 @@ async function setup() {
     return { ...ui, record, deployed, rows, row, tab };
 }
 
-test("indexed Sheet keeps source order, restores saved narrowing and saves hidden drafts by original primary key", async () => {
+test("indexed Sheet keeps the record's order under its lens, restores saved narrowing and saves hidden drafts by original primary key", async () => {
     const ui = await setup();
     await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
     await settle();
     const ids = () => ui.rows().map(row => row.dataset.rowId);
     const initialIds = ids();
-    expect(initialIds.slice(0, 3)).toEqual(["JOB-10000", "JOB-10090", "JOB-10180"]);
+    // The rail opens on Ready, every third order: the lens draws each at its place in the record, the two between hidden (#1349).
+    expect(initialIds.slice(0, 3)).toEqual(["JOB-10000", "JOB-10003", "JOB-10006"]);
+    expect([...ui.container.querySelectorAll<HTMLElement>('[data-band="lens"]')].slice(0, 2).map((gap) => gap.dataset["hidden"])).toEqual(["2", "2"]);
     expect(ui.tab("all").textContent).toContain("50,000");
-    expect(ui.container.querySelector('[data-slot="contextOption"]')).toBeNull();
+    expect(ui.container.querySelector('[data-slot="contextOption"]')).not.toBeNull();
+    expect(ui.container.querySelector('[data-slot="toolbarCount"]')?.textContent).toBe("16,667 matches");
     expect(h.requests("read", ORDERS)).toEqual([]);
 
     fireEvent.mouseDown(ui.container.querySelector('[data-slot="tabAdd"]')!, { button: 0 });

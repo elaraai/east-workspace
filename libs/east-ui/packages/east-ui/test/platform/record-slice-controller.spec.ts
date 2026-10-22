@@ -134,6 +134,56 @@ test("which rows a narrowing holds is asked by each row's maintained entry keys,
     assert.throws(() => controller.place(new Map()), /nothing narrows this record/);
 });
 
+test("which of the record's own rows a narrowing holds is asked of the rows its own pages hold: the window a view of the record reads (#1349)", () => {
+    // The record's rows a to d, in its own order; the index files `held` at its rows 0 to 9 and `late` at 10 to 19.
+    const SetRow = StructType({ status: StringType, due: OptionType(IntegerType), statuses: SetType(StringType) });
+    type SetRowValue = ValueTypeOf<typeof SetRow>;
+    const printString = printFor(StringType);
+    const rowOfStatus = new Map([[printString("held"), 0n], [printString("late"), 10n]]);
+    const holding = (...statuses: string[]): SetRowValue => ({ status: statuses[0] ?? "none", due: none, statuses: new Set(statuses) });
+    const stored = [
+        { key: "a", row: holding("held") },
+        { key: "b", row: holding("held", "late") },
+        { key: "c", row: holding() },
+        { key: "d", row: holding("late") },
+    ];
+    const pages: { index: string; offset: bigint; limit: bigint }[] = [];
+    const asked: { ik: string; key: unknown }[][] = [];
+    let joined = true;
+    const binding: RecordSliceBinding = {
+        id: "small", recordId: "small", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(4n),
+        entryKeys: (_index, _key, row) => [...(row as SetRowValue).statuses].map(status => printString(status)),
+        seek(_index, query) {
+            const fields = query.type === "fields" ? query.value.values : [];
+            return some({ found: true, row: rowOfStatus.get(fields[0]!) ?? 20n, count: 10n });
+        },
+        page(index, offset, limit) {
+            pages.push({ index, offset, limit });
+            return some(stored.slice(Number(offset), Number(offset + limit)).map(({ key, row }) => ({ ik: variant(index, key), key, row: joined ? some(row) : none })));
+        },
+        withinAll(_index, runs, entries) {
+            asked.push(entries.map(({ ik, key }) => ({ ik, key })));
+            return some(entries.map(({ ik }) => {
+                const row = rowOfStatus.get(ik) ?? 20n;
+                return runs.some(run => row >= run.row && row < run.row + run.count);
+            }));
+        },
+    };
+    let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, SetRow, () => current, next => { current = next; });
+    const late = new Map([["status", values(printString("late"))]]);
+    assert.deepEqual(controller.withinAt(late, 1n, 3n), some([true, false, true]), "b and d hold `late`; c holds no status");
+    assert.deepEqual(pages, [{ index: "primary", offset: 1n, limit: 3n }], "one page of the record's own rows, at the rows asked");
+    assert.deepEqual(asked, [[{ ik: printString("held"), key: "b" }, { ik: printString("late"), key: "b" }, { ik: printString("late"), key: "d" }]]);
+    // Asked again, the page is the one read: no other is.
+    assert.deepEqual(controller.withinAt(late, 1n, 3n), some([true, false, true]));
+    assert.equal(pages.length, 1);
+    // Rows read without their entries cannot be asked of.
+    joined = false;
+    assert.throws(() => controller.withinAt(late, 0n, 1n), /with their rows/);
+});
+
 test("chip counts describe the exact state a toggle will apply, including clearing the final value", () => {
     const { controller } = fixture();
     controller.choose("due", undefined);

@@ -14,7 +14,9 @@
  * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216). (The
  * lens on lines, and the folds a view keeps, went with the local Slice,
  * #1345: the folds a view keeps are `frame/sheet-frame-narrowing`'s, over a
- * record's `rows` source, and #1349 restores the lens over records.)
+ * record's `rows` source. The lens over records, #1349, narrows a grouped
+ * sheet's groups, never its lines: `model.test.ts` and
+ * `frame/sheet-frame-narrowing`.)
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";

@@ -347,6 +347,29 @@ export class RecordSliceController {
         return some(held);
     }
 
+    /**
+     * Which of the record's own rows `[offset, offset + limit)`, in its order,
+     * a narrowing holds (#1349): those rows read from the record's own pages —
+     * the very window a view over the record reads them in, so a view that
+     * draws them asks for nothing more — and their maintained keys asked of the
+     * narrowing's runs, as {@link RecordSliceController.within} asks them.
+     *
+     * @param where - The narrowing
+     * @param offset - The first row, in the record's order
+     * @param limit - How many rows: a page's, at most 2,048 of them read
+     * @returns Whether the narrowing holds each row read, in order; none while the rows or the read are pending
+     * @throws {Error} When the binding reads its own rows without joining them, or reads no memberships
+     */
+    withinAt(where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+        const page = this.windows.page(this.plan(new Map()), offset, limit);
+        if (page.type === "none") return none;
+        const rows = page.value.map((entry) => {
+            if (entry.row?.type !== "some") throw new Error("Asking which of a record's own rows a narrowing holds reads them with their rows: bind the record with its rows joined");
+            return { key: entry.key, row: entry.row.value };
+        });
+        return this.within(where, rows);
+    }
+
     /** Labels a typical exact choice would replace, for advance explanation. */
     replaces(field: string): string[] {
         const state = this.readState();

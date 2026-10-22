@@ -105,7 +105,7 @@ describe("the renderer's own issues (#861)", () => {
 
 describe("every helper speaks the words it is handed (#861)", () => {
     test("the lens, a view's name, a count of groups", () => {
-        expect(lensCount([true, false], [true, true], W)).toBe("⟦1 match · 1 context");
+        expect(lensCount(1, 1, W)).toBe("⟦1 match · 1 context");
         expect(viewName("", 2, (seq) => W.m.viewName({ seq: String(seq) }))).toBe("⟦view 2");
         expect(countNoun(2, { singular: "order", plural: "orders" }, W)).toBe("⟦2 orders");
     });

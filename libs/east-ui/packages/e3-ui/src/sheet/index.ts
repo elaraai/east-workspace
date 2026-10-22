@@ -83,6 +83,7 @@ import {
     SheetColumnKindType,
     SheetColumnType,
     SheetRecordViewType,
+    SheetRevealType,
     SheetEditType,
     SheetSelectionType,
     SheetFooterItemType,
@@ -174,6 +175,7 @@ export {
     type SheetColumnKindLiteral,
     SheetColumnType,
     SheetRecordViewType,
+    SheetRevealType,
     SheetEditType,
     SheetSelectionType,
     SheetFooterItemType,
@@ -691,6 +693,8 @@ export interface SheetNamespace extends SheetTagType {
         Arity: typeof SheetArityType;
         /** One saved view: every source's narrowing, by name, the lens's context and reveals, and a grouped sheet's folds ({@link SheetRecordViewType}, #1345). */
         RecordView: typeof SheetRecordViewType;
+        /** A run of rows the lens shows because the planner opened them, by its first and last rows' keys ({@link SheetRevealType}, #1349). */
+        Reveal: typeof SheetRevealType;
         /** The WIRE edit event ({@link SheetEditType}); internal gesture transport. */
         WireEdit: typeof SheetEditType;
         /** The selection ring's position ({@link SheetSelectionType}). */
@@ -793,6 +797,7 @@ const SHEET_MEMBERS = {
         Check: SheetCheckType,
         Arity: SheetArityType,
         RecordView: SheetRecordViewType,
+        Reveal: SheetRevealType,
         WireEdit: SheetEditType,
         Selection: SheetSelectionType,
         FooterItem: SheetFooterItemType,
@@ -819,11 +824,15 @@ const SHEET_MEMBERS = {
  *   `entry.id` — its rows, its groups, or its groups with loose rows between
  *   them (`Sheet.Types.Entry(P, "lines")`, #846). Or they are `data`'s: an
  *   `Array<R>`, a bind handle or a paged source, identified by `id`. Or they
- *   are the `rows` source's of `slice` (#1345): the rows it narrows to,
- *   paged from it, Save committing through `onApply`.
+ *   are the record of the `rows` source of `slice` (#1345, #1349): its rows,
+ *   every one in the record's order, paged from it, Save committing through
+ *   `onApply`.
  * - **The narrowing** (`slice={{ slice: Slice.bindRecords(key, { rows, … }) }}`)
- *   is one rail on the toolbar: its `rows` source narrows the rows, and each
- *   other source the templates list or the library tab that names it.
+ *   is one rail on the toolbar. Its `rows` source's narrowing is drawn over
+ *   the rows as the lens (#1349): each match at its row number, the rows either
+ *   side of it (the context switch's `0`, `1` or `3`), and bands over the rest,
+ *   which open a little at a time. Each other source narrows the templates
+ *   list or the library tab that names it.
  * - **Every gesture is a draft** of the shared editing session, which the
  *   history item in the one toolbar undoes, redoes and discards. Over a
  *   record, Save commits the drafts as one patch through the record's patch
@@ -847,8 +856,9 @@ const SHEET_MEMBERS = {
  *   sources: a dropped card is `newRow`'s (or `newGroup`'s) defaults with the
  *   template's fields over them.
  * - **Views** (`views`) are a bind handle of `Array<Sheet.Types.RecordView>`,
- *   each every source's narrowing: `State.bind` keeps them per viewer,
- *   `Data.bind` shares them.
+ *   each every source's narrowing, the lens's context and the rows the planner
+ *   opened, by their keys: `State.bind` keeps them per viewer, `Data.bind`
+ *   shares them.
  * - **The namespace**: the columns (`Sheet.column.*`, row type first),
  *   registers (`Sheet.register.members` / `.concat`) and the driver
  *   (`Sheet.driver`), link rules (`Sheet.link.*`), proposed rows and new-row

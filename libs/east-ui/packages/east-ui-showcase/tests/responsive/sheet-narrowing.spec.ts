@@ -4,11 +4,13 @@
  */
 /**
  * The Sheet's narrowing (#1345) on the real in-page e3: the workshop's one
- * rail over its orders — the sheet's rows, paged from it — and its operation
- * and order templates, each a record of its own. At every width, in both
+ * rail over its orders — the sheet's rows, its narrowing drawn over them as
+ * the lens (#1349) — and its operation and order templates, each a record of
+ * its own. At every width, in both
  * themes, the rail stands in the toolbar's one row, nothing leaving it, and
  * every source's field is in it: live, folded to its chip, or named by its one
- * trigger. An order status chosen through it narrows the grid's orders and no
+ * trigger. An order status chosen through it narrows the grid's orders — the
+ * others in the lens's gaps — and no
  * tab; the operation templates' group narrows the Rows tab, `Rows 5 of 11`,
  * whatever the orders show, its count in the type every tab's count has; and
  * at every width the Rows tab, or the collapsed pane's badge, counts what it
@@ -218,8 +220,9 @@ async function seek(page: Page, frame: Locator, key: string): Promise<void> {
  * The phone examples, each with a row the view hides and the whole sheet
  * shows at its top, and a key to seek over the whole sheet, in key order: the
  * workshop, narrowed to the orders on hold through its rail; and the indexed
- * work orders in their phone frame, which open on the jobs ready — the view
- * in its index's order — its key far down the record.
+ * work orders in their phone frame, which open on the jobs ready — drawn over
+ * the record's rows as the lens, the rows between hidden in its gaps — its
+ * key far down the record.
  */
 const PHONES: ReadonlyArray<{ name: string; hash: string; narrow?: { field: string; value: RegExp }; hidden: string; key: string }> = [
     { name: "sheetWorkshop", hash: HASH, narrow: { field: "status", value: /^ON HOLD/ }, hidden: "WO-2201", key: "WO-2206" },

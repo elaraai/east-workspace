@@ -91,7 +91,7 @@
  *     ink-2); and the ID pinned right, mono 11 ink-4. Every line box in the
  *     well is whole pixels (a chip 19, a line of text 18), so a sub row, one
  *     line or wrapped, is whole pixels tall and the rows under it stay on the
- *     pixel grid. A search hit lights the index and the name in brand. While
+ *     pixel grid. While
  *     an open line's sub rows scroll under the group's band, a copy of the line
  *     sticks under the band, `border.strong` below like the band's own copy,
  *     and its last sub row pushes it up as it leaves.
@@ -1759,7 +1759,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&::before": { content: '""', position: "absolute", left: "8px", top: "0", bottom: "-1px", borderLeftWidth: "1px", borderLeftStyle: "solid", borderLeftColor: "border.strong", pointerEvents: "none" },
             "&::after": { content: '""', position: "absolute", left: "8px", width: "10px", top: "50%", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.strong", pointerEvents: "none" },
             "[data-sub-row][data-last] &": { "&::before": { bottom: "50%" } },
-            "[data-sub-row][data-hit] &": { color: "brand.solid", fontWeight: "600" },
         },
         // The stem's start on an open line: just under its chevron, down to the line's foot.
         subRowStem: {
@@ -1821,7 +1820,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontSize: "12.5px",
             lineHeight: "18px",
             color: "fg.strong",
-            "[data-sub-row][data-hit] &": { color: "brand.solid", fontWeight: "600" },
         },
         // The detail: chips, then facets; it wraps and grows the row, never truncated.
         subRowDetail: {

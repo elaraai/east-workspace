@@ -333,6 +333,23 @@ test("which of some entries a narrowing holds is asked of its resolved runs in o
     assert.throws(() => new RecordSliceSource(batchingSource(100n, new Map()).reader).within(union, entries), /cannot read which rows/);
 });
 
+test("more entries than one request takes are asked as several reads, all in one pass, and answered in order (#1349)", () => {
+    const source = placingSource(100n, new Map([['"a"', { row: 10n, count: 10n }], ['"b"', { row: 55n, count: 20n }]]));
+    const engine = new RecordSliceSource(source.reader);
+    // A record segment's rows, each with as many entries as its index fans them out to: past a request's keys.
+    const entries = Array.from({ length: MAX_RECORD_SLICE_BATCH + 3 }, (_, i) => ({ ik: `${BigInt(i % 100)}`, key: BigInt(i) }));
+    const within = unwrap(engine.within(union, entries));
+    assert.deepEqual(source.asked.map(read => read.entries.length), [MAX_RECORD_SLICE_BATCH, 3], "a read for each request's worth, in one pass");
+    assert.deepEqual(within, entries.map(({ ik }) => {
+        const row = parseInteger(ik);
+        return (row >= 10n && row < 20n) || (row >= 55n && row < 75n);
+    }), "the answers in the entries' order");
+    // The runs held at the revision, each part's read pending: no partial answer.
+    source.pending(true);
+    assert.deepEqual(engine.within(union, entries), none, "a part pending is none");
+    assert.deepEqual(source.asked.slice(2).map(read => read.entries.length), [MAX_RECORD_SLICE_BATCH, 3], "every part asked in the pass");
+});
+
 test("a plan of more searches than one batch takes is asked as several batches, all in one pass (#1351)", () => {
     const keys = Array.from({ length: MAX_RECORD_SLICE_BATCH + 5 }, (_, i) => `"k${i}"`);
     const source = batchingSource(BigInt(2 * keys.length), new Map(keys.map((key, i) => [key, { row: BigInt(2 * i), count: 1n }])));
