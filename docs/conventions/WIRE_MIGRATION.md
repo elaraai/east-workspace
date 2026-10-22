@@ -426,3 +426,16 @@ Each wire changed under this rule, with the kind it is.
   `key` Null and never to join it: an answer of either release does not decode
   as the other's, and a client refuses an earlier server's answer, naming both
   types, as it refuses any type it does not read.
+- **east-ui's record Slice gains the `series` and `summary` index metadata
+  (#1039)** — package-borne. `RecordSliceIndexType` gains `series` and
+  `summary`, after `area`: how a series or a summary index files a record's
+  events (`RecordSliceTilingType` — its key field, its start and end fields,
+  and its tile, `RecordSliceTileType`), built only from a package's
+  declarations, which a binding marks a series or a summary index's `__tile`
+  with, as it marks an area index's `__area`. Neither index serves the rail's
+  narrowing, so `RecordSliceChoiceType` and `RecordSliceStateType` keep their
+  forms, and no narrowing, kept or saved, changes type. A UI value encoded
+  under either index type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.

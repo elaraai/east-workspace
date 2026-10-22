@@ -91,7 +91,29 @@ export const RecordSliceFieldType = StructType({
 export type RecordSliceFieldType = typeof RecordSliceFieldType;
 
 /**
+ * The time tile a series or a summary index files a record's events by
+ * (#1039): a day, an ISO week from Monday, a calendar month, a quarter or a
+ * year, each in UTC.
+ */
+export const RecordSliceTileType = VariantType({ day: NullType, week: NullType, month: NullType, quarter: NullType, year: NullType });
+export type RecordSliceTileType = typeof RecordSliceTileType;
+
+/**
+ * What a series or a summary index files a record's events by (#1039).
+ * @property key - The row field naming what an event is on: a Plan's resource.
+ * @property from - The row field an event starts at.
+ * @property to - The row field it ends at.
+ * @property tile - The tile.
+ */
+export const RecordSliceTilingType = StructType({ key: StringType, from: StringType, to: StringType, tile: RecordSliceTileType });
+export type RecordSliceTilingType = typeof RecordSliceTilingType;
+
+/**
  * One available query path, invisible to users.
+ * @remarks An index's metadata is part of a record Slice's config, which a
+ * component's IR carries, and beast2 reads it at exactly its written type: a
+ * config an earlier release wrote does not decode under this one
+ * (docs/conventions/WIRE_MIGRATION.md).
  * @property name - Source selector.
  * @property fields - Row fields in index order.
  * @property sets - Fields that fan out; all must be fixed to one exact value.
@@ -101,6 +123,11 @@ export type RecordSliceFieldType = typeof RecordSliceFieldType;
  *   and `width` and `height` unless the rows are points), whether `x`, `y` is the box's centre or its minimum corner,
  *   the finest cell's side in world units (a power of two), and whether `x` and `y` are Options, which makes the
  *   unplaced clause meaningful. Its entries carry their rows.
+ * @property series - A series index (#1039): its events filed by the key they are on and by each tile they touch,
+ *   `{ …on, __tile, <key> }`, carrying their rows. It never serves the rail's narrowing, which would count an event
+ *   once for each tile it touches: a reader reads its cells (`tileCellQueries`).
+ * @property summary - A summary index (#1039): under the same keys, how many rows touch the tile and the
+ *   milliseconds of it they cover. Its entries name no row, so it never serves the rail's narrowing either.
  */
 export const RecordSliceIndexType = StructType({
     name: StringType, fields: ArrayType(StringType), sets: SetType(StringType), structured: BooleanType,
@@ -109,6 +136,8 @@ export const RecordSliceIndexType = StructType({
         x: StringType, y: StringType, width: OptionType(StringType), height: OptionType(StringType),
         centre: BooleanType, cell: FloatType, optional: BooleanType,
     })),
+    series: OptionType(RecordSliceTilingType),
+    summary: OptionType(RecordSliceTilingType),
 });
 export type RecordSliceIndexType = typeof RecordSliceIndexType;
 

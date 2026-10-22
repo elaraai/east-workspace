@@ -24,8 +24,10 @@ type Count = ValueTypeOf<RecordSliceCountType>;
 export interface RecordSliceEntry {
     /** Tagged key of the index that served the entry. */
     ik: variant<string, unknown>;
-    /** Original key, inspected only by editing confirmation. */
+    /** Original key, inspected only by editing confirmation; Null for a summary index's entry, which names no row. */
     key?: unknown;
+    /** The entry's value: the binding's projection, or a summary index's totals, `{ count, ms }` (#1039). */
+    value?: option<unknown>;
     /** Joined row, encoded whole only for editing confirmation. */
     row?: option<unknown>;
 }

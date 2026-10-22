@@ -16,10 +16,10 @@ import type { SeekQueryType } from "../../src/contracts/source.js";
 
 const indexType = ArrayType(RecordSliceIndexType);
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
-    { name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none, area: none },
-    { name: "by_customer", fields: ["customer"], sets: new Set(), structured: false, interval: none, area: none },
-    { name: "by_skill", fields: ["skills"], sets: new Set(["skills"]), structured: false, interval: none, area: none },
-    { name: "by_status_skill", fields: ["status", "skills"], sets: new Set(["skills"]), structured: true, interval: none, area: none },
+    { name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none },
+    { name: "by_customer", fields: ["customer"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none },
+    { name: "by_skill", fields: ["skills"], sets: new Set(["skills"]), structured: false, interval: none, area: none, series: none, summary: none },
+    { name: "by_status_skill", fields: ["status", "skills"], sets: new Set(["skills"]), structured: true, interval: none, area: none, series: none, summary: none },
 ]));
 const values = (...choices: string[]) => variant("values", choices);
 // Use decoded East dictionaries, including ordered Set metadata, at the runtime boundary.
@@ -357,4 +357,126 @@ test("a plan of more searches than one batch takes is asked as several batches, 
     const plan: RecordSlicePlan = { index: "by_key", queries: keys.map(key => variant("key", key)) };
     assert.equal(unwrap(engine.resolve(plan)).total, BigInt(keys.length));
     assert.deepEqual(source.batches.map(batch => batch.length), [MAX_RECORD_SLICE_BATCH, 5]);
+});
+
+/**
+ * A series index's cells (#1039) over a virtual index: each search by its
+ * fields holds a known run, its entries the run's rows — every search, batch,
+ * read and page kept, in the order asked. Without batching it answers single
+ * searches and pages alone.
+ */
+function cellSource(ranges: Map<string, Range>, batching = true) {
+    let revision: option<string> = some("A");
+    let pending = false;
+    let short = false;
+    const batches: Query[][] = [];
+    const seeks: Query[] = [];
+    const runs: Range[][] = [];
+    const pages: Range[] = [];
+    const bounds = (query: Query) => {
+        assert.equal(query.type, "fields", "a cell searches by its fields");
+        const range = query.type === "fields" ? ranges.get(query.value.values.join("|")) : undefined;
+        assert.ok(range, "fixture query must have known exact bounds");
+        return { ...range, found: range.count > 0n };
+    };
+    const rowsOf = (asked: readonly Range[]) => asked.flatMap(({ row, count }) => Array.from({ length: Number(count) }, (_, i) => row + BigInt(i)));
+    const reader: RecordSliceReader<bigint> = {
+        revision: () => revision,
+        total: () => some(1000n),
+        seek(_index, query) {
+            seeks.push(query);
+            return pending ? none : some(bounds(query));
+        },
+        page(_index, offset, limit) {
+            pages.push({ row: offset, count: limit });
+            return pending ? none : some(decodeRows(encodeRows(rowsOf([{ row: offset, count: limit }]))));
+        },
+        ...(batching && {
+            seekAll(_index: string, queries: readonly Query[]) {
+                batches.push([...queries]);
+                return pending ? none : some(queries.map(bounds));
+            },
+            runsAll(_index: string, asked: readonly Range[]) {
+                runs.push(asked.map(({ row, count }) => ({ row, count })));
+                if (pending) return none;
+                const rows = rowsOf(asked);
+                return some(decodeRows(encodeRows(short ? rows.slice(1) : rows)));
+            },
+        }),
+    };
+    return { reader, batches, seeks, runs, pages,
+        revision(value: option<string>) { revision = value; },
+        pending(value: boolean) { pending = value; },
+        /** Answer each read of runs one entry short of what they hold. */
+        short(value: boolean) { short = value; } };
+}
+const search = (...fields: string[]): Query => variant("fields", { values: fields, prefix: none });
+// Cell `a` searches its keys out of the index's order and one key it holds nothing of; cell `b` shares a search with it.
+const cellA = { id: "a", queries: [search("w1", "k2"), search("w1", "k1"), search("w1", "k9")] };
+const cellB = { id: "b", queries: [search("w2", "k1"), search("w1", "k1")] };
+const cellC = { id: "c", queries: [search("w3", "k1")] };
+const cellRanges = new Map<string, Range>([
+    ["w1|k1", { row: 10n, count: 3n }], ["w1|k2", { row: 13n, count: 2n }], ["w1|k9", { row: 15n, count: 0n }],
+    ["w2|k1", { row: 40n, count: 4n }], ["w3|k1", { row: 70n, count: 1n }], ["w9|k1", { row: -1n, count: 1n }],
+]);
+
+test("a reader's cells are found in one batch of searches, each counted exactly before one entry is read, and kept for their revision (#1039)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    const found = unwrap(engine.cellRuns("jobs_by_press_week", [cellA, cellB]));
+    assert.deepEqual([...found].map(([id, runs]) => [id, runs.total]), [["a", 5n], ["b", 7n]]);
+    assert.deepEqual(found.get("a")!.ranges.map(range => [range.row, range.count]), [[13n, 2n], [10n, 3n], [15n, 0n]], "each search's bounds, in its order");
+    assert.deepEqual(source.batches, [[...cellA.queries, ...cellB.queries]], "every cell's searches in one batch, in order");
+    assert.deepEqual([source.seeks.length, source.runs.length, source.pages.length], [0, 0, 0], "counted, not read");
+    // Asked again, alone or together, a found cell asks nothing; a new one beside it asks its own searches.
+    unwrap(engine.cellRuns("jobs_by_press_week", [cellB, cellA]));
+    unwrap(engine.cellRuns("jobs_by_press_week", [cellB]));
+    assert.equal(source.batches.length, 1);
+    assert.equal(unwrap(engine.cellRuns("jobs_by_press_week", [cellA, cellC])).get("c")!.total, 1n);
+    assert.deepEqual(source.batches.slice(1), [cellC.queries]);
+    // Another revision asks every cell again; a batch pending is none, never a partial count.
+    source.revision(some("B"));
+    source.pending(true);
+    assert.deepEqual(engine.cellRuns("jobs_by_press_week", [cellA]), none);
+    source.pending(false);
+    assert.equal(unwrap(engine.cellRuns("jobs_by_press_week", [cellA])).get("a")!.total, 5n);
+    assert.deepEqual(source.batches.slice(2), [cellA.queries, cellA.queries]);
+    assert.throws(() => engine.cellRuns("jobs_by_press_week", [cellA, { ...cellC, id: "a" }]), /Two cells are named 'a'/);
+    assert.throws(() => engine.cellRuns("jobs_by_press_week", [{ id: "x", queries: [search("w9", "k1")] }]), /invalid search bounds/);
+});
+
+test("a reader's cells' entries are read in one read of their runs, each run once and ascending, and handed back cell by cell in their searches' order (#1039)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    const read = unwrap(engine.cellEntries("jobs_by_press_week", [cellA, cellB]));
+    assert.deepEqual(source.runs, [[{ row: 10n, count: 3n }, { row: 13n, count: 2n }, { row: 40n, count: 4n }]],
+        "the run two cells share is read once, and an empty one not at all");
+    assert.deepEqual(read.get("a"), [13n, 14n, 10n, 11n, 12n]);
+    assert.deepEqual(read.get("b"), [40n, 41n, 42n, 43n, 10n, 11n, 12n]);
+    assert.equal(source.batches.length, 1, "its searches are found once");
+    assert.deepEqual(unwrap(engine.cellEntries("jobs_by_press_week", [{ id: "e", queries: [search("w1", "k9")] }])).get("e"), [],
+        "a cell holding nothing reads nothing");
+    assert.equal(source.runs.length, 1);
+    // A read pending is none; one that answers short of its runs is refused, and its retry is not poisoned.
+    source.revision(some("B"));
+    source.pending(true);
+    assert.deepEqual(engine.cellEntries("jobs_by_press_week", [cellA]), none);
+    source.pending(false);
+    source.short(true);
+    assert.throws(() => engine.cellEntries("jobs_by_press_week", [cellA]), /disagrees with its search bounds/);
+    source.short(false);
+    assert.deepEqual(unwrap(engine.cellEntries("jobs_by_press_week", [cellA])).get("a"), [13n, 14n, 10n, 11n, 12n]);
+    // Searches whose runs overlap without being one are refused: no entry is handed to a cell twice.
+    const overlapping = cellSource(new Map([["w1|k1", { row: 10n, count: 3n }], ["w1|k2", { row: 12n, count: 2n }]]));
+    assert.throws(() => new RecordSliceSource(overlapping.reader).cellEntries("jobs_by_press_week", [{ id: "x", queries: [search("w1", "k1"), search("w1", "k2")] }]),
+        /overlap/);
+});
+
+test("a reader that does not batch finds cells by single searches, all started together, and reads a page a run (#1039)", () => {
+    const source = cellSource(cellRanges, false);
+    const engine = new RecordSliceSource(source.reader);
+    const read = unwrap(engine.cellEntries("jobs_by_press_week", [cellA, cellB]));
+    assert.deepEqual([read.get("a"), read.get("b")], [[13n, 14n, 10n, 11n, 12n], [40n, 41n, 42n, 43n, 10n, 11n, 12n]]);
+    assert.deepEqual(source.seeks, [...cellA.queries, cellB.queries[0]!], "a search landed is not asked again in the pass");
+    assert.deepEqual(source.pages, [{ row: 10n, count: 3n }, { row: 13n, count: 2n }, { row: 40n, count: 4n }]);
 });

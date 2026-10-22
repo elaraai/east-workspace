@@ -11,9 +11,9 @@ import {
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
-import { AREA_FIELD, IndexedEntryType } from "@elaraai/east-ui/internal";
+import { AREA_FIELD, IndexedEntryType, TILE_FIELD, readTileMarker } from "@elaraai/east-ui/internal";
 import { bindIndexedPagedPlatformFn, DataIndexedPrimitives } from "@elaraai/e3-ui/internal";
-import { TreePathType, indexWindowType, type TreePath } from "@elaraai/e3-types";
+import { RecordSummaryTotalsType, TreePathType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import type { RecordSliceBatches } from "@elaraai/east-ui-components/platform";
 import { datasetPathToString } from "./dataset-store.js";
 import type { PagedRuntime } from "./paged-runtime.js";
@@ -138,29 +138,47 @@ export class IndexedPagedRuntime {
         return index;
     }
 
-    /**
-     * Whether an index carries its rows (D29): an area index, whose `__area`
-     * the binding marks, and whose entries hold the whole row as their
-     * projection, so it is read without a join.
-     */
-    private carriesRow(schema: Schema, name: string): boolean {
+    /** The marker the binding gives an index's field, in its metadata's type: a struct for a generated field. */
+    private marker(schema: Schema, name: string, field: string): EastType | undefined {
         const types = schema.args[3];
         const fields = types.type === "Struct" ? types.fields[name] : undefined;
-        return fields?.type === "Struct" && (fields.fields as Record<string, EastType>)[AREA_FIELD]?.type === "Struct";
+        return fields?.type === "Struct" ? (fields.fields as Record<string, EastType>)[field] : undefined;
+    }
+
+    /** Whether an index is a summary index (#1039): its `__tile` marked as a summary's, its entries totals naming no row. */
+    private isSummary(schema: Schema, name: string): boolean {
+        const tile = this.marker(schema, name, TILE_FIELD);
+        return tile?.type === "Struct" && readTileMarker(Object.keys(tile.fields))?.summary === true;
+    }
+
+    /**
+     * Whether an index carries its rows (D29): an area index, whose `__area`
+     * the binding marks, or a series index (#1039), whose `__tile` it marks,
+     * whose entries hold the whole row as their projection, so it is read
+     * without a join.
+     */
+    private carriesRow(schema: Schema, name: string): boolean {
+        const tile = this.marker(schema, name, TILE_FIELD);
+        return this.marker(schema, name, AREA_FIELD)?.type === "Struct"
+            || (tile?.type === "Struct" && readTileMarker(Object.keys(tile.fields))?.summary === false);
     }
 
     private source(schema: Schema, path: TreePath, metadata: Metadata, joined: boolean, name: string): Handle {
         if (name !== "primary" && !Object.hasOwn(metadata, name)) throw new Error(`Index '${name}' was not declared on this binding`);
         let built = this.sources.get(schema);
         if (built === undefined) { built = new Map(); this.sources.set(schema, built); }
-        // An index that carries its rows is read without a join, whatever the binding's (D29).
+        // An index that carries its rows is read without a join, whatever the binding's (D29), and a summary
+        // index's entries name no row to join (#1039).
         const rows = name !== "primary" && this.carriesRow(schema, name);
-        const join = name !== "primary" && joined && !rows;
+        const summary = name !== "primary" && this.isSummary(schema, name);
+        const join = name !== "primary" && joined && !rows && !summary;
         const sourceKey = `${datasetPathToString(path)}\u0000${name}\u0000${join ? "+join" : ""}`;
         const cached = built.get(sourceKey);
         if (cached !== undefined) return cached;
         const [key, row, projection] = schema.args;
-        const type = name === "primary" ? schema.collection : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
+        const type = name === "primary" ? schema.collection
+            : summary ? indexWindowType(NullType, schema.keys[name]!, RecordSummaryTotalsType, row)
+                : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
         const handle = this.paged.buildHandle(toEastTypeValue(type), path,
             { index: name === "primary" ? null : name, join }, "pinned") as unknown as Handle;
         built.set(sourceKey, handle);
@@ -171,7 +189,8 @@ export class IndexedPagedRuntime {
      *  source that orders it: mapped once per window, so a window read again
      *  keeps its identity. An index that carries its rows gives each entry's
      *  projection as its row, and the binding's projection as its value: the
-     *  row itself, or Null beside indexes that carry nothing (D29). */
+     *  row itself, or Null beside indexes that carry nothing (D29). A summary
+     *  index's entry gives its totals as its value, and names no row (#1039). */
     private entriesOf(schema: Schema, name: string, window: unknown): unknown[] {
         let mapped = this.windows.get(window as object);
         if (mapped === undefined) { mapped = new Map(); this.windows.set(window as object, mapped); }
@@ -179,6 +198,8 @@ export class IndexedPagedRuntime {
         if (rows === undefined) {
             if (name === "primary") {
                 rows = [...window as Map<unknown, unknown>].map(([key, row]) => ({ ik: variant("primary", key), key, value: none, row: some(row) }));
+            } else if (this.isSummary(schema, name)) {
+                rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: none }));
             } else if (this.carriesRow(schema, name)) {
                 const whole = isTypeEqual(schema.args[2], schema.row);
                 rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(whole ? entry.value : null), row: some(entry.value) }));
@@ -221,6 +242,7 @@ export class IndexedPagedRuntime {
             // Where a narrowing's runs of an index sit in the record, and which entries they hold (#1349).
             placeAll: (name, runs) => {
                 if (name === "primary") throw new Error("A placement places runs of one of the record's indexes, never of its own rows");
+                if (this.isSummary(schema, name)) throw new Error(`A placement places a narrowing's rows, and '${name}' is a summary index, whose entries name none`);
                 const placement = this.paged.placeAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const));
                 if (placement.type === "none") return none;
                 const { segments, placed, entries, total, complete } = placement.value;
@@ -231,6 +253,7 @@ export class IndexedPagedRuntime {
             },
             withinAll: (name, runs, entries) => {
                 if (name === "primary") throw new Error("A membership read asks of runs of one of the record's indexes, never of its own rows");
+                if (this.isSummary(schema, name)) throw new Error(`A membership read asks of a narrowing's rows, and '${name}' is a summary index, whose entries name none`);
                 const print = this.entryPrinter(schema, name);
                 const within = this.paged.withinAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const),
                     entries.map(entry => print(entry.ik, entry.key)));
@@ -247,6 +270,10 @@ export class IndexedPagedRuntime {
                 return (...values: unknown[]) => {
                     const [path, metadata, joined, name, offset, limit] = values as [TreePath, Metadata, boolean, string, bigint, bigint];
                     if (name === "primary" && !joined) throw new Error("A covering-only binding cannot read primary rows");
+                    // A page's entries are the binding's, each naming its row; a summary's are totals naming none (#1039).
+                    if (name !== "primary" && this.isSummary(schema, name)) {
+                        throw new Error(`Data.bindPaged: '${name}' is a summary index, whose entries name no row: a reader reads its cells (recordSliceCellEntries)`);
+                    }
                     const result = this.source(schema, path, metadata, joined, name).page(offset, limit);
                     if (result.type === "none") return none;
                     return some(this.entriesOf(schema, name, result.value));

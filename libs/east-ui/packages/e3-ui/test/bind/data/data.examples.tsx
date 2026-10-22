@@ -833,6 +833,34 @@ export const racksByArea = e3.recordIndex.area('racks_by_area', indexedRacks, { 
 export const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', indexedRacks, { on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
 export const racksByHall = e3.recordIndex('racks_by_hall', indexedRacks, { on: ["hall"] });
 
+/** A print job: the press it runs on, if any yet, its state, and when it runs, if it is scheduled. */
+export const IndexedJob = StructType({ press: OptionType(StringType), state: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+/**
+ * Jobs on three presses about the week of Monday 5 October 2026: one carried in
+ * from the week before, one across the week's end into the next, one the whole
+ * month, two inside the week, an instant at its start, one on no press yet and
+ * one in the backlog — what a cell of some presses in a week holds, and what a
+ * month's totals count (#1039).
+ */
+export const indexedJobs = e3.record('indexed_jobs', DictType(StringType, IndexedJob), new Map([
+    ["carry",   { press: some("P-1"), state: "running", start: some(new Date("2026-10-02T20:00:00Z")), end: some(new Date("2026-10-05T04:00:00Z")) }],
+    ["across",  { press: some("P-1"), state: "planned", start: some(new Date("2026-10-11T18:00:00Z")), end: some(new Date("2026-10-12T06:00:00Z")) }],
+    ["month",   { press: some("P-2"), state: "planned", start: some(new Date("2026-10-01T00:00:00Z")), end: some(new Date("2026-11-01T00:00:00Z")) }],
+    ["inside",  { press: some("P-2"), state: "running", start: some(new Date("2026-10-06T08:00:00Z")), end: some(new Date("2026-10-06T16:00:00Z")) }],
+    ["late",    { press: some("P-3"), state: "late",    start: some(new Date("2026-10-07T09:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")) }],
+    ["instant", { press: some("P-3"), state: "late",    start: some(new Date("2026-10-05T00:00:00Z")), end: none }],
+    ["unpressed", { press: none,      state: "planned", start: some(new Date("2026-10-06T00:00:00Z")), end: some(new Date("2026-10-06T02:00:00Z")) }],
+    ["backlog", { press: some("P-1"), state: "planned", start: none, end: none }],
+]));
+export const indexedJobsPatch = e3.mutation.patch(indexedJobs);
+// The jobs a window overlaps, by state or not; their cells, some presses in a week, by state or not; and their totals,
+// a press in a month.
+export const jobsByTime = e3.recordIndex.interval('jobs_by_time', indexedJobs, { from: "start", to: "end" });
+export const jobsByStateTime = e3.recordIndex.interval('jobs_by_state_time', indexedJobs, { on: ["state"], from: "start", to: "end" });
+export const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', indexedJobs, { key: "press", from: "start", to: "end", tile: "week" });
+export const jobsByStatePressWeek = e3.recordIndex.series('jobs_by_state_press_week', indexedJobs, { on: ["state"], key: "press", from: "start", to: "end", tile: "week" });
+export const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', indexedJobs, { key: "press", from: "start", to: "end", tile: "month" });
+
 /** A step of a flow: its lane, and who owns it, if anyone. */
 export const ComputedStep = StructType({ lane: StringType, owner: OptionType(StringType) });
 /** A flow: what it is, and its steps. */

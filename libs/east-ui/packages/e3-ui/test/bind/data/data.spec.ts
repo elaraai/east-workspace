@@ -7,13 +7,16 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, isTypeEqual, some, variant,
+    ArrayType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
+    equalFor, isTypeEqual, printFor, some, variant,
     type ExprType, type FunctionType, type VariantType,
 } from "@elaraai/east";
-import { Reactive, Stat, Button, UIComponentType, bindRecord, readAreaMarker, resolveRowSource } from "@elaraai/east-ui/internal";
+import {
+    Reactive, Stat, Button, UIComponentType, RECORD_TILES, bindRecord, readAreaMarker, readTileMarker, resolveRowSource, tileNext, tileStart,
+} from "@elaraai/east-ui/internal";
 import { TreePathType } from "@elaraai/e3-types";
 import { Data, bindPagedPlatformFn } from "@elaraai/e3-ui";
-import e3 from "@elaraai/e3";
+import e3, { tileNext as e3TileNext, tileStart as e3TileStart } from "@elaraai/e3";
 import * as ex from "./data.examples.js";
 
 describeEast("Data", (test) => {
@@ -229,6 +232,20 @@ describe("Data.bindPaged over indexes refuses what a Slice cannot read", () => {
     });
 });
 
+/** A binding's East type. */
+const typeOf = (source: unknown) => Expr.type(source as ExprType<StructType>) as StructType;
+/** The struct the binding marks a generated field of an index with, by its field names. */
+const markerOf = (source: unknown, index: string, field: string) => {
+    const indexes = typeOf(source).fields.indexes as StructType;
+    return Object.keys(((indexes.fields[index] as StructType).fields[field] as StructType).fields);
+};
+/** The projection a binding's entries carry: the `some` of their `value`. */
+const projectionOf = (source: unknown) => {
+    const page = typeOf(source).fields.page as FunctionType;
+    const entry = ((page.output as VariantType).cases.some as ArrayType<StructType>).value;
+    return (entry.fields.value as VariantType).cases.some!;
+};
+
 // An area index (#1385) carries its rows and marks its `__area` with its box,
 // which a record Slice reads back: these records are the binding's own.
 describe("Data.bindPaged over an area index", () => {
@@ -238,19 +255,6 @@ describe("Data.bindPaged over an area index", () => {
     const byHallArea = e3.recordIndex.area("by_hall_area", racks, { on: ["hall"], x: "x", y: "y", cell: 4 });
     const byHall = e3.recordIndex("by_hall", racks, { on: ["hall"] });
     const byTitle = e3.recordIndex("by_title", racks, { on: ["title"], value: East.function([StringType, Rack], StringType, (_$, _key, rack) => rack.title) });
-    /** A binding's East type. */
-    const typeOf = (source: unknown) => Expr.type(source as ExprType<StructType>) as StructType;
-    /** The struct the binding marks an index's last field with, by its field names. */
-    const markerOf = (source: unknown, index: string, field: string) => {
-        const indexes = typeOf(source).fields.indexes as StructType;
-        return Object.keys(((indexes.fields[index] as StructType).fields[field] as StructType).fields);
-    };
-    /** The projection a binding's entries carry: the `some` of their `value`. */
-    const projectionOf = (source: unknown) => {
-        const page = typeOf(source).fields.page as FunctionType;
-        const entry = ((page.output as VariantType).cases.some as ArrayType<StructType>).value;
-        return (entry.fields.value as VariantType).cases.some!;
-    };
 
     hostTest("marks `__area` with its box's fields, by role, its centre and its cell's power of two", () => {
         const source = Data.bindPaged(racks, { indexes: [byArea, byHallArea] });
@@ -266,7 +270,7 @@ describe("Data.bindPaged over an area index", () => {
 
     hostTest("beside an index that carries another projection, it is refused, naming that index", () => {
         assert.throws(() => Data.bindPaged(racks, { indexes: [byArea, byTitle] }),
-            /'by_title' carries \.String beside indexes that carry another projection — the indexes a binding lists carry one projection, or each the whole row, as an area index does, or nothing/);
+            /'by_title' carries \.String beside indexes that carry another projection — the indexes a binding lists carry one projection, or each the whole row, as an area or a series index does, or nothing/);
     });
 
     hostTest("a record Slice over it offers the leading fields, never `__area`, which a read by area gives its window", () => {
@@ -274,5 +278,75 @@ describe("Data.bindPaged over an area index", () => {
         assert.doesNotThrow(() => bindRecord("racks", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } }));
         // @ts-expect-error `__area` is no field of the rail
         assert.throws(() => bindRecord("racks", source, { fields: { __area: {} } }), /'__area' is an area index's window/);
+    });
+});
+
+// A series and a summary index (#1039) mark their `__tile` with how they file
+// a record's events, which a record Slice reads back; a series index carries
+// its rows, and a summary index its totals: these records are the binding's own.
+describe("Data.bindPaged over a series and a summary index", () => {
+    const Job = StructType({ press: StringType, state: StringType, start: DateTimeType, end: OptionType(DateTimeType) });
+    const jobs = e3.record("series_jobs", DictType(StringType, Job), new Map());
+    const byTime = e3.recordIndex.interval("by_time", jobs, { from: "start", to: "end" });
+    const byState = e3.recordIndex("by_state", jobs, { on: ["state"] });
+    const byPressWeek = e3.recordIndex.series("by_press_week", jobs, { key: "press", from: "start", to: "end", tile: "week" });
+    const byStatePressWeek = e3.recordIndex.series("by_state_press_week", jobs, { on: ["state"], key: "press", from: "start", to: "end", tile: "week" });
+    const byPressMonth = e3.recordIndex.summary("by_press_month", jobs, { key: "press", from: "start", to: "end", tile: "month" });
+
+    hostTest("marks `__tile` with its key, its times and its tile by role, and a summary's as a summary's", () => {
+        const source = Data.bindPaged(jobs, { indexes: [byTime, byPressWeek, byStatePressWeek, byPressMonth] });
+        assert.deepEqual(markerOf(source, "by_press_week", "__tile"), ["key=press", "from=start", "to=end", "tile=week"]);
+        assert.deepEqual(markerOf(source, "by_state_press_week", "__tile"), ["key=press", "from=start", "to=end", "tile=week"], "after its leading fields");
+        assert.deepEqual(markerOf(source, "by_press_month", "__tile"), ["key=press", "from=start", "to=end", "tile=month", "__summary"]);
+        assert.deepEqual(readTileMarker(markerOf(source, "by_press_month", "__tile")), { key: "press", from: "start", to: "end", tile: "month", summary: true });
+    });
+
+    hostTest("a series index's entries carry the whole row, and a summary index's totals are its own (D29)", () => {
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: [byPressWeek, byPressMonth] })), Job), "a series beside a summary: the row");
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: [byTime, byPressWeek, byPressMonth] })), NullType),
+            "beside an index that carries nothing: Null");
+    });
+
+    hostTest("a record Slice over it offers no field of a series or a summary index's, and never `__tile`", () => {
+        const source = Data.bindPaged(jobs, { indexes: [byTime, byState, byPressWeek, byStatePressWeek, byPressMonth] });
+        assert.doesNotThrow(() => bindRecord("jobs", source, { fields: { state: { hints: ["late"] }, start: {} }, range: "start" }));
+        // @ts-expect-error a series index offers no field: `press` is no field of the rail
+        assert.throws(() => bindRecord("jobs", source, { fields: { press: {} } }), /narrowing by 'press' needs an index on it/);
+        // @ts-expect-error `__tile` is no field of the rail
+        assert.throws(() => bindRecord("jobs", source, { fields: { __tile: {} } }), /'__tile' is a series or a summary index's tile/);
+    });
+});
+
+// A reader plans a cell by the tiles e3 files an event under (#1039): east-ui's
+// tile arithmetic, held to e3's own East functions.
+describe("the client's tiles are e3's", () => {
+    hostTest("every instant's tile starts where e3's does, and the next where e3's next does, before 1970 and in the first century too", () => {
+        const sameInstant = equalFor(DateTimeType);
+        const print = printFor(DateTimeType);
+        // A seeded stream of numbers in [0, 1) (mulberry32): the same instants on every run.
+        let a = 1039;
+        const next = () => {
+            a = (a + 0x6D2B79F5) >>> 0;
+            let t = a;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+        // From about 460 BC to 4600 AD, to the millisecond, and some of the first century's.
+        const instants = Array.from({ length: 3000 }, () => new Date(Math.floor((next() - 0.48) * 1.6e14)));
+        for (const [year, month] of [[1, 0], [50, 4], [99, 11]] as const) {
+            const early = new Date(0);
+            early.setUTCFullYear(year, month, 17);
+            instants.push(early);
+        }
+        for (const tile of RECORD_TILES) {
+            const theirStart = East.compile(e3TileStart(tile), []) as (at: Date) => Date;
+            const theirNext = East.compile(e3TileNext(tile), []) as (start: Date) => Date;
+            for (const at of instants) {
+                const start = theirStart(at);
+                assert.ok(sameInstant(tileStart(tile, at), start), `${tile} of ${print(at)}: ${print(tileStart(tile, at))}, and e3's ${print(start)}`);
+                assert.ok(sameInstant(tileNext(tile, start), theirNext(start)), `the ${tile} after ${print(start)}`);
+            }
+        }
     });
 });

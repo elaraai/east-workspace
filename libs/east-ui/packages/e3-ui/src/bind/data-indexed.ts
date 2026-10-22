@@ -12,7 +12,9 @@ import {
 import type { RecordDef, RecordIndexDef } from "@elaraai/e3";
 import { TreePathType } from "@elaraai/e3-types";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
-import { AREA_FIELD, IndexedEntryType, IndexedSourceType, areaMarkerFields, type IndexedSource } from "@elaraai/east-ui/internal";
+import {
+    AREA_FIELD, IndexedEntryType, IndexedSourceType, TILE_FIELD, areaMarkerFields, tileMarkerFields, type IndexedSource,
+} from "@elaraai/east-ui/internal";
 
 /** Field and computed index declarations accepted by Slice. */
 export type FieldIndexes<T extends EastType> = readonly RecordIndexDef<string, T, EastType, EastType, readonly string[] | undefined>[];
@@ -25,17 +27,24 @@ type ComputedFields<D> = D extends { name: infer Name extends string; keyType: i
         : { [N in Name]: ComputedMarker<K> } : Record<never, never>;
 type DeclaredFields<D> = D extends { on: readonly (infer F extends string)[] }
     ? { [N in F]: FieldMarker<D, N> } : ComputedFields<D>;
-/** An interval start carries its end-field name in type metadata, and an area
- *  index's `__area` its box's fields and its cell (east-ui's `areaMarkerFields`). */
+/** An interval start carries its end-field name in type metadata, an area
+ *  index's `__area` its box's fields and its cell (east-ui's `areaMarkerFields`),
+ *  and a series or a summary index's `__tile` how it files the record's events
+ *  (east-ui's `tileMarkerFields`, #1039). */
 type FieldMarker<D, F> = D extends { area: object }
     ? F extends typeof AREA_FIELD ? StructType<Record<string, NullType>> : NullType
+    : D extends { series: object } | { summary: object }
+        ? F extends typeof TILE_FIELD ? StructType<Record<string, NullType>> : NullType
     : D extends { interval: { from: F; to: infer End extends string } }
         ? StructType<{ [E in End]: NullType }> : NullType;
 /** The projection a binding's entries carry (D29): the one every index carries,
- *  or Null where each carries the whole row, as an area index does, or nothing. */
+ *  or Null where each carries the whole row, as an area or a series index does,
+ *  or nothing. A summary index's totals are its own (#1039). */
 type BindingProjection<V extends EastType, R extends EastType> =
     [V] extends [R] ? R
         : [Exclude<V, R>] extends [NullType] ? (R extends V ? NullType : V) : V;
+/** The indexes whose entries carry the binding's projection: every one but a summary index (#1039). */
+type ProjectedIndexes<I extends FieldIndexes<EastType>> = Exclude<I[number], { summary: object }>;
 /** Ordered fields of each named index, preserved in the source's East type. */
 type IndexFields<I extends FieldIndexes<EastType>> = StructType<{
     [D in I[number] as D["name"]]: StructType<DeclaredFields<D>>
@@ -55,8 +64,11 @@ type IndexKeys<K extends EastType, I extends FieldIndexes<EastType>> = VariantTy
  * own field names. A computed `keys` index must have one logical field so
  * exact membership includes each primary row once. Types come from the index.
  * The indexes carry one projection, or each the whole row or nothing (D29): an
- * area index (`e3.recordIndex.area`) carries its rows, and is read without a
- * join, beside indexes that carry nothing, read with one.
+ * area index (`e3.recordIndex.area`) and a series index (`e3.recordIndex.series`,
+ * #1039) carry their rows, and are read without a join, beside indexes that
+ * carry nothing, read with one. A summary index (`e3.recordIndex.summary`)
+ * carries its totals, whatever the others carry, and is never joined: its
+ * entries name no row.
  * @property join - Include record rows (default true). False requires a covering
  * index without Set fields so the unfiltered view still has one entry per row.
  * An index that carries the whole row is read without a join either way.
@@ -72,11 +84,11 @@ export interface BindPagedIndexesOptions<T extends EastType, I extends FieldInde
  * The type of a field-indexed record binding.
  * @typeParam T - Dict record type.
  * @typeParam I - Supplied field-index declarations: one common projection, or
- *   each the whole row or nothing (D29).
+ *   each the whole row or nothing (D29), beside any summary index's totals.
  */
 export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>> =
     T extends DictType<infer K extends EastType, infer R extends EastType>
-        ? IndexedSource<K, R, BindingProjection<I[number]["valueType"], R>, IndexFields<I>, IndexKeys<K, I>>
+        ? IndexedSource<K, R, BindingProjection<ProjectedIndexes<I>["valueType"], R>, IndexFields<I>, IndexKeys<K, I>>
         : never;
 
 /**
@@ -106,21 +118,24 @@ export const DataIndexedPrimitives = {
 /**
  * The projection a binding's entries carry (D29): the one every listed index
  * carries; or, where they differ, Null, each index then carrying the whole row
- * — as an area index does, read without a join — or nothing.
+ * — as an area or a series index does, read without a join — or nothing. A
+ * summary index's totals are its own, and count for neither (#1039).
  *
  * @param indexes - The listed indexes
  * @returns The binding's projection type
  * @throws {Error} When the indexes carry different projections and one carries
- *   neither the whole row, as an area index does, nor nothing, naming it
+ *   neither the whole row, as an area or a series index does, nor nothing, naming it
  */
 function bindingProjection(indexes: FieldIndexes<EastType>): EastType {
-    const first = indexes[0]!.valueType;
-    if (indexes.every(index => isTypeEqual(index.valueType, first))) return first;
-    for (const index of indexes) {
-        if (index.area === undefined && !isTypeEqual(index.valueType, NullType)) {
+    const projected = indexes.filter(index => index.summary === undefined);
+    if (projected.length === 0) return NullType;
+    const first = projected[0]!.valueType;
+    if (projected.every(index => isTypeEqual(index.valueType, first))) return first;
+    for (const index of projected) {
+        if (index.area === undefined && index.series === undefined && !isTypeEqual(index.valueType, NullType)) {
             throw new Error(
                 `Data.bindPaged: '${index.name}' carries ${printType(index.valueType)} beside indexes that carry another projection — ` +
-                `the indexes a binding lists carry one projection, or each the whole row, as an area index does, or nothing`,
+                `the indexes a binding lists carry one projection, or each the whole row, as an area or a series index does, or nothing`,
             );
         }
     }
@@ -170,15 +185,20 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
                 [field, index.multi ? SetType(type) : ArrayType(type)])));
             metadata[index.name] = Object.fromEntries(entries.map(([field]) => [field, index.multi ? new Set() : []]));
         } else {
-            // A generated index marks its last field: an interval's start with a
-            // struct naming its end, an area index's `__area` with one naming its
-            // box's fields and its cell, which Slice.bindRecord reads back.
+            // A generated index marks a field: an interval's start with a struct
+            // naming its end, an area index's `__area` with one naming its box's
+            // fields and its cell, and a series or a summary index's `__tile`
+            // with one naming its key, its times and its tile (#1039), which
+            // Slice.bindRecord reads back.
+            const tiling = index.series ?? index.summary;
             const marked = index.on!.map(field => {
                 const names = index.area !== undefined && field === AREA_FIELD
                     ? areaMarkerFields({ x: index.area.x, y: index.area.y,
                         ...(index.area.width !== undefined && index.area.height !== undefined && { width: index.area.width, height: index.area.height }),
                         centre: index.area.at === "centre", cell: index.area.cell })
-                    : index.interval?.from === field ? [index.interval.to] : undefined;
+                    : tiling !== undefined && field === TILE_FIELD
+                        ? tileMarkerFields({ key: tiling.key, from: tiling.from, to: tiling.to, tile: tiling.tile, summary: index.summary !== undefined })
+                        : index.interval?.from === field ? [index.interval.to] : undefined;
                 return [field, names] as const;
             });
             fields[index.name] = StructType(Object.fromEntries(marked.map(([field, names]) => [field,
@@ -197,6 +217,11 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     // primary identities with indexed seeks; it never scans a narrowed run.
     const keyFunctions = new Map(options.indexes.map(index => {
         const keys = East.function([type.key, type.value], ArrayType(StringType), ($, key, row) => {
+            if (index.summary !== undefined) {
+                // A summary's key function is a row's contributions (#1039): the keys of the totals it adds to.
+                const fn = $.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], DictType<EastType, EastType>>>);
+                return fn(key, row).keys().toArray((_$, ik) => East.print(ik));
+            }
             if (index.multi) {
                 const fn = $.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], SetType<EastType>>>);
                 return fn(key, row).toArray((_$, ik) => East.print(ik));

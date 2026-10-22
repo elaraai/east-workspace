@@ -94,7 +94,7 @@ function fixture(count: number, shortPages = false) {
     };
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
         fields: [{ fieldId: "status", label: "Status", kind: "string", optional: false, multiple: true, set: false, values: [], format: none }],
-        indexes: [{ name: "by_status", fields: ["status"], sets: new Set(), structured: false, interval: none, area: none }], range: none, search: [], presets: [],
+        indexes: [{ name: "by_status", fields: ["status"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none }], range: none, search: [], presets: [],
     }));
     const stateKey = "record-cache.query";
     const read = () => { trackKey(stateKey); return decodeState(store.read(stateKey)!); };
