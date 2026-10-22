@@ -58,17 +58,18 @@ floorplan).
 
 ## Implementation status (built 2026-06-15)
 
-The Canvas2D renderer is **implemented** in `east-ui-components`:
+The Canvas2D renderer is **implemented** — e3-ui-components' since the
+Schematic moved to e3 (#1384), in `src/schematic/`:
 
-- **`collections/schematic/paint.ts`** — pure paint layer (zones rect/hatch +
+- **`canvas/paint.ts`** — pure paint layer (zones rect/hatch +
   polyline/polygon geometry, links with orthogonal/rounded routing, item
   footprints, dot/pin LOD markers, labels). No React/Chakra/DOM → unit-testable
   under any Canvas2D impl. **Verified** by rendering it through Skia
   (`@napi-rs/canvas`) in Node — every path correct, incl. selection state and the
   hatch/band fills.
-- **`collections/schematic/theme.tsx`** — token→RGB bridge: hidden Chakra-themed
+- **`canvas/theme.tsx`** — token→RGB bridge: hidden Chakra-themed
   probes read via `getComputedStyle`, re-resolved on a light/dark `MutationObserver`.
-- **`collections/schematic/index.tsx`** — refactored to a single `<canvas>` + a
+- **`index.tsx`** — refactored to a single `<canvas>` + a
   paint effect (repaints on data / camera / LOD / selection / theme change) +
   R-tree picking (footprint point-in-polygon, then nearest dot/pin) with a
   drag-guard. **Rich item cards stay DOM** at card zoom; **all** the existing

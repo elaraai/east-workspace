@@ -4,16 +4,11 @@
  */
 
 /**
- * `Schematic` — a 2D world-coordinate canvas for placing real-world
- * entities (racks, power and cooling units, switches) in space, plus
- * annotation zones (halls, cages, aisles) and key-addressed links, all from
- * flat data tables with chart-style field encodings. Interaction is opt-in per
- * channel (selection, camera, zone / link / net editing, item moves,
- * hover cards) — with nothing bound it is a read-only picture; appearance
- * belongs to the linked Library entry; position and live metrics are
- * owned here.
- *
- * @packageDocumentation
+ * The Schematic's payload (#1384): its root, which `<Schematic>` returns
+ * through the `Schematic` carrier; the props it is built from
+ * ({@link SchematicConfig}) and their row fields; the factories; the pattern
+ * and geometry builders the namespace carries; and the East types a schematic
+ * is written with.
  */
 
 import {
@@ -35,12 +30,8 @@ import {
     StructType,
 } from "@elaraai/east";
 
-import { UIComponentType } from "../../component.js";
-import { mapRows } from "../../shared/reify.js";
-import { StatusTokenType } from "../../style/interaction.js";
-import { type IconName } from "../../display/icon/types.js";
-import { localSliceHandle, SliceBindType, SliceChromeType } from "../../platform/slice/index.js";
-import { SliceAffordanceType, type SliceAffordanceLiteral } from "../../contracts/slice-affordances.js";
+import { EastUI, StatusTokenType, UIComponentType, type IconName } from "@elaraai/east-ui";
+import { localSliceHandle, SliceAffordanceType, SliceBindType, SliceChromeType, mapRows, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
 import {
     SchematicItemType,
     SchematicZoneType,
@@ -99,10 +90,9 @@ export {
 } from "./types.js";
 
 /**
- * East type for the Schematic root — the resolved mirror of the inline
- * `Schematic` struct in `component.ts` (which spells the three `*Hover`
- * fields with the recursion `node` where this mirror resolves them to
- * `UIComponentType`). Keep the two spellings in sync field-for-field.
+ * East type for the Schematic root — the payload `<Schematic>` returns
+ * through the `Schematic` carrier ({@link SchematicComponent}), and what the
+ * renderer draws.
  *
  * @remarks
  * Per-field docs live on {@link SchematicConfig}; events and collection
@@ -190,6 +180,14 @@ export const SchematicRootType: StructType<{
  * Type representing the Schematic component.
  */
 export type SchematicRootType = typeof SchematicRootType;
+
+/**
+ * The `Schematic` carrier: `<Schematic>` builds a {@link SchematicRootType}
+ * and returns it through this {@link EastUI.component}. The React renderer
+ * registers against it in `@elaraai/e3-ui-components` via
+ * `implementUIComponent`.
+ */
+export const SchematicComponent = EastUI.component("Schematic", SchematicRootType, { optional: true });
 
 /** String literal form of {@link SchematicToneType} tags. */
 export type SchematicToneLiteral = "brand" | "ink" | "muted" | "success" | "warning" | "danger";
@@ -614,7 +612,8 @@ function toLayer(l: SchematicLayerInput): ExprType<SchematicLayerType> {
 // ============================================================================
 
 /**
- * Configuration for {@link createSchematic}.
+ * `<Schematic>`'s props beside its `items` — the configuration
+ * {@link createSchematicPayload} builds the root from.
  *
  * @typeParam I - The item row struct
  * @typeParam Z - The zone row struct
@@ -756,7 +755,7 @@ export interface SchematicConfig<
 function buildRoot(
     items: SubtypeExprOrValue<ArrayType<StructType>>,
     config: SchematicConfig<StructType, StructType, StructType>,
-): ExprType<UIComponentType> {
+): ExprType<SchematicRootType> {
     const itemMapper = config.item;
     const resolvedItems = itemMapper === undefined
         ? East.value(items as SubtypeExprOrValue<ArrayType<SchematicItemType>>, ArrayType(SchematicItemType))
@@ -882,7 +881,7 @@ function buildRoot(
         }, SliceChromeType)
         : undefined;
 
-    return East.value(variant("Schematic", {
+    return East.value({
         extent: { width: config.extent.width, height: config.extent.height },
         items: resolvedItems,
         zones: resolvedZones,
@@ -939,40 +938,57 @@ function buildRoot(
         linkHover: config.linkHover !== undefined ? some(East.value(config.linkHover, FunctionType([StringType], UIComponentType))) : none,
         onEditNet: config.onEditNet !== undefined ? some(config.onEditNet) : none,
         canConnect: config.canConnect !== undefined ? some(config.canConnect) : none,
-    }), UIComponentType);
+    }, SchematicRootType);
 }
 
 /**
- * Creates a Schematic — a read-only 2D world-coordinate canvas.
+ * Creates the schematic's root alone — what `<Schematic>` returns through the
+ * `Schematic` carrier — for the tests and the renderer's fixtures, which read
+ * it whole.
  *
  * @typeParam I - The items-table input
  * @typeParam Z - The zones-table input
  * @typeParam L - The links-table input
+ * @typeParam N - The nets-table input
  * @param items - The placed-item rows
- * @param config - The Schematic configuration ({@link SchematicConfig})
- * @returns An East expression of `UIComponentType`
- *
- * @example
- * ```ts
- * import { East } from "@elaraai/east";
- * import { Schematic, UIComponentType } from "@elaraai/east-ui/internal";
- *
- * const example = East.function([], UIComponentType, _$ =>
- *     Schematic.Root(
- *         [{ id: "A01", x: 2.4, y: 2.9, kind: "42U · 8 kW", used: 5.2, cap: 8.0 }],
- *         {
- *             extent: { width: 28, height: 12 },
- *             item: e => ({
- *                 key: e.id, x: e.x, y: e.y, label: e.id,
- *                 sublabel: e.kind,
- *                 meter: { value: e.used, max: e.cap },
- *             }),
- *         },
- *     ),
- * );
- * ```
+ * @param config - The Schematic configuration ({@link SchematicConfig}) and
+ *   its `zones`, `links` and `nets` tables
+ * @returns An East expression of {@link SchematicRootType}
+ * @throws {Error} When `affordances` lists `"brush"` — a 2D canvas has no
+ *   continuous 1D axis
+ * @internal
  */
-function createSchematic<
+export function createSchematicPayload<
+    I extends SubtypeExprOrValue<ArrayType<StructType>>,
+    Z extends SubtypeExprOrValue<ArrayType<StructType>> = [],
+    L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
+    N extends SubtypeExprOrValue<ArrayType<StructType>> = [],
+>(
+    items: I,
+    config: SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>, RowElement<N>> & { zones?: Z; links?: L; nets?: N },
+): ExprType<SchematicRootType> {
+    return buildRoot(items, config as unknown as SchematicConfig<StructType, StructType, StructType>);
+}
+
+/**
+ * Creates a Schematic — a 2D world-coordinate canvas: its root
+ * ({@link createSchematicPayload}), returned through the `Schematic` carrier.
+ * The factory `<Schematic>` maps to.
+ *
+ * @typeParam I - The items-table input
+ * @typeParam Z - The zones-table input
+ * @typeParam L - The links-table input
+ * @typeParam N - The nets-table input
+ * @param items - The placed-item rows
+ * @param config - The Schematic configuration ({@link SchematicConfig}) and
+ *   its `zones`, `links` and `nets` tables
+ * @returns An East expression of `UIComponentType` — the `Schematic`
+ *   extension over the root
+ * @throws {Error} When `affordances` lists `"brush"` — a 2D canvas has no
+ *   continuous 1D axis
+ * @internal
+ */
+export function createSchematicRoot<
     I extends SubtypeExprOrValue<ArrayType<StructType>>,
     Z extends SubtypeExprOrValue<ArrayType<StructType>> = [],
     L extends SubtypeExprOrValue<ArrayType<StructType>> = [],
@@ -981,65 +997,26 @@ function createSchematic<
     items: I,
     config: SchematicConfig<RowElement<I>, RowElement<Z>, RowElement<L>, RowElement<N>> & { zones?: Z; links?: L; nets?: N },
 ): ExprType<UIComponentType> {
-    return buildRoot(items, config as unknown as SchematicConfig<StructType, StructType, StructType>);
+    return SchematicComponent.Root(createSchematicPayload(items, config));
 }
 
 // ============================================================================
-// Namespace export
+// The pattern and geometry builders, and the types a schematic is written with
 // ============================================================================
 
 /**
- * Schematic component namespace.
- *
- * @remarks
- * `Schematic.Root(items, config)` builds the canvas from up to three flat
- * tables (items, zones, links); closed-set fields in data (`status`,
- * `pattern`, `style`) are typed variant values (`Schematic.Types.*`).
+ * The pattern and geometry builders the `Schematic` namespace carries:
+ * `Schematic.outline()`, `Schematic.hatch()`, `Schematic.solid()`,
+ * `Schematic.dashed()`, `Schematic.rect()`, `Schematic.circle()`,
+ * `Schematic.polyline()` and `Schematic.polygon()`.
  */
-export const Schematic = {
-    /**
-     * Creates a Schematic — a read-only 2D world-coordinate canvas.
-     *
-     * @typeParam I - The items-table input
-     * @typeParam Z - The zones-table input
-     * @typeParam L - The links-table input
-     * @param items - The placed-item rows
-     * @param config - The Schematic configuration ({@link SchematicConfig})
-     * @returns An East expression of `UIComponentType`
-     *
-     * @remarks
-     * Links address endpoints by item key, so they survive repositioning;
-     * `via` waypoints route around zones. A hot or cold aisle is a zone with
-     * `pattern: Schematic.hatch()`.
-     *
-     * @example
-     * ```ts
-     * import { East } from "@elaraai/east";
-     * import { Schematic, UIComponentType } from "@elaraai/east-ui/internal";
-     *
-     * const example = East.function([], UIComponentType, _$ =>
-     *     Schematic.Root(
-     *         [{ id: "A01", x: 2.4, y: 2.9 }],
-     *         {
-     *             extent: { width: 28, height: 12 },
-     *             item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
-     *         },
-     *     ),
-     * );
-     * ```
-     */
-    Root: createSchematic,
+export const SchematicBuilders = {
     /**
      * Builds an `outline` zone pattern value — the dashed boundary with an
      * eyebrow label.
      *
      * @param config - Optional style configuration (`tone`)
      * @returns A `SchematicZonePatternType` value
-     *
-     * @example
-     * ```ts
-     * Schematic.outline({ tone: "ink" })
-     * ```
      */
     outline,
     /**
@@ -1047,11 +1024,6 @@ export const Schematic = {
      *
      * @param config - Optional style configuration (`tone`, `spacing`, `angle`)
      * @returns A `SchematicZonePatternType` value
-     *
-     * @example
-     * ```ts
-     * Schematic.hatch({ spacing: 10, angle: 45 })
-     * ```
      */
     hatch,
     /**
@@ -1059,11 +1031,6 @@ export const Schematic = {
      *
      * @param config - Optional stroke configuration (`tone`, `weight`)
      * @returns A `SchematicLinkStyleType` value
-     *
-     * @example
-     * ```ts
-     * Schematic.solid({ tone: "brand", weight: 3 })
-     * ```
      */
     solid,
     /**
@@ -1071,11 +1038,6 @@ export const Schematic = {
      *
      * @param config - Optional stroke configuration (`tone`, `weight`)
      * @returns A `SchematicLinkStyleType` value
-     *
-     * @example
-     * ```ts
-     * Schematic.dashed({ tone: "muted" })
-     * ```
      */
     dashed,
     /**
@@ -1084,11 +1046,6 @@ export const Schematic = {
      * `geometry` / `footprint`.
      *
      * @returns A `SchematicGeometryType` value
-     *
-     * @example
-     * ```ts
-     * Schematic.rect()
-     * ```
      */
     rect,
     /**
@@ -1098,11 +1055,6 @@ export const Schematic = {
      *
      * @param radius - Circle radius in world units
      * @returns A `SchematicGeometryType` value
-     *
-     * @example
-     * ```ts
-     * Schematic.circle(2.5)
-     * ```
      */
     circle,
     /**
@@ -1113,11 +1065,6 @@ export const Schematic = {
      * @param vertices - Vertices in world coords, in order (`{ x, y, bulge? }`)
      * @param config - Optional `width` band in world units
      * @returns A `SchematicGeometryType` value
-     *
-     * @example
-     * ```ts
-     * Schematic.polyline([{ x: 0, y: 4 }, { x: 12, y: 4, bulge: 0.42 }, { x: 12, y: 9 }], { width: 1.6 })
-     * ```
      */
     polyline,
     /**
@@ -1127,251 +1074,251 @@ export const Schematic = {
      *
      * @param vertices - Boundary vertices in world coords, in order (auto-closed; `{ x, y, bulge? }`)
      * @returns A `SchematicGeometryType` value
-     *
-     * @example
-     * ```ts
-     * Schematic.polygon([{ x: 2, y: 2 }, { x: 7, y: 3 }, { x: 6, y: 8 }, { x: 1, y: 6 }])
-     * ```
      */
     polygon,
-    Types: {
-        /**
-         * East StructType for the Schematic component.
-         *
-         * @remarks
-         * See {@link SchematicRootType} for per-field docs.
-         *
-         * @property extent - World-coordinate bounds
-         * @property items - The placed items
-         * @property zones - Annotation zones
-         * @property links - Connections between items
-         * @property scaleUnit - Optional scale-bar unit
-         * @property onSelect - Optional item-click callback
-         */
-        Schematic: SchematicRootType,
-        /**
-         * A resolved placed item.
-         *
-         * @property key - Item identity
-         * @property x - World x of the card centre
-         * @property y - World y of the card centre
-         * @property label - Primary identity line
-         * @property sublabel - Optional muted second line
-         * @property icon - Optional Font Awesome solid icon name
-         * @property status - Optional status dot tone
-         * @property meter - Optional mini utilisation bar
-         * @property metric - Optional live metric text
-         * @property width - Optional world width (wide bar form)
-         * @property footprint - Optional shape footprint (point + icon when absent)
-         */
-        Item: SchematicItemType,
-        /**
-         * A resolved annotation zone.
-         *
-         * @property key - Zone identity
-         * @property label - Eyebrow label
-         * @property x - World x (top-left)
-         * @property y - World y (top-left)
-         * @property width - World width
-         * @property height - World height
-         * @property pattern - Render pattern
-         * @property geometry - Optional shape geometry (rect when absent)
-         */
-        Zone: SchematicZoneType,
-        /**
-         * A resolved link between items.
-         *
-         * @property key - Link identity
-         * @property from - Source item key
-         * @property to - Destination item key
-         * @property style - Render style
-         * @property via - Waypoints, in order
-         */
-        Link: SchematicLinkType,
-        /**
-         * Zone render pattern (`outline` / `hatch`).
-         *
-         * @property outline - Dashed boundary with an eyebrow label
-         * @property hatch - Hatched band
-         */
-        ZonePattern: SchematicZonePatternType,
-        /**
-         * Link render style (`solid` / `dashed`), each carrying stroke config.
-         *
-         * @property solid - A physical run
-         * @property dashed - A routing / logical connection
-         */
-        LinkStyle: SchematicLinkStyleType,
-        /**
-         * Link routing mode (`orthogonal` / `direct`).
-         *
-         * @property orthogonal - Axis-aligned with rounded corners
-         * @property direct - Straight segments between anchors
-         */
-        Route: SchematicRouteType,
-        /**
-         * Theme tone for zone strokes, hatching, and links.
-         *
-         * @property brand - Brand teal
-         * @property ink - Foreground ink
-         * @property muted - Muted foreground
-         * @property success - Status ok
-         * @property warning - Status warn
-         * @property danger - Status bad
-         */
-        Tone: SchematicToneType,
-        /**
-         * Shared shape geometry for zones (`geometry`) and item footprints
-         * (`footprint`).
-         *
-         * @property rect - Axis-aligned box
-         * @property circle - Circle centred on the entity anchor (`radius` in world units)
-         * @property polyline - Open, arc-aware polyline; optional world-space band width
-         * @property polygon - Closed, arc-aware polygon (>= 3 vertices)
-         */
-        Geometry: SchematicGeometryType,
-        /**
-         * A polyline / polygon vertex — a world point plus DXF `bulge`.
-         *
-         * @property x - World x
-         * @property y - World y
-         * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
-         */
-        Vertex: SchematicVertexType,
-        /**
-         * A named layer — a toggleable group of items / zones / links.
-         *
-         * @property key - Layer identity (entities reference it via `layer`)
-         * @property label - Panel display name
-         * @property visible - Author default visibility
-         * @property locked - Author default lock (non-selectable)
-         * @property opacity - Item dim (0–1)
-         * @property tone - Panel swatch tone
-         */
-        Layer: SchematicLayerType,
-        /**
-         * The flat slice-driven render effect struct (mirrors the `slice*` props).
-         */
-        SliceEffect: SchematicSliceEffectType,
-        /**
-         * Matched-item emphasis (`halo` / `pulse`) — annotate `State` with it to
-         * drive `sliceEmphasis` reactively.
-         */
-        Emphasis: SchematicEmphasisType,
-        /**
-         * Selection cardinality (`single` / `multiple` / `range`) — drive
-         * `selectionMode` reactively or read it back.
-         */
-        SelectionMode: SchematicSelectionModeType,
-        /**
-         * A world-coordinate rectangle swept by a marquee gesture.
-         *
-         * @property minX - Left edge (world units)
-         * @property minY - Top edge (world units)
-         * @property maxX - Right edge (world units)
-         * @property maxY - Bottom edge (world units)
-         */
-        Region: SchematicRegionType,
-        /**
-         * Selection-set change event passed to `onSelectionChange`.
-         *
-         * @property key - The item that triggered the change (some for a tap; none for marquee / clear)
-         * @property selected - Whether `key` is now selected; for bulk changes, whether the set is non-empty
-         * @property selectedKeys - The full selected set after the gesture
-         * @property additive - Whether the gesture added to the prior selection vs replaced it
-         * @property region - The world rectangle a marquee swept (some for a marquee; none otherwise)
-         */
-        SelectionEvent: SchematicSelectionEventType,
-        /**
-         * Viewport-settled event passed to `onViewportChange` — the camera zoom
-         * plus the visible world rectangle, debounced to gesture settle points.
-         *
-         * @property zoom - The settled camera zoom (1 = fully zoomed out)
-         * @property minX - Left edge of the visible world rect
-         * @property minY - Top edge of the visible world rect
-         * @property maxX - Right edge of the visible world rect
-         * @property maxY - Bottom edge of the visible world rect
-         */
-        ViewportEvent: SchematicViewportEventType,
-        /**
-         * Zone selection-set change event passed to `onZoneSelectionChange` —
-         * the selected zones plus the item keys inside them.
-         *
-         * @property key - The zone that triggered the change (some for a tap; none for a clear)
-         * @property selected - Whether `key` is now selected; for bulk changes, whether the set is non-empty
-         * @property selectedKeys - The full selected zone set after the gesture
-         * @property childItemKeys - Item keys inside the selected zones (nested descendants included)
-         * @property additive - Whether the gesture added to the prior selection vs replaced it
-         */
-        ZoneSelectionEvent: SchematicZoneSelectionEventType,
-        /**
-         * Connect-gesture mode (`draw` | `connect`) — `draw` adds a physical
-         * link locally; `connect` is event-only and repeatable.
-         */
-        LinkMode: SchematicLinkModeType,
-        /**
-         * One connection's endpoints — the unit a connect gesture produces.
-         *
-         * @property key - Renderer-generated key for the gesture's connection
-         * @property from - Source item key
-         * @property to - Destination item key
-         */
-        LinkEndpoints: SchematicLinkEndpointsType,
-        /**
-         * Link-creation event passed to `onCreateLink` — the newest link, the
-         * accumulated Shift-session, and the pair's existing links.
-         *
-         * @property link - The newest connection (this drag)
-         * @property links - The full session set, `link` included
-         * @property additive - True when Shift extended an open session
-         * @property existing - Keys of links already joining the newest pair
-         */
-        LinkCreateEvent: SchematicLinkCreateEventType,
-        /**
-         * Link-edit event passed to `onEditLink` — the endpoints AFTER an
-         * endpoint connector re-target.
-         *
-         * @property key - The edited link's key
-         * @property from - Source item key after the edit
-         * @property to - Destination item key after the edit
-         */
-        LinkEditEvent: SchematicLinkEditEventType,
-        /**
-         * A net — a bus link (many `sources` → many `destinations`,
-         * drawn as a trunk with branches).
-         *
-         * @property key - Net identity
-         * @property sources - Source item keys
-         * @property destinations - Destination item keys
-         * @property label - Optional mid-trunk label
-         * @property metric - Optional mid-trunk metric (muted)
-         * @property style - Stroke style for the whole net
-         * @property route - Trunk routing mode
-         * @property via - Optional trunk waypoints
-         * @property layer - Optional layer membership
-         */
-        Net: SchematicNetType,
-        /**
-         * A connect-session collapsed to net endpoints (stable session `key`)
-         * — carried on every `onCreateLink` for upsert-style handlers.
-         *
-         * @property key - The session key (stable across the session's commits)
-         * @property sources - Distinct source item keys so far
-         * @property destinations - Distinct destination item keys so far
-         */
-        NetEndpoints: SchematicNetEndpointsType,
-        /**
-         * Item-move event passed to `onMoveItem` — the pressed item's final
-         * position, every moved key (group move rides the selection), and the
-         * shared world delta.
-         *
-         * @property key - The pressed item's key
-         * @property x - Final world x
-         * @property y - Final world y
-         * @property keys - Every moved item (`key` included)
-         * @property dx - Shared world x delta
-         * @property dy - Shared world y delta
-         */
-        ItemMoveEvent: SchematicItemMoveEventType,
-    },
+} as const;
+
+/**
+ * East types for the schematic's root, rows, closed-set fields and events —
+ * the namespace's `Schematic.Types`.
+ */
+export const SchematicTypes = {
+    /**
+     * East StructType for the Schematic component.
+     *
+     * @remarks
+     * See {@link SchematicRootType} for per-field docs.
+     *
+     * @property extent - World-coordinate bounds
+     * @property items - The placed items
+     * @property zones - Annotation zones
+     * @property links - Connections between items
+     * @property scaleUnit - Optional scale-bar unit
+     * @property onSelect - Optional item-click callback
+     */
+    Schematic: SchematicRootType,
+    /**
+     * A resolved placed item.
+     *
+     * @property key - Item identity
+     * @property x - World x of the card centre
+     * @property y - World y of the card centre
+     * @property label - Primary identity line
+     * @property sublabel - Optional muted second line
+     * @property icon - Optional Font Awesome solid icon name
+     * @property status - Optional status dot tone
+     * @property meter - Optional mini utilisation bar
+     * @property metric - Optional live metric text
+     * @property width - Optional world width (wide bar form)
+     * @property footprint - Optional shape footprint (point + icon when absent)
+     */
+    Item: SchematicItemType,
+    /**
+     * A resolved annotation zone.
+     *
+     * @property key - Zone identity
+     * @property label - Eyebrow label
+     * @property x - World x (top-left)
+     * @property y - World y (top-left)
+     * @property width - World width
+     * @property height - World height
+     * @property pattern - Render pattern
+     * @property geometry - Optional shape geometry (rect when absent)
+     */
+    Zone: SchematicZoneType,
+    /**
+     * A resolved link between items.
+     *
+     * @property key - Link identity
+     * @property from - Source item key
+     * @property to - Destination item key
+     * @property style - Render style
+     * @property via - Waypoints, in order
+     */
+    Link: SchematicLinkType,
+    /**
+     * Zone render pattern (`outline` / `hatch`).
+     *
+     * @property outline - Dashed boundary with an eyebrow label
+     * @property hatch - Hatched band
+     */
+    ZonePattern: SchematicZonePatternType,
+    /**
+     * Link render style (`solid` / `dashed`), each carrying stroke config.
+     *
+     * @property solid - A physical run
+     * @property dashed - A routing / logical connection
+     */
+    LinkStyle: SchematicLinkStyleType,
+    /**
+     * Link routing mode (`orthogonal` / `direct`).
+     *
+     * @property orthogonal - Axis-aligned with rounded corners
+     * @property direct - Straight segments between anchors
+     */
+    Route: SchematicRouteType,
+    /**
+     * Theme tone for zone strokes, hatching, and links.
+     *
+     * @property brand - Brand teal
+     * @property ink - Foreground ink
+     * @property muted - Muted foreground
+     * @property success - Status ok
+     * @property warning - Status warn
+     * @property danger - Status bad
+     */
+    Tone: SchematicToneType,
+    /**
+     * Shared shape geometry for zones (`geometry`) and item footprints
+     * (`footprint`).
+     *
+     * @property rect - Axis-aligned box
+     * @property circle - Circle centred on the entity anchor (`radius` in world units)
+     * @property polyline - Open, arc-aware polyline; optional world-space band width
+     * @property polygon - Closed, arc-aware polygon (>= 3 vertices)
+     */
+    Geometry: SchematicGeometryType,
+    /**
+     * A polyline / polygon vertex — a world point plus DXF `bulge`.
+     *
+     * @property x - World x
+     * @property y - World y
+     * @property bulge - DXF bulge for the edge to the next vertex (0 = straight)
+     */
+    Vertex: SchematicVertexType,
+    /**
+     * A named layer — a toggleable group of items / zones / links.
+     *
+     * @property key - Layer identity (entities reference it via `layer`)
+     * @property label - Panel display name
+     * @property visible - Author default visibility
+     * @property locked - Author default lock (non-selectable)
+     * @property opacity - Item dim (0–1)
+     * @property tone - Panel swatch tone
+     */
+    Layer: SchematicLayerType,
+    /**
+     * The flat slice-driven render effect struct (mirrors the `slice*` props).
+     */
+    SliceEffect: SchematicSliceEffectType,
+    /**
+     * Matched-item emphasis (`halo` / `pulse`) — annotate `State` with it to
+     * drive `sliceEmphasis` reactively.
+     */
+    Emphasis: SchematicEmphasisType,
+    /**
+     * Selection cardinality (`single` / `multiple` / `range`) — drive
+     * `selectionMode` reactively or read it back.
+     */
+    SelectionMode: SchematicSelectionModeType,
+    /**
+     * A world-coordinate rectangle swept by a marquee gesture.
+     *
+     * @property minX - Left edge (world units)
+     * @property minY - Top edge (world units)
+     * @property maxX - Right edge (world units)
+     * @property maxY - Bottom edge (world units)
+     */
+    Region: SchematicRegionType,
+    /**
+     * Selection-set change event passed to `onSelectionChange`.
+     *
+     * @property key - The item that triggered the change (some for a tap; none for marquee / clear)
+     * @property selected - Whether `key` is now selected; for bulk changes, whether the set is non-empty
+     * @property selectedKeys - The full selected set after the gesture
+     * @property additive - Whether the gesture added to the prior selection vs replaced it
+     * @property region - The world rectangle a marquee swept (some for a marquee; none otherwise)
+     */
+    SelectionEvent: SchematicSelectionEventType,
+    /**
+     * Viewport-settled event passed to `onViewportChange` — the camera zoom
+     * plus the visible world rectangle, debounced to gesture settle points.
+     *
+     * @property zoom - The settled camera zoom (1 = fully zoomed out)
+     * @property minX - Left edge of the visible world rect
+     * @property minY - Top edge of the visible world rect
+     * @property maxX - Right edge of the visible world rect
+     * @property maxY - Bottom edge of the visible world rect
+     */
+    ViewportEvent: SchematicViewportEventType,
+    /**
+     * Zone selection-set change event passed to `onZoneSelectionChange` —
+     * the selected zones plus the item keys inside them.
+     *
+     * @property key - The zone that triggered the change (some for a tap; none for a clear)
+     * @property selected - Whether `key` is now selected; for bulk changes, whether the set is non-empty
+     * @property selectedKeys - The full selected zone set after the gesture
+     * @property childItemKeys - Item keys inside the selected zones (nested descendants included)
+     * @property additive - Whether the gesture added to the prior selection vs replaced it
+     */
+    ZoneSelectionEvent: SchematicZoneSelectionEventType,
+    /**
+     * Connect-gesture mode (`draw` | `connect`) — `draw` adds a physical
+     * link locally; `connect` is event-only and repeatable.
+     */
+    LinkMode: SchematicLinkModeType,
+    /**
+     * One connection's endpoints — the unit a connect gesture produces.
+     *
+     * @property key - Renderer-generated key for the gesture's connection
+     * @property from - Source item key
+     * @property to - Destination item key
+     */
+    LinkEndpoints: SchematicLinkEndpointsType,
+    /**
+     * Link-creation event passed to `onCreateLink` — the newest link, the
+     * accumulated Shift-session, and the pair's existing links.
+     *
+     * @property link - The newest connection (this drag)
+     * @property links - The full session set, `link` included
+     * @property additive - True when Shift extended an open session
+     * @property existing - Keys of links already joining the newest pair
+     */
+    LinkCreateEvent: SchematicLinkCreateEventType,
+    /**
+     * Link-edit event passed to `onEditLink` — the endpoints AFTER an
+     * endpoint connector re-target.
+     *
+     * @property key - The edited link's key
+     * @property from - Source item key after the edit
+     * @property to - Destination item key after the edit
+     */
+    LinkEditEvent: SchematicLinkEditEventType,
+    /**
+     * A net — a bus link (many `sources` → many `destinations`,
+     * drawn as a trunk with branches).
+     *
+     * @property key - Net identity
+     * @property sources - Source item keys
+     * @property destinations - Destination item keys
+     * @property label - Optional mid-trunk label
+     * @property metric - Optional mid-trunk metric (muted)
+     * @property style - Stroke style for the whole net
+     * @property route - Trunk routing mode
+     * @property via - Optional trunk waypoints
+     * @property layer - Optional layer membership
+     */
+    Net: SchematicNetType,
+    /**
+     * A connect-session collapsed to net endpoints (stable session `key`)
+     * — carried on every `onCreateLink` for upsert-style handlers.
+     *
+     * @property key - The session key (stable across the session's commits)
+     * @property sources - Distinct source item keys so far
+     * @property destinations - Distinct destination item keys so far
+     */
+    NetEndpoints: SchematicNetEndpointsType,
+    /**
+     * Item-move event passed to `onMoveItem` — the pressed item's final
+     * position, every moved key (group move rides the selection), and the
+     * shared world delta.
+     *
+     * @property key - The pressed item's key
+     * @property x - Final world x
+     * @property y - Final world y
+     * @property keys - Every moved item (`key` included)
+     * @property dx - Shared world x delta
+     * @property dy - Shared world y delta
+     */
+    ItemMoveEvent: SchematicItemMoveEventType,
 } as const;

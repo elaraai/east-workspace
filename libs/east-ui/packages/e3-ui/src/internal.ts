@@ -4,10 +4,10 @@
  */
 
 /**
- * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Diff` / `Ontology`
- * **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Flowchart.Payload(…)`,
- * `Diff.Root(…)`, `Diff.Component`) plus `Data`, the manifest type and
- * derivation, and types.
+ * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` / `Diff` /
+ * `Ontology` **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`,
+ * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Diff.Root(…)`,
+ * `Diff.Component`) plus `Data`, the manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -461,6 +461,39 @@ export {
     type FlowchartPatchInput,
 } from './flowchart/index.js';
 export * from './flowchart/types.js';
+// The Schematic (#1384): `<Schematic>` with its namespace, the root the
+// renderer takes through the `Schematic` carrier, the pattern and geometry
+// builders, and the types a schematic is written with. `Schematic` here is the
+// internal namespace — the public one, `Schematic.Root`, `Schematic.Payload`
+// and `Schematic.Component`.
+export {
+    SchematicInternal as Schematic,
+    SchematicTag,
+    SchematicComponent,
+    SchematicRootType,
+    SchematicBuilders,
+    SchematicTypes,
+    createSchematicPayload,
+    createSchematicRoot,
+    type SchematicTagType,
+    type SchematicNamespace,
+    type SchematicInternalNamespace,
+    type SchematicConfig,
+    type SchematicItemFields,
+    type SchematicZoneFields,
+    type SchematicLinkFields,
+    type SchematicNetFields,
+    type SchematicLayerInput,
+    type SchematicPatternConfig,
+    type SchematicPolylineConfig,
+    type SchematicVertexInput,
+    type SchematicVertices,
+    type SchematicToneLiteral,
+    type SchematicEmphasisLiteral,
+    type SchematicSelectionModeLiteral,
+    type SchematicLinkModeLiteral,
+} from './schematic/index.js';
+export * from './schematic/types.js';
 // Schedule (#1218, #1190): the kinds the Calendar and Plan's builder share,
 // the checks a builder makes across its slots, and the kinds' wire, the
 // Calendar's and Plan's. `Schedule` here is the internal namespace — the

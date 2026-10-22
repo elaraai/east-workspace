@@ -76,6 +76,17 @@ test("component renderer changes retain shared and new checks and union explicit
     assert.ok(!selected.some(t => t.includes(" › roster.spec.ts:") || t.includes(" › plan-geometry.spec.ts:")));
 });
 
+test("the Schematic's renderer narrows to the shared checks, which hold its hosts, and none of another component's own (#1384)", () => {
+    const impact = classifyChanges(["libs/east-ui/packages/e3-ui-components/src/schematic/canvas/paint.ts"]);
+    assert.deepEqual({ mode: impact.mode, components: impact.components }, { mode: "focused", components: ["schematic"] });
+    const selected = selectTests(suite(), impact);
+    for (const spec of ["foundations", "visual-invariants"]) {
+        const original = suite().filter(t => t.includes(` › ${spec}.spec.ts:`));
+        assert.ok(original.length > 0 && original.every(t => selected.includes(t)), spec);
+    }
+    assert.ok(!selected.some(t => t.includes(" › roster.spec.ts:") || t.includes(" › flowchart-records.spec.ts:")));
+});
+
 test("Playwright resolves focused lists and all their smaller shards exactly once", () => {
     const selected = selectTests(suite(), classifyChanges([
         "libs/east-ui/packages/e3-ui-components/src/flowchart/index.tsx",

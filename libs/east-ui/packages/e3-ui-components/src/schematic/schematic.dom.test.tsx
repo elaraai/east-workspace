@@ -16,8 +16,8 @@ import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { defaultValue, variant, some, none } from "@elaraai/east";
-import { Schematic } from "@elaraai/east-ui/internal";
-import { system } from "../../theme/index.js";
+import { system } from "@elaraai/east-ui-components";
+import { Schematic } from "@elaraai/e3-ui/internal";
 import { EastChakraSchematic, type SchematicValue, type SchematicItemValue, type SchematicLinkValue, type SchematicNetValue, type SchematicZoneValue } from "./index.js";
 
 afterEach(cleanup);

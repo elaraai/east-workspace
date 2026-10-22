@@ -9,7 +9,7 @@
 
 import { describe, test, expect } from "vitest";
 import { defaultValue, variant, some, none, type ValueTypeOf } from "@elaraai/east";
-import { Schematic } from "@elaraai/east-ui/internal";
+import { Schematic } from "@elaraai/e3-ui/internal";
 import { buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./model";
 
 type ItemValue = ValueTypeOf<typeof Schematic.Types.Item>;

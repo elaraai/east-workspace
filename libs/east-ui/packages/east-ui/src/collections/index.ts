@@ -16,13 +16,6 @@ export {
     type BlendMetricFields,
 } from "./blend/index.js";
 export {
-    Schematic,
-    type SchematicConfig,
-    type SchematicItemFields,
-    type SchematicZoneFields,
-    type SchematicLinkFields,
-} from "./schematic/index.js";
-export {
     Map,
     type MapConfig,
     type MapMarkerFields,

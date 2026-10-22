@@ -14,7 +14,7 @@ import {
     VariantType,
 } from "@elaraai/east";
 
-import { StatusTokenType } from "../../style/interaction.js";
+import { StatusTokenType } from "@elaraai/east-ui";
 
 /**
  * Theme tone for zone strokes, hatching, and links.
@@ -882,6 +882,5 @@ export type SchematicItemMoveEventType = typeof SchematicItemMoveEventType;
 
 
 
-// `SchematicRootType` lives in `./index.ts` (the resolved mirror of the inline
-// `Schematic` struct in `component.ts`) so its hover builders can reference
-// `UIComponentType`, which this file must not import (circular).
+// `SchematicRootType` lives in `./payload.ts`, beside `<Schematic>`'s props,
+// the `Schematic` carrier and the factories.

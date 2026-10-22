@@ -13,7 +13,7 @@
 
 import RBush from "rbush";
 import { type ValueTypeOf } from "@elaraai/east";
-import { Schematic } from "@elaraai/east-ui/internal";
+import { Schematic } from "@elaraai/e3-ui/internal";
 
 type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;
 type SchematicZoneValue = ValueTypeOf<typeof Schematic.Types.Zone>;

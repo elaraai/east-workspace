@@ -119,9 +119,11 @@ source })` over a record bound with `Data.bind`, an instant kind's giving no
 `duration`, and each tab that names a `source` follows it.
 
 A builder takes neither `Slice.bind` nor a single `Slice.bindRecord`; east-ui's
-own collections — a Table, a Library, a Deck, a Schematic — keep their own
-Slice (`Slice.bind(key, rows, { … })` over rows held whole, read through
-`Slice.rows(slice)`). An indexed record narrows a builder as a source of its
+own collections — a Table, a Library, a Deck — keep their own Slice
+(`Slice.bind(key, rows, { … })` over rows held whole, read through
+`Slice.rows(slice)`), and so does e3-ui's `<Schematic>` (#1384) until its
+builder narrows through `Slice.bindRecords` (#1392). An indexed record narrows
+a builder as a source of its
 one `Slice.bindRecords`: declare `e3.recordIndex(name, record, { on: [fields...]
 })` and bind `Data.bindPaged(record, { indexes })`. Never turn the loaded page
 into another local Slice or implement a browser predicate. Typed controls and

@@ -1254,8 +1254,8 @@ export type SlicePartitionRowType = typeof SlicePartitionRowType;
  * The FULL bound rows for a slice, each tagged with whether it passes the active
  * narrowing (`matched`) — the "keep the excluded, don't hide them" data feed. Use
  * it (instead of `Slice.rows`) to drive a de-emphasis effect: feed the tagged
- * rows to a component and derive per-row styling from `matched` (e.g. a
- * Schematic's `excluded` flag). `Slice.rows` is `Slice.partition(...).filter(matched)`.
+ * rows to a component and derive per-row styling from `matched` (e.g. the
+ * `excluded` flag of e3-ui's `<Schematic>`). `Slice.rows` is `Slice.partition(...).filter(matched)`.
  */
 const slice_partition = East.genericPlatform("slice_partition", ["T"],
     [SliceBindType],
@@ -1407,13 +1407,12 @@ export const Slice = {
      *
      * @example
      * ```ts
-     * // Feed the full set to a Schematic and ghost the filtered-out items.
-     * const tagged = $.let(Slice.partition([EquipType], slice));
-     * // Schematic.Root(tagged, {
-     * //   item: t => ({ key: t.value.id, x: t.value.x, y: t.value.y, label: t.value.id,
-     * //                 excluded: t.matched.not() }),
-     * //   slice, sliceEffect: { excluded: { opacity: 0.25 }, emphasis: "pulse" },
-     * // })
+     * // Feed the full set to e3-ui's Schematic and ghost the filtered-out items.
+     * const tagged = $.let(Slice.partition([RackType], slice));
+     * // <Schematic extent={{ width: 28, height: 12 }} items={tagged} slice={slice}
+     * //     item={t => ({ key: t.value.id, x: t.value.x, y: t.value.y, label: t.value.id,
+     * //                   excluded: t.matched.not() })}
+     * //     sliceOpacity={0.25} sliceEmphasis="pulse" />
      * ```
      */
     partition: Object.assign(<T extends EastType>(types: [T], handle: SubtypeExprOrValue<SliceBindType>) =>

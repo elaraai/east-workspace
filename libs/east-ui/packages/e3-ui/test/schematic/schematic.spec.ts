@@ -3,9 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { test as hostTest } from "node:test";
+import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { East, BooleanType, NullType, StringType, variant, some, type ExprType } from "@elaraai/east";
-import { Schematic, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { East, BooleanType, NullType, StringType, decodeBeast2For, equalFor, variant, some, type ExprType } from "@elaraai/east";
+import { Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { Schematic as PublicSchematic } from "@elaraai/e3-ui";
+import { Schematic, SchematicRootType } from "@elaraai/e3-ui/internal";
 import * as ex from "./schematic.examples.js";
 
 describeEast("Schematic", (test) => {
@@ -34,7 +38,7 @@ describeEast("Schematic", (test) => {
         // puts the tables inside the Reactive body, which TestImpl does not
         // execute, so they cannot be asserted from here; `Assert.examples`
         // above still compiles and evaluates the outer function. Interaction
-        // prop coverage lives in the Schematic.Root tests below, which
+        // prop coverage lives in the Schematic.Payload tests below, which
         // construct each config directly.
         const panel = $.const(ex.schematicInteractions.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
@@ -46,7 +50,7 @@ describeEast("Schematic", (test) => {
         // `fn`. That puts them inside the Reactive body, which TestImpl does
         // not execute, so they cannot be asserted from here; `Assert.examples`
         // above still compiles and evaluates the outer function. Per-canvas
-        // prop coverage lives in the Schematic.Root tests below.
+        // prop coverage lives in the Schematic.Payload tests below.
         const panel = $.const(ex.schematicVariants.fn() as ExprType<UIComponentType>);
         $(Assert.equal(panel.unwrap().hasTag("ReactiveComponent"), true));
     });
@@ -60,14 +64,13 @@ describeEast("Schematic", (test) => {
     });
 
     test("resolves items with defaults", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A01", x: 3.0, y: 2.0 }],
             {
                 extent: { width: 10, height: 5 },
                 item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
 
         $(Assert.equal(root.extent.width, 10.0));
         $(Assert.equal(root.items.size(), 1n));
@@ -81,7 +84,7 @@ describeEast("Schematic", (test) => {
     });
 
     test("zones default to outline; links default to solid with no waypoints", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0 }, { id: "B", x: 8.0, y: 4.0 }],
             {
                 extent: { width: 10, height: 5 },
@@ -92,7 +95,6 @@ describeEast("Schematic", (test) => {
                 link: l => ({ key: l.id, from: l.src, to: l.dst }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
 
         $(Assert.equal(root.zones.get(0n).pattern.hasTag("outline"), true));
         $(Assert.equal(root.links.get(0n).style.hasTag("solid"), true));
@@ -102,7 +104,7 @@ describeEast("Schematic", (test) => {
     });
 
     test("typed status, hatch pattern, and waypoints carry through", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0, state: some(variant("warning", null)), fill: 3.0, cap: 4.0 }],
             {
                 extent: { width: 10, height: 5 },
@@ -117,7 +119,6 @@ describeEast("Schematic", (test) => {
                 link: l => ({ key: l.id, from: l.src, to: l.dst, style: l.s, via: l.via, label: l.lbl, metric: l.m }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
 
         $(Assert.equal(root.items.get(0n).status.unwrap("some").hasTag("warning"), true));
         $(Assert.equal(root.items.get(0n).meter.unwrap("some").max, 4.0));
@@ -132,7 +133,7 @@ describeEast("Schematic", (test) => {
     });
 
     test("item footprint and zone geometry default to none", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0 }],
             {
                 extent: { width: 10, height: 5 },
@@ -141,7 +142,6 @@ describeEast("Schematic", (test) => {
                 zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
 
         $(Assert.equal(root.items.get(0n).footprint.hasTag("none"), true));
         $(Assert.equal(root.zones.get(0n).geometry.hasTag("none"), true));
@@ -149,7 +149,7 @@ describeEast("Schematic", (test) => {
     });
 
     test("fixed height carries through", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0 }],
             {
                 extent: { width: 10, height: 5 },
@@ -157,11 +157,11 @@ describeEast("Schematic", (test) => {
                 height: "400px",
             },
         ));
-        $(Assert.equal($.let(sch.unwrap().unwrap("Schematic")).height.unwrap("some"), "400px"));
+        $(Assert.equal(root.height.unwrap("some"), "400px"));
     });
 
     test("polygon / circle footprints and arc-aware polyline zone geometry carry through", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [
                 { id: "P", x: 3.0, y: 3.0, r: 0.0, round: false,
                   pts: [{ x: 1.0, y: 1.0, bulge: 0.0 }, { x: 5.0, y: 1.0, bulge: 0.5 }, { x: 3.0, y: 5.0, bulge: 0.0 }] },
@@ -179,7 +179,6 @@ describeEast("Schematic", (test) => {
                 zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h, geometry: Schematic.polyline(z.pl, { width: 0.8 }) }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
 
         const poly = $.let(root.items.get(0n).footprint.unwrap("some"));
         $(Assert.equal(poly.hasTag("polygon"), true));
@@ -193,7 +192,7 @@ describeEast("Schematic", (test) => {
     });
 
     test("item and zone colour overrides carry through", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 2.0, y: 2.0, r: 1.0 }],
             {
                 extent: { width: 8, height: 6 },
@@ -209,7 +208,6 @@ describeEast("Schematic", (test) => {
                 }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
 
         const item = $.let(root.items.get(0n));
         $(Assert.equal(item.tone.unwrap("some").hasTag("brand"), true));
@@ -226,7 +224,7 @@ describeEast("Schematic", (test) => {
     });
 
     test("excluded flag + flat slice-effect props (ghost + pulse + fitted frame) carry through", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 2.0, y: 2.0, out: true }, { id: "B", x: 5.0, y: 2.0, out: false }],
             {
                 extent: { width: 8, height: 6 },
@@ -238,7 +236,6 @@ describeEast("Schematic", (test) => {
                 sliceFrameFit: true,
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
 
         $(Assert.equal(root.items.get(0n).excluded.unwrap("some"), true));
         $(Assert.equal(root.items.get(1n).excluded.unwrap("some"), false));
@@ -254,14 +251,14 @@ describeEast("Schematic", (test) => {
     });
 
     test("slice-effect: `sliceHidden` + `halo`, and unset props default to none", $ => {
-        const hide = $.let(Schematic.Root(
+        const hide = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0 }],
             {
                 extent: { width: 4, height: 4 },
                 item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
                 sliceHidden: true,
             },
-        ).unwrap().unwrap("Schematic"));
+        ));
         // Default (unset) item excluded flag is `none`.
         $(Assert.equal(hide.items.get(0n).excluded.hasTag("none"), true));
         const heff = $.let(hide.sliceEffect.unwrap("some"));
@@ -271,7 +268,7 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(heff.frame.hasTag("none"), true));
         $(Assert.equal(heff.opacity.hasTag("none"), true));
 
-        const bare = $.let(Schematic.Root(
+        const bare = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0 }],
             {
                 extent: { width: 4, height: 4 },
@@ -279,7 +276,7 @@ describeEast("Schematic", (test) => {
                 sliceEmphasis: "halo",
                 sliceFrame: true,
             },
-        ).unwrap().unwrap("Schematic"));
+        ));
         const eff = $.let(bare.sliceEffect.unwrap("some"));
         $(Assert.equal(eff.emphasis.unwrap("some").hasTag("halo"), true));
         $(Assert.equal(eff.frame.unwrap("some"), true));
@@ -288,7 +285,7 @@ describeEast("Schematic", (test) => {
     });
 
     test("layers declaration + per-entity layer tags (items / zones / links) carry through", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0, sys: "power" }, { id: "B", x: 5.0, y: 1.0, sys: "network" }],
             {
                 extent: { width: 8, height: 6 },
@@ -304,7 +301,6 @@ describeEast("Schematic", (test) => {
                 ],
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
 
         const ls = $.let(root.layers.unwrap("some"));
         $(Assert.equal(ls.size(), 3n));
@@ -326,20 +322,19 @@ describeEast("Schematic", (test) => {
     });
 
     test("no layers ⇒ root.layers none and each entity layer none", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0 }],
             {
                 extent: { width: 4, height: 4 },
                 item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
         $(Assert.equal(root.layers.hasTag("none"), true));
         $(Assert.equal(root.items.get(0n).layer.hasTag("none"), true));
     });
 
     test("net mapper carries sources / destinations / label through; defaults fill the rest", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "P", x: 1.0, y: 1.0 }, { id: "A", x: 5.0, y: 1.0 }, { id: "B", x: 5.0, y: 3.0 }],
             {
                 extent: { width: 8, height: 4 },
@@ -348,7 +343,6 @@ describeEast("Schematic", (test) => {
                 net: n => ({ key: n.id, sources: n.srcs, destinations: n.dsts, label: n.name }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
         $(Assert.equal(root.nets.size(), 1n));
         const net = $.let(root.nets.get(0n));
         $(Assert.equal(net.key, "n1"));
@@ -364,14 +358,13 @@ describeEast("Schematic", (test) => {
     });
 
     test("selection defaults: selectionMode / onSelectionChange / onSelect all none", $ => {
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0 }],
             {
                 extent: { width: 4, height: 4 },
                 item: e => ({ key: e.id, x: e.x, y: e.y, label: e.id }),
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
         $(Assert.equal(root.selectionMode.hasTag("none"), true));
         $(Assert.equal(root.onSelectionChange.hasTag("none"), true));
         $(Assert.equal(root.onSelect.hasTag("none"), true));
@@ -400,7 +393,7 @@ describeEast("Schematic", (test) => {
     test("selectionMode, onSelectionChange, sliceSelectField carry through", $ => {
         const onChange = East.function([Schematic.Types.SelectionEvent], NullType, (_$, _ev) => { });
         const onViewport = East.function([Schematic.Types.ViewportEvent], NullType, (_$, _ev) => { });
-        const sch = $.let(Schematic.Root(
+        const root = $.let(Schematic.Payload(
             [{ id: "A", x: 1.0, y: 1.0 }],
             {
                 extent: { width: 4, height: 4 },
@@ -429,7 +422,6 @@ describeEast("Schematic", (test) => {
                 selectZoomFocus: true,
             },
         ));
-        const root = $.let(sch.unwrap().unwrap("Schematic"));
         $(Assert.equal(root.selectionMode.unwrap("some").hasTag("multiple"), true));
         $(Assert.equal(root.onSelectionChange.hasTag("some"), true));
         $(Assert.equal(root.sliceSelectField.unwrap("some"), "id"));
@@ -454,3 +446,29 @@ describeEast("Schematic", (test) => {
         $(Assert.equal(root.canConnect.hasTag("some"), true));
     });
 }, { platformFns: TestImpl });
+
+// The move to e3 (#1384): `<Schematic>` returns its root through the
+// `Schematic` carrier — the extension's kind and its payload's bytes — and the
+// root it carries is the one `Schematic.Payload` builds from the same props.
+const RACKS = [{ id: "A01", x: 2.4, y: 2.9, kind: "42U · 8 kW" }, { id: "A02", x: 6.0, y: 2.9, kind: "48U · 12 kW" }];
+const CAGES = [{ id: "cage-a", name: "Cage A", x: 0.6, y: 0.6, w: 9.0, h: 4.6 }];
+
+hostTest("<Schematic> returns its root through the `Schematic` carrier", () => {
+    const ui = East.compile(East.function([], UIComponentType, (_$) => PublicSchematic({
+        extent: { width: 12, height: 6 },
+        items: RACKS, item: r => ({ key: r.id, x: r.x, y: r.y, label: r.id, sublabel: r.kind }),
+        zones: CAGES, zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h }),
+        scaleUnit: "m",
+    })), [])();
+    if (ui.type !== "Extension") assert.fail(`expected the Schematic extension, got the ${ui.type} arm`);
+    assert.equal(ui.value.kind, "Schematic");
+    const carried = decodeBeast2For(SchematicRootType)(ui.value.payload);
+    const built = East.compile(East.function([], SchematicRootType, (_$) => Schematic.Payload(RACKS, {
+        extent: { width: 12, height: 6 },
+        item: r => ({ key: r.id, x: r.x, y: r.y, label: r.id, sublabel: r.kind }),
+        zones: CAGES, zone: z => ({ key: z.id, label: z.name, x: z.x, y: z.y, width: z.w, height: z.h }),
+        scaleUnit: "m",
+    })), [])();
+    assert.deepEqual(carried.items.map((i) => i.key), ["A01", "A02"]);
+    assert.ok(equalFor(SchematicRootType)(carried, built), "the carrier's payload is the root Schematic.Payload builds");
+});

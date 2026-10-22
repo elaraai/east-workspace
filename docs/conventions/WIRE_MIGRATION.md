@@ -319,3 +319,12 @@ Each wire changed under this rule, with the kind it is.
   Plan's kinds on the wire (`ScheduleKindType`, `PlanEventKindType`) are
   unchanged. The Allocation's extension, which takes them too, is new in this
   release: no earlier release wrote it, so no form of it moves.
+- **east-ui's `UIComponentType` loses its `Schematic` arm (#1384, #1386)** —
+  package-borne. The schematic is e3-ui's `<Schematic>`, carried as the
+  `Schematic` extension, its payload the root the arm carried — its items,
+  zones, links and nets, its layers and its slice. As with the Plan's, the
+  Sheet's and the Flowchart's arms, every case after `Schematic` moves down
+  one, so a UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.
