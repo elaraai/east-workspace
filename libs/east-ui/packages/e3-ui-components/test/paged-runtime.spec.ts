@@ -33,6 +33,7 @@ import {
     compareFor,
     equalFor,
     none,
+    printFor,
     some,
     toEastTypeValue,
     variant,
@@ -46,6 +47,7 @@ import { datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-typ
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
+    MAX_WITHIN_KEYS,
     PagedRuntime,
     createDefaultPagedApi,
     pagedRevisionKey,
@@ -54,6 +56,7 @@ import {
     pagedSeekKey,
     toFindQuery,
     type PagedApi,
+    type PagedRun,
     type PagedSelector,
     type PagedSource,
 } from "../src/platform/paged-runtime.js";
@@ -1354,6 +1357,110 @@ describe("PagedRuntime — several reads in one request (#1351)", () => {
         const window = runtime.runsAll(source, [[0, 1], [2, 1]]);
         assert.ok(window.type === "some" && equalFor(Keyed)(window.value as ValueTypeOf<typeof Keyed>, new SortedMap([["ja", 1n], ["kb", 5n]], keys)));
         assert.deepEqual(pinsOf(), [["rows", R1], ["runs", R1], ["rows", R2], ["runs", R2]]);
+    });
+});
+
+describe("PagedRuntime — which entries a narrowing's runs hold, kept for each reader (#1349)", () => {
+    /** The most answers one narrowing's runs hold once their readers have read them. */
+    const CAP = 2 * MAX_WITHIN_KEYS;
+    /** A runtime that says how many membership answers it holds, and how many it keeps for their readers. */
+    class WithinRuntime extends PagedRuntime {
+        held(source: PagedSource) { return this.withinHeld(source); }
+    }
+    /** The dispatch queue's entry keys: a work order's status and due date, beside its key. */
+    const EntryKey = StructType({ ik: ex.WorkQueueKey, k: StringType });
+    const printEntry = printFor(EntryKey);
+    const entryOrder = compareFor(EntryKey);
+    /** The late orders: the queue's first five entries, from WO-1008, due 11 Sep, to WO-1017, due 22 Sep. */
+    const LATE: readonly PagedRun[] = [[0, 5]];
+    const FIRST: ValueTypeOf<typeof EntryKey> = { ik: { status: "late", due: new Date("2026-09-11T00:00:00Z") }, k: "WO-1008" };
+    const LAST: ValueTypeOf<typeof EntryKey> = { ik: { status: "late", due: new Date("2026-09-22T00:00:00Z") }, k: "WO-1017" };
+    /** How many entry keys each reader asks of: one batch of two requests, ten thousand keys and three. */
+    const READ = 13_000;
+    /** What four readers' keys pass the cap by: the answers that go once all four have read theirs. */
+    const OVER = 4 * READ - CAP;
+    /**
+     * Reader `r`: its entry keys, printed — late keys due two minutes apart from
+     * 8 Sep, across the late orders' span and past either end of it, each
+     * reader's its own — and whether the late orders' run holds each.
+     */
+    const readerOf = (r: number) => {
+        const entries = Array.from({ length: READ }, (_, n): ValueTypeOf<typeof EntryKey> => ({
+            ik: { status: "late", due: new Date(Date.UTC(2026, 8, 8) + (2 * n + r) * 60_000) }, k: `R${r}-${n}`,
+        }));
+        return { keys: entries.map((entry) => printEntry(entry)), within: entries.map((entry) => entryOrder(entry, FIRST) >= 0 && entryOrder(entry, LAST) <= 0) };
+    };
+    /** The membership reads of the work orders asked so far. */
+    const asked = () => h.requests("within", "records.work_orders");
+    /** The keys a membership read asked of, from its body. */
+    const keysOf = (request: E3Request) => (JSON.parse(new TextDecoder().decode(request.body)) as { keys: string[] }).keys;
+    /** Four readers whose batches have landed: each reader's keys asked in one batch, every answer kept for its reader. */
+    const landed = async () => {
+        const R1 = await hashOf(orders);
+        const read = await known(new WithinRuntime(), (r) => handleOf(r, toEastTypeValue(orders.type), ordersPath).revision!());
+        const source = read.runtime.sourceOf(handleOf(read.runtime, QueueWindowType, ordersPath, "pinned", BY_STATUS).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        const readers = [0, 1, 2, 3].map(readerOf);
+        for (const reader of readers) assert.equal(read.runtime.withinAll(source, LATE, reader.keys).type, "none");
+        await h.settle();
+        return { R1, ...read, source, readers };
+    };
+
+    test("four readers of 13,000 entry keys each read theirs after one batch apiece: past the cap what lands is kept until its reader reads it, and then the least recently read go", async () => {
+        const { R1, runtime, source, readers } = await landed();
+        assert.ok(asked().every((request) => request.query.get("hash") === R1), "pinned to the revision");
+        assert.deepEqual(asked().map((request) => keysOf(request).length).sort((a, b) => a - b),
+            [READ - 10_000, READ - 10_000, READ - 10_000, READ - 10_000, 10_000, 10_000, 10_000, 10_000], "each reader's batch is two requests");
+        assert.deepEqual(runtime.held(source), { answers: 4 * READ, kept: 4 * READ }, "past the cap, every answer is kept for the reader still to read it");
+        for (const reader of readers) assert.deepEqual(runtime.withinAll(source, LATE, reader.keys), some(reader.within));
+        assert.deepEqual(runtime.held(source), { answers: CAP, kept: 0 }, "read, the least recently read go, down to the cap");
+        await h.settle();
+        assert.equal(asked().length, 8, "one batch a reader: no reader's landing undid another's");
+    });
+
+    test("a reader whose answers went since it read them asks again for exactly those, in one batch, and converges", async () => {
+        const { runtime, source, readers } = await landed();
+        for (const reader of readers) runtime.withinAll(source, LATE, reader.keys);
+        const first = readers[0]!;
+        const before = asked().length;
+        assert.equal(runtime.withinAll(source, LATE, first.keys).type, "none", "the first reader read first: its answers went first");
+        await h.settle();
+        assert.deepEqual(asked().slice(before).map(keysOf), [first.keys.slice(0, 10_000), first.keys.slice(10_000, OVER)],
+            "exactly the answers that went: the first it read");
+        assert.deepEqual(runtime.withinAll(source, LATE, first.keys), some(first.within));
+        assert.deepEqual(runtime.withinAll(source, LATE, first.keys), some(first.within), "read again, it holds them");
+        await h.settle();
+        assert.equal(asked().length, before + 2, "one batch, and no request since");
+        assert.deepEqual(runtime.held(source), { answers: CAP, kept: 0 });
+    });
+
+    test("a batch in flight when the revision moves is dropped with what it kept: the next revision holds only its own answers, within the cap and what its batches keep", async () => {
+        const { R1, runtime, source, clock, readers } = await landed();
+        for (const reader of readers) runtime.withinAll(source, LATE, reader.keys);
+        const first = readers[0]!;
+        // The first reader asks again for the answers that went, its batch keeping the ones it holds; e3's answer is
+        // held on its way back.
+        const answers = h.e3.holdAnswers((request) => request.kind === "within");
+        assert.equal(runtime.withinAll(source, LATE, first.keys).type, "none");
+        await answers.holding;
+        assert.deepEqual(runtime.held(source), { answers: CAP, kept: READ - OVER }, "its batch keeps the answers it holds");
+        // Another session changes an order: the work orders move.
+        const stored = await h.read(orders);
+        await h.patch(orders, new SortedMap([...stored].map(([id, order]) => [id, id === "WO-1001" ? { ...order, crew: "Mech B" } : order] as const), keys));
+        const R2 = await hashOf(orders);
+        await poll(clock);
+        assert.deepEqual(runtime.held(source), { answers: 0, kept: 0 }, "the move drops the answers, and what the batch kept");
+        answers.release();
+        await h.settle();
+        assert.deepEqual(runtime.held(source), { answers: 0, kept: 0 }, "the old revision's answer, landing late, is dropped");
+        // At the new revision the reader asks again of every key, in one batch, kept until it reads them.
+        assert.equal(runtime.withinAll(source, LATE, first.keys).type, "none");
+        await h.settle();
+        assert.deepEqual(runtime.held(source), { answers: READ, kept: READ });
+        assert.deepEqual(runtime.withinAll(source, LATE, first.keys), some(first.within));
+        assert.deepEqual(runtime.held(source), { answers: READ, kept: 0 });
+        assert.deepEqual(asked().map((request) => request.query.get("hash")), [...Array.from({ length: 10 }, () => R1), R2, R2],
+            "four batches and the dropped one at the old revision — its second request refused there — and one at the new");
     });
 });
 
