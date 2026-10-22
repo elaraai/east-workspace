@@ -4,8 +4,8 @@
  */
 
 /**
- * Assertions the suites share: of a dataflow's result, and of the API's
- * refusal of a name no workspace can have.
+ * Assertions the suites share: of a dataflow's result, of a record mutation's,
+ * and of the API's refusal of a name no workspace can have.
  *
  * A bare `assert.strictEqual(result.success, true)` collapses a rich
  * failure — a task that exited non-zero, a runner that failed to spawn,
@@ -14,6 +14,9 @@
  * `.ref` rename-over-open can transiently fail). These helpers fold the
  * per-task diagnostics already carried in `result.tasks` into the
  * assertion message so the next failure is actionable instead of opaque.
+ * A mutation's outcome is the same: one that did not commit carries its
+ * program's exit code and the tail of its stderr, which a check of the
+ * outcome's case alone drops.
  *
  * Every route of a workspace refuses a name no workspace can have before it
  * takes a lock, as `invalid_name` of a workspace: a lock's name may hold the
@@ -24,7 +27,7 @@
 import assert from 'node:assert/strict';
 
 import { equalFor, isValueOf, printFor, type ValueTypeOf } from '@elaraai/east';
-import { InvalidNameErrorType } from '@elaraai/e3-types';
+import { InvalidNameErrorType, MutationResultType } from '@elaraai/e3-types';
 import { ApiError } from '@elaraai/e3-api-client';
 
 /** Why no workspace's name may hold `c`: it joins the parts of a lock's name. */
@@ -101,6 +104,21 @@ export function describeDataflowResult(result: DataflowResultLike): string {
     `failed=${result.failed} skipped=${result.skipped}`;
   const lines = result.tasks.map(describeTask);
   return lines.length > 0 ? `${counts}\ntasks:\n${lines.join('\n')}` : counts;
+}
+
+/** A record mutation's result, printed whole. */
+const printMutationResult = printFor(MutationResultType);
+
+/**
+ * Assert that a record mutation committed, printing its whole outcome when it
+ * did not: a failed program's exit code and the tail of its stderr, a timeout
+ * and the stderr it left, a conflict's detail, or why the call was invalid.
+ *
+ * @param result - The mutation's result, as `workspaceRecordMutate` answers it
+ * @param what - What the mutation does, which the message starts with (e.g. `seeding`)
+ */
+export function assertMutationCommitted(result: ValueTypeOf<typeof MutationResultType>, what: string): void {
+  assert.equal(result.outcome.type, 'committed', `${what} must commit, got ${printMutationResult(result)}`);
 }
 
 /**

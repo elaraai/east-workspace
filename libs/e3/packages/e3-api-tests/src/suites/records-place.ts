@@ -46,6 +46,7 @@ import {
 } from '@elaraai/e3-api-client';
 import { indexWindowType } from '@elaraai/e3-types';
 
+import { assertMutationCommitted } from '../assertions.js';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createPlaceRecordPackageZip, ORDERS_FROM, OrderRowType, OrdersType } from '../fixtures.js';
@@ -204,7 +205,7 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
       ctx.config.baseUrl, ctx.repoName, WS, 'orders', 'seed',
       { args: [encodeInt(ORDERS)], actor: none, limits: none }, opts,
     );
-    assert.equal(seeded.outcome.type, 'committed', `seeding must commit, got ${seeded.outcome.type}`);
+    assertMutationCommitted(seeded, 'seeding');
     const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, WS, ordersPath, opts);
     assert.ok(status.hash.type === 'some', 'the record holds a state');
     const { data } = await datasetGet(ctx.config.baseUrl, ctx.repoName, WS, ordersPath, opts);

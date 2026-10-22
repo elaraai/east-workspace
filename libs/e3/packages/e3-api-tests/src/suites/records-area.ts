@@ -43,6 +43,7 @@ import {
   type DatasetKeySearch,
 } from '@elaraai/e3-api-client';
 
+import { assertMutationCommitted } from '../assertions.js';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createAreaRecordPackageZip, RACK_CELL, RackAreaKeyType, RackHallAreaKeyType, RackRowType, RacksType } from '../fixtures.js';
@@ -209,7 +210,7 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       ctx.config.baseUrl, ctx.repoName, WS, 'racks', 'seed',
       { args: [encodeInt(RACKS)], actor: none, limits: none }, opts,
     );
-    assert.equal(seeded.outcome.type, 'committed', `seeding must commit, got ${seeded.outcome.type}`);
+    assertMutationCommitted(seeded, 'seeding');
     return { ctx, hash: await hashOf(ctx), racks: await racksOf(ctx) };
   };
 
@@ -358,7 +359,7 @@ export function areaRecordTests(setup: TestSetup<TestContext>): void {
       next.set(moved, { ...racks.get(moved)!, x: some(25.5), y: some(280.25) });
       const patched = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, WS, 'racks', 'patch',
         { args: [encodePatch(diffFor(RacksType)(racks, next))], actor: none, limits: none }, opts);
-      assert.equal(patched.outcome.type, 'committed', `the move must commit, got ${patched.outcome.type}`);
+      assertMutationCommitted(patched, 'the move');
       const movedHash = await hashOf(ctx);
       assert.notEqual(movedHash, hash, 'the move gives the floor another state');
       const now = await racksOf(ctx);
