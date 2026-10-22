@@ -19,8 +19,8 @@
 import { describe, test, expect } from "vitest";
 import { none } from "@elaraai/east";
 import {
-    LENS_EDGE_ROWS, LENS_PIECE_ROWS, LENS_REVEAL_ROWS, layoutLens, lensBodyItems, lensDemand, lensPieces, lensRegions,
-    type LensFacts, type LensGeometry, type LensItem, type LensLayout, type LensPlacement, type LensRow, type LensSegmentState,
+    LENS_EDGE_ROWS, LENS_PIECE_ROWS, LENS_REVEAL_ROWS, layoutLens, lensBodyItems, lensDemand, lensPieces, lensReadInTurns, lensRegions,
+    type LensFacts, type LensGeometry, type LensItem, type LensLayout, type LensPiece, type LensPlacement, type LensRow, type LensSegmentState,
 } from "./lens-layout.js";
 import type { LensRun } from "./lens.js";
 import type { SheetRowValue } from "./values.js";
@@ -96,22 +96,56 @@ describe("the record's stretches and their reads", () => {
         expect(lensPieces(lensRegions(pair), []).map((p) => [p.from, p.count])).toEqual([[0, 10], [10, 20]]);
     });
 
-    test("a view reads the segments it meets and the nearest beyond them, a segment's pages together, as far as the budget goes", () => {
+    test("a view wants the segments it meets, in the record's order, then the nearest beyond them, after and then before — a segment's pages together", () => {
         const pieces = [
             { key: "a1", from: 0, count: 2048, segment: 0 }, { key: "a2", from: 2048, count: 2048, segment: 0 },
             { key: "r", from: 5000, count: 200, segment: undefined },
             { key: "b", from: 6000, count: 1000, segment: 6000 },
             { key: "c", from: 8000, count: 1000, segment: 8000 },
         ];
-        expect([...lensDemand(pieces, 100, 200, 1, 16)].sort()).toEqual(["a1", "a2", "r"]);
-        expect([...lensDemand(pieces, 6500, 6600, 1, 16)].sort()).toEqual(["b", "c", "r"]);
-        expect([...lensDemand(pieces, 3000, 8500, 0, 16)].sort()).toEqual(["a1", "a2", "b", "c", "r"]);
-        // A segment that would pass the budget is not read in part: none of it is.
-        expect([...lensDemand(pieces, 100, 200, 1, 2)].sort()).toEqual(["a1", "a2"]);
-        expect([...lensDemand(pieces, 6500, 6600, 2, 2)].sort()).toEqual(["b", "c"]);
-        // A view past the end reads the last segment.
-        expect([...lensDemand(pieces, 20_000, 20_100, 0, 16)]).toEqual(["c"]);
-        expect(lensDemand([], 0, 10, 2, 16).size).toBe(0);
+        const keys = (groups: LensPiece[][]) => groups.map((g) => g.map((p) => p.key).join("+"));
+        expect(keys(lensDemand(pieces, 100, 200, 1))).toEqual(["a1+a2", "r"]);
+        expect(keys(lensDemand(pieces, 6500, 6600, 1))).toEqual(["b", "c", "r"]);
+        expect(keys(lensDemand(pieces, 6500, 6600, 2))).toEqual(["b", "c", "r", "a1+a2"]);
+        expect(keys(lensDemand(pieces, 3000, 8500, 0))).toEqual(["a1+a2", "r", "b", "c"]);
+        // A view past the end wants the last segment.
+        expect(keys(lensDemand(pieces, 20_000, 20_100, 0))).toEqual(["c"]);
+        expect(lensDemand([], 0, 10, 2)).toEqual([]);
+    });
+
+    test("the wanted reads are asked in turns, at most the budget in flight: a segment past it waits whole, a landing frees room, and what lands as it is asked takes none", () => {
+        // A tall view over sparse matches: twenty segments of one page each, and one of three pages.
+        const groups: LensPiece[][] = [
+            ...Array.from({ length: 20 }, (_x, i) => [{ key: `s${i}`, from: i * 1000, count: 1000, segment: i * 1000 }]),
+            [0, 1, 2].map((j) => ({ key: `t${j}`, from: 20_000 + j * 2048, count: 2048, segment: 20_000 })),
+        ];
+        const held = new Set<string>();
+        const now = new Set<string>();
+        /** One turn: what it asks, each answered at once when `now` holds it, else in flight. */
+        const turn = (budget: number): string[] => {
+            const asked: string[] = [];
+            lensReadInTurns(groups, (p) => held.has(p.key), (p) => {
+                asked.push(p.key);
+                if (!now.has(p.key)) return false;
+                held.add(p.key);
+                return true;
+            }, budget);
+            return asked;
+        };
+        // The first turn asks the first sixteen; the rest wait — none is dropped.
+        expect(turn(16)).toEqual(Array.from({ length: 16 }, (_x, i) => `s${i}`));
+        // Twelve land: kept, and asked no more. The four still in flight count against the budget: twelve more fit,
+        // the four remaining one-page segments and — a whole segment of three — the last.
+        for (let i = 0; i < 12; i++) held.add(`s${i}`);
+        expect(turn(16)).toEqual([...Array.from({ length: 8 }, (_x, i) => `s${12 + i}`), "t0", "t1", "t2"]);
+        // A segment that would pass the budget waits whole: with room for two, the three pages of `t` are not asked.
+        expect(turn(10)).toEqual(Array.from({ length: 8 }, (_x, i) => `s${12 + i}`));
+        // Pages already held land as they are asked and take no room: with room for one segment of three pages, every
+        // wanted read is had in one turn.
+        held.clear();
+        for (const g of groups) for (const p of g) now.add(p.key);
+        expect(turn(3)).toEqual([...Array.from({ length: 20 }, (_x, i) => `s${i}`), "t0", "t1", "t2"]);
+        expect(held.size).toBe(23);
     });
 });
 
@@ -185,9 +219,11 @@ describe("the layout", () => {
     test("its work is what it reads and shows, never the record's size: a million rows opened and not read are one band", () => {
         const placement: LensPlacement = { records: 1_000_000, segments: [{ offset: 0, count: 1000, matches: 1 }], matches: 1, placed: 1, complete: true };
         const facts = factsOf(placement, [{ from: 0, to: 1002, hits: [0] }]);
-        const started = performance.now();
-        const layout = layoutLens(facts, 0, [{ from: 2000, to: 999_999 }], G, WORDS);
-        expect(performance.now() - started).toBeLessThan(1000);
+        // What it asks of the rows it knows, counted: a few looks at each of the segment's thousand, none past them.
+        let looks = 0;
+        const counted: LensFacts = { ...facts, rowAt: (p) => { looks++; return facts.rowAt(p); } };
+        const layout = layoutLens(counted, 0, [{ from: 2000, to: 999_999 }], G, WORDS);
+        expect(looks).toBeLessThan(5 * 1003);
         expect(shape(layout)).toEqual(["0*", "gap 1-1999", "band 2000-999999"]);
     });
 });

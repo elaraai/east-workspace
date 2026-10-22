@@ -86,14 +86,19 @@ loaded"), though the in-memory test harness answers it (#1343). `Record.bind`
 stays the mutation door a Save commits through.
 
 The Sheet (#1345) takes `slice={{ slice: Slice.bindRecords(key, { rows, … })
-}}`. Its `rows` source gives the rows, paged from it, edited through
-`onApply={Record.onApply(record, { keyed: true })}`; a sheet over `record` or
-`data` takes a slice of templates sources alone. Each list is
+}}`. Its `rows` source gives the record's rows, every one in the record's
+order, paged from it, edited through `onApply={Record.onApply(record, { keyed:
+true })}`, and its narrowing is drawn over them as the lens (#1349): each match
+at its row number, its context rows either side and gaps of their size over
+the rest, e3 placing the narrowing's rows from the source's index alone and
+the renderer reading only the segments that hold them near the view. A sheet
+over `record` or `data` takes a slice of templates sources alone. Each list is
 `Sheet.templates(templates.read(), { name, group?, values, source })`, its
 record bound with `Data.bind`, a grouped sheet's row templates and group
 templates two records and two sources. A saved view is a
-`Sheet.Types.RecordView`, every source's narrowing by name. The lens is off
-until #1349: the rail filters the rows.
+`Sheet.Types.RecordView`, every source's narrowing by name, with the lens's
+context and the runs the planner opened by their rows' keys
+(`Sheet.Types.Reveal`).
 
 The Flowchart (#1346) takes `slice={{ slice: Slice.bindRecords(key, { flows, …
 }) }}`. Over `record`, its `flows` source — `Data.bindPaged(record, { indexes
@@ -155,9 +160,9 @@ supported combinations come from declared indexes.
 The Calendar's `slice` (#1343) is one `Slice.bindRecords`, a
 source named after each event kind's slot, each resource kind's slot, and each
 source a templates list or a tab names. An event kind's source reads its record
-through an interval index, for example `e3.recordIndex("by_status_time", events,
-{ on: ["status"], interval: { from: "start", to: "end" } })`, with `range:
-"start"`, and the kind gives `Data.bindPaged(events)` as its `entries`; a kind
+through an interval index, for example `e3.recordIndex.interval("by_status_time",
+events, { on: ["status"], from: "start", to: "end" })`, with `range: "start"`,
+and the kind gives `Data.bindPaged(events)` as its `entries`; a kind
 takes no `slice`, `filter`, `window` or `backlogWindow` beside its source. The
 Calendar's navigation writes its window into every event source's range, and
 the leading source's range is the time navigator's Range panel, never a chip of

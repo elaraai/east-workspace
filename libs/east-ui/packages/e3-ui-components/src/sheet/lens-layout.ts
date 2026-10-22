@@ -215,21 +215,21 @@ export function lensPieces(regions: readonly LensRegion[], reveals: readonly Len
 }
 
 /**
- * The reads to make for a view of the record's rows `[from, to]`: every
- * segment that view meets, and the nearest segments beyond it either side, as
- * far as `budget` reads allow — each segment's pages together, so a segment is
- * read whole or not at all; a run the planner opened counts as a segment of
- * its own.
+ * The reads a view of the record's rows `[from, to]` wants, in the order they
+ * are read: every segment that view meets, in the record's order, then the
+ * nearest segments beyond it, after it and then before it, `beyond` of them
+ * on each side. Each segment's pages are one group, read together, so a
+ * segment is read whole or not at all; a run the planner opened is a group of
+ * its own. What has landed of them is kept while they are wanted, however
+ * many there are: {@link lensReadInTurns} reads the rest a turn at a time.
  *
  * @param pieces - Every read the lens takes, in the record's order
  * @param from - The view's first row
  * @param to - The view's last row
  * @param beyond - How many segments past the view on each side
- * @param budget - The most reads at once
- * @returns The reads, by key
+ * @returns The groups wanted, in the order they are read
  */
-export function lensDemand(pieces: readonly LensPiece[], from: number, to: number, beyond: number, budget: number): Set<string> {
-    const out = new Set<string>();
+export function lensDemand(pieces: readonly LensPiece[], from: number, to: number, beyond: number): LensPiece[][] {
     // Consecutive pieces of one segment read together.
     const groups: LensPiece[][] = [];
     for (const p of pieces) {
@@ -237,23 +237,48 @@ export function lensDemand(pieces: readonly LensPiece[], from: number, to: numbe
         if (last !== undefined && p.segment !== undefined && last[0]!.segment === p.segment) last.push(p);
         else groups.push([p]);
     }
-    if (groups.length === 0) return out;
+    if (groups.length === 0) return [];
     const end = (g: LensPiece[]) => g[g.length - 1]!.from + g[g.length - 1]!.count;
     // The first group ending past the view's first row, and the last starting at or before its last.
     let first = groups.findIndex((g) => end(g) > from);
     if (first < 0) first = groups.length - 1;
     let last = first;
     while (last + 1 < groups.length && groups[last + 1]![0]!.from <= to) last++;
-    const add = (g: LensPiece[] | undefined): void => {
-        if (g === undefined || out.size + g.length > budget) return;
-        for (const p of g) out.add(p.key);
-    };
-    for (let i = first; i <= last; i++) add(groups[i]);
+    const out = groups.slice(first, last + 1);
     for (let d = 1; d <= beyond; d++) {
-        add(groups[last + d]);
-        add(groups[first - d]);
+        const after = groups[last + d];
+        if (after !== undefined) out.push(after);
+        const before = groups[first - d];
+        if (before !== undefined) out.push(before);
     }
     return out;
+}
+
+/**
+ * Asks for the wanted reads that have not landed, in their order, with at
+ * most `budget` pieces in flight at once, so the record Slice's and the paging
+ * runtime's bounded caches hold every page in flight: a group that would pass
+ * the budget waits whole for a later turn, as one landing frees room for it.
+ * A piece that lands as it is asked — its pages already held — takes no room,
+ * so a view whose reads are held is read whole in one turn.
+ *
+ * @param groups - The groups wanted, in the order they are read ({@link lensDemand})
+ * @param landed - Whether a piece has landed whole, or failed: either way, not asked again
+ * @param request - Asks for a piece, returning whether it has landed whole
+ * @param budget - The most pieces in flight at once
+ */
+export function lensReadInTurns(
+    groups: readonly (readonly LensPiece[])[],
+    landed: (piece: LensPiece) => boolean,
+    request: (piece: LensPiece) => boolean,
+    budget: number,
+): void {
+    let inFlight = 0;
+    for (const group of groups) {
+        const unread = group.filter((p) => !landed(p));
+        if (unread.length === 0 || inFlight + unread.length > budget) continue;
+        for (const p of unread) if (!request(p)) inFlight++;
+    }
 }
 
 /** The estimate of a segment of `count` rows holding `matches`, drawn under `context`: its matches and their context rows, and a band between each. */

@@ -521,7 +521,7 @@ export const Suggestion = StructType({ person: StringType, day: DateTimeType, te
 
 export const duties = e3.record("warehouse_duties", DictType(StringType, Duty), dutySeed);
 export const dutiesPatch = e3.mutation.patch(duties);
-export const dutiesByTime = e3.recordIndex("warehouse_duties_by_time", duties, { interval: { from: "start", to: "end" } });
+export const dutiesByTime = e3.recordIndex.interval("warehouse_duties_by_time", duties, { from: "start", to: "end" });
 export const rotaWeeks = e3.record("warehouse_rota_weeks", DictType(DateTimeType, RotaWeek), new Map());
 export const rotaWeeksPatch = e3.mutation.patch(rotaWeeks);
 export const cover = e3.record("warehouse_cover", DictType(StringType, Cover), coverSeed);
@@ -764,7 +764,7 @@ export const KilnBin = StructType({
 export const YardDay = StructType({ state: VariantType({ draft: NullType, issued: StructType({ at: DateTimeType }) }) });
 export const kilnBins = e3.record("kiln_bins", DictType(StringType, KilnBin), binSeed);
 export const kilnBinsPatch = e3.mutation.patch(kilnBins);
-export const kilnBinsByTime = e3.recordIndex("kiln_bins_by_time", kilnBins, { interval: { from: "at", to: "at" } });
+export const kilnBinsByTime = e3.recordIndex.interval("kiln_bins_by_time", kilnBins, { from: "at", to: "at" });
 export const yardDays = e3.record("yard_days", DictType(DateTimeType, YardDay), daySeed);
 export const yardDaysPatch = e3.mutation.patch(yardDays);
 ```
