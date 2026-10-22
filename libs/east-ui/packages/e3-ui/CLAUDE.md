@@ -131,8 +131,17 @@ never the kind's record. A kind's details (`Schematic.details`) are bound as
 their kind is read: whole beside a kind read whole, by key beside one read
 through its source. Each templates list is `Schematic.templates(
 templates.read(), { name, group?, values, source })` over a record bound with
-`Data.bind`. The library's tabs are `Schematic.library`'s: a kind's templates
-or unplaced rows, by its slot, the zones' index and the layers.
+`Data.bind`, and its layers are the app's rows too — `Schematic.layers(
+systems.read(), { label, order?, tone?, color?, … })` over a record bound with
+`Data.bind`, as the Roster's lists are (#1401). Its shapes are accessors over
+the row's own fields (`footprint: (u) => some(Schematic.circle(u.radius))`),
+so no record of the app's holds a type of the Schematic's. Its props are the
+Plan's: `id`, an `inspector` opted into (a kind's own Details its kind's
+`inspector`), `onSelect` over the whole selection and `canConnect` answering
+a candidate with the refusal's words. The library's tabs are
+`Schematic.library`'s, each over every kind as the Calendar's are:
+`templates()`, `backlog()` (every item kind's rows with no position), the
+zones' `index()` and the `layers()`.
 
 A builder takes neither `Slice.bind` nor a single `Slice.bindRecord`; east-ui's
 own collections — a Table, a Library, a Deck — keep their own Slice

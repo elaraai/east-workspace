@@ -20,8 +20,8 @@ screen and the far ends of the links drawn come in one request per window,
 through #1351's rows form (§12), and a view too wide to draw item by item
 draws its density from the index's counts.
 
-This document is the design the epic builds. Its rulings were given on 21 Oct
-2026 (§3); the rest follows the builders already on main, and §3 names the
+This document is the design the epic builds. Its rulings were given on 21 and
+22 Oct 2026 (§3); the rest follows the builders already on main, and §3 names the
 precedent each decision follows. Each sub-issue copies the sections and rules
 it owns (§18).
 
@@ -32,10 +32,16 @@ shape of its own (#1365).
 
 ```tsx
 // What it draws and writes: your records, their fields mapped to its roles.
-items={{ racks: Schematic.items(Record.bind(racks, [racksPatch]), {
-    name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name",
-    footprint: "outline", layer: "system", entries: Data.bindPaged(racks),
-}) }}
+items={{
+    racks: Schematic.items(Record.bind(racks, [racksPatch]), {
+        name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name",
+        layer: "system", entries: Data.bindPaged(racks),
+    }),
+    cooling: Schematic.items(Record.bind(units, [unitsPatch]), {
+        name: "Cooling unit", icon: "fan", x: "x", y: "y", width: "w", height: "h", label: "name",
+        footprint: (unit) => some(Schematic.circle(unit.radius)),   // its own `radius: Float`, drawn as a circle
+    }),
+}}
 links={{ fibre: Schematic.links(Record.bind(fibres, [fibresPatch]), {
     name: "Fibre run", from: { field: "from", of: "racks" }, to: { field: "to", of: "racks" }, via: "path",
 }) }}
@@ -44,7 +50,7 @@ links={{ fibre: Schematic.links(Record.bind(fibres, [fibresPatch]), {
 // read only and read by key, as its kind is read through its source (rule 4).
 details: Schematic.details(Data.bindPaged(rackLoads), {
     meter: (load) => ({ value: load.kw, max: load.capacity }),
-    metric: (load) => East.str`${East.Float.printFixed(load.kw, 1n)} kW`,
+    metric: (load) => some(East.str`${East.Float.printFixed(load.kw, 1n)} kW`),
     status: { field: "alarm", cases: { ok: { label: "OK", tone: variant("success", null), ring: false }, … } },
 }),
 ```
@@ -53,14 +59,17 @@ details: Schematic.details(Data.bindPaged(rackLoads), {
    the role when the code compiles, and again at build. A mismatch is refused,
    naming the role, the field and the field's type. A role the app computes
    (a sub-label, a meter, a tone) is an accessor `(row, key) => …`, reified
-   once and called per row.
+   once and called per row. So is a role whose value is one of the
+   Schematic's own types (a footprint, a zone's shape, a pattern, a style):
+   the accessor builds it with the Schematic's helpers from the row's own
+   fields, so the app's record holds only its own types (D35).
 2. **A gesture writes only the fields its roles map.** Every other field of the
    row reads back as it was. The inspector edits the other fields through the
    kind's `fields` hints, or through the kind's own `inspector`.
 3. **An optional role left out turns off what it drives.** Without `layer`,
    the kind's entities are on no layer. Without `footprint`, an item draws as
    its card and its marker. With `x` and `y` Options, an item kind has a
-   backlog: the rows with no position (§7, §8).
+   backlog: the rows with no position, listed in the Backlog tab (§7, §8).
 4. **A kind is editable when bound with its patch door**,
    `Record.bind(record, [e3.mutation.patch(record)])`, and read only when
    bound with `Data.bind(record)` or `Data.bindPaged(record)`. How it is
@@ -92,17 +101,25 @@ the message names the form that replaces it.
 | `onMoveItem`, `onCreateLink`, `onEditLink`, `onDeleteLink`, `onEditNet` | the editing session: every gesture is a transaction, and Save writes the records (§7) |
 | `linkMode` (`draw` or `connect`) | the Connect tool, which always records a link (§7). An app that plans operations between items gives them a link kind of their own |
 | `readOnlyLinks`, `readOnlyItems` | the kind bound read only, with `Data.bind` or `Data.bindPaged` (§1, rule 4) |
-| `itemHover`, `zoneHover`, `linkHover` | the inspector, on by default, and a kind's own `inspector` (§9) |
+| `itemHover`, `zoneHover`, `linkHover` | the inspector (`inspector`), and a kind's own `inspector` (§9) |
 | `slice={Slice.bind(…)}` beside `items={Slice.partition(…)}`, and `affordances` | `slice={{ slice: Slice.bindRecords(key, { … }), affordances? }}`; each source is named after the kind it narrows (§10) |
 | `sliceHidden`, `sliceOpacity`, `sliceDesaturate`, `sliceDot`, `sliceEmphasis`, `sliceFrame`, `sliceFrameFit`, and an item's `excluded` | `narrowed`, whose dim options are read from each source's shown keys (§10.3) |
 | `sliceSelectField` | nothing: the selection drives the inspector, and the rail is the only narrowing |
 | `selectionMode` | built in: a tap selects, Shift extends, and the Marquee tool boxes (§6.1) |
 | `navigator` | the Library's Index tab (`Schematic.library.index()`, §8) |
-| `layers` items' `visible` and `locked` only as author defaults | unchanged as defaults; the viewer's choices live in the Layers tab (§8) |
+| `layers={[ { key, label, tone, visible, locked, opacity } ]}`, a list written in the code | `layers={Schematic.layers(rows, { label, order?, tone?, color?, visible?, locked?, opacity? })}` over the app's record of layers (D36, §8); `visible` and `locked` stay the author's defaults, and the viewer's choices live in the Layers tab |
 | `height`, `maxHeight` | the box the Schematic fills: `<Box height="640px"><Schematic … /></Box>` |
 | `color` and `bg` as raw CSS strings | a theme colour token, such as `status.warn` or `heat.3`, resolved through the theme on the canvas and the cards alike (§4.1), or `tone` |
 | a footprint's and a zone's `polyline` and `polygon` vertices in world coordinates | offsets from the entity's anchor, an item's centre or a zone's box centre, inside its box (§4.7) |
-| `onSelect`, `onSelectZone` (one key each) | `onSelectionChange` and `onZoneSelectionChange`, whose events name each entity by its kind and key (§5) |
+| a footprint or a zone's shape stored in the app's row as `Schematic.Types.Geometry`, its role naming that field | an accessor building the shape from the row's own fields with `Schematic.circle`, `polygon`, `polyline` or `rect` (D35, §4.1, §4.2) |
+| `onSelect` and `onSelectZone` (one key each), `onSelectionChange`, `onZoneSelectionChange` and `onSelectLink` | `onSelect`, hearing the whole selection after each change, each entity by its `Ref` (D34, §5) |
+| `onViewportChange` | nothing: the canvas reads its own window (§10.4) |
+| `onItemOpen` | Enter or a double-click opens the selection in the inspector's Details (§9) |
+| `selectZoomFocus` | nothing: a tap selects in place, and Find, the Index tab and the arrow keys fly to what they pick |
+| `canConnect(from, to)` returning a Boolean | `canConnect(candidate)` returning `none`, or the refusal's words, which the draft shows (D34, §5) |
+| `name` | `id` (D31, §5) |
+| `inspector` on by default, and `inspector={{ <slot>: Details }}` | `inspector`, `true` or `false`, off by default; a kind's own Details is its kind's `inspector` (D32, §9) |
+| `Schematic.library.templates(slot)`, `Schematic.library.unplaced(slot)` | `Schematic.library.templates()` and `Schematic.library.backlog()`, each over every kind (D33, §8) |
 
 **No converter.** An app's rows become its records, as with any record whose
 type an application changes. east-ui's `Schematic` arm goes from
@@ -117,7 +134,7 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D3 | **Details**: each kind may name a details record keyed the same (`Schematic.details`). The inspector shows it, editable when bound with its patch door, and the cards on screen draw its status, meter and metric. A window's details come in one request through #1351's new rows form (§12), never one per item. | ruled 21 Oct 2026 ("Inspector and cards") |
 | D4 | **One drawing**: `extent` and `scaleUnit` are props, and the Schematic's records hold one drawing. | ruled 21 Oct 2026 |
 | D5 | **Narrowed-out rows are hidden.** `narrowed="dim"` keeps them as context with today's ghost options: opacity, desaturate, dot, emphasis, frame and fit (§10.3). | ruled 21 Oct 2026 |
-| D6 | **Unplaced items**: an item kind whose `x` and `y` are Options has a backlog, listed in the Library's Unplaced tab. A drop places a row; Unplace in the inspector clears its position (§7, §8). | ruled 21 Oct 2026 |
+| D6 | **Unplaced items**: an item kind whose `x` and `y` are Options has a backlog, listed in the Library's Backlog tab (`Schematic.library.backlog()`, D33). A drop places a row; Unplace in the inspector clears its position (§7, §8). | ruled 21 Oct 2026 |
 | D7 | **Deleting an item** deletes the links that name it and its legs of every net, in the same step. Undo restores them all. | ruled 21 Oct 2026 |
 | D8 | **Sample data**: a data centre floor. Racks are items with power meters; halls and cages are zones; hot and cold aisles are hatched bands; fibre runs are links; power distribution units feeding many racks are nets; power, cooling, network and structure are layers. The current corpus is rewritten whole before the move (§18, task 2). | ruled 21 Oct 2026 |
 | D9 | The app's own records, through kinds and roles. | #1365 ("a builder stores nothing in a shape of its own") |
@@ -142,6 +159,12 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D28 | **A window's narrowing by `within`.** Under a narrowing its area index doesn't lead, a window asks #1349's `within` which of its rows the narrowing holds, in one request (§10.3). | ruled 22 Oct 2026 (the review's eight fixes, §19: "All eight") |
 | D29 | **A window reads its index alone.** The area and key-temporal indexes carry their whole rows, so a window reads no record segment. `Data.bindPaged`'s rule of one projection a binding becomes: each index carries the whole row or nothing, and each is read as it can, one that carries the row without a join and one that doesn't with it (§10.4, §11.1). | ruled 22 Oct 2026 (the review's eight fixes, §19: "All eight"), with the binding rule my call: one source keeps every tab and the rail on one binding |
 | D30 | **Each segment read once.** `findKeys`, the rows form and the runs form read each segment they touch once, several at a time, and decode it once, and the API process keeps decoded segments, by content hash and bounded by bytes, for every dataset route (§12). | ruled 22 Oct 2026 (the review's eight fixes, §19: "All eight") |
+| D31 | **`id` names the Schematic.** Its frame's panes, its library, its layers, its tools and its drop surface are kept under `schematicKeys(id)`, as `planKeys(id)` keeps the Plan's. `name` is refused, naming `id`. | ruled 22 Oct 2026, on the user's "the schematic seems to have a different dx to the more common plan, roster, calendar etc" (#1401) |
+| D32 | **The inspector is opted into.** `inspector` is `true` or `false`; left out, there is no end pane, as the Plan's, the Roster's and the Calendar's. A kind's own Details is its kind's `inspector`; `inspector={{ <slot>: Details }}` is refused, naming it. | ruled 22 Oct 2026 (#1401) |
+| D33 | **The library's tabs cover every kind.** `Schematic.library.templates()` lists every kind's templates and `Schematic.library.backlog()` every item kind's rows with no position, each kind's under its name, in tabs named Templates and Backlog, as the Calendar's are. `templates(slot)` and `unplaced(slot)` are refused, naming them. | ruled 22 Oct 2026 (#1401) |
+| D34 | **The Schematic reports as the Calendar does.** `onSelect` hears the whole selection after each change, each entity by its `Ref`, and `[]` when it is cleared. `canConnect` hears a `Candidate`, `{ kind, from, to }`, and returns `none`, or the refusal's words, which the draft shows, as `canDrop`'s show on the Calendar's ghost. `onSelectionChange`, `onZoneSelectionChange`, `onSelectLink`, `onViewportChange`, `onItemOpen` and `selectZoomFocus` are refused, each naming what replaces it. | ruled 22 Oct 2026 (#1401) |
+| D35 | **Shapes are accessors over the app's own fields.** `footprint` and a zone's `geometry` return an `Option<Schematic.Types.Geometry>` built with `Schematic.circle`, `polygon`, `polyline` or `rect`, so the app's records hold only its own types; `pattern` and `style` were accessors already. A link's `via` stays a field: an `Array` of `{ x, y }` Floats, which any app's points already are. | ruled 22 Oct 2026, on the user's "also roster etc have like helpers to defined mapped entries etc, are we doing that?" (#1401) |
+| D36 | **The layers are the app's rows.** `layers={Schematic.layers(rows, { label, order?, tone?, color?, visible?, locked?, opacity? })}` reads a keyed record of the app's through accessors, as `Roster.groups(teams.read(), { label, order })` does, in their `order`, then key order; an entity's `layer` names a layer by its key. A list written in the code is refused, naming `Schematic.layers`. | ruled 22 Oct 2026 (#1401) |
 
 ## 4. The kinds
 
@@ -156,10 +179,10 @@ One kind of placed item: racks, cooling units, power distribution units.
 
 | Role | A field of the row of type | Written by | Drives |
 |---|---|---|---|
-| `x`, `y` | `Float`, or both `Option<Float>` | Move, Place, Unplace | the item's centre in world units. With Options, the kind has a backlog: rows with no position never draw and are listed in Unplaced |
+| `x`, `y` | `Float`, or both `Option<Float>` | Move, Place, Unplace | the item's centre in world units. With Options, the kind has a backlog: rows with no position never draw and are listed in the Backlog tab |
 | `label` | `String` (a field, or an accessor) | the inspector | the card's name and the labelled dot |
 | `width`, `height`? | `Float` | the inspector | the item's world box about its centre: the card's width, the bounds its footprint lies inside, and its box in the area index (§11) |
-| `footprint`? | `Option<Schematic.Types.Geometry>` | the inspector | the shape drawn at card zoom, about the item's centre (§4.7): a circle, a polyline or a polygon. One outside its box is listed in Issues |
+| `footprint`? | an accessor to `Option<Schematic.Types.Geometry>`, built with `Schematic.circle`, `polygon`, `polyline` or `rect` from the row's own fields (D35) | the inspector, through those fields | the shape drawn at card zoom, about the item's centre (§4.7): a circle, a polyline or a polygon. One outside its box is listed in Issues |
 | `layer`? | `String` | the inspector | the layer the item is on (§8) |
 | `icon`? | a Font Awesome solid icon name, or an accessor returning one | — | the card's icon |
 | `sublabel`?, `metric`? | accessors to `String` / `Option<String>` | — | the card's second line, and its figure |
@@ -190,7 +213,7 @@ Halls, cages, aisles: drawn under the items, outlined or hatched.
 | `width`, `height` | `Float` | its box |
 | `label` | `String` | the eyebrow on its boundary, and its line in the Index tab |
 | `pattern`? | accessor to `Schematic.Types.ZonePattern` | outline (default) or hatch. A hatched zone is an annotation: it holds no items in the Index tab and takes no tap |
-| `geometry`? | `Option<Schematic.Types.Geometry>` | its drawn shape, about the box's centre (§4.7); the box stays its bounds |
+| `geometry`? | an accessor to `Option<Schematic.Types.Geometry>`, built from the row's own fields as a footprint is (D35) | its drawn shape, about the box's centre (§4.7); the box stays its bounds |
 | `layer`?, `tone`?, `color`?, `fillOpacity`?, `weight`? | as an item's | |
 
 Options are `name`, `icon`, `entries`, `details`, `fields`, `inspector` and
@@ -202,7 +225,7 @@ the inspector, when the kind is bound with its patch door.
 | Role | Type | Written by | Drives |
 |---|---|---|---|
 | `from`, `to` | `{ field, of }`: a `String` field holding a key of the item slot `of` names, or a variant field of String cases, `of` naming an item slot per case (Schedule's resource shapes) | Connect, Retarget | the link's ends |
-| `via`? | `Array<Schematic.Types.Point>` | the inspector | its waypoints |
+| `via`? | an `Array` of `{ x: Float, y: Float }` (`Schematic.Types.Point`): the app's own points | the inspector | its waypoints |
 | `label`?, `metric`? | accessors | — | the pill at the path's middle, from the label zoom |
 | `style`?, `route`? | accessors to `Schematic.Types.LinkStyle` and `Route` | — | solid or dashed, its tone and weight; orthogonal or direct |
 | `layer`? | `String` | the inspector | its layer |
@@ -260,18 +283,22 @@ naming the change (`templatesSource`).
 
 ### 4.7 Value types and helpers
 
-`Schematic.Types` keeps the value types an app's rows use as field types:
-`Geometry`, `Vertex`, `Point`, `Tone`, `ZonePattern`, `LinkStyle`, `Route`,
-`Status`, `StatusCases(V)`, and `Patch(R)`. It adds:
+`Schematic.Types` holds the value types the Schematic's accessors return and
+its kinds' wire carries: `Geometry`, `Vertex`, `Point`, `Tone`, `ZonePattern`,
+`LinkStyle`, `Route`, `Status`, `StatusCases(V)`, `Meter` and `Patch(R)`. An
+app's records hold their own types, which its accessors map (D35). It adds:
 
 - `Ref`, `{ kind: String, key: String }`: an entity named by its slot and its key;
 - `Box`, `{ minX, minY, maxX, maxY }` in world units;
-- the selection and viewport events (§5).
+- `Candidate`, `{ kind: String, from: Ref, to: Ref }`: the link or net a Connect, a Retarget or an Extend would write, and its two items, as `canConnect` hears it (§5).
 
 These helpers stay: `outline`, `hatch`, `solid`, `dashed`, `rect`, `circle`,
-`polyline` and `polygon`. These are added:
+`polyline` and `polygon`. `polygon` and `polyline` take the row's own points,
+`{ x, y }` (a bulge of 0) or `{ x, y, bulge }`, and `polyline`'s `width` takes
+a row's Float. These are added:
 
 - `Schematic.patch(R, { … })`: what an author's card dropped on an entity sets, as `Schedule.patch`;
+- `Schematic.layers(rows, { … })`: the layers, from the app's record (§8);
 - `Schematic.library.*` (§8).
 
 **Geometry is drawn about its entity's anchor** (D22): an item's centre, or a
@@ -307,22 +334,21 @@ kind's `rows` gives the renderer.
 | `scaleUnit`? | `String` | the scale bar's unit |
 | `items` | `{ [slot]: Schematic.items(…) }`, one at least | |
 | `zones`?, `links`?, `nets`? | by slot | |
-| `layers`? | `{ key, label, tone?, visible?, locked?, opacity? }[]` | the layers and their defaults (§8) |
+| `layers`? | `Schematic.layers(rows, { label, order?, tone?, color?, visible?, locked?, opacity? })` | the layers, from the app's record, and their defaults (§8) |
 | `slice`? | `{ slice: Slice.bindRecords(key, { … }), affordances?, persist? }` | the rail (§10) |
 | `narrowed`? | `"hide"` (default), `"dim"`, or `{ show: "hide" \| "dim", opacity?, desaturate?, dot?, emphasis?: "halo" \| "pulse", frame?, fit? }` | §10.3 |
 | `library`? | `Schematic.library.*` calls, in order | the start pane; left out, none |
-| `inspector`? | `true` (default), `false`, or `{ [slot]: (row, update) => UIComponentType }` | the end pane; a slot's own Details in place of its form |
+| `inspector`? | Boolean, `false` by default | the end pane (§9); left out, none. A kind's own Details is its kind's `inspector` |
 | `readOnly`? | Boolean | no gesture, drop or inspector edit; selection stays |
-| `name`? | String | the Schematic's keys (`schematicKeys`), when one surface holds two |
+| `id`? | String | the Schematic's keys (`schematicKeys`), when one surface holds two |
 | `grid`?, `minimap`? | Boolean | the metric grid (on by default); the minimap (shown at 25 items or more by default) |
-| `selectZoomFocus`? | Boolean | a selection flies the camera to it |
-| `canConnect`? | `(from: Ref, to: Ref) => Boolean` | vetoes a pair before a draft snaps. A throwing veto allows the pair and logs it |
-| `onSelectionChange`?, `onZoneSelectionChange`?, `onSelectLink`?, `onViewportChange`?, `onItemOpen`? | East functions | the host hears; each event names its entities by `Ref` |
+| `canConnect`? | `(candidate: Candidate) => Option<String>` | vetoes a link or a net before a draft snaps: `none` allows it, and words refuse it and show on the draft. A throwing veto allows the pair and logs it |
+| `onSelect`? | `(selected: Array<Ref>) => Null` | hears the whole selection after each change, each entity by its `Ref`: items, zones, links and nets alike; `[]` when it is cleared |
 
 The carrier is `EastUI.component("Schematic", SchematicPayloadType, { optional:
 true })`, and its renderer registers through `implementUIComponent`.
-`schematicKeys(name)` names the frame's storage, the library, the layers' and
-the tools' UI-store keys and the drop surface, as `flowchartKeys` does.
+`schematicKeys(id)` names the frame's storage, the library, the layers' and
+the tools' UI-store keys and the drop surface, as `planKeys(id)` does.
 
 ## 6. The frame
 
@@ -358,8 +384,8 @@ On the shared `builder-footer.ts` rail:
 ### 6.4 Panes and banners
 
 The library is in the start pane when `library` lists a tab (§8). The
-inspector is in the end pane, on by default (§9). Their open tab and collapsed
-state persist under `schematicKeys(name).frame`.
+inspector is in the end pane when `inspector` is given (§9). Their open tab and
+collapsed state persist under `schematicKeys(id).frame`.
 
 Banners sit under the toolbar: the sessions' (`SessionBanners`, each titled by
 its record), and a source whose narrowing couldn't be read, with Retry.
@@ -411,22 +437,26 @@ window stays drawn until the next lands (§10.4).
 
 `library` lists the tabs, in order:
 
-- `Schematic.library.templates(slot)`: the slot's templates (§4.6), grouped by
-  their `group`, each card a drag source. The tab follows its templates'
-  source.
-- `Schematic.library.unplaced(slot)`: an item kind's rows with no position,
-  each a drag source. Read by area, they are paged through the area index's
+- `Schematic.library.templates()`: every kind's templates (§4.6), each kind's
+  under its name, then grouped by their `group`, each card a drag source: an
+  item kind's land on the canvas, a link kind's on a link. Each kind's cards
+  follow their templates' source. A Schematic none of whose kinds has
+  templates is refused, naming the change (D33).
+- `Schematic.library.backlog()`: every item kind's rows with no position,
+  each kind's under its name, each a drag source, in the Backlog tab, as the
+  Calendar's is. Read by area, a kind's are paged through the area index's
   unplaced clause (§11.4) with `PagedLibrary`, counted `N of M`; read whole or
-  complete, they are listed from the rows in hand. A slot whose `x` and `y`
-  aren't Options is refused, naming the change.
+  complete, they are listed from the rows in hand. A Schematic none of whose
+  item kinds has `x` and `y` Options is refused, naming the change (D33).
 - `Schematic.library.index()`: the zones, nested by containment. The zone the
   viewport is in is marked, a click flies to a zone and selects it, and an
   opened zone lists its items, read through each item kind's source by the
   zone's box (§10.4). Its search finds items by the sources' `search` fields
   (ruling 11). Hatched zones hold no items.
-- `Schematic.library.layers()`: each layer's swatch, label and count, with
-  Isolate, Lock and Show or Hide, and Show all. The viewer's choices persist
-  under `schematicKeys(name).layers`. A locked layer's entities never select,
+- `Schematic.library.layers()`: each layer `Schematic.layers` reads from the
+  app's record (D36), its swatch, label and count, with Isolate, Lock and Show
+  or Hide, and Show all. The viewer's choices persist under
+  `schematicKeys(id).layers`. A locked layer's entities never select,
   and a hidden layer's never draw. Like the Plan's Series and the Sheet's
   Columns, these are view settings.
 - `Schematic.library.tab(rows, { name, key, label, meta?, group?, icon?, drop?, source? })`:
@@ -439,8 +469,9 @@ with Clear filters. A tab's search box finds within that tab alone.
 
 ## 9. The inspector
 
-The end pane holds Details and Issues, on the shared inspector parts
-(`inspector-head`, `FieldForm` through `Fields.specs`).
+Given `inspector`, the end pane holds Details and Issues, on the shared
+inspector parts (`inspector-head`, `FieldForm` through `Fields.specs`). Enter,
+or a double-click on an entity, opens the selection in Details (D34).
 
 **Details** shows what is selected:
 - **An item** shows:
@@ -491,7 +522,7 @@ single `Slice.bindRecord` and the `brush` affordance.
 
 ### 10.2 Where a source narrows
 
-A source narrows its kind on the canvas, in its tabs (Unplaced, the Index's
+A source narrows its kind on the canvas, in its tabs (Backlog, the Index's
 item lists, the templates it names) and in the inspector's Choosers. A link or
 a net draws only while both its ends draw.
 
@@ -830,13 +861,13 @@ forms beside it, and how all three read (D24, D30):
 ## 13. Examples
 
 In `e3-ui/test/schematic/`, each defining its component inline, with its
-records in the file:
+records in the file, and each Schematic named by its `id`:
 
 | Example | Shows |
 |---|---|
 | `schematicFloor` | the smallest: one hall's racks, read only (`Data.bind`), no panes |
-| `schematicDataCentre` | the builder: racks, cooling units and power distribution units (three item kinds); halls and cages; hot and cold aisles; fibre runs; power feeds as nets; the racks' loads as details (cards and inspector); rack and fibre templates; Unplaced, Index and Layers; the rail; `narrowed="dim"`; a kind's own inspector |
-| `schematicShapes` | read only: polygon, circle and polyline footprints and zones, tones and theme colours, layers |
+| `schematicDataCentre` | the builder: racks, cooling units and power distribution units (three item kinds); halls and cages; hot and cold aisles; fibre runs; power feeds as nets; the racks' loads as details (cards and inspector); rack and fibre templates; Templates, Backlog, Index and Layers, its layers a systems record; the rail; `narrowed="dim"`; the inspector, and a kind's own Details; `onSelect`, the whole selection kept in a State of the host's; and `canConnect`, a run between two frames refused in its words. Its records hold their own fields, mapped by accessors: a cooling unit's radius, an area's kind, a fibre run's cable |
+| `schematicShapes` | read only: polygon, circle and polyline footprints and zones, built by accessors from the rows' own fields; tones and theme colours; layers from a systems record |
 | `schematicRecordIndexes` | 50,000 racks over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom; the rail; and the cards' loads, bound with `Data.bindPaged` and read by key, one request a window. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
 | `schematicRecordIndexesMobile` | the same in a phone-width container |
 | `schematicHandover` | no panes: the toolbar, the canvas and the footer |
@@ -848,12 +879,12 @@ records in the file:
 | SC1 | A role naming a missing field, or a field of another type, is refused at build, naming the role, the field and its type. | `e3-ui/src/schematic/kinds.ts` | spec per role |
 | SC2 | A gesture writes only its roles' fields; every other field of the row reads back as it was. | `kinds.ts` (`write`) | spec: a rack with fields of its own, moved and saved, reads back whole |
 | SC3 | Each removed prop and type (§2) is refused at build, naming its replacement. | `schematic/payload.ts` | spec per prop |
-| SC4 | An item kind with Option `x`, `y` has a backlog: its unplaced rows never draw, are listed in Unplaced, are placed by a drop, and are cleared by Unplace. | `kinds.ts`, renderer | DOM; responsive |
+| SC4 | An item kind with Option `x`, `y` has a backlog: its unplaced rows never draw, are listed in the Backlog tab, are placed by a drop, and are cleared by Unplace. | `kinds.ts`, renderer | DOM; responsive |
 | SC5 | Del on items deletes them, every link naming one and every net leg naming one, in one step; Undo restores them; Save sends each record. | renderer `edits.ts` | DOM |
 | SC6 | Save sends each changed record's batch as its own request; a conflict on one keeps its drafts and leaves the others committed. | `editing/history.ts` | DOM: one refused write |
 | SC7 | A new item's, link's or net's key is minted unique among every key read and drafted. | renderer | DOM |
 | SC8 | Move moves the selection rigidly, clamped to the extent, as one step on release; Esc or a lost pointer puts it back. | renderer canvas | DOM; responsive drag |
-| SC9 | Connect records a link of the tool's kind, `from` and `to` written and its other fields defaulted or from the selected template. Shift grows the session into a net. `canConnect` vetoes a pair: the draft goes danger and doesn't snap. | renderer | DOM; responsive |
+| SC9 | Connect records a link of the tool's kind, `from` and `to` written and its other fields defaulted or from the selected template. Shift grows the session into a net. `canConnect` vetoes a pair: the draft goes danger, doesn't snap, and shows the veto's words. | renderer | DOM; responsive |
 | SC10 | Retarget writes the end it moves; Extend adds a net destination; Del on a leg removes its endpoint, and on a side's last member deletes the net. | renderer | DOM |
 | SC11 | A link template dropped on a link writes its values and never its ends or key. | renderer `drop.ts` | DOM |
 | SC12 | An item template dropped on the canvas adds an item at the drop point, minted and selected. | renderer `drop.ts` | DOM; responsive |
@@ -872,8 +903,8 @@ records in the file:
 | SC25 | Below 480px of main no drag source, drop target or handle is registered; the inspector's actions do what the gestures did. | renderer | responsive phone |
 | SC26 | Colours are a tone or a theme token, resolved through the theme on canvas and cards in both modes; a value naming no token draws the tone and is listed in Issues. | renderer `canvas/theme.tsx` | DOM; responsive both themes |
 | SC27 | The Layers tab isolates, locks and hides each layer; the viewer's choices persist; locked entities never select. | renderer `library.tsx` | DOM; responsive |
-| SC28 | Arrows step the selection, Enter opens, Del deletes, Esc unwinds the gesture then the selection; Space and Ctrl hold Select and Zoom box. | renderer canvas | DOM |
-| SC29 | Selection and viewport events name entities by `Ref`, each through the isolated dispatch. | renderer | DOM |
+| SC28 | Arrows step the selection, Enter and a double-click open the selection in Details, Del deletes, Esc unwinds the gesture then the selection; Space and Ctrl hold Select and Zoom box. | renderer canvas | DOM |
+| SC29 | `onSelect` hears the whole selection after each change, items, zones, links and nets alike, each by its `Ref`, through the isolated dispatch; `[]` when it is cleared. | renderer | DOM |
 | SC30 | Pans at 60 fps with 2,000 visible items and 200 zones (paint under 16 ms); the 50,000-rack drawing's fit view, a card-zoom window and a pan into a new window are within their budgets. | renderer | `E3_UI_PERF=1`, never in CI |
 | SC31 | The canvas draws in the design system's tokens and its mono font; its recipe owns every style; inline values are geometry only. | renderer, `slot-recipes/schematic.ts` | lint; responsive |
 | SC32 | The frame's skeleton covers the first read; later reads keep the canvas; a failed read is a banner with Retry. | renderer | DOM; `builder-loading.spec.ts` |
@@ -881,15 +912,19 @@ records in the file:
 | SC34 | A window is read through an area index whose `on` the rail's exact choices fill while its searches stay within 1,024, and otherwise through one with no `on`, the source's shown keys deciding what draws. A kind read by area with no area index without `on`, or through one whose box isn't the kind's roles, is refused as it reads, naming what to declare. | `schematic/window.ts` | spec: the index each `where` reads; the refusals |
 | SC35 | Geometry is drawn about its entity's anchor and moves with it; geometry outside its box draws and is listed in Issues; a `footprint` without `width` and `height` is refused at build. | `kinds.ts`, renderer `canvas/paint.ts` | spec; pure; DOM |
 | SC36 | Past 5,000 rows in view, the canvas draws a density raster from the area index's cell counts, in one request with no rows read, and draws items again below it; a tap on the raster zooms into it, and a narrowing the index doesn't lead is named in the footer. | renderer reader, `canvas/paint.ts` | DOM: request log; `E3_UI_PERF=1` budget |
+| SC37 | `Schematic.layers` reads the app's rows in their `order`, then key order, each layer keyed by its row's key; an accessor of another type is refused, naming it. `footprint` and `geometry` draw what their accessors return, about the anchor. | `schematic/layers.ts`, `kinds.ts` | spec; DOM |
+| SC38 | `templates()` lists every kind's templates and `backlog()` every item kind's rows with no position; each is refused when no kind has any, naming the change. | `schematic/library.ts` | spec |
+| SC39 | `canConnect` hears the gesture's `Candidate`: `none` lets it snap and record, and words refuse it; a veto that throws allows the pair and logs it. | renderer | DOM |
 
 The area index's rules are §11.5's tests; the rows form's are §12's.
 
 ## 15. Implementation and reuse
 
 **e3-ui (`src/schematic/`).**
-- `types.ts`: the value types, moved from east-ui, plus `Ref`, `Box` and the events.
+- `types.ts`: the value types, moved from east-ui, plus `Ref`, `Box` and `Candidate`.
 - `kinds.ts`: `Schematic.items`, `zones`, `links`, `nets` and `details`. They reuse Schedule's `role(…)`-style checks, `scheduleAccessor`, `scheduleRecordSession`, `checkEntries`, `fieldOf`, `refOf` and `resourceValue` for `of`, and `rowInspector`.
 - `templates.ts`: `Schematic.templates`, over `templatesSource`.
+- `layers.ts`: `Schematic.layers`, over the app's rows, as the Roster's lists are.
 - `window.ts`: the kind's reads through its source's part — complete, a window, or the density's counts — over `recordSliceReadPlatform`.
 - `library.ts`: `Schematic.library.*` and their wire.
 - `payload.ts`: the payload, the carrier, `schematicKeys`, and every refusal.
@@ -968,6 +1003,10 @@ They change no existing wire and no stored form, so they take no entry.
 | Per-domain read only (`readOnlyLinks`, `readOnlyItems`) | a kind bound read only |
 | A frameless canvas | always in its frame; with no panes, the toolbar, the canvas and the footer |
 | Footprints and zone shapes in world coordinates | drawn about their anchor; an import subtracts it once |
+| Shapes and layers the Schematic's own, in the app's rows or the code | the app's own fields and records, mapped by accessors |
+| `onViewportChange`: the app hearing where the camera settled | nothing: the canvas reads its own window |
+| `selectZoomFocus`: a tap that flies | a tap selects in place; Find, the Index and the arrow keys fly |
+| `onItemOpen`: the app opening an item | Enter or a double-click opens it in Details |
 | `e3.recordIndex`'s `interval` option | `e3.recordIndex.interval` |
 
 **Known limits** (§19):
@@ -1011,7 +1050,11 @@ Each is a sub-issue and a checkbox in the PR. #1350's children — #1039, #1349,
 5. **The area index — its `cell`, its rows carried, the projection rule — and
    the interval index's constructor** (§11.1–§11.6) — #1350's.
 6. **The kinds over the app's records, the payload and the tag** (§1, §2, §4, §5). SC1–SC3, SC33, SC35.
-7. **One `<Schematic>` in its BuilderFrame** (§6) — the toolbar, the footer, the canvas's chrome and theme. SC24, SC26, SC28, SC29, SC31, SC32.
+6a. **The props of the Plan, the Roster and the Calendar** (D31–D36) — `id`, an
+    inspector you opt into, tabs over every kind, `onSelect` and `canConnect`'s
+    words, shapes as accessors over the app's own fields, and `Schematic.layers`
+    (#1401). SC3, SC29, SC37–SC39.
+7. **One `<Schematic>` in its BuilderFrame** (§6) — the toolbar, the footer, the canvas's chrome and theme. SC24, SC26, SC28, SC31, SC32.
 8. **Editing, undo and Save** (§7). SC2, SC5–SC10, SC14, SC23.
 9. **The library** (§8). SC4, SC27.
 10. **Drag and drop** (§7, §8). SC11–SC13.

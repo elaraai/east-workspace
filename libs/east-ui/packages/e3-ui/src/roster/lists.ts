@@ -21,12 +21,12 @@
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, East, Expr, FloatType, IntegerType, OptionType, StringType, StructType, none,
-    type DictType, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
+    BooleanType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, none,
+    type ArrayType, type DictType, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import { ScheduleClockType } from "../schedule/types.js";
-import { typeText } from "../schedule/window.js";
+import { keyedRows, orderedRows as ordered } from "../utils/keyed-rows.js";
 import { RosterGroupType, RosterPositionType, RosterProposalType, RosterShiftType, RosterSkillType } from "./types.js";
 
 /** The key a Roster list's declaration carries what it is under. */
@@ -139,58 +139,6 @@ export interface RosterProposalsConfig<R extends EastType> {
     shift: Accessor<R, StringType>;
     /** Why, as the planner reads it. */
     reason: Accessor<R, StringType>;
-}
-
-/**
- * The app's rows a list reads, checked: a `Dict` keyed by String.
- *
- * @param where - The list, as its refusals name it (`Roster.shifts`)
- * @param what - What its rows are (`shifts`)
- * @param rows - The rows, as the app gave them
- * @returns The rows and their row type
- * @throws {Error} When they are not a Dict keyed by String
- */
-function keyedRows(where: string, what: string, rows: unknown): { rows: ExprType<DictType<StringType, EastType>>; rowType: EastType } {
-    const type = rows instanceof Expr ? Expr.type(rows) as EastType : undefined;
-    if (type === undefined || type.type !== "Dict" || type.key.type !== "String") {
-        throw new Error(`${where}: ${what} are a Dict keyed by String — a record's read() — and these are ${type === undefined ? "no East expression" : typeText(type)}`);
-    }
-    return { rows: rows as ExprType<DictType<StringType, EastType>>, rowType: type.value as EastType };
-}
-
-/**
- * A list's rows, each made by one reified East function, in their order: by
- * `order`, lowest first, then by key — or, with no `order`, by key.
- *
- * @param rows - The app's rows, by key
- * @param rowType - Their row type
- * @param itemType - The list's row type
- * @param item - Makes one of the list's rows from one of the app's and its key
- * @param order - Where one shows, lowest first; `undefined` for none
- * @returns The list
- */
-function ordered<T extends EastType>(
-    rows: ExprType<DictType<StringType, EastType>>, rowType: EastType, itemType: T,
-    item: ExprType<FunctionType<[EastType, StringType], T>>, order: ExprType<FunctionType<[EastType, StringType], IntegerType>> | undefined,
-): ExprType<ArrayType<T>> {
-    if (order === undefined) {
-        return rows.toArray(($, row, key) => {
-            const make = $.const(item);
-            return make(row as never, key);
-        }) as unknown as ExprType<ArrayType<T>>;
-    }
-    // Each row beside its rank, sorted by it: its order, then its key, so rows of one order keep the record's.
-    const Ranked = StructType({ rank: StructType({ order: IntegerType, key: StringType }), item: itemType as EastType });
-    const rank = East.function([rowType, StringType], Ranked, ($, row, key) => {
-        const make = $.const(item as unknown as ExprType<FunctionType<[EastType, StringType], EastType>>);
-        const orderOf = $.const(order);
-        return { rank: { order: orderOf(row as never, key), key }, item: make(row as never, key) } as never;
-    });
-    const ranked = rows.toArray(($, row, key) => {
-        const ranking = $.const(rank);
-        return ranking(row as never, key);
-    });
-    return ranked.sort((_$, entry) => entry.rank).map((_$, entry) => entry.item) as unknown as ExprType<ArrayType<T>>;
 }
 
 /** An accessor reified over a list's rows, held to the type it returns, refused in the list's words. */

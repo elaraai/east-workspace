@@ -4,12 +4,19 @@
  */
 
 /**
- * The Schematic's payload (#1386, `Schematic Builder Spec.md` §2, §5): what
- * `<Schematic>` hands the renderer through its `Schematic` carrier — the
+ * The Schematic's payload (#1386, #1401, `Schematic Builder Spec.md` §2, §5):
+ * what `<Schematic>` hands the renderer through its `Schematic` carrier — the
  * drawing's extent and scale, its kinds by slot, its layers, its narrowing and
- * how a narrowed-out row draws, its library's tabs, its inspector, whether it
- * is read only, its name, the canvas's options and what the host hears — and
- * every refusal of its props, made when the surface is built.
+ * how a narrowed-out row draws, its library's tabs, whether it has an
+ * inspector, whether it is read only, its `id`, the canvas's options, the
+ * connect veto and what the host hears — and every refusal of its props, made
+ * when the surface is built.
+ *
+ * Its props are the Plan's, the Roster's and the Calendar's (D31–D34): `id`
+ * keeps its state apart, the inspector is opted into, the library's tabs cover
+ * every kind, `onSelect` hears the whole selection, and `canConnect` answers a
+ * candidate with the refusal's words. Its layers are the app's rows
+ * (`Schematic.layers`, D36).
  *
  * Its kinds are the app's records (§1, `kinds.ts`): `items`, `zones`, `links`
  * and `nets` each map a slot to a kind, each closed over its record behind
@@ -38,10 +45,10 @@ import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions 
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { isSchematicKind, type SchematicItems, type SchematicLinks, type SchematicNets, type SchematicZones } from "./kinds.js";
 import { SchematicLibraryTabType, buildSchematicLibrary, schematicTabSources, type SchematicLibraryKind, type SchematicLibraryTab } from "./library.js";
-import { toneValue, type SchematicToneLiteral } from "./shapes.js";
+import { isSchematicLayers, type SchematicLayers } from "./layers.js";
 import {
-    SchematicItemKindType, SchematicLayerType, SchematicLinkKindType, SchematicNarrowedType, SchematicNetKindType, SchematicRefType,
-    SchematicSelectionEventType, SchematicViewportEventType, SchematicZoneKindType, SchematicZoneSelectionEventType,
+    SchematicCandidateType, SchematicItemKindType, SchematicLayerType, SchematicLinkKindType, SchematicNarrowedType, SchematicNetKindType,
+    SchematicRefType, SchematicZoneKindType,
 } from "./types.js";
 
 // ============================================================================
@@ -60,23 +67,18 @@ const ShownType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * @property zones - The zone kinds
  * @property links - The link kinds
  * @property nets - The net kinds
- * @property layers - The layers and their author defaults (§8)
+ * @property layers - The layers, from the app's record, and their author defaults, in their order (§8)
  * @property slice - The rail's chrome over the one `Slice.bindRecords`; `none`, no rail
  * @property shown - Each source's shown keys, paged through its own data, by the source's name: what a templates list's and a tab's cards follow, and what dims a narrowed-out row
  * @property narrowed - How a narrowed-out row draws (§10.3)
  * @property library - The library pane's tabs, in the order `library` lists them; none, no library pane
- * @property inspector - Whether the inspector pane shows (§9): on by default
+ * @property inspector - Whether the inspector pane shows (§9): off unless `inspector` is given
  * @property readOnly - No gesture, drop or inspector edit; selection stays
- * @property name - Names the Schematic, when a surface holds two
+ * @property id - Keeps the Schematic's state apart, when a surface holds two
  * @property grid - The metric grid; on by default
  * @property minimap - The minimap; shown at 25 items or more by default
- * @property selectZoomFocus - Whether a selection flies the camera to it
- * @property canConnect - Vetoes a pair of items before a link's draft snaps
- * @property onSelectionChange - Hears each change of the selected items
- * @property onZoneSelectionChange - Hears each change of the selected zones
- * @property onSelectLink - Hears a link or a net selected
- * @property onViewportChange - Hears where the camera settled
- * @property onItemOpen - Hears an item opened (double-click or double-tap)
+ * @property canConnect - Vetoes a link or a net before its draft snaps: `none` allows it, or the refusal's words
+ * @property onSelect - Hears the whole selection after each change, each entity by its kind and key
  */
 export const SchematicPayloadType = StructType({
     extent: StructType({ width: FloatType, height: FloatType }),
@@ -92,16 +94,11 @@ export const SchematicPayloadType = StructType({
     library: ArrayType(SchematicLibraryTabType),
     inspector: BooleanType,
     readOnly: BooleanType,
-    name: OptionType(StringType),
+    id: OptionType(StringType),
     grid: OptionType(BooleanType),
     minimap: OptionType(BooleanType),
-    selectZoomFocus: OptionType(BooleanType),
-    canConnect: OptionType(FunctionType([SchematicRefType, SchematicRefType], BooleanType)),
-    onSelectionChange: OptionType(FunctionType([SchematicSelectionEventType], NullType)),
-    onZoneSelectionChange: OptionType(FunctionType([SchematicZoneSelectionEventType], NullType)),
-    onSelectLink: OptionType(FunctionType([SchematicRefType], NullType)),
-    onViewportChange: OptionType(FunctionType([SchematicViewportEventType], NullType)),
-    onItemOpen: OptionType(FunctionType([SchematicRefType], NullType)),
+    canConnect: OptionType(FunctionType([SchematicCandidateType], OptionType(StringType))),
+    onSelect: OptionType(FunctionType([ArrayType(SchematicRefType)], NullType)),
 });
 
 /** Type representing the `Schematic` renderer's payload. */
@@ -120,19 +117,19 @@ export const SchematicComponent = EastUI.component("Schematic", SchematicPayload
 // ============================================================================
 
 /**
- * The names a Schematic keeps its viewer's state under, by its `name` (§5):
- * its frame's panes, its library's id, the layers the viewer shows, hides and
- * locks, the tool it holds, and its drop surface, where its library's cards
- * land.
+ * The names a Schematic keeps its viewer's state under, by its `id` (§5,
+ * D31): its frame's panes, its library's id, the layers the viewer shows,
+ * hides and locks, the tool it holds, and its drop surface, where its
+ * library's cards land.
  *
  * @remarks
- * As the Flowchart's `flowchartKeys`: two Schematics on one surface keep apart
- * only when each is named.
+ * As the Plan's `planKeys(id)`: two Schematics on one surface keep apart only
+ * when each has an `id`.
  *
- * @param name - The Schematic's name, when a surface holds more than one; omitted, the one Schematic
+ * @param id - The Schematic's `id`, when a surface holds more than one; omitted, the one Schematic
  * @returns The keys
  */
-export function schematicKeys(name: string | undefined): {
+export function schematicKeys(id: string | undefined): {
     /** The frame's storage key: each pane's open tab and collapsed state. */
     frame: string;
     /** The library's id: what its tabs' cards are drawn from. */
@@ -144,7 +141,7 @@ export function schematicKeys(name: string | undefined): {
     /** The Schematic's drop surface: where its canvas takes its library's cards. */
     surface: string;
 } {
-    const suffix = name === undefined ? "" : `.${name}`;
+    const suffix = id === undefined ? "" : `.${id}`;
     return {
         frame: `schematic${suffix}.frame`,
         library: `schematic.library${suffix}`,
@@ -157,32 +154,6 @@ export function schematicKeys(name: string | undefined): {
 // ============================================================================
 // <Schematic>'s props
 // ============================================================================
-
-/**
- * A layer, declared (§8): only `key` and `label` are required, the rest
- * author defaults the viewer's choices in the Layers tab override.
- *
- * @property key - The layer's identity: an entity's `layer` field names it
- * @property label - Its name
- * @property visible - Author default visibility (default `true`); `false` ships it hidden
- * @property locked - Author default lock (default `false`): a locked layer's entities never select
- * @property opacity - Its items' dim (0–1, default `1`)
- * @property tone - Its swatch's tone
- */
-export interface SchematicLayerInput {
-    /** The layer's identity: an entity's `layer` field names it. */
-    key: string;
-    /** Its name. */
-    label: string;
-    /** Author default visibility (default `true`); `false` ships it hidden. */
-    visible?: boolean;
-    /** Author default lock (default `false`): a locked layer's entities never select. */
-    locked?: boolean;
-    /** Its items' dim (0–1, default `1`). */
-    opacity?: number;
-    /** Its swatch's tone. */
-    tone?: SchematicToneLiteral;
-}
 
 /**
  * How a narrowed-out row draws, in full (§10.3).
@@ -226,8 +197,11 @@ export interface SchematicProps {
     links?: Readonly<Record<string, SchematicLinks>>;
     /** The net kinds, by slot. */
     nets?: Readonly<Record<string, SchematicNets>>;
-    /** The layers and their author defaults (§8): an entity's `layer` field names one. */
-    layers?: readonly SchematicLayerInput[];
+    /**
+     * The layers, from the app's record (§8, D36): `Schematic.layers(systems.read(), { label, order?, tone?, color?,
+     * visible?, locked?, opacity? })`. An entity's `layer` field names one by its record's key.
+     */
+    layers?: SchematicLayers;
     /**
      * The narrowing (§10.1): slice={{ slice: Slice.bindRecords(key, { … }), affordances?, persist? }}, one rail on the
      * toolbar. A source named after a kind's slot narrows that kind — `Data.bindPaged(record, { indexes, join: true })`
@@ -239,32 +213,26 @@ export interface SchematicProps {
     /** The library pane's tabs, in order, each a `Schematic.library.*` call; left out, or empty, no library pane. */
     library?: readonly SchematicLibraryTab[];
     /**
-     * The inspector pane (§9): on by default; `false` removes it; `{ [slot]: Details }` gives a kind its own Details in
-     * place of its form — an East function over the row and its writer, as a kind's own `inspector` is.
+     * Shows the inspector pane (§9, D32): Details and Issues. Left out, or `false`, no pane. A kind's own Details is its
+     * kind's `inspector`.
      */
-    inspector?: boolean | Readonly<Record<string, unknown>>;
+    inspector?: boolean;
     /** No gesture, drop or inspector edit; selection stays. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Names the Schematic — needed only when one surface holds two. */
-    name?: string;
+    /** Keeps this Schematic's panes, layers and tools apart when one surface holds two (`schematicKeys(id)`, D31). */
+    id?: string;
     /** The metric grid; on by default. */
     grid?: SubtypeExprOrValue<BooleanType> | boolean;
     /** The minimap; shown at 25 items or more by default. */
     minimap?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Whether a selection flies the camera to it. */
-    selectZoomFocus?: SubtypeExprOrValue<BooleanType> | boolean;
-    /** Vetoes a pair of items before a link's draft snaps; a throwing veto allows the pair and logs it. */
-    canConnect?: SubtypeExprOrValue<FunctionType<[SchematicRefType, SchematicRefType], BooleanType>>;
-    /** Hears each change of the selected items, each named by its kind and key. */
-    onSelectionChange?: SubtypeExprOrValue<FunctionType<[SchematicSelectionEventType], NullType>>;
-    /** Hears each change of the selected zones, with the items inside them. */
-    onZoneSelectionChange?: SubtypeExprOrValue<FunctionType<[SchematicZoneSelectionEventType], NullType>>;
-    /** Hears a link or a net selected. */
-    onSelectLink?: SubtypeExprOrValue<FunctionType<[SchematicRefType], NullType>>;
-    /** Hears where the camera settled after a pan, a zoom, a fly or a resize. */
-    onViewportChange?: SubtypeExprOrValue<FunctionType<[SchematicViewportEventType], NullType>>;
-    /** Hears an item opened: a double-click or a double-tap. */
-    onItemOpen?: SubtypeExprOrValue<FunctionType<[SchematicRefType], NullType>>;
+    /**
+     * Vetoes a link or a net before its draft snaps (D34): an East function from `Schematic.Types.Candidate` — the slot
+     * of the link or net kind the gesture writes, and its two items — to `none`, which allows it, or the refusal's
+     * words, which the draft shows. A veto that throws allows the pair and logs it.
+     */
+    canConnect?: SubtypeExprOrValue<FunctionType<[typeof SchematicCandidateType], OptionType<StringType>>>;
+    /** Hears the whole selection after each change, items, zones, links and nets alike, each by its kind and key (D34). */
+    onSelect?: SubtypeExprOrValue<FunctionType<[ArrayType<typeof SchematicRefType>], NullType>>;
 }
 
 /** The props, erased: what the implementation reads. */
@@ -290,8 +258,12 @@ const SESSION = "every gesture is a transaction of the Schematic's editing sessi
 const NARROWED = "how a narrowed-out row draws is `narrowed` — narrowed=\"dim\", or narrowed={{ show: \"dim\", opacity, desaturate, dot, emphasis, frame, fit }}";
 
 /** The refusal of a hover card: the inspector replaces them (§2, §9). */
-const HOVER = "the inspector, on by default, shows what is selected — give a kind its own Details with its `inspector`, " +
-    "or inspector={{ <slot>: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) }}";
+const HOVER = "the inspector shows what is selected — give `inspector` for the pane, and a kind its own Details with its `inspector`: " +
+    "Schematic.items(record, { …, inspector: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) })";
+
+/** The refusal of a selection callback of another form: `onSelect` replaces them (§2, D34). */
+const SELECT = "`onSelect` hears the whole selection after each change, items, zones, links and nets alike, each by its kind and key: " +
+    "onSelect={East.function([ArrayType(Schematic.Types.Ref)], NullType, ($, selected) => …)}";
 
 /** The refusal of a size: the Schematic fills the box it is given (§2). */
 const SIZE = "the Schematic fills the box it is given — give it a box of its own height: <Box height=\"640px\"><Schematic … /></Box>";
@@ -326,14 +298,20 @@ const REMOVED: Readonly<Record<string, string>> = {
     navigator: "the library's Index tab lists the zones and the items inside them: library={[Schematic.library.index()]}",
     height: SIZE,
     maxHeight: SIZE,
-    onSelect: "onSelectionChange hears each change of the selection, each item named by its kind and key (Schematic.Types.Ref)",
-    onSelectZone: "onZoneSelectionChange hears each change of the selected zones, each named by its kind and key (Schematic.Types.Ref)",
+    onSelectZone: SELECT,
+    onSelectionChange: SELECT,
+    onZoneSelectionChange: SELECT,
+    onSelectLink: SELECT,
+    onViewportChange: "the canvas reads its own window, and nothing hears where the camera settled — leave it out",
+    onItemOpen: "Enter or a double-click opens the selection in the inspector's Details — give `inspector`, and a kind its own Details with its `inspector`",
+    selectZoomFocus: "a tap selects in place, and Find, the Index tab and the arrow keys fly to what they pick — leave it out",
+    name: "`id` names the Schematic, as the Plan's, the Roster's and the Calendar's do: <Schematic id=\"floor\" … />",
 };
 
 /** Every prop `<Schematic>` takes. */
 const PROPS: ReadonlySet<string> = new Set([
-    "extent", "scaleUnit", "items", "zones", "links", "nets", "layers", "slice", "narrowed", "library", "inspector", "readOnly", "name",
-    "grid", "minimap", "selectZoomFocus", "canConnect", "onSelectionChange", "onZoneSelectionChange", "onSelectLink", "onViewportChange", "onItemOpen",
+    "extent", "scaleUnit", "items", "zones", "links", "nets", "layers", "slice", "narrowed", "library", "inspector", "readOnly", "id",
+    "grid", "minimap", "canConnect", "onSelect",
 ]);
 
 /** A sort's noun, as a refusal names a kind of it. */
@@ -415,58 +393,40 @@ function narrowedOf(narrowed: unknown): ExprType<SchematicNarrowedType> {
     }, SchematicNarrowedType);
 }
 
-/** The layers on the wire, each checked: a key and a label, no key twice. */
+/** The layers' declaration, as a refusal names it. */
+const LAYERS = "layers={Schematic.layers(systems.read(), { label: (s) => s.label, order?, tone?, color?, visible?, locked?, opacity? })}";
+
+/**
+ * The layers on the wire: what `Schematic.layers` read from the app's record
+ * (D36); none, when left out.
+ *
+ * @param layers - The Schematic's `layers`
+ * @returns The layers, in their order
+ * @throws {Error} For a list written in the code, or anything but `Schematic.layers`' declaration, naming it
+ */
 function layersOf(layers: unknown): ExprType<ArrayType<SchematicLayerType>> {
     if (layers === undefined) return East.value([], ArrayType(SchematicLayerType));
-    const valid = (l: unknown): l is SchematicLayerInput => typeof l === "object" && l !== null
-        && typeof (l as SchematicLayerInput).key === "string" && typeof (l as SchematicLayerInput).label === "string";
-    if (!Array.isArray(layers) || !layers.every(valid)) {
-        throw new Error("Schematic: `layers` lists the layers, each { key, label, tone?, visible?, locked?, opacity? } — an entity's `layer` field names one by its key");
+    if (isSchematicLayers(layers)) return layers.rows;
+    if (Array.isArray(layers)) {
+        throw new Error(`Schematic: \`layers\` reads the app's own rows, as the Roster's lists do — ${LAYERS}: a list written in the code is gone, ` +
+            "so each layer is a row of the app's record, keyed as an entity's `layer` field names it");
     }
-    const seen = new Set<string>();
-    for (const layer of layers) {
-        if (seen.has(layer.key)) throw new Error(`Schematic: \`layers\` lists the layer "${layer.key}" twice — each layer's key is its own`);
-        seen.add(layer.key);
-    }
-    return East.value(layers.map((l) => ({
-        key: l.key,
-        label: l.label,
-        visible: l.visible !== undefined ? some(l.visible) : none,
-        locked: l.locked !== undefined ? some(l.locked) : none,
-        opacity: l.opacity !== undefined ? some(l.opacity) : none,
-        tone: toneValue(l.tone),
-    })), ArrayType(SchematicLayerType));
+    throw new Error(`Schematic: \`layers\` is ${LAYERS}`);
 }
 
 /**
- * The inspector pane (§9): on by default, or given `true`; off for `false`;
- * and each slot's own Details where `{ [slot]: Details }` gives them, checked
- * against the kinds.
+ * The inspector pane (§9, D32): shown for `true`, none for `false` or left
+ * out, as the Plan's, the Roster's and the Calendar's.
  *
  * @param inspector - The Schematic's `inspector`
- * @param kinds - Its kinds
- * @returns Whether the pane shows, and each slot's own Details the prop gives
- * @throws {Error} Naming the prop and the remedy: an `inspector` of another kind, a key that is no kind's slot, and a
- *   slot whose kind gives its own Details too
+ * @returns Whether the pane shows
+ * @throws {Error} For an `inspector` that is no Boolean, naming the kind's own `inspector`, the one way to give it Details
  */
-function inspectorOf(inspector: unknown, kinds: readonly Slotted[]): { pane: boolean; bySlot: Readonly<Record<string, unknown>> } {
-    if (inspector === undefined || inspector === true) return { pane: true, bySlot: {} };
-    if (inspector === false) return { pane: false, bySlot: {} };
-    if (inspector === null || typeof inspector !== "object" || inspector instanceof Expr || Array.isArray(inspector)) {
-        throw new Error("Schematic: `inspector` is on by default — inspector={false} removes the pane, and inspector={{ <slot>: Details }} gives a kind its own Details, " +
-            "each an East function over the row and its writer");
-    }
-    const bySlot = inspector as Readonly<Record<string, unknown>>;
-    for (const slot of Object.keys(bySlot)) {
-        const kind = kinds.find((k) => k.slot === slot);
-        if (kind === undefined) {
-            throw new Error(`Schematic: \`inspector\` gives "${slot}" its own Details, and no kind is in that slot — its kinds' slots are ${kinds.map((k) => `"${k.slot}"`).join(", ")}`);
-        }
-        if (kind.kind.ownInspector) {
-            throw new Error(`Schematic: \`inspector.${slot}\` gives the ${NOUN[kind.sort]} kind "${slot}" its own Details, and so does the kind's own \`inspector\` — give them in one place`);
-        }
-    }
-    return { pane: true, bySlot };
+function inspectorOf(inspector: unknown): boolean {
+    if (inspector === undefined || inspector === false) return false;
+    if (inspector === true) return true;
+    throw new Error("Schematic: `inspector` is true or false — a kind's own Details is its kind's `inspector`: " +
+        "Schematic.items(record, { …, inspector: East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …) })");
 }
 
 /**
@@ -478,14 +438,15 @@ function inspectorOf(inspector: unknown, kinds: readonly Slotted[]): { pane: boo
  * @returns An East expression of {@link SchematicPayloadType}
  * @throws {Error} Naming the prop and the remedy (SC3): each prop §2 removes — rows and their mappers, the callbacks
  *   for an edit, `linkMode`, `readOnlyLinks` and `readOnlyItems`, the hover cards, `affordances` outside `slice`, the
- *   slice's effect props, `sliceSelectField`, `selectionMode`, `navigator`, `height` and `maxHeight`, `onSelect` and
- *   `onSelectZone` — and a prop the Schematic doesn't take; an `extent` that is no pair of positive numbers; no item
- *   kind; a sort given rows rather than kinds by slot, a slot holding a kind of another sort, and one slot holding two
- *   kinds; a link's end or a net's side holding keys of a slot that holds no item kind; a `slice` that is not
- *   `{ slice }`, or not `Slice.bindRecords`, or holding a source nothing names, or the brush; a templates list naming
- *   no source of the slice; a `narrowed` of another form; layers without a key and a label, or listing a key twice; an
- *   `inspector` of another kind, a key that is no kind's slot, or a slot whose kind gives its own Details too; each of
- *   the library's refusals (`library.ts`); and each kind's refusals of its binding (SC33)
+ *   slice's effect props, `sliceSelectField`, `selectionMode`, `navigator`, `height` and `maxHeight`, `onSelectZone`,
+ *   `onSelectionChange`, `onZoneSelectionChange`, `onSelectLink`, `onViewportChange`, `onItemOpen`, `selectZoomFocus`
+ *   and `name` — and a prop the Schematic doesn't take; an `extent` that is no pair of positive numbers; no item kind;
+ *   a sort given rows rather than kinds by slot, a slot holding a kind of another sort, and one slot holding two kinds;
+ *   a link's end or a net's side holding keys of a slot that holds no item kind; a `slice` that is not `{ slice }`, or
+ *   not `Slice.bindRecords`, or holding a source nothing names, or the brush; a templates list naming no source of the
+ *   slice; a `narrowed` of another form; `layers` other than `Schematic.layers`' declaration, a list written in the code
+ *   among them; an `inspector` that is no Boolean; an `id` that is no string; each of the library's refusals
+ *   (`library.ts`); and each kind's refusals of its binding (SC33)
  * @internal
  */
 export function createSchematicPayload(props: object): ExprType<SchematicPayloadType> {
@@ -565,14 +526,14 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
             templates: one.kind.hasTemplates,
             backlog: one.sort === "items" && (one.kind as SchematicItems).backlog,
         })),
-        layers: Array.isArray(given.layers) ? given.layers.length : 0,
+        layers: given.layers !== undefined,
         sources: sources.names,
     });
-    const inspector = inspectorOf(given.inspector, kinds);
+    const inspector = inspectorOf(given.inspector);
     const narrowed = narrowedOf(given.narrowed);
     const layers = layersOf(given.layers);
-    const name = given.name;
-    if (name !== undefined && typeof name !== "string") throw new Error("Schematic: `name` names the Schematic — a string, needed only when one surface holds two");
+    const id = given.id;
+    if (id !== undefined && typeof id !== "string") throw new Error("Schematic: `id` keeps the Schematic's state apart — a string, needed only when one surface holds two");
     const optional = (value: unknown) => value === undefined ? none : some(value);
 
     return Expr.block(($) => {
@@ -580,7 +541,7 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
         const bound = sources.bind($);
         const shown = East.value(new Map(Object.entries(bound.keys)) as never, ShownType) as ExprType<typeof ShownType>;
         const built = (sort: Slotted["sort"]) => kinds.filter((one) => one.sort === sort)
-            .map((one) => one.kind.build(one.slot, bound.parts[one.slot], inspector.bySlot[one.slot]));
+            .map((one) => one.kind.build(one.slot, bound.parts[one.slot]));
         return East.value({
             extent,
             scaleUnit: optional(given.scaleUnit),
@@ -593,18 +554,13 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
             shown,
             narrowed,
             library,
-            inspector: inspector.pane,
+            inspector,
             readOnly: given.readOnly ?? false,
-            name: name === undefined ? none : some(name),
+            id: id === undefined ? none : some(id),
             grid: optional(given.grid),
             minimap: optional(given.minimap),
-            selectZoomFocus: optional(given.selectZoomFocus),
             canConnect: optional(given.canConnect),
-            onSelectionChange: optional(given.onSelectionChange),
-            onZoneSelectionChange: optional(given.onZoneSelectionChange),
-            onSelectLink: optional(given.onSelectLink),
-            onViewportChange: optional(given.onViewportChange),
-            onItemOpen: optional(given.onItemOpen),
+            onSelect: optional(given.onSelect),
         } as never, SchematicPayloadType);
     });
 }

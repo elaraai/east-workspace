@@ -4,15 +4,17 @@
  */
 
 /**
- * `Schematic.library` (#1386, `Schematic Builder Spec.md` §8): the library
- * pane's tabs, which `library` lists in order, and their wire, which the
- * renderer draws (#1389).
+ * `Schematic.library` (#1386, #1401, `Schematic Builder Spec.md` §8): the
+ * library pane's tabs, which `library` lists in order, and their wire, which
+ * the renderer draws (#1389). Like the Calendar's, each covers every kind
+ * (D33).
  *
- * - `Schematic.library.templates(slot)`: the slot's templates (§4.6), grouped
- *   by their `group`, each card a drag source. The tab follows its templates'
- *   source of the slice.
- * - `Schematic.library.unplaced(slot)`: an item kind's rows with no position,
- *   each a drag source. Refused for a slot whose `x` and `y` aren't Options.
+ * - `Schematic.library.templates()`: every kind's templates (§4.6), each
+ *   kind's under its name, then grouped by their `group`, each card a drag
+ *   source. Each kind's cards follow their templates' source of the slice.
+ * - `Schematic.library.backlog()`: every item kind's rows with no position,
+ *   each kind's under its name, each a drag source: the Backlog tab, as the
+ *   Calendar's is.
  * - `Schematic.library.index()`: the zones, nested by containment, each
  *   opened listing the items inside it.
  * - `Schematic.library.layers()`: each layer, with Isolate, Lock and Show or
@@ -26,7 +28,7 @@
  * @packageDocumentation
  */
 
-import { ArrayType, East, NullType, StringType, VariantType, variant, type DictType, type EastType, type ExprType, type StructType, type SubtypeExprOrValue } from "@elaraai/east";
+import { ArrayType, East, NullType, VariantType, variant, type DictType, type EastType, type ExprType, type StructType, type SubtypeExprOrValue } from "@elaraai/east";
 import { ScheduleAuthorTabType, buildScheduleTab, type ScheduleLibraryTabConfig } from "../schedule/library.js";
 
 export { ScheduleLibraryCardType as SchematicLibraryCardType, type ScheduleLibraryTabConfig as SchematicLibraryTabConfig } from "../schedule/library.js";
@@ -38,15 +40,15 @@ export { ScheduleLibraryCardType as SchematicLibraryCardType, type ScheduleLibra
 /**
  * One tab of the library pane on the wire, in the order `library` lists them.
  *
- * @property templates - The templates of the kind in this slot
- * @property unplaced - The rows with no position of the item kind in this slot
+ * @property templates - Every kind's templates
+ * @property backlog - Every item kind's rows with no position
  * @property index - The zones, nested by containment
  * @property layers - The layers
  * @property tab - The author's own: its name, its icon, the kind its cards land on, and its cards
  */
 export const SchematicLibraryTabType = VariantType({
-    templates: StringType,
-    unplaced: StringType,
+    templates: NullType,
+    backlog: NullType,
     index: NullType,
     layers: NullType,
     tab: ScheduleAuthorTabType,
@@ -61,36 +63,67 @@ export type SchematicLibraryTabType = typeof SchematicLibraryTabType;
 
 /** One tab of the library pane: what each `Schematic.library.*` call returns, and `library` lists. */
 export type SchematicLibraryTab =
-    | { readonly kind: "templates"; readonly slot: string }
-    | { readonly kind: "unplaced"; readonly slot: string }
+    | { readonly kind: "templates" }
+    | { readonly kind: "backlog" }
     | { readonly kind: "index" }
     | { readonly kind: "layers" }
     | { readonly kind: "tab"; readonly rows: unknown; readonly config: ScheduleLibraryTabConfig<EastType, EastType> };
 
 /**
- * The library's templates tab for a kind (§8): its templates, grouped by
- * their `group`, each card a drag source. Dropped on the canvas, an item
- * template adds an item at the drop point; dropped on a link, a link template
- * retypes it. The tab follows its templates' source of the slice, counting
- * what it shows.
+ * Refuses a slot given to a tab that covers every kind (D33), naming the form
+ * to use.
  *
- * @param slot - The slot of the kind whose templates it lists: an item, link or net kind with `templates`
- * @returns The tab
+ * @param tab - The tab's factory, as the refusal names it
+ * @param given - What it was given
+ * @throws {Error} When it was given anything
  */
-export function libraryTemplates(slot: string): SchematicLibraryTab {
-    return { kind: "templates", slot };
+function takesNoSlot(tab: "templates" | "backlog", given: readonly unknown[]): void {
+    if (given.length === 0) return;
+    throw new Error(tab === "templates"
+        ? "Schematic.library.templates() lists every kind's templates, each kind's under its name, as the Calendar's does — leave the slot out"
+        : "Schematic.library.backlog() lists every item kind's rows with no position, each kind's under its name, as the Calendar's does — leave the slot out");
 }
 
 /**
- * The library's Unplaced tab for an item kind (§8): its rows with no
- * position, each a drag source a drop places. The kind's `x` and `y` are
- * Options of Float, which give it a backlog.
+ * The library's Templates tab (§8, D33): every kind's templates, each kind's
+ * under its name, then grouped by their `group`, each card a drag source.
+ * Dropped on the canvas, an item template adds an item at the drop point;
+ * dropped on a link, a link template retypes it. Each kind's cards follow
+ * their templates' source of the slice, counting what they show.
  *
- * @param slot - The slot of the item kind whose unplaced rows it lists
+ * @param given - Nothing: a slot given, as the earlier form took, is refused
  * @returns The tab
+ * @throws {Error} When given a slot, naming the form to use
  */
-export function libraryUnplaced(slot: string): SchematicLibraryTab {
-    return { kind: "unplaced", slot };
+export function libraryTemplates(...given: readonly never[]): SchematicLibraryTab {
+    takesNoSlot("templates", given);
+    return { kind: "templates" };
+}
+
+/**
+ * The library's Backlog tab (§8, D33): every item kind's rows with no
+ * position, each kind's under its name, each a drag source a drop places, as
+ * the Calendar's Backlog is. An item kind whose `x` and `y` are Options of
+ * Float has a backlog.
+ *
+ * @param given - Nothing: a slot given is refused
+ * @returns The tab
+ * @throws {Error} When given a slot, naming the form to use
+ */
+export function libraryBacklog(...given: readonly never[]): SchematicLibraryTab {
+    takesNoSlot("backlog", given);
+    return { kind: "backlog" };
+}
+
+/**
+ * `Schematic.library.unplaced(slot)`, removed (D33): refused, naming the
+ * Backlog tab that replaces it.
+ *
+ * @returns Never
+ * @throws {Error} Always, naming `Schematic.library.backlog()`
+ */
+function libraryUnplaced(): never {
+    throw new Error("Schematic.library.unplaced(slot) is gone — Schematic.library.backlog() lists every item kind's rows with no position, each kind's under its name");
 }
 
 /**
@@ -141,10 +174,12 @@ export function libraryTab<K extends EastType, R extends EastType, P extends Eas
  * The library's tabs, each a factory `library` lists: `Schematic.library`.
  */
 export const SchematicLibraryFactories = {
-    /** The templates of the kind in a slot ({@link libraryTemplates}). */
+    /** Every kind's templates ({@link libraryTemplates}). */
     templates: libraryTemplates,
-    /** The unplaced rows of the item kind in a slot ({@link libraryUnplaced}). */
-    unplaced: libraryUnplaced,
+    /** Every item kind's rows with no position ({@link libraryBacklog}). */
+    backlog: libraryBacklog,
+    /** @deprecated Removed (#1401): every item kind's rows with no position are `Schematic.library.backlog()`. */
+    unplaced: libraryUnplaced as (...args: never[]) => never,
     /** The zones, nested by containment ({@link libraryIndex}). */
     index: libraryIndex,
     /** The layers ({@link libraryLayers}). */
@@ -182,35 +217,22 @@ export interface SchematicLibraryKind {
 export interface SchematicLibraryContext {
     /** Its kinds, in order: its items', its zones', its links' and its nets'. */
     readonly kinds: readonly SchematicLibraryKind[];
-    /** How many layers it declares. */
-    readonly layers: number;
+    /** Whether it declares its layers (`Schematic.layers`). */
+    readonly layers: boolean;
     /** The slice's sources, which an author's tab's `source` must be one of. */
     readonly sources: readonly string[];
 }
 
-/** A sort's noun, as a refusal names a kind of it. */
-const NOUN = { items: "item", zones: "zone", links: "link", nets: "net" } as const;
-
 /** How a tab names itself in a refusal. */
 function tabName(tab: SchematicLibraryTab): string {
-    switch (tab.kind) {
-        case "templates":
-        case "unplaced":
-            return `Schematic.library.${tab.kind}("${tab.slot}")`;
-        case "index":
-        case "layers":
-            return `Schematic.library.${tab.kind}()`;
-        case "tab":
-            return `the "${tab.config.name}" tab`;
-    }
+    return tab.kind === "tab" ? `the "${tab.config.name}" tab` : `Schematic.library.${tab.kind}()`;
 }
 
 /** Whether a value is one of the library's tabs. */
 function isTab(value: unknown): value is SchematicLibraryTab {
     if (typeof value !== "object" || value === null) return false;
     const kind = (value as { kind?: unknown }).kind;
-    return kind === "templates" || kind === "unplaced" ? typeof (value as { slot?: unknown }).slot === "string"
-        : kind === "index" || kind === "layers" || kind === "tab";
+    return kind === "templates" || kind === "backlog" || kind === "index" || kind === "layers" || kind === "tab";
 }
 
 /**
@@ -221,61 +243,48 @@ function isTab(value: unknown): value is SchematicLibraryTab {
  * @param ctx - What the library is built against
  * @returns The tabs on the wire
  * @throws {Error} Naming the tab: a `library` that is no list of `Schematic.library.*` calls; a tab listed twice (an
- *   author's tab by its name); a templates tab for a slot that holds no kind, a zone kind or a kind with no templates;
- *   an Unplaced tab for a slot that holds no item kind, or one whose `x` and `y` aren't Options; the Index tab with no
- *   zone kinds; the Layers tab with no layers; and each of an author's tab's refusals
+ *   author's tab by its name); the Templates tab when no kind has templates; the Backlog tab when no item kind's `x` and
+ *   `y` are Options; the Index tab with no zone kinds; the Layers tab with no layers; and each of an author's tab's
+ *   refusals
  * @internal
  */
 export function buildSchematicLibrary(tabs: unknown, ctx: SchematicLibraryContext): ExprType<ArrayType<SchematicLibraryTabType>> {
     if (tabs === undefined) return East.value([], ArrayType(SchematicLibraryTabType));
     if (!Array.isArray(tabs) || !tabs.every(isTab)) {
         throw new Error("Schematic: `library` lists the library pane's tabs, in order, each a Schematic.library.* call — " +
-            "templates(slot), unplaced(slot), index(), layers() or tab(rows, { … })");
+            "templates(), backlog(), index(), layers() or tab(rows, { … })");
     }
-    const slots = ctx.kinds.map((kind) => `"${kind.slot}"`).join(", ");
     const seen = new Set<string>();
     for (const tab of tabs as readonly SchematicLibraryTab[]) {
-        const id = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind === "templates" || tab.kind === "unplaced" ? `${tab.kind}:${tab.slot}` : tab.kind;
+        const id = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind;
         if (seen.has(id)) {
             throw new Error(tab.kind === "tab"
                 ? `Schematic: the library lists two tabs named "${tab.config.name}" — each tab's name is its own`
                 : `Schematic: the library lists ${tabName(tab)} twice — each tab once`);
         }
         seen.add(id);
-        if (tab.kind === "templates" || tab.kind === "unplaced") {
-            const kind = ctx.kinds.find((k) => k.slot === tab.slot);
-            if (kind === undefined) throw new Error(`Schematic: the library lists ${tabName(tab)}, and no kind is in the slot "${tab.slot}" — its kinds' slots are ${slots}`);
-            if (tab.kind === "templates") {
-                if (kind.sort === "zones") {
-                    throw new Error(`Schematic: the library lists ${tabName(tab)}, and "${tab.slot}" is a zone kind — zones take no templates: a zone is added through its record`);
-                }
-                if (!kind.templates) {
-                    throw new Error(`Schematic: the library lists ${tabName(tab)}, and the ${NOUN[kind.sort]} kind "${tab.slot}" has no templates — give it templates: ` +
-                        "Schematic.templates(templates.read(), { name, values, source })");
-                }
-            } else {
-                if (kind.sort !== "items") {
-                    throw new Error(`Schematic: the library lists ${tabName(tab)}, and "${tab.slot}" is a ${NOUN[kind.sort]} kind — the Unplaced tab lists an item kind's rows with no position`);
-                }
-                if (!kind.backlog) {
-                    throw new Error(`Schematic: the library lists ${tabName(tab)}, and the item kind "${tab.slot}" places every row — its \`x\` and \`y\` are Float fields: ` +
-                        "make them Options of Float to give it rows with no position");
-                }
-            }
+        if (tab.kind === "templates" && !ctx.kinds.some((kind) => kind.templates)) {
+            throw new Error(`Schematic: the library lists ${tabName(tab)}, and none of its kinds has templates — give an item, link or net kind templates: ` +
+                "Schematic.templates(templates.read(), { name, values, source })");
+        }
+        if (tab.kind === "backlog" && !ctx.kinds.some((kind) => kind.sort === "items" && kind.backlog)) {
+            const items = ctx.kinds.filter((kind) => kind.sort === "items").map((kind) => `"${kind.slot}"`).join(", ");
+            throw new Error(`Schematic: the library lists ${tabName(tab)}, and every item kind places every row — ${items} take Float \`x\` and \`y\` fields: ` +
+                "make an item kind's Options of Float to give it rows with no position");
         }
         if (tab.kind === "index" && !ctx.kinds.some((kind) => kind.sort === "zones")) {
             throw new Error("Schematic: the library lists Schematic.library.index(), and this Schematic has no zone kinds — the Index tab lists the zones (Schematic.zones), nested by containment");
         }
-        if (tab.kind === "layers" && ctx.layers === 0) {
-            throw new Error("Schematic: the library lists Schematic.library.layers(), and this Schematic declares no layers — declare them: layers={[{ key, label }]}");
+        if (tab.kind === "layers" && !ctx.layers) {
+            throw new Error("Schematic: the library lists Schematic.library.layers(), and this Schematic declares no layers — read them from the app's record: " +
+                "layers={Schematic.layers(systems.read(), { label })}");
         }
     }
     const landsOn = ctx.kinds.map((kind) => [kind.slot, { rowType: kind.rowType }] as const);
     const wires = (tabs as readonly SchematicLibraryTab[]).map((tab): ExprType<SchematicLibraryTabType> => {
         switch (tab.kind) {
             case "templates":
-            case "unplaced":
-                return East.value(variant(tab.kind, tab.slot), SchematicLibraryTabType);
+            case "backlog":
             case "index":
             case "layers":
                 return East.value(variant(tab.kind, null), SchematicLibraryTabType);
