@@ -156,4 +156,4 @@ export {
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
 export { indexBuildProgram, buildMutationProgram, migrationProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
-export type { RecordIndexSpec, IndexFunction, IndexKeyOf, ProjectionOf } from './record-index.js';
+export type { RecordIndexSpec, IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, IndexFunction, IndexKeyOf, IndexOn, ProjectionOf } from './record-index.js';

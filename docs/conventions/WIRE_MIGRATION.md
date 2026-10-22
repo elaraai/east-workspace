@@ -328,3 +328,34 @@ Each wire changed under this rule, with the kind it is.
   other: packages are re-exported, and the dataflow computes each UI task's
   output again under the new type. A UI task's output is not stored state, so
   no repository upgrade step ships with it.
+- **e3 gains the area index, and the interval index a constructor of its own
+  (#1385)** — package-borne, and no wire changes. `e3.recordIndex.area` builds
+  an index object as every index's is: its key function, which the SDK
+  generates as it generates an interval index's, and its projection, the whole
+  row. A deploy builds an index its state lacks, so no upgrade step ships.
+  `e3.recordIndex.interval` builds the object the `interval` option built, so
+  no interval index changes form, and a package already exported deploys as it
+  did; `e3.recordIndex` now refuses the option, naming the constructor, so a
+  package's source that wrote it moves to the constructor before its next
+  export.
+- **east-ui's record Slice gains the `window` choice and the `area` index
+  metadata (#1385)** — package-borne, and an application's saved views change
+  type with it. `RecordSliceIndexType` gains `area` after `interval`, built
+  only from a package's declarations, and `RecordSliceChoiceType` gains
+  `window`, which a read gives an area index's `__area` and a rail never holds.
+  A UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it. `window` is named to sort after every
+  case before it, so its tag is the last and theirs are kept — but a narrowing
+  is a `Dict` of choices, and beast2 reads a collection's elements as exactly
+  the asked type (east's `checkDecodeType`): a variant there holds every case
+  of the asked type or does not read. So a narrowing an earlier release wrote
+  does not decode under the new type. One a browser kept for a rail
+  (`enableSlicePersistence`) is set aside, and the rail starts from its slice's
+  `initial`. An application's own record of saved views
+  (`Array<Sheet.Types.RecordView>`, whose `narrowing` is each source's state)
+  changes type with it: a deploy resets an input that holds them to its
+  package's value, since its type changed, and refuses a record that holds them
+  until the record declares the migration that carries them across, as with any
+  record whose type an application changes.

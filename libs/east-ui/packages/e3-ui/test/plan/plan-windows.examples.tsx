@@ -106,7 +106,7 @@ export const planWindowJobsPatch = e3.mutation.patch(planWindowJobs);
  * days it runs, and a job in the backlog under its Unset start — what the
  * rail's `job` source narrows them through.
  */
-export const planWindowJobsByTime = e3.recordIndex("plan_window_jobs_by_time", planWindowJobs, { interval: { from: "start", to: "end" } });
+export const planWindowJobsByTime = e3.recordIndex.interval("plan_window_jobs_by_time", planWindowJobs, { from: "start", to: "end" });
 
 /**
  * The jobs by the days each touches (`Schedule.days`): a scheduled job is

@@ -6,12 +6,12 @@
 /** Named field-index reads, adapted through the existing pinned paged runtime. */
 import {
     East, ArrayType, BooleanType, DictType, IntegerType, NullType, OptionType,
-    StringType, StructType, fromEastTypeValue, toEastTypeValue, printType,
+    StringType, StructType, fromEastTypeValue, toEastTypeValue, printType, isTypeEqual,
     none, some, variant, type EastType, type EastTypeValue, type option, type ValueTypeOf,
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
-import { IndexedEntryType } from "@elaraai/east-ui/internal";
+import { AREA_FIELD, IndexedEntryType } from "@elaraai/east-ui/internal";
 import { bindIndexedPagedPlatformFn, DataIndexedPrimitives } from "@elaraai/e3-ui/internal";
 import { TreePathType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import type { RecordSliceBatches } from "@elaraai/east-ui-components/platform";
@@ -97,39 +97,63 @@ export class IndexedPagedRuntime {
         const types = schema.args[3];
         const index = Object.keys(metadata).find(name => {
             const fields = types.type === "Struct" ? types.fields[name] : undefined;
+            // One entry a row: no Set field, and no interval's start, which files an event up to three times; an area
+            // index's `__area` files each row once.
             return fields?.type === "Struct" && Object.entries(fields.fields as Record<string, EastType>).every(([field, marker]) =>
-                marker.type === "Array" || marker.type === "Null" && schema.row.fields[field]?.type !== "Set");
+                marker.type === "Array" || (marker.type === "Null" && schema.row.fields[field]?.type !== "Set")
+                || (marker.type === "Struct" && field === AREA_FIELD));
         });
         if (index === undefined) throw new Error("A covering-only binding needs an index with one entry per record row");
         return index;
+    }
+
+    /**
+     * Whether an index carries its rows (D29): an area index, whose `__area`
+     * the binding marks, and whose entries hold the whole row as their
+     * projection, so it is read without a join.
+     */
+    private carriesRow(schema: Schema, name: string): boolean {
+        const types = schema.args[3];
+        const fields = types.type === "Struct" ? types.fields[name] : undefined;
+        return fields?.type === "Struct" && (fields.fields as Record<string, EastType>)[AREA_FIELD]?.type === "Struct";
     }
 
     private source(schema: Schema, path: TreePath, metadata: Metadata, joined: boolean, name: string): Handle {
         if (name !== "primary" && !Object.hasOwn(metadata, name)) throw new Error(`Index '${name}' was not declared on this binding`);
         let built = this.sources.get(schema);
         if (built === undefined) { built = new Map(); this.sources.set(schema, built); }
-        const sourceKey = `${datasetPathToString(path)}\u0000${name}\u0000${joined ? "+join" : ""}`;
+        // An index that carries its rows is read without a join, whatever the binding's (D29).
+        const rows = name !== "primary" && this.carriesRow(schema, name);
+        const join = name !== "primary" && joined && !rows;
+        const sourceKey = `${datasetPathToString(path)}\u0000${name}\u0000${join ? "+join" : ""}`;
         const cached = built.get(sourceKey);
         if (cached !== undefined) return cached;
         const [key, row, projection] = schema.args;
-        const type = name === "primary" ? schema.collection : indexWindowType(key, schema.keys[name]!, projection, row);
+        const type = name === "primary" ? schema.collection : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
         const handle = this.paged.buildHandle(toEastTypeValue(type), path,
-            { index: name === "primary" ? null : name, join: name !== "primary" && joined }, "pinned") as unknown as Handle;
+            { index: name === "primary" ? null : name, join }, "pinned") as unknown as Handle;
         built.set(sourceKey, handle);
         return handle;
     }
 
     /** A window of a source as a binding's entries, each tagged with the
      *  source that orders it: mapped once per window, so a window read again
-     *  keeps its identity. */
-    private entriesOf(name: string, window: unknown): unknown[] {
+     *  keeps its identity. An index that carries its rows gives each entry's
+     *  projection as its row, and the binding's projection as its value: the
+     *  row itself, or Null beside indexes that carry nothing (D29). */
+    private entriesOf(schema: Schema, name: string, window: unknown): unknown[] {
         let mapped = this.windows.get(window as object);
         if (mapped === undefined) { mapped = new Map(); this.windows.set(window as object, mapped); }
         let rows = mapped.get(name);
         if (rows === undefined) {
-            rows = name === "primary"
-                ? [...window as Map<unknown, unknown>].map(([key, row]) => ({ ik: variant("primary", key), key, value: none, row: some(row) }))
-                : (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: entry.row }));
+            if (name === "primary") {
+                rows = [...window as Map<unknown, unknown>].map(([key, row]) => ({ ik: variant("primary", key), key, value: none, row: some(row) }));
+            } else if (this.carriesRow(schema, name)) {
+                const whole = isTypeEqual(schema.args[2], schema.row);
+                rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(whole ? entry.value : null), row: some(entry.value) }));
+            } else {
+                rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: entry.row }));
+            }
             mapped.set(name, rows);
         }
         return rows;
@@ -161,7 +185,7 @@ export class IndexedPagedRuntime {
             runsAll: (name, runs) => {
                 if (name === "primary" && !joined) throw new Error("A covering-only binding cannot read primary rows");
                 const read = this.paged.runsAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const));
-                return read.type === "none" ? none : some(this.entriesOf(name, read.value) as never);
+                return read.type === "none" ? none : some(this.entriesOf(schema, name, read.value) as never);
             },
         };
     }
@@ -176,7 +200,7 @@ export class IndexedPagedRuntime {
                     if (name === "primary" && !joined) throw new Error("A covering-only binding cannot read primary rows");
                     const result = this.source(schema, path, metadata, joined, name).page(offset, limit);
                     if (result.type === "none") return none;
-                    return some(this.entriesOf(name, result.value));
+                    return some(this.entriesOf(schema, name, result.value));
                 };
             }),
             seek.implement((...types: EastTypeValue[]) => {

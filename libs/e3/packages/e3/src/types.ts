@@ -314,6 +314,18 @@ export interface RecordIndexDef<
    *  `from`; the generated key inserts an internal interval node before it.
    *  Authoring metadata only: ordinary maintained index programs store it. */
   readonly interval?: { readonly from: string; readonly to: string } | undefined;
+  /** The box an area index files rows by: its fields, whether `x`, `y` is its
+   *  centre or its minimum corner, and the finest cell's side, a power of two.
+   *  Its final logical field is `__area`, the generated key. Authoring metadata
+   *  only: ordinary maintained index programs store it. */
+  readonly area?: {
+    readonly x: string;
+    readonly y: string;
+    readonly width?: string;
+    readonly height?: string;
+    readonly at: 'corner' | 'centre';
+    readonly cell: number;
+  } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi}. Kept as the
    *  expression so export can compose it into the generated programs, which
    *  reach it through its IR alone — so no call signature is claimed here. */

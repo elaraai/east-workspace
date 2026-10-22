@@ -40,9 +40,9 @@ function calendarSeed(): Map<string, ValueTypeOf<typeof IndexedCalendarEvent>> {
 }
 export const indexedCalendarEvents = e3.record("indexed_calendar_events", DictType(StringType, IndexedCalendarEvent), calendarSeed());
 export const indexedCalendarPatch = e3.mutation.patch(indexedCalendarEvents);
-export const indexedCalendarByTime = e3.recordIndex("calendar_by_time", indexedCalendarEvents, { interval: { from: "start", to: "end" } });
-export const indexedCalendarByStatus = e3.recordIndex("calendar_by_status_time", indexedCalendarEvents, { on: ["status"], interval: { from: "start", to: "end" } });
-export const indexedCalendarByMachine = e3.recordIndex("calendar_by_machine_time", indexedCalendarEvents, { on: ["machine"], interval: { from: "start", to: "end" } });
+export const indexedCalendarByTime = e3.recordIndex.interval("calendar_by_time", indexedCalendarEvents, { from: "start", to: "end" });
+export const indexedCalendarByStatus = e3.recordIndex.interval("calendar_by_status_time", indexedCalendarEvents, { on: ["status"], from: "start", to: "end" });
+export const indexedCalendarByMachine = e3.recordIndex.interval("calendar_by_machine_time", indexedCalendarEvents, { on: ["machine"], from: "start", to: "end" });
 export const indexedCalendarMachines = e3.record("indexed_calendar_machines", DictType(StringType, StructType({ name: StringType })), new Map([
     ["press-a", { name: "Press A" }], ["press-b", { name: "Press B" }],
 ]));

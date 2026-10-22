@@ -33,9 +33,9 @@ const config: Config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(Re
         { fieldId: "job", label: "Job", kind: "string", optional: false, multiple: true, set: false, values: [], format: none },
     ],
     indexes: [
-        { name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: false, interval: none },
-        { name: "by_due", fields: ["due"], sets: new Set(), structured: false, interval: none },
-        { name: "by_job", fields: ["job"], sets: new Set(), structured: false, interval: none },
+        { name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: false, interval: none, area: none },
+        { name: "by_due", fields: ["due"], sets: new Set(), structured: false, interval: none, area: none },
+        { name: "by_job", fields: ["job"], sets: new Set(), structured: false, interval: none, area: none },
     ],
     range: some("due"), search: ["job"],
     presets: [

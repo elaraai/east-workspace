@@ -2770,8 +2770,8 @@ export const planSliceJobs = e3.record("plan_slice_jobs", DictType(StringType, S
 
 // The tasks over the interval each runs, alone and after its owner: the window reads every task overlapping it once,
 // and an owner's narrowing holds the window too.
-export const planSliceJobsByTime = e3.recordIndex("plan_slice_jobs_by_time", planSliceJobs, { interval: { from: "start", to: "end" } });
-export const planSliceJobsByOwnerTime = e3.recordIndex("plan_slice_jobs_by_owner_time", planSliceJobs, { on: ["owner"], interval: { from: "start", to: "end" } });
+export const planSliceJobsByTime = e3.recordIndex.interval("plan_slice_jobs_by_time", planSliceJobs, { from: "start", to: "end" });
+export const planSliceJobsByOwnerTime = e3.recordIndex.interval("plan_slice_jobs_by_owner_time", planSliceJobs, { on: ["owner"], from: "start", to: "end" });
 
 export const slicePlanChrome = example({
     keywords: ["Slice", "Slice.bindRecords", "rows", "Plan", "slice", "rail", "filter", "range", "brush", "timeline", "Data.bindPaged", "recordIndex", "interval", "e3.record", "#1344"],

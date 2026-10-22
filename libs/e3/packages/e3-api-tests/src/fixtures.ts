@@ -14,7 +14,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3, { type PackageDef } from '@elaraai/e3';
-import { ArrayType, DictType, FunctionType, IntegerType, NullType, StringType, StructType, OptionType, East, variant, some, none } from '@elaraai/east';
+import { ArrayType, DictType, FloatType, FunctionType, IntegerType, NullType, StringType, StructType, OptionType, East, variant, some, none } from '@elaraai/east';
 import { Console, Time } from '@elaraai/east-node-std';
 
 /**
@@ -302,6 +302,72 @@ export async function createBatchReadsPackageZip(
     }));
   const byGroup = e3.recordIndex('by_group', items, { on: ['group', 'rank'] });
   const pkg = e3.package(name, version, items, seed, byGroup);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** The row of the area fixture's record: a rack's hall, where it stands — by its centre — if anywhere yet, and its footprint. */
+export const RackRowType = StructType({ hall: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
+/** The area fixture's record: racks by key. */
+export const RacksType = DictType(StringType, RackRowType);
+/** The finest cell of the area fixture's indexes: their declared 0.01, rounded down to a power of two. */
+export const RACK_CELL = 2 ** -7;
+/** The key of the area fixture's `racks_by_area`: a rack's cell and level, led by no field. */
+export const RackAreaKeyType = StructType({ __area: IntegerType });
+/** The key of its `racks_by_hall_area`: a rack's hall, then its cell and level. */
+export const RackHallAreaKeyType = StructType({ hall: StringType, __area: IntegerType });
+
+/**
+ * Create a package whose record is read by area (#1385): a window over a
+ * floor's racks, read through an area index from the index alone.
+ *
+ * Creates a package with:
+ * - Record: "racks" (Dict<String, {hall, x, y, w, h}>, empty), its patch door,
+ *   and Mutation "seed" (count) => `count` racks keyed `rack-<i>`: in three
+ *   halls (`H0`…`H2`, by `i` mod 3), centred on a grid of 37 columns 1.7 apart
+ *   from x = −30 and rows 1.3 apart from y = −20, some a cell or two off their
+ *   column; of footprints from 0.3 × 0.2 to 1.9 × 2.0; every eleventh not yet
+ *   placed
+ * - Index: "racks_by_area", each rack's box by its centre, at a 0.01 cell, led
+ *   by no field ({@link RackAreaKeyType}); and "racks_by_hall_area", the same
+ *   led by the hall ({@link RackHallAreaKeyType}). Each carries its rows whole
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createAreaRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const racks = e3.record('racks', RacksType, new Map());
+  const seed = e3.mutation.reduce('seed', racks,
+    East.function([RacksType, IntegerType], RacksType, ($, _state, count) => {
+      const out = $.let(new Map(), RacksType);
+      $.for(East.Array.range(0n, count), ($, i) => {
+        const hall = $.let(East.str`H${i.remainder(3n)}`);
+        const x = $.let(i.remainder(37n).toFloat().multiply(1.7).subtract(30.0).add(i.remainder(3n).toFloat().multiply(RACK_CELL)));
+        const y = $.let(i.divide(37n).toFloat().multiply(1.3).subtract(20.0));
+        const w = $.let(i.remainder(5n).toFloat().multiply(0.4).add(0.3));
+        const h = $.let(i.remainder(7n).toFloat().multiply(0.3).add(0.2));
+        $.if(East.equal(i.remainder(11n), 0n), ($) => {
+          $(out.insert(East.str`rack-${i}`, { hall, x: none, y: none, w, h }));
+        }).else(($) => {
+          $(out.insert(East.str`rack-${i}`, { hall, x: some(x), y: some(y), w, h }));
+        });
+      });
+      return out;
+    }));
+  const byArea = e3.recordIndex.area('racks_by_area', racks, { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
+  const byHallArea = e3.recordIndex.area('racks_by_hall_area', racks, { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
+  const pkg = e3.package(name, version, racks, seed, e3.mutation.patch(racks), byArea, byHallArea);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

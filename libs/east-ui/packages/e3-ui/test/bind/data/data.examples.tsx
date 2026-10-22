@@ -809,8 +809,29 @@ export const indexedIntervals = e3.record('indexed_intervals', DictType(StringTy
 export const indexedIntervalsPatch = e3.mutation.patch(indexedIntervals);
 // The start alone is listed first: a declared overlap must never be read as a start range because its index came first.
 export const intervalsByStart = e3.recordIndex('by_start', indexedIntervals, { on: ["start"] });
-export const intervalsByStatusTime = e3.recordIndex('by_status_time', indexedIntervals, { on: ["status"], interval: { from: "start", to: "end" } });
-export const intervalsByTime = e3.recordIndex('by_time', indexedIntervals, { interval: { from: "start", to: "end" } });
+export const intervalsByStatusTime = e3.recordIndex.interval('by_status_time', indexedIntervals, { on: ["status"], from: "start", to: "end" });
+export const intervalsByTime = e3.recordIndex.interval('by_time', indexedIntervals, { from: "start", to: "end" });
+
+/** A rack on a data centre floor, in metres: its hall, where it stands — by its centre — if anywhere yet, and its footprint. */
+export const IndexedRack = StructType({ hall: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
+/**
+ * Racks on a floor: three in hall A along a row, one in hall B across the
+ * aisle, one in hall B far down the floor, and one in hall A not yet placed —
+ * what a window over the row takes, what its margin takes, and what it leaves.
+ */
+export const indexedRacks = e3.record('indexed_racks', DictType(StringType, IndexedRack), new Map([
+    ["r1",       { hall: "A", x: some(1.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+    ["r2",       { hall: "A", x: some(2.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+    ["r3",       { hall: "A", x: some(3.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+    ["r4",       { hall: "B", x: some(2.0),  y: some(3.5),  w: 0.6, h: 1.2 }],
+    ["far",      { hall: "B", x: some(40.0), y: some(40.0), w: 0.6, h: 1.2 }],
+    ["unplaced", { hall: "A", x: none,       y: none,       w: 0.6, h: 1.2 }],
+]));
+export const indexedRacksPatch = e3.mutation.patch(indexedRacks);
+// The window whatever the rail chooses, and beside it a choice of halls and the window in one read; both carry their rows.
+export const racksByArea = e3.recordIndex.area('racks_by_area', indexedRacks, { x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
+export const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', indexedRacks, { on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
+export const racksByHall = e3.recordIndex('racks_by_hall', indexedRacks, { on: ["hall"] });
 
 /** A step of a flow: its lane, and who owns it, if anyone. */
 export const ComputedStep = StructType({ lane: StringType, owner: OptionType(StringType) });

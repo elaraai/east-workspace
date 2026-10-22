@@ -6,8 +6,11 @@
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, isTypeEqual, some, variant, type ExprType } from "@elaraai/east";
-import { Reactive, Stat, Button, UIComponentType, bindRecord, resolveRowSource } from "@elaraai/east-ui/internal";
+import {
+    ArrayType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, isTypeEqual, some, variant,
+    type ExprType, type FunctionType, type VariantType,
+} from "@elaraai/east";
+import { Reactive, Stat, Button, UIComponentType, bindRecord, readAreaMarker, resolveRowSource } from "@elaraai/east-ui/internal";
 import { TreePathType } from "@elaraai/e3-types";
 import { Data, bindPagedPlatformFn } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -223,5 +226,53 @@ describe("Data.bindPaged over indexes refuses what a Slice cannot read", () => {
     hostTest("a computed scalar key is a field by its index's name, which a Slice searches", () => {
         const computed = e3.recordIndex("computed_name", people, { key: East.function([StringType, Person], StringType, (_$, _key, person) => person.name) });
         assert.doesNotThrow(() => bindRecord("computed", Data.bindPaged(people, { indexes: [computed] }), { search: "computed_name" }));
+    });
+});
+
+// An area index (#1385) carries its rows and marks its `__area` with its box,
+// which a record Slice reads back: these records are the binding's own.
+describe("Data.bindPaged over an area index", () => {
+    const Rack = StructType({ hall: StringType, title: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
+    const racks = e3.record("area_racks", DictType(StringType, Rack), new Map());
+    const byArea = e3.recordIndex.area("by_area", racks, { x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
+    const byHallArea = e3.recordIndex.area("by_hall_area", racks, { on: ["hall"], x: "x", y: "y", cell: 4 });
+    const byHall = e3.recordIndex("by_hall", racks, { on: ["hall"] });
+    const byTitle = e3.recordIndex("by_title", racks, { on: ["title"], value: East.function([StringType, Rack], StringType, (_$, _key, rack) => rack.title) });
+    /** A binding's East type. */
+    const typeOf = (source: unknown) => Expr.type(source as ExprType<StructType>) as StructType;
+    /** The struct the binding marks an index's last field with, by its field names. */
+    const markerOf = (source: unknown, index: string, field: string) => {
+        const indexes = typeOf(source).fields.indexes as StructType;
+        return Object.keys(((indexes.fields[index] as StructType).fields[field] as StructType).fields);
+    };
+    /** The projection a binding's entries carry: the `some` of their `value`. */
+    const projectionOf = (source: unknown) => {
+        const page = typeOf(source).fields.page as FunctionType;
+        const entry = ((page.output as VariantType).cases.some as ArrayType<StructType>).value;
+        return (entry.fields.value as VariantType).cases.some!;
+    };
+
+    hostTest("marks `__area` with its box's fields, by role, its centre and its cell's power of two", () => {
+        const source = Data.bindPaged(racks, { indexes: [byArea, byHallArea] });
+        assert.deepEqual(markerOf(source, "by_area", "__area"), ["x=x", "y=y", "width=w", "height=h", "__centre", "cell=0.0078125"]);
+        assert.deepEqual(markerOf(source, "by_hall_area", "__area"), ["x=x", "y=y", "cell=4.0"], "a point by its corner: no width, height or centre");
+        assert.deepEqual(readAreaMarker(markerOf(source, "by_area", "__area")), { x: "x", y: "y", width: "w", height: "h", centre: true, cell: 2 ** -7 });
+    });
+
+    hostTest("its entries carry the whole row: alone, the binding's projection is the row; beside an index that carries nothing, Null (D29)", () => {
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(racks, { indexes: [byArea, byHallArea] })), Rack));
+        assert.ok(isTypeEqual(projectionOf(Data.bindPaged(racks, { indexes: [byArea, byHall] })), NullType));
+    });
+
+    hostTest("beside an index that carries another projection, it is refused, naming that index", () => {
+        assert.throws(() => Data.bindPaged(racks, { indexes: [byArea, byTitle] }),
+            /'by_title' carries \.String beside indexes that carry another projection — the indexes a binding lists carry one projection, or each the whole row, as an area index does, or nothing/);
+    });
+
+    hostTest("a record Slice over it offers the leading fields, never `__area`, which a read by area gives its window", () => {
+        const source = Data.bindPaged(racks, { indexes: [byArea, byHallArea, byHall] });
+        assert.doesNotThrow(() => bindRecord("racks", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } }));
+        // @ts-expect-error `__area` is no field of the rail
+        assert.throws(() => bindRecord("racks", source, { fields: { __area: {} } }), /'__area' is an area index's window/);
     });
 });

@@ -20,10 +20,11 @@
  * one to the byte.
  */
 
-import type { DateTimeType, DictType, EastType, FunctionExpr, IntegerType, OptionType } from '@elaraai/east';
+import type { DateTimeType, DictType, EastType, FloatType, FunctionExpr, IntegerType, OptionType } from '@elaraai/east';
 import { East, Expr, NullType, SetType, StructType, printType } from '@elaraai/east';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import { intervalKey } from './record-interval.js';
+import { AREA_FIELD, areaCellExponent, areaKey } from './record-area.js';
 import { checkPure, sameEastType } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
@@ -54,31 +55,42 @@ export interface IndexFunction {
 
 /** The own fields of a Dict record's struct row. */
 type RowFields<T> = T extends DictType<any, StructType<infer F>> ? F : Record<never, never>;
+/** A Dict record's row type. */
+type RowOf<T> = T extends DictType<any, infer V extends EastType> ? V : EastType;
 /** A Set field indexes its elements; every other field indexes its value. */
 type FieldKey<T> = T extends SetType<infer K extends EastType> ? K : T extends EastType ? T : never;
-/** The field names carried by a field-index declaration. */
-type IndexOn<S> = S extends { interval: { from: infer F extends string } }
-  ? S extends { on: infer On extends readonly string[] } ? readonly [...On, F] : readonly [F]
+/**
+ * The field names an index declaration orders by: its `on` fields, an interval
+ * index's leading fields then its start, an area index's leading fields then
+ * `__area`; undefined for a computed key.
+ *
+ * @typeParam S - The index spec as written
+ */
+export type IndexOn<S> = S extends { cell: number }
+  ? S extends { on: infer On extends readonly string[] } ? readonly [...On, '__area'] : readonly ['__area']
+  : S extends { from: infer F extends string; to: string }
+    ? S extends { on: infer On extends readonly string[] } ? readonly [...On, F] : readonly [F]
   : S extends { on: infer On extends readonly string[] } ? On : undefined;
-type IndexInterval<S> = S extends { interval: infer I } ? I : undefined;
+/** A row field an interval index may start or end at: a DateTime, or an Option of one. */
 type IntervalField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends DateTimeType | OptionType<DateTimeType> ? F : never }[keyof RowFields<T>] & string;
-type IntervalPrefix<S, T> = S extends { on: infer On extends readonly (keyof RowFields<T> & string)[] }
+/** A row field an area index may place a box by: a Float, or an Option of one. */
+type PlaceField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends FloatType | OptionType<FloatType> ? F : never }[keyof RowFields<T>] & string;
+/** A row field an area index may size a box by: a Float. */
+type FloatField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends FloatType ? F : never }[keyof RowFields<T>] & string;
+/** A generated index's exact leading fields, by name, as its key holds them. */
+type LeadingKey<S, T> = S extends { on: infer On extends readonly (keyof RowFields<T> & string)[] }
   ? { [F in On[number]]: FieldKey<RowFields<T>[F]> } : Record<never, never>;
 
-/** What an index keys on: `on` (row fields), `interval` with optional leading
- *  `on` fields, `key` (one computed entry per row), or `keys` (one per Set
- *  element), and an optional covering projection.
+/** What a plain index keys on: `on` (row fields), `key` (one computed entry
+ *  per row), or `keys` (one per Set element), and an optional covering
+ *  projection. An index that answers more than an order has a constructor of
+ *  its own: {@link IntervalIndexSpec}, {@link AreaIndexSpec}.
  *  @typeParam T - The owning record's state type
  */
 export type RecordIndexSpec<T extends EastType = EastType> = {
   /** Row fields in index order. One field uses its value as the key; several
    *  use a struct in this order. Set fields fan out over their elements. */
   on?: readonly (keyof RowFields<T> & string)[];
-  /** Preserve intervals intersecting a half-open time window, including
-   *  carry-in events, without day fan-out or duration lookbacks. `on`, when
-   *  present, names exact leading fields before this interval. Missing starts
-   *  remain selectable as Unset; missing or non-positive ends are instants. */
-  interval?: { from: IntervalField<T>; to: IntervalField<T> };
   /** `(K, V) -> IK` — one index entry per row. */
   key?: IndexFunction;
   /** `(K, V) -> Set<IK>` — one index entry per element, so a row that names
@@ -88,14 +100,67 @@ export type RecordIndexSpec<T extends EastType = EastType> = {
   /** `(K, V) -> P` — the fields a view renders from the index alone, so it
    *  never touches the primary's segments. */
   value?: IndexFunction;
+  /** Refused: an interval index has a constructor of its own,
+   *  `e3.recordIndex.interval(name, record, { on?, from, to })`. */
+  interval?: never;
 };
+
+/**
+ * What an interval index keys on (`e3.recordIndex.interval`): the events
+ * overlapping a half-open time window, carry-in events among them, without
+ * day fan-out or duration lookbacks.
+ *
+ * @typeParam T - The owning record's state type
+ */
+export interface IntervalIndexSpec<T extends EastType = EastType> {
+  /** Exact leading fields before the interval. Set fields fan out. */
+  on?: readonly (keyof RowFields<T> & string)[];
+  /** The field an event starts at: a DateTime, or an Option of one, whose
+   *  `none` is the backlog, selectable as Unset. */
+  from: IntervalField<T>;
+  /** The field it ends at; a missing or non-positive end is an instant. */
+  to: IntervalField<T>;
+  /** Refused: an interval index carries no projection. */
+  value?: never;
+}
+
+/**
+ * What an area index keys on (`e3.recordIndex.area`): the rows whose box meets
+ * a window, each filed once, by a box its fields name. It carries the whole row
+ * as its projection, so a window reads the index alone.
+ *
+ * @typeParam T - The owning record's state type
+ */
+export interface AreaIndexSpec<T extends EastType = EastType> {
+  /** Exact leading fields before the area. Set fields fan out. */
+  on?: readonly (keyof RowFields<T> & string)[];
+  /** The box's `x`: a Float field, or an Option<Float> one whose `none` is unplaced. */
+  x: PlaceField<T>;
+  /** The box's `y`: a Float field, or an Option<Float> one, as `x` is. */
+  y: PlaceField<T>;
+  /** The box's width, a Float field; with `height`, or neither for a point. */
+  width?: FloatField<T>;
+  /** The box's height, a Float field; with `width`, or neither for a point. */
+  height?: FloatField<T>;
+  /** Whether `x`, `y` is the box's minimum corner (the default, as a zone's) or its centre (as an item's). */
+  at?: 'corner' | 'centre';
+  /** The finest cell's side in world units, about the smallest thing drawn: 0.01
+   *  for a floor in metres, 1 for one in millimetres. Rounded down to a power of
+   *  two, so the keys' arithmetic is exact on every runtime. It has no default:
+   *  a wrong one costs a silent tenfold read. */
+  cell: number;
+  /** Refused: an area index carries the whole row as its projection. */
+  value?: never;
+}
 
 /** The type an East function returns, read off the expression itself. */
 type OutputOf<F> = F extends FunctionExpr<any, infer O> ? (O extends EastType ? O : EastType) : EastType;
 
 /**
- * The index key a spec declares: its row fields, `key`'s return, or the
- * element of the Set `keys` returns.
+ * The index key a spec declares: an area index's leading fields and `__area`,
+ * an interval index's leading fields, `__interval` and its start, a plain
+ * index's row fields, `key`'s return, or the element of the Set `keys`
+ * returns.
  *
  * @typeParam S - The index spec as written
  * @typeParam T - The owning record's state type, for field indexes
@@ -107,8 +172,10 @@ type OutputOf<F> = F extends FunctionExpr<any, infer O> ? (O extends EastType ? 
  * through the index, and so every component that renders one.
  */
 export type IndexKeyOf<S, T extends EastType = EastType> =
-  S extends { interval: { from: infer F extends keyof RowFields<T> & string } }
-    ? StructType<IntervalPrefix<S, T> & { __interval: IntegerType } & { [K in F]: RowFields<T>[K] }>
+  S extends { cell: number }
+    ? StructType<LeadingKey<S, T> & { __area: IntegerType }>
+  : S extends { from: infer F extends keyof RowFields<T> & string; to: string }
+    ? StructType<LeadingKey<S, T> & { __interval: IntegerType } & { [K in F]: RowFields<T>[K] }>
   : S extends { on: readonly [infer F extends keyof RowFields<T>] } ? FieldKey<RowFields<T>[F]>
   : S extends { on: infer On extends readonly (keyof RowFields<T> & string)[] }
     ? number extends On['length'] ? EastType : StructType<{ [K in On[number]]: FieldKey<RowFields<T>[K]> }>
@@ -183,6 +250,98 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
   }
 }
 
+/** The constructor a refusal names. */
+type Constructor = 'e3.recordIndex' | 'e3.recordIndex.interval' | 'e3.recordIndex.area';
+
+/**
+ * A record's entry types, once an index's name and its record pass: a name that
+ * is an identifier, never `primary`, declared once on the record, over a Dict
+ * record.
+ *
+ * Every guard here is a definition-time error rather than a deploy failure.
+ */
+function indexedEntry(constructor: Constructor, name: string, rec: RecordDef): { keyType: EastType; valueType: EastType } {
+  if (!name) {
+    throw new Error(`${constructor} requires a non-empty name`);
+  }
+  if (name === RESERVED_INDEX_NAME) {
+    throw new Error(
+      `${constructor} cannot be named '${RESERVED_INDEX_NAME}' — that name is the ` +
+      `record's own collection wherever an index is selected.`,
+    );
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error(
+      `${constructor} '${name}' must be an identifier — it names a query ` +
+      `selector in URLs and on the command line.`,
+    );
+  }
+  // An assembled record — a package's `records.plans` — carries its indexes
+  // already; a bare one is checked when `e3.package` folds indexes onto it.
+  if (rec.indexes[name] !== undefined) {
+    throw new Error(`${constructor} '${name}' is already declared on record '${rec.name}'`);
+  }
+  const recordType = rec.type as unknown as { type: string; key: EastType; value: EastType };
+  if (recordType.type !== 'Dict') {
+    throw new Error(
+      `${constructor} '${name}' indexes a Dict record — '${rec.name}' holds ` +
+      `${printType(rec.type)}, which has no (key, value) entry to index. A Set or ` +
+      `Array record is read in its own order only.`,
+    );
+  }
+  return { keyType: recordType.key, valueType: recordType.value };
+}
+
+/** Refuses an option a constructor does not take, naming those it does. */
+function onlyOptions(constructor: Constructor, name: string, spec: object, options: readonly string[], instead?: string): void {
+  const extra = Object.keys(spec).filter((option) => !options.includes(option));
+  if (extra.length === 0) return;
+  throw new Error(
+    `${constructor} '${name}' takes ${options.join(', ')}, not ${extra.join(', ')}` + (instead === undefined ? '' : ` — ${instead}`),
+  );
+}
+
+/**
+ * An index's key and projection functions, checked as every constructor checks
+ * them: pure, over the record's entry, a `keys` function returning a Set.
+ *
+ * @returns The runner, and the index key and projection types the functions declare
+ */
+function indexFunctions(
+  name: string, keyType: EastType, valueType: EastType,
+  keyFn: IndexFunction, multi: boolean, valueFn: IndexFunction | undefined, config: { runner?: FunctionRunner } | undefined,
+): { runner: FunctionRunner; indexKeyType: EastType; projectionType: EastType } {
+  const runner = config?.runner ?? DEFAULT_RUNNER;
+  // Validate eagerly so a bad runner fails at definition time, not export time.
+  runnerToVariant(runner);
+
+  checkPure(`e3.recordIndex '${name}' ${multi ? "'keys' function" : "'key' function"}`, keyFn, INDEX_PURITY);
+  const keySig = signatureOf(keyFn);
+  checkEntryParams(name, multi ? "'keys' function" : "'key' function", keyType, valueType, keySig.inputs);
+
+  let indexKeyType = keySig.output;
+  if (multi) {
+    const returned = keySig.output as unknown as { type: string; key: EastType };
+    if (returned.type !== 'Set') {
+      throw new Error(
+        `e3.recordIndex '${name}' declared with 'keys' must return a Set of index ` +
+        `keys — one entry per element — but returns ${printType(keySig.output)}. ` +
+        `For one entry per row use 'key'.`,
+      );
+    }
+    indexKeyType = returned.key;
+  }
+
+  let projectionType: EastType = NullType;
+  if (valueFn !== undefined) {
+    checkPure(`e3.recordIndex '${name}' 'value' projection`, valueFn, INDEX_PURITY);
+    const valueSig = signatureOf(valueFn);
+    checkEntryParams(name, "'value' projection", keyType, valueType, valueSig.inputs);
+    projectionType = valueSig.output;
+  }
+  return { runner, indexKeyType, projectionType };
+}
+
 /**
  * Defines a secondary index over a record.
  *
@@ -193,6 +352,11 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
  * that renders from the index alone declares its fields as `value` and never
  * reads the primary at all.
  *
+ * An index that answers more than an order has a constructor of its own:
+ * {@link intervalIndex | e3.recordIndex.interval}, the events overlapping a time
+ * window, and {@link areaIndex | e3.recordIndex.area}, the boxes meeting a
+ * window. This one refuses `interval`, naming its constructor.
+ *
  * Every guard here is a definition-time error rather than a deploy failure.
  *
  * @typeParam Name - Index name (literal type)
@@ -202,7 +366,7 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
  * @param name - Index name: never `primary`, and one declaration per name on
  *   the record, which `e3.package` enforces when it folds indexes onto it
  * @param rec - The record to index
- * @param spec - `on`, `key`, `keys`, or `interval` with optional leading `on`; optional covering `value`
+ * @param spec - `on`, `key` or `keys`; optional covering `value`
  * @param config - Optional runner selection (known runtimes only)
  * @returns A RecordIndexDef to pass to `e3.package`
  *
@@ -231,92 +395,32 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
  * const pkg = e3.package('planning', '1.0.0', plans, byStatus, byDue, byResource);
  * ```
  */
-export function recordIndex<Name extends string, T extends EastType, const S extends RecordIndexSpec<T>>(
+function plainIndex<Name extends string, T extends EastType, const S extends RecordIndexSpec<T>>(
   name: Name,
   rec: RecordDef<T>,
   spec: S,
   config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, IndexKeyOf<S, T>, ProjectionOf<S>, IndexOn<S>> & { interval: IndexInterval<S> } {
-  if (!name) {
-    throw new Error('e3.recordIndex requires a non-empty name');
-  }
-  if (name === RESERVED_INDEX_NAME) {
-    throw new Error(
-      `e3.recordIndex cannot be named '${RESERVED_INDEX_NAME}' — that name is the ` +
-      `record's own collection wherever an index is selected.`,
-    );
-  }
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-    throw new Error(
-      `e3.recordIndex '${name}' must be an identifier — it names a query ` +
-      `selector in URLs and on the command line.`,
-    );
-  }
-  // An assembled record — a package's `records.plans` — carries its indexes
-  // already; a bare one is checked when `e3.package` folds indexes onto it.
-  if (rec.indexes[name] !== undefined) {
-    throw new Error(`e3.recordIndex '${name}' is already declared on record '${rec.name}'`);
-  }
-
-  const recordType = rec.type as unknown as { type: string; key: EastType; value: EastType };
-  if (recordType.type !== 'Dict') {
-    throw new Error(
-      `e3.recordIndex '${name}' indexes a Dict record — '${rec.name}' holds ` +
-      `${printType(rec.type)}, which has no (key, value) entry to index. A Set or ` +
-      `Array record is read in its own order only.`,
-    );
-  }
-  const keyType = recordType.key;
-  const valueType = recordType.value;
-
-  if ([spec.interval ?? spec.on, spec.key, spec.keys].filter((part) => part !== undefined).length !== 1) {
+): RecordIndexDef<Name, T, IndexKeyOf<S, T>, ProjectionOf<S>, IndexOn<S>> {
+  const { keyType, valueType } = indexedEntry('e3.recordIndex', name, rec);
+  onlyOptions('e3.recordIndex', name, spec, ['on', 'key', 'keys', 'value'], 'interval' in spec
+    ? `an interval index has a constructor of its own: e3.recordIndex.interval('${name}', record, { on?, from, to })`
+    : undefined);
+  if ([spec.on, spec.key, spec.keys].filter((part) => part !== undefined).length !== 1) {
     throw new Error(
       `e3.recordIndex '${name}' takes exactly one of 'key' (one entry per row) ` +
-      `or 'keys' (one per element of a returned Set), 'on' (row fields), or 'interval' (with optional leading 'on' fields)`,
+      `or 'keys' (one per element of a returned Set), or 'on' (row fields)`,
     );
   }
-  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
-  const generated = spec.interval === undefined ? prefix
-    : intervalKey(name, keyType, valueType, spec.on ?? [], spec.interval, prefix);
+  const generated = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
   const multi = generated?.multi ?? (spec.keys !== undefined);
   const keyFn = generated?.fn ?? (spec.key ?? spec.keys)!;
-
-  const runner = config?.runner ?? DEFAULT_RUNNER;
-  // Validate eagerly so a bad runner fails at definition time, not export time.
-  runnerToVariant(runner);
-
-  checkPure(`e3.recordIndex '${name}' ${multi ? "'keys' function" : "'key' function"}`, keyFn, INDEX_PURITY);
-  const keySig = signatureOf(keyFn);
-  checkEntryParams(name, multi ? "'keys' function" : "'key' function", keyType, valueType, keySig.inputs);
-
-  let indexKeyType = keySig.output;
-  if (multi) {
-    const returned = keySig.output as unknown as { type: string; key: EastType };
-    if (returned.type !== 'Set') {
-      throw new Error(
-        `e3.recordIndex '${name}' declared with 'keys' must return a Set of index ` +
-        `keys — one entry per element — but returns ${printType(keySig.output)}. ` +
-        `For one entry per row use 'key'.`,
-      );
-    }
-    indexKeyType = returned.key;
-  }
-
-  let projectionType: EastType = NullType;
-  if (spec.value !== undefined) {
-    checkPure(`e3.recordIndex '${name}' 'value' projection`, spec.value, INDEX_PURITY);
-    const valueSig = signatureOf(spec.value);
-    checkEntryParams(name, "'value' projection", keyType, valueType, valueSig.inputs);
-    projectionType = valueSig.output;
-  }
+  const { runner, indexKeyType, projectionType } = indexFunctions(name, keyType, valueType, keyFn, multi, spec.value, config);
 
   return {
     kind: 'recordIndex',
     name,
     record: rec,
-    on: (spec.interval !== undefined ? Object.freeze([...(spec.on ?? []), spec.interval.from])
-      : spec.on === undefined ? undefined : Object.freeze([...spec.on])) as IndexOn<S>,
-    interval: (spec.interval === undefined ? undefined : Object.freeze({ ...spec.interval })) as ({ readonly from: string; readonly to: string } | undefined) & IndexInterval<S>,
+    on: (spec.on === undefined ? undefined : Object.freeze([...spec.on])) as IndexOn<S>,
     keyFn,
     ...(spec.value !== undefined && { valueFn: spec.value }),
     multi,
@@ -327,3 +431,177 @@ export function recordIndex<Name extends string, T extends EastType, const S ext
     runner,
   };
 }
+
+/**
+ * Defines an interval index over a record: the events overlapping a half-open
+ * time window `[from, to)`, carry-in events and those spanning the whole window
+ * among them, each once, without day fan-out or a guessed lookback.
+ *
+ * It is an ordinary maintained index whose keys the SDK generates: each event
+ * is filed under at most three entries a combination of its leading fields,
+ * independent of its duration — a centred interval tree laid along the index's
+ * key order. A record Slice reads a window through it as one start range and
+ * at most 54 carry-in ranges a combination. A missing start is the backlog,
+ * selectable as Unset; a missing or non-positive end is an instant.
+ *
+ * @typeParam Name - Index name (literal type)
+ * @typeParam T - The owning record's state type (a Dict of Struct rows)
+ * @typeParam S - The spec as written, from which the index key type is read
+ * @param name - Index name: an identifier, never `primary`, declared once on the record
+ * @param rec - The record to index
+ * @param spec - `from` and `to`, the row's DateTime (or Option<DateTime>)
+ *   fields an event starts and ends at, and optional exact leading `on` fields
+ * @param config - Optional runner selection (known runtimes only)
+ * @returns A RecordIndexDef to pass to `e3.package`, its key `{ …on, __interval, [from] }`
+ * @throws {Error} When `from` or `to` is not a DateTime field, when the start or
+ *   the reserved `__interval` is a leading field, or on any guard
+ *   `e3.recordIndex` applies to a name and a record
+ *
+ * @example
+ * ```ts
+ * const events = e3.record('events', DictType(StringType, EventRow), new Map());
+ * // The events of a window, whatever their status:
+ * const byTime = e3.recordIndex.interval('by_time', events, { from: 'start', to: 'end' });
+ * // A choice of statuses and the window, in one read:
+ * const byStatusTime = e3.recordIndex.interval('by_status_time', events, {
+ *   on: ['status'], from: 'start', to: 'end',
+ * });
+ * ```
+ */
+function intervalIndex<Name extends string, T extends EastType, const S extends IntervalIndexSpec<T>>(
+  name: Name,
+  rec: RecordDef<T>,
+  spec: S,
+  config?: { runner?: FunctionRunner },
+): RecordIndexDef<Name, T, IndexKeyOf<S, T>, NullType, IndexOn<S>> & { interval: { readonly from: S['from']; readonly to: S['to'] } } {
+  const { keyType, valueType } = indexedEntry('e3.recordIndex.interval', name, rec);
+  onlyOptions('e3.recordIndex.interval', name, spec, ['on', 'from', 'to']);
+  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
+  const generated = intervalKey(name, keyType, valueType, spec.on ?? [], { from: spec.from, to: spec.to }, prefix);
+  const { runner, indexKeyType } = indexFunctions(name, keyType, valueType, generated.fn, generated.multi, undefined, config);
+
+  return {
+    kind: 'recordIndex',
+    name,
+    record: rec,
+    on: Object.freeze([...(spec.on ?? []), spec.from]) as unknown as IndexOn<S>,
+    interval: Object.freeze({ from: spec.from, to: spec.to }),
+    keyFn: generated.fn,
+    multi: generated.multi,
+    keyType: indexKeyType as IndexKeyOf<S, T>,
+    valueType: NullType,
+    runner,
+  };
+}
+
+/** The box an area index declares, as its definition carries it, `cell` rounded to its power of two. */
+export interface AreaIndexOf<S> {
+  /** The field holding the box's `x`. */
+  readonly x: S extends { x: infer X extends string } ? X : string;
+  /** The field holding the box's `y`. */
+  readonly y: S extends { y: infer Y extends string } ? Y : string;
+  /** The field holding its width; absent for a point. */
+  readonly width?: string;
+  /** The field holding its height; absent for a point. */
+  readonly height?: string;
+  /** Whether `x`, `y` is the box's minimum corner or its centre. */
+  readonly at: 'corner' | 'centre';
+  /** The finest cell's side in world units: the declared `cell`, rounded down to a power of two. */
+  readonly cell: number;
+}
+
+/**
+ * Defines an area index over a record: the rows whose box meets a window, each
+ * once, the 2D twin of {@link intervalIndex | the interval index}.
+ *
+ * It is an ordinary maintained index whose keys the SDK generates: a loose
+ * quadtree laid along a Z-order curve. The domain is the square
+ * `[−cell·2²⁷, cell·2²⁷)` world units in 29 levels; each row is filed once,
+ * under the deepest level whose cell is at least twice its box's larger side,
+ * in the cell holding its box's centre, its key `{ …on, __area }`. A row whose
+ * `x` or `y` is `none` is unplaced, `__area` −1; one outside the domain, not
+ * finite, or larger than half the domain is filed under the root. A record Slice
+ * reads a window through it as at most 266 disjoint searches a combination of
+ * its leading fields, every row whose box meets the window among their rows.
+ *
+ * It carries its rows: each entry's projection is the whole row, so a window
+ * reads the index alone and no record segment. It takes no `value`.
+ *
+ * @typeParam Name - Index name (literal type)
+ * @typeParam T - The owning record's state type (a Dict of Struct rows)
+ * @typeParam S - The spec as written, from which the index key type is read
+ * @param name - Index name: an identifier, never `primary`, declared once on the record
+ * @param rec - The record to index
+ * @param spec - The box's fields — `x`, `y` (Float, or Option<Float> for a row
+ *   that may be unplaced), `width` and `height` (Float, or neither for a point)
+ *   — `at` (`"corner"`, the default, or `"centre"`), `cell` (the finest cell's
+ *   side in world units, rounded down to a power of two) and optional exact
+ *   leading `on` fields
+ * @param config - Optional runner selection (known runtimes only)
+ * @returns A RecordIndexDef to pass to `e3.package`, its key `{ …on, __area }`,
+ *   its projection the row
+ * @throws {Error} When a field is not of its option's type, naming the option,
+ *   the field and its type; when `x` and `y` are not both Options or neither,
+ *   or `width` and `height` are not given together; when `cell` is not a
+ *   positive number; when the row has a field named `__area`; or on any guard
+ *   `e3.recordIndex` applies to a name and a record
+ *
+ * @example
+ * ```ts
+ * const racks = e3.record('racks', DictType(StringType, RackRow), new Map());
+ * // The window, whatever the rail chooses:
+ * const racksByArea = e3.recordIndex.area('racks_by_area', racks, {
+ *   x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
+ * });
+ * // Beside it, a choice of halls and the window in one read:
+ * const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', racks, {
+ *   on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
+ * });
+ * ```
+ */
+function areaIndex<Name extends string, T extends EastType, const S extends AreaIndexSpec<T>>(
+  name: Name,
+  rec: RecordDef<T>,
+  spec: S,
+  config?: { runner?: FunctionRunner },
+): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { area: AreaIndexOf<S> } {
+  const { keyType, valueType } = indexedEntry('e3.recordIndex.area', name, rec);
+  onlyOptions('e3.recordIndex.area', name, spec, ['on', 'x', 'y', 'width', 'height', 'at', 'cell'],
+    'value' in spec ? 'an area index carries the whole row as its projection, so it takes no value' : undefined);
+  const exponent = areaCellExponent(name, spec.cell);
+  const box = {
+    x: spec.x, y: spec.y,
+    ...(spec.width !== undefined && { width: spec.width as string }),
+    ...(spec.height !== undefined && { height: spec.height as string }),
+    at: spec.at ?? 'corner',
+  } as const;
+  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
+  const generated = areaKey(name, keyType, valueType, spec.on ?? [], box, exponent, prefix);
+  // It carries its rows (D29): each entry's projection is the whole row, so a
+  // window reads the index alone and no record segment.
+  const valueFn = East.function([keyType as never, valueType as never], valueType as never, (_$: any, _key: any, row: any) => row);
+  const { runner, indexKeyType, projectionType } = indexFunctions(name, keyType, valueType, generated.fn, generated.multi, valueFn, config);
+
+  return {
+    kind: 'recordIndex',
+    name,
+    record: rec,
+    on: Object.freeze([...(spec.on ?? []), AREA_FIELD]) as unknown as IndexOn<S>,
+    area: Object.freeze({ ...box, cell: 2 ** exponent }) as AreaIndexOf<S>,
+    keyFn: generated.fn,
+    valueFn,
+    multi: generated.multi,
+    keyType: indexKeyType as IndexKeyOf<S, T>,
+    valueType: projectionType as RowOf<T>,
+    runner,
+  };
+}
+
+/**
+ * Defines a secondary index over a record — `e3.recordIndex(name, record, {
+ * on | key | keys, value? })`, an order to page in — and, as its own
+ * constructors, the indexes that answer more than an order:
+ * `e3.recordIndex.interval` (the events overlapping a time window) and
+ * `e3.recordIndex.area` (the boxes meeting a window).
+ */
+export const recordIndex = Object.assign(plainIndex, { interval: intervalIndex, area: areaIndex });

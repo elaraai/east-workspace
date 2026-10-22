@@ -5,7 +5,7 @@
 
 /** Record Slice wire; the existing local Slice types remain unchanged. */
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, FunctionType, IntegerType, NullType,
+    ArrayType, BlobType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType,
     OptionType, SetType, StringType, StructType, VariantType, type EastType,
 } from "@elaraai/east";
 import { ValueFormatType } from "../../contracts/format.js";
@@ -16,14 +16,25 @@ import { LiveSourceType, SeekQueryType, SeekRangeType } from "../../contracts/so
 /**
  * One field's narrowing, with values encoded as typed .east literals.
  * @remarks Prefix text is raw text; every exact value and range end is a literal.
- * @property values - Exact alternatives on a leading field (one on a Set field).
+ * A `window` is a read's, never the rail's: it is given under an area index's
+ * `__area` field to a read's `where` (`pageWhere`, `countWhere`, a scan), never
+ * written into a Slice's state, and never shown as a chip (#1385). It is named
+ * to sort after every case before it, so the earlier cases keep their tags. A
+ * narrowing is a Dict of choices, whose values beast2 reads at exactly their
+ * written type, so one an earlier release wrote does not decode under this type
+ * (docs/conventions/WIRE_MIGRATION.md).
+ * @property values - Exact alternatives on a leading field (one on a Set field);
+ *   under `__area`, the unplaced clause (`-1`).
  * @property range - Half-open range on the next field.
  * @property prefix - String prefix on the next field.
+ * @property window - The viewport an area index reads, in world units: the rows
+ *   whose box meets it grown by its margin (`areaQueries`).
  */
 export const RecordSliceChoiceType = VariantType({
     values: ArrayType(StringType),
     range: StructType({ from: StringType, to: StringType }),
     prefix: StringType,
+    window: StructType({ minX: FloatType, minY: FloatType, maxX: FloatType, maxY: FloatType }),
 });
 export type RecordSliceChoiceType = typeof RecordSliceChoiceType;
 
@@ -86,10 +97,18 @@ export type RecordSliceFieldType = typeof RecordSliceFieldType;
  * @property sets - Fields that fan out; all must be fixed to one exact value.
  * @property structured - Index key is a Struct, including a single computed field.
  * @property interval - Final field represents overlap with an interval, using distinct start/carry-in queries.
+ * @property area - Final field is an area index's `__area` (#1385): the row fields its box is read from (`x`, `y`,
+ *   and `width` and `height` unless the rows are points), whether `x`, `y` is the box's centre or its minimum corner,
+ *   the finest cell's side in world units (a power of two), and whether `x` and `y` are Options, which makes the
+ *   unplaced clause meaningful. Its entries carry their rows.
  */
 export const RecordSliceIndexType = StructType({
     name: StringType, fields: ArrayType(StringType), sets: SetType(StringType), structured: BooleanType,
     interval: OptionType(StructType({ from: StringType, to: StringType, optional: BooleanType })),
+    area: OptionType(StructType({
+        x: StringType, y: StringType, width: OptionType(StringType), height: OptionType(StringType),
+        centre: BooleanType, cell: FloatType, optional: BooleanType,
+    })),
 });
 export type RecordSliceIndexType = typeof RecordSliceIndexType;
 
