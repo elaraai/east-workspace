@@ -106,6 +106,8 @@ export class RecordSliceController {
             if (schema.kind !== "string" || schema.set) throw new Error("Choose an exact value for this field");
             return choice;
         }
+        // A window is a read's, under an area index's `__area`, never a field's choice (#1385).
+        if (choice.type === "window") throw new Error("A window is given to a read by area, never chosen for a field");
         if (schema.set || !["datetime", "integer", "float"].includes(schema.kind)) throw new Error("This field does not support a range");
         const from = this.readValue(field, choice.value.from);
         const to = this.readValue(field, choice.value.to);
@@ -344,7 +346,7 @@ export class RecordSliceController {
         leading.set(field, variant("prefix", text));
         // Suggestion bounds may include fan-out entries; each displayed value
         // gets its count from a separately validated exact-membership path.
-        const searchPlan = planRecordSlice([{ ...index, sets: new Set(), interval: none }], leading, this.source.defaultIndex)!;
+        const searchPlan = planRecordSlice([{ ...index, sets: new Set(), interval: none, area: none }], leading, this.source.defaultIndex)!;
         const ranges = this.windows.resolve(searchPlan);
         if (ranges.type === "none") return none;
         const values: Count[] = [];

@@ -78,6 +78,7 @@ export { dataflowTests } from './suites/dataflow.js';
 export { functionTests } from './suites/functions.js';
 export { recordTests } from './suites/records.js';
 export { keyedRecordTests } from './suites/records-keyed.js';
+export { areaRecordTests } from './suites/records-area.js';
 export { recordDeployTests } from './suites/record-deploy.js';
 export { inputDeployTests } from './suites/input-deploy.js';
 export { platformTests } from './suites/platform.js';
@@ -98,6 +99,7 @@ import { dataflowTests } from './suites/dataflow.js';
 import { functionTests } from './suites/functions.js';
 import { recordTests } from './suites/records.js';
 import { keyedRecordTests } from './suites/records-keyed.js';
+import { areaRecordTests } from './suites/records-area.js';
 import { recordDeployTests } from './suites/record-deploy.js';
 import { inputDeployTests } from './suites/input-deploy.js';
 import { platformTests } from './suites/platform.js';
@@ -126,6 +128,7 @@ export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContex
   functions: functionTests,
   records: recordTests,
   keyedRecords: keyedRecordTests,
+  areaRecords: areaRecordTests,
   recordDeploy: recordDeployTests,
   inputDeploy: inputDeployTests,
   packageTransfer: packageTransferTests,

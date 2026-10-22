@@ -79,13 +79,13 @@ export const calendarJobTemplatesPatch = e3.mutation.patch(calendarJobTemplates)
 
 // The rail narrows each record through its own indexes (#1343): each event kind over its interval index — on its own,
 // and after its status, its machine or its person — so a narrowing keeps every event overlapping the window once.
-export const calendarJobsByTime = e3.recordIndex("calendar_jobs_by_time", calendarJobs, { interval: { from: "start", to: "end" } });
-export const calendarJobsByStatusTime = e3.recordIndex("calendar_jobs_by_status_time", calendarJobs, { on: ["status"], interval: { from: "start", to: "end" } });
-export const calendarJobsByMachineTime = e3.recordIndex("calendar_jobs_by_machine_time", calendarJobs, { on: ["machine"], interval: { from: "start", to: "end" } });
-export const calendarServicesByTime = e3.recordIndex("calendar_services_by_time", calendarServices, { interval: { from: "start", to: "end" } });
-export const calendarServicesByMachineTime = e3.recordIndex("calendar_services_by_machine_time", calendarServices, { on: ["machine"], interval: { from: "start", to: "end" } });
-export const calendarShiftsByTime = e3.recordIndex("calendar_shifts_by_time", calendarShifts, { interval: { from: "start", to: "end" } });
-export const calendarShiftsByPersonTime = e3.recordIndex("calendar_shifts_by_person_time", calendarShifts, { on: ["person"], interval: { from: "start", to: "end" } });
+export const calendarJobsByTime = e3.recordIndex.interval("calendar_jobs_by_time", calendarJobs, { from: "start", to: "end" });
+export const calendarJobsByStatusTime = e3.recordIndex.interval("calendar_jobs_by_status_time", calendarJobs, { on: ["status"], from: "start", to: "end" });
+export const calendarJobsByMachineTime = e3.recordIndex.interval("calendar_jobs_by_machine_time", calendarJobs, { on: ["machine"], from: "start", to: "end" });
+export const calendarServicesByTime = e3.recordIndex.interval("calendar_services_by_time", calendarServices, { from: "start", to: "end" });
+export const calendarServicesByMachineTime = e3.recordIndex.interval("calendar_services_by_machine_time", calendarServices, { on: ["machine"], from: "start", to: "end" });
+export const calendarShiftsByTime = e3.recordIndex.interval("calendar_shifts_by_time", calendarShifts, { from: "start", to: "end" });
+export const calendarShiftsByPersonTime = e3.recordIndex.interval("calendar_shifts_by_person_time", calendarShifts, { on: ["person"], from: "start", to: "end" });
 export const calendarMachinesByArea = e3.recordIndex("calendar_machines_by_area", calendarMachines, { on: ["area"] });
 export const calendarPeopleByTeam = e3.recordIndex("calendar_people_by_team", calendarPeople, { on: ["team"] });
 export const calendarJobTemplatesByGroup = e3.recordIndex("calendar_job_templates_by_group", calendarJobTemplates, { on: ["group"] });

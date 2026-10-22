@@ -66,7 +66,9 @@ e3.mutation.reduce(name, record, fn, config?)
 e3.mutation.edit(name, record, fn, config?)
 e3.mutation.patch(record, name?, config?)
 e3.mutation.editType(recordType)
-e3.recordIndex(name, record, spec, config?)
+e3.recordIndex(name, record, spec, config?)      // spec: { on | key | keys, value? }, an order to page in
+e3.recordIndex.interval(name, record, { on?, from, to }, config?)                      // the events overlapping a time window
+e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell }, config?)  // the rows whose box meets a 2D window, carrying each row
 e3.migration.value(name, record, fn, config?)    // (Old) => New; config: { after?, runner? }
 e3.migration.rows(name, record, fn, config?)     // a Dict's rows (K, V1) => V2, or an Array's elements (T1) => T2
 e3.migration.rekey(name, record, fn, config?)    // a Dict's (K1, V1) => { key, value }, or a Set's elements (T1) => T2

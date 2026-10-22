@@ -148,6 +148,12 @@ describe('recordIndex — the declaration', () => {
       assert.throws(() => recordIndex('by_status', assembled, { key: statusKey }), /already declared/);
     });
 
+    it('an interval, naming the constructor that declares one', () => {
+      // @ts-expect-error — an interval index has a constructor of its own
+      assert.throws(() => recordIndex('by_time', plans(), { interval: { from: 'start', to: 'end' } }),
+        /takes on, key, keys, value, not interval — an interval index has a constructor of its own: e3\.recordIndex\.interval\('by_time', record, \{ on\?, from, to \}\)/);
+    });
+
     it('both or neither of key and keys', () => {
       assert.throws(() => recordIndex('both', plans(), { key: statusKey, keys: tagKeys }), /exactly one of 'key'/);
       assert.throws(() => recordIndex('neither', plans(), {}), /exactly one of 'key'/);
@@ -262,9 +268,9 @@ describe('recordIndex — fields through mutation and rebuild', () => {
     const indexes = [
       recordIndex('by_status_due', rec, { on: ['status', 'due'], value: titleOf }),
       recordIndex('by_tag', rec, { on: ['tags'] }),
-      recordIndex('by_time', rec, { interval: { from: 'start', to: 'end' } }),
-      recordIndex('by_status_time', rec, { on: ['status'], interval: { from: 'start', to: 'end' } }),
-      recordIndex('by_tag_time', rec, { on: ['tags'], interval: { from: 'start', to: 'end' } }),
+      recordIndex.interval('by_time', rec, { from: 'start', to: 'end' }),
+      recordIndex.interval('by_status_time', rec, { on: ['status'], from: 'start', to: 'end' }),
+      recordIndex.interval('by_tag_time', rec, { on: ['tags'], from: 'start', to: 'end' }),
     ];
     const patch = mutation.patch(rec);
     const assembled = package_('field_indexes', '1.0.0', rec, patch, ...indexes).records.plans!;

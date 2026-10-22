@@ -16,7 +16,7 @@ const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
         ], format: none },
         { fieldId: "due", label: "Due", kind: "integer", optional: true, multiple: true, set: false, values: [{ value: ".none", label: "Unset" }], format: none },
     ],
-    indexes: [{ name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none }],
+    indexes: [{ name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none, area: none }],
     range: some("due"), search: ["status"], presets: [],
 }));
 const Row = StructType({ status: StringType, due: OptionType(IntegerType) });

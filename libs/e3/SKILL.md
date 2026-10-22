@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex, and e3.recordIndex.interval / e3.recordIndex.area for reads by a time window or a 2D window) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -67,6 +67,7 @@ What do you need?
 │   ├─ A shell command           → e3.customTask(name, [inputs], outputType, command)
 │   ├─ A named function (RPC)    → e3.function(name, fn, config?) — called by name, persists nothing
 │   ├─ Audited state             → e3.record + e3.mutation.reduce | edit | patch, e3.recordIndex
+│   │   └─ Read by a time window or a 2D window → e3.recordIndex.interval | e3.recordIndex.area
 │   ├─ A record's type changes   → e3.migration.value | rows | rekey(name, record, fn, { after? })
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
@@ -601,20 +602,27 @@ const pkg = e3.package('planning', '1.0.0',
   plans, addPlan, reschedule, e3.mutation.patch(plans), byDue, byOwnerDue, byOwner, byResource);
 ```
 
-For events that must remain visible while they overlap a selected time window,
-declare `interval: { from: 'start', to: 'end' }`. Both fields must be DateTime
-or Option<DateTime>. Optional `on` fields are exact leading choices:
+#### Interval and area indexes — `e3.recordIndex.interval`, `e3.recordIndex.area`
+
+Two indexes answer more than an order, each with a constructor of its own whose
+keys the SDK generates; `e3.recordIndex` refuses an `interval` option, naming
+its constructor. Underneath each is an ordinary index — the same build,
+mutation, storage, paging and `e3 reindex` — and the record Slice reads a
+window through either (see **e3-ui**). Their generated keys are query
+machinery: edits and sessions always target the record's primary key.
+
+**`e3.recordIndex.interval(name, record, { on?, from, to })`** keeps events
+visible while they overlap a selected time window. `from` and `to` are the
+row's DateTime or Option<DateTime> fields; optional `on` fields are exact
+leading choices:
 
 ```typescript
-const byTime = e3.recordIndex('by_time', events, {
-  interval: { from: 'start', to: 'end' },
-});
-const byStatusTime = e3.recordIndex('by_status_time', events, {
-  on: ['status'], interval: { from: 'start', to: 'end' },
+const byTime = e3.recordIndex.interval('by_time', events, { from: 'start', to: 'end' });
+const byStatusTime = e3.recordIndex.interval('by_status_time', events, {
+  on: ['status'], from: 'start', to: 'end',
 });
 ```
 
-An interval index uses the ordinary index build, mutation and paging machinery.
 It stores at most three entries per event per leading-field combination,
 independent of duration. The record Slice adapter resolves a half-open
 `[from, to)` window with at most 55 disjoint bounded queries per exact prefix;
@@ -631,6 +639,45 @@ keys are query machinery; record edits and sessions always target the original
 primary key. Calendar's `Calendar.events(binding, { slice, entries, … })`
 requires a matching interval declaration and the primary `entries` binding to
 confirm saves even after an edit leaves the selected window.
+
+**`e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell })`**
+reads the rows whose box meets a 2D window — what a floor plan's viewport
+shows — the interval index's twin:
+
+```typescript
+// racks: Dict<String, { hall: String, x: Option<Float>, y: Option<Float>, w: Float, h: Float }>
+const racksByArea = e3.recordIndex.area('racks_by_area', racks, {
+  x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
+});
+const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', racks, {
+  on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
+});
+```
+
+| Option | The box's |
+|---|---|
+| `x`, `y` | place: two Float fields, or two Option<Float> fields whose `none` is a row not yet placed |
+| `width`, `height` | size: two Float fields, or neither for a point |
+| `at` | `'corner'`, the default — `x`, `y` is the box's minimum corner, as a zone's is — or `'centre'`, as an item's is |
+| `cell` | finest cell: its side in world units, about the smallest thing drawn — 0.01 for a floor in metres, 1 for one in millimetres. It is rounded down to a power of two, so the keys' arithmetic is exact on every runtime, and has no default: a wrong one costs a silent tenfold read |
+| `on` | exact leading fields, as the interval index's; a Set field fans out |
+
+Each option takes only the row's fields of its type, so a wrong one does not
+compile, and the definition checks them again, naming the option, the field and
+its type; a row field named `__area` is refused, the name being the key's. The
+domain is the square ±`cell`·2²⁷ world units around zero (±1,048 km at a 0.01
+cell, which rounds to 2⁻⁷), in 29 levels. Each row is filed once, under the
+deepest level whose cell is at least twice its box's larger side, in the cell
+holding its box's centre: the key `{ …on, __area: Integer }`. A row not yet
+placed files under `__area` −1, which the record Slice reads as the unplaced
+clause; one outside the domain, not finite, or larger than half of it files
+under the root, which every window reads. The index **carries its rows**: each
+entry's projection is the whole row, so a window reads the index alone and no
+record segment, and it takes no `value`. The record Slice reads a viewport,
+grown by an eighth of its larger side on each side, as at most 266 disjoint
+searches per exact prefix, sent in one request, which together hold every row
+whose box meets it, each once — beside rows of the cells searched that it
+misses, which the reader draws or not.
 
 #### Migrations — how a record's type changes
 

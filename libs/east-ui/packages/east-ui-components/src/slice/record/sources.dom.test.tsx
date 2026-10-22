@@ -47,7 +47,7 @@ const field = (fieldId: string, label: string, values: readonly string[]): Field
 /** One part over the shared store, its counts tracked against `network`. */
 function part(key: string, fields: Field[], presets: { id: string; name: string; where: State["where"] }[]) {
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
-        fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none })),
+        fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none })),
         range: none, search: [], presets,
     }));
     if (getStore().read(key) === undefined) getStore().write(key, encode({ where: new Map(), preset: none, resolution: none }));
