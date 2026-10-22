@@ -17,8 +17,8 @@
  *   Plan reading the jobs whole draws, and the interval index serves the
  *   rail's count, its range's bounds and the backlog — never a window of jobs.
  * - A pan within the weeks held reads nothing, and one into a new week reads
- *   that week's cells alone; a scroll into presses further down reads their
- *   blocks' cells.
+ *   that week's cells alone; a zoom reads only the weeks it does not hold; a
+ *   scroll into presses further down reads their blocks' cells.
  * - A Save reads the cells in view again at the revision it committed.
  * - A link's end the cells do not hold is read by its key, so the link finds
  *   its row; a backlog job a draft schedules draws where it is dropped.
@@ -290,6 +290,12 @@ async function pan(c: HTMLElement, key: "[" | "]", times = 1) {
     }
 }
 
+/** Zooms the canvas to a resolution through the toolbar's segment, as a planner does. */
+async function zoomTo(c: HTMLElement, resolution: "day" | "week" | "month" | "quarter") {
+    const seg = slot(c, "toolbar")!.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
+    await press([...seg.querySelectorAll<HTMLElement>("[role='radio']")][["day", "week", "month", "quarter"].indexOf(resolution)]!);
+}
+
 /** Selects a job's bar; Shift adds it. */
 async function select(node: Element, add = false) {
     fireEvent.click(node, { shiftKey: add });
@@ -345,6 +351,17 @@ describe("the jobs read a cell at a time (#1039)", () => {
         await pan(container, "]", 6);
         expect(askedOf(SERIES, opened)).toEqual([`find ${BLOCK_AND_NONE}`]);
         expect(drawn(container)).toEqual(await drawnByWindow((c) => pan(c, "]", 7)));
+    });
+
+    test("a zoom to the week reads only the weeks it does not hold, and draws every job the window holds", async () => {
+        const { container } = await h.mount(seriesPlan);
+        await settle();
+        const opened = askedOf(SERIES).length;
+        // At a week the canvas lays out two weeks either side of the fortnight — 21 September to 2 November — and wants the
+        // week either side of those: the weeks of 14 September and 2 November are new, their cells counted, holding no job.
+        await zoomTo(container, "week");
+        expect(askedOf(SERIES, opened)).toEqual([`find ${2 * BLOCK_AND_NONE}`]);
+        expect(drawn(container)).toEqual(await drawnByWindow((c) => zoomTo(c, "week")));
     });
 
     test("a scroll into presses further down reads their blocks' cells, two requests; back up, the first block's entries are read again — never its counts", async () => {
@@ -474,9 +491,7 @@ describe("past the budget (#1039)", () => {
         expect(press1001().querySelectorAll("[data-run]")).toHaveLength(0);
         expect(press1001().querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
         // At a month: the summary's cells, two requests, and each press's share of each month booked.
-        const seg = c.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
-        const month = [...seg.querySelectorAll<HTMLElement>("[role='radio']")][2]!;
-        await press(month);
+        await zoomTo(c, "month");
         await waitFor(() => expect(askedOf(SUMMARY).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]), { timeout: 10_000 });
         await settle();
         expect(slot(c, "banners")!.querySelector('[data-plan-banner="cells"]')).toBeNull();
