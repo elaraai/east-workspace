@@ -11,7 +11,7 @@ import {
 } from "@elaraai/east";
 import { RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { planRecordSlice, type RecordSlicePlan } from "../../src/platform/slice/record-plan.js";
-import { RecordSliceSource, type RecordSliceReader } from "../../src/runtime/record-slice-source.js";
+import { MAX_RECORD_SLICE_BATCH, RecordSliceSource, type RecordSliceReader } from "../../src/runtime/record-slice-source.js";
 import type { SeekQueryType } from "../../src/contracts/source.js";
 
 const indexType = ArrayType(RecordSliceIndexType);
@@ -96,6 +96,43 @@ function virtualSource(size: bigint, ranges: Map<string, { row: bigint; count: b
         hold(...keys: string[]) { held = keys; } };
 }
 const union: RecordSlicePlan = { index: "by_status", queries: [variant("key", '"b"'), variant("key", '"a"')] };
+
+type Range = { row: bigint; count: bigint };
+/**
+ * The virtual source as a reader that batches (#1351): each batch of searches
+ * answered as its single searches would be, and each read of runs with their
+ * rows in order — every batch kept, in the order asked.
+ */
+function batchingSource(size: bigint, ranges: Map<string, Range>) {
+    const base = virtualSource(size, ranges);
+    let pending = false;
+    let short = false;
+    const batches: Query[][] = [];
+    const runs: Range[][] = [];
+    const reader: RecordSliceReader<bigint> = {
+        ...base.reader,
+        seekAll(_index, queries) {
+            batches.push([...queries]);
+            if (pending) return none;
+            return some(queries.map(query => {
+                if (query.type !== "key") throw new Error("the fixture's batches search by key");
+                const range = ranges.get(query.value);
+                assert.ok(range, "fixture query must have known exact bounds");
+                return { ...range, found: range.count > 0n };
+            }));
+        },
+        runsAll(_index, asked) {
+            runs.push(asked.map(({ row, count }) => ({ row, count })));
+            if (pending) return none;
+            const rows = asked.flatMap(({ row, count }) => Array.from({ length: Number(count) }, (_, i) => row + BigInt(i)));
+            return some(decodeRows(encodeRows(short ? rows.slice(1) : rows)));
+        },
+    };
+    return { reader, batches, runs, seeks: base.seeks, pages: base.pages, revision: base.revision,
+        pending(value: boolean) { pending = value; },
+        /** Answer each read of runs one entry short of what they hold. */
+        short(value: boolean) { short = value; } };
+}
 
 function unwrap<T>(value: option<T>): T { assert.equal(value.type, "some"); return value.value; }
 
@@ -182,4 +219,51 @@ test("pending requests, failures and revision changes cannot produce partial cou
     assert.throws(() => engine.page(union, 0n, 5n), /disagrees with its search bounds/);
     source.trim(2n);
     assert.deepEqual(unwrap(engine.page(union, 0n, 5n)), [10n, 11n, 12n, 13n, 14n], "failed pages do not poison retries");
+});
+
+test("a reader that batches is asked a plan's searches in one batch and a window across runs in one read; a window inside a run is its page (#1351)", () => {
+    const source = batchingSource(100n, new Map([['"a"', { row: 10n, count: 10n }], ['"b"', { row: 60n, count: 20n }]]));
+    const engine = new RecordSliceSource(source.reader);
+    const expected = Array.from({ length: 100 }, (_, i) => BigInt(i)).filter(i => (i >= 10n && i < 20n) || (i >= 60n && i < 80n));
+    assert.equal(unwrap(engine.resolve(union)).total, 30n);
+    assert.deepEqual(source.batches, [union.queries], "every search in one batch, in the plan's order");
+    assert.deepEqual(source.seeks, [], "no single search");
+    // Rows 7 to 13 of the union: the last three of `a`'s run and the first four of `b`'s.
+    assert.deepEqual(unwrap(engine.page(union, 7n, 7n)), expected.slice(7, 14));
+    assert.deepEqual(source.runs, [[{ row: 17n, count: 3n }, { row: 60n, count: 4n }]], "the window's part of each run, read together");
+    assert.deepEqual(source.pages, [], "no run is paged on its own");
+    // Inside one run, the window is that run's page.
+    assert.deepEqual(unwrap(engine.page(union, 12n, 5n)), expected.slice(12, 17));
+    assert.deepEqual(source.pages, [{ offset: 62n, limit: 5n }]);
+    assert.equal(source.runs.length, 1);
+    // Read again, both are answered from what landed.
+    assert.deepEqual(unwrap(engine.page(union, 7n, 7n)), expected.slice(7, 14));
+    assert.deepEqual(unwrap(engine.page(union, 12n, 5n)), expected.slice(12, 17));
+    assert.deepEqual([source.batches.length, source.runs.length, source.pages.length], [1, 1, 1]);
+});
+
+test("a batching reader's pending batch or read is `none`, never a partial count or window, and a read that disagrees with its bounds is refused (#1351)", () => {
+    const source = batchingSource(100n, new Map([['"a"', { row: 10n, count: 10n }], ['"b"', { row: 60n, count: 20n }]]));
+    const engine = new RecordSliceSource(source.reader);
+    source.pending(true);
+    assert.deepEqual(engine.resolve(union), none);
+    assert.deepEqual(engine.page(union, 7n, 7n), none);
+    source.pending(false);
+    assert.equal(unwrap(engine.resolve(union)).total, 30n);
+    assert.deepEqual(engine.page(union, 5n, 10n).type, "some");
+    // Another revision: its window's read answers one entry short of the runs it asked.
+    source.revision(some("B"));
+    source.short(true);
+    assert.throws(() => engine.page(union, 5n, 10n), /disagrees with its search bounds/);
+    source.short(false);
+    assert.equal(unwrap(engine.page(union, 5n, 10n)).length, 10, "a refused read does not poison its retry");
+});
+
+test("a plan of more searches than one batch takes is asked as several batches, all in one pass (#1351)", () => {
+    const keys = Array.from({ length: MAX_RECORD_SLICE_BATCH + 5 }, (_, i) => `"k${i}"`);
+    const source = batchingSource(BigInt(2 * keys.length), new Map(keys.map((key, i) => [key, { row: BigInt(2 * i), count: 1n }])));
+    const engine = new RecordSliceSource(source.reader);
+    const plan: RecordSlicePlan = { index: "by_key", queries: keys.map(key => variant("key", key)) };
+    assert.equal(unwrap(engine.resolve(plan)).total, BigInt(keys.length));
+    assert.deepEqual(source.batches.map(batch => batch.length), [MAX_RECORD_SLICE_BATCH, 5]);
 });

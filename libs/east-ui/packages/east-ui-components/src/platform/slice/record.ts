@@ -13,7 +13,7 @@ import type { PlatformFunction } from "@elaraai/east/internal";
 import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
     RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType,
-    recordSliceReadPlatform, type RecordSliceBinding,
+    recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry,
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
@@ -82,6 +82,36 @@ function activeScan(key: string): PagedScan<unknown, unknown[]> {
 }
 
 
+/**
+ * The reads a host's runtime batches for a record Slice's binding (#1351):
+ * several searches of one source in one request, and the entries of several
+ * runs in one.
+ */
+export type RecordSliceBatches = Required<Pick<RecordSliceReader<RecordSliceEntry>, "seekAll" | "runsAll">>;
+
+/** How the host's runtime batches a binding's reads, when it does. */
+let batchesOf: ((binding: RecordSliceBinding) => RecordSliceBatches | undefined) | undefined;
+
+/**
+ * Register how a record Slice's bindings have their reads batched: the host's
+ * paged runtime gives a binding it serves its batched searches and runs
+ * (#1351), which the Slice reads a plan's searches and its windows through. A
+ * binding it gives none reads them one at a time. The binding's East handle is
+ * unchanged: the batches are the runtime's.
+ *
+ * @param resolve - The batches of a binding, by the binding; `undefined` for
+ *   one the runtime does not serve
+ */
+export function registerRecordSliceBatches(resolve: (binding: RecordSliceBinding) => RecordSliceBatches | undefined): void {
+    batchesOf = resolve;
+}
+
+/** A binding with the reads its runtime batches beside its own. */
+function batched(source: RecordSliceBinding): RecordSliceBinding {
+    const batches = batchesOf?.(source);
+    return batches === undefined ? source : { ...source, seekAll: batches.seekAll, runsAll: batches.runsAll };
+}
+
 function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     const [key, source, config, initial] = descriptor;
     const store = getStore();
@@ -108,7 +138,7 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     };
     const write = (state: State) => { getStore().write(key, encodeState(state)); scheduleSlicePersist(key); };
     const metadata = types[0]?.type === "Struct" ? types[0].fields.indexes : undefined;
-    const controller = new RecordSliceController(source, config, row, read, write, collection.value.fields.key!,
+    const controller = new RecordSliceController(batched(source), config, row, read, write, collection.value.fields.key!,
         metadata?.type === "Struct" ? metadata : undefined);
     if (!store.has(key)) {
         controller.write(initial);

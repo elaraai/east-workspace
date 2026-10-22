@@ -260,6 +260,55 @@ export async function createKeyedRecordPackageZip(
   return zipPath;
 }
 
+/** The row of the batch-read fixture's record. */
+export const ItemRowType = StructType({ group: StringType, rank: IntegerType, label: StringType });
+/** The batch-read fixture's record: a Dict of items. */
+export const ItemsType = DictType(StringType, ItemRowType);
+/** The `by_group` index key: a group, then a rank inside it. */
+export const ItemGroupKeyType = StructType({ group: StringType, rank: IntegerType });
+
+/**
+ * Create a package whose record a dataset's batch reads are run over (#1351):
+ * several key searches in one request, the rows of several keys, the entries
+ * of several runs.
+ *
+ * Creates a package with:
+ * - Record: "items" (Dict<String, {group, rank, label}>, empty), and Mutation
+ *   "seed" (rows) => `rows` items keyed `item-<i>`, in five groups
+ *   (`g0`…`g4`, by `i` mod 5), each ranked `i`
+ * - Index: "by_group" on `group` then `rank`, one entry per row, so a group is
+ *   one run of it
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createBatchReadsPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const items = e3.record('items', ItemsType, new Map());
+  const seed = e3.mutation.reduce('seed', items,
+    East.function([ItemsType, IntegerType], ItemsType, ($, _state, rows) => {
+      const out = $.let(new Map(), ItemsType);
+      $.for(East.Array.range(0n, rows), ($, i) => {
+        $(out.insert(East.str`item-${i}`, { group: East.str`g${i.remainder(5n)}`, rank: i, label: East.str`Item ${i}` }));
+      });
+      return out;
+    }));
+  const byGroup = e3.recordIndex('by_group', items, { on: ['group', 'rank'] });
+  const pkg = e3.package(name, version, items, seed, byGroup);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
 /** A row of the migration fixture's record before its migration. */
 export const TaskRowV1Type = StructType({ title: StringType });
 /** A row after it, which gives each row an owner. */

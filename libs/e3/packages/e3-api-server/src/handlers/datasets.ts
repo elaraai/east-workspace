@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { NullType, ArrayType, StringType, compareFor, encodeBeast2For, openBeast2PagesFor, parseFor, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue, type option } from '@elaraai/east';
+import { NullType, ArrayType, StringType, encodeBeast2For, some, none, variant, toEastTypeValue, isVariant, type EastTypeValue, type option } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, type TreePath } from '@elaraai/e3-types';
 import {
   workspaceListTree,
@@ -12,8 +12,6 @@ import {
   workspaceSetDatasetBytes,
   workspaceGetTree,
   openDatasetObject,
-  recordIndexNames,
-  resolveRecordIndex,
   DatasetSegments,
   type TreeNode,
 } from '@elaraai/e3-core/portable';
@@ -21,6 +19,14 @@ import type { StorageBackend, TransferBackend } from '@elaraai/e3-core/portable'
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant, sendJsonError } from '../errors.js';
 import { DatasetStatusDetailType, ListEntryType, type ListEntry, type DatasetStatusDetail } from '../types.js';
+import {
+  PAGE_BYTE_BUDGET_DEFAULT, PAGE_DEFAULT_LIMIT, PAGE_MAX_LIMIT, cachedSegments, collectionOf, corruptRefusal, elementsOf, indexOf,
+  openForRead, openTarget, pageError, pinnedCacheControl, readDataset, rowsByKey, searchTarget, type PinnedCache,
+} from './dataset-reads.js';
+import { compileKeySearch, locateAll, type KeySearchQuery, type Located } from './key-search.js';
+import { decodedSegment } from './segments.js';
+
+export { PAGE_BYTE_BUDGET_DEFAULT, type PinnedCache } from './dataset-reads.js';
 
 /**
  * List dataset fields at the given path.
@@ -164,93 +170,6 @@ export async function getDataset(
   }
 }
 
-/** Elements returned per page when the request names no limit. */
-const PAGE_DEFAULT_LIMIT = 1_000;
-
-/** Hard cap on elements per page. */
-const PAGE_MAX_LIMIT = 10_000;
-
-/** Default cap on a page's share of the source blob, in bytes. The
- *  effective limit shrinks so `limit × avgElementBytes` stays under the
- *  budget, bounding page payloads even for very wide rows. Deployments with
- *  tighter response limits (e.g. Lambda proxy's 6 MB, base64-inflated) pass
- *  a smaller budget through the route options. */
-export const PAGE_BYTE_BUDGET_DEFAULT = 4 * 1024 * 1024;
-
-/** Opened datasets cached per repository and content hash. Page requests are
- *  hash-pinned immutable, so entries never invalidate — the LRU only bounds
- *  memory. An entry holds the segment geometry (counts, prefix sums, and the
- *  fences its manifest carries), which is O(segments), so the cache is bounded
- *  by RETAINED BYTES rather than entry count: 64 entries of a 500k-segment
- *  dataset would otherwise pin hundreds of MB. */
-interface CachedSegments {
-  segments: DatasetSegments;
-  /** Approximate retained bytes (the geometry arrays, and a manifest's fences). */
-  bytes: number;
-}
-
-const SEGMENTS_CACHE_MAX_ENTRIES = 64;
-/** Cap on the cache's total retained bytes. The newest entry always stays
- *  (serving the request needs it regardless), so one giant index can still
- *  be held — but never alongside others. */
-const SEGMENTS_CACHE_MAX_BYTES = 16 * 1024 * 1024;
-const segmentsCache = new Map<string, CachedSegments>();
-let segmentsCacheBytes = 0;
-
-/** Evicts oldest entries until the count and byte budgets hold, always
- *  keeping at least the newest entry. */
-function evictSegments(): void {
-  while (
-    segmentsCache.size > 1 &&
-    (segmentsCache.size > SEGMENTS_CACHE_MAX_ENTRIES || segmentsCacheBytes > SEGMENTS_CACHE_MAX_BYTES)
-  ) {
-    const oldest = segmentsCache.keys().next().value!;
-    segmentsCacheBytes -= segmentsCache.get(oldest)!.bytes;
-    segmentsCache.delete(oldest);
-  }
-}
-
-/** Identifies a storage backend for the cache key — lazily, and without
- *  keeping it alive. */
-const storageIds = new WeakMap<object, number>();
-let nextStorageId = 0;
-
-/** Opens (or reuses) a stored collection, LRU-cached per backend, repository
- *  and content hash, and bounded by retained bytes.
- *
- *  All three key parts are load-bearing. An opened dataset holds the backend
- *  it reads segment objects through, and a manifest names objects that exist
- *  in the repository it was read from and nowhere else — so two backends, or
- *  two repositories, that happen to hold the same bytes under the same name
- *  must not share an entry. `size` is the object's, when the caller knows it;
- *  the opener reads it on a miss otherwise. */
-async function cachedSegments(
-  storage: StorageBackend,
-  repoPath: string,
-  hash: string,
-  size?: number,
-): Promise<DatasetSegments> {
-  let backendId = storageIds.get(storage);
-  if (backendId === undefined) {
-    backendId = nextStorageId++;
-    storageIds.set(storage, backendId);
-  }
-  const key = `${backendId}\u0000${repoPath}\u0000${hash}`;
-  const cached = segmentsCache.get(key);
-  if (cached) {
-    segmentsCache.delete(key);
-    segmentsCache.set(key, cached); // refresh recency
-    return cached.segments;
-  }
-  const segments = await DatasetSegments.open(storage, repoPath, hash, size);
-  // counts + prefix sums at 8 bytes each, plus the manifest's stored fences.
-  let bytes = 16 * segments.segmentCount;
-  for (const entry of segments.manifest.entries) bytes += entry.fence.byteLength + 80;
-  segmentsCache.set(key, { segments, bytes });
-  segmentsCacheBytes += bytes;
-  evictSegments();
-  return segments;
-}
 
 /** Window addressing for {@link getDatasetPage} and {@link getValuePage}: an
  *  element window (`offset`/`limit`) or one writer segment (`segment`),
@@ -267,11 +186,11 @@ export interface DatasetPageWindow {
   /** Fill each window entry's `row` from the primary.
    *
    *  The window's primary keys are grouped by the primary segment that holds
-   *  them, and each segment is read and decoded once, then dropped before the
-   *  next: a page reads at most one segment per row and holds one decoded
-   *  segment at a time, and one whose entries cluster costs far fewer reads
-   *  than its row count. A view that renders from the index's covering
-   *  projection alone leaves this off and never touches the primary. */
+   *  them, and each segment is read and decoded once, through the decoded
+   *  segments the API process keeps: a page reads at most one segment per row,
+   *  and one whose entries cluster costs far fewer reads than its row count. A
+   *  view that renders from the index's covering projection alone leaves this
+   *  off and never touches the primary. */
   join?: boolean;
   /** Content hash the window is addressed against. When it matches the
    *  current value the response is immutable (`Cache-Control: immutable`) —
@@ -280,32 +199,6 @@ export interface DatasetPageWindow {
    *  server's {@link PinnedCache} says. A stale hash is refused with 409
    *  rather than answered with different bytes, keeping caches sound. */
   hash?: string;
-}
-
-/**
- * Who may keep a hash-pinned answer, which never changes: `private`, the
- * caller's own cache alone (a browser's), or `public`, any cache between it
- * and the server as well (a CDN's). `private` unless a host says otherwise,
- * since an answer holds the rows of a workspace its caller was let read; a
- * host whose data any caller may read opts in to `public`.
- */
-export type PinnedCache = 'private' | 'public';
-
-/** The `Cache-Control` of a hash-pinned answer: kept for a year, never
- *  revalidated, by the caches {@link PinnedCache} lets keep it. */
-function pinnedCacheControl(cache: PinnedCache | undefined): string {
-  return `${cache ?? 'private'}, max-age=31536000, immutable`;
-}
-
-/** The opener's refusal of a collection stored as one blob, which an older
- *  e3 wrote: answered as `dataset_not_indexed`, in the refusal's own words. */
-const BLOB_REFUSAL = /^the collection [0-9a-f]{64} is stored as one blob:/;
-
-function pageError(type: string, message: string, status: 400 | 404 | 409 = 400, headers?: Record<string, string>): Response {
-  return new Response(JSON.stringify({ error: { type, message } }), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers },
-  });
 }
 
 /** Server-side limits for {@link getDatasetPage} and {@link getValuePage}, and
@@ -328,10 +221,12 @@ export interface DatasetPageLimits {
  * ranges. Segment windows return one writer batch verbatim.
  *
  * Collection datasets are stored as segment manifests by every writer at
- * every size, so every window decodes only the touched segments (Set/Dict
- * windows verify the segment fences first and reject non-canonical ones as
- * corrupt). A collection stored as one blob is an older e3's and is refused as
- * `dataset_not_indexed`, naming the fix — there is no whole-decode fallback.
+ * every size, so every window decodes only the touched segments — each once,
+ * through the decoded segments the API process keeps (Set/Dict windows check
+ * each segment against the manifest's fences, and refuse a non-canonical one
+ * as corrupt). A collection stored as one blob is an older e3's and is refused
+ * as `dataset_not_indexed`, naming the fix — there is no whole-decode
+ * fallback.
  *
  * The window is the stored value's ({@link getValuePage}): the dataset's
  * status and pin are checked here first, and an index window is a record's.
@@ -346,39 +241,18 @@ export async function getDatasetPage(
 ): Promise<Response> {
   const byteBudget = limits?.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
   try {
-    if (treePath.length === 0) {
-      return pageError('bad_request', 'Path required for paged get');
-    }
-
-    const status = await workspaceGetDatasetStatus(storage, repoPath, workspace, treePath);
-    if (status.refType === 'unassigned') {
-      return pageError('dataset_unassigned', 'Dataset is unassigned (pending task output)', 404);
-    }
-    if (status.refType === 'null' || !status.hash) {
-      return pageError('dataset_null', 'Dataset is null', 404);
-    }
-    // A hash-pinned window must never answer with different bytes — refuse
-    // stale pins (the client refetches status for the current hash) so a
-    // hash-keyed URL is a pure function of the response and caches stay sound.
-    if (window.hash !== undefined && window.hash !== status.hash) {
-      return pageError('dataset_hash_mismatch',
-        `Dataset content is ${status.hash}, not ${window.hash} — refetch status and retry`,
-        409, { 'X-Content-SHA256': status.hash });
-    }
-
-    const typeValue: EastTypeValue = isVariant(status.datasetType)
-      ? status.datasetType
-      : toEastTypeValue(status.datasetType as never);
-    const kind = typeValue.type;
+    const dataset = await readDataset(storage, repoPath, workspace, treePath, window.hash, 'paged get');
+    if (dataset instanceof Response) return dataset;
+    const kind = dataset.typeValue.type;
     if (kind !== 'Array' && kind !== 'Set' && kind !== 'Dict') {
       return pageError('dataset_not_pageable', `Paged reads address Array, Set or Dict datasets; this dataset holds ${kind}`);
     }
 
     if (window.index !== undefined) {
-      return await indexPage(storage, repoPath, workspace, treePath, status.hash, window, byteBudget, limits?.cache);
+      return await indexPage(storage, repoPath, workspace, treePath, dataset.hash, window, byteBudget, limits?.cache);
     }
 
-    return await valuePage(storage, repoPath, status.hash, typeValue, window, byteBudget, limits?.cache, status.size ?? undefined);
+    return await valuePage(storage, repoPath, dataset.hash, dataset.typeValue, window, byteBudget, limits?.cache, dataset.size);
   } catch (err) {
     return sendJsonError(err);
   }
@@ -433,8 +307,8 @@ export async function getValuePage(
 
 /**
  * One window of a stored collection of a collection's type: the effective
- * limit under the byte budget, the `X-*` headers, the span of segments the
- * window touches, and its slice.
+ * limit under the byte budget, the `X-*` headers, the segments the window
+ * touches, and its slice.
  *
  * @param cache - Who may keep the window, when it is pinned
  * @param size - The stored object's size, when the caller knows it
@@ -449,7 +323,6 @@ async function valuePage(
   cache: PinnedCache | undefined,
   size?: number,
 ): Promise<Response> {
-  const kind = typeValue.type;
   const segmentMode = window.segment !== undefined;
   if (segmentMode && (window.offset !== undefined || window.limit !== undefined)) {
     return pageError('bad_request', 'Pass either segment or offset/limit, not both');
@@ -463,17 +336,8 @@ async function valuePage(
     return pageError('bad_request', `offset must be a non-negative integer and limit a positive integer, got offset=${offset} limit=${requestedLimit}`);
   }
 
-  let segments: DatasetSegments;
-  try {
-    segments = await cachedSegments(storage, repoPath, hash, size);
-  } catch (err) {
-    // Only the opener's refusal of a blob-stored collection means "not
-    // indexed". Anything else (storage I/O, a missing or corrupt object) is
-    // a real failure and must surface as one.
-    const message = err instanceof Error ? err.message : String(err);
-    if (!BLOB_REFUSAL.test(message)) throw err;
-    return pageError('dataset_not_indexed', message);
-  }
+  const segments = await openForRead(storage, repoPath, hash, size);
+  if (segments instanceof Response) return segments;
 
   const segmentCount = segments.segmentCount;
   const totalElements = segments.elementCount;
@@ -510,56 +374,33 @@ async function valuePage(
     'X-Page-Count': String(pageCount),
   });
 
-  // The touched segment span [from, to) and the window placement.
-  let from: number;
-  let to: number;
-  let limit = 0;
+  let windowValue: unknown;
+  let pageOffset: number;
+  let pageCount: number;
   if (segmentMode) {
     const seg = window.segment!;
     if (seg >= segmentCount) {
       return pageError('bad_request', `segment ${seg} out of range (${segmentCount} segments)`);
     }
-    from = seg;
-    to = seg + 1;
-  } else {
-    limit = effectiveLimit();
-    if (offset >= totalElements) {
-      from = 0;
-      to = 0; // empty window past the end
-    } else {
-      from = 0;
-      while (cumulative[from]! <= offset) from++;
-      const lastRow = Math.min(offset + limit, totalElements) - 1;
-      to = from;
-      while (cumulative[to]! <= lastRow) to++;
-      to++;
-    }
-  }
-
-  const windowBlob = await segments.span(from, to);
-  const pages = openBeast2PagesFor(typeValue)(windowBlob);
-
-  let windowValue: unknown;
-  let pageOffset: number;
-  let pageCount: number;
-  if (segmentMode) {
     try {
-      windowValue = pages.segment(0);
+      windowValue = (await decodedSegment(storage, repoPath, segments, seg)).value;
     } catch (err) {
-      return pageError('dataset_not_segmented', err instanceof Error ? err.message : String(err));
+      return corruptRefusal(err, 'dataset_not_segmented');
     }
-    pageCount = segments.counts[from]!;
-    pageOffset = from === 0 ? 0 : cumulative[from - 1]!;
+    pageCount = segments.counts[seg]!;
+    pageOffset = seg === 0 ? 0 : cumulative[seg - 1]!;
   } else {
-    const base = from > 0 ? cumulative[from - 1]! : 0;
+    const limit = effectiveLimit();
+    // An empty window past the end touches no segment.
+    const end = Math.min(offset + limit, totalElements);
+    let elements: unknown[];
     try {
-      windowValue = pages.slice(to > from ? offset - base : 0, limit);
+      elements = offset < totalElements ? await elementsOf(storage, repoPath, segments, [{ from: offset, to: end }]) : [];
     } catch (err) {
-      return pageError('dataset_not_canonical', err instanceof Error ? err.message : String(err));
+      return corruptRefusal(err, 'dataset_not_canonical');
     }
-    pageCount = kind === 'Array'
-      ? (windowValue as unknown[]).length
-      : (windowValue as Set<unknown> | Map<unknown, unknown>).size;
+    windowValue = collectionOf(typeValue, elements);
+    pageCount = elements.length;
     pageOffset = offset;
   }
 
@@ -577,13 +418,13 @@ async function valuePage(
  * One window of a record read through one of its secondary indexes.
  *
  * @remarks
- * The window comes from the index's OWN segments — the same fence bisect and
- * window slice a primary page uses, over the index manifest — so with a
- * covering projection the window IS the answer and the primary is never
- * touched. `join` fills the rows: the window's primary keys are bucketed by
- * owning primary segment, each distinct segment read once, and the rows
- * projected out, so a page whose entries share an index key usually costs a
- * handful of reads rather than one per row.
+ * The window comes from the index's OWN segments — the same row span a primary
+ * page reads, over the index manifest — so with a covering projection the
+ * window IS the answer and the primary is never touched. `join` fills the
+ * rows: each primary key is placed in the primary segment that holds it by the
+ * primary's fences, and each such segment read once, so a page whose entries
+ * share an index key usually costs a handful of reads rather than one per
+ * row.
  */
 async function indexPage(
   storage: StorageBackend,
@@ -595,14 +436,8 @@ async function indexPage(
   byteBudget: number,
   cache: PinnedCache | undefined,
 ): Promise<Response> {
-  const refPath = treePath.map((s) => s.value).join('/');
-  const resolved = await resolveRecordIndex(storage, repoPath, workspace, refPath, stateHash, window.index!);
-  if (resolved === null) {
-    const declared = await recordIndexNames(storage, repoPath, stateHash);
-    return pageError('index_not_found',
-      `Dataset '${refPath}' has no index '${window.index!}'`
-      + (declared.length > 0 ? ` — it has ${declared.join(', ')}` : ' — it declares none'), 404);
-  }
+  const resolved = await indexOf(storage, repoPath, workspace, treePath, stateHash, window.index!);
+  if (resolved instanceof Response) return resolved;
 
   const offset = window.offset ?? 0;
   const requestedLimit = window.limit ?? PAGE_DEFAULT_LIMIT;
@@ -625,46 +460,22 @@ async function indexPage(
   const limit = Math.max(1, Math.min(requestedLimit, PAGE_MAX_LIMIT,
     Math.max(1, Math.floor(byteBudget / Math.max(1, perRow)))));
 
-  // The index window, as the index's own collection.
-  let from = 0;
-  let to = 0;
-  if (offset < totalElements) {
-    while (index.cumulative[from]! <= offset) from++;
-    const lastRow = Math.min(offset + limit, totalElements) - 1;
-    to = from;
-    while (index.cumulative[to]! <= lastRow) to++;
-    to++;
+  // The index window, as the index's own entries, and the rows, if asked
+  // for. An index's order is not the record's, so a page's primary keys
+  // scatter across the record: each is placed by the primary's fences, and
+  // each segment holding one is read once.
+  let windowValue: { ik: unknown; key: unknown; value: unknown; row: option<unknown> }[];
+  try {
+    const entries = (offset < totalElements
+      ? await elementsOf(storage, repoPath, index, [{ from: offset, to: Math.min(offset + limit, totalElements) }])
+      : []) as [{ ik: unknown; k: unknown }, unknown][];
+    const rows = primary !== null
+      ? await rowsByKey(storage, repoPath, primary, entries.map(([entry]) => entry.k))
+      : entries.map((): option<unknown> => none);
+    windowValue = entries.map(([entry, value], i) => ({ ik: entry.ik, key: entry.k, value, row: rows[i]! }));
+  } catch (err) {
+    return corruptRefusal(err, 'dataset_not_canonical');
   }
-  const base = from > 0 ? index.cumulative[from - 1]! : 0;
-  const slice = openBeast2PagesFor(resolved.collectionType)(await index.span(from, to))
-    .slice(to > from ? offset - base : 0, limit) as Map<{ ik: unknown; k: unknown }, unknown>;
-
-  // The rows, if asked for. An index's order is not the record's, so a page's
-  // primary keys scatter across the record: they are grouped by the segment
-  // that holds them, and each segment is decoded once and dropped before the
-  // next. A page holds one decoded segment at a time however widely its keys
-  // scatter, and reads at most one segment per row it returns.
-  const entries = [...slice];
-  const rows: unknown[] = entries.map(() => none);
-  if (primary !== null) {
-    const bySegment = new Map<number, number[]>();
-    for (let i = 0; i < entries.length; i++) {
-      const segment = await primary.segmentFor(entries[i]![0].k);
-      const held = bySegment.get(segment);
-      if (held === undefined) bySegment.set(segment, [i]);
-      else held.push(i);
-    }
-    const decodeSegment = openBeast2PagesFor(primary.typeValue);
-    for (const [segment, indices] of bySegment) {
-      const decoded = decodeSegment(await primary.segment(segment)).segment(0) as Map<unknown, unknown>;
-      for (const i of indices) {
-        const row = decoded.get(entries[i]![0].k);
-        if (row !== undefined) rows[i] = some(row);
-      }
-    }
-  }
-
-  const windowValue = entries.map(([entry, value], i) => ({ ik: entry.ik, key: entry.k, value, row: rows[i] }));
 
   const body = encodeBeast2For(resolved.windowType)(windowValue);
   return new Response(body, {
@@ -696,10 +507,7 @@ async function indexPage(
  *  leading fields in declaration order) optionally combined with `prefix`
  *  continuing into the next (String) field. Every form addresses one
  *  contiguous row range in the canonical key order. */
-export interface DatasetFindQuery {
-  key?: string;
-  prefix?: string;
-  fields?: string[];
+export interface DatasetFindQuery extends KeySearchQuery {
   /** Search one of a record's secondary indexes instead of the record itself.
    *  The rows the answer names are then the index's, in index order, and the
    *  key, prefix and fields forms address the index key (`ik`), the key the
@@ -717,60 +525,6 @@ export interface DatasetFindQuery {
   hash?: string;
 }
 
-/** One leaf of a key type, and the field path that reaches it. */
-interface KeyField {
-  path: string[];
-  type: EastTypeValue;
-}
-
-/**
- * A key type's leaves, in declaration order, recursing into nested structs.
- *
- * @remarks
- * Struct keys compare field by field in declaration order, so this flattening
- * IS the key's sort order — which is what makes a bound on a leading prefix of
- * it one contiguous row range. A scalar key flattens to one leaf with an empty
- * path.
- */
-function flattenKeyFields(keyType: EastTypeValue): KeyField[] {
-  if (keyType.type !== 'Struct') return [{ path: [], type: keyType }];
-  const out: KeyField[] = [];
-  for (const field of keyType.value as { name: string; type: EastTypeValue }[]) {
-    for (const leaf of flattenKeyFields(field.type)) {
-      out.push({ path: [field.name, ...leaf.path], type: leaf.type });
-    }
-  }
-  return out;
-}
-
-/** The value at a flattened field path. */
-function fieldAt(key: unknown, path: string[]): unknown {
-  let value = key;
-  for (const segment of path) value = (value as Record<string, unknown>)[segment];
-  return value;
-}
-
-/**
- * A monotone "is this key at or past the bound?" predicate over a leading
- * prefix of the flattened key.
- *
- * @remarks
- * Monotone over the canonical key order because it reads only the leading
- * fields, which are exactly the ones the order sorts by first — so one fence
- * bisect finds its boundary row, and a pair of them bound one contiguous
- * range.
- */
-function boundPredicate(leaves: KeyField[], values: unknown[]): (key: unknown) => boolean {
-  const comparators = leaves.slice(0, values.length).map((leaf) => compareFor(leaf.type as never) as (a: unknown, b: unknown) => number);
-  return (key) => {
-    for (let i = 0; i < values.length; i++) {
-      const order = comparators[i]!(fieldAt(key, leaves[i]!.path), values[i]);
-      if (order !== 0) return order > 0;
-    }
-    return true; // equal on the prefix: at the bound, so past it
-  };
-}
-
 /**
  * Locate a key (or string-prefix range) in a Set/Dict dataset by global
  * element row, without decoding the collection.
@@ -779,9 +533,10 @@ function boundPredicate(leaves: KeyField[], values: unknown[]): (key: unknown) =
  * {@link getDatasetPage} element windows serve — so the result plugs
  * straight into the paged preview's scroll position. The search
  * binary-searches the manifest's segment fences (each segment's first key)
- * with the key type's East comparator, then decodes at most the one owning
- * segment (exact key) or the two edge segments (a range — which is what an
- * exact key is through an index: every entry under it).
+ * with the key type's East comparator, then binary-searches the keys of at
+ * most the one owning segment (exact key) or the two edge segments (a range —
+ * which is what an exact key is through an index: every entry under it), each
+ * read and decoded once, through the decoded segments the API process keeps.
  *
  * Responds with JSON `{ found, row, count }`: `row` is the match's global
  * element index (for a prefix, the range's first row; for a miss, the
@@ -798,286 +553,24 @@ export async function findDatasetKey(
   options: { readonly cache?: PinnedCache } = {},
 ): Promise<Response> {
   try {
-    if (treePath.length === 0) {
-      return pageError('bad_request', 'Path required for key search');
-    }
+    const dataset = await readDataset(storage, repoPath, workspace, treePath, query.hash, 'key search');
+    if (dataset instanceof Response) return dataset;
+    const target = await searchTarget(storage, repoPath, workspace, treePath, dataset, query.index);
+    if (target instanceof Response) return target;
 
-    const status = await workspaceGetDatasetStatus(storage, repoPath, workspace, treePath);
-    if (status.refType === 'unassigned') {
-      return pageError('dataset_unassigned', 'Dataset is unassigned (pending task output)', 404);
-    }
-    if (status.refType === 'null' || !status.hash) {
-      return pageError('dataset_null', 'Dataset is null', 404);
-    }
-    if (query.hash !== undefined && query.hash !== status.hash) {
-      return pageError('dataset_hash_mismatch',
-        `Dataset content is ${status.hash}, not ${query.hash} — refetch status and retry`,
-        409, { 'X-Content-SHA256': status.hash });
-    }
+    const search = compileKeySearch(query, target);
+    if ('type' in search) return pageError(search.type, search.message);
 
-    // An index selector searches the index's own collection, whose rows the
-    // answer is in — the same row space an index page serves.
-    let typeValue: EastTypeValue = isVariant(status.datasetType)
-      ? status.datasetType
-      : toEastTypeValue(status.datasetType as never);
-    let searchHash = status.hash;
-    const indexed = query.index !== undefined;
-    if (query.index !== undefined) {
-      const refPath = treePath.map((seg) => seg.value).join('/');
-      const resolved = await resolveRecordIndex(storage, repoPath, workspace, refPath, status.hash, query.index);
-      if (resolved === null) {
-        const declared = await recordIndexNames(storage, repoPath, status.hash);
-        return pageError('index_not_found',
-          `Dataset '${refPath}' has no index '${query.index}'`
-          + (declared.length > 0 ? ` — it has ${declared.join(', ')}` : ' — it declares none'), 404);
-      }
-      typeValue = resolved.collectionType;
-      searchHash = resolved.manifest;
-    }
-    const kind = typeValue.type;
-    if (kind !== 'Set' && kind !== 'Dict') {
-      return pageError('dataset_not_searchable', `Key search addresses Set or Dict datasets; this dataset holds ${kind}`);
-    }
-    const keyTypeValue: EastTypeValue = kind === 'Dict'
-      ? (typeValue.value as { key: EastTypeValue; value: EastTypeValue }).key
-      : typeValue.value as EastTypeValue;
-    // Through an index, the key, prefix and fields forms address the index key
-    // `ik` — the key a client holds, as the record's signature names it — not
-    // the collection's `{ik, k}`, which pairs it with each row's own key. The
-    // collection sorts by `ik` first, so a predicate over it is monotone over
-    // the collection's order. The range form bounds the collection's
-    // flattened key, which begins inside `ik`.
-    const formKeyType: EastTypeValue = indexed
-      ? (keyTypeValue.value as { name: string; type: EastTypeValue }[]).find((f) => f.name === 'ik')!.type
-      : keyTypeValue;
-    const formKey = indexed ? (k: unknown): unknown => (k as { ik: unknown }).ik : (k: unknown): unknown => k;
-    const keysNoun = indexed ? `the keys of index '${query.index}'` : "this dataset's keys";
+    const segments = await openTarget(storage, repoPath, target);
+    if (segments instanceof Response) return segments;
 
-    const fields = query.fields !== undefined && query.fields.length > 0 ? query.fields : undefined;
-    const ranged = (query.from !== undefined && query.from.length > 0) || (query.to !== undefined && query.to.length > 0);
-    const forms = [query.key !== undefined, query.prefix !== undefined || fields !== undefined, ranged];
-    if (forms.filter(Boolean).length !== 1) {
-      return pageError('bad_request',
-        'Pass a key literal, or a prefix and/or leading fields, or a from/to range — exactly one form');
-    }
-
-    // The range form's bounds are leading prefixes of the FLATTENED key, which
-    // is the order the collection is sorted in, so each bounds one contiguous
-    // row range.
-    const leaves = flattenKeyFields(keyTypeValue);
-    const parseBound = (label: string, literals: string[] | undefined): { values: unknown[] } | Response => {
-      if (literals === undefined || literals.length === 0) return { values: [] };
-      if (literals.length > leaves.length) {
-        return pageError('bad_request',
-          `${label} names ${literals.length} key fields, but the key flattens to ${leaves.length}: `
-          + leaves.map((leaf) => leaf.path.join('.') || '(the key)').join(', '));
-      }
-      const values: unknown[] = [];
-      for (let i = 0; i < literals.length; i++) {
-        const parsed = parseFor(leaves[i]!.type)(literals[i]!);
-        if (!parsed.success) {
-          return pageError('key_parse_error', `${label} field '${leaves[i]!.path.join('.') || '(the key)'}': ${parsed.error}`);
-        }
-        values.push(parsed.value);
-      }
-      return { values };
-    };
-    const lowerBound = parseBound('from', query.from);
-    if (lowerBound instanceof Response) return lowerBound;
-    const upperBound = parseBound('to', query.to);
-    if (upperBound instanceof Response) return upperBound;
-    const structMeta = formKeyType.type === 'Struct'
-      ? formKeyType.value as { name: string; type: EastTypeValue }[]
-      : null;
-    if (fields !== undefined) {
-      if (structMeta === null) {
-        return pageError('bad_request', `Leading-field search addresses Struct keys; ${keysNoun} are ${formKeyType.type}`);
-      }
-      if (fields.length > structMeta.length) {
-        return pageError('bad_request', `Key has ${structMeta.length} fields, got ${fields.length}`);
-      }
-    }
-    const fieldValues: unknown[] = [];
-    if (fields !== undefined && structMeta !== null) {
-      for (let j = 0; j < fields.length; j++) {
-        const parsed = parseFor(structMeta[j]!.type)(fields[j]!);
-        if (!parsed.success) {
-          return pageError('key_parse_error', `field '${structMeta[j]!.name}': ${parsed.error}`);
-        }
-        fieldValues.push(parsed.value);
-      }
-    }
-    let optionalPrefix = false;
-    let prefixValue: unknown = query.prefix;
-    if (query.prefix !== undefined) {
-      const prefixIdx = fieldValues.length;
-      const prefixFieldType = structMeta !== null
-        ? (prefixIdx < structMeta.length ? structMeta[prefixIdx]!.type : undefined)
-        : formKeyType;
-      if (prefixFieldType === undefined) {
-        return pageError('bad_request', `All ${structMeta!.length} key fields are exact — nothing left for a prefix`);
-      }
-      if (prefixFieldType.type === 'Variant') {
-        const cases = prefixFieldType.value as { name: string; type: EastTypeValue }[];
-        optionalPrefix = cases.length === 2
-          && cases.some(c => c.name === 'none' && c.type.type === 'Null')
-          && cases.some(c => c.name === 'some' && c.type.type === 'String');
-      }
-      if (prefixFieldType.type !== 'String' && !optionalPrefix) {
-        return pageError('bad_request', structMeta !== null
-          ? `prefix continues key field '${structMeta[prefixIdx]!.name}', which is ${prefixFieldType.type}, not String or Option<String>`
-          : `prefix search needs String or Option<String> keys; ${keysNoun} are ${formKeyType.type}`);
-      }
-      if (optionalPrefix) prefixValue = some(query.prefix);
-    }
-    const matchesPrefix = (value: unknown): boolean => {
-      if (!optionalPrefix) return (value as string).startsWith(query.prefix!);
-      const option = value as option<string>;
-      return option.type === 'some' && option.value.startsWith(query.prefix!);
-    };
-    let keyValue: unknown;
-    if (query.key !== undefined) {
-      const parsed = parseFor(formKeyType)(query.key);
-      if (!parsed.success) {
-        return pageError('key_parse_error', parsed.error);
-      }
-      keyValue = parsed.value;
-    }
-    const cmp = compareFor(formKeyType);
-
-    const objectSize = searchHash === status.hash
-      ? status.size ?? (await storage.objects.stat(repoPath, status.hash)).size
-      : (await storage.objects.stat(repoPath, searchHash)).size;
-
-    let segments: DatasetSegments;
+    let located: Located[];
     try {
-      segments = await cachedSegments(storage, repoPath, searchHash, objectSize);
+      located = await locateAll(storage, repoPath, segments, search.bounds);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!BLOB_REFUSAL.test(message)) throw err;
-      return pageError('dataset_not_indexed', message);
+      return corruptRefusal(err, 'dataset_not_canonical');
     }
-
-    // The fence-search surface: the segment geometry, a fence probe, and a
-    // one-segment key iterator. A manifest answers every fence from its own
-    // entries, so a bisect over one reads no frames at all.
-    const segmentCount = segments.segmentCount;
-    const elementCount = segments.elementCount;
-    const cumulative = segments.cumulative;
-    const fenceAt = (i: number): Promise<unknown> => segments.fence(i);
-    const keysAt = async (i: number): Promise<Iterable<unknown>> => {
-      const segment = openBeast2PagesFor(typeValue)(await segments.segment(i)).segment(0);
-      return kind === 'Set' ? segment as Set<unknown> : (segment as Map<unknown, unknown>).keys();
-    };
-
-    // First row whose key satisfies a monotone predicate (false… then
-    // true… over the canonical key order), plus that row's key. Fences
-    // bound the candidate segment, so at most ONE segment decodes: when the
-    // boundary is the first row of a later segment, its fence already IS
-    // the boundary key.
-    const locate = async (pred: (k: unknown) => boolean): Promise<{ row: number; key: unknown; hasKey: boolean }> => {
-      if (segmentCount === 0) return { row: 0, key: undefined, hasKey: false };
-      const first = await fenceAt(0);
-      if (pred(first)) return { row: 0, key: first, hasKey: true };
-      // Greatest segment whose fence is before the boundary.
-      let lo = 0, hi = segmentCount - 1;
-      while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (!pred(await fenceAt(mid))) lo = mid;
-        else hi = mid - 1;
-      }
-      const base = lo === 0 ? 0 : cumulative[lo - 1]!;
-      let idx = 0;
-      for (const k of await keysAt(lo)) {
-        if (pred(k)) return { row: base + idx, key: k, hasKey: true };
-        idx++;
-      }
-      if (lo + 1 < segmentCount) {
-        const next = await fenceAt(lo + 1);
-        return { row: cumulative[lo]!, key: next, hasKey: true };
-      }
-      return { row: elementCount, key: undefined, hasKey: false };
-    };
-
-    let found: boolean;
-    let row: number;
-    let count: number;
-    if (ranged) {
-      // Two bisects, one contiguous range: `[from, to)` on the flattened
-      // prefix. An absent bound is the collection's own end.
-      const lower = query.from === undefined || query.from.length === 0
-        ? { row: 0 }
-        : await locate(boundPredicate(leaves, lowerBound.values));
-      const upper = query.to === undefined || query.to.length === 0
-        ? { row: elementCount }
-        : await locate(boundPredicate(leaves, upperBound.values));
-      row = lower.row;
-      count = Math.max(0, upper.row - lower.row);
-      found = count > 0;
-    } else if (query.key !== undefined) {
-      const at = await locate((k) => cmp(formKey(k), keyValue) >= 0);
-      if (indexed) {
-        // An index holds an entry per row under a key, so a key is a run.
-        const past = await locate((k) => cmp(formKey(k), keyValue) > 0);
-        row = at.row;
-        count = past.row - at.row;
-        found = count > 0;
-      } else {
-        found = at.hasKey && cmp(at.key, keyValue) === 0;
-        row = at.row;
-        count = found ? 1 : 0;
-      }
-    } else {
-      // Range query — a String prefix, or a struct key's exact leading
-      // fields with an optional prefix on the next field. Both predicates
-      // depend only on the leading field tuple, and struct keys compare
-      // field-by-field in declaration order, so they are monotone over the
-      // canonical key order; prefix-extending strings form one contiguous
-      // interval in East (code-point) order.
-      let lowerPred: (k: unknown) => boolean;
-      let upperPred: (k: unknown) => boolean;
-      const prefix = query.prefix;
-      if (structMeta !== null) {
-        const fieldCmps = structMeta.map((f) => compareFor(f.type));
-        const lead = (k: unknown): number => {
-          const key = formKey(k) as Record<string, unknown>;
-          for (let j = 0; j < fieldValues.length; j++) {
-            const c = fieldCmps[j]!(key[structMeta[j]!.name], fieldValues[j]);
-            if (c !== 0) return c;
-          }
-          return 0;
-        };
-        if (prefix === undefined) {
-          lowerPred = (k) => lead(k) >= 0;
-          upperPred = (k) => lead(k) > 0;
-        } else {
-          const prefixIdx = fieldValues.length;
-          const prefixName = structMeta[prefixIdx]!.name;
-          const prefixCmp = fieldCmps[prefixIdx]!;
-          lowerPred = (k) => {
-            const c = lead(k);
-            return c !== 0 ? c > 0 : prefixCmp((formKey(k) as Record<string, unknown>)[prefixName], prefixValue) >= 0;
-          };
-          upperPred = (k) => {
-            const c = lead(k);
-            if (c !== 0) return c > 0;
-            const field = (formKey(k) as Record<string, unknown>)[prefixName];
-            return prefixCmp(field, prefixValue) > 0 && !matchesPrefix(field);
-          };
-        }
-      } else {
-        // Scalar String / Option<String> keys: none sorts before every
-        // some(String), so the same pair of monotone predicates bounds only
-        // present strings, including for an empty prefix.
-        lowerPred = (k) => cmp(formKey(k), prefixValue) >= 0;
-        upperPred = (k) => cmp(formKey(k), prefixValue) > 0 && !matchesPrefix(formKey(k));
-      }
-      const lower = await locate(lowerPred);
-      const upper = await locate(upperPred);
-      row = lower.row;
-      count = upper.row - lower.row;
-      found = count > 0;
-    }
+    const { found, row, count } = search.answer(located, segments.elementCount);
     return new Response(JSON.stringify({ found, row, count }), {
       status: 200,
       headers: {
@@ -1085,7 +578,7 @@ export async function findDatasetKey(
         // Hash-pinned queries are content-addressed: same URL ⇒ same
         // answer, forever — as for page windows.
         'Cache-Control': query.hash !== undefined ? pinnedCacheControl(options.cache) : 'no-store',
-        'X-Content-SHA256': status.hash,
+        'X-Content-SHA256': dataset.hash,
       },
     });
   } catch (err) {

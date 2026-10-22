@@ -130,6 +130,7 @@ export {
   isRecordStateType,
   indexCollectionType,
   indexWindowType,
+  datasetRowsType,
   decodeRecordCommit,
   decodeMutationObject,
   MutationFormType,

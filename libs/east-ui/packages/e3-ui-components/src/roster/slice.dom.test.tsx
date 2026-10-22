@@ -17,8 +17,8 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { assignment, at, narrow, open, rosterHarness, slot, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 const byDate = compareFor(DateTimeType);
-/** Each page read through an index, by the index's name. */
-const indexPages = () => h.requests("page").flatMap(request => { const index = request.query.get("index"); return index === null ? [] : [index]; });
+/** Each read of an index's rows — a page, or several runs in one (#1351) — by the index's name. */
+const indexPages = () => [...h.requests("page"), ...h.requests("runs")].flatMap(request => { const index = request.query.get("index"); return index === null ? [] : [index]; });
 /** The pages read through an index of the staff's or the activities'. */
 const narrowingPages = () => indexPages().filter(index => index !== ex.rosterDutiesByTime.name);
 

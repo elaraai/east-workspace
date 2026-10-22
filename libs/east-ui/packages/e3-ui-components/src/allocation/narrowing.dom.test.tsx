@@ -65,8 +65,10 @@ const total = (bands: readonly { rows: number; bins: number; free: number }[]) =
 });
 const summary = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-record-slices-summary]")?.textContent;
 const HALL_A = ["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"];
-const bayPages = () => h.requests("page", "records.yard_bays").filter(r => r.query.get("index") === ex.yardBaysByArea.name);
-const kilnPages = () => h.requests("page", "records.kilns").filter(r => r.query.get("index")?.startsWith("kilns_by_") === true);
+/** The reads of a record's rows through its indexes: its pages, and its reads of several runs in one (#1351). */
+const indexReads = (dataset: string) => [...h.requests("page", dataset), ...h.requests("runs", dataset)];
+const bayPages = () => indexReads("records.yard_bays").filter(r => r.query.get("index") === ex.yardBaysByArea.name);
+const kilnPages = () => indexReads("records.kilns").filter(r => r.query.get("index")?.startsWith("kilns_by_") === true);
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("one rail over the lanes, the resources and the arrivals", () => {

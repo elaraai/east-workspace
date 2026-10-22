@@ -10,8 +10,10 @@ const h = rosterHarness();
 /** The weeks' and the duties' records, as the request log names their datasets. */
 const WEEKS = "records.roster_rota_weeks", DUTIES = "records.roster_duties";
 for (const mainWidth of [900, 390]) test(`Roster holds a full-frame skeleton until its week resolves at ${mainWidth}px`, async () => {
-    // Every page and key search of the weeks and of the duties held on its way to e3: the week the windowed Roster opens on is unresolved.
-    const held = h.e3.hold(request => (request.kind === "page" || request.kind === "find") && (request.dataset === WEEKS || request.dataset === DUTIES));
+    // Every read of the weeks and of the duties — a page, a key search, a read of runs or of rows by key (#1351) — held on its way to e3:
+    // the week the windowed Roster opens on is unresolved.
+    const reads = new Set(["page", "find", "runs", "rows"]);
+    const held = h.e3.hold(request => reads.has(request.kind) && (request.dataset === WEEKS || request.dataset === DUTIES));
     const { container } = await h.mount(ex.rosterWindowed);
     await width(mainWidth);
     const frame = container.querySelector('[data-builder-frame]')!;

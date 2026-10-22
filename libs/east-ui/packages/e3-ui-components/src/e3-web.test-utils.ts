@@ -46,7 +46,7 @@
 import { decodeBeast2For, diffFor, encodeBeast2For, none, PatchType, some, type EastType, type ValueTypeOf } from "@elaraai/east";
 import {
     dataflowExecute, datasetGet, datasetSet, packageImport, repoCreate, workspaceCopy, workspaceCreate, workspaceDeploy,
-    workspaceRecordHistory, workspaceRecordMutate, type MutationResult, type RecordHistoryResult, type RequestOptions,
+    workspaceRecordHistory, workspaceRecordMutate, type DatasetKeySearch, type MutationResult, type RecordHistoryResult, type RequestOptions,
 } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { exampleModule, examplesPackageZip } from "@elaraai/e3-ui/examples-package";
@@ -78,10 +78,14 @@ export const EXAMPLES_PIECE_MIN = EXAMPLES_PIECE_BYTES / 4;
 export type E3RequestKind =
     /** A dataset or record read whole. */
     | "read"
-    /** A key search of a dataset, or of a record through one of its indexes. */
+    /** A key search of a dataset, or of a record through one of its indexes — or several in one request (`findKeys`, #1351), its {@link E3Request.searches} the batch's. */
     | "find"
     /** A page of a dataset, or of a record through one of its indexes. */
     | "page"
+    /** The rows of several keys of a dataset or a record, read in one request (#1351). */
+    | "rows"
+    /** The entries of several runs of a dataset, or of one of a record's indexes, read in one request (#1351). */
+    | "runs"
     /** A dataset written. */
     | "write"
     /** A dataset's status, or a listing of datasets. */
@@ -135,6 +139,8 @@ export interface E3Request {
     readonly authorization: string | undefined;
     /** What it sent, when it sent its body whole — every body e3's client sends; a request's body is decoded by its route's type. */
     readonly body: Uint8Array | undefined;
+    /** The key searches it asks: a search's one, from its query, or a batch's (`findKeys`), from its body; none for any other request. */
+    readonly searches: readonly DatasetKeySearch[];
     /** Its signal: aborted once its caller gave it up. */
     readonly signal: AbortSignal;
 }
@@ -297,6 +303,7 @@ export function e3RequestOf(
     const base = {
         method, query, path: `/${path.join("/")}`, idempotencyKey: headers.get("Idempotency-Key") ?? undefined,
         ifNoneMatch: headers.get("If-None-Match") ?? undefined, authorization: headers.get("Authorization") ?? undefined, body, signal,
+        searches: [] as readonly DatasetKeySearch[],
     };
     // repos/<repo>/workspaces/<ws>/<area>/…
     if (path[0] !== "repos" || path[2] !== "workspaces" || path[3] === undefined) {
@@ -310,8 +317,12 @@ export function e3RequestOf(
         case "datasets": {
             const dataset = rest.length === 0 ? undefined : rest.join(".");
             const named = { ...unnamed, dataset, record: undefined };
+            // A dataset's batch reads are POSTs whose bodies name what they read (#1351).
+            if (method === "POST" && query.get("findKeys") === "true") return { ...base, ...named, kind: "find", searches: batchSearches(body) };
+            if (method === "POST" && query.get("rows") === "true") return { ...base, ...named, kind: "rows" };
+            if (method === "POST" && query.get("runs") === "true") return { ...base, ...named, kind: "runs" };
             if (method !== "GET") return { ...base, ...named, kind: "write" };
-            if (query.get("find") === "true") return { ...base, ...named, kind: "find" };
+            if (query.get("find") === "true") return { ...base, ...named, kind: "find", searches: [searchOf(query)] };
             if (query.get("page") === "true") return { ...base, ...named, kind: "page" };
             if (query.get("status") === "true" || query.get("list") === "true" || dataset === undefined) {
                 return { ...base, ...named, kind: "dataset-status" };
@@ -342,7 +353,8 @@ export function e3RequestOf(
 
 /**
  * Whether a request searched a record's keys, or one of its indexes, for a key
- * or a range from one, by the key's East text (`2026-10-01`, `"job1"`).
+ * or a range from one, by the key's East text (`2026-10-01`, `"job1"`) — a
+ * search of its own, or one of a batch's (#1351).
  *
  * @param request - The request
  * @param index - The index; the record's own keys when omitted
@@ -351,8 +363,32 @@ export function e3RequestOf(
  */
 export function searched(request: E3Request, index: string | undefined, text: string): boolean {
     if (request.kind !== "find" || (request.query.get("index") ?? undefined) !== index) return false;
-    const keys = [...request.query.getAll("key"), ...request.query.getAll("from")];
+    const keys = request.searches.flatMap((search) => ["key" in search ? [search.key] : [], "from" in search ? search.from ?? [] : []].flat());
     return keys.some((key) => key.startsWith(text));
+}
+
+/** A single key search, as its query names it. */
+function searchOf(query: URLSearchParams): DatasetKeySearch {
+    const fields = query.getAll("field");
+    const from = query.getAll("from");
+    const to = query.getAll("to");
+    const prefix = query.get("prefix");
+    const key = query.get("key");
+    if (key !== null) return { key };
+    if (fields.length > 0) return prefix === null ? { fields } : { fields, prefix };
+    if (prefix !== null) return { prefix };
+    return from.length > 0 ? (to.length > 0 ? { from, to } : { from }) : { to };
+}
+
+/** The key searches a batch's body asks (`{ "queries": [ … ] }`); none for a body that is not one. */
+function batchSearches(body: Uint8Array | undefined): readonly DatasetKeySearch[] {
+    if (body === undefined) return [];
+    try {
+        const parsed = JSON.parse(new TextDecoder().decode(body)) as { queries?: DatasetKeySearch[] };
+        return parsed.queries ?? [];
+    } catch {
+        return [];
+    }
 }
 
 /** What a request's signal aborting rejects with, as `fetch` rejects. */

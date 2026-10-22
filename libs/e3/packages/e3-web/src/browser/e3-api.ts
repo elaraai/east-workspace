@@ -36,7 +36,7 @@ import { Harness, type HarnessPage } from './harness.js';
  * checks.
  */
 export const API_SUITE_PARTS: ReadonlyArray<readonly string[]> = [
-  ['repository', 'packages', 'workspaces', 'datasets', 'datasetPages', 'datasetTransfer', 'packageTransfer', 'platform'],
+  ['repository', 'packages', 'workspaces', 'datasets', 'datasetPages', 'datasetBatches', 'datasetTransfer', 'packageTransfer', 'platform'],
   ['dataflow'],
   ['functions', 'records', 'keyedRecords', 'recordDeploy', 'inputDeploy'],
 ];

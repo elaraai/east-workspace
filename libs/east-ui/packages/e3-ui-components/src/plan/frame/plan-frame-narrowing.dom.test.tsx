@@ -18,8 +18,9 @@
  * shows and saying so, with Clear filters, when the rail leaves it none. A Save
  * that moves a job out of its kind's narrowing says so in the footer, and the
  * jobs are never read whole. A source's methods share one descriptor (#1352),
- * and a window read through the interval indexes lands its key searches
- * re-rendering the readers alone, never the frame. That no function holds the
+ * and a window read through the interval indexes asks each kind's key searches
+ * in one request (#1351), each landing re-rendering the readers alone, never
+ * the frame. That no function holds the
  * whole slice is e3-ui's one guard over every builder's examples (#1356). A
  * filter change builds nothing again: the Plan's body runs no more, and no
  * payload is decoded (#1354).
@@ -41,6 +42,7 @@ import { rowKeyOf, type PlanRowId } from "../model.js";
 import { act, el, entry, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { setPlanFrameRenderProbe } from "./index.js";
 import { countBuilds } from "../../shared/builds.test-utils.js";
+import type { E3Request } from "../../e3-web.test-utils.js";
 
 const h = planHarness();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
@@ -363,29 +365,56 @@ describe("a source's methods share one descriptor (#1352)", () => {
 // ============================================================================
 
 describe("a window read through interval indexes re-renders its readers, never the frame (#1344)", () => {
-    /** Every key search through the jobs' and the shifts' interval indexes, held on its way to e3 until it is let land, in the order asked. */
+    /** A kind's window: the start range and the carry-in ranges at each span — some fifty-five searches. */
+    const isWindow = (count: number) => count > 50;
+    /**
+     * Each batch of key searches through the jobs' and the shifts' interval
+     * indexes — what a window's searches are asked in (#1351) — held on its way
+     * to e3 until it is let land: the jobs' windows' batches, which the frame
+     * waits on, apart from the rest.
+     */
     function holdIntervalSearches() {
         const intervals = new Set<string>([ex.planPrintJobsByTime.name, ex.planPrintJobsByStockTime.name, ex.planPrintShiftsByTime.name]);
-        const held = h.e3.hold((request) => request.kind === "find" && intervals.has(request.query.get("index") ?? ""));
-        /** Lets every held search but the last land, one at a time; then the rest. */
+        const searching = (request: E3Request) => request.kind === "find" && request.method === "POST" && intervals.has(request.query.get("index") ?? "");
+        // The jobs' windows first: a request is held by the first hold that matches it.
+        const jobs = h.e3.hold((request) => searching(request) && request.query.get("index") === ex.planPrintJobsByTime.name && isWindow(request.searches.length));
+        const others = h.e3.hold(searching);
+        /** Each batch asked so far: the index it searches, the lower bound of its first search's last field, and how many searches it asks. */
+        const asked = () => h.requests().filter(searching).map((request) => {
+            const first = request.searches[0];
+            return [request.query.get("index"), first !== undefined && "from" in first ? first.from?.at(-1) : undefined, request.searches.length] as const;
+        });
+        /** Lets every held batch but the jobs' windows' land, one at a time. */
+        const landAllButTheJobs = async () => { while (others.held > 0) { await act(async () => { others.releaseOne(); }); await settle(); } };
         return {
-            get held() { return held.held; },
-            async landAllButOne() { while (held.held > 1) { await act(async () => { held.releaseOne(); }); } await settle(); },
-            async landAll() { while (held.held > 0) { await act(async () => { held.releaseOne(); }); await settle(); } },
+            get held() { return jobs.held + others.held; },
+            asked,
+            /** The batches of the window from a day: each kind's, by the index it searches, and how many searches it asks. */
+            windowFrom: (start: Date) => asked().filter(([, from]) => from === maybeTime(some(start)) || from === time(start)).map(([index, , count]) => [index, count] as const),
+            landAllButTheJobs,
+            /** Lets every held batch land, the jobs' windows' last. */
+            async landAll() {
+                await landAllButTheJobs();
+                while (jobs.held > 0) { await act(async () => { jobs.releaseOne(); }); await settle(); }
+                await landAllButTheJobs();
+            },
         };
     }
 
-    test("each of a window's key searches lands without rendering the frame, which renders once they all have — on the first window, and on the next with a job selected", async () => {
+    test("a kind's window asks its key searches in one request (#1351), and what lands while another kind's window is in flight renders no frame, which renders once they all have — on the first window, and on the next with a job selected", async () => {
         const searches = holdIntervalSearches();
         let renders = 0;
         setPlanFrameRenderProbe(() => { renders += 1; });
         try {
             const { container } = await h.mount(ex.planPrintWorks);
             await settle();
-            // A start range and the carry-in ranges at each span, for the jobs' window and the shifts'.
-            expect(searches.held).toBeGreaterThan(2 * 50);
+            // The jobs' window and the shifts', each in one request, in flight with what else the kinds search.
+            const first = searches.windowFrom(FIRST);
+            expect(first.map(([index]) => index)).toEqual([ex.planPrintJobsByTime.name, ex.planPrintShiftsByTime.name]);
+            expect(first.every(([, count]) => isWindow(count))).toBe(true);
+            expect(searches.held).toBe(searches.asked().length);
             renders = 0;
-            await searches.landAllButOne();
+            await searches.landAllButTheJobs();
             expect(renders).toBe(0);
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);
@@ -393,9 +422,12 @@ describe("a window read through interval indexes re-renders its readers, never t
             // With a job selected, the next window's searches render nothing until they have all landed either.
             await pick(bar(container, "J-1001", "Hall A", "a1"));
             await press(toolbar(container).getByRole("button", { name: "Next day" }));
-            expect(searches.held).toBeGreaterThan(2 * 50);
+            const next = searches.windowFrom(day("10-06"));
+            expect(next.map(([index]) => index)).toEqual([ex.planPrintJobsByTime.name, ex.planPrintShiftsByTime.name]);
+            expect(next.every(([, count]) => isWindow(count))).toBe(true);
+            expect(searches.held).toBeGreaterThan(1);
             renders = 0;
-            await searches.landAllButOne();
+            await searches.landAllButTheJobs();
             expect(renders).toBe(0);
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);

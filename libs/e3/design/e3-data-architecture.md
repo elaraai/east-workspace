@@ -566,7 +566,7 @@ A lock is shared or exclusive, on a resource. It records what took it and who ho
 
 ### 3.17 The API's data contracts
 
-e3-api-server exposes e3-core over HTTP with BEAST2 bodies, and e3-api-client is its client; the routes are in the server's README. The contracts of it that belong to this layer are how a large value goes up, how a collection comes down, whose budget a run gets, and the seams a host runs a dataflow through.
+e3-api-server exposes e3-core over HTTP with BEAST2 bodies, and e3-api-client is its client; the routes are in the server's README. The contracts of it that belong to this layer are how a large value goes up, how a collection comes down, how a window of one is read, whose budget a run gets, and the seams a host runs a dataflow through.
 
 #### Dataset transfer
 
@@ -655,6 +655,22 @@ A dataset can move while it is read: a run writes a new value, and the old value
 The objects route answers an object over 1 MB as the dataset route does, with JSON `{ url }`, so a segment's bytes go from object storage to the client. An element larger than the cut rule's target is a segment of its own, so a segment can exceed a response cap.
 
 Pages (`?page=true`) are decoded on the server from the segments they touch, and capped by `pageByteBudget` (default 4 MiB).
+
+#### Reads in batches
+
+A window of a collection is a few requests, never one a search, a run or a row (#1351). Each batch is a `POST` to the dataset's path whose JSON body names what it reads, at one content hash: `hash=` pins it, and a stale pin is refused 409 naming the content the dataset holds now, as a pinned page's is. A batch answers `Cache-Control: no-store`.
+
+| Read | Query | Body | Answer |
+|---|---|---|---|
+| Key searches | `?findKeys=true[&index=]` | `{ queries: [...] }`, each in one of `?find=true`'s forms | JSON `{ results: [{ found, row, count }] }`, in order |
+| Rows by key | `?rows=true` | `{ keys: [<.east>, …] }` of a Dict | BEAST2 of `datasetRowsType(K, V)`: each key, its row or none, and its position in the Dict's order |
+| Runs | `?runs=true&hash=[&index=][&join=true]` | `{ runs: [[row, count], …] }`, ascending and disjoint | one window of the dataset's type, or the index's window type, holding the runs' entries in order |
+
+- **Bounds.** A batch takes at most 10,000 queries, keys or runs. A rows answer holds the first `X-Page-Count` keys the page budget reaches, and a runs answer the first `X-Page-Count` of its runs' `X-Run-Entries` entries a page's bounds reach (10,000, and the budget). The client asks again for the rest, and e3-ui-components' paged runtime does so before it answers.
+- **Reading.** A batch places its bounds, keys or rows by the manifest's fences and counts, which reads nothing, then reads every segment they touch once, eight at a time, and binary-searches its keys. So a window's searches decode the window's few segments, never a segment a search.
+- **Decoded segments are kept.** The API process keeps decoded segments by the backend, the repository and the segment's hash, bounded by their decoded weight (64 MiB, east's `decodedWeightFor`, the measure a runner's pager keeps by), and every page, search and batch reads through them. A pan, or a window read again, decodes nothing a process kept; a host whose processes are short-lived gains on its warm ones. A segment that does not hold what its manifest says of it — another count, a first key that is not its fence, a last key at or past the next fence — refuses the read `dataset_not_canonical`.
+- **Mounting.** The batches are routes of the dataset routes. A host mounts them after the transfer routes, at the same prefix: the transfer routes pass a `POST` that is no upload on to them.
+- **Who reads them.** e3-ui-components' paged runtime asks each batch as one request and one channel, which re-fires its readers once (`seekAll`, `rowsAll`, `runsAll`), and a record Slice over an indexed binding reads a plan's searches and a window across several runs through them.
 
 #### What holds a workspace
 

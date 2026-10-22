@@ -26,6 +26,7 @@ import {
     ArrayType,
     DictType,
     IntegerType,
+    OptionType,
     SortedMap,
     StringType,
     StructType,
@@ -36,11 +37,12 @@ import {
     toEastTypeValue,
     variant,
     type EastTypeValue,
+    type option,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { PagedSourceType, PinnedSourceType, type SeekQueryType } from "@elaraai/east-ui";
-import { datasetGetStatus } from "@elaraai/e3-api-client";
-import { indexWindowType, type TreePath } from "@elaraai/e3-types";
+import { datasetGetStatus, type DatasetFindQuery } from "@elaraai/e3-api-client";
+import { datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
@@ -53,6 +55,7 @@ import {
     toFindQuery,
     type PagedApi,
     type PagedSelector,
+    type PagedSource,
 } from "../src/platform/paged-runtime.js";
 import type { FakeClock } from "./fixtures/fake-clock.js";
 import { e3Spec } from "./fixtures/e3.js";
@@ -1072,6 +1075,285 @@ describe("PagedRuntime — a burst of searches settles as one (#1360)", () => {
         held.releaseOne();
         await h.settle();
         assert.deepEqual(fired, { first: 1, second: 1 });
+    });
+});
+
+describe("PagedRuntime — several reads in one request (#1351)", () => {
+    /** The dispatch queue's window: the work orders by status and due date, each carrying its title. */
+    const QueueWindow = indexWindowType(StringType, ex.WorkQueueKey, StringType, ex.WorkOrderRow);
+    type QueueHandle = ValueTypeOf<ReturnType<typeof PagedSourceType<typeof QueueWindow>>>;
+    const queueEqual = equalFor(QueueWindow);
+    const rowsEqual = equalFor(datasetRowsType(StringType, IntegerType));
+    const keyedHandle = (runtime: PagedRuntime) => handleOf(runtime, KeyedType, countsPath) as unknown as KeyedHandle;
+    /** The source a handle the runtime builds serves. */
+    const sourceOf = (runtime: PagedRuntime, type: EastTypeValue, path: TreePath, selector: PagedSelector = NO_INDEX): PagedSource => {
+        const source = runtime.sourceOf(handleOf(runtime, type, path, "pinned", selector).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        return source;
+    };
+    /** A runtime whose counts source, keyed `ja`, `ka1`–`ka3` and `kb`, has looked its revision up, and that source. */
+    const keyed = async <R extends PagedRuntime>(runtime: R) => {
+        await h.write(counts, KEYED_COUNTS);
+        const R1 = await hashOf(counts);
+        const read = await known(runtime, (r) => handleOf(r, KeyedType, countsPath).revision!());
+        return { R1, ...read, source: sourceOf(read.runtime, KeyedType, countsPath) };
+    };
+    /** A runtime whose work orders have looked their revision up, and the source of their dispatch queue. */
+    const queued = async () => {
+        const read = await known(new PagedRuntime(), (r) => handleOf(r, toEastTypeValue(orders.type), ordersPath).revision!());
+        const queue = handleOf(read.runtime, QueueWindowType, ordersPath, "pinned", BY_STATUS) as unknown as QueueHandle;
+        return { ...read, queue, source: sourceOf(read.runtime, QueueWindowType, ordersPath, BY_STATUS) };
+    };
+    /**
+     * Reads once under tracking, as a view's run does, and subscribes one
+     * reader to every channel the read tracked.
+     *
+     * @returns What the read answered, and how many times its reader has re-fired since
+     */
+    const tracked = <T>(runtime: PagedRuntime, read: () => T) => {
+        runtime.enableTracking();
+        const value = read();
+        let fired = 0;
+        const reader = () => { fired += 1; };
+        for (const key of runtime.disableTracking()) runtime.subscribe(key, reader);
+        return { value, fired: () => fired };
+    };
+    /** A batch read's JSON body. */
+    const bodyOf = (request: E3Request) => JSON.parse(new TextDecoder().decode(request.body)) as { keys?: string[]; runs?: number[][] };
+    /** The batch reads of the counts asked so far, by their kind. */
+    const reads = (kind: E3Request["kind"], dataset = "inputs.preview_counts") => h.requests(kind, dataset);
+    /** Each read of rows by key or of runs, as `[kind, pin]`, in order. */
+    const pinsOf = (dataset = "inputs.preview_counts") => h.requests().filter((request) => request.dataset === dataset
+        && (request.kind === "rows" || request.kind === "runs")).map((request) => [request.kind, request.query.get("hash")]);
+
+    test("several searches are one request, pinned, whose readers re-fire once; the single searches it answered ask nothing", async () => {
+        const { R1, runtime, source } = await keyed(new PagedRuntime());
+        const queries: DatasetFindQuery[] = [{ prefix: "ka" }, { key: '"kb"' }, { prefix: "kc" }];
+        const read = tracked(runtime, () => runtime.seekAll(source, queries));
+        assert.equal(read.value.type, "none", "in flight");
+        await h.settle();
+        assert.equal(read.fired(), 1, "its readers re-fire once, as the answer lands");
+        assert.deepEqual(reads("find").map((request) => [request.method, request.query.get("hash"), request.searches]),
+            [["POST", R1, [{ prefix: "ka" }, { key: '"kb"' }, { prefix: "kc" }]]]);
+        assert.deepEqual(runtime.seekAll(source, queries), some([
+            { found: true, row: 1, count: 3, hash: R1 }, { found: true, row: 4, count: 1, hash: R1 }, { found: false, row: 5, count: 0, hash: R1 },
+        ]));
+        const seek = keyedHandle(runtime).seek;
+        assert.ok(seek.type === "some");
+        assert.deepEqual(seek.value(variant("prefix", "ka")), some({ found: true, row: 1n, count: 3n }));
+        assert.deepEqual(seek.value(variant("key", '"kb"')), some({ found: true, row: 4n, count: 1n }));
+        assert.equal(reads("find").length, 1, "a single search the batch answered is answered from it");
+    });
+
+    test("a search it holds is answered from its channel and only the rest is asked; holding them all, it asks nothing", async () => {
+        const { R1, runtime, source } = await keyed(new PagedRuntime());
+        const seek = keyedHandle(runtime).seek;
+        assert.ok(seek.type === "some");
+        seek.value(variant("prefix", "ka"));
+        await h.settle();
+        assert.equal(runtime.seekAll(source, [{ prefix: "ka" }, { prefix: "kb" }]).type, "none");
+        await h.settle();
+        assert.deepEqual(reads("find").map((request) => [request.method, request.searches]),
+            [["GET", [{ prefix: "ka" }]], ["POST", [{ prefix: "kb" }]]]);
+        assert.deepEqual(runtime.seekAll(source, [{ prefix: "kb" }, { prefix: "ka" }]),
+            some([{ found: true, row: 4, count: 1, hash: R1 }, { found: true, row: 1, count: 3, hash: R1 }]));
+        assert.equal(reads("find").length, 2, "every search held: nothing asked");
+    });
+
+    test("over an index, the batch names it once, and its rows are the index's", async () => {
+        const R1 = await hashOf(orders);
+        const { runtime, source } = await queued();
+        const queries: DatasetFindQuery[] = [{ fields: ['"late"'] }, { fields: ['"open"'] }];
+        runtime.seekAll(source, queries);
+        await h.settle();
+        assert.deepEqual(reads("find", "records.work_orders").map((request) => [request.query.get("index"), request.searches]),
+            [["by_status", [{ fields: ['"late"'] }, { fields: ['"open"'] }]]]);
+        assert.deepEqual(runtime.seekAll(source, queries),
+            some([{ found: true, row: 0, count: 5, hash: R1 }, { found: true, row: 5, count: 7, hash: R1 }]), "five late orders, then seven open");
+    });
+
+    test("a failed batch throws its reason, and a read after the gap asks again", async () => {
+        const { runtime, source } = await keyed(new TestPagedRuntime());
+        const recover = h.e3.fail((request) => finds("inputs.preview_counts")(request) && request.method === "POST", DOWN);
+        const queries: DatasetFindQuery[] = [{ prefix: "ka" }, { prefix: "kb" }];
+        assert.equal(runtime.seekAll(source, queries).type, "none");
+        await h.settle();
+        assert.throws(() => runtime.seekAll(source, queries), /inputs\.preview_counts: internal: the store is down/);
+        runtime.clockMs = 500;
+        assert.throws(() => runtime.seekAll(source, queries), /internal/, "still failed inside the gap");
+        assert.equal(reads("find").length, 1, "retry suppressed inside the gap");
+        recover();
+        runtime.clockMs = 5000;
+        assert.equal(runtime.seekAll(source, queries).type, "none");
+        assert.equal(reads("find").length, 2, "retry allowed after the gap");
+        await h.settle();
+        assert.equal(runtime.seekAll(source, queries).type, "some");
+    });
+
+    test("a batch pinned to content the dataset no longer holds moves the source, and is asked again at the new content", async () => {
+        const { R1, runtime, source } = await keyed(new PagedRuntime());
+        const queries: DatasetFindQuery[] = [{ prefix: "ka" }, { prefix: "kb" }];
+        const held = h.e3.hold(finds("inputs.preview_counts"));
+        runtime.seekAll(source, queries);
+        await held.holding;
+        await h.write(counts, new SortedMap([...KEYED_COUNTS, ["ka0", 9n]], keys));
+        const R2 = await hashOf(counts);
+        held.release();
+        await h.settle();
+        assert.equal(runtime.seekAll(source, queries).type, "none", "a 409 is a move, not a failure");
+        await h.settle();
+        assert.deepEqual(runtime.seekAll(source, queries),
+            some([{ found: true, row: 1, count: 4, hash: R2 }, { found: true, row: 5, count: 1, hash: R2 }]));
+        assert.deepEqual(reads("find").map((request) => request.query.get("hash")), [R1, R2]);
+    });
+
+    test("the rows of several keys are one request whose readers re-fire once — each key's row or absence, and its position — and a search by one of them, or a one-row window at one's row, asks nothing", async () => {
+        const { R1, runtime, source } = await keyed(new PagedRuntime());
+        const read = tracked(runtime, () => runtime.rowsAll(source, ["kb", "ka2", "jz"]));
+        assert.equal(read.value.type, "none", "in flight");
+        await h.settle();
+        assert.equal(read.fired(), 1, "its readers re-fire once, as the answer lands");
+        assert.deepEqual(reads("rows").map((request) => [request.method, request.query.get("hash"), bodyOf(request)]),
+            [["POST", R1, { keys: ['"kb"', '"ka2"', '"jz"'] }]]);
+        const rows = runtime.rowsAll(source, ["kb", "ka2", "jz"]);
+        assert.ok(rows.type === "some");
+        assert.ok(rowsEqual(rows.value.map((row) => ({ key: row.key as string, row: row.row as option<bigint>, position: BigInt(row.position) })), [
+            { key: "kb", row: some(5n), position: 4n }, { key: "ka2", row: some(3n), position: 2n }, { key: "jz", row: none, position: 1n },
+        ]), "`jz` is absent, where it would sort: after `ja`");
+        const seek = keyedHandle(runtime).seek;
+        assert.ok(seek.type === "some");
+        assert.deepEqual(seek.value(variant("key", '"kb"')), some({ found: true, row: 4n, count: 1n }));
+        assert.deepEqual(seek.value(variant("key", '"jz"')), some({ found: false, row: 1n, count: 0n }));
+        const window = keyedHandle(runtime).page(4n, 1n);
+        assert.ok(window.type === "some" && equalFor(Keyed)(window.value, new SortedMap([["kb", 5n]], keys)));
+        assert.deepEqual([reads("find").length, reads("page").length, reads("rows").length], [0, 0, 1], "answered from the rows it read");
+    });
+
+    test("a key a landed window of the rows holds is answered from it, present or absent, with nothing asked", async () => {
+        const { runtime, source } = await keyed(new PagedRuntime());
+        keyedHandle(runtime).page(0n, 5n);
+        await h.settle();
+        const rows = runtime.rowsAll(source, ["ka3", "jz"]);
+        assert.ok(rows.type === "some", "answered at once");
+        assert.ok(rowsEqual(rows.value.map((row) => ({ key: row.key as string, row: row.row as option<bigint>, position: BigInt(row.position) })),
+            [{ key: "ka3", row: some(4n), position: 3n }, { key: "jz", row: none, position: 1n }]));
+        assert.equal(reads("rows").length, 0);
+    });
+
+    test("a read of rows by key reads a Dict's own rows: an index's, or an Array's, is refused where it is asked", () => {
+        const runtime = new PagedRuntime();
+        runtime.initialize(newApi().api, h.workspace);
+        assert.throws(() => runtime.rowsAll(sourceOf(runtime, QueueWindowType, ordersPath, BY_STATUS), ['"late"']), /a Dict dataset's own rows/);
+        assert.throws(() => runtime.rowsAll(sourceOf(runtime, rowsTypeValue, rowsPath), [0n]), /a Dict dataset's own rows/);
+        assert.equal(h.requests("rows").length, 0);
+    });
+
+    test("keys an answer's byte budget did not reach are asked again, until every key is answered", async () => {
+        // Machines whose labels are incompressible text, each over a third of e3's 4 MiB budget: an answer reaches two.
+        const machines = ex.previewMachinesInput;
+        const labels = [1, 2, 3].map((seed) => noise(1_600_000, seed));
+        await h.write(machines, new SortedMap(labels.map((label, i) => [`m${i}`, { label }] as const), keys));
+        const MachinesType = toEastTypeValue(machines.type);
+        const { runtime } = await known(new PagedRuntime(), (r) => handleOf(r, MachinesType, machines.path).revision!());
+        const source = sourceOf(runtime, MachinesType, machines.path);
+        runtime.rowsAll(source, ["m2", "m0", "m1"]);
+        await h.settle();
+        assert.deepEqual(reads("rows", "inputs.preview_machines").map((request) => bodyOf(request).keys),
+            [['"m2"', '"m0"', '"m1"'], ['"m1"']], "the first answer reached two keys; the next asked the third");
+        const rows = runtime.rowsAll(source, ["m2", "m0", "m1"]);
+        assert.ok(rows.type === "some");
+        assert.deepEqual(rows.value.map((row) => row.position), [2, 0, 1]);
+        const machineEqual = equalFor(OptionType(ex.PreviewMachine));
+        assert.ok(rows.value.every((row, i) => machineEqual(row.row as option<ValueTypeOf<typeof ex.PreviewMachine>>, some({ label: labels[[2, 0, 1][i]!]! }))));
+    });
+
+    test("the entries of several runs are one request whose readers re-fire once, as the pages of those runs give them; a window inside one of its runs asks nothing", async () => {
+        const R1 = await hashOf(orders);
+        const { runtime, queue, source } = await queued();
+        const read = tracked(runtime, () => runtime.runsAll(source, [[1, 2], [6, 3]]));
+        assert.equal(read.value.type, "none", "in flight");
+        await h.settle();
+        assert.equal(read.fired(), 1, "its readers re-fire once, as the answer lands");
+        assert.deepEqual(reads("runs", "records.work_orders").map((request) =>
+            [request.method, request.query.get("index"), request.query.get("hash"), bodyOf(request)]),
+        [["POST", "by_status", R1, { runs: [[1, 2], [6, 3]] }]]);
+        const window = runtime.runsAll(source, [[1, 2], [6, 3]]);
+        assert.ok(window.type === "some");
+        // The same entries as another runtime's pages of those runs.
+        const other = (await queued()).queue;
+        const first = await h.ready(() => other.page(1n, 2n));
+        const second = await h.ready(() => other.page(6n, 3n));
+        assert.ok(queueEqual(window.value as ValueTypeOf<typeof QueueWindow>, [...first, ...second]));
+        const paged = reads("page", "records.work_orders").length;
+        const cut = queue.page(7n, 2n);
+        assert.ok(cut.type === "some" && queueEqual(cut.value, second.slice(1, 3)));
+        assert.equal(reads("page", "records.work_orders").length, paged, "a window inside one of its runs is answered from it");
+        assert.equal(queue.page(2n, 5n).type, "none", "a window across the gap between its runs is fetched");
+        assert.equal(reads("page", "records.work_orders").length, paged + 1);
+        await h.settle();
+    });
+
+    test("entries an answer's bounds did not reach are asked again — the runs less what landed — and the parts joined in order", async () => {
+        // Lines of incompressible text, each over a third of e3's 4 MiB page budget: an answer holds two.
+        const lines = ex.previewLinesInput;
+        const written = Array.from({ length: 6 }, (_, i) => noise(1_600_000, i + 1));
+        await h.write(lines, written);
+        const LinesType = toEastTypeValue(ArrayType(StringType));
+        const { runtime } = await known(new PagedRuntime(), (r) => handleOf(r, LinesType, lines.path).revision!());
+        const source = sourceOf(runtime, LinesType, lines.path);
+        runtime.runsAll(source, [[0, 2], [3, 3]]);
+        await h.settle();
+        assert.deepEqual(reads("runs", "inputs.preview_lines").map((request) => bodyOf(request).runs),
+            [[[0, 2], [3, 3]], [[3, 3]], [[5, 1]]]);
+        const window = runtime.runsAll(source, [[0, 2], [3, 3]]);
+        assert.ok(window.type === "some");
+        assert.ok(equalFor(ArrayType(StringType))(window.value as string[], [written[0]!, written[1]!, written[3]!, written[4]!, written[5]!]));
+    });
+
+    test("a failed read of rows or of runs throws its reason, and a read after the gap asks again", async () => {
+        const { runtime, source } = await keyed(new TestPagedRuntime());
+        const recover = h.e3.fail((request) => (request.kind === "rows" || request.kind === "runs") && request.dataset === "inputs.preview_counts", DOWN);
+        runtime.rowsAll(source, ["ka1"]);
+        runtime.runsAll(source, [[0, 1], [4, 1]]);
+        await h.settle();
+        assert.throws(() => runtime.rowsAll(source, ["ka1"]), /inputs\.preview_counts: internal: the store is down/);
+        assert.throws(() => runtime.runsAll(source, [[0, 1], [4, 1]]), /inputs\.preview_counts: internal: the store is down/);
+        runtime.clockMs = 500;
+        assert.throws(() => runtime.rowsAll(source, ["ka1"]), /internal/, "still failed inside the gap");
+        assert.throws(() => runtime.runsAll(source, [[0, 1], [4, 1]]), /internal/);
+        assert.equal(pinsOf().length, 2, "retry suppressed inside the gap");
+        recover();
+        runtime.clockMs = 5000;
+        assert.equal(runtime.rowsAll(source, ["ka1"]).type, "none");
+        assert.equal(runtime.runsAll(source, [[0, 1], [4, 1]]).type, "none");
+        await h.settle();
+        assert.equal(runtime.rowsAll(source, ["ka1"]).type, "some");
+        const window = runtime.runsAll(source, [[0, 1], [4, 1]]);
+        assert.ok(window.type === "some" && equalFor(Keyed)(window.value as ValueTypeOf<typeof Keyed>, new SortedMap([["ja", 1n], ["kb", 5n]], keys)));
+        assert.equal(pinsOf().length, 4);
+    });
+
+    test("a read of rows and a read of runs pinned to content the dataset no longer holds move the source, and are asked again at the new content", async () => {
+        const { R1, runtime, source } = await keyed(new PagedRuntime());
+        const held = h.e3.hold((request) => (request.kind === "rows" || request.kind === "runs") && request.dataset === "inputs.preview_counts");
+        runtime.rowsAll(source, ["ka1"]);
+        runtime.runsAll(source, [[0, 1], [4, 1]]);
+        await held.holding;
+        await h.settle();
+        assert.equal(held.held, 2);
+        await h.write(counts, new SortedMap([["ja", 1n], ["ka1", 7n], ["kb", 5n]], keys));
+        const R2 = await hashOf(counts);
+        held.release();
+        await h.settle();
+        assert.equal(runtime.rowsAll(source, ["ka1"]).type, "none", "a 409 is a move, not a failure");
+        assert.equal(runtime.runsAll(source, [[0, 1], [2, 1]]).type, "none");
+        await h.settle();
+        const rows = runtime.rowsAll(source, ["ka1"]);
+        assert.ok(rows.type === "some" && rowsEqual(rows.value.map((row) => ({ key: row.key as string, row: row.row as option<bigint>, position: BigInt(row.position) })),
+            [{ key: "ka1", row: some(7n), position: 1n }]));
+        const window = runtime.runsAll(source, [[0, 1], [2, 1]]);
+        assert.ok(window.type === "some" && equalFor(Keyed)(window.value as ValueTypeOf<typeof Keyed>, new SortedMap([["ja", 1n], ["kb", 5n]], keys)));
+        assert.deepEqual(pinsOf(), [["rows", R1], ["runs", R1], ["rows", R2], ["runs", R2]]);
     });
 });
 

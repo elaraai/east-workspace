@@ -14,8 +14,10 @@ import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { IndexedEntryType } from "@elaraai/east-ui/internal";
 import { bindIndexedPagedPlatformFn, DataIndexedPrimitives } from "@elaraai/e3-ui/internal";
 import { TreePathType, indexWindowType, type TreePath } from "@elaraai/e3-types";
+import type { RecordSliceBatches } from "@elaraai/east-ui-components/platform";
 import { datasetPathToString } from "./dataset-store.js";
 import type { PagedRuntime } from "./paged-runtime.js";
+import { toFindQuery } from "./find-query.js";
 
 type Metadata = Record<string, Record<string, unknown>>;
 type Query = ValueTypeOf<typeof SeekQueryType>;
@@ -37,6 +39,35 @@ interface Schema {
     window: EastType;
 }
 
+/** What a binding this runtime built reads: its record, its indexes and its join. */
+interface Binding {
+    readonly schema: Schema;
+    readonly path: TreePath;
+    readonly metadata: Metadata;
+    readonly joined: boolean;
+}
+
+/**
+ * The batched reads of each handle an indexed runtime built, by the handle
+ * itself (#1351): a record Slice bound over the handle finds the runtime that
+ * built it, whichever runtime that is — the page's, or a spec's own.
+ */
+const batchesOfHandles = new WeakMap<object, RecordSliceBatches>();
+
+/**
+ * The reads a paged runtime batches for a binding an indexed runtime built
+ * (#1351): several searches of one of its sources in one request, and the
+ * entries of several runs of one in one — what a record Slice bound over it
+ * reads a plan's searches and its windows through.
+ *
+ * @param binding - The binding: the handle `Data.bindPaged` over a record's indexes returned
+ * @returns Its batched reads, or `undefined` for a handle no indexed runtime built here — one decoded from
+ *   elsewhere, whose Slice then reads its searches and runs one at a time
+ */
+export function recordSliceBatchesOf(binding: object): RecordSliceBatches | undefined {
+    return batchesOfHandles.get(binding);
+}
+
 /**
  * Serializable indexed handles backed by PagedRuntime's existing snapshots,
  * caches, error/retry handling and tracked reads. No second fetch cache lives here.
@@ -50,7 +81,7 @@ export class IndexedPagedRuntime {
     // again and looked its handle up by that type's structure.
     private sources = new WeakMap<Schema, Map<string, Handle>>();
 
-    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle">) {}
+    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll">) {}
 
     clear(): void { this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); }
 
@@ -88,6 +119,53 @@ export class IndexedPagedRuntime {
         return handle;
     }
 
+    /** A window of a source as a binding's entries, each tagged with the
+     *  source that orders it: mapped once per window, so a window read again
+     *  keeps its identity. */
+    private entriesOf(name: string, window: unknown): unknown[] {
+        let mapped = this.windows.get(window as object);
+        if (mapped === undefined) { mapped = new Map(); this.windows.set(window as object, mapped); }
+        let rows = mapped.get(name);
+        if (rows === undefined) {
+            rows = name === "primary"
+                ? [...window as Map<unknown, unknown>].map(([key, row]) => ({ ik: variant("primary", key), key, value: none, row: some(row) }))
+                : (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: entry.row }));
+            mapped.set(name, rows);
+        }
+        return rows;
+    }
+
+    /**
+     * The reads the paged runtime batches for a binding this runtime built
+     * (#1351): several searches of one of its sources in one request, and the
+     * entries of several runs of one in one, each through the source's own
+     * handle, so its channels are the ones the binding's single reads use.
+     *
+     * @param binding - What the binding reads
+     * @returns Its batched reads
+     */
+    private batches({ schema, path, metadata, joined }: Binding): RecordSliceBatches {
+        const sourceOf = (name: string) => {
+            const handle = this.source(schema, path, metadata, joined, name);
+            const source = this.paged.sourceOf(handle.id);
+            if (source === undefined) throw new Error(`Data.bindPaged: the source '${name}' of ${handle.id} is no source this runtime serves`);
+            return source;
+        };
+        return {
+            seekAll: (name, queries) => {
+                const source = sourceOf(name);
+                const found = this.paged.seekAll(source, queries.map(query => toFindQuery(query, source.selector)));
+                return found.type === "none" ? none
+                    : some(found.value.map(range => ({ found: range.found, row: BigInt(range.row), count: BigInt(range.count) })));
+            },
+            runsAll: (name, runs) => {
+                if (name === "primary" && !joined) throw new Error("A covering-only binding cannot read primary rows");
+                const read = this.paged.runsAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const));
+                return read.type === "none" ? none : some(this.entriesOf(name, read.value) as never);
+            },
+        };
+    }
+
     private primitives(): PlatformFunction[] {
         const { page, seek, total, revision, refresh } = DataIndexedPrimitives;
         return [
@@ -98,17 +176,7 @@ export class IndexedPagedRuntime {
                     if (name === "primary" && !joined) throw new Error("A covering-only binding cannot read primary rows");
                     const result = this.source(schema, path, metadata, joined, name).page(offset, limit);
                     if (result.type === "none") return none;
-                    const window = result.value as object;
-                    let mapped = this.windows.get(window);
-                    if (mapped === undefined) { mapped = new Map(); this.windows.set(window, mapped); }
-                    let rows = mapped.get(name);
-                    if (rows === undefined) {
-                        rows = name === "primary"
-                            ? [...result.value as Map<unknown, unknown>].map(([key, row]) => ({ ik: variant("primary", key), key, value: none, row: some(row) }))
-                            : (result.value as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: entry.row }));
-                        mapped.set(name, rows);
-                    }
-                    return some(rows);
+                    return some(this.entriesOf(name, result.value));
                 };
             }),
             seek.implement((...types: EastTypeValue[]) => {
@@ -184,6 +252,8 @@ export class IndexedPagedRuntime {
                         $.return(refresh(args, ...descriptor, hash))), primitives),
                 };
                 this.handles.set(cacheKey, handle);
+                // A record Slice bound over the handle reads its searches and runs in batches (#1351).
+                batchesOfHandles.set(handle, this.batches({ schema, path, metadata, joined }));
                 return handle;
             };
         }), ...primitives];
