@@ -5,6 +5,8 @@
 // libs/east-plugin/marketplace/ (#1309), skipping a version already on npm so
 // a retry after a partial failure is safe. The assembled directory is the
 // package: npm packs it as it is, dotfiles included, and runs no script.
+// A publish is done once npm serves it the way an install reads it
+// (lib/registry-served.mjs), as publish-npm.mjs's is (#1399).
 //
 // Usage: publish-plugins.mjs <tag> [--dry-run] [--registry <url>]
 //   <tag>            "beta" | "latest"
@@ -20,6 +22,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { alreadyPublished } from './lib/already-published.mjs';
 import { PLUGIN_DIRS, missingParts } from './lib/plugin-packages.mjs';
+import { describeTarget, waitUntilServed } from './lib/registry-served.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -35,6 +38,8 @@ if (!TAG || (TAG !== 'beta' && TAG !== 'latest')) {
 let failed = 0;
 let published = 0;
 let skipped = 0;
+// Every plugin npm is to serve at this version, published now or earlier.
+const expected = [];
 
 for (const rel of PLUGIN_DIRS) {
   const dir = path.join(repoRoot, rel);
@@ -49,6 +54,7 @@ for (const rel of PLUGIN_DIRS) {
   if (!DRY_RUN && !REGISTRY && alreadyPublished(pkg.name, pkg.version)) {
     console.log(`  skip: ${pkg.name}@${pkg.version} already on npm`);
     skipped++;
+    expected.push({ registry: 'npm', name: pkg.name, version: pkg.version });
     continue;
   }
 
@@ -73,8 +79,17 @@ for (const rel of PLUGIN_DIRS) {
     failed++;
   } else {
     published++;
+    expected.push({ registry: 'npm', name: pkg.name, version: pkg.version });
   }
 }
 
 console.log(`\nDone: ${published} published, ${skipped} skipped, ${failed} failed`);
-process.exit(failed > 0 ? 1 : 0);
+if (failed > 0) process.exit(1);
+
+// Nothing reached npm in a dry run, and a local registry serves at once.
+if (!DRY_RUN && !REGISTRY && expected.length > 0) {
+  console.log(`\nWaiting until npm serves ${expected.length} plugin(s)`);
+  const missing = await waitUntilServed(expected);
+  for (const target of missing) console.error(`  NOT SERVED: ${describeTarget(target)}`);
+  process.exit(missing.length > 0 ? 1 : 0);
+}
