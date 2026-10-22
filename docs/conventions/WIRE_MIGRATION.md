@@ -367,3 +367,25 @@ Each wire changed under this rule, with the kind it is.
   package's value, since its type changed, and refuses a record that holds them
   until the record declares the migration that carries them across, as with any
   record whose type an application changes.
+- **e3-ui's `Schematic` takes the Plan's props, and its layers and shapes from
+  the app's rows (#1401)** — package-borne. The `Schematic` extension's
+  payload trades `name` for `id`; its `inspector` is off unless given, a
+  kind's own Details being its kind's `inspector`, which the kinds' wire
+  already carried; it loses `selectZoomFocus` and the five callbacks —
+  `onSelectionChange`, `onZoneSelectionChange`, `onSelectLink`,
+  `onViewportChange` and `onItemOpen` — and gains `onSelect`, the whole
+  selection as an `Array<Schematic.Types.Ref>`; and its `canConnect` takes a
+  `Schematic.Types.Candidate`, `{ kind, from, to }`, and answers an
+  `Option<String>`, where it took two references and answered a Boolean.
+  `Schematic.Types.Layer` gains `color`, after `tone`, and the library's tabs
+  on the wire (`SchematicLibraryTabType`) trade `templates` and `unplaced`,
+  each naming a slot, for `templates` and `backlog`, each over every kind and
+  holding `Null`. The selection, zone selection and viewport event types are
+  removed. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it. An application's record whose rows
+  held a `Schematic.Types.Geometry` for a footprint or a zone's shape keeps
+  its own fields instead — a radius, an outline's corners — from which an
+  accessor makes the shape; rewriting its rows is that record's own migration,
+  as with any record whose type an application changes.

@@ -4,21 +4,23 @@
  */
 
 /**
- * The Schematic's kinds, payload and tag (#1386, `Schematic Builder Spec.md`
- * §1, §2, §4, §5): each role's check (SC1); a gesture's write of only its
- * roles' fields (SC2); each prop §2 removes refused, naming its replacement
- * (SC3); each binding a kind's read doesn't take refused, naming the form to
- * use (SC33); geometry carried about its anchor, and a footprint without its
- * box refused (SC35); and the kinds' closed functions over decoded bytes —
- * each kind built over a record handle as the record runtime gives one, run,
- * and its rows, roles and writes read back at the record's own row type.
+ * The Schematic's kinds, payload and tag (#1386, #1401, `Schematic Builder
+ * Spec.md` §1, §2, §4, §5): each role's check (SC1); a gesture's write of only
+ * its roles' fields (SC2); each prop §2 removes refused, naming its
+ * replacement (SC3); each binding a kind's read doesn't take refused, naming
+ * the form to use (SC33); geometry built by an accessor from the row's own
+ * fields and carried about its anchor, and a footprint without its box refused
+ * (SC35); the layers read from the app's rows (SC37); the library's tabs over
+ * every kind (SC38); and the kinds' closed functions over decoded bytes — each
+ * kind built over a record handle as the record runtime gives one, run, and
+ * its rows, roles and writes read back at the record's own row type.
  */
 
 import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,
+    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,
     decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, some, variant, type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
@@ -47,22 +49,29 @@ describeEast("Schematic", (test) => {
 // ============================================================================
 
 const Alarm = VariantType({ ok: NullType, hot: NullType });
-/** A rack with fields of its own beside its roles' — `hall`, `owner` and `notes` — which no gesture writes. */
+/** A corner of a rack's outline, about its centre: the app's own point. */
+const Corner = StructType({ x: FloatType, y: FloatType });
+/**
+ * A rack with fields of its own beside its roles' — `hall`, `owner` and `notes` — which no gesture writes, and its own
+ * outline's corners, which its footprint's accessor draws (D35).
+ */
 const Rack = StructType({
     name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType, model: StringType, alarm: Alarm,
-    outline: OptionType(Schematic.Types.Geometry), system: StringType, hall: StringType, owner: StringType, notes: OptionType(StringType),
+    corners: ArrayType(Corner), system: StringType, hall: StringType, owner: StringType, notes: OptionType(StringType),
 });
 const Racks = DictType(StringType, Rack);
 type RackRow = ValueTypeOf<typeof Rack>;
 const A01: RackRow = {
     name: "A01", x: 2.4, y: 2.9, w: 3.2, h: 1.2, model: "42U", alarm: variant("ok", null),
-    outline: some(variant("polygon", { vertices: [{ x: -1.6, y: -0.6, bulge: 0.0 }, { x: 1.6, y: -0.6, bulge: 0.0 }, { x: 1.6, y: 0.6, bulge: 0.0 }] })),
+    corners: [{ x: -1.6, y: -0.6 }, { x: 1.6, y: -0.6 }, { x: 1.6, y: 0.6 }],
     system: "power", hall: "Hall 1", owner: "Harbour Labs", notes: some("cold aisle side"),
 };
 const A02: RackRow = {
-    name: "A02", x: 6.0, y: 2.9, w: 3.2, h: 1.2, model: "48U", alarm: variant("hot", null), outline: none,
+    name: "A02", x: 6.0, y: 2.9, w: 3.2, h: 1.2, model: "48U", alarm: variant("hot", null), corners: [],
     system: "power", hall: "Hall 1", owner: "Northwind Media", notes: none,
 };
+/** A01's footprint as its accessor builds it from its corners: a polygon about its centre, each corner a bulge of 0. */
+const A01_FOOTPRINT = some(variant("polygon", { vertices: [{ x: -1.6, y: -0.6, bulge: 0.0 }, { x: 1.6, y: -0.6, bulge: 0.0 }, { x: 1.6, y: 0.6, bulge: 0.0 }] }));
 const RACKS = new Map([["A01", A01], ["A02", A02]]);
 
 /** A rack whose centre is a pair of Options: a kind with a backlog. */
@@ -76,16 +85,24 @@ const Frame = StructType({ name: StringType, x: FloatType, y: FloatType });
 const FRAMES = new Map([["ODF-1", { name: "ODF-1", x: 8.0, y: 9.0 }]]);
 
 const End = VariantType({ rack: StringType, frame: StringType });
-/** A fibre run between two ends, with fields of its own beside its roles'. */
-const Fibre = StructType({ from: End, to: End, path: ArrayType(Schematic.Types.Point), speed: StringType, colour: StringType });
+/** A fibre run between two ends, with fields of its own beside its roles'; its path the app's own points. */
+const Fibre = StructType({ from: End, to: End, path: ArrayType(Corner), speed: StringType, colour: StringType });
 const FIBRE = new Map([["u1", { from: variant("rack", "A01"), to: variant("frame", "ODF-1"), path: [{ x: 4.0, y: 6.0 }], speed: "100G", colour: "aqua" }]]);
 
 /** A power feed, its supply a Set and its racks an Array. */
 const Feed = StructType({ supply: SetType(StringType), racks: ArrayType(StringType), name: StringType });
 const FEEDS = new Map([["f1", { supply: new Set(["A01"]), racks: ["A02"], name: "Feed 1" }]]);
 
-const Area = StructType({ name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType, shape: OptionType(Schematic.Types.Geometry) });
-const AREAS = new Map([["hall-1", { name: "Hall 1", x: 0.0, y: 0.0, w: 20.0, h: 10.0, shape: some(variant("circle", { radius: 4.0 })) }]]);
+/** A round hall: its box, and its own radius, which its shape's accessor draws (D35). */
+const Area = StructType({ name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType, radius: FloatType });
+const AREAS = new Map([["hall-1", { name: "Hall 1", x: 0.0, y: 0.0, w: 20.0, h: 10.0, radius: 4.0 }]]);
+
+/** A system the app's entities belong to: a layer, from the app's own record (D36). */
+const System = StructType({ label: StringType, colour: StringType, order: IntegerType, fixed: BooleanType });
+const SYSTEMS = new Map([
+    ["power", { label: "Power", colour: "status.warn", order: 2n, fixed: false }],
+    ["structure", { label: "Structure", colour: "fg.muted", order: 1n, fixed: true }],
+]);
 
 const Load = StructType({ kw: FloatType, cap: FloatType, alarm: Alarm });
 const LOADS = new Map([["A01", { kw: 5.0, cap: 8.0, alarm: variant("hot", null) }]]);
@@ -130,7 +147,6 @@ function dataHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: st
 }
 
 const racksRecord = recordHandle(Racks, RACKS, "racks");
-const racksData = dataHandle(Racks, RACKS, "racks");
 const racksUnpatched = recordHandle(Racks, RACKS, "racks", false);
 const slotsRecord = recordHandle(DictType(StringType, Slot), SLOTS, "slots");
 const framesData = dataHandle(DictType(StringType, Frame), FRAMES, "frames");
@@ -183,7 +199,7 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
     });
 
     hostTest("a role naming a field the row lacks is refused, naming the role, the field and the row's fields", () => {
-        assert.throws(() => items({ x: "left" }), /^Error: Schematic\.items: "Rack": `x` names "left", a field the row does not have \(name, x, y, w, h, model, alarm, outline, system, hall, owner, notes\)$/);
+        assert.throws(() => items({ x: "left" }), /^Error: Schematic\.items: "Rack": `x` names "left", a field the row does not have \(name, x, y, w, h, model, alarm, corners, system, hall, owner, notes\)$/);
         assert.throws(() => items({ layer: "tier" }), /`layer` names "tier", a field the row does not have/);
     });
 
@@ -191,8 +207,14 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
         assert.throws(() => items({ label: "w" }), /Schematic\.items: "Rack": `label` names a String field — "w" holds \.Float/);
         assert.throws(() => items({ width: "name", height: "h" }), /`width` names a Float field — "name" holds \.String/);
         assert.throws(() => items({ layer: "w" }), /`layer` names a String field — "w" holds \.Float/);
-        assert.throws(() => items({ width: "w", height: "h", footprint: "notes" }), /`footprint` names an Option of a Schematic\.Types\.Geometry field — "notes" holds an Option of \.String/);
         assert.throws(() => items({ x: "name" }), /`x` names a Float field, or an Option of one — "name" holds \.String/);
+    });
+
+    hostTest("a footprint is an accessor over the row's own fields: one naming a field is refused, naming the accessor to write (D35)", () => {
+        assert.throws(() => items({ width: "w", height: "h", footprint: "corners" }),
+            /^Error: Schematic\.items: "Rack": `footprint` is an accessor over the row's own fields, built with Schematic\.circle, polygon, polyline or rect — footprint: \(unit\) => some\(Schematic\.circle\(unit\.radius\)\): a role naming "corners", a field that holds Schematic\.Types\.Geometry, is gone/);
+        assert.throws(() => items({ width: "w", height: "h", footprint: (r: ExprType<typeof Rack>) => r.name }),
+            /`footprint` returns an Option of a Schematic\.Types\.Geometry, built with Schematic\.circle, polygon, polyline or rect \(footprint: \(unit\) => some\(Schematic\.circle\(unit\.radius\)\)\) — and this one returns \.String/);
     });
 
     hostTest("`x` and `y` are both Floats, or both Options of Float, and two fields", () => {
@@ -210,9 +232,10 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
     });
 
     hostTest("a footprint is drawn about the item's centre, inside its box: without `width` and `height` it is refused (SC35)", () => {
-        assert.throws(() => items({ footprint: "outline" }), /`footprint` is drawn about the item's centre, inside its box — give `width` and `height` with it, the box's Float fields/);
-        assert.throws(() => items({ footprint: "outline", width: "w" }), /give `width` and `height` with it/);
-        assert.doesNotThrow(() => items({ footprint: "outline", width: "w", height: "h" }));
+        const footprint = (r: ExprType<typeof Rack>) => some(Schematic.polygon(r.corners));
+        assert.throws(() => items({ footprint }), /`footprint` is drawn about the item's centre, inside its box — give `width` and `height` with it, the box's Float fields/);
+        assert.throws(() => items({ footprint, width: "w" }), /give `width` and `height` with it/);
+        assert.doesNotThrow(() => items({ footprint, width: "w", height: "h" }));
     });
 
     hostTest("a status is a variant field every row holds, a Status per case", () => {
@@ -220,7 +243,7 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
         assert.throws(() => items({ status: { field: "notes", cases: {} } }), /`status\.field` names a variant field every row holds, a Status per case — "notes" holds an Option of \.String/);
     });
 
-    hostTest("a zone's box is four Float fields; its pattern an accessor of a ZonePattern; its shape an Option of a Geometry", () => {
+    hostTest("a zone's box is four Float fields; its pattern an accessor of a ZonePattern; its shape an accessor of an Option of a Geometry", () => {
         const zones = (config: object) => built(($) => {
             const racks = $.let(racksRecord());
             const areas = $.let(areasData());
@@ -230,10 +253,12 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
                 zones: { areas: Schematic.zones(areas, { name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name", ...config } as never) },
             });
         });
-        assert.doesNotThrow(() => zones({ geometry: "shape" }));
+        assert.doesNotThrow(() => zones({ geometry: (a: ExprType<typeof Area>) => some(Schematic.circle(a.radius)) }));
         assert.throws(() => zones({ width: "name" }), /Schematic\.zones: "Area": `width` names a Float field — "name" holds \.String/);
         assert.throws(() => zones({ pattern: (a: ExprType<typeof Area>) => a.name }), /`pattern` returns a Schematic\.Types\.ZonePattern — and this one returns \.String/);
-        assert.throws(() => zones({ geometry: "name" }), /`geometry` names an Option of a Schematic\.Types\.Geometry field — "name" holds \.String/);
+        assert.throws(() => zones({ geometry: "radius" }),
+            /Schematic\.zones: "Area": `geometry` is an accessor over the row's own fields, built with Schematic\.circle, polygon, polyline or rect — geometry: \(area\) => some\(Schematic\.polygon\(area\.corners\)\): a role naming "radius", a field that holds Schematic\.Types\.Geometry, is gone/);
+        assert.throws(() => zones({ geometry: (a: ExprType<typeof Area>) => a.name }), /`geometry` returns an Option of a Schematic\.Types\.Geometry, built with .* — and this one returns \.String/);
         assert.throws(() => zones({ templates: [] }), /zones take no templates/);
     });
 
@@ -411,9 +436,9 @@ describe("each prop §2 removes is refused at build, naming the form that replac
         ["linkMode", "connect", /`linkMode` is gone — the Connect tool always records a link, of the link kind its menu picks/],
         ["readOnlyLinks", true, /`readOnlyLinks` is gone — a kind is read only when it is bound read only — Data\.bind\(record\), or Data\.bindPaged\(record\) read through its source/],
         ["readOnlyItems", true, /`readOnlyItems` is gone — a kind is read only when it is bound read only/],
-        ["itemHover", fn, /`itemHover` is gone — the inspector, on by default, shows what is selected — give a kind its own Details with its `inspector`/],
-        ["zoneHover", fn, /`zoneHover` is gone — the inspector, on by default/],
-        ["linkHover", fn, /`linkHover` is gone — the inspector, on by default/],
+        ["itemHover", fn, /`itemHover` is gone — the inspector shows what is selected — give `inspector` for the pane, and a kind its own Details with its `inspector`/],
+        ["zoneHover", fn, /`zoneHover` is gone — the inspector shows what is selected/],
+        ["linkHover", fn, /`linkHover` is gone — the inspector shows what is selected/],
         ["affordances", ["search"], /`affordances` is gone — it moved into `slice`: slice=\{\{ slice: Slice\.bindRecords\(key, \{ … \}\), affordances \}\}/],
         ["sliceHidden", true, /`sliceHidden` is gone — how a narrowed-out row draws is `narrowed` — narrowed="dim"/],
         ["sliceOpacity", 0.3, /`sliceOpacity` is gone — how a narrowed-out row draws is `narrowed`/],
@@ -427,8 +452,14 @@ describe("each prop §2 removes is refused at build, naming the form that replac
         ["navigator", true, /`navigator` is gone — the library's Index tab lists the zones and the items inside them: library=\{\[Schematic\.library\.index\(\)\]\}/],
         ["height", "440px", /`height` is gone — the Schematic fills the box it is given — give it a box of its own height: <Box height="640px"><Schematic … \/><\/Box>/],
         ["maxHeight", "75vh", /`maxHeight` is gone — the Schematic fills the box it is given/],
-        ["onSelect", fn, /`onSelect` is gone — onSelectionChange hears each change of the selection, each item named by its kind and key \(Schematic\.Types\.Ref\)/],
-        ["onSelectZone", fn, /`onSelectZone` is gone — onZoneSelectionChange hears each change of the selected zones/],
+        ["onSelectZone", fn, /`onSelectZone` is gone — `onSelect` hears the whole selection after each change, items, zones, links and nets alike, each by its kind and key/],
+        ["onSelectionChange", fn, /`onSelectionChange` is gone — `onSelect` hears the whole selection after each change, items, zones, links and nets alike, each by its kind and key: onSelect=\{East\.function\(\[ArrayType\(Schematic\.Types\.Ref\)\], NullType/],
+        ["onZoneSelectionChange", fn, /`onZoneSelectionChange` is gone — `onSelect` hears the whole selection/],
+        ["onSelectLink", fn, /`onSelectLink` is gone — `onSelect` hears the whole selection/],
+        ["onViewportChange", fn, /`onViewportChange` is gone — the canvas reads its own window, and nothing hears where the camera settled — leave it out/],
+        ["onItemOpen", fn, /`onItemOpen` is gone — Enter or a double-click opens the selection in the inspector's Details — give `inspector`, and a kind its own Details with its `inspector`/],
+        ["selectZoomFocus", true, /`selectZoomFocus` is gone — a tap selects in place, and Find, the Index tab and the arrow keys fly to what they pick — leave it out/],
+        ["name", "hall-1", /`name` is gone — `id` names the Schematic, as the Plan's, the Roster's and the Calendar's do: <Schematic id="floor" … \/>/],
     ];
     for (const [prop, value, refusal] of cases) {
         hostTest(`\`${prop}\` is refused, naming its replacement`, () => {
@@ -511,25 +542,24 @@ describe("each prop §2 removes is refused at build, naming the form that replac
         }), /Schematic: templates are records now — bind them in Slice\.bindRecords and name the source, Schematic\.templates\(rows, \{ …, source \}\) \(it has no slice — 'rackTemplates' is not one of them\)/);
     });
 
-    hostTest("`narrowed`, `layers` and `inspector` take their forms, and nothing else", () => {
+    hostTest("`narrowed`, `layers`, `inspector` and `id` take their forms, and nothing else", () => {
         assert.throws(() => built(($) => floor($, { narrowed: "ghost" })), /Schematic: `narrowed` is "hide" \(the default\), "dim", or \{ show: "hide" \| "dim", opacity\?: 0–1/);
         assert.throws(() => built(($) => floor($, { narrowed: { show: "dim", opacity: 2 } })), /`narrowed` is "hide" \(the default\)/);
-        assert.throws(() => built(($) => floor($, { layers: [{ key: "power", label: "Power" }, { key: "power", label: "Mains" }] })), /`layers` lists the layer "power" twice — each layer's key is its own/);
-        assert.throws(() => built(($) => floor($, { layers: [{ key: "power" }] })), /`layers` lists the layers, each \{ key, label, tone\?, visible\?, locked\?, opacity\? \}/);
-        assert.throws(() => built(($) => floor($, { inspector: { cages: East.function([Rack, FunctionType([Rack], NullType)], UIComponentType, (_$2, r) => Text.Root(r.name)) } })),
-            /`inspector` gives "cages" its own Details, and no kind is in that slot — its kinds' slots are "racks"/);
-        assert.throws(() => built(($) => floor($, { inspector: "yes" })), /`inspector` is on by default — inspector=\{false\} removes the pane/);
+        assert.throws(() => built(($) => floor($, { layers: [{ key: "power", label: "Power" }] })),
+            /^Error: Schematic: `layers` reads the app's own rows, as the Roster's lists do — layers=\{Schematic\.layers\(systems\.read\(\), \{ label: \(s\) => s\.label, order\?, tone\?, color\?, visible\?, locked\?, opacity\? \}\)\}: a list written in the code is gone/);
+        assert.throws(() => built(($) => floor($, { layers: "power" })), /^Error: Schematic: `layers` is layers=\{Schematic\.layers\(systems\.read\(\)/);
+        const own = East.function([Rack, FunctionType([Rack], NullType)], UIComponentType, (_$2, r) => Text.Root(r.name));
+        assert.throws(() => built(($) => floor($, { inspector: { racks: own } })),
+            /^Error: Schematic: `inspector` is true or false — a kind's own Details is its kind's `inspector`: Schematic\.items\(record, \{ …, inspector: East\.function/);
+        assert.throws(() => built(($) => floor($, { inspector: "yes" })), /`inspector` is true or false/);
         assert.throws(() => built(($) => {
             const racks = $.let(racksRecord());
-            const own = East.function([Rack, FunctionType([Rack], NullType)], UIComponentType, (_$2, r) => Text.Root(r.name));
             return PublicSchematic({
                 extent: { width: 20, height: 10 },
-                items: { racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", label: "name", inspector: own }) },
-                inspector: { racks: own },
+                items: { racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", label: "name", inspector: East.function([StringType], UIComponentType, (_$2, t) => Text.Root(t)) as never }) },
             });
-        }), /`inspector\.racks` gives the item kind "racks" its own Details, and so does the kind's own `inspector` — give them in one place/);
-        assert.throws(() => built(($) => floor($, { inspector: { racks: East.function([StringType], UIComponentType, (_$2, s) => Text.Root(s)) } })),
-            /`inspector` is the kind's own Details — an East\.function over the row and its writer/);
+        }), /`inspector` is the kind's own Details — an East\.function over the row and its writer/);
+        assert.throws(() => built(($) => floor($, { id: 7 })), /Schematic: `id` keeps the Schematic's state apart — a string, needed only when one surface holds two/);
     });
 });
 
@@ -541,7 +571,9 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
     const racks = kindOf(Schematic.Types.ItemKind, ($) => {
         const record = $.let(racksRecord());
         return Schematic.items(record, {
-            name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", footprint: "outline", label: "name", layer: "system",
+            name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system",
+            // Its footprint from its own corners, or none without them (D35).
+            footprint: (r) => r.corners.size().greater(0n).ifElse((_$2) => some(Schematic.polygon(r.corners)), (_$2) => none),
             sublabel: (r) => r.model, meter: (r) => ({ value: r.w, max: r.h }),
             status: { field: "alarm", cases: {
                 ok: { label: "OK", tone: variant("success", null), ring: false },
@@ -563,7 +595,8 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.ok(equalFor(OptionType(StringType))(a01.roles.icon, some("server")));
         assert.ok(equalFor(OptionType(Schematic.Types.Meter))(a01.roles.meter, some({ value: 3.2, max: 1.2 })));
         assert.ok(equalFor(OptionType(Schematic.Types.Status))(rows.value.get("A02")!.roles.status, some({ label: "Hot", tone: variant("danger", null), ring: true })));
-        assert.ok(equalFor(OptionType(Schematic.Types.Geometry))(a01.roles.footprint, A01.outline), "the footprint crosses as the row holds it: offsets from the centre");
+        assert.ok(equalFor(OptionType(Schematic.Types.Geometry))(a01.roles.footprint, A01_FOOTPRINT), "the footprint its accessor builds from the row's own corners: offsets from the centre");
+        assert.equal(rows.value.get("A02")!.roles.footprint.type, "none", "a rack with no corners has none");
     });
 
     hostTest("a move writes the centre alone: every other field of the rack reads back as it was (SC2)", () => {
@@ -573,7 +606,7 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         // The footprint, offsets from the centre, moves with it (SC35): the read places it about the new centre.
         const roles = racks.read(moved.value, "A01");
         assert.ok(equalFor(OptionType(Schematic.Types.Point))(roles.position, some({ x: 10.0, y: 4.0 })));
-        assert.ok(equalFor(OptionType(Schematic.Types.Geometry))(roles.footprint, A01.outline));
+        assert.ok(equalFor(OptionType(Schematic.Types.Geometry))(roles.footprint, A01_FOOTPRINT));
     });
 
     hostTest("a kind with no backlog takes no unplacing: a write of no centre writes nothing", () => {
@@ -607,7 +640,7 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.equal(racks.editing.type, "some");
         assert.equal(racks.history.type, "some");
         assert.equal(racks.entries.type, "none", "a record read whole is read by key from its snapshot");
-        assert.deepEqual(racks.fields.map((f) => f.path), [["model"], ["hall"], ["owner"], ["notes"]]);
+        assert.deepEqual(racks.fields.map((f) => f.path), [["model"], ["corners"], ["hall"], ["owner"], ["notes"]], "the row's own corners among them: no role writes them");
         assert.ok(isTypeEqual(fromEastTypeValue(racks.rowType), Rack), "its row type, which the renderer decodes a row at");
     });
 
@@ -704,10 +737,12 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
         assert.deepEqual(nets.sides, { sources: "racks", destinations: "racks" });
     });
 
-    hostTest("a zone's pattern defaults to an outline; its shape crosses about its box's centre", () => {
+    hostTest("a zone's pattern defaults to an outline; its shape, built from the row's own radius, crosses about its box's centre", () => {
         const zones = kindOf(Schematic.Types.ZoneKind, ($) => {
             const record = $.let(areasData());
-            return Schematic.zones(record, { name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name", geometry: "shape" }).build("areas");
+            return Schematic.zones(record, {
+                name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name", geometry: (a) => some(Schematic.circle(a.radius)),
+            }).build("areas");
         });
         const rows = zones.rows();
         if (rows.type !== "some") assert.fail("a record read whole holds its rows");
@@ -765,50 +800,65 @@ describe("<Schematic>'s payload, through its carrier", () => {
         assert.deepEqual(payload.extent, { width: 28, height: 12 });
         assert.ok(equalFor(OptionType(StringType))(payload.scaleUnit, some("m")));
         assert.deepEqual([payload.zones.length, payload.links.length, payload.nets.length, payload.layers.length, payload.library.length], [0, 0, 0, 0, 0]);
-        assert.equal(payload.inspector, true, "the inspector is on by default");
+        assert.equal(payload.inspector, false, "the inspector is opted into, as the Plan's, the Roster's and the Calendar's");
         assert.equal(payload.readOnly, false);
         assert.equal(payload.slice.type, "none");
         assert.equal(payload.shown.size, 0);
         assert.equal(payload.narrowed.show.type, "hide", "a narrowed-out row is hidden by default");
         assert.equal(payload.narrowed.opacity, 0.35);
         assert.equal(payload.narrowed.desaturate, true);
-        assert.equal(payload.name.type, "none");
-        for (const callback of [payload.canConnect, payload.onSelectionChange, payload.onZoneSelectionChange, payload.onSelectLink, payload.onViewportChange, payload.onItemOpen]) {
+        assert.equal(payload.id.type, "none");
+        for (const callback of [payload.canConnect, payload.onSelect]) {
             assert.equal(callback.type, "none");
         }
     });
 
-    hostTest("`narrowed`, `inspector`, `readOnly`, `name`, layers and the host's callbacks cross as given", () => {
-        const payload = carried(($) => floor($, {
-            narrowed: { show: "dim", opacity: 0.2, dot: true, emphasis: "pulse", frame: true, fit: true },
-            inspector: false, readOnly: true, name: "hall-1",
-            layers: [{ key: "power", label: "Power", tone: "warning", locked: true }],
-            onItemOpen: East.function([Schematic.Types.Ref], NullType, (_$, _ref) => null),
-            canConnect: East.function([Schematic.Types.Ref, Schematic.Types.Ref], BooleanType, (_$, from, to) => East.notEqual(from.kind, to.kind)),
-        }));
+    hostTest("`narrowed`, `inspector`, `readOnly`, `id`, the layers and the host's callbacks cross as given", () => {
+        const payload = carried(($) => {
+            const systems = $.const(SYSTEMS, DictType(StringType, System));
+            return floor($, {
+                narrowed: { show: "dim", opacity: 0.2, dot: true, emphasis: "pulse", frame: true, fit: true },
+                inspector: true, readOnly: true, id: "hall-1",
+                layers: Schematic.layers(systems, { label: (s) => s.label, color: (s) => some(s.colour), order: (s) => s.order, locked: (s) => s.fixed }),
+                onSelect: East.function([ArrayType(Schematic.Types.Ref)], NullType, (_$, _selected) => null),
+                canConnect: East.function([Schematic.Types.Candidate], OptionType(StringType), (_$, c) =>
+                    East.equal(c.from.kind, c.to.kind).ifElse((_$2) => some("A rack joins a frame"), (_$2) => none)),
+            });
+        });
         assert.equal(payload.narrowed.show.type, "dim");
         assert.equal(payload.narrowed.opacity, 0.2);
         assert.equal(payload.narrowed.dot, true);
         assert.ok(equalFor(OptionType(Schematic.Types.Emphasis))(payload.narrowed.emphasis, some(variant("pulse", null))));
-        assert.equal(payload.inspector, false);
+        assert.equal(payload.inspector, true);
         assert.equal(payload.readOnly, true);
-        assert.ok(equalFor(OptionType(StringType))(payload.name, some("hall-1")));
-        assert.ok(equalFor(ArrayType(Schematic.Types.Layer))(payload.layers, [{ key: "power", label: "Power", visible: none, locked: some(true), opacity: none, tone: some(variant("warning", null)) }]));
-        assert.equal(payload.onItemOpen.type, "some");
+        assert.ok(equalFor(OptionType(StringType))(payload.id, some("hall-1")));
+        assert.ok(equalFor(ArrayType(Schematic.Types.Layer))(payload.layers, [
+            { key: "structure", label: "Structure", visible: none, locked: some(true), opacity: none, tone: none, color: some("fg.muted") },
+            { key: "power", label: "Power", visible: none, locked: some(false), opacity: none, tone: none, color: some("status.warn") },
+        ]), "the layers in their order, each keyed by its row's key (SC37)");
+        assert.equal(payload.onSelect.type, "some");
         if (payload.canConnect.type !== "some") assert.fail("the veto crosses");
-        assert.equal(payload.canConnect.value(refOf("racks", "A01"), refOf("racks", "A02")), false);
-        assert.equal(payload.canConnect.value(refOf("racks", "A01"), refOf("network", "ODF-1")), true);
+        const words = equalFor(OptionType(StringType));
+        assert.ok(words(payload.canConnect.value({ kind: "fibre", from: refOf("racks", "A01"), to: refOf("racks", "A02") }), some("A rack joins a frame")));
+        assert.ok(words(payload.canConnect.value({ kind: "fibre", from: refOf("racks", "A01"), to: refOf("network", "ODF-1") }), none));
     });
 
-    hostTest("`inspector={{ <slot>: Details }}` gives that kind its own Details, over bytes", () => {
-        const payload = carried(($) => floor($, {
-            inspector: { racks: East.function([Rack, FunctionType([Rack], NullType)], UIComponentType, (_$2, r) => Text.Root(r.name)) },
-        }));
+    hostTest("a kind's own `inspector` gives it Details, over bytes, beside the pane `inspector` opts into", () => {
+        const payload = carried(($) => {
+            const racks = $.let(racksRecord());
+            return PublicSchematic({
+                extent: { width: 20, height: 10 }, inspector: true,
+                items: { racks: Schematic.items(racks, {
+                    name: "Rack", icon: "server", x: "x", y: "y", label: "name",
+                    inspector: East.function([Rack, FunctionType([Rack], NullType)], UIComponentType, (_$2, r) => Text.Root(r.name)),
+                }) },
+            });
+        });
         assert.equal(payload.inspector, true);
         assert.equal(payload.items[0]!.inspector.type, "some");
     });
 
-    hostTest("the keys a Schematic keeps its viewer's state under, by its name", () => {
+    hostTest("the keys a Schematic keeps its viewer's state under, by its id", () => {
         assert.deepEqual(schematicKeys(undefined), {
             frame: "schematic.frame", library: "schematic.library", layers: "schematic.layers", tools: "schematic.tools", surface: "schematic.surface",
         });
@@ -822,8 +872,11 @@ describe("<Schematic>'s payload, through its carrier", () => {
         assert.ok(isTypeEqual(PublicSchematic.Types.Ref, StructType({ kind: StringType, key: StringType })));
         assert.ok(isTypeEqual(PublicSchematic.Types.Box, StructType({ minX: FloatType, minY: FloatType, maxX: FloatType, maxY: FloatType })));
         assert.ok(isTypeEqual(PublicSchematic.Types.Patch(Rack).fields.name, OptionType(StringType)));
+        assert.ok(isTypeEqual(PublicSchematic.Types.Candidate, StructType({ kind: StringType, from: PublicSchematic.Types.Ref, to: PublicSchematic.Types.Ref })));
         assert.equal(typeof PublicSchematic.items, "function");
+        assert.equal(typeof PublicSchematic.layers, "function");
         assert.equal(typeof PublicSchematic.library.index, "function");
+        assert.equal(typeof PublicSchematic.library.backlog, "function");
         assert.equal((PublicSchematic as unknown as Record<string, unknown>)["Payload"], undefined, "the payload is the internal namespace's");
     });
 });
@@ -840,27 +893,37 @@ describe("the library's tabs on the wire (§8)", () => {
         { slot: "areas", sort: "zones" as const, rowType: Area, templates: false, backlog: false },
         { slot: "fibre", sort: "links" as const, rowType: Fibre, templates: false, backlog: false },
     ];
-    const wire = (tabs: unknown, layers = 1, list = kinds) =>
+    const wire = (tabs: unknown, layers = true, list = kinds) =>
         East.compile(East.function([], ArrayType(Schematic.Types.LibraryTab), (_$) => buildSchematicLibrary(tabs, { kinds: list, layers, sources: [] })), [])() as Tabs;
 
-    hostTest("each tab in the order `library` lists it", () => {
-        const tabs = wire([Schematic.library.templates("racks"), Schematic.library.unplaced("slots"), Schematic.library.index(), Schematic.library.layers()]);
-        assert.deepEqual(tabs.map((tab) => tab.type), ["templates", "unplaced", "index", "layers"]);
-        assert.deepEqual(tabs[0], variant("templates", "racks"));
-        assert.deepEqual(tabs[1], variant("unplaced", "slots"));
+    hostTest("each tab in the order `library` lists it, the Templates and the Backlog tabs over every kind (SC38)", () => {
+        const tabs = wire([Schematic.library.templates(), Schematic.library.backlog(), Schematic.library.index(), Schematic.library.layers()]);
+        assert.deepEqual(tabs.map((tab) => tab.type), ["templates", "backlog", "index", "layers"]);
+        assert.deepEqual(tabs[0], variant("templates", null));
+        assert.deepEqual(tabs[1], variant("backlog", null));
         assert.deepEqual(wire(undefined), []);
     });
 
-    hostTest("each tab's refusals, naming the tab and the change", () => {
+    hostTest("each tab's refusals, naming the tab and the change (SC38)", () => {
         assert.throws(() => wire([Schematic.library.index(), Schematic.library.index()]), /Schematic: the library lists Schematic\.library\.index\(\) twice — each tab once/);
-        assert.throws(() => wire([Schematic.library.templates("cages")]), /the library lists Schematic\.library\.templates\("cages"\), and no kind is in the slot "cages" — its kinds' slots are "racks", "slots", "areas", "fibre"/);
-        assert.throws(() => wire([Schematic.library.templates("areas")]), /"areas" is a zone kind — zones take no templates/);
-        assert.throws(() => wire([Schematic.library.templates("fibre")]), /the link kind "fibre" has no templates — give it templates: Schematic\.templates/);
-        assert.throws(() => wire([Schematic.library.unplaced("fibre")]), /"fibre" is a link kind — the Unplaced tab lists an item kind's rows with no position/);
-        assert.throws(() => wire([Schematic.library.unplaced("racks")]), /the item kind "racks" places every row — its `x` and `y` are Float fields: make them Options of Float to give it rows with no position/);
-        assert.throws(() => wire([Schematic.library.index()], 1, kinds.filter((k) => k.sort !== "zones")), /this Schematic has no zone kinds — the Index tab lists the zones \(Schematic\.zones\)/);
-        assert.throws(() => wire([Schematic.library.layers()], 0), /this Schematic declares no layers — declare them: layers=\{\[\{ key, label \}\]\}/);
-        assert.throws(() => wire(["index"]), /Schematic: `library` lists the library pane's tabs, in order, each a Schematic\.library\.\* call/);
+        assert.throws(() => wire([Schematic.library.templates()], true, kinds.map((k) => ({ ...k, templates: false }))),
+            /the library lists Schematic\.library\.templates\(\), and none of its kinds has templates — give an item, link or net kind templates: Schematic\.templates/);
+        assert.throws(() => wire([Schematic.library.backlog()], true, kinds.filter((k) => k.slot !== "slots")),
+            /the library lists Schematic\.library\.backlog\(\), and every item kind places every row — "racks" take Float `x` and `y` fields: make an item kind's Options of Float/);
+        assert.throws(() => wire([Schematic.library.index()], true, kinds.filter((k) => k.sort !== "zones")), /this Schematic has no zone kinds — the Index tab lists the zones \(Schematic\.zones\)/);
+        assert.throws(() => wire([Schematic.library.layers()], false),
+            /this Schematic declares no layers — read them from the app's record: layers=\{Schematic\.layers\(systems\.read\(\), \{ label \}\)\}/);
+        assert.throws(() => wire(["index"]), /Schematic: `library` lists the library pane's tabs, in order, each a Schematic\.library\.\* call — templates\(\), backlog\(\), index\(\), layers\(\) or tab/);
+    });
+
+    hostTest("a slot given to the tabs over every kind is refused, and so is the Unplaced tab, each naming the form to use (D33)", () => {
+        const slotted = (factory: unknown) => (factory as (slot: string) => unknown)("racks");
+        assert.throws(() => slotted(Schematic.library.templates),
+            /^Error: Schematic\.library\.templates\(\) lists every kind's templates, each kind's under its name, as the Calendar's does — leave the slot out$/);
+        assert.throws(() => slotted(Schematic.library.backlog),
+            /^Error: Schematic\.library\.backlog\(\) lists every item kind's rows with no position, each kind's under its name, as the Calendar's does — leave the slot out$/);
+        assert.throws(() => slotted(Schematic.library.unplaced),
+            /^Error: Schematic\.library\.unplaced\(slot\) is gone — Schematic\.library\.backlog\(\) lists every item kind's rows with no position, each kind's under its name$/);
     });
 
     hostTest("an author's card drops a Schematic.patch over one kind's row type, which names the kind it lands on", () => {
@@ -870,13 +933,52 @@ describe("the library's tabs on the wire (§8)", () => {
             Schematic.library.tab(East.value(owners, DictType(StringType, Owner)), {
                 name: "Owners", icon: "building", label: (o) => o.name, drop: (o) => Schematic.patch(Rack, { owner: o.name }),
             }),
-        ], { kinds, layers: 0, sources: [] })), [])() as Tabs;
+        ], { kinds, layers: false, sources: [] })), [])() as Tabs;
         const tab = tabs[0]!;
         if (tab.type !== "tab") assert.fail("the author's tab");
         assert.ok(equalFor(OptionType(StringType))(tab.value.drop, some("racks")));
         assert.deepEqual(tab.value.cards.map((card) => [card.key, card.label, card.sets.map((s) => s.path)]), [["harbour", "Harbour Labs", [["owner"]]]]);
         assert.throws(() => buildSchematicLibrary([Schematic.library.tab(East.value(owners, DictType(StringType, Owner)), {
             name: "Owners", label: (o) => o.name, drop: (o) => Schematic.patch(Owner, { name: o.name }),
-        })], { kinds, layers: 0, sources: [] }), /Schematic: the "Owners" tab's `drop` returns a patch over no kind's row type — build it with Schematic\.patch\(RowType, \{ … \}\) over the row type of the kind its cards land on \(racks, slots, areas, fibre\)/);
+        })], { kinds, layers: false, sources: [] }), /Schematic: the "Owners" tab's `drop` returns a patch over no kind's row type — build it with Schematic\.patch\(RowType, \{ … \}\) over the row type of the kind its cards land on \(racks, slots, areas, fibre\)/);
+    });
+});
+
+// ============================================================================
+// Schematic.layers: the layers from the app's rows (SC37)
+// ============================================================================
+
+describe("Schematic.layers reads the app's rows as the Roster's lists do (SC37, D36)", () => {
+    type Layers = ValueTypeOf<ArrayType<typeof Schematic.Types.Layer>>;
+    const layersOf = (config: object, rows: unknown = SYSTEMS) => East.compile(East.function([], ArrayType(Schematic.Types.Layer), ($) => {
+        const systems = $.const(rows as never, DictType(StringType, System));
+        return Schematic.layers(systems, config as never).rows;
+    }), [])() as Layers;
+
+    hostTest("each layer keyed by its row's key, in its `order` then key order; with no `order`, in key order", () => {
+        assert.deepEqual(layersOf({ label: (s: ExprType<typeof System>) => s.label, order: (s: ExprType<typeof System>) => s.order }).map((l) => l.key), ["structure", "power"]);
+        assert.deepEqual(layersOf({ label: (s: ExprType<typeof System>) => s.label }).map((l) => l.key), ["power", "structure"]);
+    });
+
+    hostTest("its accessors give each layer's swatch and the author's defaults; left out, each is none", () => {
+        const [power] = layersOf({
+            label: (s: ExprType<typeof System>) => s.label, tone: (_s: ExprType<typeof System>) => some(variant("warning", null)),
+            visible: (_s: ExprType<typeof System>) => false, opacity: (_s: ExprType<typeof System>) => 0.5,
+        });
+        assert.ok(equalFor(Schematic.Types.Layer)(power!, {
+            key: "power", label: "Power", visible: some(false), locked: none, opacity: some(0.5), tone: some(variant("warning", null)), color: none,
+        }));
+    });
+
+    hostTest("rows that aren't a Dict keyed by String, no `label`, and an accessor of another type are refused, naming them", () => {
+        assert.throws(() => built(($) => {
+            const listed = $.const([1n, 2n], ArrayType(IntegerType));
+            return floor($, { layers: Schematic.layers(listed as never, { label: () => "Power" } as never) });
+        }), /^Error: Schematic\.layers: layers are a Dict keyed by String — a record's read\(\) — and these are/);
+        assert.throws(() => layersOf({}), /^Error: Schematic\.layers: `label` is an accessor giving each layer's name — Schematic\.layers\(rows, \{ label, order\?, tone\?, color\?, visible\?, locked\?, opacity\? \}\)$/);
+        assert.throws(() => layersOf({ label: (s: ExprType<typeof System>) => s.label, order: (s: ExprType<typeof System>) => s.label }),
+            /^Error: Schematic\.layers: `order` returns an Integer, where a layer shows — and this one returns \.String$/);
+        assert.throws(() => layersOf({ label: (s: ExprType<typeof System>) => s.label, color: "status.warn" }),
+            /^Error: Schematic\.layers: `color` is an accessor, \(row, key\) => an Option of a String, a theme colour token$/);
     });
 });

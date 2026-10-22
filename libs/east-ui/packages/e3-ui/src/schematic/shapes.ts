@@ -5,19 +5,26 @@
 
 /**
  * The Schematic's pattern, style and geometry helpers (`Schematic Builder
- * Spec.md` §4.7): `Schematic.outline()`, `hatch()`, `solid()`, `dashed()`,
- * `rect()`, `circle()`, `polyline()` and `polygon()`, which write the value
- * types an app's rows hold — a zone's pattern, a link's style, a footprint.
+ * Spec.md` §4.7, D35): `Schematic.outline()`, `hatch()`, `solid()`,
+ * `dashed()`, `rect()`, `circle()`, `polyline()` and `polygon()`. An accessor
+ * builds a zone's pattern, a link's style, a footprint or a zone's shape with
+ * them from the row's own fields — `(unit) => some(Schematic.circle(unit.radius))`
+ * — so the app's record holds only its own types. Each returns an East value
+ * of its type, so an accessor's `match` arms may each return one.
  *
  * Geometry is drawn about its entity's anchor (D22): an item's centre, or a
  * zone's box centre. A `circle` centres on it, and a `polyline`'s or a
- * `polygon`'s vertices are offsets from it in world units.
+ * `polygon`'s vertices are offsets from it in world units: the row's own
+ * points, `{ x, y }` (a bulge of 0) or `{ x, y, bulge }`.
  *
  * @packageDocumentation
  */
 
-import { ArrayType, East, FloatType, none, some, variant, type ExprType, type SubtypeExprOrValue } from "@elaraai/east";
-import { SchematicGeometryType, type SchematicVertexType } from "./types.js";
+import {
+    ArrayType, East, Expr, FloatType, StructType, isTypeEqual, none, printType, some, variant,
+    type EastType, type ExprType, type SubtypeExprOrValue,
+} from "@elaraai/east";
+import { SchematicGeometryType, SchematicLinkStyleType, SchematicVertexType, SchematicZonePatternType } from "./types.js";
 
 /** String literal form of `Schematic.Types.Tone`'s tags. */
 export type SchematicToneLiteral = "brand" | "ink" | "muted" | "success" | "warning" | "danger";
@@ -26,12 +33,12 @@ export type SchematicToneLiteral = "brand" | "ink" | "muted" | "success" | "warn
 export interface SchematicPatternConfig {
     /** Theme tone for the stroke or the hatch lines. */
     tone?: SchematicToneLiteral;
-    /** Hatch line spacing in pixels (hatch only). */
-    spacing?: number;
-    /** Hatch line angle in degrees (hatch only). */
-    angle?: number;
-    /** Stroke width in pixels (links only). */
-    weight?: number;
+    /** Hatch line spacing in pixels (hatch only): a number, or a Float of the row's. */
+    spacing?: SubtypeExprOrValue<FloatType>;
+    /** Hatch line angle in degrees (hatch only): a number, or a Float of the row's. */
+    angle?: SubtypeExprOrValue<FloatType>;
+    /** Stroke width in pixels (links only): a number, or a Float of the row's. */
+    weight?: SubtypeExprOrValue<FloatType>;
 }
 
 /**
@@ -62,33 +69,55 @@ export interface SchematicVertexInput {
     bulge?: SubtypeExprOrValue<FloatType>;
 }
 
+/** A point of the row's own: an `{ x, y }` of Floats, a vertex with a bulge of 0. */
+const PointsType = ArrayType(StructType({ x: FloatType, y: FloatType }));
+
+/** The vertices of a shape, on the wire. */
+const VerticesType = ArrayType(SchematicVertexType);
+
 /**
- * Vertices accepted by `polyline` and `polygon`: either a plain array of
- * `{ x, y, bulge? }` (bulge defaults to `0`) or an East array of
- * {@link SchematicVertexType} values.
+ * Vertices accepted by `polyline` and `polygon`: a plain array of
+ * `{ x, y, bulge? }` (bulge defaults to `0`), or an East array of the row's own
+ * points — `{ x, y }` Floats, each with a bulge of 0, or `{ x, y, bulge }`
+ * ({@link SchematicVertexType}).
  */
 export type SchematicVertices =
     | readonly SchematicVertexInput[]
+    | ExprType<ArrayType<StructType<{ x: FloatType; y: FloatType }>>>
     | SubtypeExprOrValue<ArrayType<SchematicVertexType>>;
 
 /** Optional configuration for `polyline`. */
 export interface SchematicPolylineConfig {
-    /** Band width in world units — the stroke widens into a duct bank or an aisle. */
-    width?: number;
+    /** Band width in world units — the stroke widens into a duct bank or an aisle: a number, or a Float of the row's. */
+    width?: SubtypeExprOrValue<FloatType>;
 }
 
 /**
  * Normalises {@link SchematicVertices} into an East-coercible array of
- * {@link SchematicVertexType}: plain arrays get `bulge` defaulted to `0`, and
- * East expressions pass through as they are.
+ * {@link SchematicVertexType}: plain arrays get `bulge` defaulted to `0`, an
+ * East array of `{ x, y }` points each a bulge of 0, and an East array of
+ * vertices passes through as it is.
+ *
+ * @param vertices - The vertices
+ * @param where - The helper, as a refusal names it
+ * @returns The vertices, as the wire takes them
+ * @throws {Error} For an East array of another element type, naming it
  */
-function toVertices(vertices: SchematicVertices): SubtypeExprOrValue<ArrayType<SchematicVertexType>> {
+function toVertices(vertices: SchematicVertices, where: string): SubtypeExprOrValue<ArrayType<SchematicVertexType>> {
     if (Array.isArray(vertices)) {
         return (vertices as readonly SchematicVertexInput[]).map(v => ({
             x: v.x,
             y: v.y,
             bulge: v.bulge !== undefined ? v.bulge : 0,
         }));
+    }
+    if (vertices instanceof Expr) {
+        const type = Expr.type(vertices as Expr) as EastType;
+        if (isTypeEqual(type, VerticesType)) return vertices as ExprType<ArrayType<SchematicVertexType>>;
+        if (isTypeEqual(type, PointsType)) {
+            return (vertices as unknown as ExprType<typeof PointsType>).map((_$, p) => East.value({ x: p.x, y: p.y, bulge: 0.0 }, SchematicVertexType));
+        }
+        throw new Error(`${where}: vertices are the row's own points, an Array of { x, y } or { x, y, bulge } Floats — and these are ${printType(type)}`);
     }
     return vertices as SubtypeExprOrValue<ArrayType<SchematicVertexType>>;
 }
@@ -104,8 +133,8 @@ export const SchematicShapes = {
      * @param config - Optional style configuration (`tone`)
      * @returns A `Schematic.Types.ZonePattern` value
      */
-    outline(config?: SchematicPatternConfig) {
-        return variant("outline", { tone: toneValue(config?.tone) });
+    outline(config?: SchematicPatternConfig): ExprType<SchematicZonePatternType> {
+        return East.value(variant("outline", { tone: toneValue(config?.tone) }), SchematicZonePatternType);
     },
     /**
      * Builds a `hatch` zone pattern value — the hatched band (hot and cold
@@ -115,12 +144,12 @@ export const SchematicShapes = {
      * @param config - Optional style configuration (`tone`, `spacing`, `angle`)
      * @returns A `Schematic.Types.ZonePattern` value
      */
-    hatch(config?: SchematicPatternConfig) {
-        return variant("hatch", {
+    hatch(config?: SchematicPatternConfig): ExprType<SchematicZonePatternType> {
+        return East.value(variant("hatch", {
             tone: toneValue(config?.tone),
             spacing: config?.spacing !== undefined ? some(config.spacing) : none,
             angle: config?.angle !== undefined ? some(config.angle) : none,
-        });
+        }), SchematicZonePatternType);
     },
     /**
      * Builds a `solid` link style value — a physical run (fibre, power cable).
@@ -128,11 +157,11 @@ export const SchematicShapes = {
      * @param config - Optional stroke configuration (`tone`, `weight`)
      * @returns A `Schematic.Types.LinkStyle` value
      */
-    solid(config?: SchematicPatternConfig) {
-        return variant("solid", {
+    solid(config?: SchematicPatternConfig): ExprType<SchematicLinkStyleType> {
+        return East.value(variant("solid", {
             tone: toneValue(config?.tone),
             weight: config?.weight !== undefined ? some(config.weight) : none,
-        });
+        }), SchematicLinkStyleType);
     },
     /**
      * Builds a `dashed` link style value — a routing or logical connection.
@@ -140,11 +169,11 @@ export const SchematicShapes = {
      * @param config - Optional stroke configuration (`tone`, `weight`)
      * @returns A `Schematic.Types.LinkStyle` value
      */
-    dashed(config?: SchematicPatternConfig) {
-        return variant("dashed", {
+    dashed(config?: SchematicPatternConfig): ExprType<SchematicLinkStyleType> {
+        return East.value(variant("dashed", {
             tone: toneValue(config?.tone),
             weight: config?.weight !== undefined ? some(config.weight) : none,
-        });
+        }), SchematicLinkStyleType);
     },
     /**
      * Builds a `rect` geometry value — the entity's box itself: a zone's
@@ -172,13 +201,14 @@ export const SchematicShapes = {
      * aisle). Each vertex is an offset from the anchor, and its `bulge` curves
      * the edge to the next vertex (0 = straight).
      *
-     * @param vertices - Vertices, offsets from the anchor in world units, in order (`{ x, y, bulge? }`)
+     * @param vertices - Vertices, offsets from the anchor in world units, in order: `{ x, y, bulge? }`, or the row's own points
      * @param config - Optional `width` band in world units
      * @returns A `Schematic.Types.Geometry` value
+     * @throws {Error} For an East array of neither `{ x, y }` nor `{ x, y, bulge }` Floats, naming its type
      */
     polyline(vertices: SchematicVertices, config?: SchematicPolylineConfig): ExprType<SchematicGeometryType> {
         return East.value(variant("polyline", {
-            vertices: toVertices(vertices),
+            vertices: toVertices(vertices, "Schematic.polyline"),
             width: config?.width !== undefined ? some(config.width) : none,
         }), SchematicGeometryType);
     },
@@ -188,10 +218,11 @@ export const SchematicShapes = {
      * vertex is an offset from the anchor; the last vertex's `bulge` curves
      * the closing edge.
      *
-     * @param vertices - Boundary vertices, offsets from the anchor in world units, in order (auto-closed; `{ x, y, bulge? }`)
+     * @param vertices - Boundary vertices, offsets from the anchor in world units, in order (auto-closed): `{ x, y, bulge? }`, or the row's own points
      * @returns A `Schematic.Types.Geometry` value
+     * @throws {Error} For an East array of neither `{ x, y }` nor `{ x, y, bulge }` Floats, naming its type
      */
     polygon(vertices: SchematicVertices): ExprType<SchematicGeometryType> {
-        return East.value(variant("polygon", { vertices: toVertices(vertices) }), SchematicGeometryType);
+        return East.value(variant("polygon", { vertices: toVertices(vertices, "Schematic.polygon") }), SchematicGeometryType);
     },
 } as const;

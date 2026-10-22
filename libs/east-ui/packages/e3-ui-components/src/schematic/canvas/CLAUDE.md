@@ -63,17 +63,29 @@ goes in a pure module with unit tests, not in the component.
 **Callbacks & selection**
 6. Every author callback goes through `dispatchEast(name, run)` —
    queueMicrotask + try/catch + Promise `.catch`. Never call an East
-   callback bare, never inside a state updater.
-7. ONE selection funnel (`commitSelection`) for every mutation (tap /
-   marquee / prev-next / hygiene prune / clear); zone selection mirrors it
-   (`commitZoneSelection`). The host hears each entity by its reference —
-   its kind's slot and its row's key (`refById`) — never by its canvas id.
-   Nothing the canvas does writes a slice.
-8. **Fly BEFORE commit.** A `selectZoomFocus` / nav / marquee fly must be
-   initiated before the selection commit — commit-first leaves the fly dead
-   (the commit's paint cancels it). `flyTo` is the single fly entry (it
-   re-aims per frame from the live viewport); gesture-vs-fly arbitration is
-   the camera mode machine's job alone.
+   callback bare, never inside a state updater. The one exception is the
+   connect veto (`connectRefusal`), asked in place as a drag moves: it hears
+   a `Candidate` — the link or net kind the gesture writes and its two items
+   — and answers `none` or the refusal's words, which the draft keeps
+   (`connectDraft.reason`) for the editing session to show (#1388). Its
+   verdicts cache per (kind, from, to), and a veto that throws allows the
+   pair and logs it.
+7. ONE selection funnel per part — `commitSelection` the items,
+   `commitZoneSelection` the zones, `commitLinkSelection` the link or net —
+   for every mutation (tap / marquee / prev-next / hygiene prune / clear).
+   Each writes its part to `selectedNowRef` and asks `reportSelection` for
+   one report: `onSelect` hears the whole selection once, after a gesture's
+   last funnel, and not again while it is what the host heard last
+   (`equalFor`). The host hears each entity by its reference — its kind's
+   slot and its key (`refById`, the drafted links and nets among them) —
+   never by its canvas id. Nothing the canvas does writes a slice.
+8. **Fly BEFORE commit.** A fly that comes with a selection — the
+   navigator's, the arrow keys' (`flyToItem`) — must be initiated before the
+   selection commit — commit-first leaves the fly dead (the commit's paint
+   cancels it). A tap and the marquee select in place, and fly nowhere
+   (#1401). `flyTo` is the single fly entry (it re-aims per frame from the
+   live viewport); gesture-vs-fly arbitration is the camera mode machine's
+   job alone.
 9. Hit-test = drawing: link/net hit-testing reuses the painter's exact
    routing maths (lanes, orthogonalization, trunk/branch composition), and a
    footprint or a zone's geometry is hit about the anchor it is drawn about
@@ -103,7 +115,8 @@ goes in a pure module with unit tests, not in the component.
 **A11y (#183 WS7)**
 15. The canvas is a focusable `role="application"` surface: arrows step the
     selection via `stepSelection` (fly + select, the prev/next path), Enter
-    fires `onItemOpen` on the anchor, ring on `:focus-visible` only.
+    — or a double-click — opens the selection in the inspector's Details
+    once the inspector draws (#1391), ring on `:focus-visible` only.
     Pointer-only gestures must keep a nav-rail / control / callback
     equivalent. Nav rail + controls stay real `<button>`s with labels.
 
@@ -112,8 +125,12 @@ goes in a pure module with unit tests, not in the component.
 | Layer | File(s) | Catches |
 |---|---|---|
 | Pure unit | `camera.test.ts`, `paint.test.ts`, `selection.test.ts`, `model.test.ts`, `drawn.test.ts` | Geometry, mode machine, LOD, nav tree, the marquee, what an entity draws from its roles |
-| On e3 (jsdom) | `../schematic.dom.test.tsx` | Each example mounted as the showcase mounts it, its kinds' records read through e3-web: the cards drawn, a record another session changes redrawn, a kind read through its source never read whole; hook-graph ordering (TDZ) |
-| The carrier (jsdom) | `../schematic-carrier.dom.test.tsx` | `<Schematic>` as the `Schematic` extension through the dispatcher; its functions decoded — each kind's rows, and the selection callbacks writing State, each entity named by its reference |
+| On e3 (jsdom) | `../schematic.dom.test.tsx` | Each example mounted as the showcase mounts it, its kinds' records read through e3-web: the cards drawn, a record another session changes redrawn, a kind read through its source never read whole, a footprint from its row's own fields; hook-graph ordering (TDZ) |
+| The carrier (jsdom) | `../schematic-carrier.dom.test.tsx` | `<Schematic>` as the `Schematic` extension through the dispatcher; its functions decoded — each kind's rows, the zones' patterns from their rows, `onSelect` writing the whole selection to State, each entity named by its reference, drafts included, and `canConnect`'s words, `none` and a throw |
+
+Both jsdom files lay the canvas out — its box, pointer capture and the element
+at a point — through `../schematic.test-utils.ts`, which also gives them a tap
+at a world point and an item's card.
 | IR contract | e3-ui's `test/schematic/schematic.spec.ts` + `.examples.tsx` + `schematic-docs.spec.ts` | The kinds' bindings and refusals, their closed functions over decoded bytes, the payload, examples↔tests parity, doc examples, plugin index |
 | The move | `test/schematic-moved.spec.ts` (this package) | east-ui and east-ui-components publish nothing of the Schematic but its slot recipe |
 | Visual | the showcase's responsive suite (`east-ui-showcase/tests/responsive/`) | Computed styles in the page, in both themes — the data centre's shadows (`foundations.spec.ts`) |

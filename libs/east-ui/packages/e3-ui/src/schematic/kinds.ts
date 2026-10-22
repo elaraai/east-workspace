@@ -4,7 +4,7 @@
  */
 
 /**
- * The Schematic's kinds (#1386, `Schematic Builder Spec.md` §1, §4.1–§4.5):
+ * The Schematic's kinds (#1386, #1401, `Schematic Builder Spec.md` §1, §4.1–§4.5):
  * `Schematic.items`, `zones`, `links`, `nets` and `details`. Each takes the
  * app's own record and maps its fields to the Schematic's roles, as Schedule's
  * kinds do (#1365): the Schematic stores nothing in a shape of its own.
@@ -14,6 +14,10 @@
  *   row lacks, or one of another type, is refused, naming the role, the field
  *   and the field's type. A role the app computes — a sub-label, a meter, a
  *   tone — is an accessor `(row, key) => …`, reified once and called per row.
+ *   So is a role whose value is one of the Schematic's own types — a
+ *   footprint, a zone's shape, a pattern, a style: the accessor builds it with
+ *   the shape helpers from the row's own fields, so the app's record holds
+ *   only its own types (D35).
  * - **A gesture writes only the fields its roles map** (SC2): a move writes
  *   an item's `x` and `y`, a Connect a link's `from` and `to`, a net's Shift
  *   session its `sources` and `destinations`, and every other field of the row
@@ -78,10 +82,7 @@ export type SchematicFloatField<R extends StructType> = FieldsOf<R, FloatType>;
 /** A Float field, or an Option of one: an item's `x` and `y`, whose Options give its kind a backlog. */
 export type SchematicPlaceField<R extends StructType> = FieldsOf<R, FloatType | OptionType<FloatType>>;
 
-/** An `Option<Schematic.Types.Geometry>` field: an item's footprint, a zone's shape. */
-export type SchematicGeometryField<R extends StructType> = FieldsOf<R, OptionType<SchematicGeometryType>>;
-
-/** An `Array<Schematic.Types.Point>` field: a link's or a net's waypoints. */
+/** An `Array` of `{ x, y }` Floats field (`Schematic.Types.Point`): a link's or a net's waypoints, the app's own points. */
 export type SchematicViaField<R extends StructType> = FieldsOf<R, ArrayType<SchematicPointType>>;
 
 /** A `Set<String>` or `Array<String>` field: a net's side, its items' keys. */
@@ -455,6 +456,27 @@ function recordSide(bound: Bound, entries: ExprType<EastType> | undefined, byKey
     };
 }
 
+/**
+ * A shape role, an accessor over the row's own fields (D35): refused when it
+ * names a field, as the Schematic's own type would then live in the app's row.
+ *
+ * @param rowType - The kind's row type
+ * @param where - The kind, as a refusal names it
+ * @param role - `footprint` or `geometry`
+ * @param fn - What the kind was given
+ * @returns The accessor, reified; `undefined` when not given
+ * @throws {Error} When it names a field, is no function, or returns another type, naming the accessor to write
+ */
+function shapeRole(rowType: StructType, where: string, role: "footprint" | "geometry", fn: unknown) {
+    const example = role === "footprint" ? "footprint: (unit) => some(Schematic.circle(unit.radius))" : "geometry: (area) => some(Schematic.polygon(area.corners))";
+    if (typeof fn === "string") {
+        throw new Error(`${where}: \`${role}\` is an accessor over the row's own fields, built with Schematic.circle, polygon, polyline or rect — ` +
+            `${example}: a role naming "${fn}", a field that holds Schematic.Types.Geometry, is gone, so the app's record keeps its own types`);
+    }
+    return accessorRole(rowType, where, role, OptionType(SchematicGeometryType),
+        `an Option of a Schematic.Types.Geometry, built with Schematic.circle, polygon, polyline or rect (${example})`, fn);
+}
+
 /** The card roles a kind's details may give: refused when the kind gives them too. */
 const CARD_ROLES = ["status", "meter", "metric", "sublabel"] as const;
 
@@ -629,8 +651,11 @@ export interface SchematicItemsConfig<R extends StructType, X extends string, Y 
     width?: SchematicFloatField<R>;
     /** The Float field its box's height is. */
     height?: SchematicFloatField<R>;
-    /** The `Option<Schematic.Types.Geometry>` field its footprint is, drawn about its centre; needs `width` and `height`. */
-    footprint?: SchematicGeometryField<R>;
+    /**
+     * Its footprint, drawn about its centre: an accessor building it from the row's own fields with `Schematic.circle`,
+     * `polygon`, `polyline` or `rect` — `(unit) => some(Schematic.circle(unit.radius))`. Needs `width` and `height`.
+     */
+    footprint?: Accessor<R, OptionType<typeof SchematicGeometryType>>;
     /** The String field naming the layer it is on. */
     layer?: SchematicStringField<R>;
     /** Its card's second line. */
@@ -671,19 +696,16 @@ interface KindDeclaration<D extends string, W extends EastType> {
     readonly hasTemplates: boolean;
     /** The slice's source its templates list names; `undefined` for none, or for a list naming none, which the Schematic refuses. */
     readonly templatesSource: string | undefined;
-    /** Whether it gives its own Details (`inspector`), which the Schematic's `inspector` then may not give it too. */
-    readonly ownInspector: boolean;
     /**
      * The kind on the wire, under its slot.
      *
      * @param slot - The Schematic's slot name for it
      * @param part - Its source of the slice, the one named after its slot, when the slice has one
-     * @param inspector - Its own Details as the Schematic's `inspector` gives them by its slot, when the kind gives none
      * @returns The kind, closed
      * @throws {Error} When it is bound in a form its read does not take (SC33), naming the form to use, or its own
      *   Details are of another type than its row's
      */
-    build(slot: string, part?: SchematicKindPart, inspector?: unknown): ExprType<W>;
+    build(slot: string, part?: SchematicKindPart): ExprType<W>;
 }
 
 /** An item kind, declared. */
@@ -704,8 +726,8 @@ export interface SchematicItems extends KindDeclaration<"items", typeof Schemati
  * @param config - Its name and icon, the fields its roles are, its accessors, and its details, templates, form, Details and check
  * @returns The kind, for the Schematic's `items`, by slot
  * @throws {Error} Naming the role or the binding (SC1, SC33, SC35): a role naming a field the row lacks, or one of another
- *   type; `x` and `y` of different types; an accessor returning another type; a `footprint` without `width` and
- *   `height`; a status, a meter, a metric or a second line given both here and by its details; templates written in
+ *   type; `x` and `y` of different types; an accessor returning another type; a `footprint` naming a field rather than
+ *   an accessor building the shape (D35), or without `width` and `height`; a status, a meter, a metric or a second line given both here and by its details; templates written in
  *   the code, or giving other fields than every field but `x` and `y`; and a record that is no binding of a record of
  *   structs keyed by String, a `Record.bind` without its patch door, or `entries` beside a read-only binding
  */
@@ -739,9 +761,9 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     if (labelField === undefined && labelOf === undefined) throw new Error(`${where}: \`label\` names a String field, or is an accessor giving a String`);
     const widthField = role("width", config.width, FloatType, "a Float field");
     const heightField = role("height", config.height, FloatType, "a Float field");
-    const footprintField = role("footprint", config.footprint, OptionType(SchematicGeometryType), "an Option of a Schematic.Types.Geometry field");
+    const footprintOf = shapeRole(rowType, where, "footprint", (config as { footprint?: unknown }).footprint);
     // Geometry is drawn about the item's centre, inside its box (D22, SC35): a footprint needs the box.
-    if (footprintField !== undefined && (widthField === undefined || heightField === undefined)) {
+    if (footprintOf !== undefined && (widthField === undefined || heightField === undefined)) {
         throw new Error(`${where}: \`footprint\` is drawn about the item's centre, inside its box — give \`width\` and \`height\` with it, the box's Float fields`);
     }
     const layerField = role("layer", config.layer, StringType, "a String field");
@@ -788,7 +810,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
             label,
             width: widthField === undefined ? none : some(fieldOf(row, widthField)),
             height: heightField === undefined ? none : some(fieldOf(row, heightField)),
-            footprint: footprintField === undefined ? none : fieldOf(row, footprintField),
+            footprint: called($, footprintOf, row, key, (f) => f, none),
             layer: layerField === undefined ? none : some(fieldOf(row, layerField)),
             icon,
             sublabel: called($, sublabelOf, row, key, (s) => some(s), none),
@@ -839,11 +861,10 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
         backlog,
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
-        ownInspector: config.inspector !== undefined,
-        build(slot, part, inspector) {
+        build(slot, part) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where);
-            const side = recordSide(bound, entries, byKey, { ...config, inspector: config.inspector ?? inspector } as RecordSide,
-                [config.x, config.y, labelField, widthField, heightField, footprintField, layerField, status?.field], where);
+            const side = recordSide(bound, entries, byKey, config as RecordSide,
+                [config.x, config.y, labelField, widthField, heightField, layerField, status?.field], where);
             return East.value({
                 ...side,
                 key: slot,
@@ -891,8 +912,11 @@ export interface SchematicZonesConfig<R extends StructType> extends RecordSide {
     label: SchematicStringField<R> | Accessor<R, StringType>;
     /** Outline (the default) or hatch: a hatched zone is an annotation, holding no items and taking no tap. */
     pattern?: Accessor<R, typeof SchematicZonePatternType>;
-    /** The `Option<Schematic.Types.Geometry>` field its drawn shape is, about its box's centre. */
-    geometry?: SchematicGeometryField<R>;
+    /**
+     * Its drawn shape, about its box's centre: an accessor building it from the row's own fields with `Schematic.circle`,
+     * `polygon`, `polyline` or `rect` — `(area) => some(Schematic.polygon(area.corners))`.
+     */
+    geometry?: Accessor<R, OptionType<typeof SchematicGeometryType>>;
     /** The String field naming the layer it is on. */
     layer?: SchematicStringField<R>;
     /** An override of its pattern's tone. */
@@ -921,7 +945,8 @@ export type SchematicZones = KindDeclaration<"zones", typeof SchematicZoneKindTy
  * @param record - The app's record of zones, bound as §1, rule 4 says
  * @param config - Its name and icon, the fields its box and label are, its pattern and shape, and its details, form, Details and check
  * @returns The kind, for the Schematic's `zones`, by slot
- * @throws {Error} Naming the role or the binding, as `Schematic.items` does
+ * @throws {Error} Naming the role or the binding, as `Schematic.items` does, and a `geometry` naming a field rather than an
+ *   accessor building the shape (D35)
  */
 export function schematicZones<R extends StructType>(record: SchematicRecord<R>, config: SchematicZonesConfig<R>): SchematicZones {
     const where = `Schematic.zones: "${config.name}"`;
@@ -941,7 +966,7 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
     const labelField = typeof config.label === "string" ? role("label", config.label, StringType, "a String field") : undefined;
     const labelOf = typeof config.label === "function" ? accessorRole(rowType, where, "label", StringType, "a String", config.label) : undefined;
     if (labelField === undefined && labelOf === undefined) throw new Error(`${where}: \`label\` names a String field, or is an accessor giving a String`);
-    const geometryField = role("geometry", config.geometry, OptionType(SchematicGeometryType), "an Option of a Schematic.Types.Geometry field");
+    const geometryOf = shapeRole(rowType, where, "geometry", (config as { geometry?: unknown }).geometry);
     const layerField = role("layer", config.layer, StringType, "a String field");
     const patternOf = accessorRole(rowType, where, "pattern", SchematicZonePatternType, "a Schematic.Types.ZonePattern", config.pattern);
     const toneOf = accessorRole(rowType, where, "tone", OptionType(SchematicToneType), "an Option of a Schematic.Types.Tone", config.tone);
@@ -955,7 +980,7 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
         x: fieldOf(row, xField), y: fieldOf(row, yField), width: fieldOf(row, widthField), height: fieldOf(row, heightField),
         label: labelField !== undefined ? fieldOf(row, labelField) : called($, labelOf, row, key, (l) => l, ""),
         pattern: called($, patternOf, row, key, (p) => p, outline),
-        geometry: geometryField === undefined ? none : fieldOf(row, geometryField),
+        geometry: called($, geometryOf, row, key, (g) => g, none),
         layer: layerField === undefined ? none : some(fieldOf(row, layerField)),
         tone: called($, toneOf, row, key, (t) => t, none),
         color: called($, colorOf, row, key, (c) => c, none),
@@ -969,11 +994,10 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
         name: config.name,
         hasTemplates: false,
         templatesSource: undefined,
-        ownInspector: config.inspector !== undefined,
-        build(slot, part, inspector) {
+        build(slot, part) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where);
-            const side = recordSide(bound, entries, byKey, { ...config, inspector: config.inspector ?? inspector } as RecordSide,
-                [xField, yField, widthField, heightField, labelField, geometryField, layerField], where);
+            const side = recordSide(bound, entries, byKey, config as RecordSide,
+                [xField, yField, widthField, heightField, labelField, layerField], where);
             return East.value({
                 ...side,
                 key: slot,
@@ -1021,7 +1045,7 @@ export interface SchematicLinksConfig<R extends StructType, FF extends string, T
     from: SchematicEnd<R, FF>;
     /** The item it runs to. */
     to: SchematicEnd<R, TF>;
-    /** The `Array<Schematic.Types.Point>` field its waypoints are. */
+    /** The field its waypoints are: an `Array` of `{ x, y }` Floats, the app's own points. */
     via?: SchematicViaField<R>;
     /** The pill at its path's middle. */
     label?: Accessor<R, OptionType<StringType>>;
@@ -1065,7 +1089,7 @@ function edgeRoles(rowType: StructType, where: string, config: {
 }): EdgeRoles {
     const role = roleField(rowType, where);
     return {
-        viaField: role("via", config.via, ArrayType(SchematicPointType), "an Array of Schematic.Types.Point field"),
+        viaField: role("via", config.via, ArrayType(SchematicPointType), "an Array of { x, y } Floats field"),
         layerField: role("layer", config.layer, StringType, "a String field"),
         labelOf: accessorRole(rowType, where, "label", OptionType(StringType), "an Option of a String", config.label),
         metricOf: accessorRole(rowType, where, "metric", OptionType(StringType), "an Option of a String", config.metric),
@@ -1179,10 +1203,9 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         ends: { from: keyFieldSlots(from), to: keyFieldSlots(to) },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
-        ownInspector: config.inspector !== undefined,
-        build(slot, part, inspector) {
+        build(slot, part) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where);
-            const side = recordSide(bound, entries, byKey, { ...config, inspector: config.inspector ?? inspector } as RecordSide,
+            const side = recordSide(bound, entries, byKey, config as RecordSide,
                 [from.field, to.field, edge.viaField, edge.layerField], where);
             return East.value({
                 ...side,
@@ -1236,7 +1259,7 @@ export interface SchematicNetsConfig<R extends StructType, SRC extends string, D
     sources: { field: SRC; of: string };
     /** Its fed side. */
     destinations: { field: DST; of: string };
-    /** The `Array<Schematic.Types.Point>` field its trunk's waypoints are. */
+    /** The field its trunk's waypoints are: an `Array` of `{ x, y }` Floats, the app's own points. */
     via?: SchematicViaField<R>;
     /** The pill at its trunk's middle. */
     label?: Accessor<R, OptionType<StringType>>;
@@ -1366,10 +1389,9 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
         sides: { sources: sources.of, destinations: destinations.of },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
-        ownInspector: config.inspector !== undefined,
-        build(slot, part, inspector) {
+        build(slot, part) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where);
-            const sideOf = recordSide(bound, entries, byKey, { ...config, inspector: config.inspector ?? inspector } as RecordSide,
+            const sideOf = recordSide(bound, entries, byKey, config as RecordSide,
                 [sources.field, destinations.field, edge.viaField, edge.layerField], where);
             return East.value({
                 ...sideOf,

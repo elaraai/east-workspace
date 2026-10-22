@@ -4,11 +4,13 @@
  */
 
 /**
- * The Schematic's East types (#1386, `Schematic Builder Spec.md` §4.7, §4.8,
- * §5): the value types an app's rows use as field types (`Schematic.Types`),
- * the references, boxes and events the Schematic speaks in, and the kinds'
- * wire — each kind closed over the app's record behind East functions over
- * beast2 bytes, so the payload is one type whatever the rows hold.
+ * The Schematic's East types (#1386, #1401, `Schematic Builder Spec.md` §4.7,
+ * §4.8, §5): the value types its accessors return and its wire carries
+ * (`Schematic.Types`) — an app's records hold their own types, which the
+ * accessors map (D35) — the references, boxes and the connect veto's candidate
+ * the Schematic speaks in, and the kinds' wire: each kind closed over the
+ * app's record behind East functions over beast2 bytes, so the payload is one
+ * type whatever the rows hold.
  *
  * @packageDocumentation
  */
@@ -23,7 +25,7 @@ import { ScheduleEntriesType, ScheduleReadyEntryType } from "../schedule/types.j
 import { RowInspectorType } from "../utils/row-inspector.js";
 
 // ============================================================================
-// The value types an app's rows use
+// The value types the accessors return
 // ============================================================================
 
 /**
@@ -293,22 +295,25 @@ export type SchematicBoxType = typeof SchematicBoxType;
 
 /**
  * A named layer — a cross-cutting group of items, zones, links and nets the
- * Layers tab shows, hides, isolates and locks together (§8).
+ * Layers tab shows, hides, isolates and locks together (§8) — as
+ * `Schematic.layers` reads it from the app's record (D36).
  *
  * @remarks
- * Membership is by key: an entity's `layer` names the layer it is on. The
- * viewer's choices are view state, which the renderer keeps; `visible` and
- * `locked` here are the author's defaults those choices override.
+ * Membership is by key: an entity's `layer` names the layer it is on, by the
+ * layers record's key. The viewer's choices are view state, which the renderer
+ * keeps; `visible` and `locked` here are the author's defaults those choices
+ * override.
  *
- * @property key - Layer identity — entities name it in their `layer`
+ * @property key - Layer identity: its record's key, which entities name in their `layer`
  * @property label - Its name
  * @property visible - Author default visibility; absent / `some(true)` ⇒ shown, `some(false)` ⇒ ships hidden
  * @property locked - Author default lock (non-selectable); absent ⇒ unlocked
  * @property opacity - Optional dim (0–1) for the layer's items; absent ⇒ full
  * @property tone - Optional swatch tone
+ * @property color - Optional swatch colour: a theme colour token (`status.warn`), over its tone
  */
 export const SchematicLayerType = StructType({
-    /** Layer identity — entities name it in their `layer`. */
+    /** Layer identity: its record's key, which entities name in their `layer`. */
     key: StringType,
     /** Its name. */
     label: StringType,
@@ -320,6 +325,8 @@ export const SchematicLayerType = StructType({
     opacity: OptionType(FloatType),
     /** Optional swatch tone. */
     tone: OptionType(SchematicToneType),
+    /** Optional swatch colour: a theme colour token (`status.warn`), over its tone. */
+    color: OptionType(StringType),
 });
 
 /** Type representing a layer. */
@@ -367,68 +374,22 @@ export const SchematicNarrowedType = StructType({
 export type SchematicNarrowedType = typeof SchematicNarrowedType;
 
 // ============================================================================
-// Events
+// The connect veto's candidate
 // ============================================================================
 
 /**
- * A change of the selected items (§5): a tap, a Marquee sweep or a clear.
+ * What a Connect, a Retarget or an Extend would write, as `canConnect` hears
+ * it before the draft snaps (§5, D34): the link or net kind the gesture writes
+ * and its two items.
  *
- * @property ref - The item a tap touched; `none` for a sweep or a clear
- * @property selected - Whether `ref` is now selected; for a sweep or a clear, whether anything is
- * @property selection - Every item selected after the change
- * @property additive - Whether the change added to the selection (Shift) rather than replacing it
- * @property box - The box a sweep swept, in world units; `none` for a tap or a clear
+ * @property kind - The slot of the link or net kind the gesture writes
+ * @property from - The item it would run from: a link's `from`, a net's feeding member
+ * @property to - The item it would run to: a link's `to`, a net's fed member
  */
-export const SchematicSelectionEventType = StructType({
-    ref: OptionType(SchematicRefType),
-    selected: BooleanType,
-    selection: ArrayType(SchematicRefType),
-    additive: BooleanType,
-    box: OptionType(SchematicBoxType),
-});
+export const SchematicCandidateType = StructType({ kind: StringType, from: SchematicRefType, to: SchematicRefType });
 
-/** Type representing a selection change. */
-export type SchematicSelectionEventType = typeof SchematicSelectionEventType;
-
-/**
- * A change of the selected zones (§5): a tap on a zone, or a clear.
- *
- * @property ref - The zone a tap touched; `none` for a clear
- * @property selected - Whether `ref` is now selected; for a clear, whether anything is
- * @property selection - Every zone selected after the change
- * @property items - The items inside the selected zones, nested zones' among them
- * @property additive - Whether the change added to the selection (Shift) rather than replacing it
- */
-export const SchematicZoneSelectionEventType = StructType({
-    ref: OptionType(SchematicRefType),
-    selected: BooleanType,
-    selection: ArrayType(SchematicRefType),
-    items: ArrayType(SchematicRefType),
-    additive: BooleanType,
-});
-
-/** Type representing a zone selection change. */
-export type SchematicZoneSelectionEventType = typeof SchematicZoneSelectionEventType;
-
-/**
- * Where the camera settled after a pan, a zoom, a fly or a resize.
- *
- * @property zoom - The settled zoom (1 = fully zoomed out)
- * @property minX - Left edge of the view, in world units
- * @property minY - Top edge of the view
- * @property maxX - Right edge of the view
- * @property maxY - Bottom edge of the view
- */
-export const SchematicViewportEventType = StructType({
-    zoom: FloatType,
-    minX: FloatType,
-    minY: FloatType,
-    maxX: FloatType,
-    maxY: FloatType,
-});
-
-/** Type representing where the camera settled. */
-export type SchematicViewportEventType = typeof SchematicViewportEventType;
+/** Type representing the connect veto's candidate. */
+export type SchematicCandidateType = typeof SchematicCandidateType;
 
 // ============================================================================
 // The roles a kind's rows give the renderer (§4.8)

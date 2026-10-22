@@ -11,14 +11,15 @@
  * returns its payload through the `Schematic` carrier, which
  * e3-ui-components' renderer draws.
  *
- * - `types.ts` — the value types an app's rows use, the references, boxes
- *   and events the Schematic speaks in, and the kinds' wire
- *   (`Schematic.Types.*`).
+ * - `types.ts` — the value types its accessors return, the references, boxes
+ *   and the connect veto's candidate the Schematic speaks in, and the kinds'
+ *   wire (`Schematic.Types.*`).
  * - `kinds.ts` — `Schematic.items`, `zones`, `links`, `nets` and `details`:
  *   each role's check, the binding a kind's read takes, and the closed
  *   functions over beast2 bytes.
  * - `templates.ts` — `Schematic.templates`, a kind's presets read from a
  *   record.
+ * - `layers.ts` — `Schematic.layers`, the layers read from the app's record.
  * - `window.ts` — a kind's reads: whole, or complete through its source of
  *   the slice.
  * - `library.ts` — `Schematic.library`, the library pane's tabs, and their
@@ -33,19 +34,19 @@
 
 import { SchedulePatchTypeFor, schedulePatch } from "../schedule/patch.js";
 import { schematicDetails, schematicItems, schematicLinks, schematicNets, schematicZones } from "./kinds.js";
+import { schematicLayers } from "./layers.js";
 import { SchematicLibraryFactories, SchematicLibraryTabType, type SchematicLibrary } from "./library.js";
 import { SchematicComponent, SchematicPayloadType, createSchematicPayload } from "./payload.js";
 import { SchematicTag, type SchematicTagType } from "./schematic.js";
 import { SchematicShapes } from "./shapes.js";
 import { schematicTemplates } from "./templates.js";
 import {
-    SchematicBoxType, SchematicDetailsEntryType, SchematicDetailsRolesType, SchematicKindDetailsType, SchematicEmphasisType, SchematicEndsType,
-    SchematicGeometryType, SchematicItemEntryType, SchematicItemKindType, SchematicItemType, SchematicLayerType, SchematicLinkEntryType,
-    SchematicLinkKindType, SchematicLinkStyleType, SchematicLinkType, SchematicMeterType, SchematicNarrowedType, SchematicNetEntryType,
-    SchematicNetKindType, SchematicNetType, SchematicPointType, SchematicRefType, SchematicRouteType, SchematicSelectionEventType,
-    SchematicSidesType, SchematicStatusCasesFor, SchematicStatusType, SchematicTemplateType, SchematicToneType, SchematicVertexType,
-    SchematicViewportEventType, SchematicZoneEntryType, SchematicZoneKindType, SchematicZonePatternType, SchematicZoneSelectionEventType,
-    SchematicZoneType,
+    SchematicBoxType, SchematicCandidateType, SchematicDetailsEntryType, SchematicDetailsRolesType, SchematicKindDetailsType, SchematicEmphasisType,
+    SchematicEndsType, SchematicGeometryType, SchematicItemEntryType, SchematicItemKindType, SchematicItemType, SchematicLayerType,
+    SchematicLinkEntryType, SchematicLinkKindType, SchematicLinkStyleType, SchematicLinkType, SchematicMeterType, SchematicNarrowedType,
+    SchematicNetEntryType, SchematicNetKindType, SchematicNetType, SchematicPointType, SchematicRefType, SchematicRouteType, SchematicSidesType,
+    SchematicStatusCasesFor, SchematicStatusType, SchematicTemplateType, SchematicToneType, SchematicVertexType, SchematicZoneEntryType,
+    SchematicZoneKindType, SchematicZonePatternType, SchematicZoneType,
 } from "./types.js";
 
 export { SchematicTag, type SchematicTagType } from "./schematic.js";
@@ -62,7 +63,6 @@ export {
     type SchematicEnd,
     type SchematicEndField,
     type SchematicFloatField,
-    type SchematicGeometryField,
     type SchematicItems,
     type SchematicItemsConfig,
     type SchematicLinks,
@@ -89,6 +89,7 @@ export {
     type SchematicTemplatesConfig,
 } from "./templates.js";
 export { schematicSourceRows, schematicWholeRows, type SchematicKindPart } from "./window.js";
+export { isSchematicLayers, schematicLayers, type SchematicLayers, type SchematicLayersConfig } from "./layers.js";
 export {
     SchematicLibraryCardType,
     SchematicLibraryFactories,
@@ -114,7 +115,6 @@ export {
     SchematicPayloadType,
     createSchematicPayload,
     schematicKeys,
-    type SchematicLayerInput,
     type SchematicNarrowedOptions,
     type SchematicProps,
 } from "./payload.js";
@@ -151,12 +151,8 @@ export interface SchematicTypes {
     Layer: typeof SchematicLayerType;
     /** The matches' emphasis — halo or pulse ({@link SchematicEmphasisType}). */
     Emphasis: typeof SchematicEmphasisType;
-    /** A change of the selected items ({@link SchematicSelectionEventType}). */
-    SelectionEvent: typeof SchematicSelectionEventType;
-    /** A change of the selected zones ({@link SchematicZoneSelectionEventType}). */
-    ZoneSelectionEvent: typeof SchematicZoneSelectionEventType;
-    /** Where the camera settled ({@link SchematicViewportEventType}). */
-    ViewportEvent: typeof SchematicViewportEventType;
+    /** What a Connect, a Retarget or an Extend would write, as `canConnect` hears it ({@link SchematicCandidateType}). */
+    Candidate: typeof SchematicCandidateType;
     /** An item's roles, as its kind reads them from the app's row ({@link SchematicItemType}). */
     Item: typeof SchematicItemType;
     /** A zone's roles ({@link SchematicZoneType}). */
@@ -184,9 +180,7 @@ const TYPES: SchematicTypes = {
     Box: SchematicBoxType,
     Layer: SchematicLayerType,
     Emphasis: SchematicEmphasisType,
-    SelectionEvent: SchematicSelectionEventType,
-    ZoneSelectionEvent: SchematicZoneSelectionEventType,
-    ViewportEvent: SchematicViewportEventType,
+    Candidate: SchematicCandidateType,
     Item: SchematicItemType,
     Zone: SchematicZoneType,
     Link: SchematicLinkType,
@@ -211,6 +205,8 @@ export interface SchematicNamespace extends SchematicTagType {
     details: typeof schematicDetails;
     /** A kind's templates, read from a record ({@link schematicTemplates}). */
     templates: typeof schematicTemplates;
+    /** The layers, read from the app's record ({@link schematicLayers}). */
+    layers: typeof schematicLayers;
     /** A patch over a kind's row type: what an author's card dropped on an entity sets ({@link schedulePatch}). */
     patch: typeof schedulePatch;
     /** The library pane's tabs, each a factory `library` lists ({@link SchematicLibrary}). */
@@ -243,6 +239,7 @@ const MEMBERS = {
     nets: schematicNets,
     details: schematicDetails,
     templates: schematicTemplates,
+    layers: schematicLayers,
     patch: schedulePatch,
     library: SchematicLibraryFactories,
     ...SchematicShapes,
@@ -272,12 +269,22 @@ const MEMBERS = {
  *   kind's slot narrows that kind, read complete through it, and each other
  *   source the templates list or the author's tab that names it.
  * - **Geometry is drawn about its entity's anchor** (D22): an item's centre,
- *   or a zone's box centre, so an outline moves with its item.
+ *   or a zone's box centre, so an outline moves with its item. A footprint
+ *   or a zone's shape is an accessor building it from the row's own fields
+ *   (`Schematic.circle`, `polygon`, …), so the app's record keeps its own
+ *   types (D35).
+ * - **Its props are the Plan's, the Roster's and the Calendar's** (D31–D34,
+ *   D36): `id`, an inspector you opt into, library tabs over every kind,
+ *   `onSelect` hearing the whole selection, `canConnect` answering a candidate
+ *   with the refusal's words, and layers read from the app's record
+ *   (`Schematic.layers`).
  * - **Refused when the surface is built**, each naming the form that
  *   replaces it: rows and their mappers, the callbacks for an edit,
  *   `linkMode`, the per-domain read-only switches, the hover cards, the
  *   slice's effect props, `sliceSelectField`, `selectionMode`, `navigator`,
- *   `height` and `maxHeight`, `onSelect` and `onSelectZone` (§2).
+ *   `height` and `maxHeight`, `onSelectZone`, `onSelectionChange`,
+ *   `onZoneSelectionChange`, `onSelectLink`, `onViewportChange`, `onItemOpen`,
+ *   `selectZoomFocus`, `name`, an `inspector` object and a `layers` list (§2).
  *
  * @example
  * ```tsx
@@ -303,6 +310,7 @@ const MEMBERS = {
  *         return (
  *             <Box height="440px">
  *                 <Schematic
+ *                     id="floor"
  *                     extent={{ width: 18, height: 12 }}
  *                     scaleUnit="m"
  *                     items={{
@@ -312,7 +320,6 @@ const MEMBERS = {
  *                             meter: (r) => ({ value: r.kw, max: r.capacity }),
  *                         }),
  *                     }}
- *                     inspector={false}
  *                 />
  *             </Box>
  *         );
