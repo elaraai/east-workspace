@@ -245,8 +245,8 @@ export type DragEventType = typeof DragEventType;
  * sink is always structurally valid for a removable payload — removal policy
  * belongs to the host's `onDrag` handling, not the hover veto.
  *
- * A **throwing** predicate logs and allows (fail-open, the Schematic
- * validator convention) so a broken validator cannot brick the surface.
+ * A **throwing** predicate logs and allows (fail-open, as e3-ui's Schematic's
+ * `canConnect` does) so a broken validator cannot brick the surface.
  * Verdicts are cached per candidate event for as long as the predicate is the
  * same function.
  */

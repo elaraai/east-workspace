@@ -13,7 +13,8 @@
 
 import { describe, it, expect } from "vitest";
 import { SortedSet, StringType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, none, some, variant } from "@elaraai/east";
-import { Schematic, Slice } from "@elaraai/east-ui/internal";
+import { Slice } from "@elaraai/east-ui/internal";
+import { Schematic } from "@elaraai/e3-ui/internal";
 import RBush from "rbush";
 import {
     EMPTY_STRING_SET,

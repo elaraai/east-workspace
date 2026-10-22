@@ -30,6 +30,11 @@ and Issues; what is selected, per open flow, `selection.ts`; the open flow's
 issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
 parts, and
 keeps its slot recipes there too, the canvas's and the inspector's. The
+Schematic's renderer (`src/schematic/`, #1384) registers against its
+`Schematic` extension the same way, its slot recipe in the theme too: its
+composition root (`index.tsx`) over its pure canvas modules (`canvas/`: the
+camera, the painter, the selection, the model and the palette probe), whose
+invariants are `canvas/CLAUDE.md`'s. The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it

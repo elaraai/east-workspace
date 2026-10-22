@@ -1,6 +1,6 @@
 ---
 name: east-ui
-description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <SnapGrid> (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Matrix>, <Schematic>, <Map>, <Library> (a drag palette, or a gallery of large cards whose media is any component), <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation within a page with <Breadcrumb> and <NavList> (an app's own navigation is its host's), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, e3-ui's Plan) and Format.* specs (<Numeric>, <Stat>, Table columns) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props."
+description: "Type-safe UI component library for the East language, authored as JSX tags. Use when writing East programs that define user interfaces. Triggers for: (1) Authoring `.tsx` component trees with `@elaraai/east-ui` tags, (2) Layout with <Box>, <Flex>, <Stack>/<VStack>/<HStack>, <Grid>, <SnapGrid> (a page of tiles held as data on the 12-column grid, and its wireframe thumbnail), <Splitter>, <ScrollArea>, <Sticky>, <Expandable>, <Dock>, <Configurator> (control table + live preview + spec readout), (3) Forms with <Input>, <Textarea>, <Select>, <Combobox>, <Checkbox>, <Switch>, <Slider>, <RadioGroup>, <RadioCardGroup>, <TagsInput>, <FileUpload>, <Field>, <DateRangeInput>, <TimeRangeInput>, (4) Data display with <Table>, <TreeView>, <ValueTree>, <DataList>, <Deck>, <Matrix>, <Map>, <Library> (a drag palette, or a gallery of large cards whose media is any component), <Blend>, <Slice.Rail>, <Pagination>, <ChipRail>, <Trace>, (5) Charts with <Chart layers={Chart.Line/Column/Bar/Area/Scatter/Band(...)}/> (Column = vertical, Bar = horizontal) plus Chart.refLine/refBand/refDot, <Sparkline>, (6) Overlays with <Dialog>, <Drawer>, <Popover>, <Menu>, <Tooltip>, <HoverCard>, <ToggleTip>, <ActionBar>, <CommandPalette>, <Hotkey>, (7) Feedback with <Banner>, <Status>, <Progress>, <Skeleton>, <EmptyState>, (8) Disclosure with <Tabs>, <Accordion>, <Carousel>, <Collapsible>, <SegmentGroup>, <OptionList>, <Story>, (9) Navigation within a page with <Breadcrumb> and <NavList> (an app's own navigation is its host's), (10) Reactive UI via <Reactive>{$ => …}</Reactive> + State.bind, and conditional hosting of stateful components via <Match on cases> (remounts the active variant case on tag change), (11) Value formatting — Chart.format.* specs (chart axes, Slice fields, Deck metrics, e3-ui's Plan) and Format.* specs (<Numeric>, <Stat>, Table columns) through one interpreter, in the viewer's locale (react-aria's I18nProvider) with every date in UTC, (12) Status colour vocabulary — the five status tokens, the Deck.statuses registry, Library.status, rowStatus tints and tone props."
 ---
 
 # East UI
@@ -529,35 +529,7 @@ Task → Which tag?
 │   │       ├─ Matrix.cell({ segments?, markers?, orientation?, slot?, popover? }) — one cell (slot = arbitrary UIComponent; popover = click body)
 │   │       ├─ Matrix.segment({ fill?, weight, label?, color?, min?, max?, step? }) — one segment of the cell bar
 │   │       └─ Matrix.marker({ status?, message, at?, label? }) — corner status marker
-│   ├─ <Schematic items={rows} extent={{width,height}} item={r => ({…})} /> — 2D world-coord canvas: items / zones / links / nets from flat tables
-│   │   ├─ Props:
-│   │   │   ├─ items + extent (required) — item rows + world bounds (canvas scales to fit)
-│   │   │   ├─ item (optional) — row mapper to { key, x, y, label, sublabel?, icon?, status?, meter?{value,max}, metric?, width?, footprint?, tone?, color?, bg?, fillOpacity?, weight?, excluded?, layer? } (omit when already Schematic.Types.Item)
-│   │   │   ├─ zones + zone (optional) — zone rows + mapper to { key, label, x, y, width, height, pattern?, geometry?, tone?, color?, bg?, fillOpacity?, weight?, layer? }
-│   │   │   ├─ links + link (optional) — link rows + mapper to { key, from, to, label?, metric?, style?, route?, via?, layer? }
-│   │   │   ├─ nets + net (optional) — bus rows (ONE row = many sources → many destinations: a PDU's circuits, a switch's uplinks) + mapper to { key, sources, destinations, label?, metric?, style?, route?, via?, layer? }; drawn as a one-line diagram's bus — a header BAR spans each multi-endpoint side with a stub per endpoint, the trunk runs bar → via… → bar (junction dots ONLY where a tap 3-way joins a bar)
-│   │   │   ├─ selectionMode (optional) — "single" (default) | "multiple" | "range"; multiple ⇒ marquee tool (drag-box multi-select w/ live preview + count; plain box/tap replaces, Shift extends)
-│   │   │   ├─ onSelect / onSelectionChange (optional) — item click (key) / full selection-set events ({key?, selected, selectedKeys, additive, region?}); works in every tool (grab/zoom/marquee)
-│   │   │   ├─ onSelectZone / onZoneSelectionChange (optional) — zone click-select (items win hit-test; innermost zone wins; Shift extends) reporting the zones AND their childItemKeys
-│   │   │   ├─ selectZoomFocus (optional) — a canvas selection also moves the camera (tap flies, marquee fits)
-│   │   │   ├─ onItemOpen (optional) — double-click drill-in (background double-click keeps Fit/reset)
-│   │   │   ├─ onViewportChange (optional) — debounced viewport-settled reporting ({zoom, minX, minY, maxX, maxY}) for sync / lazy-load / persist
-│   │   │   ├─ linkMode (optional) — connect-gesture mode: "draw" (adds locally, form-input style) | "connect" (event-only, repeatable: plan operations); Shift+drag ADDS to the session
-│   │   │   ├─ onCreateLink / onSelectLink / onEditLink / onDeleteLink (optional) — link lifecycle ({link, links, additive, existing} on create; click-select key; endpoint re-target; Del delete)
-│   │   │   ├─ canConnect (optional) — fn(from, to) => Bool vetoes pairs BEFORE they resolve (the draft never snaps; one rule covers links, Shift-session/net extensions, and re-targets; a throwing validator fails OPEN)
-│   │   │   ├─ onEditNet (optional) — net membership edits: trunk/bar click selects the WHOLE net, a STUB click selects ONE leg (Del removes just that endpoint; onEditNet reports membership AFTER; a side emptying deletes the whole net via onDeleteLink). Shift-session gestures keep ONE bus (a member never flips sides); with a LINK selected, Shift-drag from its endpoint SEEDS the session with that link (onCreateLink.absorbed lists absorbed keys — delete those rows when upserting); with a NET selected, Shift-drag out of a member adds the target as a leg; a Shift connect-session commits as a net (onCreateLink.net = {key, sources, destinations}, stable session key — upsert by net.key)
-│   │   │   ├─ readOnly / readOnlyLinks / readOnlyItems (optional) — flattened per-domain edit gates
-│   │   │   ├─ onMoveItem (optional) — move tool (readOnlyItems off): drags items to new positions; a selected item moves the WHOLE selection rigidly, local-first; fires once per gesture ({key, x, y, keys, dx, dy})
-│   │   │   ├─ itemHover / zoneHover / linkHover (optional) — East fn key => UIComponent lazy hover cards (charts in a card over a rack / fibre run); any camera or edit gesture closes them; hover ignores readOnly + locked layers
-│   │   │   ├─ slice + affordances (optional) — bound slice chrome (default ["search"]); flat effect props sliceHidden / sliceOpacity / sliceDesaturate / sliceDot / sliceEmphasis:"halo"|"pulse" / sliceFrame / sliceFrameFit keep filtered-OUT items as ghost/desaturate/dot context + emphasise the remainder instead of hiding — feed the FULL set (Slice.partition) and mark item.excluded (e.g. t.matched.not())
-│   │   │   ├─ sliceSelectField (optional) — bound-slice fieldId a marquee/tap selection writes an `in` filter of selected item keys into (one-directional selection→slice) — pair with the ghost effect (not a Slice.rows feed on the same slice)
-│   │   │   ├─ layers (optional) — [{ key, label, tone?, visible?, locked?, opacity? }] + tag items/zones/links with layer:"key"; a canvas layer button opens a show/hide/solo/lock panel (persists per panel); lock ⇒ non-selectable (click-through), opacity dims
-│   │   │   ├─ scaleUnit / grid / navigator / minimap (optional) — scale bar unit, metric grid (default on), zones→items TOC (default when zones exist), minimap (default 25+ items)
-│   │   │   └─ height / maxHeight (optional) — uniform sizing (#320); default aspect-driven, capped 75vh
-│   │   └─ Factories:
-│   │       ├─ Schematic.circle(r) / .polyline(verts, {width}) / .polygon(verts) / .rect() — item footprints + zone geometry
-│   │       ├─ Schematic.outline() / .hatch() — zone boundary patterns
-│   │       └─ Schematic.solid() / .dashed() — link / net stroke styles
+│   ├─ <Schematic> — the 2D world-coordinate canvas (items, zones, links and nets from flat tables, each at its x/y in the world; a camera, layers, hover cards, selection, editing and slice effects) is e3-ui's (#1384): `import { Schematic } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Flowchart> — the state-transition flowchart (states in ORDERED phase lanes, its layout derived — no coordinates; H/V-routed transitions; per-link decision triggers and evidence) is e3-ui's (#1243): `import { Flowchart } from "@elaraai/e3-ui"` — its props, factories and patterns are in the e3-ui skill
 │   ├─ <Map markers={…} center={Map.at(lat,lng)} zoom={n} /> — interactive geographic basemap; read-only / selection-only
 │   │   ├─ Props:
@@ -1017,7 +989,7 @@ Task → Which tag?
 │   ├─ Where a bare token / status value plugs in:
 │   │   ├─ Library.status(label, tone, ring?) — palette card status chip, a gallery card's dot (`ring` open) · Library.glyph(icon, label, tone?) — its trailing glyph
 │   │   ├─ Table rowStatus — fn(rowIndex) => StatusToken row tint
-│   │   ├─ Schematic item { status } (Option token dot) and { tone } (brand|ink|muted|success|warning|danger stroke override)
+│   │   ├─ e3-ui's Schematic item { status } (Option token dot) and { tone } (brand|ink|muted|success|warning|danger stroke override)
 │   │   ├─ e3-ui's Plan.run { status } (stuck ring) · Plan.marker { status } (cell rings, default danger) · Plan.event { tone } — tile tints, all ORTHOGONAL to `state`
 │   │   ├─ Matrix.marker { status } — corner markers
 │   │   ├─ <Status value> — dot + word (`ring` an open ring — not live yet); <Banner status> uses the wider notice set (info|warning|success|error|neutral|change|guard|stale)
@@ -1217,8 +1189,8 @@ Non-UI sub-structures are never child sub-tags.
 
 Every size prop is a **plain string** and every renderer parses it the same
 way (`parseCssSize`). Four spellings, uniform across data components (`<Table>`,
-e3-ui's `<Plan>`, `<Matrix>`,
-`<Library>`, `<Schematic>`, `<SnapGrid>`) and layout primitives (`<Box>` / `<Flex>` /
+e3-ui's `<Plan>` and `<Schematic>`, `<Matrix>`,
+`<Library>`, `<SnapGrid>`) and layout primitives (`<Box>` / `<Flex>` /
 `<Stack>` / `<Grid>` / `<Card>`):
 
 | Value | Means |
@@ -1510,11 +1482,12 @@ tier so they stay subordinate to tags at every density.
   and written back (through an e3 record's patch, or `onUpdate` / `onApply`)
   — the e3-ui skill documents it; for reading, sorting and reviewing a
   dataset, `<Table>`.
-- **Flowchart vs Schematic** — `<Schematic>` is a world-coordinate 2D canvas
-  (data carries x/y; zones, footprints, camera); e3-ui's `<Flowchart>`
-  (#1243) derives its whole layout from lanes + links (no coordinates) for
+- **Flowchart vs Schematic** — both are e3-ui's, and the e3-ui skill
+  documents them: `<Schematic>` (#1384) is a world-coordinate 2D canvas
+  (data carries x/y; zones, footprints, camera); `<Flowchart>` (#1243)
+  derives its whole layout from lanes + links (no coordinates) for
   state-transition / process-flow reading, with decision triggers and
-  evidence on the links — the e3-ui skill documents it.
+  evidence on the links.
 - **Library vs Deck** — `<Library>` is the draggable palette (DnD source),
   or with `variant="gallery"` a library a person browses — large cards, each
   with its media, a byline and an action a click follows;

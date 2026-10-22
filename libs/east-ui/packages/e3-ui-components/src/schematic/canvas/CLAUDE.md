@@ -1,20 +1,22 @@
 # Schematic renderer — architecture & invariants
 
 Consolidated from the #57 P1–P11 comments, the #172 productionisation, and
-the #176–#182/#189 feature era (#183 WS8). **Read before changing
-`index.tsx`** — every rule here shipped as (or prevented) a real bug.
+the #176–#182/#189 feature era (#183 WS8). **Read before changing the
+renderer** (`../index.tsx`) — every rule here shipped as (or prevented) a real
+bug. The Schematic is e3's (#1384): its IR is e3-ui's `src/schematic/`, and
+the renderer registers against its `Schematic` extension as it loads.
 
 ## Module map
 
 | File | Role |
 |---|---|
-| `index.tsx` | Composition root: hooks, gesture handlers, DOM/JSX. All React state lives here. |
+| `../index.tsx` | Composition root: hooks, gesture handlers, DOM/JSX. All React state lives here. |
 | `camera.ts` | Pure camera maths + the interaction-mode machine (`nextMode`, `cancelsFly`), rAF coalescer, projector, culling. |
 | `paint.ts` | Pure Canvas2D painter + routing/hit geometry (`orthogonalize`, `distanceToPolyline`, `parallelLanes`, label pills, net trunks). |
 | `selection.ts` | Pure selection/marquee/slice-composition helpers. |
 | `model.ts` | Pure derived model: navigator tree (`buildNavTree`), LOD (`tierSize`, `buildCenterTree`, `declutterTiers`). |
 | `theme.tsx` | Palette probe (semantic tokens → concrete colors for canvas paint). |
-| `../../theme/slot-recipes/schematic.ts` | ALL styling. No inline styles in `index.tsx` beyond dynamic data bindings (positions, sizes). |
+| east-ui-components' `src/theme/slot-recipes/schematic.ts` | ALL styling. No inline styles in `../index.tsx` beyond dynamic data bindings (positions, sizes). |
 
 Pure modules stay pure — no React imports. New geometry/derivation logic
 goes in a pure module with unit tests, not in the component.
@@ -48,7 +50,7 @@ goes in a pure module with unit tests, not in the component.
 5. **Declare-before-use is load-bearing**: memos execute during render in
    source order, so an overlay memo must be declared ABOVE its first
    consumer (`paintValue`). The jsdom mount smoke test
-   (`schematic.dom.test.tsx`) exists precisely to catch this class.
+   (`../schematic.dom.test.tsx`) exists precisely to catch this class.
 
 **Callbacks & selection**
 6. Every author callback goes through `dispatchEast(name, run)` —
@@ -104,8 +106,10 @@ goes in a pure module with unit tests, not in the component.
 | Layer | File(s) | Catches |
 |---|---|---|
 | Pure unit | `camera.test.ts`, `paint.test.ts`, `selection.test.ts`, `model.test.ts` | Geometry, mode machine, LOD, nav tree, slice composition |
-| Mount smoke (jsdom) | `schematic.dom.test.tsx` | Hook-graph ordering (TDZ), decode of every root field, prop-replace path |
-| IR contract | `east-ui/test/collections/schematic.spec.ts` + `.examples.tsx` | Factory encodings (absent ⇒ `none`), examples↔tests parity, plugin index |
+| Mount smoke (jsdom) | `../schematic.dom.test.tsx` | Hook-graph ordering (TDZ), decode of every root field, prop-replace path |
+| The carrier (jsdom) | `../schematic-carrier.dom.test.tsx` | `<Schematic>` as the `Schematic` extension through the dispatcher; its functions decoded (`onSelect`, `zoneHover`) |
+| IR contract | e3-ui's `test/schematic/schematic.spec.ts` + `.examples.tsx` + `schematic-docs.spec.ts` | Factory encodings (absent ⇒ `none`), the carrier's payload, examples↔tests parity, doc examples, plugin index |
+| The move | `test/schematic-moved.spec.ts` (this package) | east-ui and east-ui-components publish nothing of the Schematic but its slot recipe |
 | Visual | showcase snapshots (CI) | Pixel regressions — REQUIRED after paint-path changes |
 
 `make build` type-checks this package before vite bundles it

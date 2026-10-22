@@ -22,6 +22,10 @@
  *   patches, library tabs and types it is written with on `Flowchart`
  *   (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
  *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
+ * - `<Schematic>` — the 2D world-coordinate canvas: placed items, annotation
+ *   zones, key-addressed links and nets, from flat tables, with the pattern
+ *   and geometry builders and the types it is written with on `Schematic`
+ *   (`Schematic.hatch()`, `Schematic.polygon()`, …, `Schematic.Types`).
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`), and what a builder
  *   publishes (`Schedule.periods`).
@@ -185,6 +189,18 @@ export {
     type FlowchartStateInput, type FlowchartLinkInput, type FlowchartEvidenceInput, type FlowchartTriggerInput, type FlowchartLinkKindLiteral,
     type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput,
 } from './flowchart/index.js';
+
+// The Schematic (#1384): the 2D world-coordinate canvas a solution mounts,
+// `<Schematic>` — placed items, annotation zones, key-addressed links and
+// nets, from flat tables — the pattern and geometry builders and the East
+// types it is written with (`Schematic.outline()`, `Schematic.hatch()`, …,
+// `Schematic.Types`), and its props.
+export {
+    Schematic, type SchematicNamespace, type SchematicConfig, type SchematicItemFields, type SchematicZoneFields,
+    type SchematicLinkFields, type SchematicNetFields, type SchematicLayerInput, type SchematicPatternConfig,
+    type SchematicPolylineConfig, type SchematicVertexInput, type SchematicVertices, type SchematicToneLiteral,
+    type SchematicEmphasisLiteral, type SchematicSelectionModeLiteral, type SchematicLinkModeLiteral,
+} from './schematic/index.js';
 
 // Schedule (#1218, #1190): the event and resource kinds the Calendar and
 // Plan's builder share — `Schedule.events`, `Schedule.resources`,

@@ -2,10 +2,11 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-/** @jsxImportSource @elaraai/east-ui */
+/** @jsxImportSource @elaraai/e3-ui */
 import { East, ArrayType, BooleanType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, example, variant, some, none } from "@elaraai/east";
 import { State, StatusTokenType, UIComponentType } from "@elaraai/east-ui";
-import { Configurator, HStack, Reactive, Schematic, Select, Separator, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Configurator, HStack, Reactive, Select, Separator, Slice, Slider, Sparkline, Switch, Text, VStack } from "@elaraai/east-ui";
+import { Schematic } from "@elaraai/e3-ui";
 
 // ============================================================================
 // A data centre floor: racks with power meters, halls and cages with hatched

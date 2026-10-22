@@ -16,10 +16,14 @@
  * @packageDocumentation
  */
 
-import { type ValueTypeOf } from "@elaraai/east";
-import { Schematic } from "@elaraai/east-ui/internal";
-import { getSomeorUndefined } from "../../utils";
+import { match, type option, type ValueTypeOf } from "@elaraai/east";
+import { Schematic } from "@elaraai/e3-ui/internal";
 import { type Bbox, type ScreenCamera, bboxOverlaps, pointsBbox, project, viewportWorldBbox } from "./camera";
+
+/** An Option's value, or `undefined` — East's `match`, as east-ui-components'
+ *  `getSomeorUndefined` reads one, without loading that package's renderers:
+ *  this module stays free of React, Chakra and the DOM (#1384). */
+const getSomeorUndefined = <T,>(opt: option<T>): T | undefined => match(opt, { some: (value) => value }, undefined);
 
 type SchematicValue = ValueTypeOf<typeof Schematic.Types.Schematic>;
 type SchematicItemValue = ValueTypeOf<typeof Schematic.Types.Item>;

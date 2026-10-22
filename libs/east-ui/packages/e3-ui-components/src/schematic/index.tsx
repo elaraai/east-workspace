@@ -3,30 +3,43 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+/**
+ * The Schematic's renderer — the 2D world-coordinate canvas: a Canvas2D paint
+ * layer and a DOM card layer under one camera (`canvas/`), the navigator, the
+ * minimap, the controls and the slice rail. The `schematic` slot recipe
+ * stays in east-ui-components' theme.
+ *
+ * The Schematic is e3-ui's (#1384): the renderer registers itself against the
+ * `Schematic` extension (`Schematic.Component`) as the module loads.
+ */
+
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { findIconDefinition, library } from "@fortawesome/fontawesome-svg-core";
+import { findIconDefinition, library, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { fas, faAnglesLeft, faAnglesRight, faBullseye, faCaretRight, faChevronLeft, faChevronRight, faExpand, faEye, faEyeSlash, faHand, faLayerGroup, faLink, faLock, faLockOpen, faMinus, faUpDownLeftRight, faObjectGroup, faObjectUngroup, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
 import { equalFor, equivalentFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
-import { Schematic, type UIComponentType } from "@elaraai/east-ui/internal";
-import type { IconName } from "@fortawesome/fontawesome-common-types";
-import { getSomeorUndefined } from "../../utils";
-import { EastChakraComponent } from "../../component";
-import { SliceRailCluster } from "../../slice/rail";
-import { parseCssSize } from "../../style/parse-size.js";
-import { useSliceReactivity } from "../../slice/use-slice-reactivity";
-import { usePersistedState } from "../../hooks/usePersistedState";
-import { useDataStable } from "../../hooks/useDataStable";
-import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, LINK_LANE_GAP, type SchematicPalette, type SchematicPaintEffect } from "./paint";
-import { EMPTY_STRING_SET, type ItemBox, managedSelectionSet, marqueeHits, sameStringSet, sliceWithSelection } from "./selection";
-import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./model";
+import { type UIComponentType } from "@elaraai/east-ui/internal";
+import { Schematic } from "@elaraai/e3-ui/internal";
+import {
+    EastChakraComponent,
+    SliceRailCluster,
+    getSomeorUndefined,
+    implementUIComponent,
+    useDataStable,
+    usePersistedState,
+    useSliceReactivity,
+} from "@elaraai/east-ui-components";
+import { parseCssSize } from "@elaraai/east-ui-components/internal";
+import { LINK_HIT_SLOP, MARKER_LABEL_FONT, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, LINK_LANE_GAP, type SchematicPalette, type SchematicPaintEffect } from "./canvas/paint";
+import { EMPTY_STRING_SET, type ItemBox, managedSelectionSet, marqueeHits, sameStringSet, sliceWithSelection } from "./canvas/selection";
+import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./canvas/model";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
     IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, makeRafCoalescer, nextMode, viewportWorldBbox, zoomAbout,
-} from "./camera";
-import { SchematicPaletteProbe } from "./theme";
+} from "./canvas/camera";
+import { SchematicPaletteProbe } from "./canvas/theme";
 
 library.add(fas);
 
@@ -183,8 +196,8 @@ function pointInPolygon(x: number, y: number, pts: readonly Pt[]): boolean {
 }
 
 /**
- * Renders an East UI Schematic value — the 2D world-coordinate canvas with
- * map-grade navigation: wheel-zoom about the cursor, drag-pan, animated
+ * Renders the Schematic's root (e3-ui's `<Schematic>`) — the 2D
+ * world-coordinate canvas with map-grade navigation: wheel-zoom about the cursor, drag-pan, animated
  * fly-to, semantic zoom (status dots ⇢ labelled dots ⇢ full cards), rbush
  * viewport culling, an adaptive scale bar, a zones→items navigator with
  * search and viewport spy, and a minimap with a draggable viewport.
@@ -2734,3 +2747,9 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
         </Box>
     );
 }, (prev, next) => schematicEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
+
+// =============================================================================
+// Side-effect — register the renderer for the Schematic extension on module load.
+// =============================================================================
+
+implementUIComponent(Schematic.Component, EastChakraSchematic);

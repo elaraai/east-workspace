@@ -81,6 +81,7 @@
     "cytoscape": "^3.30.0",
     "cytoscape-cose-bilkent": "^4.1.0",
     "d3-time": "^3.1.0",
+    "rbush": "^4.0.1",
     "use-local-storage-state": "^19.5.0"
   },
   "devDependencies": {
@@ -99,6 +100,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/cytoscape": "^3.21.0",
     "@types/d3-time": "^3.0.4",
+    "@types/rbush": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@typescript-eslint/eslint-plugin": "^8.42.0",

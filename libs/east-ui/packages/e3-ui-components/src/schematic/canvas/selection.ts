@@ -15,7 +15,8 @@
 
 import { SortedSet, StringType, compareFor, variant, type ValueTypeOf } from "@elaraai/east";
 import type RBush from "rbush";
-import { Slice as SliceInternal, Schematic } from "@elaraai/east-ui/internal";
+import { Slice as SliceInternal } from "@elaraai/east-ui/internal";
+import { Schematic } from "@elaraai/e3-ui/internal";
 
 /** East's order over the selected keys — the managed clause's set is an East Set. */
 const compareStrings = compareFor(StringType);
