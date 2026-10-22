@@ -324,6 +324,98 @@ export async function createMigrationPackageZip(
   return zipPath;
 }
 
+/** The versions of the pending-record fixture. */
+export type PendingFixtureVersion = '1.0.0' | '2.0.0';
+
+/**
+ * Create a version of a package whose record is declared with no initial
+ * value, which a deploy leaves unassigned — its dependents waiting — until
+ * its first state is committed.
+ *
+ * Creates a package with, by version:
+ * - `1.0.0`: Record "customers" (rows of a title, holding "a"), Mutation "add"
+ *   (id, title) => the rows with that one added, and Task "count", the number
+ *   of rows
+ * - `2.0.0`: "customers" with an owner on each row, declared with no initial
+ *   value and no migration to carry a 1.0.0 row, "add" and "count" over it
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - The version to create
+ * @returns Path to the created zip file
+ */
+export async function createPendingRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: PendingFixtureVersion
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  let pkg: PackageDef<Record<string, unknown>>;
+  if (version === '1.0.0') {
+    const customers = e3.record('customers', TasksV1Type, new Map([['a', { title: 'A' }]]));
+    const add = e3.mutation.reduce('add', customers,
+      East.function([TasksV1Type, StringType, StringType], TasksV1Type, ($, state, id, title) => {
+        const next = $.let(state.copy());
+        $(next.insert(id, { title }));
+        return next;
+      }));
+    const count = e3.task('count', [customers], East.function([TasksV1Type], IntegerType, ($, rows) => rows.size()));
+    pkg = e3.package(name, version, customers, add, count);
+  } else {
+    const customers = e3.record('customers', TasksV2Type);
+    const add = e3.mutation.reduce('add', customers,
+      East.function([TasksV2Type, StringType, StringType], TasksV2Type, ($, state, id, title) => {
+        const next = $.let(state.copy());
+        $(next.insert(id, { title, owner: 'nobody' }));
+        return next;
+      }));
+    const count = e3.task('count', [customers], East.function([TasksV2Type], IntegerType, ($, rows) => rows.size()));
+    pkg = e3.package(name, version, customers, add, count);
+  }
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/**
+ * Create a package one input of which nothing has set, for a run that leaves
+ * the tasks over it waiting.
+ *
+ * Creates a package with:
+ * - Input: "a" (Integer, default 1)
+ * - Input: "b" (Integer, unassigned)
+ * - Task: "double" - returns a * 2
+ * - Task: "sum" - returns a + b
+ * - Task: "report" - returns sum + 1
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createPartialPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const inputA = e3.input('a', IntegerType, variant('value', 1n));
+  const inputB = e3.input('b', IntegerType);
+  const double = e3.task('double', [inputA], East.function([IntegerType], IntegerType, ($, a) => a.multiply(2n)));
+  const sum = e3.task('sum', [inputA, inputB], East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)));
+  const report = e3.task('report', [sum.output], East.function([IntegerType], IntegerType, ($, s) => s.add(1n)));
+  const pkg = e3.package(name, version, double, sum, report);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
 /** The versions of the inputs fixture. */
 export type InputsFixtureVersion = '1.0.0' | '2.0.0';
 

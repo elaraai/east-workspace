@@ -745,6 +745,8 @@ export class FakeApi implements Api {
                     cached: BigInt(done.filter(e => e.type === 'cached').length),
                     failed: BigInt(done.filter(e => e.type === 'failed' || e.type === 'error').length),
                     skipped: BigInt(done.filter(e => e.type === 'input_unavailable').length),
+                    // A task left waiting on an unassigned input has no event: the fake's runs leave none
+                    waiting: 0n,
                     duration: state.completedAt !== null ? Date.parse(state.completedAt) - Date.parse(state.startedAt) : 0,
                 }),
                 events: served,

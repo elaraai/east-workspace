@@ -40,7 +40,9 @@
  * here, wherever e3 runs. A delivered file is adopted on the machine it lies on
  * (`dataset-adopt-file.ts`). A value the store already holds as it is — a
  * collection its writer stored through the door itself — is pointed at here
- * too, by its own hash ({@link datasetSetStored}).
+ * too, by its own hash ({@link datasetSetStored}). And a delivery is taken in
+ * as a stored value naming no dataset ({@link deliveryAdoptStored}), for a
+ * value committed elsewhere: a record's first state.
  *
  * @packageDocumentation
  */
@@ -63,6 +65,7 @@ import { DatasetTypeMismatchError, DeliveryRefusedError, ObjectNotFoundError } f
 import { openDatasetObject, readManifest } from './dataset-open.js';
 import { intakeDelivery, rememberDelivery, rememberedManifest, type DeliveryIntake, type DeliveryIntakeOptions } from './delivery-intake.js';
 import { readTouched, touchReachable } from './gc-graph.js';
+import { withRunningWork } from './running-work.js';
 import { manifestCutElsewhere } from './store-collection.js';
 import { withDatasetWriteLock, workspaceSetDatasetByHash, type DatasetLeaf } from './trees.js';
 import type { IntakeSource, TaskRunner } from './execution/interfaces.js';
@@ -386,6 +389,93 @@ export async function datasetSetStored(
   });
 }
 
+/** Options accepted by {@link deliveryAdoptStored}. */
+export interface DeliveryAdoptStoredOptions {
+  /** The runner that takes a collection in, in pieces: needed unless the memo
+   *  names the delivery's manifest, or it holds another value. */
+  runner?: TaskRunner;
+  /** Hears how far the intake has got, as each piece finishes: always the
+   *  `take-in` phase. */
+  onProgress?: (progress: DatasetAdoptProgress) => void;
+  /** Aborting it stops the intake: the pieces it finished are remembered, so
+   *  the next adopt of the delivery takes in only the rest. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Take a delivery the store holds in as a stored value of a declared type,
+ * naming no dataset: the first half of {@link datasetAdoptObject}.
+ *
+ * @remarks
+ * For a value committed somewhere other than a dataset's ref: a record's
+ * first state, which `recordSystemCommit` commits as its `$init`, or a state
+ * restored over its head. The delivery is taken in as the dataset door takes
+ * one — the memo answers at once for a delivery taken before; any other value
+ * is the object the delivery is; a collection is taken in by intake units on
+ * `options.runner`, in pieces remembered across calls, and remembered as the
+ * manifest it became — and its wire type is checked against the declared one
+ * first, as a dataset's door checks it, so nothing is written for a delivery
+ * of another type.
+ *
+ * It holds the repository's running work ({@link withRunningWork}), so a
+ * sweep cannot take the segments it stores before it returns. What it stored
+ * is named by nothing until the caller's commit, so the caller holds the
+ * running work across the two, as the example does — the hold nests — since a
+ * sweep between them could take what the intake stored before the commit
+ * re-references it. It takes no workspace lock, since it writes no ref.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - The workspace the value is for, which a refusal names
+ * @param declared - The address a refusal names the destination by, such as
+ *   `.records.customers`, and the type it declares
+ * @param sourceHash - SHA-256 of the delivered bytes: the object the store
+ *   holds
+ * @param options - The runner that takes a collection in, a listener for how
+ *   far it has got, and a signal that stops it
+ * @returns The stored value's hash — the manifest, for a collection — the
+ *   delivery's size, the stored geometry and how it was taken in
+ * @throws {DatasetTypeMismatchError} When the delivery's wire type is not the
+ *   declared one
+ * @throws {ObjectNotFoundError} When the store does not hold the delivery
+ * @throws {DeliveryRefusedError} When a runner refuses the collection
+ * @throws {Error} When a collection the store does not know is to be taken in
+ *   and no runner was given, the intake was aborted, or a garbage collection
+ *   holds the repository
+ *
+ * @example
+ * ```ts
+ * import { deliveryAdoptStored, recordSystemCommit, withRunningWork } from '@elaraai/e3-core';
+ *
+ * // A record declared with no initial value takes its first state from a
+ * // delivery the store holds: taken in and committed under one hold of the
+ * // repository's running work, so no sweep takes what the intake stored
+ * // before the commit names it
+ * await withRunningWork(storage, repo, async () => {
+ *   const { hash } = await deliveryAdoptStored(storage, repo, 'main', { address: '.records.customers', type }, sha256, { runner });
+ *   await recordSystemCommit(storage, runner, repo, 'main', 'customers', {
+ *     name: '$init', target: { state: hash, applied: chain }, actor: 'files:sync',
+ *   });
+ * });
+ * ```
+ */
+export async function deliveryAdoptStored(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  declared: { address: string; type: EastTypeValue },
+  sourceHash: string,
+  options: DeliveryAdoptStoredOptions = {},
+): Promise<DatasetAdoptResult> {
+  return withRunningWork(storage, repo, async () => {
+    const adopted = await adoptStored(storage, repo, ws, declared, sourceHash, {
+      runner: options.runner, onProgress: options.onProgress, signal: options.signal,
+    });
+    if (adopted === null) throw new ObjectNotFoundError(sourceHash);
+    return { ...adopted, ...await geometry(storage, repo, adopted.hash, declared.type) };
+  });
+}
+
 /**
  * Adopts, for the dataset `leaf` declares, a delivery the store holds — as the
  * manifest the memo names, or as an object — checking its type first, under
@@ -402,7 +492,7 @@ async function adoptStored(
   storage: StorageBackend,
   repo: string,
   ws: string,
-  leaf: DatasetLeaf,
+  leaf: Pick<DatasetLeaf, 'address' | 'type'>,
   sourceHash: string,
   intake: { runner: TaskRunner | undefined; onProgress: ((progress: DatasetAdoptProgress) => void) | undefined; signal: AbortSignal | undefined } | null,
 ): Promise<ObjectAdoptResult | null> {
@@ -469,10 +559,19 @@ async function storedValue(storage: StorageBackend, repo: string, hash: string):
 
 /**
  * A value the store holds, by its own hash: a manifest, as the collection's
- * type and its segments' bytes; any other object as its wire type and size.
- * `null` when the store does not hold it.
+ * type and its segments' bytes; any other object as its wire type and size,
+ * read from the head of the object and never the object whole. `null` when
+ * the store does not hold it.
+ *
+ * @remarks
+ * What every door that names a stored value by its hash reads of it first:
+ * {@link datasetSetStored}, and a record's first state or a restore
+ * (`recordSystemCommit`), which refuse a collection the store holds whole, or
+ * a manifest an older e3 cut, as the dataset door refuses them.
+ *
+ * @internal
  */
-async function storedDatasetValue(
+export async function storedDatasetValue(
   storage: StorageBackend,
   repo: string,
   hash: string,

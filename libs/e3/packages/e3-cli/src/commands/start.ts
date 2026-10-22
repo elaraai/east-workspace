@@ -206,6 +206,9 @@ async function executeLocal(
       onTaskComplete: (taskResult: TaskCompletedCallback) => {
         printTaskResult(taskResult);
       },
+      onTaskWaiting: (name, inputs) => {
+        console.log(`  [WAIT] ${name}: ${describeUnset(inputs)}`);
+      },
       onPartitionProgress: (task, progress) => {
         if (progress.state !== 'completed') return;
         const cached = progress.cached ? ' (cached)' : '';
@@ -229,6 +232,7 @@ async function executeLocal(
       cached: result.cached,
       failed: result.failed,
       skipped: result.skipped,
+      waiting: result.waiting,
       duration: result.duration,
     });
 
@@ -316,6 +320,7 @@ async function executeRemote(
         cached: Number(summary.cached),
         failed: Number(summary.failed),
         skipped: Number(summary.skipped),
+        waiting: Number(summary.waiting),
         duration: summary.duration,
       });
     }
@@ -447,7 +452,16 @@ interface Summary {
   cached: number;
   failed: number;
   skipped: number;
+  /** Tasks left waiting on an input that is not set, and their dependents */
+  waiting: number;
   duration: number;
+}
+
+/** The inputs a task waits on, as the run's `[WAIT]` line and the watch's say
+ *  them: unset, whether nothing has set them or the task that writes them
+ *  waits itself. */
+export function describeUnset(inputs: readonly string[]): string {
+  return `${inputs.length === 1 ? 'input' : 'inputs'} ${inputs.map((input) => `'${input}'`).join(', ')} not set`;
 }
 
 function printSummary(summary: Summary): void {
@@ -457,7 +471,12 @@ function printSummary(summary: Summary): void {
   console.log(`  Cached:   ${summary.cached}`);
   console.log(`  Failed:   ${summary.failed}`);
   console.log(`  Skipped:  ${summary.skipped}`);
+  console.log(`  Waiting:  ${summary.waiting}`);
   console.log(`  Duration: ${Math.round(summary.duration)}ms`);
+  if (summary.waiting > 0) {
+    console.log('');
+    console.log(`${summary.waiting} ${summary.waiting === 1 ? 'task waits' : 'tasks wait'} on an input that is not set: set it, or seed the record, and run again.`);
+  }
 }
 
 function printFailedTasks(tasks: TaskCompletedCallback[]): void {

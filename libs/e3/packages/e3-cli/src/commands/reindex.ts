@@ -20,12 +20,8 @@
  */
 
 import { LocalStorage, LocalTaskRunner, recordReindex } from '@elaraai/e3-core';
-import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { actor, parseRepoLocation, formatError, exitError } from '../utils.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
-
-function actor(): string {
-  return `cli:${process.env.USER ?? process.env.USERNAME ?? 'unknown'}`;
-}
 
 /** `e3 reindex` entry point. */
 export async function reindexCommand(

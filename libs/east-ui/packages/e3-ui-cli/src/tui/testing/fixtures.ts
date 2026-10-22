@@ -86,7 +86,7 @@ export function dashboardFixture(tasks: number, inputs: number, now: number): Ac
         status: variant('failed', null),
         startedAt: iso(120_000),
         completedAt: some(iso(81_600)),
-        summary: some({ executed: BigInt(tasks), cached: 1n, failed: count('failed'), skipped: 0n, duration: 38_400 }),
+        summary: some({ executed: BigInt(tasks), cached: 1n, failed: count('failed'), skipped: 0n, waiting: 0n, duration: 38_400 }),
         events: [],
         nextSeq: BigInt(events.length),
         lastSeq: BigInt(events.length),

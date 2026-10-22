@@ -52,7 +52,7 @@ The other documents in this directory record earlier designs. #956 lists those t
 
 ```ts
 e3.input(name, type, source?)
-e3.record(name, type, initial)
+e3.record(name, type, initial?)                  // with no initial value: unassigned until its first state is committed (§3.18)
 e3.task(name, inputs, fn, config?)               // returns; inputs are datasets only; config: { runner?, environment?, role? }
 e3.streamTask(name, { inputs, output, runner?, environment? }, ($, ...inputs, emit) => void)
 e3.partition(dataset, { by? })                   // a streamTask input the work may be split over
@@ -525,7 +525,9 @@ Versions are content and commit hashes, not counters. A value that changes and c
 
 A task that was running when its input changed runs to its end. Its result is then discarded when a root input it was launched with has changed since, and the task runs again once its inputs are complete (`stepTaskResultStale`). That holds when it read the output of a task the change sent back to pending, which has yet to run again: that output's version vector still names the root input as it was. A result the cache serves is judged the same way as it is applied, since an input can move while the cache is read.
 
-**Fixpoint.** The run ends when no task is ready, running or deferred: every output is then consistent with the root inputs as they stand. Datasets may disagree with each other while a run is in flight, and their version vectors say so. A run that stops with a task still pending or deferred and nothing running reports the dataflow stuck, naming them.
+**Waiting.** A task an input of which is unassigned — one nothing has set, or a record declared with no initial value whose first state is not yet committed (§3.18) — cannot run. The loop leaves it **waiting**, and every task downstream of it that has not run, within the run's filter, with it (`stepTasksWaiting`), and goes on: the run ends completed without them, and a waiting task is no failure. No event records it, since a run's events are a stored form: the state's task statuses say which tasks wait, and a store derives the run summary's `waiting` count from them, which the API's summary and result carry too. A waiting task is decided again once an input is assigned while the run is in flight (`stepInvalidateTasks`), once a task it waited on completes (`stepTaskCompleted`) — unless another task it reads still waits — or as a run that yielded resumes (`stepYield`), and left waiting again when its input still is.
+
+**Fixpoint.** The run ends when no task is ready, running or deferred: every output is then consistent with the root inputs as they stand, and the tasks left waiting are the only ones not up to date. Datasets may disagree with each other while a run is in flight, and their version vectors say so. A run that stops with a task still pending or deferred and nothing running reports the dataflow stuck, naming them.
 
 **Records** are root inputs like any other. A committed mutation changes a record's ref, and a running dataflow picks the change up as it would any write. Tasks read records and never write them. A record ref's vector also holds `$`-prefixed slots, the commit protocol's bookkeeping (§3.18), which change detection never reads.
 
@@ -715,7 +717,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 
 | Prior | `$schema` against the package's chain | Plan |
 |---|---|---|
-| none | — | `mint`: `$init` from the package's initial value, the whole chain applied |
+| none | — | `mint`: `$init` from the package's initial value, the whole chain applied; or `unassigned`, for a record declared with none: nothing written, its first state committed from outside as its `$init` (below) |
 | present | the whole chain, the type unchanged | `keep`, with a `$deploy` commit when the package changed |
 | present | the whole chain, the type changed | refused: the type changed with no migration. The message renders the type diff and names the fixes, a migration after the last or `--schema=reset` |
 | present | a proper prefix | `migrate`: the remaining steps, in order |
@@ -730,7 +732,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 **Policies.**
 - `--schema=migrate`, the default, runs the migrations.
 - `--schema=fail` refuses to run any migration, for a workspace whose migrations go through their own change control.
-- `--schema=reset` resets a record that cannot be kept or migrated to the package's initial value, with a `$reset` root commit, so the reset is in its history.
+- `--schema=reset` resets a record that cannot be kept or migrated to the package's initial value, with a `$reset` root commit, so the reset is in its history (`reset`); one declared with no initial value goes back to unassigned, its chain dropped as a `$reset` drops it, for its first state to be committed again, and the plan says so (`unassign`), never that it was reset to a value.
 - `--plan` answers the plan, each index's build, drop or keep among it, and writes nothing. The CLI's `--plan` fails when the deploy would be refused.
   - From a zip or a source, a plan imports nothing. Locally it reads the package where it is, through a view of the repository with the zip laid over it (`packageZipOpen`): the package, record, index and migration objects and the initial values, each read when asked for and checked against its hash. The view refuses every write.
   - A server plans only a package it holds, so the CLI refuses a plan from a zip or a source against one, naming the two steps: `e3 package import`, then `workspace deploy <name>@<version> --plan`.
@@ -766,7 +768,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 | `$compact` | `$idem.commit` points at this commit, whose state holds the keyed write | carried | rewritten: each step's time kept, its commit dropped |
 | `$migrate:<name>` | `$idem.commit` points at this commit, whose state holds the keyed write | written by the last | written by the last: each step it ran by its own commit, beside the steps applied before |
 | `$reset` | dropped: the keyed write is gone with the state | written, the whole chain | written, the whole chain applied by this commit |
-| `$init` | none | written, the whole chain | written, the whole chain applied by this commit |
+| `$init`, a deploy's mint or the system commit of a first state | none | written, the whole chain | written, the whole chain applied by this commit |
 
 **System commits** (`recordSystemCommit`) commit a given state as a named system commit, such as a cloud's `$rollback` and `$restore`, so that what the commit does to the slots is the commit protocol's.
 - **Names.** A system commit is named `$` and an identifier, never one of e3's own commits' names (`$init`, `$deploy`, `$reset`, `$reindex`, `$compact`). A mutation's name is an identifier, refused otherwise where it is declared, so no user commit takes a name beginning with `$`.
@@ -776,6 +778,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
 - **Indexes.** It rebuilds the indexes whose declarations differ from those the state was built under, and drops those the package does not declare.
 - **Slots.** It carries every reserved slot, as the table says, so a keyed retry after a rollback is answered by the keyed commit, which stays in the chain under it.
 - **Arguments and head.** It records the caller's arguments as a mutation's are, and refuses a head the caller did not expect.
+- **A first state.** A record declared with no initial value holds none after its deploy: its ref is unassigned, as the package exports it, and its dependents wait as they wait on an unset input — a run leaves them waiting and goes on without them (§3.15) — so nothing runs on an empty state. A system commit named `$init` commits its first state — from a stored value, which `deliveryAdoptStored` takes a delivery in as, naming no dataset, or `e3 seed` from a file — with a `{ state, applied }` target whose `applied` is the whole declared chain, since a first state is at the package's type. It writes the ref as a mint writes it, `$schema` and `$migrations` naming itself and no idempotency slot, and is refused on a record that holds a state; every other name is refused on one that holds none, as a mutation, a compaction and a reindex are. The intake and the commit run under one hold of the repository's running work (§3.16), since what the intake stores is named by nothing until the commit. A first state, like a restored one, is read as the door reads a stored value (§3.6): its type from its manifest, or from the head of any other object, never the object whole; a collection the store holds whole, or a manifest an older e3 cut, is refused as the door refuses it, since a record's collection is the manifest of its segments, which its mutations rewrite a segment at a time. A `--plan` of a deploy that migrates such a record plans every index the package declares as built: the migrated state is not stored yet, and names none.
 
 **GC.** A record object's migrations are walked, and a migration object's `bodyIr` and `programIr` are leaves.
 

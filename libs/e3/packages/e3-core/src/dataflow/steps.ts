@@ -52,8 +52,10 @@ import type {
   TaskState,
   InitializeResult,
   PrepareTaskResult,
+  PrepareTaskWaiting,
   TaskCompletedResult,
   TaskFailedResult,
+  TasksWaitingResult,
   FinalizeResult,
   TreeUpdateResult,
   ExecutionEvent,
@@ -379,8 +381,9 @@ export function stepGetReady(state: DataflowExecutionState): string[] {
  * Check if the execution is complete.
  *
  * An execution is complete when all tasks are in a terminal state
- * (completed, failed, skipped) or have permanently unresolvable
- * dependencies. Returns false if any non-terminal tasks remain.
+ * (completed, failed, skipped, or waiting on an unassigned input) or have
+ * permanently unresolvable dependencies. Returns false if any non-terminal
+ * tasks remain.
  *
  * This is a pure function - it only reads state.
  *
@@ -410,7 +413,7 @@ export function stepIsComplete(state: DataflowExecutionState): boolean {
       if (task) {
         const hasUnmetDeps = task.dependsOn.some(dep => {
           const depState = state.tasks.get(dep);
-          return depState && (depState.status === 'failed' || depState.status === 'skipped');
+          return depState && (depState.status === 'failed' || depState.status === 'skipped' || depState.status === 'waiting');
         });
         if (!hasUnmetDeps) {
           if (runSet !== null && !runSet.has(taskState.name)) {
@@ -488,6 +491,9 @@ export async function stepDetectInputChanges(
  * For each affected task that is not currently in_progress:
  * - completed: reset to pending, decrement executed/cached counter, emit task_invalidated
  * - deferred: reset to pending
+ * - waiting: reset to pending — the input it waited on may be the one that
+ *   changed, and the loop decides it again — unless a task it depends on still
+ *   waits, which decides it again as that task completes (stepTaskCompleted)
  * - pending/ready: leave as-is (will pick up new inputs naturally)
  * - skipped: leave as-is (upstream failure still applies)
  * - failed: leave as-is (task already failed; orchestrator is winding down)
@@ -555,6 +561,11 @@ export function stepInvalidateTasks(
     } else if (taskState.status === 'deferred') {
       // Un-defer — it will be re-evaluated for readiness
       // Don't add to invalidated — task was never executed
+      taskState.status = 'pending';
+    } else if (taskState.status === 'waiting' && !waitsOnDependency(state, graph, taskName)) {
+      // Stop waiting — the input it waited on may be the one that changed,
+      // and the loop decides it again — unless a task it reads still waits,
+      // which decides it again as that task completes
       taskState.status = 'pending';
     }
   }
@@ -650,16 +661,22 @@ export function stepTaskResultStale(
  * 1. Resolves input hashes from current workspace state
  * 2. Checks if there's a valid cached execution
  *
+ * A task an input of which is unassigned — one nothing has set, or a record
+ * whose first state is not yet committed — cannot run: the answer names the
+ * inputs, and the loop leaves the task waiting ({@link stepTasksWaiting})
+ * rather than fail the run.
+ *
  * @param storage - Storage backend
  * @param state - Current execution state
  * @param taskName - Name of the task to prepare
- * @returns Preparation result with input hashes and cache status
+ * @returns Preparation result with input hashes and cache status, or the
+ *   inputs the task waits on
  */
 export async function stepPrepareTask(
   storage: StorageBackend,
   state: DataflowExecutionState,
   taskName: string
-): Promise<PrepareTaskResult> {
+): Promise<PrepareTaskResult | PrepareTaskWaiting> {
   const graph = getGraph(state);
   const task = graph.tasks.find(t => t.name === taskName);
   if (!task) {
@@ -674,14 +691,14 @@ export async function stepPrepareTask(
     task
   );
 
-  // Check for null inputs (unassigned)
+  // An unassigned input: the task waits for it
   const validInputHashes: string[] = [];
-  for (const hash of inputHashes) {
-    if (hash === null) {
-      throw new Error(`Task '${taskName}' has unassigned input`);
-    }
-    validInputHashes.push(hash);
+  const unassigned: string[] = [];
+  for (const [i, hash] of inputHashes.entries()) {
+    if (hash === null) unassigned.push(task.inputs[i]!);
+    else validInputHashes.push(hash);
   }
+  if (unassigned.length > 0) return { kind: 'waiting', task: taskName, unassigned };
 
   // Check cache unless the run forces this task: every task, the filter's
   // target, or the ones it names (stepTaskForced).
@@ -712,6 +729,7 @@ export async function stepPrepareTask(
   }
 
   return {
+    kind: 'prepared',
     task: taskName,
     taskHash: task.hash,
     inputHashes: validInputHashes,
@@ -723,6 +741,96 @@ export async function stepPrepareTask(
 // =============================================================================
 // State Mutation Step Functions
 // =============================================================================
+
+/**
+ * The tasks a run's state holds `waiting`: those left waiting on an
+ * unassigned input, and their dependents, in the state's order.
+ *
+ * This is a pure function - it only reads state.
+ *
+ * @param state - Execution state
+ * @returns Their names
+ */
+export function waitingTasks(state: DataflowExecutionState): string[] {
+  const waiting: string[] = [];
+  for (const [name, taskState] of state.tasks) {
+    if (taskState.status === 'waiting') waiting.push(name);
+  }
+  return waiting;
+}
+
+/** Whether a task depends on a task left waiting: it cannot run until that
+ *  task has, however its own inputs stand, so it keeps waiting. */
+function waitsOnDependency(state: DataflowExecutionState, graph: DataflowGraph, taskName: string): boolean {
+  const task = graph.tasks.find((each) => each.name === taskName);
+  return task !== undefined && task.dependsOn.some((dep) => state.tasks.get(dep)?.status === 'waiting');
+}
+
+/**
+ * Leave a task waiting on an unassigned input, and its dependents with it.
+ *
+ * Mutates the execution state: the task's status is `waiting`, and so is
+ * every task downstream of it that has not run — within the filter's run set,
+ * when the run has one, as a failure's skips are — since none can have its
+ * inputs while this one waits. The run goes on without them and ends
+ * completed once the rest has run: a waiting task counts against no outcome,
+ * and is no failure. It goes back to pending once the input is assigned
+ * while the run is in flight ({@link stepInvalidateTasks}), as a task it
+ * waited on completes ({@link stepTaskCompleted}), or as a run that yielded
+ * resumes ({@link stepYield}), and the loop decides it again.
+ *
+ * No event records it: a run's events are a stored form, which a new event
+ * would change. The state's task statuses say which tasks wait
+ * ({@link waitingTasks}), and a store derives the summary's count from them.
+ *
+ * @param state - Execution state to mutate
+ * @param taskName - The task whose input is unassigned
+ * @param unassigned - The task's inputs that are unassigned, as keypaths
+ * @returns Each task left waiting, the named one first, with the inputs it
+ *   waits on
+ */
+export function stepTasksWaiting(
+  state: DataflowExecutionState,
+  taskName: string,
+  unassigned: readonly string[],
+): TasksWaitingResult {
+  const taskState = state.tasks.get(taskName) as Mutable<TaskState> | undefined;
+  if (!taskState) {
+    throw new Error(`Task '${taskName}' not found in state`);
+  }
+  const graph = getGraph(state);
+  taskState.status = 'waiting';
+  const waiting: TasksWaitingResult['waiting'] = [{ task: taskName, inputs: [...unassigned] }];
+
+  // Its dependents that have not run wait with it, as a failure's are
+  // skipped: those in the filter's run set, and none already settled
+  const runSet = stepGetRunSet(state);
+  const completed = new Set<string>();
+  const settled = new Set<string>();
+  for (const [name, ts] of state.tasks) {
+    if (ts.status === 'completed') completed.add(name);
+    else if (ts.status === 'skipped' || ts.status === 'waiting') settled.add(name);
+  }
+  const dependents = dataflowGetDependentsToSkip(graph, taskName, completed, settled).filter((name) => {
+    const ts = state.tasks.get(name);
+    if (!ts || (ts.status !== 'pending' && ts.status !== 'ready' && ts.status !== 'deferred')) return false;
+    return runSet === null || runSet.has(name);
+  });
+  const producerOf = new Map(graph.tasks.map((task) => [task.output, task.name] as const));
+  const nowWaiting = new Set([taskName, ...dependents]);
+  for (const name of dependents) {
+    (state.tasks.get(name) as Mutable<TaskState>).status = 'waiting';
+    const task = graph.tasks.find((each) => each.name === name)!;
+    waiting.push({
+      task: name,
+      inputs: task.inputs.filter((input) => {
+        const producer = producerOf.get(input);
+        return producer !== undefined && nowWaiting.has(producer);
+      }),
+    });
+  }
+  return { waiting };
+}
 
 /**
  * Mark a task as started (in-progress).
@@ -907,7 +1015,9 @@ export function stepUnitRequeued(
  * task's output, and returns the newly ready tasks. A dependent the loop
  * deferred, its inputs' versions disagreeing, goes back to pending: one of
  * its inputs is produced anew, which may resolve the disagreement, and a
- * deferral is decided again as the task next launches.
+ * deferral is decided again as the task next launches. So does a dependent
+ * left waiting with this task ({@link stepTasksWaiting}), unless another task
+ * it reads still waits.
  *
  * @param state - Execution state to mutate
  * @param taskName - Name of the task
@@ -965,11 +1075,14 @@ export function stepTaskCompleted(
     state.versionVectors.set(task.output, mergedVV);
   }
 
-  // Its deferred dependents are decided again
+  // Its deferred dependents are decided again, and so are its waiting ones
+  // that wait on no other task: left waiting with this task, which has since
+  // run
   for (const dependent of graph.tasks) {
     if (!dependent.dependsOn.includes(taskName)) continue;
     const ts = state.tasks.get(dependent.name) as Mutable<TaskState> | undefined;
     if (ts?.status === 'deferred') ts.status = 'pending';
+    else if (ts?.status === 'waiting' && !waitsOnDependency(state, graph, dependent.name)) ts.status = 'pending';
   }
 
   // Find newly ready tasks
@@ -1156,6 +1269,7 @@ export function stepFinalize(state: DataflowExecutionState): {
     cached: Number(state.cached),
     failed: Number(state.failed),
     skipped: Number(state.skipped),
+    waiting: waitingTasks(state).length,
     reexecuted: Number(state.reexecuted),
     duration,
   };
@@ -1199,7 +1313,9 @@ export function stepCancel(
  * that actually finished in the meantime are served from the execution
  * cache. `deferred` tasks are also reset — deferral is a launch-time
  * decision and the version-vector conflict may have resolved since; the
- * consistency check at re-launch re-defers if it genuinely persists.
+ * consistency check at re-launch re-defers if it genuinely persists. So are
+ * `waiting` tasks: the input one waits on may have been assigned since, and
+ * a resumed loop decides each again, leaving it waiting if it still is.
  * The execution status stays 'running' — yield is a pause, not a
  * terminal state. A split task keeps its `plan`: a resumed loop takes its
  * stage up again, and finds the units that finished in the execution cache.
@@ -1210,7 +1326,7 @@ export function stepCancel(
 export function stepYield(state: DataflowExecutionState): { reset: string[] } {
   const reset: string[] = [];
   for (const [name, taskState] of state.tasks) {
-    if (taskState.status === 'in_progress' || taskState.status === 'deferred') {
+    if (taskState.status === 'in_progress' || taskState.status === 'deferred' || taskState.status === 'waiting') {
       (taskState as Mutable<TaskState>).status = 'pending';
       reset.push(name);
     }

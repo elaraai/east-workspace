@@ -744,8 +744,11 @@ export interface InMemoryRecordDef {
     name: string;
     /** The record's state type. */
     stateType: EastType | EastTypeValue;
-    /** Initial state value (seeds the dataset cache). */
-    initial: unknown;
+    /** Initial state value (seeds the dataset cache); absent for a record
+     *  declared with no initial value, which holds no state — and refuses
+     *  every mutation — until its first state is committed, as a deployed one
+     *  does. */
+    initial?: unknown;
     /** Mutations — each a reducer over the decoded state + decoded args. */
     mutations: {
         name: string;
@@ -796,8 +799,9 @@ export function createInMemoryRecordApi(
             delta: none,
         };
         compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0 });
-        // Seed the record's current value into the dataset cache.
-        void cache.write(workspace, recordPath(def.name), encodeBeast2For(stateType)(def.initial));
+        // Seed the record's current value into the dataset cache; a record
+        // declared with no initial value holds none
+        if (def.initial !== undefined) void cache.write(workspace, recordPath(def.name), encodeBeast2For(stateType)(def.initial));
     }
 
     return {
@@ -816,7 +820,11 @@ export function createInMemoryRecordApi(
             if (!m) return { outcome: variant("invalid", { message: `no mutation "${mutation}"` }) } as MutationResult;
             if (req.idempotencyKey !== undefined && c.keyed?.key === req.idempotencyKey) return c.keyed.result;
             const current = cache.read(ws, recordPath(record));
-            const state = current !== undefined ? decodeBeast2For(c.stateType)(current) : undefined;
+            // A record that holds no state yet refuses the write, as the server does
+            if (current === undefined) {
+                return { outcome: variant("invalid", { message: `record '${record}' has no state yet: it is unassigned until its first state is committed` }) } as MutationResult;
+            }
+            const state = decodeBeast2For(c.stateType)(current);
             const args = req.args.map((bytes, i) => decodeBeast2For(m.argTypes[i]!)(bytes));
             let next: unknown;
             try {

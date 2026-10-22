@@ -47,7 +47,7 @@ function endedRun(held: number, last = held): { polls: string[]; fetch: typeof g
       variant('complete', { task: `t${since + i + 1}`, timestamp: AT, duration: 1, peakBytes: none }));
     return success(ApiDataflowExecutionStateType, {
       runId: 'run-1', status: variant('completed', null), startedAt: AT, completedAt: some(AT),
-      summary: some({ executed: BigInt(held), cached: 0n, failed: 0n, skipped: 0n, duration: 1_000 }),
+      summary: some({ executed: BigInt(held), cached: 0n, failed: 0n, skipped: 0n, waiting: 0n, duration: 1_000 }),
       events, nextSeq: BigInt(since + events.length), lastSeq: BigInt(last),
       budget: none, waiting: [], splits: [],
     });

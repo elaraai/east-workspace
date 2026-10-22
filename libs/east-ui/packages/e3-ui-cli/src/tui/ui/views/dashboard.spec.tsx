@@ -115,7 +115,7 @@ function fixture(options: { running?: boolean } = {}): Action[] {
         }
         : {
             state: {
-                status: variant('failed', null), startedAt: iso(120_000), completedAt: some(iso(81_600)), summary: some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, duration: 38_400 }), events: [], nextSeq: 8n,
+                status: variant('failed', null), startedAt: iso(120_000), completedAt: some(iso(81_600)), summary: some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, waiting: 0n, duration: 38_400 }), events: [], nextSeq: 8n,
                 budget: some({ cores: 8n, memory: BigInt(14 * GB), coresInUse: 0n, memoryInUse: 0n }),
                 waiting: [],
                 splits: [],
@@ -177,6 +177,15 @@ describe('the dashboard', () => {
         assert.match(lines[25]!, /^  overrides\s+○ unset\s+Dict<String, Float>\s+—\s+—$/);
         assert.match(lines[33]!, /^ › _\s+\/ commands · type a name to jump · \? help$/);
         assert.match(lines[35]!, /^ ↑↓ move   ⏎ open   r run   x stop   w workspaces   \/ commands\s+polled just now$/);
+    });
+
+    test('a run that left tasks waiting on an input nothing has set says how many; one that left none says nothing of it', async () => {
+        const actions = fixture();
+        const execution = actions[5] as Extract<Action, { type: 'data/execution' }>;
+        const state = execution.state as { summary: unknown };
+        state.summary = some({ executed: 4n, cached: 1n, failed: 1n, skipped: 0n, waiting: 2n, duration: 38_400 });
+        mounted = await mountApp({ view: dashboardView(), actions });
+        assert.match(mounted.lines()[8]!, /^ LAST EXECUTION\s+✗ FAILED · started 2m ago · 38\.4s · executed 4 · cached 1 · failed 1 · skipped 0 · waiting 2$/);
     });
 
     test('⏎ opens the failed task\'s logs, a task, or an input; gg / G / page keys walk the rows', async () => {

@@ -55,7 +55,7 @@ import {
   type LockProgress,
   type LockStatus,
 } from '@elaraai/e3-types';
-import { datasetAdoptKnown, datasetAdoptObject, datasetSetStored, type DatasetAdoptProgress } from './dataset-adopt.js';
+import { datasetAdoptKnown, datasetAdoptObject, datasetSetStored, deliveryAdoptStored, type DatasetAdoptProgress } from './dataset-adopt.js';
 import { datasetAdoptFile, objectAdoptFile } from './dataset-adopt-file.js';
 import { DatasetSegments } from './dataset-open.js';
 import { rememberedManifest } from './delivery-intake.js';
@@ -981,6 +981,54 @@ describe('path-initialised inputs', () => {
     });
   });
 
+  describe('deliveryAdoptStored (a delivery taken in as a stored value, naming no dataset)', () => {
+    const declared = { address: '.records.table', type: toEastTypeValue(TableType) };
+
+    it('takes a collection the store holds whole in as the manifest its value has, remembers it, and writes no ref', async () => {
+      await deployTableWorkspace('stored-delivery');
+      const whole = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(12)));
+      const heard: DatasetAdoptProgress[] = [];
+
+      const result = await deliveryAdoptStored(storage, testRepo, 'ws', declared, whole, { runner, onProgress: (progress) => heard.push(progress) });
+
+      assert.equal(result.hash, await datasetWrite(storage, testRepo, rows(12), TableType), 'stored as the value path stores it');
+      assert.equal(result.taken, 'taken');
+      assert.equal(result.runners?.length, 1, 'one runner took it in');
+      assert.equal(result.rows, 12);
+      assert.ok(heard.length > 0 && heard.every((progress) => progress.phase === 'take-in'), 'an object is named by its hash: there is nothing to hash');
+      assert.equal((await rememberedManifest(storage, testRepo, whole))?.hash, result.hash, 'the delivery is remembered');
+      const known = await deliveryAdoptStored(storage, testRepo, 'ws', declared, whole);
+      assert.deepEqual([known.taken, known.hash], ['known', result.hash], 'taken in once: the memo answers, with no runner');
+      assert.equal((await workspaceGetDatasetStatus(storage, testRepo, 'ws', [...tablePath])).refType, 'unassigned', 'no ref was written');
+      assert.ok(!(await storage.datasets.list(testRepo, 'ws')).includes('records/table'));
+    });
+
+    it('carries any other value as the object it is, and refuses one of another type naming the address, one the store does not hold, or a collection with no runner', async () => {
+      const tally = { address: '.records.tally', type: toEastTypeValue(IntegerType) };
+      const bytes = encodeBeast2For(IntegerType)(5n);
+      const five = await storage.objects.write(testRepo, bytes);
+      assert.deepEqual(await deliveryAdoptStored(storage, testRepo, 'ws', tally, five),
+        { hash: five, size: bytes.length, taken: 'carried', segments: null, rows: null });
+
+      const text = await storage.objects.write(testRepo, encodeBeast2For(StringType)('five'));
+      await assert.rejects(deliveryAdoptStored(storage, testRepo, 'ws', tally, text), (err: unknown) => {
+        assert.ok(err instanceof DatasetTypeMismatchError, String(err));
+        assert.equal(err.workspace, 'ws');
+        assert.equal(err.path, '.records.tally');
+        assert.match(err.message, new RegExp(`^dataset '\\.records\\.tally' declares \\.Integer but object ${text.slice(0, 8)}\\.\\.\\. carries \\.String`));
+        return true;
+      });
+      await assert.rejects(deliveryAdoptStored(storage, testRepo, 'ws', tally, 'f'.repeat(64)), ObjectNotFoundError);
+      const whole = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(12)));
+      await assert.rejects(deliveryAdoptStored(storage, testRepo, 'ws', declared, whole),
+        /holds a collection, which intake units take in, and no runner was given to run them/);
+    });
+
+    it('is the same door through the portable entry', () => {
+      assert.strictEqual(portable.deliveryAdoptStored, deliveryAdoptStored);
+    });
+  });
+
   describe('workspaceSetDataset type check', () => {
     it('refuses a value encoded under another type, before any object is written', async () => {
       const pkg = e3.package('set-check', '1.0.0', e3.input('count', IntegerType, variant('value', 1n)));
@@ -1385,6 +1433,12 @@ describe('path-initialised inputs', () => {
       const hold = held();
       await sweepWaitsFor(hold, workspaceDeploy(hold.storage, testRepo, 'ws', 'fence-deploy', '1.0.0', { runner }));
       assert.equal(await tableRows(), 24);
+    });
+
+    it('a delivery taken in as a stored value, from its first segment to its return', async () => {
+      const whole = await storage.objects.write(testRepo, encodeInSegmentsOf(TableType, 8)(rows(40)));
+      const hold = held();
+      await sweepWaitsFor(hold, deliveryAdoptStored(hold.storage, testRepo, 'ws', { address: '.records.table', type: toEastTypeValue(TableType) }, whole, { runner }));
     });
 
     it('the transfer dedup door, which also takes the workspace lock', async () => {

@@ -7,7 +7,8 @@
  * The dataflow loop's contract over a backend: a run of a deployed workspace,
  * driven by the orchestrator with a mock runner, through nothing but the
  * backend's stores — its order, its outputs and its run record, the execution
- * cache, a failure, a change that lands mid-run, and a cancel.
+ * cache, a failure, a change that lands mid-run, a task left waiting on an
+ * input nothing has set, and a cancel.
  */
 
 import { describe, it, type TestContext } from 'node:test';
@@ -22,6 +23,7 @@ import { LocalOrchestrator } from '../execution/local-orchestrator.js';
 import type { ExecutionHandle } from '../dataflow/orchestrator/interfaces.js';
 import { InMemoryStateStore } from '../dataflow/state-store/InMemoryStateStore.js';
 import type { ExecutionStateStore } from '../dataflow/state-store/interfaces.js';
+import type { StorageBackend } from '../storage/interfaces.js';
 import { DataflowAbortedError, DataflowError, TaskNotFoundError } from '../errors.js';
 import { inputsHash } from '../executions.js';
 import { MockTaskRunner } from '../execution/MockTaskRunner.js';
@@ -64,6 +66,46 @@ async function deployChain(t: TestContext, { storage, repo }: BackendContext): P
   await workspaceDeploy(storage, repo, 'ws', 'chain', '1.0.0');
   const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
   return { extract: deployed.tasks.get('extract')!, model: deployed.tasks.get('model')!, report: deployed.tasks.get('report')! };
+}
+
+/**
+ * Deploys three tasks over two inputs to workspace `ws`, `a` set and `b`
+ * never: `double` over `a`, `sum` over `a` and `b`, and `report` over what
+ * `sum` writes.
+ *
+ * @returns Each task's hash
+ */
+async function deployPartial(t: TestContext, { storage, repo }: BackendContext): Promise<{ double: string; sum: string; report: string }> {
+  const a = e3.input('a', IntegerType, variant('value', 1n));
+  const b = e3.input('b', IntegerType);
+  const double = e3.task('double', [a], East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n)));
+  const sum = e3.task('sum', [a, b], East.function([IntegerType, IntegerType], IntegerType, ($, x, y) => x.add(y)));
+  const report = e3.task('report', [sum.output], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
+  const zip = join(scratch(t), 'partial.zip');
+  await e3.export(e3.package('partial', '1.0.0', a, b, double, sum, report), zip);
+  await packageImport(storage, repo, zip);
+  await workspaceCreate(storage, repo, 'ws');
+  await workspaceDeploy(storage, repo, 'ws', 'partial', '1.0.0');
+  const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
+  return { double: deployed.tasks.get('double')!, sum: deployed.tasks.get('sum')!, report: deployed.tasks.get('report')! };
+}
+
+/** The tree path of input `name`. */
+const inputPath = (name: string) => [variant('field', 'inputs'), variant('field', name)];
+
+/**
+ * Makes the store's execution index of one task unreadable for the rest of
+ * the test: preparing the task reads it, for the cache, so the loop throws
+ * there, as it does when a store refuses a read it makes.
+ */
+function unreadableExecutions(t: TestContext, storage: StorageBackend, taskHash: string, taskName: string): void {
+  const refs = storage.refs;
+  const listIds = refs.executionListIds.bind(refs);
+  refs.executionListIds = async (repo, task, inHash) => {
+    if (task === taskHash) throw new Error(`the executions of task '${taskName}' do not read`);
+    return listIds(repo, task, inHash);
+  };
+  t.after(() => { refs.executionListIds = listIds; });
 }
 
 /**
@@ -343,13 +385,87 @@ export function dataflowTests(setup: BackendSetup): void {
       assert.equal((await storage.refs.dataflowRunGetLatest(repo, 'ws'))?.status.type, 'cancelled');
     });
 
+    it('leaves a task waiting on an input nothing has set, and its dependents, and completes without them: they run once the input is set', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const { double, sum, report } = await deployPartial(t, context);
+      const runner = new MockTaskRunner();
+      runner.setResult(double, { state: 'success', cached: false, outputHash: 'double-out' });
+      runner.setResult(sum, { state: 'success', cached: false, outputHash: 'sum-out' });
+      runner.setResult(report, (inputs) => ({ state: 'success', cached: false, outputHash: `report-of-${inputs[0]}` }));
+      const stateStore = stateStoreOf(context);
+      const orchestrator = new LocalOrchestrator(stateStore);
+      const waiting: [string, string[]][] = [];
+      const handle = await orchestrator.start(storage, repo, 'ws', { runner, onTaskWaiting: (task, inputs) => waiting.push([task, inputs]) });
+      const result = await orchestrator.wait(handle);
+
+      assert.equal(result.success, true, 'a task left waiting fails nothing');
+      assert.deepEqual([result.executed, result.waiting, result.failed, result.skipped], [1, 2, 0, 0]);
+      assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [double], 'double ran; sum and report did not');
+      assert.deepEqual(waiting, [['sum', ['.inputs.b']], ['report', ['.tasks.sum.output']]], 'each names what it waits on');
+      const ended = await stateStore.read(repo, 'ws', handle.id);
+      assert.equal(ended?.status, 'completed');
+      assert.deepEqual([ended?.tasks.get('sum')?.status, ended?.tasks.get('report')?.status], ['waiting', 'waiting']);
+      assert.equal((await stateStore.readLatestSummary(repo, 'ws'))?.waiting, 2n, 'the summary counts them');
+      assert.equal((await storage.datasets.read(repo, 'ws', 'tasks/sum/output'))?.type ?? 'unassigned', 'unassigned', 'nothing ran over an unset input');
+      const run = await storage.refs.dataflowRunGet(repo, 'ws', result.runId);
+      assert.equal(run?.status.type, 'completed');
+      assert.deepEqual([...run!.taskExecutions.keys()], ['double']);
+
+      // A run scoped to the task that can run leaves nothing waiting
+      runner.clearCalls();
+      const scoped = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner, filter: 'double' }));
+      assert.deepEqual([scoped.executed, scoped.waiting], [1, 0]);
+
+      // The input set, the next run runs them
+      await workspaceSetDataset(storage, repo, 'ws', inputPath('b'), 2n, IntegerType);
+      runner.clearCalls();
+      const next = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', { runner }));
+      assert.deepEqual([next.success, next.executed, next.waiting], [true, 3, 0]);
+      assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [double, sum, report]);
+      assert.deepEqual(runner.getCalls()[2]!.inputHashes, ['sum-out'], 'report reads what sum wrote');
+    });
+
+    it('runs a waiting task in the same run when its input is set while the run is in flight', async (t) => {
+      const context = await setup(t);
+      const { storage, repo } = context;
+      const { double, sum, report } = await deployPartial(t, context);
+      const runner = new MockTaskRunner();
+      // `b` is set while double runs, once sum and report have been left
+      // waiting: the change double's completion detects decides them again
+      let leftWaiting!: () => void;
+      const waited = new Promise<void>((resolve) => { leftWaiting = resolve; });
+      runner.setResult(double, async () => {
+        await waited;
+        await workspaceSetDataset(storage, repo, 'ws', inputPath('b'), 2n, IntegerType);
+        return { state: 'success', cached: false, outputHash: 'double-out' };
+      });
+      runner.setResult(sum, { state: 'success', cached: false, outputHash: 'sum-out' });
+      runner.setResult(report, { state: 'success', cached: false, outputHash: 'report-out' });
+      const orchestrator = new LocalOrchestrator(stateStoreOf(context));
+      const waiting: string[] = [];
+      const result = await orchestrator.wait(await orchestrator.start(storage, repo, 'ws', {
+        runner,
+        onTaskWaiting: (task) => {
+          waiting.push(task);
+          if (task === 'report') leftWaiting();
+        },
+      }));
+
+      assert.deepEqual([result.success, result.executed, result.waiting], [true, 3, 0]);
+      assert.deepEqual(waiting, ['sum', 'report'], 'left waiting while double ran');
+      assert.deepEqual(runner.getCalls().map(({ taskHash }) => taskHash), [double, sum, report]);
+      const written = await storage.datasets.read(repo, 'ws', 'tasks/report/output');
+      assert.ok(written?.type === 'value' && written.value.hash === 'report-out');
+    });
+
     it('ends a run whose loop throws while a task runs only once that task has settled: failed for good, its record too, its locks held until then', async (t) => {
       const context = await setup(t);
       const { storage, repo } = context;
-      // `first` runs while preparing `second`, whose input was never
-      // assigned, throws out of the loop.
+      // `first` runs while preparing `second` throws out of the loop: the
+      // store's execution index of `second` does not read.
       const a = e3.input('a', IntegerType, variant('value', 1n));
-      const b = e3.input('b', IntegerType);
+      const b = e3.input('b', IntegerType, variant('value', 2n));
       const add = East.function([IntegerType], IntegerType, ($, x) => x.add(1n));
       const zip = join(scratch(t), 'late.zip');
       await e3.export(e3.package('late', '1.0.0', a, b, e3.task('first', [a], add), e3.task('second', [b], add)), zip);
@@ -357,6 +473,7 @@ export function dataflowTests(setup: BackendSetup): void {
       await workspaceCreate(storage, repo, 'ws');
       await workspaceDeploy(storage, repo, 'ws', 'late', '1.0.0');
       const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
+      unreadableExecutions(t, storage, deployed.tasks.get('second')!, 'second');
 
       // `first` runs until the run stops it, as a runner does once the run's
       // signal aborts — or for two seconds, should nothing stop it.
@@ -374,17 +491,17 @@ export function dataflowTests(setup: BackendSetup): void {
       const stateStore = stateStoreOf(context);
       const orchestrator = new LocalOrchestrator(stateStore);
       const handle = await orchestrator.start(storage, repo, 'ws', { runner });
-      await assert.rejects(orchestrator.wait(handle), { message: 'Task \'second\' has unassigned input' });
+      await assert.rejects(orchestrator.wait(handle), { message: 'the executions of task \'second\' do not read' });
 
       assert.equal(lockedAtEnd, true, 'the running task ended while the run still held its locks');
       assert.equal(await storage.locks.getState(repo, 'ws#dataflow'), null, 'the run let its locks go once it had ended');
       const ended = await stateStore.read(repo, 'ws', handle.id);
       assert.equal(ended?.status, 'failed');
-      assert.deepEqual(ended?.error, some('Task \'second\' has unassigned input'));
+      assert.deepEqual(ended?.error, some('the executions of task \'second\' do not read'));
       await new Promise((resolve) => setTimeout(resolve, 20));
       assert.equal((await stateStore.read(repo, 'ws', handle.id))?.status, 'failed', 'nothing the run launched wrote its state back');
       const run = await storage.refs.dataflowRunGet(repo, 'ws', handle.id);
-      assert.ok(run?.status.type === 'failed' && run.status.value.error === 'Task \'second\' has unassigned input',
+      assert.ok(run?.status.type === 'failed' && run.status.value.error === 'the executions of task \'second\' do not read',
         'its record says it failed, and why');
       await assert.rejects(orchestrator.cancel(handle), /not found/, 'as for any run that has ended, there is nothing to cancel');
     });
@@ -399,8 +516,9 @@ export function dataflowTests(setup: BackendSetup): void {
         if (pieceBytes === undefined) delete process.env.E3_TEST_PIECE_BYTES;
         else process.env.E3_TEST_PIECE_BYTES = pieceBytes;
       });
-      // `total` is planned into pieces, then preparing `waits`, whose input was
-      // never assigned, throws out of the loop before a unit has launched.
+      // `total` is planned into pieces, then preparing `waits` throws out of
+      // the loop before a unit has launched: its execution index does not
+      // read.
       const rows = e3.input('rows', DictType(IntegerType, IntegerType), variant('value', new SortedMap(
         Array.from({ length: 8000 }, (_, i) => [BigInt(i), BigInt(i)] as [bigint, bigint]), compareFor(IntegerType))));
       const total = e3.streamTask('total', {
@@ -411,7 +529,7 @@ export function dataflowTests(setup: BackendSetup): void {
           $(emit(value));
         });
       });
-      const missing = e3.input('missing', IntegerType);
+      const missing = e3.input('missing', IntegerType, variant('value', 1n));
       const waits = e3.task('waits', [missing], East.function([IntegerType], IntegerType, ($, x) => x.add(1n)));
       const zip = join(scratch(t), 'split.zip');
       await e3.export(e3.package('split', '1.0.0', rows, total, missing, waits), zip);
@@ -420,13 +538,14 @@ export function dataflowTests(setup: BackendSetup): void {
       await workspaceDeploy(storage, repo, 'ws', 'split', '1.0.0');
       const deployed = decodeBeast2For(PackageObjectType)(await storage.objects.read(repo, (await workspaceGetPackage(storage, repo, 'ws')).hash));
       const totalHash = deployed.tasks.get('total')!;
+      unreadableExecutions(t, storage, deployed.tasks.get('waits')!, 'waits');
       const runner = new MockTaskRunner();
       runner.setUnitResult(totalHash, (unit) => ({ state: 'success', cached: false, outputHash: unit.merge === null ? 'piece' : 'sum' }));
 
       const stateStore = stateStoreOf(context);
       const orchestrator = new LocalOrchestrator(stateStore);
       const handle = await orchestrator.start(storage, repo, 'ws', { runner });
-      await assert.rejects(orchestrator.wait(handle), { message: 'Task \'waits\' has unassigned input' });
+      await assert.rejects(orchestrator.wait(handle), { message: 'the executions of task \'waits\' do not read' });
 
       assert.deepEqual(runner.getUnitCalls(), [], 'no unit launched');
       const rowsRef = await storage.datasets.read(repo, 'ws', 'inputs/rows');

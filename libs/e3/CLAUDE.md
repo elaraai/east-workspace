@@ -8,7 +8,7 @@ The directory structure is:
  - packages/e3-types - Shared East/TypeScript type definitions (API wire types, dataset refs, package objects, execution state)
  - packages/e3 - TypeScript SDK for authoring e3 packages (`e3.input`, `e3.task`, `e3.package`, `e3.export`)
  - packages/e3-core - Core library (like libgit2): repository, objects, packages, workspaces, dataflow, executions, storage/execution/transfer backends
- - packages/e3-cli - CLI tool (`e3 repo|package|workspace|dataset|task|dataflow|run|call|mutate|history|compact|reindex|watch|convert|auth|completion`)
+ - packages/e3-cli - CLI tool (`e3 repo|package|workspace|dataset|task|dataflow|run|call|mutate|seed|history|compact|reindex|watch|convert|auth|completion`)
  - packages/e3-api-client - Stateless HTTP client for remote e3 repositories (BEAST2-serialized)
  - packages/e3-api-server - HTTP server exposing e3-core as a REST API
  - packages/e3-rack - Rack protocol, shared hub and rack task runner
