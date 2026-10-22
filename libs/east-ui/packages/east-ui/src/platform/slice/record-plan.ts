@@ -27,12 +27,16 @@ export interface RecordSlicePlan {
 /**
  * Whether one index can answer every clause without scanning or duplicate rows.
  * A clause under `__area` — a window, or the unplaced clause — is answered only
- * by an area index whose leading fields the other clauses fill exactly.
+ * by an area index whose leading fields the other clauses fill exactly. A
+ * series or a summary index answers none (#1039): the one files a row under
+ * each tile it touches, and the other's entries name no row; a reader reads
+ * their cells (`record-series.ts`).
  * @param index - Available field path.
  * @param where - Current narrowing.
  * @returns Whether it is a supported path.
  */
 export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choice>): boolean {
+    if (index.series.type === "some" || index.summary.type === "some") return false;
     for (const field of index.sets) {
         const choice = where.get(field);
         if (choice?.type !== "values" || choice.value.length !== 1) return false;

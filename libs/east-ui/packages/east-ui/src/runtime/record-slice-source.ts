@@ -4,7 +4,7 @@
  */
 
 /** Bounded windows over disjoint index ranges; never examines a record row. */
-import { ArrayType, none, printFor, some, type option, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, IntegerType, compareFor, none, printFor, some, type option, type ValueTypeOf } from "@elaraai/east";
 import { SeekQueryType, type SeekRangeType } from "../contracts/source.js";
 import type { RecordSlicePlan } from "../platform/slice/record-plan.js";
 
@@ -83,6 +83,26 @@ export interface RecordSlicePlacement {
     complete: boolean;
 }
 
+/**
+ * One cell a reader wants of a series or a summary index (#1039): some keys in
+ * one tile, its searches as `tileCellQueries` plans them, under a name the
+ * reader gives it.
+ */
+export interface RecordSliceCell {
+    /** The reader's name for it: unique among the cells it asks for at once. */
+    readonly id: string;
+    /** Its searches, a key's entries in the tile each. */
+    readonly queries: readonly Query[];
+}
+
+/** Where a cell's entries are, at one revision (#1039). */
+export interface RecordSliceCellRuns {
+    /** Each of its searches' bounds, in their order. */
+    readonly ranges: readonly Range[];
+    /** How many entries its searches hold: exact, before one is read. */
+    readonly total: bigint;
+}
+
 /** Resolved, ascending, disjoint ranges within one immutable revision. */
 export interface RecordSliceRuns {
     /** Named source. */
@@ -97,7 +117,10 @@ export interface RecordSliceRuns {
 
 const printQueries = printFor(ArrayType(SeekQueryType));
 const printQuery = printFor(SeekQueryType);
+const rowOrder = compareFor(IntegerType);
 const MAX_CACHED_RUNS = 128;
+/** Cells whose runs are kept per revision (#1039): a reader wanting more than a batch of searches reads a summary. */
+const MAX_CACHED_CELLS = 1024;
 /** Searches whose bounds are kept per revision; a window over an interval index is some fifty-five. */
 const MAX_LANDED_SEARCHES = 1024;
 const MAX_CACHED_PAGES = 32;
@@ -148,12 +171,17 @@ function windowRuns(result: RecordSliceRuns, offset: bigint, limit: bigint): Ran
  * requests however many ranges its narrowing selects. A window inside one run
  * is the page it is, read as one.
  *
+ * The cells of a series or a summary index (#1039) are read the same way: the
+ * searches of every cell a reader wants in one request, and the entries of
+ * every cell it reads in one more, each cell's runs kept per revision.
+ *
  * @typeParam T - An entry; its contents are opaque to this adapter.
  */
 export class RecordSliceSource<T> {
     private revision: string | undefined;
     private readonly resolved = new Map<string, RecordSliceRuns>();
     private readonly landed = new Map<string, Range>();
+    private readonly cells = new Map<string, RecordSliceCellRuns>();
     private readonly pages = new Map<RecordSliceRuns, Map<string, { rows: T[]; complete: boolean }>>();
     private pageCount = 0;
 
@@ -166,11 +194,40 @@ export class RecordSliceSource<T> {
         if (next !== this.revision) {
             this.resolved.clear();
             this.landed.clear();
+            this.cells.clear();
             this.pages.clear();
             this.pageCount = 0;
             this.revision = next;
         }
         return next;
+    }
+
+    /**
+     * Several searches of one source, in order: in one request when the reader
+     * batches them (a batch for each {@link MAX_RECORD_SLICE_BATCH}, all asked
+     * in this pass), else each its own search, all started together.
+     *
+     * @returns Each search's bounds, in order; none while any is pending
+     */
+    private searchAll(index: string, queries: readonly Query[]): option<Range[]> {
+        const ranges: Range[] = [];
+        let pending = false;
+        if (this.reader.seekAll !== undefined) {
+            for (let at = 0; at < queries.length; at += MAX_RECORD_SLICE_BATCH) {
+                const batch = this.reader.seekAll(index, queries.slice(at, at + MAX_RECORD_SLICE_BATCH));
+                if (batch.type === "none") pending = true;
+                else ranges.push(...batch.value);
+            }
+        } else {
+            for (const query of queries) {
+                const range = this.search(index, query);
+                if (range.type === "none") pending = true;
+                else ranges.push(range.value);
+            }
+        }
+        if (pending) return none;
+        if (ranges.length !== queries.length) throw new Error("The source answered a different number of searches than it was asked");
+        return some(ranges);
     }
 
     /** One search's bounds: kept once they land, so a read again asks the source only while they are pending. */
@@ -201,22 +258,12 @@ export class RecordSliceSource<T> {
             const total = this.reader.total(plan.index);
             if (total.type === "none") pending = true;
             else ranges.push({ found: total.value > 0n, row: 0n, count: total.value });
-        } else if (this.reader.seekAll !== undefined) {
-            // One request for every search the source does not hold (#1351): a
-            // plan of more than a batch takes several, all asked in this pass.
-            for (let at = 0; at < plan.queries.length; at += MAX_RECORD_SLICE_BATCH) {
-                const batch = this.reader.seekAll(plan.index, plan.queries.slice(at, at + MAX_RECORD_SLICE_BATCH));
-                if (batch.type === "none") pending = true;
-                else ranges.push(...batch.value);
-            }
         } else {
-            // Start independent requests together; never wait for the first
-            // request before starting the next selected value's search.
-            for (const query of plan.queries) {
-                const range = this.search(plan.index, query);
-                if (range.type === "none") pending = true;
-                else ranges.push(range.value);
-            }
+            // One request for every search the source does not hold (#1351), or
+            // independent requests started together, never one after another.
+            const found = this.searchAll(plan.index, plan.queries);
+            if (found.type === "none") pending = true;
+            else ranges.push(...found.value);
         }
         if (this.current() !== revision || pending) return none;
         ranges.sort((a, b) => a.row < b.row ? -1 : a.row > b.row ? 1 : 0);
@@ -236,6 +283,138 @@ export class RecordSliceSource<T> {
         const result = { index: plan.index, revision, runs, total };
         cache(this.resolved, key, result, MAX_CACHED_RUNS);
         return some(result);
+    }
+
+    /**
+     * Find several cells of a series or a summary index (#1039): each cell's
+     * searches' bounds and how many entries they hold — exact, before one is
+     * read. The searches of every cell not yet found go in one request (a batch
+     * for each {@link MAX_RECORD_SLICE_BATCH} of them, all asked in this pass),
+     * and a cell found is kept for its revision, so one asked again asks
+     * nothing.
+     *
+     * @param index - The index the cells are of
+     * @param cells - The cells
+     * @returns Each cell's runs, by its name; none while any is pending
+     * @throws {Error} When two cells share a name, or the source answers a search with bounds no search has
+     */
+    cellRuns(index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceCellRuns>> {
+        const revision = this.current();
+        if (revision === undefined) return none;
+        const found = new Map<string, RecordSliceCellRuns>();
+        const missing: { cell: RecordSliceCell; key: string }[] = [];
+        for (const cell of cells) {
+            if (found.has(cell.id) || missing.some(other => other.cell.id === cell.id)) throw new Error(`Two cells are named '${cell.id}'`);
+            const key = `${index}:${printQueries([...cell.queries])}`;
+            const known = this.cells.get(key);
+            if (known === undefined) { missing.push({ cell, key }); continue; }
+            cache(this.cells, key, known, MAX_CACHED_CELLS);
+            found.set(cell.id, known);
+        }
+        if (missing.length === 0) return some(found);
+        const ranges = this.searchAll(index, missing.flatMap(({ cell }) => cell.queries));
+        if (this.current() !== revision || ranges.type === "none") return none;
+        let at = 0;
+        for (const { cell, key } of missing) {
+            const own = ranges.value.slice(at, at + cell.queries.length);
+            at += cell.queries.length;
+            let total = 0n;
+            for (const range of own) {
+                if (range.row < 0n || range.count < 0n || range.found !== (range.count > 0n)) throw new Error("The source returned invalid search bounds");
+                total += range.count;
+            }
+            const runs: RecordSliceCellRuns = { ranges: own, total };
+            cache(this.cells, key, runs, MAX_CACHED_CELLS);
+            found.set(cell.id, runs);
+        }
+        return some(found);
+    }
+
+    /**
+     * Read several cells' entries (#1039): the entries of every cell's runs in
+     * one request — each run once, ascending, however many cells share it —
+     * handed back cell by cell, each in its searches' order. Nothing is kept
+     * here: the reader holds the cells it draws.
+     *
+     * @param index - The index the cells are of
+     * @param cells - The cells
+     * @returns Each cell's entries, by its name; none while its runs or the read are pending
+     * @throws {Error} As {@link RecordSliceSource.cellRuns} does; when two of the
+     *   cells' searches overlap without being one, or the entries read disagree
+     *   with their bounds
+     */
+    cellEntries(index: string, cells: readonly RecordSliceCell[]): option<Map<string, T[]>> {
+        const found = this.cellRuns(index, cells);
+        if (found.type === "none") return none;
+        const revision = this.revision!;
+        const byRow = new Map<bigint, Range>();
+        for (const runs of found.value.values()) {
+            for (const range of runs.ranges) {
+                if (range.count === 0n) continue;
+                const same = byRow.get(range.row);
+                if (same !== undefined && same.count !== range.count) throw new Error("The cells' searches overlap; refresh the view and retry");
+                byRow.set(range.row, range);
+            }
+        }
+        const runs = [...byRow.values()].sort((a, b) => rowOrder(a.row, b.row));
+        for (let i = 1; i < runs.length; i++) {
+            if (runs[i - 1]!.row + runs[i - 1]!.count > runs[i]!.row) throw new Error("The cells' searches overlap; refresh the view and retry");
+        }
+        const entries = this.readRuns(index, runs);
+        if (this.current() !== revision || entries.type === "none") return none;
+        // Where each run's entries start in what was read.
+        const starts = new Map<bigint, number>();
+        let at = 0;
+        for (const run of runs) { starts.set(run.row, at); at += Number(run.count); }
+        const read = new Map<string, T[]>();
+        for (const cell of cells) {
+            const own: T[] = [];
+            for (const range of found.value.get(cell.id)!.ranges) {
+                if (range.count === 0n) continue;
+                const start = starts.get(range.row)!;
+                own.push(...entries.value.slice(start, start + Number(range.count)));
+            }
+            read.set(cell.id, own);
+        }
+        return some(read);
+    }
+
+    /**
+     * The entries of some runs of one source, in order: in one request when the
+     * reader batches its reads, else a page at a time, every run's pages asked
+     * together.
+     *
+     * @param index - The source
+     * @param runs - The runs: ascending, disjoint, none empty
+     * @returns Their entries, in order; none while any is pending
+     * @throws {Error} When the source's entries disagree with the runs
+     */
+    private readRuns(index: string, runs: readonly Range[]): option<T[]> {
+        const expected = runs.reduce((sum, run) => sum + run.count, 0n);
+        if (runs.length === 0) return some([]);
+        if (this.reader.runsAll !== undefined) {
+            const read = this.reader.runsAll(index, runs);
+            if (read.type === "none") return none;
+            if (BigInt(read.value.length) !== expected) throw new Error("The source page disagrees with its search bounds; refresh the view and retry");
+            return read;
+        }
+        const entries: T[] = [];
+        let pending = false;
+        for (const run of runs) {
+            let position = run.row;
+            let available = run.count;
+            while (available > 0n) {
+                const wanted = available < MAX_PAGE_ROWS ? available : MAX_PAGE_ROWS;
+                const page = this.reader.page(index, position, wanted);
+                if (page.type === "none") { pending = true; break; }
+                const count = BigInt(page.value.length);
+                if (count === 0n || count > wanted) throw new Error("The source page disagrees with its search bounds; refresh the view and retry");
+                entries.push(...page.value);
+                position += count;
+                available -= count;
+            }
+        }
+        return pending ? none : some(entries);
     }
 
     /**

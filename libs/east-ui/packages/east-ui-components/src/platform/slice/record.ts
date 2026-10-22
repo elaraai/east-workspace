@@ -12,8 +12,9 @@ import {
 import type { PlatformFunction } from "@elaraai/east/internal";
 import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
-    RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType,
+    RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType, tilingOf,
     recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry, type RecordSlicePlacement,
+    type RecordSliceCell, type RecordSliceCellRuns,
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
@@ -368,6 +369,57 @@ export function recordSliceWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>
 export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, query: Query): option<ValueTypeOf<typeof SeekRangeType>> {
     const controller = controllerOf(slice);
     return controller.windows.seek(controller.plan(where), query);
+}
+
+/**
+ * A record Slice's controller, refusing a series or summary index its binding does not list (#1039).
+ *
+ * @param slice - The record Slice
+ * @param index - The index a reader reads cells of
+ * @returns The controller
+ * @throws {Error} When the binding lists no series or summary index of that name
+ */
+function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordSliceController {
+    const controller = controllerOf(slice);
+    const listed = controller.config.indexes.find(candidate => candidate.name === index);
+    if (listed === undefined || tilingOf(listed) === undefined) {
+        throw new Error(`The record Slice '${slice.key}' lists no series or summary index '${index}' to read cells of: list it in Data.bindPaged's indexes`);
+    }
+    return controller;
+}
+
+/**
+ * Find some cells of a series or a summary index a record Slice's binding
+ * lists (#1039): each cell's searches' bounds, and how many entries they hold,
+ * exact before one is read — every cell not yet found asked in one request,
+ * and one found kept for its revision. What a reader of cells, the Plan's
+ * events, decides by whether to read them. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The series or summary index
+ * @param cells - The cells, each its searches (`tileCellQueries`) under the reader's name for it
+ * @returns Each cell's runs, by its name; none while any is pending
+ * @throws {Error} When the binding lists no such index, or two cells share a name
+ */
+export function recordSliceCellRuns(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceCellRuns>> {
+    return cellsOf(slice, index).windows.cellRuns(index, cells);
+}
+
+/**
+ * Read some cells' entries of a series or a summary index a record Slice's
+ * binding lists (#1039): every cell's runs in one request, each run once,
+ * handed back cell by cell — a series index's entries carrying their rows, a
+ * summary index's their totals. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The series or summary index
+ * @param cells - The cells, as {@link recordSliceCellRuns} takes them
+ * @returns Each cell's entries, by its name, in its searches' order; none while pending
+ * @throws {Error} As {@link recordSliceCellRuns} does, and when the entries read disagree with their bounds
+ */
+export function recordSliceCellEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceEntry[]>> {
+    return cellsOf(slice, index).windows.cellEntries(index, cells);
 }
 
 /** Persist through the same store-key mechanism as local Slice, validating

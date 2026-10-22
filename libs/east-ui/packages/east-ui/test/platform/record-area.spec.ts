@@ -260,11 +260,11 @@ test("an area index's marker names its box's fields by role, and reads back as i
 const indexType = ArrayType(RecordSliceIndexType);
 const box = { x: "x", y: "y", width: some("w"), height: some("h"), centre: true, cell: 2 ** -7 };
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
-    { name: "by_hall", fields: ["hall"], sets: new Set(), structured: false, interval: none, area: none },
-    { name: "racks_by_area", fields: [AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }) },
-    { name: "racks_by_hall_area", fields: ["hall", AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }) },
-    { name: "racks_by_tag_area", fields: ["tags", AREA_FIELD], sets: new Set(["tags"]), structured: true, interval: none, area: some({ ...box, optional: true }) },
-    { name: "zones_by_area", fields: ["floor", AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, centre: false, optional: false }) },
+    { name: "by_hall", fields: ["hall"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none },
+    { name: "racks_by_area", fields: [AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+    { name: "racks_by_hall_area", fields: ["hall", AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+    { name: "racks_by_tag_area", fields: ["tags", AREA_FIELD], sets: new Set(["tags"]), structured: true, interval: none, area: some({ ...box, optional: true }), series: none, summary: none },
+    { name: "zones_by_area", fields: ["floor", AREA_FIELD], sets: new Set(), structured: true, interval: none, area: some({ ...box, centre: false, optional: false }), series: none, summary: none },
 ]));
 const view = { minX: 2, minY: 3, maxX: 12, maxY: 8 };
 const values = (...choices: string[]): Choice => variant("values", choices);

@@ -42,7 +42,7 @@ const STATE_COUNT = field("stateCount", "State count", "integer");
 
 /** An index path over fields, a Set field's fanning out. */
 function index(name: string, fields: readonly string[], sets: readonly string[] = []) {
-    return { name, fields: [...fields], sets: new Set(sets), structured: fields.length > 1, interval: none, area: none };
+    return { name, fields: [...fields], sets: new Set(sets), structured: fields.length > 1, interval: none, area: none, series: none, summary: none };
 }
 
 /** A record of flows' Slice: by name, by description, by description then name, by lane and by state count. */

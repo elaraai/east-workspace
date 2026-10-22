@@ -13,13 +13,18 @@ import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "../../c
 import { toValueFormat, type SliceFieldFormat } from "./index.js";
 import { planRecordSlice } from "./record-plan.js";
 import { AREA_FIELD, readAreaMarker } from "./record-area.js";
+import { TILE_FIELD, readTileMarker, tilingOf } from "./record-series.js";
 import {
     RecordSliceConfigType, RecordSliceStateType, RecordSliceHandleType, recordSliceBindPlatform,
     type RecordSliceChoiceType, type RecordSliceFieldType, type RecordSliceWhereType,
 } from "./record-types.js";
 
+/** The fields the rail may narrow by, index by index: none of a series or a summary index's, whose cells a reader
+ *  reads (#1039) — told by its `__tile` among fields named exactly; an index whose fields are any string offers any. */
 type IndexedFields<M extends StructType> = {
-    [I in keyof M["fields"]]: M["fields"][I] extends StructType<infer F> ? keyof F : never;
+    [I in keyof M["fields"]]: M["fields"][I] extends StructType<infer F>
+        ? string extends keyof F ? keyof F : typeof TILE_FIELD extends keyof F ? never : keyof F
+        : never;
 }[keyof M["fields"]];
 /** A field the rail may narrow by: an index's own, never an area index's `__area`, which a read by area gives its window. */
 type Field<M extends StructType> = Exclude<Extract<IndexedFields<M>, string>, typeof AREA_FIELD>;
@@ -155,6 +160,10 @@ function literal(schema: RecordSliceFieldSchema, input: unknown): string {
  * plan reads it through an area index whose leading fields the read's other
  * choices fill exactly (#1385).
  *
+ * A series or a summary index (`e3.recordIndex.series`, `.summary`) offers no
+ * field at all: it is listed for a reader of its cells (#1039), and its
+ * metadata says how it files the record's events.
+ *
  * @param key - Stable UI state key.
  * @param source - A field-index binding, such as Data.bindPaged(record, { indexes }).
  * @param options - Fields, initial narrowing, range, search and presets.
@@ -186,15 +195,30 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         if (type.type !== "Struct") throw new Error("Slice.bindRecord needs field metadata on every index");
         const fields = Object.keys(type.fields);
         if (fields.length === 0) throw new Error(`Slice.bindRecord: '${name}' has no fields`);
-        // A generated index marks its last field with a struct: an interval's
-        // start names its end, an area index's `__area` its box (#1385).
+        // A generated index marks a field with a struct: an interval's start
+        // names its end, an area index's `__area` its box (#1385), each the
+        // index's last field; a series or a summary index's `__tile` how it
+        // files the record's events, its key after it (#1039).
         const markers = Object.entries(type.fields as Record<string, EastType>).filter(([, marker]) => marker.type === "Struct");
         if (markers.length > 1) throw new Error(`Slice.bindRecord: '${name}' marks more than one field as generated`);
         const marker = markers[0] as [string, StructType] | undefined;
-        if (marker !== undefined && marker[0] !== fields.at(-1)) throw new Error(`Slice.bindRecord: '${name}' needs its generated field last`);
+        const tiled = marker?.[0] === TILE_FIELD;
+        if (marker !== undefined && marker[0] !== fields.at(tiled ? -2 : -1)) {
+            throw new Error(`Slice.bindRecord: '${name}' needs its generated field ${tiled ? "just before its key" : "last"}`);
+        }
         let interval: Index["interval"] = none;
         let area: Index["area"] = none;
-        if (marker?.[0] === AREA_FIELD) {
+        let series: Index["series"] = none;
+        let summary: Index["summary"] = none;
+        if (tiled) {
+            const tiling = readTileMarker(Object.keys(marker![1].fields));
+            if (tiling === undefined || tiling.key !== fields.at(-1) || [tiling.key, tiling.from, tiling.to].some(field => rowType.fields[field] === undefined)) {
+                throw new Error(`Slice.bindRecord: '${name}' has no series or summary index's marker on '${TILE_FIELD}'; bind it with Data.bindPaged(record, { indexes })`);
+            }
+            const filed = some({ key: tiling.key, from: tiling.from, to: tiling.to, tile: variant(tiling.tile, null) });
+            if (tiling.summary) summary = filed;
+            else series = filed;
+        } else if (marker?.[0] === AREA_FIELD) {
             const box = readAreaMarker(Object.keys(marker[1].fields));
             const xType = box === undefined ? undefined : rowType.fields[box.x];
             if (box === undefined || xType === undefined) throw new Error(`Slice.bindRecord: '${name}' has no area index's marker on '${AREA_FIELD}'; bind it with Data.bindPaged(record, { indexes })`);
@@ -207,15 +231,20 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         }
         const structured = entry.fields.ik.cases[name]?.type === "Struct";
         return { name, fields, sets: new Set(fields.filter(field => fieldTypes[field]?.type === "Set")),
-            structured, interval, area };
+            structured, interval, area, series, summary };
     });
-    // An area index's `__area` is never the rail's: a read by area gives it its window.
-    const indexedFields = new Set(indexes.flatMap(index => index.area.type === "some" ? index.fields.slice(0, -1) : index.fields));
+    // An area index's `__area` is never the rail's: a read by area gives it its
+    // window. A series or a summary index offers nothing: a reader reads its cells.
+    const indexedFields = new Set(indexes.flatMap(index => tilingOf(index) !== undefined ? []
+        : index.area.type === "some" ? index.fields.slice(0, -1) : index.fields));
     const offered = options.fields === undefined ? [...indexedFields] : Object.keys(options.fields);
     const schemas = new Map<string, RecordSliceFieldSchema>();
     const fields: ValueTypeOf<RecordSliceFieldType>[] = offered.map(field => {
         if (field === AREA_FIELD && indexes.some(index => index.area.type === "some")) {
             throw new Error(`Slice.bindRecord: '${AREA_FIELD}' is an area index's window, which a read by area gives it (pageWhere, countWhere) — never a field of the rail`);
+        }
+        if (field === TILE_FIELD && indexes.some(index => tilingOf(index) !== undefined)) {
+            throw new Error(`Slice.bindRecord: '${TILE_FIELD}' is a series or a summary index's tile, whose cells a reader reads — never a field of the rail`);
         }
         if (!indexedFields.has(field) || fieldTypes[field] === undefined) {
             throw new Error(`Slice.bindRecord: narrowing by '${field}' needs an index on it — e3.recordIndex("by_${field}", record, { on: ["${field}"] }), listed in Data.bindPaged's indexes`);
