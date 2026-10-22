@@ -542,8 +542,16 @@ interface HeldWithin {
     readonly answers: Map<string, boolean>;
     /** The batches that keep each key, until a read reads it. */
     readonly pins: Map<string, Set<string>>;
-    /** Each batch keeping keys, the oldest first, with the keys its reader asks of. */
-    readonly batches: Map<string, readonly string[]>;
+    /** Each batch keeping keys, the oldest first: the keys its reader asks of, and how many of them it keeps still. */
+    readonly batches: Map<string, KeepingBatch>;
+}
+
+/** A batch that keeps keys for its reader: the keys its reader asks of, and how many of them it keeps still. */
+interface KeepingBatch {
+    /** Every key its reader asks of. */
+    readonly keys: readonly string[];
+    /** How many of them it keeps until a read reads them: once a read has read the last, it keeps nothing. */
+    kept: number;
 }
 
 /** The membership answers one narrowing's runs hold, made empty on first use. */
@@ -566,27 +574,32 @@ function heldWithinOf(snapshot: Snapshot, family: string): HeldWithin {
  * @param kept - The keys it keeps now: those held as it launches, or those its answer brings
  */
 function keepWithin(held: HeldWithin, batch: string, keys: readonly string[], kept: Iterable<string>): void {
-    if (!held.batches.has(batch)) held.batches.set(batch, keys);
+    let keeping = held.batches.get(batch);
     for (const key of kept) {
         let by = held.pins.get(key);
         if (by === undefined) {
             by = new Set();
             held.pins.set(key, by);
         }
+        if (by.has(batch)) continue;
         by.add(batch);
+        if (keeping === undefined) {
+            keeping = { keys, kept: 0 };
+            held.batches.set(batch, keeping);
+        }
+        keeping.kept += 1;
     }
     while (held.batches.size > MAX_PINNING_BATCHES) releaseWithin(held, held.batches.keys().next().value!);
 }
 
 /** A batch keeps its keys no longer: they are trimmed as any are, unless another batch keeps them. */
 function releaseWithin(held: HeldWithin, batch: string): void {
-    const keys = held.batches.get(batch);
-    if (keys === undefined) return;
+    const keeping = held.batches.get(batch);
+    if (keeping === undefined) return;
     held.batches.delete(batch);
-    for (const key of keys) {
+    for (const key of keeping.keys) {
         const by = held.pins.get(key);
-        if (by === undefined) continue;
-        by.delete(batch);
+        if (by === undefined || !by.delete(batch)) continue;
         if (by.size === 0) held.pins.delete(key);
     }
 }
@@ -594,7 +607,8 @@ function releaseWithin(held: HeldWithin, batch: string): void {
 /**
  * A read that holds every key it asks of has read them: each moves to the
  * end, the most recently read, and no batch keeps it any longer — however
- * many kept it, since the read answers every reader asking of it alike.
+ * many kept it, since the read answers every reader asking of it alike. A
+ * batch whose last kept key a read has read keeps nothing, and is done.
  */
 function readWithin(held: HeldWithin, keys: readonly string[]): void {
     for (const key of keys) {
@@ -602,7 +616,13 @@ function readWithin(held: HeldWithin, keys: readonly string[]): void {
         if (answer === undefined) continue;
         held.answers.delete(key);
         held.answers.set(key, answer);
+        const by = held.pins.get(key);
+        if (by === undefined) continue;
         held.pins.delete(key);
+        for (const batch of by) {
+            const keeping = held.batches.get(batch);
+            if (keeping !== undefined && --keeping.kept === 0) held.batches.delete(batch);
+        }
     }
     trimWithin(held);
 }
@@ -1907,22 +1927,25 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
 
     /**
      * How many membership answers the runtime holds of a source's dataset,
-     * over every narrowing's runs, and how many of them batches keep for their
-     * readers (#1349): what its specs hold the bounds to. A move drops them
-     * all, so they are always the current revision's.
+     * over every narrowing's runs, how many of them batches keep for their
+     * readers, and how many batches keep any (#1349): what its specs hold the
+     * bounds to. A move drops them all, so they are always the current
+     * revision's.
      *
      * @param source - One of a record's indexes, or any source of the same record
-     * @returns The answers held, and those kept
+     * @returns The answers held, those kept, and the batches keeping them
      */
-    protected withinHeld(source: PagedSource): { answers: number; kept: number } {
+    protected withinHeld(source: PagedSource): { answers: number; kept: number; batches: number } {
         const snapshot = this.snapshots.get(pagedRevisionKey(this.resolveWorkspace(), source.path));
         let answers = 0;
         let kept = 0;
+        let batches = 0;
         for (const held of snapshot?.within.values() ?? []) {
             answers += held.answers.size;
             kept += held.pins.size;
+            batches += held.batches.size;
         }
-        return { answers, kept };
+        return { answers, kept, batches };
     }
 
     /** Launch a membership read of the keys not held: a request for each group
