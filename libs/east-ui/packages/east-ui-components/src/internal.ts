@@ -68,9 +68,10 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 // Whether a record Slice still holds its seed — its `initial`, written over by nothing — which a builder's restored view replaces;
 // and where its narrowing's rows sit in the record, which of some rows — or of the record's own, by position — it holds, and where
 // a key lands in the record's own order (#1349) — the Sheet's lens; and the cells of a series or a summary index its
-// binding lists, counted and read (#1039) — the Plan's events.
+// binding lists, counted and read, and the rows of several of its record's keys in one read (#1039) — the Plan's events.
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
+    recordSliceRows,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";

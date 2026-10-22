@@ -86,10 +86,10 @@ function activeScan(key: string): PagedScan<unknown, unknown[]> {
 /**
  * The reads a host's runtime batches for a record Slice's binding (#1351):
  * several searches of one source in one request, the entries of several runs
- * in one, and where a narrowing's runs sit in the record and which entries
- * they hold (#1349).
+ * in one, where a narrowing's runs sit in the record and which entries they
+ * hold (#1349), and the rows of several of the record's own keys (#1039).
  */
-export type RecordSliceBatches = Required<Pick<RecordSliceReader<RecordSliceEntry>, "seekAll" | "runsAll" | "placeAll" | "withinAll">>;
+export type RecordSliceBatches = Required<Pick<RecordSliceReader<RecordSliceEntry>, "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll">>;
 
 /** How the host's runtime batches a binding's reads, when it does. */
 let batchesOf: ((binding: RecordSliceBinding) => RecordSliceBatches | undefined) | undefined;
@@ -113,6 +113,7 @@ function batched(source: RecordSliceBinding): RecordSliceBinding {
     const batches = batchesOf?.(source);
     return batches === undefined ? source : {
         ...source, seekAll: batches.seekAll, runsAll: batches.runsAll, placeAll: batches.placeAll, withinAll: batches.withinAll,
+        rowsAll: batches.rowsAll,
     };
 }
 
@@ -353,6 +354,22 @@ export function recordSliceWithin(slice: Pick<ValueTypeOf<RecordSliceBindType>, 
  */
 export function recordSliceWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
     return controllerOf(slice).withinAt(where, offset, limit);
+}
+
+/**
+ * The rows a record Slice's record holds under several of its own keys
+ * (#1039): in one request when the binding's runtime batches its reads — each
+ * key's row, or `none` for a key the record does not hold. What a reader asks
+ * of rows it names by key and has not read: the Plan's link ends and its
+ * drafts outside the cells it draws. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param keys - The keys, East values of the record's key type
+ * @returns Each key's row, in order; none while the read is pending
+ */
+export function recordSliceRows(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, keys: readonly unknown[]): option<option<unknown>[]> {
+    return controllerOf(slice).rows(keys);
 }
 
 /**
