@@ -35,7 +35,11 @@ from east.types.types import (
 )
 from east.types.values import EastDict, EastStruct, EastVariant, EastVector
 
-from east_py_datascience.google_or.types import GoogleOrStatusType, _check_google_or_support
+from east_py_datascience.google_or.types import (
+    GoogleOrStatusType,
+    _check_google_or_columns_support,
+    _check_google_or_support,
+)
 
 # ============================================================================
 # Type Definitions
@@ -535,6 +539,7 @@ def linear_solve_columns(
             decreasing, ``col_ix`` naming a variable outside the model.
     """
     _check_google_or_support()
+    _check_google_or_columns_support()
     import importlib
 
     from ortools.linear_solver import linear_solver_pb2, pywraplp

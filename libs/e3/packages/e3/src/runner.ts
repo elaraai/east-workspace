@@ -148,6 +148,33 @@ export const STOCK_PLATFORM_FAMILIES: ReadonlyArray<ReadonlyArray<string>> = [
 ];
 
 /**
+ * The platform functions a stock package implements of its family's
+ * contract, where that is not all of it: `east-c-datascience` carries
+ * east-py-datascience's OR-Tools, XGBoost and neural-network families
+ * (`google_or_*`, `xgboost_*`, `nn_*` — the compliance suites it replays)
+ * and none of the others. A package not listed implements its whole family.
+ * {@link runnerProvides} consults it when given the function's name, so a
+ * task on an east-c runner importing a function that calls, say, a LightGBM
+ * platform function is refused at export, not at run time.
+ */
+export const STOCK_PLATFORM_SUBSETS: Readonly<Record<string, RegExp>> = {
+  'east-c-datascience': /^(google_or|xgboost|nn)_/,
+};
+
+/**
+ * Whether a stock package implements a platform function of its family's
+ * contract: every one, unless {@link STOCK_PLATFORM_SUBSETS} lists the package.
+ *
+ * @param pkg - A stock platform package
+ * @param name - A platform function of its family
+ * @returns Whether the package implements it
+ */
+export function stockImplements(pkg: string, name: string): boolean {
+  const subset = STOCK_PLATFORM_SUBSETS[pkg];
+  return subset === undefined || subset.test(name);
+}
+
+/**
  * Lists the stock platform packages each runtime's published images carry
  * (`east-py-datascience` and `east-c-datascience` on their own tiers).
  * Rack routing uses these names to refuse project-specific platform packages.
@@ -160,20 +187,24 @@ export const STOCK_PLATFORMS_BY_RUNNER = {
 
 /**
  * Whether a runner's platform packages include `provider`, or a stock
- * package of `provider`'s family. A `custom` runner is an arbitrary command
- * that cannot be inspected and is trusted.
+ * package of `provider`'s family — one implementing `name`, when the platform
+ * function's name is given ({@link STOCK_PLATFORM_SUBSETS}). A `custom`
+ * runner is an arbitrary command that cannot be inspected and is trusted.
  *
  * @param runner - The consuming task's runner
  * @param provider - The package an imported function's manifest names as
  *   implementing a platform dependency
+ * @param name - The platform function, when known; without it any member of
+ *   the family counts, whatever part of the contract it implements
  * @returns Whether the runner provides it
  */
-export function runnerProvides(runner: Runner, provider: string): boolean {
+export function runnerProvides(runner: Runner, provider: string, name?: string): boolean {
   if (runner.runtime === 'custom') return true;
   const names = (runner.platforms ?? []).map((p) => (typeof p === 'string' ? p : p.custom));
   if (names.includes(provider)) return true;
   const family = STOCK_PLATFORM_FAMILIES.find((f) => f.includes(provider));
-  return family !== undefined && names.some((n) => family.includes(n));
+  if (family === undefined) return false;
+  return names.some((n) => family.includes(n) && (name === undefined || stockImplements(n, name)));
 }
 
 /**

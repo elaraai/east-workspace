@@ -146,7 +146,7 @@ install(TARGETS east-c-datascience east-c-nn
 # installed package is held to the suites) — and registering it beside std
 # (`make test-east-c-datascience` runs it over the suites this package
 # implements, exported by `make -C libs/east-py test-export`). As the CLI, it
-# links the whole runtime and exports it for the library.
+# links the whole runtime and exports it for the library, and only the runtime.
 add_executable(test_datascience_compliance
     ${CMAKE_CURRENT_SOURCE_DIR}/../east-c-std/tests/test_compliance.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../east-c-cli/src/package_loader.c)
@@ -159,4 +159,12 @@ target_link_libraries(test_datascience_compliance east-c-std ${CMAKE_DL_LIBS})
 set_property(TARGET test_datascience_compliance PROPERTY
     LINK_LIBRARY_OVERRIDE "WHOLE_ARCHIVE,east-c-std,east-c")
 set_target_properties(test_datascience_compliance PROPERTIES ENABLE_EXPORTS ON)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # As the CLI: the runtime's third-party archives stay private, so nothing
+    # of theirs interposes on the packages' own copies — libtorch's archive
+    # reader carries a miniz of its own, which must bind to it, not to the
+    # runtime's.
+    target_link_options(test_datascience_compliance PRIVATE
+        "LINKER:--exclude-libs,libpcre2-8.a:libpcre2-posix.a:libbtreec.a:libminiz.a:libdeflate.a")
+endif()
 add_dependencies(test_datascience_compliance east-c-datascience east-c-nn)

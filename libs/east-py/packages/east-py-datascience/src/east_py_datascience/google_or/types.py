@@ -17,6 +17,12 @@ from east_py_datascience._common import extra_guard
 
 # One guard for the whole google_or package: every solver module imports it.
 _check_google_or_support = extra_guard("ortools", "google-or", "Google OR-Tools")
+# The columnar linear model fills OR-Tools' model builder from a scipy CSR
+# matrix: the extra installs scipy beside ortools, and this guard says so when
+# ortools is present from elsewhere and scipy is not.
+_check_google_or_columns_support = extra_guard(
+    "scipy", "google-or", "Google OR-Tools' columnar linear model"
+)
 
 # ============================================================================
 # Shared Types
@@ -44,4 +50,5 @@ not proven optimal), ``infeasible`` (no feasible solution exists),
 __all__ = [
     "GoogleOrStatusType",
     "_check_google_or_support",
+    "_check_google_or_columns_support",
 ]

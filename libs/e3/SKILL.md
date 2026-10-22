@@ -301,7 +301,7 @@ anything a task should react to is an input.
 |---|---|
 | omitted | `{ runtime: 'east-node', platforms: ['@elaraai/east-node-std'] }` — every project has Node |
 | `{ runtime: 'east-py', platforms: ['east-py-std', 'east-py-io', 'east-py-datascience'] }` | Python |
-| `{ runtime: 'east-c', platforms: ['east-c-std'] }` | native, the lowest overhead; `'east-c-datascience'` adds the OR-Tools, XGBoost and NeuralNet families (the package `@elaraai/east-c-datascience` installed beside `@elaraai/east-c-cli`, or the `east-c-datascience` Docker tier; the networks on libtorch, CPU or CUDA) |
+| `{ runtime: 'east-c', platforms: ['east-c-std'] }` | native, the lowest overhead; `'east-c-datascience'` adds the OR-Tools, XGBoost and NeuralNet families (the package `@elaraai/east-c-datascience` installed beside `@elaraai/east-c-cli`, or the `east-c-datascience` Docker tier; the networks on libtorch, CPU or CUDA) and nothing else of east-py-datascience: an imported function calling any other of its platform functions is refused at export for this runner |
 | `{ runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }` | any command: e3 appends `run`'s arguments (`-i <input>` each, `-o <output>`, the program's file) |
 
 Platform names are typed per runtime — a typo, or another runtime's platform, is

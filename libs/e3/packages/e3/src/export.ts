@@ -496,8 +496,9 @@ const DETERMINISTIC_MTIME = new Date(0);
 /**
  * Validates an owner's resolved imports against its runner (#628): every
  * platform function an embedded function calls must be provided by a
- * package the runner lists (stock families count across runtimes — see
- * `runnerProvides`). A custom-command runner (`runner` undefined, or the
+ * package the runner lists (stock families count across runtimes, for the
+ * functions each member implements — see `runnerProvides` and
+ * `STOCK_PLATFORM_SUBSETS`). A custom-command runner (`runner` undefined, or the
  * `custom` runtime) cannot be inspected and is trusted.
  *
  * @throws {Error} Naming the owner, the import, the platform function and
@@ -513,10 +514,18 @@ function checkImportPlatforms(imports: LinkedImport[], runner: Runner | undefine
           `${where} — its manifest names no package providing it; export it with -p <package> ` +
           `(east-py export-functions / east-node export-functions) so the runner can be checked`);
       }
-      if (!runnerProvides(runner, dep.provider.value)) {
+      if (!runnerProvides(runner, dep.provider.value, dep.name)) {
         const listed = runner.runtime === 'custom'
           ? 'a custom command'
           : (runner.platforms ?? []).map((p) => (typeof p === 'string' ? p : p.custom)).join(', ') || '(none)';
+        if (runnerProvides(runner, dep.provider.value)) {
+          // A stock package of the provider's family that implements part of
+          // its contract (STOCK_PLATFORM_SUBSETS), and not this function.
+          throw new Error(
+            `${where} provided by ${dep.provider.value}, but its ${runner.runtime} runner lists ${listed}, ` +
+            `which implements only some of ${dep.provider.value}'s functions and not "${dep.name}" — ` +
+            `run the task on a runner whose packages provide it`);
+        }
         throw new Error(
           `${where} provided by ${dep.provider.value}, but its ${runner.runtime} runner lists ${listed} — ` +
           `add the package providing "${dep.name}" on ${runner.runtime} to the runner's platforms`);

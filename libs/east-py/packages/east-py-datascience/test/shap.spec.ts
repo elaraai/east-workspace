@@ -262,6 +262,65 @@ describeEast("SHAP platform functions", (test) => {
         $(Assert.greaterEqual(importance.importances.get(1n), East.value(0.0)));
     });
 
+    test("kernel_explainer replays an XGBoost model's categorical encoding, and its attributions add up to the prediction", $ => {
+        // 2 numeric features and a categorical one of 3 categories; the blob
+        // carries the encoding, which the explainer's predict function replays
+        // on the rows it perturbs as xgboost_predict does
+        const X = $.let(East.Matrix.fromArray([
+            [1.0, 2.0, 0.0],
+            [2.0, 3.0, 1.0],
+            [3.0, 4.0, 2.0],
+            [4.0, 5.0, 0.0],
+            [5.0, 6.0, 1.0],
+            [6.0, 7.0, 2.0],
+            [7.0, 8.0, 0.0],
+            [8.0, 9.0, 1.0],
+        ]));
+        const y = $.let(new Float64Array([3.0, 5.0, 7.0, 9.0, 11.0, 13.0, 15.0, 17.0]));
+        const config = $.let({
+            n_estimators: variant('some', 50n),
+            max_depth: variant('some', 3n),
+            learning_rate: variant('some', 0.1),
+            min_child_weight: variant('none', null),
+            subsample: variant('none', null),
+            colsample_bytree: variant('none', null),
+            reg_alpha: variant('none', null),
+            reg_lambda: variant('none', null),
+            gamma: variant('none', null),
+            random_state: variant('some', 42n),
+            n_jobs: variant('none', null),
+            sample_weight: variant('none', null),
+            categorical_features: variant('some', new BigInt64Array([2n])),
+            categorical_n: variant('some', new BigInt64Array([3n])),
+            max_cat_to_onehot: variant('none', null),
+            max_cat_threshold: variant('none', null),
+            scale_pos_weight: variant('none', null),
+        }, XGBoost.Types.XGBoostConfigType);
+        const model = $.let(XGBoost.trainRegressor(X, y, config));
+
+        const explainer = $.let(Shap.kernelExplainerCreate(model, X));
+        const X_explain = $.let(East.Matrix.fromArray([
+            [2.0, 3.0, 1.0],
+            [7.0, 8.0, 2.0],
+        ]));
+        const feature_names = $.let(["vibration", "temperature", "machine_type"]);
+        const result = $.let(Shap.computeValues(explainer, X_explain, feature_names));
+        $(Assert.equal(result.feature_names.length(), 3n));
+
+        // Kernel SHAP is locally accurate: a row's attributions plus the base
+        // value are the model's own prediction of it, so the explainer saw
+        // the same predictions xgboost_predict gives
+        const values = $.let(result.shap_values.unwrap('matrix_2d'));
+        const base = $.let(result.base_value.unwrap('single'));
+        const predicted = $.let(XGBoost.predict(model, X_explain));
+        $(Assert.equal(values.rows(), 2n));
+        $(Assert.equal(values.cols(), 3n));
+        const explained0 = $.let(base.add(values.get(0n, 0n)).add(values.get(0n, 1n)).add(values.get(0n, 2n)));
+        const explained1 = $.let(base.add(values.get(1n, 0n)).add(values.get(1n, 1n)).add(values.get(1n, 2n)));
+        $(Assert.less(explained0.subtract(predicted.get(0n)).abs(), East.value(1e-4)));
+        $(Assert.less(explained1.subtract(predicted.get(1n)).abs(), East.value(1e-4)));
+    });
+
     test("kernel_explainer works with NGBoost regressor", $ => {
         const X = $.let(East.Matrix.fromArray([
             [1.0, 2.0],

@@ -241,6 +241,20 @@ requests; this file is the record of behaviour. Changes land under
   stock for an east-c runner. `xgboost_resave`, `nn_import_torch` and
   `nn_export_torch` have examples, and `xgboost_resave` is exported from the
   TypeScript package.
+- `shap_kernel_explainer_create` on an XGBoost model trained with categorical
+  features: it failed (`property 'feature_names_in_' of 'XGBRegressor' object
+  has no setter` — shap clears the feature names of an estimator whose bound
+  `predict` it is handed, and such a model, trained on a frame, has read-only
+  ones), and the blob's categorical encoding was read on a path no XGBoost
+  blob reached and applied by no tree model's predict function. The explainer
+  is given a function that replays the encoding on the rows it perturbs, as
+  `xgboost_predict` does, and a test holds each row's attributions plus the
+  base value to the model's own prediction. The `google-or` extra's guard also
+  probes scipy, which `google_or_linear_solve_columns` imports, so a host with
+  OR-Tools from elsewhere and no scipy is told to install the extra. The
+  east-c-datascience compliance binary exports only the runtime, as the CLI
+  does: its third-party archives (miniz among them, which libtorch's archive
+  reader carries a copy of) stay private.
 
 ### The test harnesses
 
@@ -253,3 +267,11 @@ requests; this file is the record of behaviour. Changes land under
 
 - `STOCK_PLATFORMS_BY_RUNNER.east_c` lists `east-c-datascience`, and rack
   routing sends a runner listing it to the new `c-datascience` tier.
+- The export's check of an imported function's platform calls knows which of
+  its family's functions a stock package implements (`STOCK_PLATFORM_SUBSETS`:
+  `east-c-datascience` carries the `google_or_*`, `xgboost_*` and `nn_*`
+  families of east-py-datascience and no other). A task on an east-c runner
+  listing it that imports a function calling, say, `lightgbm_train` is refused
+  at export, naming the package and the function, where it passed and failed
+  at run time. `runnerProvides` takes the function's name; without one it
+  answers as before.

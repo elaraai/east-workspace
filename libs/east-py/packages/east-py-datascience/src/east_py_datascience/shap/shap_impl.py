@@ -15,7 +15,7 @@ from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, MatrixType, StringType
 from east.types.values import EastArray, EastMatrix, EastStruct, EastVariant, EastVector
 
-from east_py_datascience._categorical import apply_categorical
+from east_py_datascience._categorical import apply_categorical, categorical_config
 from east_py_datascience._common import deserialize, extra_guard, quiet_warnings, serialize
 from east_py_datascience.mapie.mapie_impl import extract_base_model_data
 from east_py_datascience.types import (
@@ -255,8 +255,16 @@ def _get_predict_fn(model, model_type: str, categorical_features=None, categoric
             return y_sets[:, :, 0].sum(axis=1).astype(float)
 
         return predict_set_size
-    # Tree models, NGBoost and GP: the point prediction
-    return model.predict
+    # Tree models, NGBoost and GP: the point prediction of the prepared rows.
+    # A function of its own, never the model's bound method: KernelExplainer
+    # clears the feature names of an estimator whose method it is handed, and
+    # XGBoost's are read-only — a model trained with categorical features was
+    # trained on a frame and has them, so the explainer could not be created.
+    def predict_point(X):
+        with quiet_warnings():
+            return model.predict(prepared(X))
+
+    return predict_point
 
 
 def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
@@ -282,25 +290,22 @@ def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
         combined = deserialize(model_data["data"])
         model = combined["mapie"]
         n_features = int(model_data["n_features"])
-    elif model_type == "xgboost_quantile":
-        # The models by quantile, as xgboost/_blob.py writes them
-        model = load_quantiles(model_data["data"])
+    elif model_type in ("xgboost_regressor", "xgboost_classifier", "xgboost_quantile"):
+        # As xgboost/_blob.py writes them; the blob carries the categorical
+        # encoding its training applied, which the predict function replays
+        # on the perturbed rows as xgboost_predict does
+        if model_type == "xgboost_quantile":
+            model = load_quantiles(model_data["data"])
+        elif model_type == "xgboost_classifier":
+            model, _classes = load_classifier(model_data["data"])
+        else:
+            model = load_regressor(model_data["data"])
         n_features = int(model_data["n_features"])
-    elif model_type == "xgboost_classifier":
-        model, _classes = load_classifier(model_data["data"])
-        n_features = int(model_data["n_features"])
-    elif model_type == "xgboost_regressor":
-        model = load_regressor(model_data["data"])
-        n_features = int(model_data["n_features"])
+        categorical_features, categorical_n = categorical_config(model_data)
     else:
         # Standard model blobs
         model = deserialize(model_data["data"])
         n_features = int(model_data["n_features"])
-
-        # Extract categorical_n from xgboost model blobs
-        if model_type in ("xgboost_regressor", "xgboost_classifier", "xgboost_quantile"):
-            cat_n_opt = model_data["categorical_n"].unwrap_or(None)
-            categorical_n = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
 
     return model, n_features, categorical_features, categorical_n, model_type
 
