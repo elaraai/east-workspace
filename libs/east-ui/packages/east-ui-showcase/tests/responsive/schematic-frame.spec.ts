@@ -12,10 +12,12 @@
  * foot. The toolbar folds by one ladder (SC24): the rail first, in its own
  * order, then its summary, then the Schematic's own — the tools' words, Find's
  * box, the tools' strip — and last the tools, the zoom, Fit and Find into the
- * View, one move; one row at 1440, 1024 and 768px and in every box from 1440px
- * to a 294px parent, nothing past its edge, a narrower row never folding less;
- * on a phone, 390px and 360px wide, the row holds the rail's icon and the View,
- * and the View holds the tools, the zoom and Fit over Find's box. The canvas
+ * View, one move; one row at 1440, 1024 and 768px and in every box from 1600px
+ * — unfolded there — to a 294px parent, nothing past its edge, a narrower row
+ * never folding less;
+ * on a phone, 390px and 360px wide, the row holds the rail's icon, the View and
+ * the history (#1388), and the View holds the tools, the zoom and Fit over
+ * Find's box. The canvas
  * draws in the design system's tokens and its mono font, read through the
  * recipe's probe, and an item's card dot is the colour its marks draw in on the
  * canvas — a theme colour token resolved, a value naming none its tone (SC26) —
@@ -35,8 +37,8 @@ const FILE = "e3/schematic/schematic";
 const DATA_CENTRE = `${FILE}/schematicDataCentre`;
 const SHAPES = `${FILE}/schematicShapes`;
 
-/** The Schematic's own fold steps, after every step of its rail and its summary's, in order. */
-const OWN = ["tools>1", "seek>1", "tools>2", "tools>3", "zoom>1", "seek>2"];
+/** The Schematic's own fold steps, after every step of its rail and its summary's, in order — the history's, which the data centre edits, last (#1388). */
+const OWN = ["tools>1", "seek>1", "tools>2", "tools>3", "zoom>1", "seek>2", "history>1"];
 
 /** Open a Schematic example, at rest — its frame out from under its skeleton — and return its root: the box its frame fills. */
 async function openSchematic(page: Page, hash: string, theme: "light" | "dark" = "light"): Promise<Locator> {
@@ -90,12 +92,13 @@ async function ladderFaults(root: Locator): Promise<string[]> {
     return bad;
 }
 
-/** A phone's row: the rail's icon and the View; no tools, zoom or steps of their own, no summary. */
+/** A phone's row: the rail's icon, the View and the history; no tools, zoom or steps of their own, no summary. */
 async function expectPhoneRow(root: Locator, at: string): Promise<void> {
     await expect.poll(() => toolbarFaults(root), { message: at }).toEqual([]);
     await expect.poll(() => ladderFaults(root), { message: at }).toEqual([]);
     const { state } = await toolbarOf(root);
     expect({ tools: state["tools"], zoom: state["zoom"], seek: state["seek"] }, at).toEqual({ tools: 3, zoom: 1, seek: 2 });
+    await expect(root.locator("[data-toolbar-item='history']"), at).toBeVisible();
     await expect(root.locator("[data-toolbar-item='record-slices'] [data-rail-rung='icon']"), at).toBeVisible();
     await expect(root.locator("[data-toolbar-item='seek'] [data-key-search='icon']"), at).toHaveAttribute("aria-label", "View");
     await expect(root.locator("[data-frame-slot='toolbar'] [data-schematic-tools], [data-frame-slot='toolbar'] [data-schematic-zoom]"), at).toHaveCount(0);
@@ -147,7 +150,7 @@ test.describe("The Schematic's frame (#1387)", () => {
             expect(read.counts).toEqual(["Rack 5 of 7", "Network frame 3", "Cooling unit 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets"]);
         });
 
-        test(`the toolbar folds by one ladder — the rail first, then its summary, then the tools' words, Find's box and the tools' strip, the View last — one row at 1440, 1024 and 768px and in every box from 1440px to a 294px parent, nothing past its edge (SC24, ${theme})`, async ({ page }) => {
+        test(`the toolbar folds by one ladder — the rail first, then its summary, then the tools' words, Find's box and the tools' strip, the View last — one row at 1440, 1024 and 768px and in every box from 1600px to a 294px parent, nothing past its edge (SC24, ${theme})`, async ({ page }) => {
             const root = await openSchematic(page, DATA_CENTRE, theme);
             for (const width of [1440, 1024, 768]) {
                 await page.setViewportSize({ width, height: 900 });
@@ -157,7 +160,8 @@ test.describe("The Schematic's frame (#1387)", () => {
             }
             await page.setViewportSize({ width: 1600, height: 900 });
             const seen: number[] = [];
-            for (const width of [1440, 1200, 1024, 900, 768, 640, 480, 390, 360, 320, 294]) {
+            // Room for every item at its widest is 1600px: the history item takes its place on the row (#1388).
+            for (const width of [1600, 1440, 1200, 1024, 900, 768, 640, 480, 390, 360, 320, 294]) {
                 await sizeTo(page, root, width);
                 await expect.poll(() => toolbarFaults(root), { message: `in a ${width}px box` }).toEqual([]);
                 await expect.poll(() => ladderFaults(root), { message: `in a ${width}px box` }).toEqual([]);
@@ -299,7 +303,7 @@ test.describe("The Schematic's frame on a phone (#1387)", () => {
     test.skip(({ isMobile }) => !isMobile, "the phone projects");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`on a phone 390px and 360px wide, and in a 294px parent, the row holds the rail's icon and the View, and the View holds the tools, the zoom and Fit over Find's box (SC24, ${theme})`, async ({ page }) => {
+        test(`on a phone 390px and 360px wide, and in a 294px parent, the row holds the rail's icon, the View and the history, and the View holds the tools, the zoom and Fit over Find's box (SC24, ${theme})`, async ({ page }) => {
             await page.setViewportSize({ width: 390, height: 844 });
             const root = await openSchematic(page, DATA_CENTRE, theme);
             await expectPhoneRow(root, "at 390px");

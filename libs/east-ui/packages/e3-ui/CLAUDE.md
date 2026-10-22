@@ -149,7 +149,14 @@ Plan's: `id`, an `inspector` opted into (a kind's own Details its kind's
 a candidate with the refusal's words. The library's tabs are
 `Schematic.library`'s, each over every kind as the Calendar's are:
 `templates()`, `backlog()` (every item kind's rows with no position), the
-zones' `index()` and the `layers()`.
+zones' `index()` and the `layers()`. Every gesture is one step of one history
+over a session per record it writes (#1388): Move writes an item's centre,
+Connect a new link under a key minted unique, a Shift session the net it grows
+into, Retarget and Extend a link's end and a net's side, and Del the rows it
+deletes — every link and net leg naming a deleted item among them — each
+through its kind's own write, so only its roles' fields move; Save sends each
+record's changes through its patch door as a request of its own. A kind bound
+read only takes no gesture.
 
 A builder takes neither `Slice.bind` nor a single `Slice.bindRecord`; east-ui's
 own collections — a Table, a Library, a Deck — keep their own Slice

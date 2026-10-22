@@ -9,11 +9,12 @@
  * item kind's items drawn of its rows (`Rack 5 of 7`: two are unplaced,
  * narrowed out or on a hidden layer), the zones drawn, the links drawn and the
  * nets drawn, each where the Schematic has a kind of them — and each record's
- * last save, as its commits say it. Each item is its own on the rail, so the
- * rail wraps item by item where main is narrow (`useRailWrap`). The changes
- * waiting on Save and the Save notice are the editing session's (#1388); why
- * a drop or an inspector edit was refused, the drops' and the inspector's
- * (#1390, #1391).
+ * last save, as its commits say it; the changes waiting on Save, every
+ * record's (#1388); each Save's notice, the rows it took out of a source's
+ * narrowing (`RecordSliceSaveNotice`); and why the last gesture was refused,
+ * until one is recorded — a Delete a read-only link or net blocks, and later a
+ * drop or an inspector edit (#1390, #1391). Each item is its own on the rail,
+ * so the rail wraps item by item where main is narrow (`useRailWrap`).
  *
  * A kind's rows are its record's: a kind read whole counts the rows its read
  * holds, and one read through its source of the slice counts its record's
@@ -27,6 +28,7 @@ import { Box, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
 import { useRailWrap } from "../shared/schedule/footer.js";
 import type { SchematicCounts } from "./counts.js";
 import type { SchematicValue } from "./data.js";
@@ -62,6 +64,18 @@ export function savedRecords(value: SchematicValue): SchematicSavedRecord[] {
         .flatMap((kind) => (kind.history.type === "some" ? [{ slot: kind.key, name: kind.name, history: kind.history.value }] : []));
 }
 
+/** A kind read through its source that writes: what its Save's notice counts the rows it took out of the narrowing in. */
+export interface SchematicNotice {
+    /** The kind's slot. */
+    readonly slot: string;
+    /** Its source of the slice. */
+    readonly slice: ValueTypeOf<RecordSliceBindType>;
+    /** One of its rows, as running text names it — `rack`. */
+    readonly singular: string;
+    /** Several. */
+    readonly plural: string;
+}
+
 /** Props of {@link SchematicFooter}. */
 export interface SchematicFooterProps {
     /** The `schematic` recipe's styles. */
@@ -76,6 +90,12 @@ export interface SchematicFooterProps {
     readonly sources: ReadonlyMap<string, ValueTypeOf<RecordSliceBindType>>;
     /** The kinds' records whose commits say when each was last saved. */
     readonly records: readonly SchematicSavedRecord[];
+    /** The changes waiting on Save, every record's; `undefined` where no record is edited. */
+    readonly pending: number | undefined;
+    /** Each kind read through its source that writes: its Save's notice. */
+    readonly notices: readonly SchematicNotice[];
+    /** Why the last gesture was refused; `undefined` once one is recorded, or for none. */
+    readonly refusal: string | undefined;
 }
 
 /**
@@ -84,7 +104,7 @@ export interface SchematicFooterProps {
  * @param props - What it counts, where each kind's rows are read from, and each record's commits
  * @returns The footer
  */
-export function SchematicFooter({ styles, words, counts, rows, sources, records }: SchematicFooterProps) {
+export function SchematicFooter({ styles, words, counts, rows, sources, records, pending, notices, refusal }: SchematicFooterProps) {
     // A kind read through its source: its record's total, as its source reads it; and each record's newest commit.
     // Each read on its own: one that fails leaves the others read.
     const read = useCallback(() => ({
@@ -139,13 +159,18 @@ export function SchematicFooter({ styles, words, counts, rows, sources, records 
                 attribute: { "data-schematic-saved": save.slot },
                 text: words.m.recordSaved({ name: save.name, when: stringEqual(words.date(save.at), today) ? words.time(save.at) : words.dateTime(save.at) }),
             })),
+            ...(pending === undefined || pending === 0 ? [] : [{
+                key: "pending", attribute: { "data-schematic-pending": "" }, text: words.m.pending({ n: pending, count: words.number(pending) }),
+            }]),
+            ...(refusal === undefined ? [] : [{ key: "refused", attribute: { "data-schematic-refused": "", role: "alert" }, text: refusal }]),
         ];
-    }, [counts, rows, sources, totals, saved, words]);
+    }, [counts, rows, sources, totals, saved, pending, refusal, words]);
     const ref = useRef<HTMLDivElement>(null);
     const wrap = useRailWrap(ref, lines.map((line) => line.text).join("\n"));
     return (
         <Box ref={ref} css={styles.footer} data-schematic-footer="" data-builder-narrow={wrap ? "" : undefined}>
             {lines.map((line) => <Box as="span" key={line.key} css={styles.footerItem} {...line.attribute}>{line.text}</Box>)}
+            {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
         </Box>
     );
 }

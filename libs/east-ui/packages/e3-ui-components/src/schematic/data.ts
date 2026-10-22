@@ -14,6 +14,8 @@
  * while nothing it shows moves, and the frame is handed what it reads only
  * when that moves. While a read the drawing needs is in flight, the frame keeps
  * the last complete drawing; one it has never read is never drawn as empty.
+ * It reads the stored rows alone: the frame draws the editing session's drafts
+ * over them (#1388), by which rows each read holds and their details' roles.
  *
  * Each kind is read on its own (#1387, SC32): a kind whose read fails keeps
  * what was drawn of it, says why under its slot, and leaves every other kind
@@ -55,7 +57,20 @@ export interface SchematicData {
     readonly failures: ReadonlyMap<string, string>;
     /** How many rows each kind's settled read holds, by the kind's slot — those with no position among them. */
     readonly rows: ReadonlyMap<string, number>;
+    /**
+     * Each kind's rows the settled read holds, by the kind's slot, then by key — each one's details' roles, where its
+     * kind's details are read whole beside it (#1388): which rows a draft draws over, and what a drafted card draws.
+     */
+    readonly held: SchematicHeldRows;
 }
+
+/** One row a kind's read holds: its details' roles, where its kind's details are read whole beside it. */
+export interface SchematicHeldRow {
+    readonly details: DetailsRoles | undefined;
+}
+
+/** Each kind's rows a read holds, by the kind's slot, then by key. */
+export type SchematicHeldRows = ReadonlyMap<string, ReadonlyMap<string, SchematicHeldRow>>;
 
 /** No kind failed. */
 const NO_FAILURES: ReadonlyMap<string, string> = new Map();
@@ -63,15 +78,17 @@ const NO_FAILURES: ReadonlyMap<string, string> = new Map();
 /** No kind read. */
 const NO_ROWS: ReadonlyMap<string, number> = new Map();
 
+/** No row held. */
+const NO_HELD: SchematicHeldRows = new Map();
+
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_SCHEMATIC_DATA: SchematicData = {
-    drawn: EMPTY_DRAWN, loading: true, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS,
+    drawn: EMPTY_DRAWN, loading: true, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD,
 };
 
-/** One entity as it was last drawn: the roles it was drawn from, and what was drawn — none for an unplaced item. */
-interface Kept {
+/** One entity as it was last drawn: the roles it was drawn from, its details' roles, and what was drawn — none for an unplaced item. */
+interface Kept extends SchematicHeldRow {
     readonly roles: unknown;
-    readonly details: DetailsRoles | undefined;
     readonly drawn: unknown;
 }
 
@@ -191,7 +208,10 @@ export function useSchematicData(value: SchematicValue, attempt = 0): SchematicD
     }, [value, attempt]);
     const { result } = useTrackedEvaluation(read);
     // The last settled read: a newer one in flight keeps it, so a scan landing redraws nothing until the read is whole.
-    const settled = useRef<{ drawn: SchematicDrawn; failures: ReadonlyMap<string, string>; rows: ReadonlyMap<string, number> } | undefined>(undefined);
+    // What it holds moves with what it draws: a row added, removed, or its roles or details changed, draws anew.
+    const settled = useRef<{
+        drawn: SchematicDrawn; failures: ReadonlyMap<string, string>; rows: ReadonlyMap<string, number>; held: SchematicHeldRows;
+    } | undefined>(undefined);
     if (result.ok) {
         const got = result.value;
         held.current = got.held;
@@ -204,6 +224,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0): SchematicD
                     drawn: got.held.drawn,
                     failures: was !== undefined && signatureOf(was.failures) === signatureOf(got.failures) ? was.failures : got.failures,
                     rows: was !== undefined && signatureOf(was.rows) === signatureOf(rows) ? was.rows : rows,
+                    held: got.held.kinds,
                 };
             }
         }
@@ -213,7 +234,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0): SchematicD
     const error = result.ok ? undefined : messageOf(result.error);
     return useMemo((): SchematicData => (last === undefined
         ? { ...INITIAL_SCHEMATIC_DATA, loading, error }
-        : { drawn: last.drawn, loading, ready: true, error, failures: last.failures, rows: last.rows }), [last, loading, error]);
+        : { drawn: last.drawn, loading, ready: true, error, failures: last.failures, rows: last.rows, held: last.held }), [last, loading, error]);
 }
 
 /**

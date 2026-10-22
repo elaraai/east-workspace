@@ -40,7 +40,12 @@ steps), its footer (`footer.tsx` over `counts.ts`) and its words
 (`messages.ts`) — and its canvas (`canvas/`: the canvas itself, `view.tsx`,
 and what it draws, the camera, the painter, the selection, the model, the
 layers, the colours and the theme bridge), whose invariants are
-`canvas/CLAUDE.md`'s. The
+`canvas/CLAUDE.md`'s. Every gesture that writes is one step of one history
+over a session per record it writes (`editing.ts`, #1388), as the Roster's
+and the Allocation's are: what each gesture writes is pure in `edits.ts`,
+written through each kind's own `write` and `create` — an existing row
+rewritten from the row as its session finds it (`ScheduleChange`'s
+`rewrite`) — and the drafts are drawn over the stored rows (`drafted.ts`). The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it
@@ -529,8 +534,11 @@ and leaves the others' commits standing. Unconfirmed writes keep the draft and
 the same retry identity. Each draft is decoded once: a session keeps an
 entry's version the same object until a gesture replaces it. Drafts of every
 week or day stay in their sessions, so navigating, the rail and a remount
-keep them, and Save includes them. The period's own reads of each record —
-its events' window, its own row, the Roster's targets — are what a gesture's
+keep them, and Save includes them. The Schematic writes each of its kinds and
+their details so (#1388), a whole row at a time through the kind's own
+functions, a draft the rail narrows out waiting in its session. The period's
+own reads of each record — its events' window, its own row, the Roster's
+targets — are what a gesture's
 original and a Save's confirmation read, each kept at the revision it was read
 at (`shared/schedule/records.ts`' `keptAtRevision`, `heldInWindow`,
 `periodRowRead`); a row they do not hold is read by its key. A Save confirms

@@ -18,7 +18,7 @@
 
 import { describe, expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { ArrayType, East, IntegerType, NullType, OptionType, StringType, none, printFor, some } from "@elaraai/east";
+import { ArrayType, East, IntegerType, NullType, OptionType, StringType, none, parseFor, printFor, some } from "@elaraai/east";
 import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
@@ -101,6 +101,30 @@ const reportsOf = () => East.compile(East.function([], IntegerType, ($) => {
 
 /** References printed, as East prints an array of them. */
 const printRefs = printFor(ArrayType(Schematic.Types.Ref));
+const parseRefs = parseFor(ArrayType(Schematic.Types.Ref));
+
+/** The whole selection the host keeps, read back from the text it wrote. */
+function selectedRefs() {
+    const read = parseRefs(stateOf(SELECTED_KEY));
+    if (!read.success) throw new Error(`the host keeps no selection: ${read.error}`);
+    return read.value;
+}
+
+/**
+ * The fibre run the host's selection names, once it is one run: a new row's, its key minted unique among every
+ * key the Schematic read and drafted (SC7) — one the record holds none of.
+ */
+async function newRun(): Promise<string> {
+    const refs = await waitFor(() => {
+        const now = selectedRefs();
+        expect(now.map((ref) => ref.kind)).toEqual(["fibre"]);
+        return now;
+    });
+    const key = refs[0]!.key;
+    expect((await h.read(ex.schematicFibre)).has(key)).toBe(false);
+    expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
+    return key;
+}
 /** A candidate printed, as East prints one. */
 const printCandidate = printFor(Schematic.Types.Candidate);
 
@@ -234,9 +258,9 @@ describe("<Schematic> through its carrier", () => {
         fireEvent.pointerEnter(canvas);
         await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([])));
-        // The recorded run lies along the racks' row, A01 to MMR-1: a tap past A04 finds it, the Connect tool's first.
+        // The recorded run lies along the racks' row, A01 to MMR-1: a tap past A04 finds it, under a key minted new.
         await tap(canvas, 19.0, 2.9);
-        await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "fibre", key: "connect-1" }])));
+        await newRun();
     });
 
     test("a veto that throws allows the candidate, and the console says why (SC39)", async () => {
@@ -260,6 +284,6 @@ describe("<Schematic> through its carrier", () => {
         await act(async () => { fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(24.2, 2.9) }); });
         fireEvent.click(getByRole("radio", { name: "Select" }));
         await tap(canvas, 17.0, 8.6);
-        await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "fibre", key: "connect-1" }])));
+        await newRun();
     });
 });

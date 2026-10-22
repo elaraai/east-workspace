@@ -544,11 +544,23 @@ interface NetSide {
 
 /** Net (bus / trunk) geometry, world space — shared verbatim by the
  *  painter and the hit-test so the clickable shape equals the drawn one. */
+/** The leg a net's stub draws: the side it is on, and its member's place in that side. */
+export interface NetStubLeg {
+    end: "source" | "destination";
+    index: number;
+}
+
 export interface NetGeometry {
     /** Trunk polyline: source anchor → via… → destination anchor. */
     trunk: Pt[];
     bars: Array<[Pt, Pt]>;
     stubs: Pt[][];
+    /**
+     * Each stub's leg, in the stubs' order (#1388): a side with one member —
+     * or its members at one point — draws no stub, so a stub's place among the
+     * stubs alone doesn't name its leg.
+     */
+    legs: NetStubLeg[];
     taps: Pt[];
 }
 
@@ -611,6 +623,10 @@ export function netGeometry(sources: readonly Pt[], destinations: readonly Pt[],
         trunk: [src.anchor, ...via, dst.anchor],
         bars,
         stubs: [...src.stubs, ...dst.stubs],
+        legs: [
+            ...src.stubs.map((_, index): NetStubLeg => ({ end: "source", index })),
+            ...dst.stubs.map((_, index): NetStubLeg => ({ end: "destination", index })),
+        ],
         taps: [...src.taps, ...dst.taps],
     };
 }
@@ -985,9 +1001,10 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.stroke();
             }
         } else if (selLeg !== undefined) {
-            // Stubs are in netGeometry input order: sources then destinations.
+            // The selected leg's stub, as the geometry names each stub's leg: a side with one member draws none.
             const idx = selLeg.end === "source" ? srcK.indexOf(selLeg.item) : dstK.indexOf(selLeg.item);
-            const stub = idx >= 0 ? geo.stubs[selLeg.end === "source" ? idx : srcK.length + idx] : undefined;
+            const at = geo.legs.findIndex((leg) => leg.end === selLeg.end && leg.index === idx);
+            const stub = idx >= 0 && at >= 0 ? geo.stubs[at] : undefined;
             if (stub !== undefined) {
                 ctx.lineWidth = weight + 5;
                 ctx.strokeStyle = css(p.brandSolid, 0.35);
