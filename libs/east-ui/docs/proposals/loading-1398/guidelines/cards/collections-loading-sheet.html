@@ -1,0 +1,70 @@
+<!-- @dsCard group="Components · Collections" name="Sheet · loading" viewport="700x3455" subtitle="Flat rows with their real numbers · cold load at the Sheet's pitch · a jump below the loaded rows · scrolling into a run · a grouped band growing below the row in view · stale narrowing · failed with Retry in the run · the insert strip only once the count says 0" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.shc{grid-template-columns:52px 120px minmax(0,1fr) 104px 80px 88px}
+.span{grid-column:2/-1;border-right:0;justify-content:flex-start}
+.rel{position:relative}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Cold load</div>
+<div class="it2"><div class="bf" id="cold"></div><div class="cap"><span class="f"><b>cold · first open</b>: BuilderFrame's skeleton, in place of today's empty body</span> · <span class="f">rows at the Sheet's pitch, 36 at md (27 sm, 42 lg, 45 on a coarse pointer), not 40</span> · <span class="f">headers and hints real; numbers bars until the count lands</span> · <span class="f">the extent is seeded at the Sheet's pitch, never the ledger's 32 px a row default, so window 0 changes nothing</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Unread · flat rows</div>
+<div class="it2"><div class="bf" id="jump"></div><div class="cap"><span class="f"><b>unread · a jump below the loaded rows</b> (today: a blank grid, its pill 36,060 px off-screen)</span> · <span class="f">the run is drawn where it meets the viewport: real row numbers 8,301 on, rules, columns</span> · <span class="f">each cell its kind's shape · the fetch starts once the view rests 100 ms or slows, not when scrolling stops</span> · <span class="f">"16,667 of 50,000 rows" stays the only count; "600 loaded of 16,667" is gone</span></div></div>
+<div class="it2"><div class="bf" id="edge"></div><div class="cap"><span class="f"><b>unread · scrolling into a run</b>: landed rows above, the run's rows straight after</span> · <span class="f">no band, pill or "5,000 not loaded"; the run costs one element per visible row</span> · <span class="f">a placeholder row's number can't be selected yet; ↑ ↓ onto it ask for its window and wait</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Grouped · bands and lines</div>
+<div class="duo">
+<div class="it2"><div class="bf rel" id="g1"></div><div class="cap"><span class="f"><b>unread · grouped</b>: a band of 42 with a title bar and a count bar</span> · <span class="f">lines at the run's pitch; their numbers short bars until they land</span></div></div>
+<div class="it2"><div class="bf rel" id="g2"></div><div class="cap"><span class="f"><b>landed · growth below</b>: Ready has 3 lines, not 2</span> · <span class="f">the band in view holds (the dashed guide); the next band moves down</span></div></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Stale · a narrowing in flight</div>
+<div class="it2"><div class="bf" id="stale"></div><div class="cap"><span class="f"><b>stale</b>: Status = Ready was just added; the previous rows stay, dashed, --ink-3, editing off</span> · <span class="f">the count "…" until it lands, then its figure; the footer line says "Filtering work orders…"</span> · <span class="f">at the swap the view keeps JOB-10450 by key when it survives, instead of jumping to the top</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Failed · Retry in the run</div>
+<div class="it2"><div class="bf" id="failed"></div><div class="cap"><span class="f"><b>failed</b>: the run's first row in view carries the reason and Retry (Default sm 24 in a 36 row)</span> · <span class="f">its other rows keep their numbers and rules and carry nothing else; the landed rows stay</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Empty · only once a completed read says so</div>
+<div class="it2"><div class="bf" id="e1"></div><div class="cap"><span class="f"><b>empty · source</b>: the insert strip shows once the count says 0, never on a paged cold load</span></div></div>
+<div class="it2"><div class="bf" id="e2"></div><div class="cap"><span class="f"><b>empty · narrowed</b>: one message in the first row's place, in the record's noun, with Clear filters</span></div></div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>&lt;Sheet&gt; · UnloadedRun · BuilderFrame busy</b> · <span class="f">cells 36 at md (27 sm, 42 lg, 45 coarse) on the 1px --rule grid, header 24, pad 0 8</span> · <span class="f">gutter: the real row number, mono 10 / 500, its width from the count (16,667 → 52)</span> · <span class="f">reference, job: a left 12 bar · status (enum): an 8 dot and a short bar · due: a medium mono bar · quantity: a short right bar</span> · <span class="f">group band 42 (46 coarse): a title bar and a count bar; grouped numbers short bars</span> · <span class="f">extent seeded at the pitch; rows one line, set and link chips into +N (proposed)</span> · <span class="f">footer: hints, then Loading work orders 8,301–8,500 · Filtering work orders… · Couldn't read work orders 8,301–8,500 · Retry</span> · <span class="f">count line "…" while pending</span> · <span class="f">stale: dashed --rule-strong row rules, --ink-3</span> · <span class="f">failed: circle-exclamation --neg, reason 13 --ink, Default sm 24 Retry</span> · <span class="f">insert strip only at count 0</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,W,bar,enm,line,foot,tb,it,sum,hist,flt,rect,$}=L;
+const tabs=c=>`<span class="tset"><span class="tlist" role="tablist"><span class="tab on" role="tab" aria-selected="true"><span class="nm">All</span><span class="tc">${c}</span></span></span><span class="ch cp da" role="button">${I('plus','pl')}Tab</span></span>`;
+const TB=(c,f)=>tb([it(tabs('50,000'),'fh'),it(flt(f||'Filters')),it(sum(c)),it(hist(),'end')]);
+const hints='<span class="hn"><span class="kbd">⏎</span>edit</span><span>·</span><span class="hn"><span class="kbd">esc</span>cancel</span><span>·</span><span>click a row number to select it</span><span>·</span><span class="hn"><span class="kbd">⌘</span><span class="kbd">C</span>/<span class="kbd">⌘</span><span class="kbd">V</span></span><span>round-trips with Excel</span>';
+const head=`<span class="gh hd n"></span><span class="gh hd l">Reference</span><span class="gh hd l">Job</span><span class="gh hd l">Status</span><span class="gh hd r">Due</span><span class="gh hd r lc">Quantity</span>`;
+const fmt=n=>n.toLocaleString('en-GB');
+const ph=(n,num)=>`<span class="gh n">${num===false?bar(28,8):fmt(n)}</span><span class="sc id" aria-hidden="true">${bar(W(76,n))}</span><span class="sc tx" aria-hidden="true">${bar(W(96,n+1))}</span><span class="sc tx" aria-hidden="true">${enm(40)}</span><span class="sc" aria-hidden="true">${bar(48)}</span><span class="sc lc" aria-hidden="true">${bar(32)}</span>`;
+const jobs=['Cut panels','Inspect'],qty=['100','1,900','1,300','700'];
+const row=(n,st,sel)=>{const ref='JOB-'+(10000+90*((n-1)%400)),c=st?' stl':'';return `<span class="gh n${c}">${fmt(n)}</span><span class="sc id${c}${sel?' sel':''}">${ref}</span><span class="sc tx${c}">${jobs[n%2]}</span><span class="sc en${c}">${n%4===2?'Scheduled':'Ready'}<span class="car">▾</span></span><span class="sc${c}">Oct ${String(1+(n%9)).padStart(2,'0')}</span><span class="sc lc${c}">${qty[n%4]}</span>`;};
+$('cold',tb([it(rect(104,24),''),it(rect(84,22,1)),it(rect(160,12,1)),it(rect(120,24),'end')])+`<div class="sh shc" aria-hidden="true">${head}${N(8,i=>ph(i+1,false))}</div>`+foot(hints,line('load','Loading work orders…')));
+$('jump',TB('<b>16,667</b> of 50,000 rows')+`<div class="sh shc" aria-busy="true">${head}${N(9,i=>ph(8301+i))}</div>`+foot(hints,line('load','Loading work orders <b>8,301–8,500</b>')));
+$('edge',TB('<b>16,667</b> of 50,000 rows')+`<div class="sh shc" aria-busy="true">${head}${N(5,i=>row(596+i))}${N(4,i=>ph(601+i))}</div>`+foot(hints,line('load','Loading work orders <b>601–800</b>')));
+const gcols='style="grid-template-columns:44px 104px minmax(0,1fr) 72px"';
+const ghd=`<span class="gh hd n"></span><span class="gh hd l">Reference</span><span class="gh hd l">Job</span><span class="gh hd r lc">Qty</span>`;
+const gb=(t,c)=>`<span class="band42">${t?`<span class="chev open">${I('angle-right')}</span><span class="gk">${t}</span><span class="ct">${c}</span>`:`<span class="chev open">${I('angle-right')}</span>${bar(64,8)}<span class="sk skc"></span>`}</span>`;
+const gl=i=>`<span class="gh n">${bar(20,8)}</span><span class="sc id">${bar(W(64,i))}</span><span class="sc tx">${bar(W(72,i+2))}</span><span class="sc lc">${bar(28)}</span>`;
+const gr=(n,r,j,q)=>`<span class="gh n">${n}</span><span class="sc id">${r}</span><span class="sc tx">${j}</span><span class="sc lc">${q}</span>`;
+$('g1',`<div class="sh" ${gcols}>${ghd}${gb()}${gl(0)}${gl(1)}${gb()}${gl(2)}</div>`+foot('',line('load','Loading work orders…'))+'<i class="guide" style="top:25px"></i>');
+$('g2',`<div class="sh" ${gcols}>${ghd}${gb('Ready','3')}${gr(1,'JOB-10000','Cut panels','100')}${gr(2,'JOB-10090','Inspect','1,900')}${gr(3,'JOB-10180','Cut panels','1,300')}${gb('Scheduled','2')}</div>`+foot('',line('idle'))+'<i class="guide" style="top:25px"></i>');
+$('stale',TB('<b>…</b> of 50,000 rows','Status = Ready')+`<div class="sh shc">${head}${N(7,i=>row(4+i,1,i===1))}</div>`+foot(hints,line('load','Filtering work orders…')));
+const fr=`<span class="gh n">${fmt(8301)}</span><span class="sc span"><span class="fail">${I('circle-exclamation')}<span class="msg">Couldn't read work orders <span class="num">8,301–8,500</span></span><span class="bt" role="button" aria-label="Retry work orders 8,301–8,500">Retry</span></span></span>`;
+const nrr=n=>`<span class="gh n">${fmt(n)}</span><span class="sc id"></span><span class="sc tx"></span><span class="sc tx"></span><span class="sc"></span><span class="sc lc"></span>`;
+$('failed',TB('<b>16,667</b> of 50,000 rows')+`<div class="sh shc">${head}${N(3,i=>row(8298+i))}${fr}${N(4,i=>nrr(8302+i))}</div>`+foot(hints,line('err','Couldn\'t read work orders <b>8,301–8,500</b>')));
+$('e1',TB('<b>0</b> rows')+`<div class="sh shc">${head}<span class="gh n">${I('plus')}</span><span class="sc span" style="justify-content:flex-start"><span class="bt" role="button">Add row</span><span class="bt" role="button">New work order…</span></span></div>`+foot(hints));
+$('e2',TB('<b>0</b> of 50,000 rows','Job = Repaint')+`<div class="sh shc">${head}</div><div class="es"><span class="gy">×</span><span class="ttl">No work orders match the filters</span><ul class="ckl"><li><span class="bx">☐</span><span class="lkk" role="button">Clear filters →</span></li></ul></div>`+foot(hints));
+})();
+</script>
+</body></html>

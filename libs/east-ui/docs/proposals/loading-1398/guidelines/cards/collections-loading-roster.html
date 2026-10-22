@@ -1,0 +1,106 @@
+<!-- @dsCard group="Components · Collections" name="Roster · loading" viewport="700x4873" subtitle="People and Shifts views and the narrow cards · cold load at the People pitch · a week step not prefetched · landed in place · stale narrowing · failed with Retry · empty only after the read · requirement lines growing below the row in view" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.pg{display:grid;grid-template-columns:128px repeat(4,minmax(0,1fr)) 112px;background:var(--paper)}
+.pg>.chd:last-child{justify-content:flex-end;padding-right:20px}
+.rn{height:52px;box-sizing:border-box;display:flex;align-items:center;min-width:0;padding:0 12px 0 20px;border-bottom:1px solid var(--rule);font-size:var(--fs-body);font-weight:500;color:var(--ink);white-space:nowrap}
+.rc{height:52px;box-sizing:border-box;display:flex;align-items:center;gap:4px;min-width:0;padding:0 8px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.rw{height:52px;box-sizing:border-box;display:flex;align-items:center;justify-content:flex-end;gap:4px;padding:0 20px 0 8px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule);white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-md);color:var(--ink-4)}
+.rw b{font-size:var(--fs-body);font-weight:500;color:var(--ink)}
+.pg>.st2{border-bottom-style:dashed;border-bottom-color:var(--rule-strong)}
+.pg>.rn.st2{color:var(--ink-3)}.pg>.rw.st2 b{color:var(--ink-3)}
+.gb2{grid-column:1/-1}
+.today{background:var(--paper-2)}
+.ch .wn{font-size:10px;color:var(--warn)}
+.sg2{display:grid;grid-template-columns:128px repeat(3,minmax(0,1fr));background:var(--paper)}
+.sh2{height:48px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;padding:0 12px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.sh2:first-child{border-left:0;padding-left:20px}
+.sl2{display:grid;align-content:start;gap:4px;min-width:0;padding:12px 12px 12px 20px;border-bottom:1px solid var(--rule)}
+.sl2 .t{font-size:var(--fs-body);font-weight:500;color:var(--ink)}
+.sc2{display:grid;align-content:start;gap:8px;min-width:0;padding:12px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.sk6{height:6px}
+.ln2{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;height:16px;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-md);color:var(--ink-3)}
+.ln2 b{font-weight:600;color:var(--ink)}
+.ln2>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.pr{display:flex;height:6px;background:var(--paper-3)}
+.pr i{display:block;height:6px}
+.pa{display:grid;gap:12px;padding:12px;background:var(--paper-2)}
+.d7{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.d7>span{display:grid;gap:4px;justify-items:start;min-width:0}
+.sk.full{width:100%}
+.sh2 .mt9,.sh2 .hk{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">People · cold load</div>
+<div class="it2"><div class="bf" id="cold"></div><div class="cap"><span class="f"><b>cold · first open</b>: BuilderFrame's skeleton, its rows at the People pitch, 52, in place of 12 rows of 40</span> · <span class="f">every toolbar slot drawn at its footprint: status, issues and Publish held from the start</span> · <span class="f">headers and the legend real; the footer line carries the only pulse</span> · <span class="f">swaps all at once when the first complete read lands</span></div></div>
+</div>
+<div class="sec">
+<div class="k">People · a week step not prefetched</div>
+<div class="it2"><div class="bf" id="unread"></div><div class="cap"><span class="f"><b>unread · W10 → W11</b>: no cover; the toolbar, panes, selection and Save stay live</span> · <span class="f">the new week's dates draw at once; people, groups, names and their order are real (read whole)</span> · <span class="f">each day cell a chip rect, never "Off · assign" or "Off"</span> · <span class="f">week hours: contract real, worked a short bar</span> · <span class="f">the group's requests row real, its chips placeholders</span> · <span class="f">status, issues and Publish hold their slots; the grid is scrolled to Wed–Sat</span></div></div>
+<div class="it2"><div class="bf" id="landed"></div><div class="cap"><span class="f"><b>landed · the swap</b>: the whole week in one commit; every row the same 52, so nothing moves</span> · <span class="f">"Off · assign" only now, once duties and the week's status are in</span> · <span class="f">a rest warning or times overflow into the chip's +N, so a row stays one line (proposed)</span> · <span class="f">"Week not started" lands in the same commit as its week, never after it</span></div></div>
+<div class="it2"><div class="bf" id="stale"></div><div class="cap"><span class="f"><b>stale · narrowing</b>: the previous rows stay, dashed and --ink-3; "Off · assign" disabled</span> · <span class="f">the toolbar's count "…" until the new count lands, then its figure</span> · <span class="f">at the swap, the anchor person keeps its offset by key</span> · <span class="f">the toolbar keeps every landed item, folded as the code folds it at this width: the rail to its icon and count, then the status chip (HOST_RANK), then the segments into the View menu (HOST_RANK + 1); issues and Publish stay</span></div></div>
+<div class="it2"><div class="bf" id="failed"></div><div class="cap"><span class="f"><b>failed</b>: the week's read failed; dates, the group, names and rules stay, the cells blank, never "Off"</span> · <span class="f">week hours keep their contract, "/ 38 h", from the people read, which succeeded; only the worked figure is blank</span> · <span class="f">the reason and Retry said once, as one line in the first row in view, across A. Alder's day cells: the Sheet's failed line; the footer line carries the same reason with Retry</span> · <span class="f">status held and pending, as unread; the issues slot keeps its width empty; Publish disabled</span></div></div>
+<div class="it2"><div class="bf" id="empty"></div><div class="cap"><span class="f"><b>empty</b>: only after a completed read says so</span> · <span class="f">a narrowing that hides every person: the band and its Agency requests row stay, since groups and requests are never narrowed; one line in the first person row's place, × glyph, with Clear filters</span> · <span class="f">the toolbar folded as the stale one's</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Shifts · Day view, Thu 16 Mar · the slot grid real, its contents placeholders</div>
+<div class="it2"><div class="bf" id="sh1"></div><div class="cap"><span class="f"><b>unread</b>: columns, shift codes and times, the slot grid and the agency buttons real</span> · <span class="f">coverage meta in heads and the band short bars · targets bars · each requirement one placeholder line, since Day view's skill lines aren't known yet</span> · <span class="f">each position a chip rect in its slot; "f/p" a short bar</span></div></div>
+<div class="it2"><div class="bf" id="sh2"></div><div class="cap"><span class="f"><b>landed · growth below</b>: the skill lines land and the requirement row grows; the band in view holds, everything under it moves down</span> · <span class="f">the dashed guide is the band's top, before and after</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Narrow · PeopleAgenda and the shift cards, at 360</div>
+<div class="duo">
+<div class="it2"><div class="bf" style="width:100%" id="na1"></div><div class="cap"><span class="f"><b>unread · PeopleAgenda</b>: real person cards, name and contract hours; the 7 day blocks rects</span> · <span class="f">the list's estimate is a real card's height, not 900 px</span></div></div>
+<div class="it2"><div class="bf" style="width:100%" id="na2"></div><div class="cap"><span class="f"><b>unread · shift cards</b>: day × group × shift titles real; their contents placeholders</span></div></div>
+</div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>&lt;Roster&gt; · People · Shifts · PeopleAgenda · BuilderFrame busy</b> · <span class="f">no BuilderFrame.loading after cold load: a week step keeps the toolbar, panes, selection and Save live</span> · <span class="f">People rows 52, one line of 22 chips, overflow into +N (proposed), requests row likewise; estimate exact, anchorable</span> · <span class="f">Agency requests each group's last row, in every state; request chips badged "AG"; week hours empty</span> · <span class="f">day cell placeholder the Chip's rect 22 × 64, --r-sm</span> · <span class="f">week hours: contract mono 13 real, worked a 12 bar</span> · <span class="f">toolbar slots held: status a dot + 8 bar, issues 24 rect, Publish 32 rect at --r-md</span> · <span class="f">Shifts: slot grid real; positions 22 rects; coverage and "f/p" 8 bars; the Progress track a 6 rect, square-ended</span> · <span class="f">Day-view requirement one 12 line, grows below the row in view</span> · <span class="f">footer: Loading 12–18 Mar · Filtering people… · Couldn't read 12–18 Mar · Retry</span> · <span class="f">stale rows dashed --rule-strong, --ink-3</span> · <span class="f">failed: the grid's geometry kept, its cells blank, contract hours real; one line, circle-exclamation --neg, the reason 13 --ink and the sm Default Retry, in the first row in view across its day cells; the footer line the same</span> · <span class="f">empty: one line in the first person row's place, the Empty state's × glyph at 14, the message and Clear filters; the band and Agency requests kept</span> · <span class="f">reveal 150 ms, hold 300 ms; a one-step move to a prefetched week shows no placeholder</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,W,bar,chip,rect,enm,leg,line,foot,tb,it,seg,nav,sum,stt,iss,pub,hist,flt,held,$}=L;
+const days=['Wed 15','Thu 16','Fri 17','Sat 18'],ppl=['A. Alder','B. Lupin','H. Grove','J. Marram','C. Clover'],con=['38','38','30','38','24'];
+const LG=leg([['Permanent','sw'],['Agency staff','sw s2'],['Requested','sw dh'],['Open','sw dw'],['Hours needed','sw tk']]);
+const TB=(o={})=>tb([it(flt()),it(seg(['Shifts','People'],1)),it(nav('W11 · Mar 12 – 18')),it(o.stt||held.stt(),'end'),it(o.iss||held.iss()),it(o.pub||held.pub())]);
+const head=`<span class="chd" style="padding-left:20px"><span class="hk">People · week</span></span>${days.map((d,i)=>`<span class="chd${i===1?' today':''}"><span class="hk">${d}</span></span>`).join('')}<span class="chd"><span class="hk">Week hours</span></span>`;
+const band=(h)=>`<div class="gband gb2"><span class="chev open">${I('angle-right')}</span>${h||'<span class="gt">Inbound</span>'}</div>`;
+const rows=(f,cls)=>ppl.map((p,i)=>`<span class="rn${cls||''}">${p}</span>${days.map((d,j)=>`<span class="rc${cls||''}${j===1?' today':''}">${f(i,j)}</span>`).join('')}<span class="rw${cls||''}">${f(i,'w')}</span>`).join('');
+const ph=(i,j)=>j==='w'?`${bar(24)}<span>/</span><b>${con[i]}</b><span>h</span>`:chip(64);
+const areq=(c,cls,lab)=>`<span class="rn${cls||''}">${lab||'Agency requests'}</span>${days.map((d,j)=>`<span class="rc${cls||''}${j===1?' today':''}">${c(j)}</span>`).join('')}<span class="rw${cls||''}"></span>`;
+$('cold',tb([it(rect(28,22,1)),it(rect(118,24)),it(rect(220,24)),it(held.stt(),'end'),it(held.iss()),it(held.pub())])+`<div class="pg" aria-hidden="true">${head}${band(bar(72,12))}${rows((i,j)=>j==='w'?bar(56):chip(64)).replace(/<span class="rn">[^<]+<\/span>/g,(m,o)=>`<span class="rn">${bar(W(72,o))}</span>`)}${areq(()=>chip(64),'',bar(W(72,4)))}</div>`+foot(LG,line('load','Loading <b>12–18 Mar</b>')));
+$('unread',TB()+`<div class="pg" aria-busy="true">${head}${band()}${rows(ph)}${areq(()=>chip(64))}</div>`+foot(LG,line('load','Loading <b>12–18 Mar</b>')));
+const D=(s,d,x)=>`<span class="ch"><span class="me">${s}</span>${d}${x||''}</span>`,OFF='<span class="bt md" role="button">Off · assign</span>';
+const grid=[[D('SV','E'),D('SV','E'),OFF,OFF],[D('SV','N'),D('SV','N'),D('SV','N'),OFF],[D('SV','L'),OFF,OFF,D('SV','L')],[D('DS','N'),D('DS','N'),OFF,D('DS','N')],[D('','L',`${I('triangle-exclamation','wn')}<span class="me">+1</span>`),D('','E',`${I('triangle-exclamation','wn')}<span class="me">+1</span>`),D('','E'),OFF]];
+const wk=['30','38','22','30','24'];
+const landedRows=cls=>rows((i,j)=>j==='w'?`<b>${wk[i]}</b><span>/</span><b>${con[i]}</b><span>h</span>`:grid[i][j],cls);
+const REQ=[D('AG','N'),'',D('AG','E'),''];
+$('landed',TB({stt:stt('Draft'),iss:iss(20),pub:pub()})+`<div class="pg">${head}${band()}${landedRows()}${areq(j=>REQ[j])}</div>`+foot(LG));
+const railIcon=(n,t)=>`<span class="tg" role="button" aria-haspopup="dialog" aria-expanded="false"><span class="ch br" title="${t}" data-rail-rung="icon">${I('filter','ic')}<span>${n}</span></span>${I('chevron-down','cr')}</span>`;
+const view=ic=>`<span class="ch cp" role="button" aria-haspopup="menu" data-slot="segMenu">${I(ic,'ic')}<span>View</span>${I('chevron-down','cr')}</span>`;
+const pTB=(c,f)=>tb([it(railIcon(1,f)),it(view('calendar-week')),it(nav('W11 · Mar 12 – 18')),it(sum(c),'end'),it(iss(20)),it(pub())]);
+$('stale',pTB('<b>…</b> of 500 people','Inbound')+`<div class="pg stl" aria-busy="true">${head}${band()}${landedRows(' st2').replace(/<span class="bt md" role="button">/g,'<span class="bt md dis" role="button" aria-disabled="true">')}${areq(j=>REQ[j],' st2')}</div>`+foot(LG,line('load','Filtering people…')));
+const fline=`<span class="fail">${I('circle-exclamation')}<span class="msg">Couldn't read <span class="num">12–18 Mar</span></span><span class="bt" role="button" aria-label="Retry 12–18 Mar">Retry</span></span>`;
+const frows=ppl.map((p,i)=>`<span class="rn">${p}</span>${i?days.map((d,j)=>`<span class="rc${j===1?' today':''}"></span>`).join(''):`<span class="rc" style="grid-column:2/6">${fline}</span>`}<span class="rw"><span>/</span><b>${con[i]}</b><span>h</span></span>`).join('');
+$('failed',TB({iss:'<span style="display:inline-block;width:44px"></span>',pub:pub(1)})+`<div class="pg">${head}${band()}${frows}${areq(()=>'')}</div>`+foot(LG,line('err','Couldn\'t read <b>12–18 Mar</b>')));
+const eline=`<span class="fail"><span class="gy">×</span><span class="msg">No people match the filters</span><span class="lkk" role="button">Clear filters →</span></span>`;
+$('empty',pTB('<b>0</b> of 500 people','Forklift')+`<div class="pg">${head}${band()}<span class="rn"></span><span class="rc" style="grid-column:2/6">${eline}</span><span class="rw"></span>${areq(j=>REQ[j])}</div>`+foot(LG));
+const shifts=[['Early','06:00–14:00',6],['Late','14:00–22:00',5],['Night','22:00–06:00',4]];
+const sTB=tb([it(flt()),it(seg(['Shifts','People'],0)),it(nav('Thu, Mar 16, 2028')),it(held.stt(),'end'),it(held.iss()),it(held.pub())]);
+const sHead=`<span class="sh2"><span class="hk">Groups</span><span class="mt9">3 shifts</span></span>${shifts.map(s=>`<span class="sh2"><span class="hk">${s[0]} ${s[1]}</span>${bar(120,8)}</span>`).join('')}`;
+const req=(lines)=>`<span class="sl2"><span class="hk">Requirement</span><span class="t">Work</span><span class="mt9">hours by skill</span>${bar(64,8)}</span>${shifts.map((s,k)=>`<span class="sc2"><span class="ln2">${bar(128)}</span><span class="sk sk6 full"></span>${bar(88,8)}${lines?lines[k]:`<span class="ln2">${bar(W(96,k))}${bar(40)}</span>`}</span>`).join('')}`;
+const asg=`<span class="sl2"><span class="hk">Assignment</span><span class="t">Roster</span>${bar(56,8)}${bar(40,8)}</span>${shifts.map(s=>`<span class="sc2">${bar(64,8)}${N(s[2],()=>chip(150).replace('style="width:150px"','style="width:100%"'))}<span class="bt md" role="button">Request Northside</span></span>`).join('')}`;
+$('sh1',sTB+`<div class="sg2" style="position:relative">${sHead}<div class="gband" style="grid-column:1/-1"><span class="chev open">${I('angle-right')}</span><span class="gt">Inbound</span>${bar(160,8)}</div>${req()}${asg}<i class="guide" style="top:48px"></i></div>`+foot(LG,line('load','Loading <b>Thu 16 Mar</b>')));
+const sk=[['UL','Unloading','32 / 34'],['PA','Put-away','16 / 23'],['RT','Reach truck','16 / 22'],['XD','Cross-dock','32 / 34']];
+const skl=sk.map(s=>`<span class="ln2"><span><span class="mt9">${s[0]}</span> <span style="font-family:var(--font-body);font-size:var(--fs-body-sm);color:var(--ink)">${s[1]}</span></span><b>${s[2]}</b></span>`).join('');
+const cov=[['146','152','120','32'],['98','98','82','16'],['50','42','26','16']];
+const reqL=`<span class="sl2"><span class="hk">Requirement</span><span class="t">Work</span><span class="mt9">hours by skill</span><span class="mt9">294 h needed</span></span>${cov.map((c,k)=>`<span class="sc2"><span class="ln2"><span><b>${c[0]} h</b> needed <b>${c[1]} h</b> rostered</span></span><span class="pr"><i style="width:${Math.round(c[2]/c[0]*100)}%;background:var(--brand-d)"></i><i style="width:${Math.round(c[3]/c[0]*100)}%;background:var(--teal-500)"></i></span><span class="mt9">${c[2]} perm · ${c[3]} agency h</span>${skl}</span>`).join('')}`;
+$('sh2',tb([it(flt()),it(seg(['Shifts','People'],0)),it(nav('Thu, Mar 16, 2028')),it(stt('Draft'),'end'),it(iss(8)),it(pub())])+`<div class="sg2" style="position:relative">${sHead.replace(/<span class="sk b8" style="width:120px"><\/span>/g,(m,o)=>'<span class="mt9">38 / 38 positions · 302 h</span>')}<div class="gband" style="grid-column:1/-1"><span class="chev open">${I('angle-right')}</span><span class="gt">Inbound</span><span class="mt9">294 h needed · 292 h rostered · −2 h</span></div>${reqL}<span class="sl2"><span class="hk">Assignment</span><span class="t">Roster</span><span class="mt9">36 people</span></span>${shifts.map(s=>`<span class="sc2"><span class="mt9">${s[2]} / ${s[2]} positions</span></span>`).join('')}<i class="guide" style="top:48px"></i></div>`+foot(LG));
+const pcard=(n,c)=>`<div class="ic"><div class="icb"><div class="ihd"><div class="l20"><span class="itt">${n}</span></div><div class="l16"><span class="imt">${c} h contract</span></div></div><div class="d7">${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<span><span class="mt9">${d}</span>${chip(40).replace('style="width:40px"','style="width:100%"')}</span>`).join('')}</div></div></div>`;
+$('na1',`<div class="band" style="padding:0 12px"><div class="tb">${it(nav('W11 · Mar 12 – 18'))}${it(held.pub(),'end')}</div></div><div class="pa">${pcard('A. Alder','38')}${pcard('B. Lupin','38')}</div>`+foot('',line('load','Loading…')));
+const scard=(t,n)=>`<div class="ic"><div class="icb"><div class="ihd"><div class="l20"><span class="itt">${t}</span></div><div class="l16">${bar(96,8)}</div></div>${N(n,()=>chip(40).replace('style="width:40px"','style="width:100%"'))}</div></div>`;
+$('na2',`<div class="band" style="padding:0 12px"><div class="tb">${it(nav('Thu, Mar 16'))}${it(held.pub(),'end')}</div></div><div class="pa">${scard('Thu 16 · Inbound · Early',3)}${scard('Thu 16 · Inbound · Late',2)}</div>`+foot('',line('load','Loading…')));
+})();
+</script>
+</body></html>
