@@ -9,9 +9,11 @@
  * 5 October 2026, through a record Slice over `Data.bindPaged(jobs, { indexes
  * })` — a cell some presses in one tile, every cell's searches in one request
  * and their entries in one more, each held to what an oracle written from the
- * indexes' definition files from the record's rows. A write is another
- * session's commit through the record's patch door, reported by the next poll
- * of a dataset cache timed by a clock the test drives.
+ * indexes' definition files from the record's rows — and the rows of several
+ * jobs read by their keys in one request, as the Plan reads those it names and
+ * has not read. A write is another session's commit through the record's patch
+ * door, reported by the next poll of a dataset cache timed by a clock the test
+ * drives.
  */
 
 import { test } from "node:test";
@@ -24,7 +26,7 @@ import {
     RecordSliceWhereType, bindRecord, tileCellQueries, tileIndexFor, tilesOver, type RecordSliceEntry,
 } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
-import { recordSliceCellEntries, recordSliceCellRuns, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { recordSliceCellEntries, recordSliceCellRuns, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
 import { RecordSummaryTotalsType } from "@elaraai/e3-types";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
@@ -234,6 +236,28 @@ test("a narrowing the series index is led by reads its cells exactly; one it is 
     const held = await h.ready(() => recordSliceWithin(handle, late, rows));
     assert.deepEqual(rows.filter((_, i) => held[i]).map(row => row.key).sort(keyOrder), ["instant", "late"]);
     assert.deepEqual(requestsOf("within").map(request => request.method), ["POST"], "one membership read for the cell's jobs");
+    runtime.clear();
+});
+
+test("the rows of several jobs are read by their keys in one request, pinned to the record's revision, a key it lacks none", async () => {
+    const stored = await h.read(jobs);
+    const { runtime, handle } = bind();
+    const R1 = await h.ready(() => handle.data.revision());
+    const keys = ["late", "nobody", "carry"];
+    const rows = await h.ready(() => recordSliceRows(handle, keys));
+    assert.equal(rows.length, keys.length);
+    const held = (i: number) => {
+        const row = rows[i]!;
+        return row.type === "some" && isValueOf(row.value, ex.IndexedJob) ? row.value as Job : undefined;
+    };
+    assert.ok(jobEqual(held(0)!, stored.get("late")!), "late's row");
+    assert.equal(rows[1]!.type, "none", "a key the record does not hold");
+    assert.ok(jobEqual(held(2)!, stored.get("carry")!), "carry's row");
+    assert.deepEqual(requestsOf("rows").map(request => [request.method, request.query.get("hash")]), [["POST", R1]], "one request for the three");
+    assert.equal(requestsOf("find").length + requestsOf("page").length, 0, "no key sought, no row paged");
+    // Asked again, the rows are the ones read.
+    assert.equal(recordSliceRows(handle, keys).type, "some");
+    assert.equal(requestsOf("rows").length, 1);
     runtime.clear();
 });
 

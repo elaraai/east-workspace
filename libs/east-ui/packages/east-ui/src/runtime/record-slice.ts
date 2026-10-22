@@ -54,6 +54,8 @@ export class RecordSliceController {
     readonly windows: RecordSliceSource<RecordSliceEntry>;
     private readonly encodeRow: ReturnType<typeof encodeBeast2For>;
     private readonly decodeRow: ReturnType<typeof decodeBeast2For>;
+    /** A primary key's `.east` text, as a search names it. */
+    private readonly printKey: (key: unknown) => string;
     private readonly schemas = new Map<string, RecordSliceFieldSchema>();
     private readonly parse = new Map<string, ReturnType<typeof parseFor>>();
     private readonly print = new Map<string, ReturnType<typeof printFor>>();
@@ -71,6 +73,7 @@ export class RecordSliceController {
         readonly readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType, indexes?: StructType) {
         this.encodeRow = encodeBeast2For(row);
         this.decodeRow = decodeBeast2For(row);
+        this.printKey = printFor(primaryKey);
         this.windows = new RecordSliceSource(source);
         const fieldTypes = recordSliceFieldTypes(row, indexes);
         for (const field of config.fields) {
@@ -231,11 +234,24 @@ export class RecordSliceController {
 
     /** Confirm a saved entry without confusing a filtered-out row with a deletion. */
     readEntry(id: string): option<option<Uint8Array>> {
-        const revision = this.source.revision();
-        if (revision.type === "none") return none;
         const text = this.primaryKey.type === "String" ? printFor(StringType)(id) : id;
         const key = parseFor(this.primaryKey)(text);
         if (!key.success) throw new Error("Invalid record identity");
+        return this.entryAt(text, key.value);
+    }
+
+    /**
+     * One entry of the record by its key, read at one revision: its key sought,
+     * then a one-row page at its row.
+     *
+     * @param text - The key's `.east` text, as a search names it
+     * @param key - The key, an East value of the record's key type
+     * @returns Its row as bytes, `none` for a key the record does not hold; none while either read is pending
+     * @throws {Error} When the row found is another key's: the record changed between the two reads
+     */
+    private entryAt(text: string, key: unknown): option<option<Uint8Array>> {
+        const revision = this.source.revision();
+        if (revision.type === "none") return none;
         const found = this.source.seek("primary", variant("key", text));
         if (found.type === "none") return none;
         let result: option<Uint8Array> = none;
@@ -243,13 +259,45 @@ export class RecordSliceController {
             const page = this.source.page("primary", found.value.row, 1n);
             if (page.type === "none") return none;
             const entry = page.value[0];
-            if (entry === undefined || entry.row?.type !== "some" || compareFor(this.primaryKey)(entry.key, key.value) !== 0) {
+            if (entry === undefined || entry.row?.type !== "some" || compareFor(this.primaryKey)(entry.key, key) !== 0) {
                 throw new Error("The record changed while confirming the edit; retry");
             }
             result = some(this.encodeRow(entry.row.value));
         }
         const current = this.source.revision();
         return current.type === "some" && current.value === revision.value ? some(result) : none;
+    }
+
+    /**
+     * The rows the record holds under several of its own keys, at its current
+     * revision (#1039): in one request when the binding batches its reads, else
+     * each read by its key, all started together — what a reader asks of rows
+     * it names by key and has not read, as the Plan does of the events a link
+     * names and those drafted outside the cells it draws.
+     *
+     * @param keys - The keys, East values of the record's key type
+     * @returns Each key's row, `none` for a key the record does not hold, in order; none while any read is pending
+     */
+    rows(keys: readonly unknown[]): option<option<unknown>[]> {
+        const revision = this.source.revision();
+        if (revision.type === "none") return none;
+        if (keys.length === 0) return some([]);
+        let read: option<option<unknown>[]>;
+        if (this.source.rowsAll !== undefined) {
+            read = this.source.rowsAll(keys);
+        } else {
+            const rows: option<unknown>[] = [];
+            let pending = false;
+            for (const key of keys) {
+                const entry = this.entryAt(this.printKey(key), key);
+                if (entry.type === "none") pending = true;
+                else rows.push(entry.value.type === "some" ? some(this.decodeRow(entry.value.value)) : none);
+            }
+            read = pending ? none : some(rows);
+        }
+        if (read.type === "some" && read.value.length !== keys.length) throw new Error("The record answered a different number of rows than it was asked");
+        const current = this.source.revision();
+        return read.type === "some" && current.type === "some" && current.value === revision.value ? read : none;
     }
 
     /**

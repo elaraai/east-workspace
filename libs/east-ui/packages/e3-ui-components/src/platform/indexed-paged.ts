@@ -84,7 +84,7 @@ export class IndexedPagedRuntime {
     // Each index's printer of an entry key, `(ik=…, k=…)`, from its key's text and the row's key (#1349).
     private entryPrinters = new WeakMap<Schema, Map<string, (ik: string, key: unknown) => string>>();
 
-    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll" | "placeAll" | "withinAll">) {}
+    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll">) {}
 
     clear(): void { this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); this.entryPrinters = new WeakMap(); }
 
@@ -213,9 +213,10 @@ export class IndexedPagedRuntime {
 
     /**
      * The reads the paged runtime batches for a binding this runtime built
-     * (#1351): several searches of one of its sources in one request, and the
-     * entries of several runs of one in one, each through the source's own
-     * handle, so its channels are the ones the binding's single reads use.
+     * (#1351): several searches of one of its sources in one request, the
+     * entries of several runs of one in one, and the rows of several of the
+     * record's own keys in one (#1039), each through the source's own handle,
+     * so its channels are the ones the binding's single reads use.
      *
      * @param binding - What the binding reads
      * @returns Its batched reads
@@ -258,6 +259,12 @@ export class IndexedPagedRuntime {
                 const within = this.paged.withinAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const),
                     entries.map(entry => print(entry.ik, entry.key)));
                 return within.type === "none" ? none : some([...within.value]);
+            },
+            // The rows of several of the record's own keys in one request (#1039): its own Dict's rows by key.
+            rowsAll: (keys) => {
+                if (!joined) throw new Error("A covering-only binding cannot read primary rows");
+                const read = this.paged.rowsAll(sourceOf("primary"), keys);
+                return read.type === "none" ? none : some(read.value.map(entry => entry.row));
             },
         };
     }

@@ -49,6 +49,13 @@ export interface RecordSliceReader<T> {
      * memberships has it.
      */
     withinAll?(index: string, runs: readonly Range[], entries: readonly RecordSliceEntryKey[]): option<boolean[]>;
+    /**
+     * The rows the record holds under several of its own keys, in one request
+     * (#1039): each key's row, or `none` for a key the record does not hold,
+     * in the order asked — none while pending. A binding whose runtime batches
+     * its reads has it; without it, each row is read by its key.
+     */
+    rowsAll?(keys: readonly unknown[]): option<option<unknown>[]>;
 }
 
 /** One index entry of a row, as a membership read names it: its index key's `.east` text, and the row's primary key. */

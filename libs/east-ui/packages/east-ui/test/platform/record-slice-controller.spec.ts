@@ -184,6 +184,56 @@ test("which of the record's own rows a narrowing holds is asked of the rows its 
     assert.throws(() => controller.withinAt(late, 0n, 1n), /with their rows/);
 });
 
+test("the rows of several of the record's keys are read in one request when the binding batches them, else each by its key, a key the record lacks none (#1039)", () => {
+    // The record holds a and c, in that order.
+    const printString = printFor(StringType);
+    const stored = new Map<string, ValueTypeOf<typeof Row>>([["a", { status: "held", due: some(1n) }], ["c", { status: "late", due: none }]]);
+    const order = new Map([[printString("a"), 0], [printString("c"), 1]]);
+    const keys = ["a", "c"];
+    let revision = "A";
+    const seeks: string[] = [];
+    const asked: unknown[][] = [];
+    const bindingOf = (batched: boolean, answer?: (keys: readonly unknown[]) => ReturnType<NonNullable<RecordSliceBinding["rowsAll"]>>): RecordSliceBinding => ({
+        id: "rows", recordId: "rows", defaultIndex: "primary", revision: () => some(revision), refresh: () => null,
+        total: () => some(2n), entryKeys: () => [],
+        seek(_index, query) {
+            assert.equal(query.type, "key");
+            const text = query.type === "key" ? query.value : "";
+            seeks.push(text);
+            const at = order.get(text);
+            return some(at === undefined ? { found: false, row: 0n, count: 0n } : { found: true, row: BigInt(at), count: 1n });
+        },
+        page: (index, offset, limit) => some(keys.slice(Number(offset), Number(offset + limit))
+            .map(key => ({ ik: variant(index, key), key, row: some(stored.get(key)!) }))),
+        ...(batched ? {
+            rowsAll(asking: readonly unknown[]) {
+                asked.push([...asking]);
+                if (answer !== undefined) return answer(asking);
+                return some(asking.map(key => (stored.has(key as string) ? some(stored.get(key as string)!) : none)));
+            },
+        } : {}),
+    });
+    const stateOf = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controllerOf = (binding: RecordSliceBinding) => new RecordSliceController(binding, config, Row, () => stateOf, () => {});
+
+    const batched = controllerOf(bindingOf(true));
+    assert.deepEqual(batched.rows(["c", "b", "a"]), some([some(stored.get("c")), none, some(stored.get("a"))]));
+    assert.deepEqual(asked, [["c", "b", "a"]], "one request for every key, in the order asked");
+    assert.deepEqual(seeks, [], "and no search");
+    assert.deepEqual(batched.rows([]), some([]), "no key asks nothing");
+    assert.equal(asked.length, 1);
+
+    const single = controllerOf(bindingOf(false));
+    assert.deepEqual(single.rows(["c", "b"]), some([some(stored.get("c")), none]), "each row by its key: its key sought, then its row's page");
+    assert.deepEqual(seeks, [printString("c"), printString("b")]);
+
+    assert.deepEqual(controllerOf(bindingOf(true, () => none)).rows(["a"]), none, "a read in flight is none");
+    assert.deepEqual(controllerOf(bindingOf(true, (asking) => { revision = "B"; return some(asking.map(() => none)); })).rows(["a"]), none,
+        "rows read across a revision's move are none: the next read asks again at the new one");
+    revision = "A";
+    assert.throws(() => controllerOf(bindingOf(true, () => some([]))).rows(["a"]), /a different number of rows/);
+});
+
 test("chip counts describe the exact state a toggle will apply, including clearing the final value", () => {
     const { controller } = fixture();
     controller.choose("due", undefined);
