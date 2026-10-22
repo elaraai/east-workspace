@@ -148,6 +148,7 @@ import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
 import { sheetInspectorSlotRecipe } from "./slot-recipes/sheetInspector.js";
 import { planInspectorSlotRecipe } from "./slot-recipes/planInspector.js";
 import { flowchartInspectorSlotRecipe } from "./slot-recipes/flowchartInspector.js";
+import { schematicInspectorSlotRecipe } from "./slot-recipes/schematicInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
 import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
@@ -291,6 +292,7 @@ const config = defineConfig({
             sheetInspector:  sheetInspectorSlotRecipe,
             planInspector:   planInspectorSlotRecipe,
             flowchartInspector: flowchartInspectorSlotRecipe,
+            schematicInspector: schematicInspectorSlotRecipe,
             studioLibrary: studioLibrarySlotRecipe,
             studioPublish:   studioPublishSlotRecipe,
             queryBuilder:    queryBuilderSlotRecipe,

@@ -134,6 +134,13 @@ const PPU = 1080 / 28;
 const at = (x: number, y: number) => atPx(PPU, x, y);
 /** A tap on the canvas at a world point. */
 const tap = (canvas: Element, x: number, y: number) => tapAt(canvas, PPU, x, y);
+/** A Shift-tap on the canvas at a world point: what adds to the selection (D16). */
+async function shiftTap(canvas: Element, x: number, y: number) {
+    await act(async () => {
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(x, y) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(x, y) });
+    });
+}
 
 /** Lets B01's card answer a tap at its centre, as a page would hit it, and gives the card. */
 function hitB01(container: HTMLElement): HTMLElement {
@@ -163,16 +170,22 @@ describe("<Schematic> through its carrier", () => {
         await waitFor(() => expect(b01.hasAttribute("data-selected")).toBe(true));
     });
 
-    test("an area selected beside a rack is heard with it: the whole selection, each entity by its kind and key (SC29)", async () => {
+    test("an area Shift-tapped beside a rack is heard with it: the whole selection, each entity by its kind and key; a plain tap selects the area alone (SC29, D16)", async () => {
         const { container } = await h.mount({ fn: view });
         await waitFor(() => expect(card(container, "racks", "B01")).not.toBeNull());
         hitB01(container);
         const canvas = container.querySelector("[data-schematic-canvas]")!;
         await tap(canvas, 2.4, 8.6);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }])));
-        // Cage A, outlined, clear of its racks: a tap on it selects it beside the rack.
-        await tap(canvas, 10.0, 1.0);
+        // Cage A, outlined, clear of its racks: Shift-tapped, it joins the rack.
+        await shiftTap(canvas, 10.0, 1.0);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }, { kind: "areas", key: "cage-a" }])));
+        // A plain tap on it selects it alone: the rack let go.
+        await tap(canvas, 10.0, 1.0);
+        await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "areas", key: "cage-a" }])));
+        // And a plain tap on the rack selects the rack alone, the area let go.
+        await tap(canvas, 2.4, 8.6);
+        await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }])));
     });
 
     test("an area's pattern comes from its own `kind`: a room, outlined, takes a tap and is heard; an aisle, hatched, is an annotation a tap passes through (SC37)", async () => {
@@ -202,7 +215,7 @@ describe("<Schematic> through its carrier", () => {
         const canvas = container.querySelector("[data-schematic-canvas]")!;
         await tap(canvas, 2.4, 8.6);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }])));
-        await tap(canvas, 10.0, 1.0);
+        await shiftTap(canvas, 10.0, 1.0);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }, { kind: "areas", key: "cage-a" }])));
         expect(reportsOf()).toBe(2n);
         fireEvent.pointerEnter(canvas);

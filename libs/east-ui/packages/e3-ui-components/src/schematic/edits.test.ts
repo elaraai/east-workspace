@@ -44,7 +44,8 @@ function printed(edit: SchematicEdit): string {
         case "net": return `net ${printRef(edit.ref)} ${printSides(edit.sides)}`;
         case "item": return `item ${printRef(edit.ref)} ${printAt(edit.at)} ${printValues(edit.values)}`;
         case "retype": return `retype ${printRef(edit.ref)} ${printBlob(edit.values)}`;
-        case "set": return `set ${printRef(edit.ref)} ${printWrites([...edit.sets])}`;
+        case "set": return `set${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printWrites([...edit.sets])}`;
+        case "row": return `row${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printBlob(edit.row)}`;
         case "remove": return `remove ${printRef(edit.ref)}`;
     }
 }

@@ -17,13 +17,17 @@
  * an empty tab and a tab the rail empties say, the Index's search, its zones'
  * and the zone in view, the Layers tab's controls, and a followed source's
  * failed narrowing; and its drops' (#1390): where a card lands, why a drop is
- * refused, and a drop's step in the history. A host translates the Schematic
- * where it translates its formatters.
+ * refused, and a drop's step in the history; and its inspector's (#1391): the
+ * pane and its tabs, the heads of Details' sections and its own fields, where
+ * an entity stands, a gesture's button and its step, a record's last save and
+ * who made it, why a net's side stays, and each issue's words. A host
+ * translates the Schematic where it translates its formatters.
  *
  * @packageDocumentation
  */
 
 import type { Formatters } from "@elaraai/east-ui-components";
+import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
 
 /** A count as a message takes it: the number, for its plural, and the number as the locale prints it. */
@@ -172,7 +176,56 @@ export interface SchematicMessages {
      * 100G on A01 → ODF-1`: `where` is where it lands, and `onto` whether that is an entity.
      */
     dropLabel: (p: { card: string; where: string; onto: boolean }) => string;
+    /** The inspector pane's name, on its rail and its head (#1391). */
+    inspectorPane: () => string;
+    /** The inspector's tabs: `Details`, `Issues`. */
+    inspectorTab: (p: { tab: "details" | "issues" }) => string;
+    /** What nothing selected shows, in its head's eyebrow: the drawing. */
+    inspectorDrawing: () => string;
+    /** A section of Details, under its head — `Rack`, `Rack details`, `Position`, `Joined to`, `Ends`, `Sides`, `Member`: `name` is the kind's. */
+    inspectorSection: (p: { section: SchematicInspectorSection; name: string }) => string;
+    /** A field of Details' own — an item's `x` and `y`, a link's ends, a net's sides. */
+    inspectorField: (p: { field: "x" | "y" | "from" | "to" | "sources" | "destinations" }) => string;
+    /** A gesture's button: Delete, Unplace, Remove. */
+    inspectorAction: (p: { action: "delete" | "unplace" | "remove" }) => string;
+    /** An item's place, under its name: the zone holding it, if one does, and its centre — `Cage A · 9.60, 2.90 m`. */
+    inspectorAt: (p: { zone: string | undefined; x: string; y: string; unit: string | undefined }) => string;
+    /** A zone's size, under its name — `19.60 × 4.60 m`. */
+    inspectorSize: (p: { width: string; height: string; unit: string | undefined }) => string;
+    /** A net's sides, under its name — `2 sources → 3 destinations`. */
+    inspectorSides: (p: { sources: SchematicCount; destinations: SchematicCount }) => string;
+    /** Which side a net's leg is on, under its name — `Source leg`, `Destination leg`. */
+    inspectorLeg: (p: { end: "source" | "destination" }) => string;
+    /** Several selected, in their head — `4 selected`. */
+    inspectorSeveral: (p: SchematicCount) => string;
+    /** What the drawing's Details counts, under a count — `Zones`, `Links`, `Nets`, one or several. */
+    inspectorCount: (p: { what: "zones" | "links" | "nets"; n: number }) => string;
+    /** How many of a kind are selected — `3 racks`: `name` is the kind's, as running text writes it. */
+    inspectorKindCount: (p: SchematicCount & { name: string }) => string;
+    /** A row whose read is in flight. */
+    inspectorReading: () => string;
+    /** A row the record holds none of: an entity whose row is gone. */
+    inspectorNoRow: () => string;
+    /** An item whose details record holds no row of it. */
+    inspectorNoDetails: (p: { name: string }) => string;
+    /** What a link or a net Details lists an item joined to is, under its name: its kind, and for a net the item's side. */
+    inspectorJoin: (p: { kind: string; end: "source" | "destination" | undefined }) => string;
+    /** A record's last save in the drawing's Details — `Rack saved 14:02 by alice`: `when` is its time today, else its date and time. */
+    inspectorSaved: (p: { name: string; when: string; by: string }) => string;
+    /** An edit's step in the history — `Edit A03`, `Unplace A06`, `Delete A03`, `Remove A05 from PDU-B · A side`. */
+    inspectorStep: (p: { edit: "edit" | "unplace" | "delete" | "remove"; name: string; from?: string }) => string;
+    /** Why a net's side can't be emptied in its tags: a Delete takes the net. */
+    inspectorSideEmpty: (p: { side: "sources" | "destinations" }) => string;
+    /** What an issue names, in its row — `Rack · A03`; a layer's when `kind` is `undefined`. */
+    issueWhere: (p: { kind: string | undefined; name: string }) => string;
+    /** What an issue says. */
+    issueText: (p: SchematicIssueWord) => string;
+    /** What Issues says with none: its head and the line under it. */
+    inspectorNoIssues: (p: { part: "title" | "hint" }) => string;
 }
+
+/** A section of the inspector's Details, as its head names it. */
+export type SchematicInspectorSection = "fields" | "details" | "position" | "joins" | "ends" | "sides" | "member";
 
 /**
  * Why a drop is refused, as its words say it (#1390): outside the drawing; no
@@ -197,6 +250,31 @@ const capital = (text: string): string => text.charAt(0).toUpperCase() + text.sl
 
 /** The article a noun takes, by the sound English spelling gives its first letter. */
 const article = (noun: string): string => (/^[aeiou]/i.test(noun) ? "an" : "a");
+
+/** What an issue says, in English. */
+function issueText(p: SchematicIssueWord): string {
+    switch (p.issue) {
+        case "missing": return `Names ${p.kind} ${p.key}, which no ${p.kind.toLowerCase()} holds`;
+        case "outside": return "Outside the drawing";
+        case "geometry": return "Its shape reaches past its box";
+        case "colour": return `Its colour, ${p.colour}, is no theme colour: it draws its tone`;
+        case "ready":
+        case "save": return p.field === undefined ? p.message : `${p.field}: ${p.message}`;
+    }
+}
+
+/** Each section's head. */
+function inspectorSection({ section, name }: { section: SchematicInspectorSection; name: string }): string {
+    switch (section) {
+        case "fields": return name;
+        case "details": return `${name} details`;
+        case "position": return "Position";
+        case "joins": return "Joined to";
+        case "ends": return "Ends";
+        case "sides": return "Sides";
+        case "member": return "Member";
+    }
+}
 
 /** Why a drop is refused, in English. */
 function dropRefused(p: SchematicDropRefusalWord): string {
@@ -311,6 +389,32 @@ export const schematicMessages: SchematicMessages = {
     dropRefused,
     dropCanvas: () => "the canvas",
     dropLabel: ({ card, where, onto }) => `Drop ${card} ${onto ? "on" : "at"} ${where}`,
+    inspectorPane: () => "Inspector",
+    inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
+    inspectorDrawing: () => "Drawing",
+    inspectorSection,
+    inspectorField: ({ field }) => ({ x: "x", y: "y", from: "From", to: "To", sources: "Sources", destinations: "Destinations" })[field],
+    inspectorAction: ({ action }) => ({ delete: "Delete", unplace: "Unplace", remove: "Remove" })[action],
+    inspectorAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
+    inspectorSize: ({ width, height, unit }) => `${width} × ${height}${unit === undefined ? "" : ` ${unit}`}`,
+    inspectorSides: ({ sources, destinations }) =>
+        `${sources.count} ${plural(sources.n, "source", "sources")} → ${destinations.count} ${plural(destinations.n, "destination", "destinations")}`,
+    inspectorLeg: ({ end }) => (end === "source" ? "Source leg" : "Destination leg"),
+    inspectorSeveral: ({ count }) => `${count} selected`,
+    inspectorCount: ({ what, n }) => ({ zones: plural(n, "Zone", "Zones"), links: plural(n, "Link", "Links"), nets: plural(n, "Net", "Nets") })[what],
+    inspectorKindCount: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
+    inspectorReading: () => "Reading…",
+    inspectorNoRow: () => "Its record holds no row of it",
+    inspectorNoDetails: ({ name }) => `No ${name.toLowerCase()} details`,
+    inspectorJoin: ({ kind, end }) => (end === undefined ? kind : `${kind} · ${end === "source" ? "source" : "destination"}`),
+    inspectorSaved: ({ name, when, by }) => `${name} saved ${when} by ${by}`,
+    inspectorStep: ({ edit, name, from }) => ({
+        edit: `Edit ${name}`, unplace: `Unplace ${name}`, delete: `Delete ${name}`, remove: `Remove ${name} from ${from ?? ""}`,
+    })[edit],
+    inspectorSideEmpty: ({ side }) => `A net keeps one ${side === "sources" ? "source" : "destination"} at least: Delete takes the net`,
+    issueWhere: ({ kind, name }) => `${kind ?? "Layer"} · ${name}`,
+    issueText,
+    inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every link names its items, and every shape and colour holds."),
 };
 
 /** The words a Schematic speaks: its message table, and its locale's formatters. */

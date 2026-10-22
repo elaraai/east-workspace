@@ -19,7 +19,11 @@
  * (`edits.ts`) recorded through the frame's editing, nothing held here but a
  * Move's preview while its drag is under way. The library's Index (#1389)
  * flies to a zone or an item and selects it through the handle, and hears
- * the canvas's selection and the zone its viewport is in.
+ * the canvas's selection and the zone its viewport is in. The inspector
+ * (#1391) selects through it what Details and Issues name — a link or a net,
+ * a net's leg among them — hears the selection with the leg a stub's tap
+ * selected, and is opened on Details by Enter, or a double-click on an
+ * entity.
  *
  * Where a tab of the library drops (#1390), the canvas is one drop cell of the
  * shared drag layer, on the frame's drop target (`use-drop.ts`): it works out
@@ -189,8 +193,12 @@ export interface SchematicCanvasHandle {
     fit(): void;
     /** Steps the selection to the previous item, or the next, flying to it. */
     step(delta: 1 | -1): void;
-    /** Flies to an item or a zone, by its id, and selects it: Find's pick, and the Index's (#1389). */
-    reveal(id: string): void;
+    /**
+     * Flies to an entity, by its id, and selects it alone: Find's pick and the Index's (#1389) — an item or a zone —
+     * and the inspector's (#1391), which also names a link or a net, and a net's leg with it. `undefined` selects
+     * nothing, the camera where it is.
+     */
+    reveal(id: string | undefined, leg?: NetLeg): void;
     /**
      * Selects an item, by its id, once the drawing draws it — the item a drop added or placed (#1390): selected where it
      * stands, the camera where it is. One the next drawing doesn't draw — its layer hidden, the rail narrowing it out —
@@ -219,8 +227,13 @@ export interface SchematicCanvasProps {
     readonly editing: SchematicCanvasEditing | undefined;
     /** Told why a gesture was refused — a Delete a read-only link or net blocks — or, `undefined`, that one has been recorded since. */
     readonly onRefused: (words: string | undefined) => void;
-    /** Told what is selected — the items, the zones, and the link or the net — by their ids, as that changes. */
-    readonly onSelection: (ids: ReadonlySet<string>) => void;
+    /**
+     * Told what is selected — the items, the zones, and the link or the net — by their ids, and the net's leg when a
+     * stub is selected (#1391), as that changes.
+     */
+    readonly onSelection: (ids: ReadonlySet<string>, leg: NetLeg | null) => void;
+    /** Told when Enter, or a double-click on an entity, opens the selection in the inspector's Details (#1391, D34); `undefined` with no inspector. */
+    readonly onOpen?: (() => void) | undefined;
     /** Told the zone the viewport is in, by its id — `undefined` for none — as that changes (#1389): the Index marks it. */
     readonly onZoneInView?: ((zone: string | undefined) => void) | undefined;
     /** The canvas's drop cell, where a tab of the library drops (#1390); `undefined`, it takes no drop. */
@@ -242,7 +255,7 @@ export interface SchematicCanvasProps {
  * the editing's history.
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
-    value, data, layers, tool, linkKind, words, editing, onRefused, onSelection, onZoneInView, drop, connectValues, ref,
+    value, data, layers, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues, ref,
 }: SchematicCanvasProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
@@ -450,9 +463,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         // identity-stable updater — no set change, so no callbacks fire.
         setSelection(prev => (prev.anchor !== null && !live.has(prev.anchor)) ? { ...prev, anchor: null } : prev);
     }, [items, selected, lockedKeys, commitSelection]);
-    // The frame hears what is selected: its toolbar's steps show while something is, and the Index marks its rows.
+    // The frame hears what is selected: its toolbar's steps show while something is, the Index marks its rows, and the
+    // inspector shows it — a net's leg with it (#1391).
     useEffect(() => {
-        onSelection(new Set([...selected, ...zoneSelection, ...(selectedLink === null ? [] : [selectedLink.key])]));
+        onSelection(new Set([...selected, ...zoneSelection, ...(selectedLink === null ? [] : [selectedLink.key])]), selectedLink?.leg ?? null);
     }, [selected, zoneSelection, selectedLink, onSelection]);
 
     const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -857,9 +871,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     }, [data.links, data.nets, centers, layerHiddenKeys, lockedKeys]);
     // Click-select a link or a net — selection works read-only (inspection
     // channel); the host hears it in the whole selection, named by its kind and key.
-    const selectLink = useCallback((key: string, leg: NetLeg | null = null) => {
+    // A plain tap selects it alone, letting go of the items and the zones (D16, #1391); Shift adds it to them.
+    const selectLink = useCallback((key: string, leg: NetLeg | null = null, additive = false) => {
+        if (!additive) {
+            commitSelection(EMPTY_STRING_SET);
+            clearZoneSelection();
+        }
         commitLinkSelection({ key, leg });
-    }, [commitLinkSelection]);
+    }, [commitLinkSelection, commitSelection, clearZoneSelection]);
 
     // Selection stepping order: zones alphabetical (natural-numeric), each
     // zone's items alphabetical within it, nested zones after their
@@ -1108,8 +1127,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     }, [applyCamera, transition]);
 
     // A canvas tap on a zone body (items always take precedence): a plain tap
-    // replaces the zone set; Shift toggles/extends — mirroring the item tap
-    // semantics. A tap selects in place: Find, the Index and the arrow keys fly.
+    // selects the zone alone, letting go of the items and the link or net (D16,
+    // #1391); Shift toggles/extends — mirroring the item tap semantics. A tap
+    // selects in place: Find, the Index and the arrow keys fly.
     const zoneTap = useCallback((key: string, additive: boolean) => {
         let next: Set<string>;
         if (additive) {
@@ -1117,9 +1137,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             if (next.has(key)) next.delete(key); else next.add(key);
         } else {
             next = new Set([key]);
+            commitSelection(EMPTY_STRING_SET);
+            commitLinkSelection(null);
         }
         commitZoneSelection(next);
-    }, [commitZoneSelection]);
+    }, [commitZoneSelection, commitSelection, commitLinkSelection]);
     // End the open connect session (Esc, tool switch, a plain new drag, or any other gesture).
     const endLinkSession = useCallback(() => {
         linkSessionRef.current = undefined;
@@ -1253,7 +1275,15 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); stepSelection(-1); }
         // Del deletes what is selected, as one step (#1388, SC5).
         else if ((e.key === "Delete" || e.key === "Backspace") && deleteSelection()) e.preventDefault();
-    }, [stepSelection, deleteSelection]);
+        // Enter opens what is selected in Details (#1391, D34): something must be.
+        else if (e.key === "Enter" && onOpen !== undefined) {
+            const snap = renderSnapRef.current;
+            if (snap.selection.selected.size > 0 || snap.zoneSelection.size > 0 || snap.selectedLink !== null) {
+                e.preventDefault();
+                onOpen();
+            }
+        }
+    }, [stepSelection, deleteSelection, onOpen]);
 
     // Wheel zooms about the cursor (no modifier — a dedicated canvas owns the
     // wheel, like any map); attached non-passively so preventDefault stops the
@@ -1358,10 +1388,15 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         } else {
             next = new Set([key]);
         }
-        // A tap selects in place: Find, the Index and the arrow keys fly (D34).
+        // A tap selects in place: Find, the Index and the arrow keys fly (D34). A plain tap selects the item alone,
+        // letting go of the zones and the link or net (D16, #1391).
         commitSelection(next, { anchor: key });
+        if (!shiftAdd) {
+            clearZoneSelection();
+            commitLinkSelection(null);
+        }
         return true;
-    }, [itemKeyAt, commitSelection]);
+    }, [itemKeyAt, commitSelection, clearZoneSelection, commitLinkSelection]);
 
     // Collect the items a marquee region encloses — the pure rule lives in
     // `selection.ts` (`marqueeHits`: R-tree sweep + CENTER-in-region test,
@@ -1765,7 +1800,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 // A bare tap in marquee mode: link stroke selects the link, zone
                 // body selects the zone; true background clears all (unless Shift).
                 const lk = linkKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-                if (lk !== undefined) selectLink(lk.key, lk.leg);
+                if (lk !== undefined) selectLink(lk.key, lk.leg, sel.additive);
                 else {
                     const zk = zoneKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
                     if (zk !== undefined) zoneTap(zk, sel.additive);
@@ -1784,7 +1819,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             // OUTLINE zone body selects the zone (#177), and a true-background
             // tap clears ALL selections (unless Shift).
             const lk = linkKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-            if (lk !== undefined) selectLink(lk.key, lk.leg);
+            if (lk !== undefined) selectLink(lk.key, lk.leg, e.shiftKey);
             else {
                 const zk = zoneKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
                 if (zk !== undefined) zoneTap(zk, e.shiftKey);
@@ -1820,9 +1855,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     const onCanvasDoubleClick = useCallback((e: React.MouseEvent) => {
         const host = e.currentTarget as HTMLElement;
         if (itemKeyAt(host, e.clientX, e.clientY) !== undefined || linkKeyAt(host, e.clientX, e.clientY) !== undefined
-            || zoneKeyAt(host, e.clientX, e.clientY) !== undefined) return;
+            || zoneKeyAt(host, e.clientX, e.clientY) !== undefined) {
+            onOpen?.();
+            return;
+        }
         resetView();
-    }, [itemKeyAt, linkKeyAt, zoneKeyAt, resetView]);
+    }, [itemKeyAt, linkKeyAt, zoneKeyAt, resetView, onOpen]);
     const zoomBy = useCallback((factor: number) => {
         const sz = renderSnapRef.current.size;
         if (sz === null) return;
@@ -1837,7 +1875,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         zoomBy,
         fit: resetView,
         step: (delta) => stepSelection(delta),
-        reveal: (id) => {
+        reveal: (id, leg) => {
+            // Nothing: the selection let go, the camera where it is (#1391).
+            if (id === undefined) {
+                commitSelection(EMPTY_STRING_SET);
+                clearZoneSelection();
+                commitLinkSelection(null);
+                return;
+            }
             // An entity on a locked layer is flown to and never selected (SC27).
             const item = items.find(it => stringEqual(it.key, id));
             if (item !== undefined) {
@@ -1847,12 +1892,31 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             }
             // A zone: the camera flies to its box, and the zone alone is selected (#1389).
             const zone = shownZones.find(z => stringEqual(z.key, id));
-            if (zone === undefined) return;
-            flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height });
-            if (lockedKeys.has(zone.key)) return;
+            if (zone !== undefined) {
+                flyTo({ x: zone.x, y: zone.y, w: zone.width, h: zone.height });
+                if (lockedKeys.has(zone.key)) return;
+                commitSelection(EMPTY_STRING_SET);
+                commitLinkSelection(null);
+                commitZoneSelection(new Set([zone.key]));
+                return;
+            }
+            // A link or a net (#1391): the camera flies to the box its items and its waypoints span, and it alone is
+            // selected — a net's leg with it. One on a hidden layer is drawn nowhere, and goes unselected.
+            const link = data.links.find(l => stringEqual(l.key, id));
+            const net = link === undefined ? data.nets.find(n => stringEqual(n.key, id)) : undefined;
+            if ((link === undefined && net === undefined) || layerHiddenKeys.has(id)) return;
+            const members = link !== undefined ? [link.from, link.to] : [...net!.sources, ...net!.destinations];
+            const points = [...members.flatMap(m => { const c = centers.get(m); return c === undefined ? [] : [c]; }), ...(link ?? net!).via];
+            if (points.length > 0) {
+                const minX = Math.min(...points.map(p => p.x)), maxX = Math.max(...points.map(p => p.x));
+                const minY = Math.min(...points.map(p => p.y)), maxY = Math.max(...points.map(p => p.y));
+                const w = Math.max(maxX - minX, 8), h = Math.max(maxY - minY, 6);
+                flyTo({ x: (minX + maxX - w) / 2, y: (minY + maxY - h) / 2, w, h });
+            }
+            if (lockedKeys.has(id)) return;
             commitSelection(EMPTY_STRING_SET);
-            commitLinkSelection(null);
-            commitZoneSelection(new Set([zone.key]));
+            clearZoneSelection();
+            commitLinkSelection({ key: id, leg: leg ?? null });
         },
         select: (id) => {
             // Asked as the drop records itself: its item draws in the drawing that holds its draft.
@@ -1866,7 +1930,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             const ppuLive = snap.fit * cam.zoom;
             return dropPoint({ x: (snap.size.w / 2 - cam.tx) / ppuLive, y: (snap.size.h / 2 - cam.ty) / ppuLive }, ppuLive);
         },
-    }), [zoomBy, resetView, stepSelection, items, lockedKeys, flyToItem, shownZones, flyTo, commitSelection, commitLinkSelection, commitZoneSelection]);
+    }), [zoomBy, resetView, stepSelection, items, lockedKeys, flyToItem, shownZones, flyTo, commitSelection, commitLinkSelection, commitZoneSelection,
+        clearZoneSelection, data.links, data.nets, centers, layerHiddenKeys]);
 
     // Leaving the Connect tool cancels any in-flight draft and ends the session.
     useEffect(() => {

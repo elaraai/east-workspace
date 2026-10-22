@@ -4,11 +4,11 @@
  */
 
 /**
- * The Schematic's showcase entries, for its specs (#1387–#1390): one opened
- * on the real in-page e3 at rest, its box sized and centred in the window, an
- * item's card, a world point of its drawing on the screen, its library's tabs
- * and cards, and a card picked up from it and carried onto the canvas, with
- * what the drag's ghost says.
+ * The Schematic's showcase entries, for its specs (#1387–#1391): one opened
+ * on the real in-page e3 at rest, its box sized and centred in the window, its
+ * inspector collapsed to its rail, an item's card, a world point of its drawing
+ * on the screen, its library's tabs and cards, and a card picked up from it and
+ * carried onto the canvas, with what the drag's ghost says.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -72,6 +72,24 @@ export async function sizeTo(page: Page, root: Locator, width: number, height?: 
  */
 export async function centred(page: Page, root: Locator): Promise<void> {
     await root.evaluate((el) => { el.scrollIntoView({ block: "center" }); });
+    await settled(page);
+}
+
+/**
+ * Collapses the inspector to its rail, as a viewer does to give the canvas the room (#1391) — where it is open — and
+ * scrolls the frame's start back into view: a box wider than the example's scrolls it sideways to the inspector's
+ * control.
+ *
+ * @param page - The page
+ * @param root - The Schematic's root
+ */
+export async function collapseInspector(page: Page, root: Locator): Promise<void> {
+    const end = root.locator("[data-frame-slot='end']");
+    if (await end.getAttribute("data-collapsed") === null) {
+        await end.getByRole("button", { name: "Collapse Inspector" }).click();
+        await expect(end).toHaveAttribute("data-collapsed", "");
+    }
+    await root.evaluate((el) => { el.scrollIntoView({ block: "center", inline: "start" }); });
     await settled(page);
 }
 

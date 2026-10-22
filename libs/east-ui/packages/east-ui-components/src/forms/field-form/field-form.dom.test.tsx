@@ -13,7 +13,8 @@
  * checklist's items; the tint of a changed field; read-only, every value
  * printed. And (#1188) a field with no value yet, a date's precision, and a
  * control the host draws itself; and (#1250) a text's control titled with its
- * whole text. Every value handed back is asserted with East's `equalFor`.
+ * whole text, and a choice's with its chosen words. Every value handed back is
+ * asserted with East's `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -523,21 +524,30 @@ describe("FieldForm — one column: each field's control on its line, an Option'
     });
 });
 
-describe("FieldForm — a text longer than its box (#1250)", () => {
+describe("FieldForm — a text or a choice longer than its box (#1250)", () => {
     /** The title of a field's control: the whole text its box holds, where the box may cut it short. */
     const titleOf = (field: (key: string) => HTMLElement, key: string) => field(key).querySelector("[data-field-line] > :first-child")!.getAttribute("title");
 
-    test("a text's control carries its whole text as its title, the title following each edit; an empty text, a number and a choice none", async () => {
+    test("a text's control carries its whole text as its title, and a choice's its chosen words, each following each edit; an empty text, a number and tags none", async () => {
         const { field } = mount();
         expect(titleOf(field, "task")).toBe("Hang doors");
         expect(titleOf(field, "site.room")).toBe("Workshop");
-        for (const key of ["note", "crew", "status", "bench", "finishes"]) expect(titleOf(field, key), key).toBeNull();
+        expect(titleOf(field, "status")).toBe("Planned");
+        expect(titleOf(field, "bench")).toBe("Bench 2");
+        for (const key of ["note", "crew", "finishes"]) expect(titleOf(field, key), key).toBeNull();
         const user = userEvent.setup();
         const input = within(field("task")).getByRole("textbox");
         await user.clear(input);
         await user.type(input, "Hang the doors, then fit their frames and hinges{Enter}");
         await settle();
         expect(titleOf(field, "task")).toBe("Hang the doors, then fit their frames and hinges");
+        // Another choice made: its words; an Option's choice taken away — Unassigned — none.
+        await open(field("status"));
+        await choose("Underway");
+        expect(titleOf(field, "status")).toBe("Underway");
+        await open(field("bench"));
+        await choose("Unassigned");
+        expect(titleOf(field, "bench")).toBeNull();
     });
 
     test("a value printed carries its words as its title, read only and in a read-only field alike; the host's own control none", () => {
