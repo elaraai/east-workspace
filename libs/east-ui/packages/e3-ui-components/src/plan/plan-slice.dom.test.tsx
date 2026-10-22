@@ -128,8 +128,9 @@ function renderPlan(value: PlanRootValue, key = "plan") {
     );
 }
 
-/** The requests that read rows of a record: whole, a page, or a key search. */
-const rowReads = (from: number) => h.requests().slice(from).filter((request) => request.kind === "read" || request.kind === "page" || request.kind === "find");
+/** The requests that read rows of a record: whole, a page, a key search, or several runs or keys in one (#1351). */
+const READS = new Set(["read", "page", "find", "runs", "rows"]);
+const rowReads = (from: number) => h.requests().slice(from).filter((request) => READS.has(request.kind));
 
 describe("a record's resolution re-buckets the window (§3, #1344)", () => {
     test("switching WEEK → DAY writes the resolution and keeps the window: the twelve weeks the sources hold, in days, and nothing fetched", async () => {

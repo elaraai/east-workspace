@@ -257,7 +257,13 @@ immutable`: the caller's own cache keeps it for good, and no cache between
 keeps a workspace's rows for whoever asks next. A host whose data any caller may
 read lets those caches keep it too, a CDN's among them, with the dataset
 routes' `cache: 'public'`; `getDatasetPage`, `getValuePage` and
-`findDatasetKey` take the same. An answer not pinned is `no-store`.
+`findDatasetKey` take the same. An answer not pinned is `no-store`, and so is a
+batch read's (`findKeys`, `rows`, `runs`), a POST whose body names what it
+reads.
+
+A batch read is a POST to a dataset's own path, as an upload's init is to its
+`/upload`: a host mounts the dataset routes after the transfer routes, at the
+same prefix, and the transfer routes pass a POST that is no upload on to them.
 
 ```typescript
 app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend, {
@@ -361,6 +367,11 @@ and a copy onto itself `invalid_name`.
 | GET | `/api/repos/:repo/workspaces/:ws/datasets` | List root datasets |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Get dataset value (BEAST2); a value over 1 MB that is not a collection answers JSON `{ url }` to download it from |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?segments=true` | A collection answers JSON `{ manifest }`, the manifest to download it by; any other value as above |
+| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?page=true` | A window of a collection (`offset`, `limit`, or a writer's `segment`), or of one of a record's indexes (`index`, `join`), as BEAST2 of its type, placed by its `X-*` headers; pinned with `hash` |
+| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?find=true` | Locate a key (`key`), a prefix (`prefix`), leading fields (`field`, repeated) or a range (`from`, `to`) in a Set's or a Dict's order, or an index's (`index`): JSON `{ found, row, count }`; pinned with `hash` |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?findKeys=true` | Several key searches of one collection or index (`index`), `{ queries: [...] }`, each in one of `find`'s forms, at most 10,000: JSON `{ results: [{ found, row, count }, …] }`, in order; pinned with `hash` |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?rows=true` | The rows of several keys of a Dict, `{ keys: [<.east>, …] }`, at most 10,000: BEAST2 of `datasetRowsType(K, V)` — each key, its row or none, and its position in the Dict's order — for the first `X-Page-Count` keys the page budget reaches; pinned with `hash` |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?runs=true&hash=` | The entries of several runs of a collection's rows, or of an index's (`index`, `join`), `{ runs: [[row, count], …] }`, ascending and disjoint, at most 10,000: one window of the dataset's type, or the index's window type, holding the first `X-Page-Count` of the runs' `X-Run-Entries` entries a page's bounds reach |
 | PUT | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Set dataset value (BEAST2) |
 
 A collection is streamed as the splice of its segments. A client whose host
@@ -368,6 +379,16 @@ buffers responses downloads the manifest, the header it names and its segments
 through the objects route and splices them itself, as e3-api-client's
 `datasetGet` does; see
 [`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-download).
+
+A window's reads are a few requests, never one a search, a run or a row: its
+key searches in one `findKeys`, the runs they select in one `runs`, and the
+rows of the keys it names in one `rows`. Each batch places its bounds, keys or
+rows by the manifest's fences and counts, which reads nothing, then reads every
+segment it touches once, several at a time. The server keeps decoded segments
+by content hash, bounded by their decoded weight (64 MiB), and every page,
+search and batch reads through them — so a window read again, or a pan over
+the same segments, decodes none. A value read whole is streamed as its
+segments' bytes, and decodes none of them.
 
 ### Objects
 

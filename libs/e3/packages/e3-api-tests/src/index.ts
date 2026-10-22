@@ -72,6 +72,7 @@ export { packageTests } from './suites/packages.js';
 export { workspaceTests } from './suites/workspaces.js';
 export { datasetTests } from './suites/datasets.js';
 export { datasetPageTests } from './suites/dataset-pages.js';
+export { datasetBatchTests } from './suites/dataset-batches.js';
 export { datasetTransferTests } from './suites/dataset-transfer.js';
 export { dataflowTests } from './suites/dataflow.js';
 export { functionTests } from './suites/functions.js';
@@ -91,6 +92,7 @@ import { packageTests } from './suites/packages.js';
 import { workspaceTests } from './suites/workspaces.js';
 import { datasetTests } from './suites/datasets.js';
 import { datasetPageTests } from './suites/dataset-pages.js';
+import { datasetBatchTests } from './suites/dataset-batches.js';
 import { datasetTransferTests } from './suites/dataset-transfer.js';
 import { dataflowTests } from './suites/dataflow.js';
 import { functionTests } from './suites/functions.js';
@@ -118,6 +120,7 @@ export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContex
   workspaces: workspaceTests,
   datasets: datasetTests,
   datasetPages: datasetPageTests,
+  datasetBatches: datasetBatchTests,
   datasetTransfer: datasetTransferTests,
   dataflow: dataflowTests,
   functions: functionTests,

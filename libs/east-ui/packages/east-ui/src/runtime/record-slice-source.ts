@@ -21,6 +21,20 @@ export interface RecordSliceReader<T> {
     total(index: string): option<bigint>;
     /** Shared record revision, tracked by the binding. */
     revision(): option<string>;
+    /**
+     * Several searches of one source in one request (#1351): each query's
+     * bounds, as {@link seek} answers them, in order — none while any is
+     * pending. A binding whose runtime batches its reads has it; without it,
+     * a plan's searches are its single seeks.
+     */
+    seekAll?(index: string, queries: readonly Query[]): option<Range[]>;
+    /**
+     * The entries of several runs of one source in one request, in order
+     * (#1351) — none while pending. A binding whose runtime batches its reads
+     * has it, and a window across several runs reads through it; without it,
+     * a window pages each run.
+     */
+    runsAll?(index: string, runs: readonly Range[]): option<T[]>;
 }
 
 /** Resolved, ascending, disjoint ranges within one immutable revision. */
@@ -42,11 +56,34 @@ const MAX_CACHED_RUNS = 128;
 const MAX_LANDED_SEARCHES = 1024;
 const MAX_CACHED_PAGES = 32;
 const MAX_PAGE_ROWS = 2048n;
+/** The most searches one batch asks (#1351): e3 answers at most 10,000 in a
+ *  request, so a plan with more is asked as several batches, all at once. */
+export const MAX_RECORD_SLICE_BATCH = 10_000;
 
 function cache<K, V>(map: Map<K, V>, key: K, value: V, cap: number): void {
     map.delete(key);
     map.set(key, value);
     if (map.size > cap) map.delete(map.keys().next().value!);
+}
+
+/**
+ * A window's part of each run it covers: elements `[offset, offset + limit)`
+ * of the union, at most {@link MAX_PAGE_ROWS} of them, as ranges of the
+ * source's rows.
+ */
+function windowRuns(result: RecordSliceRuns, offset: bigint, limit: bigint): Range[] {
+    const runs: Range[] = [];
+    let skip = offset;
+    let remaining = limit < MAX_PAGE_ROWS ? limit : MAX_PAGE_ROWS;
+    for (const run of result.runs) {
+        if (remaining === 0n) break;
+        if (skip >= run.count) { skip -= run.count; continue; }
+        const count = run.count - skip < remaining ? run.count - skip : remaining;
+        runs.push({ found: true, row: run.row + skip, count });
+        remaining -= count;
+        skip = 0n;
+    }
+    return runs;
 }
 
 /**
@@ -58,6 +95,12 @@ function cache<K, V>(map: Map<K, V>, key: K, value: V, cap: number): void {
  * cannot make a long sequence of short pages restart indefinitely. A search's
  * bounds are kept once they land, per revision, so a selection read again
  * while some of its searches are pending asks the source only for those.
+ *
+ * A reader that batches (#1351) is asked a plan's searches in one request
+ * (`seekAll`, a batch per {@link MAX_RECORD_SLICE_BATCH} of them, all at once)
+ * and a window across several runs in one (`runsAll`): a window costs two
+ * requests however many ranges its narrowing selects. A window inside one run
+ * is the page it is, read as one.
  *
  * @typeParam T - An entry; its contents are opaque to this adapter.
  */
@@ -112,6 +155,14 @@ export class RecordSliceSource<T> {
             const total = this.reader.total(plan.index);
             if (total.type === "none") pending = true;
             else ranges.push({ found: total.value > 0n, row: 0n, count: total.value });
+        } else if (this.reader.seekAll !== undefined) {
+            // One request for every search the source does not hold (#1351): a
+            // plan of more than a batch takes several, all asked in this pass.
+            for (let at = 0; at < plan.queries.length; at += MAX_RECORD_SLICE_BATCH) {
+                const batch = this.reader.seekAll(plan.index, plan.queries.slice(at, at + MAX_RECORD_SLICE_BATCH));
+                if (batch.type === "none") pending = true;
+                else ranges.push(...batch.value);
+            }
         } else {
             // Start independent requests together; never wait for the first
             // request before starting the next selected value's search.
@@ -166,6 +217,11 @@ export class RecordSliceSource<T> {
             this.pageCount++;
         }
         if (window.complete) return some(window.rows);
+        if (this.reader.runsAll !== undefined) {
+            // A window across several runs reads them in one request (#1351); one inside a run is the page it is.
+            const runs = windowRuns(result, offset, limit);
+            if (runs.length > 1) return this.pageByRuns(result, window, runs);
+        }
         const rows = window.rows;
         let skip = offset + BigInt(rows.length);
         let remaining = (limit < MAX_PAGE_ROWS ? limit : MAX_PAGE_ROWS) - BigInt(rows.length);
@@ -189,6 +245,21 @@ export class RecordSliceSource<T> {
         }
         window.complete = true;
         return some(rows);
+    }
+
+    /**
+     * Read a window of the union as the entries of the runs it covers, in one
+     * request (#1351): the window's part of each run, read together, however
+     * many runs it spans.
+     */
+    private pageByRuns(result: RecordSliceRuns, window: { rows: T[]; complete: boolean }, runs: readonly Range[]): option<T[]> {
+        const expected = runs.reduce((sum, run) => sum + run.count, 0n);
+        const rows = this.reader.runsAll!(result.index, runs);
+        if (this.current() !== result.revision || rows.type === "none") return none;
+        if (BigInt(rows.value.length) !== expected) throw new Error("The source page disagrees with its search bounds; refresh the view and retry");
+        window.rows = rows.value;
+        window.complete = true;
+        return some(window.rows);
     }
 
     /**

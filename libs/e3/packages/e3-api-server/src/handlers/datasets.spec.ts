@@ -10,6 +10,7 @@ import {
   DictType,
   IntegerType,
   NullType,
+  OptionType,
   RUN_MAX_BYTES,
   SetType,
   SortedMap,
@@ -30,14 +31,19 @@ import {
 import { computeHash, datasetWrite, InMemoryTransferBackend, writeRecordState } from '@elaraai/e3-core';
 import { InMemoryStorage, encodeInSegmentsOf, storeSegmentsOf } from '@elaraai/e3-core/test';
 import {
-  BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceRecordType, decodeCollectionManifest, indexCollectionType, indexWindowType,
+  BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceRecordType, datasetRowsType, decodeCollectionManifest,
+  encodeCollectionManifest, indexCollectionType, indexWindowType,
 } from '@elaraai/e3-types';
 import { Hono } from 'hono';
 import { ResponseType } from '../types.js';
 import { createDatasetRoutes } from '../routes/datasets.js';
+import { createTransferRoutes } from '../routes/transfer.js';
 import { findDatasetKey, getDataset, setDataset, type DatasetFindQuery } from './datasets.js';
-// The page handlers through the handlers entry, as a host reaches them.
-import { getDatasetPage, getValuePage, type DatasetPageWindow, type PinnedCache } from './index.js';
+// The page and batch handlers through the handlers entry, as a host reaches them.
+import {
+  decodedSegmentStats, findDatasetKeys, getDatasetPage, getDatasetRows, getDatasetRuns, getValuePage,
+  type DatasetPageWindow, type KeySearchQuery, type PinnedCache,
+} from './index.js';
 
 /**
  * ~`byteLength` bytes of high-entropy ASCII, deterministic across runs.
@@ -632,23 +638,28 @@ describe('findDatasetKey', () => {
       { found: true, row: 0, count: 2500 });
   });
 
-  it('decodes at most the touched segments: one for exact, two for a spanning prefix', async () => {
+  it('decodes at most the touched segments — one for exact, two for a spanning prefix — and keeps them', async () => {
     const storage = new InMemoryStorage();
     const blob = encodeInSegmentsOf(LookupType, 97)(lookupOf(2500));
     const hash = await seedDataset(storage, blob, 'lookup', LookupType);
-    // Warm the cache of opened datasets, then count reads: the fences come
-    // with the manifest, and each segment decode is one read of its object.
-    await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0150"' });
-    await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'k01' });
+    // The fences come with the manifest, so a bisect reads nothing, and each
+    // segment decode is one read of its object.
     const spy = spyObjectReads(storage, await segmentsOf(storage, hash));
 
     assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0150"' })),
       { found: true, row: 150, count: 1 });
-    assert.equal(spy.wholeReads(), 1, 'an exact find decodes exactly one segment');
+    assert.equal(spy.wholeReads(), 1, 'an exact find decodes exactly one segment: rows 97..193');
 
+    // k01__ is rows 100..199: its lower bound is in the segment the key was,
+    // which is kept, and its upper bound in the next, rows 194..290.
     assert.deepEqual(await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'k01' })),
       { found: true, row: 100, count: 100 });
-    assert.equal(spy.wholeReads(), 3, 'a boundary-spanning prefix decodes exactly the two edge segments');
+    assert.equal(spy.wholeReads(), 2, 'a boundary-spanning prefix decodes the edge segment not yet kept');
+
+    // Asked again, both answer from the kept segments.
+    await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0150"' }));
+    await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { prefix: 'k01' }));
+    assert.equal(spy.wholeReads(), 2, 'a segment decoded once is never read again while it is kept');
   });
 
   it('scalar keys parse as .east literals; bad literals are key_parse_error', async () => {
@@ -842,7 +853,7 @@ type PlanRow = ValueTypeOf<typeof PlanRowType>;
  */
 async function seedIndexedRecord(
   storage: InMemoryStorage, n: number,
-): Promise<{ rows: SortedMap<string, PlanRow>; primarySegments: string[]; statusSegments: string[] }> {
+): Promise<{ rows: SortedMap<string, PlanRow>; primary: string; primarySegments: string[]; statusSegments: string[]; dueSegments: string[] }> {
   await storage.repos.create(REPO);
   const rows = new SortedMap<string, PlanRow>(
     Array.from({ length: n }, (_, i) => [`p-${String(i).padStart(6, '0')}`,
@@ -894,7 +905,13 @@ async function seedIndexedRecord(
   })));
   await storage.datasets.write(REPO, WS, 'records/plans', variant('value', { hash: state, versions: new Map() }));
   const manifest = decodeCollectionManifest(await storage.objects.read(REPO, primary));
-  return { rows, primarySegments: manifest.entries.map((entry) => entry.hash), statusSegments: await segmentsOf(storage, statusIndex) };
+  return {
+    rows,
+    primary,
+    primarySegments: manifest.entries.map((entry) => entry.hash),
+    statusSegments: await segmentsOf(storage, statusIndex),
+    dueSegments: await segmentsOf(storage, index),
+  };
 }
 
 describe('getDatasetPage (index reads)', () => {
@@ -1040,5 +1057,430 @@ describe('who may keep an answer pinned to a hash', () => {
         assert.equal(answer.headers.get('Cache-Control'), `${by}, max-age=31536000, immutable`, `${cache}: ${query}`);
       }
     }
+  });
+});
+
+/** Counts whole-object reads of each watched object, by its hash. */
+function spyReadsByObject(storage: InMemoryStorage, watched: Iterable<string>): { reads: Map<string, number>; total: () => number; restore: () => void } {
+  const objects = storage.objects;
+  const hashes = new Set(watched);
+  const reads = new Map<string, number>();
+  const read = objects.read.bind(objects);
+  objects.read = (repo: string, hash: string) => {
+    if (hashes.has(hash)) reads.set(hash, (reads.get(hash) ?? 0) + 1);
+    return read(repo, hash);
+  };
+  return {
+    reads,
+    total: () => [...reads.values()].reduce((sum, n) => sum + n, 0),
+    restore: () => { objects.read = read; },
+  };
+}
+
+/** A batch's JSON answer, asserting it is a 200. */
+async function batchJson<T>(response: Response): Promise<T> {
+  assert.equal(response.status, 200, `batch failed: ${await response.clone().text()}`);
+  return await response.json() as T;
+}
+
+/** A refusal's status, its JSON error and the content hash it names. */
+async function refusalOf(response: Response): Promise<{ status: number; type: string; message: string; sha: string | null }> {
+  const { error } = await response.json() as { error: { type: string; message: string } };
+  return { status: response.status, type: error.type, message: error.message, sha: response.headers.get('X-Content-SHA256') };
+}
+
+/** The `by_status` index window, as e3 answers it. */
+const decodeStatusWindow = decodeBeast2For(indexWindowType(StringType, PlanStatusKeyType, StringType, PlanRowType) as never) as
+  (bytes: Uint8Array) => Array<{ ik: { status: string; week: bigint }; key: string; value: string; row: ReturnType<typeof some<PlanRow>> | typeof none }>;
+const StatusWindowType = indexWindowType(StringType, PlanStatusKeyType, StringType, PlanRowType);
+
+/** The state hash an indexed record's dataset holds. */
+async function stateOf(storage: InMemoryStorage): Promise<string> {
+  const state = await storage.datasets.read(REPO, WS, 'records/plans');
+  assert.ok(state?.type === 'value');
+  return state.value.hash;
+}
+
+describe('findDatasetKeys (several key searches in one request)', () => {
+  it('answers each query as findDatasetKey does, in the order asked, at one hash', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    const byStatus: KeySearchQuery[] = [
+      { key: '(status="late", week=3)' },
+      { key: '(status="late", week=12)' },
+      { fields: ['"late"'] },
+      { fields: ['"late"', '3'] },
+      { prefix: 'l' },
+      { prefix: 'z' },
+      { from: ['"late"', '3'], to: ['"late"', '5'] },
+      { from: ['"open"'] },
+      { to: ['"done"', '2'] },
+      { key: '(status="late", week=3)' },
+    ];
+    const answer = await batchJson<{ results: { found: boolean; row: number; count: number }[] }>(
+      await findDatasetKeys(storage, REPO, WS, plansPath, { queries: byStatus, index: 'by_status', hash: state }));
+    const expected = [];
+    for (const query of byStatus) expected.push(await findJson(await findDatasetKey(storage, REPO, WS, plansPath, { ...query, index: 'by_status' })));
+    assert.deepEqual(answer.results, expected);
+    assert.deepEqual(answer.results[0], { found: true, row: 5200, count: 400 }, 'a key through an index is every entry under it');
+
+    // The record's own keys: a key, a miss between keys, a prefix and a range.
+    const byKey: KeySearchQuery[] = [{ key: '"p-000042"' }, { key: '"p-000042x"' }, { prefix: 'p-0001' }, { from: ['"p-000100"'], to: ['"p-000110"'] }];
+    const own = await findDatasetKeys(storage, REPO, WS, plansPath, { queries: byKey });
+    assert.equal(own.headers.get('X-Content-SHA256'), state);
+    assert.equal(own.headers.get('Cache-Control'), 'no-store', 'a POST is no cache\'s to keep');
+    const ownExpected = [];
+    for (const query of byKey) ownExpected.push(await findJson(await findDatasetKey(storage, REPO, WS, plansPath, query)));
+    assert.deepEqual((await batchJson<{ results: unknown[] }>(own)).results, ownExpected);
+    assert.deepEqual(ownExpected[1], { found: false, row: 43, count: 0 }, 'a miss answers its insertion row');
+  });
+
+  it('reads each segment its searches land in once, however many land in it', async () => {
+    const storage = new InMemoryStorage();
+    const { statusSegments } = await seedIndexedRecord(storage, 12_000);
+    const spy = spyReadsByObject(storage, statusSegments);
+    // Fifty searches, two bounds each, inside `late`'s weeks 3 and 4.
+    const queries: KeySearchQuery[] = Array.from({ length: 50 }, (_, i) => ({ from: ['"late"', '3', `"p-${String(i * 7).padStart(6, '0')}"`], to: ['"late"', '4'] }));
+    try {
+      const { results } = await batchJson<{ results: { found: boolean; row: number; count: number }[] }>(
+        await findDatasetKeys(storage, REPO, WS, plansPath, { queries, index: 'by_status' }));
+      assert.equal(results.length, 50);
+      assert.ok(results.every((result) => result.found), 'every search names a run of `late` week 3');
+      assert.deepEqual([...spy.reads.values()].filter((n) => n !== 1), [], 'every segment touched is read exactly once');
+      assert.ok(spy.total() > 0 && spy.total() <= 3, `a hundred bounds in two weeks' entries read the few segments they lie in, read ${spy.total()}`);
+      const before = spy.total();
+      await batchJson(await findDatasetKeys(storage, REPO, WS, plansPath, { queries, index: 'by_status' }));
+      assert.equal(spy.total(), before, 'asked again, the batch reads nothing: its segments are kept');
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('refuses more than 10,000 queries, a query a single search refuses — naming its place — and a stale pin', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const state = await stateOf(storage);
+    const many = await refusalOf(await findDatasetKeys(storage, REPO, WS, plansPath,
+      { queries: Array.from({ length: 10_001 }, () => ({ key: '"p-000001"' })) }));
+    assert.deepEqual([many.status, many.type], [400, 'bad_request']);
+    assert.match(many.message, /at most 10000 queries; this one has 10001/);
+
+    const intPrefix = await refusalOf(await findDatasetKeys(storage, REPO, WS, plansPath,
+      { queries: [{ key: '(status="late", week=3)' }, { fields: ['"late"'], prefix: '3' }], index: 'by_status' }));
+    assert.deepEqual([intPrefix.status, intPrefix.type], [400, 'bad_request']);
+    assert.match(intPrefix.message, /^query 1: prefix continues key field 'week', which is Integer, not String/);
+    const badLiteral = await refusalOf(await findDatasetKeys(storage, REPO, WS, plansPath, { queries: [{ key: 'p-1' }] }));
+    assert.deepEqual([badLiteral.status, badLiteral.type], [400, 'key_parse_error']);
+    assert.match(badLiteral.message, /^query 0: /);
+
+    const stale = await refusalOf(await findDatasetKeys(storage, REPO, WS, plansPath, { queries: [{ key: '"p-000001"' }], hash: '0'.repeat(64) }));
+    assert.deepEqual([stale.status, stale.type, stale.sha], [409, 'dataset_hash_mismatch', state]);
+    const missing = await refusalOf(await findDatasetKeys(storage, REPO, WS, plansPath, { queries: [], index: 'nope' }));
+    assert.deepEqual([missing.status, missing.type], [404, 'index_not_found']);
+    assert.deepEqual(await batchJson(await findDatasetKeys(storage, REPO, WS, plansPath, { queries: [] })), { results: [] });
+  });
+});
+
+const decodeRows = decodeBeast2For(datasetRowsType(StringType, PlanRowType)) as
+  (bytes: Uint8Array) => Array<{ key: string; row: ReturnType<typeof some<PlanRow>> | typeof none; position: bigint }>;
+const OptionRowType = OptionType(PlanRowType);
+
+describe('getDatasetRows (the rows of several keys in one request)', () => {
+  it('answers each key\'s row, or its absence, and its position as a search and a one-row page give them', async () => {
+    const storage = new InMemoryStorage();
+    const { rows } = await seedIndexedRecord(storage, 3000);
+    const state = await stateOf(storage);
+    const keys = ['p-002999', 'p-000000', 'p-001500x', 'p-001234', 'a', 'z', 'p-001234', 'p-000097'];
+    const response = await getDatasetRows(storage, REPO, WS, plansPath, { keys: keys.map((key) => printKey(key)), hash: state });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(response.headers.get('X-Content-SHA256'), state);
+    assert.equal(response.headers.get('X-Page-Count'), String(keys.length));
+    assert.equal(response.headers.get('X-Total-Elements'), '3000');
+    const answers = decodeRows(new Uint8Array(await response.arrayBuffer()));
+    assert.equal(answers.length, keys.length);
+    for (const [i, key] of keys.entries()) {
+      const found = await findJson(await findDatasetKey(storage, REPO, WS, plansPath, { key: printKey(key) }));
+      const answer = answers[i]!;
+      assert.equal(answer.key, key, `key ${i} answers the key asked`);
+      assert.equal(answer.position, BigInt(found.row), `key ${i}'s position is a search's row`);
+      if (!found.found) {
+        assert.ok(equalFor(OptionRowType)(answer.row, none), `key ${i} is absent`);
+        continue;
+      }
+      const page = await getDatasetPage(storage, REPO, WS, plansPath, { offset: found.row, limit: 1 });
+      const held = [...decodeBeast2For(PlansType)(new Uint8Array(await page.arrayBuffer()))];
+      assert.ok(equalFor(OptionRowType)(answer.row, some(held[0]![1])), `key ${i}'s row is a one-row page's`);
+      assert.ok(equalFor(OptionRowType)(answer.row, some(rows.get(key)!)));
+    }
+  });
+
+  it('reads each segment its keys lie in once', async () => {
+    const storage = new InMemoryStorage();
+    const { primary, primarySegments } = await seedIndexedRecord(storage, 12_000);
+    const keys = Array.from({ length: 400 }, (_, i) => `p-${String((i * 6007) % 12_000).padStart(6, '0')}`);
+    const cumulative: number[] = [];
+    let sum = 0;
+    for (const entry of decodeCollectionManifest(await storage.objects.read(REPO, primary)).entries) {
+      sum += Number(entry.count);
+      cumulative.push(sum);
+    }
+    const spy = spyReadsByObject(storage, primarySegments);
+    try {
+      const response = await getDatasetRows(storage, REPO, WS, plansPath, { keys: keys.map((key) => printKey(key)) });
+      const answers = decodeRows(new Uint8Array(await response.arrayBuffer()));
+      assert.ok(answers.every((answer) => answer.row.type === 'some'), 'every key is held');
+      const holding = new Set<number>();
+      for (const answer of answers) holding.add(cumulative.findIndex((end) => Number(answer.position) < end));
+      assert.deepEqual([...spy.reads.values()].filter((n) => n !== 1), [], 'every segment touched is read exactly once');
+      assert.equal(spy.total(), holding.size, 'the keys read exactly the segments holding them');
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('holds the answer to the byte budget, answering the keys it reached in order', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const response = await getDatasetRows(storage, REPO, WS, plansPath, { keys: ['"p-000010"', '"p-000020"', '"p-000030"'] }, { byteBudget: 1 });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(response.headers.get('X-Page-Count'), '1');
+    const answers = decodeRows(new Uint8Array(await response.arrayBuffer()));
+    assert.deepEqual(answers.map((answer) => answer.key), ['p-000010'], 'the first key, the one the budget reached');
+  });
+
+  it('refuses more than 10,000 keys, a key that is no literal of the key type — naming its place — another kind of dataset, and a stale pin', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const state = await stateOf(storage);
+    const many = await refusalOf(await getDatasetRows(storage, REPO, WS, plansPath, { keys: Array.from({ length: 10_001 }, () => '"p"') }));
+    assert.deepEqual([many.status, many.type], [400, 'bad_request']);
+    const bad = await refusalOf(await getDatasetRows(storage, REPO, WS, plansPath, { keys: ['"p-000001"', 'p-000002'] }));
+    assert.deepEqual([bad.status, bad.type], [400, 'key_parse_error']);
+    assert.match(bad.message, /^key 1: /);
+    const stale = await refusalOf(await getDatasetRows(storage, REPO, WS, plansPath, { keys: ['"p-000001"'], hash: '0'.repeat(64) }));
+    assert.deepEqual([stale.status, stale.type, stale.sha], [409, 'dataset_hash_mismatch', state]);
+
+    const arrays = new InMemoryStorage();
+    await seedDataset(arrays, encodeInSegmentsOf(RowsType, 100)(makeRows(50)), 'rows', RowsType);
+    const notDict = await refusalOf(await getDatasetRows(arrays, REPO, WS, rowsPath, { keys: ['1'] }));
+    assert.deepEqual([notDict.status, notDict.type], [400, 'dataset_not_searchable']);
+  });
+});
+
+/** A String key's `.east` literal. */
+function printKey(key: string): string {
+  return JSON.stringify(key);
+}
+
+describe('getDatasetRuns (the entries of several runs in one request)', () => {
+  it('answers each run\'s entries through an index as by-offset index pages give them, joined or not', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    const runs: [number, number][] = [[100, 50], [4000, 30], [5199, 2], [11_990, 10]];
+    for (const join of [false, true]) {
+      const response = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, index: 'by_status', join });
+      assert.equal(response.status, 200, await response.clone().text());
+      assert.equal(response.headers.get('X-Page-Count'), '92');
+      assert.equal(response.headers.get('X-Run-Entries'), '92');
+      assert.equal(response.headers.get('X-Window-Index'), 'by_status');
+      assert.equal(response.headers.get('X-Window-Joined'), join ? 'true' : null);
+      const window = decodeStatusWindow(new Uint8Array(await response.arrayBuffer()));
+      const expected: unknown[] = [];
+      for (const [offset, limit] of runs) {
+        const page = await getDatasetPage(storage, REPO, WS, plansPath, { offset, limit, index: 'by_status', join });
+        expected.push(...decodeStatusWindow(new Uint8Array(await page.arrayBuffer())));
+      }
+      assert.ok(equalFor(StatusWindowType)(window as never, expected as never), `the runs' entries, in order (join ${join})`);
+    }
+  });
+
+  it('reads each segment the runs touch once, and each record segment a join needs once', async () => {
+    const storage = new InMemoryStorage();
+    const { primarySegments, dueSegments } = await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    // `by_due` scatters the record: a run's keys land all over it.
+    const runs: [number, number][] = [[0, 400], [3000, 300], [9000, 600]];
+    const spy = spyReadsByObject(storage, [...primarySegments, ...dueSegments]);
+    try {
+      const response = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, index: 'by_due', join: true });
+      assert.equal(response.status, 200, await response.clone().text());
+      assert.equal(response.headers.get('X-Page-Count'), '1300');
+      assert.deepEqual([...spy.reads.values()].filter((n) => n !== 1), [], 'every segment touched is read exactly once');
+      assert.ok([...spy.reads.keys()].some((hash) => primarySegments.includes(hash)), 'the join reads the record');
+      assert.ok([...spy.reads.keys()].some((hash) => dueSegments.includes(hash)), 'the runs read the index');
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('answers runs of the dataset\'s own rows as a value of its type, holding exactly those rows', async () => {
+    const storage = new InMemoryStorage();
+    const { rows } = await seedIndexedRecord(storage, 3000);
+    const state = await stateOf(storage);
+    const runs: [number, number][] = [[0, 3], [96, 4], [2990, 10]];
+    const response = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(response.headers.get('X-Window-Index'), null);
+    const value = decodeBeast2For(PlansType)(new Uint8Array(await response.arrayBuffer()));
+    const all = [...rows];
+    const expected = new SortedMap(runs.flatMap(([row, count]) => all.slice(row, row + count)), compareFor(StringType));
+    assert.ok(equalFor(PlansType)(value, expected), 'the union of the runs, in the record\'s order');
+  });
+
+  it('cuts an answer at a page\'s bounds, saying how many it holds of how many, and the rest reads on', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    const runs: [number, number][] = [[0, 6000], [6000, 6000]];
+    const first = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, index: 'by_status' });
+    assert.equal(first.status, 200, await first.clone().text());
+    assert.equal(first.headers.get('X-Page-Count'), '10000', 'a page holds at most 10,000 entries');
+    assert.equal(first.headers.get('X-Run-Entries'), '12000');
+    const head = decodeStatusWindow(new Uint8Array(await first.arrayBuffer()));
+    // The rest: the runs named, less the 10,000 entries in hand.
+    const rest = await getDatasetRuns(storage, REPO, WS, plansPath, { runs: [[10_000, 2000]], hash: state, index: 'by_status' });
+    const tail = decodeStatusWindow(new Uint8Array(await rest.arrayBuffer()));
+    const whole = await getDatasetPage(storage, REPO, WS, plansPath, { offset: 10_000, limit: 2000, index: 'by_status' });
+    assert.ok(equalFor(StatusWindowType)(tail as never, decodeStatusWindow(new Uint8Array(await whole.arrayBuffer())) as never));
+    assert.equal(head.length + tail.length, 12_000);
+
+    const budget = await getDatasetRuns(storage, REPO, WS, plansPath, { runs: [[0, 10], [20, 10]], hash: state, index: 'by_status' }, { byteBudget: 1 });
+    assert.equal(budget.headers.get('X-Page-Count'), '1', 'the byte budget clamps the entries too');
+    assert.equal(budget.headers.get('X-Run-Entries'), '20');
+  });
+
+  it('refuses runs that are not ascending, disjoint and inside, more than 10,000 of them, a join with no index, and a stale pin', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const state = await stateOf(storage);
+    const refused = async (runs: [number, number][], extra: { index?: string; join?: boolean } = {}) =>
+      refusalOf(await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, ...extra }));
+    assert.match((await refused([[10, 5], [12, 3]])).message, /run 1 starts at row 12, before the run before it ends \(15\)/);
+    assert.match((await refused([[290, 20]])).message, /run 0 ends at row 310, past the collection's 300 rows/);
+    assert.match((await refused([[3, 0]])).message, /run 0 is \[3, 0\]/);
+    assert.match((await refused([[-1, 2]])).message, /run 0 is \[-1, 2\]/);
+    assert.equal((await refused(Array.from({ length: 10_001 }, (_, i) => [i, 1] as [number, number]))).type, 'bad_request');
+    assert.match((await refused([[0, 1]], { join: true })).message, /name the index/);
+    assert.deepEqual(await refused([[0, 1]], { index: 'nope' }).then((r) => [r.status, r.type]), [404, 'index_not_found']);
+    const stale = await refusalOf(await getDatasetRuns(storage, REPO, WS, plansPath, { runs: [[0, 1]], hash: '0'.repeat(64) }));
+    assert.deepEqual([stale.status, stale.type, stale.sha], [409, 'dataset_hash_mismatch', state]);
+  });
+});
+
+describe('the batch routes', () => {
+  /** An app mounting the dataset routes behind the transfer routes, as every server does. */
+  function serverOf(storage: InMemoryStorage, options: Parameters<typeof createDatasetRoutes>[3] = {}): Hono {
+    const app = new Hono();
+    const prefix = '/api/repos/:repo/workspaces/:ws/datasets';
+    app.route(prefix, createTransferRoutes(storage, () => REPO, new InMemoryTransferBackend({ baseUrl: '' })).api);
+    app.route(prefix, createDatasetRoutes(storage, () => REPO, undefined, options));
+    return app;
+  }
+  const post = (app: Hono, query: string, body: unknown): Response | Promise<Response> =>
+    app.request(`/api/repos/${REPO}/workspaces/${WS}/datasets/records/plans?${query}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+
+  it('answer a POST naming its batch, past the transfer routes, as their handlers do', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const state = await stateOf(storage);
+    const app = serverOf(storage);
+    const found = await batchJson<{ results: { found: boolean; row: number; count: number }[] }>(
+      await post(app, `findKeys=true&index=by_status&hash=${state}`, { queries: [{ fields: ['"late"'] }, { key: '(status="late", week=3)' }] }));
+    assert.deepEqual(found.results, (await batchJson<{ results: unknown[] }>(await findDatasetKeys(storage, REPO, WS, plansPath,
+      { queries: [{ fields: ['"late"'] }, { key: '(status="late", week=3)' }], index: 'by_status', hash: state }))).results);
+
+    const rows = await post(app, `rows=true&hash=${state}`, { keys: ['"p-000007"', '"nope"'] });
+    assert.equal(rows.status, 200, await rows.clone().text());
+    assert.deepEqual(decodeRows(new Uint8Array(await rows.arrayBuffer())).map((answer) => [answer.key, answer.row.type]),
+      [['p-000007', 'some'], ['nope', 'none']]);
+
+    const runs = await post(app, `runs=true&index=by_status&join=true&hash=${state}`, { runs: [[0, 5], [100, 5]] });
+    assert.equal(runs.status, 200, await runs.clone().text());
+    assert.equal(runs.headers.get('X-Page-Count'), '10');
+    assert.equal(runs.headers.get('X-Window-Joined'), 'true');
+
+    // A page's byte budget holds a batch's answer too.
+    const tight = serverOf(storage, { pageByteBudget: 1 });
+    assert.equal((await post(tight, `rows=true&hash=${state}`, { keys: ['"p-000007"', '"p-000008"'] })).headers.get('X-Page-Count'), '1');
+  });
+
+  it('refuse a body not of the batch\'s form, a read of runs pinned to nothing, and two batches at once, and leave every other POST to no route', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const app = serverOf(storage);
+    const refused = async (query: string, body: unknown) => refusalOf(await post(app, query, body));
+    assert.match((await refused('findKeys=true', 'not json')).message, /^The body is not JSON/);
+    assert.match((await refused('findKeys=true', { keys: [] })).message, /is \{ "queries": \[ … \] \}/);
+    assert.match((await refused('findKeys=true', { queries: [{ key: 7 }] })).message, /query 0's key is not a string/);
+    assert.match((await refused('findKeys=true', { queries: [{ index: 'x' }] })).message, /query 0 names index/);
+    assert.match((await refused('rows=true', { keys: [1] })).message, /is \{ "keys": \[/);
+    assert.match((await refused('runs=true&hash=x', { runs: [[1]] })).message, /run 0 is not \[row, count\]/);
+    assert.match((await refused('runs=true', { runs: [] })).message, /names the content hash its runs are positions at/);
+    assert.match((await refused('rows=true&findKeys=true', { keys: [] })).message, /Ask for one batch/);
+    const other = await post(app, '', {});
+    assert.equal(other.status, 404, 'a POST naming no batch is no route');
+  });
+});
+
+describe('the decoded segments the API process keeps', () => {
+  it('serve a window read again, and a search in a segment a window decoded, with nothing read', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeInSegmentsOf(LookupType, 97)(lookupOf(2500));
+    const hash = await seedDataset(storage, blob, 'lookup', LookupType);
+    const spy = spyReadsByObject(storage, await segmentsOf(storage, hash));
+    const decodes = decodedSegmentStats().decodes;
+    try {
+      const window = await getDatasetPage(storage, REPO, WS, lookupPath, { offset: 150, limit: 100 });
+      assert.equal(window.status, 200);
+      assert.equal(spy.total(), 2, 'rows 150..249 lie in two segments');
+      assert.equal(decodedSegmentStats().decodes - decodes, 2, 'each decoded once');
+      const again = await getDatasetPage(storage, REPO, WS, lookupPath, { offset: 150, limit: 100 });
+      assert.deepEqual(new Uint8Array(await again.arrayBuffer()), new Uint8Array(await window.arrayBuffer()), 'the same bytes');
+      await findJson(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0200"' }));
+      assert.equal(spy.total(), 2, 'the window again and the search in its segments read nothing');
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('read a segment two requests ask for at once once, for both', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeInSegmentsOf(LookupType, 97)(lookupOf(2500));
+    const hash = await seedDataset(storage, blob, 'lookup', LookupType);
+    const spy = spyReadsByObject(storage, await segmentsOf(storage, hash));
+    try {
+      const [a, b] = await Promise.all([
+        findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k1000"' }),
+        findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k1001"' }),
+      ]);
+      assert.deepEqual([await findJson(a), await findJson(b)], [{ found: true, row: 1000, count: 1 }, { found: true, row: 1001, count: 1 }]);
+      assert.equal(spy.total(), 1, 'one segment holds both keys, and it is read once');
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('refuse a collection whose manifest names its segments out of order, naming them, for a window, a segment and a search', async () => {
+    const storage = new InMemoryStorage();
+    const blob = encodeInSegmentsOf(LookupType, 97)(lookupOf(500));
+    const hash = await seedDataset(storage, blob, 'lookup', LookupType);
+    // The manifest's fences stay; segments 1 and 2 are named in each other's place.
+    const manifest = decodeCollectionManifest(await storage.objects.read(REPO, hash));
+    const entries = [...manifest.entries];
+    [entries[1], entries[2]] = [{ ...entries[1]!, hash: entries[2]!.hash }, { ...entries[2]!, hash: entries[1]!.hash }];
+    const swapped = await storage.objects.write(REPO, encodeCollectionManifest({ ...manifest, entries }));
+    await storage.datasets.write(REPO, WS, 'inputs/lookup', variant('value', { hash: swapped, versions: new Map() }));
+
+    const window = await refusalOf(await getDatasetPage(storage, REPO, WS, lookupPath, { offset: 90, limit: 20 }));
+    assert.deepEqual([window.status, window.type], [400, 'dataset_not_canonical']);
+    assert.match(window.message, /segment 1's first key is not its fence/);
+    const segment = await refusalOf(await getDatasetPage(storage, REPO, WS, lookupPath, { segment: 2 }));
+    assert.deepEqual([segment.status, segment.type], [400, 'dataset_not_segmented']);
+    const search = await refusalOf(await findDatasetKey(storage, REPO, WS, lookupPath, { key: '"k0100"' }));
+    assert.deepEqual([search.status, search.type], [400, 'dataset_not_canonical']);
   });
 });

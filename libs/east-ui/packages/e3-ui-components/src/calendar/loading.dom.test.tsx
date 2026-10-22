@@ -10,9 +10,12 @@ import * as views from "./views.js";
 const h = calendarHarness();
 for (const mainWidth of [900, 390]) test(`Calendar waits for scheduled and backlog pages before revealing its frame at ${mainWidth}px`, async () => {
     const renderView = vi.spyOn(views, "CalendarViews");
-    // The day index's pages and the backlog index's, each held on its way to e3 until the test lets it land.
-    const days = h.e3.hold(request => request.kind === "page" && request.query.get("index") === ex.calendarJobsByDay.name);
-    const backlog = h.e3.hold(request => request.kind === "page" && request.query.get("index") === ex.calendarJobsUnscheduled.name);
+    // The day index's rows and the backlog index's — a page of them, or a read of several runs (#1351) — each held on its way to e3
+    // until the test lets it land.
+    const rowsOf = (index: string) => (request: { kind: string; query: URLSearchParams }) =>
+        (request.kind === "page" || request.kind === "runs") && request.query.get("index") === index;
+    const days = h.e3.hold(rowsOf(ex.calendarJobsByDay.name));
+    const backlog = h.e3.hold(rowsOf(ex.calendarJobsUnscheduled.name));
     const { container } = await h.mount(ex.calendarWindowed); await width(mainWidth);
     const frame = container.querySelector('[data-builder-frame]')!;
     const canvas = slot(container, "main").firstElementChild!.firstElementChild;

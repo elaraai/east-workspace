@@ -154,6 +154,10 @@ export {
   datasetGetPage,
   datasetGetStatus,
   datasetFindKey,
+  datasetFindKeys,
+  datasetGetRows,
+  datasetGetRuns,
+  DATASET_BATCH_MAX,
   datasetSet,
   datasetSetStream,
   objectGet,
@@ -165,6 +169,13 @@ export {
   type DatasetPageWindow,
   type DatasetFindQuery,
   type DatasetFindResult,
+  type DatasetKeySearch,
+  type DatasetFindKeysQuery,
+  type DatasetFindKeysResult,
+  type DatasetRowsQuery,
+  type DatasetRows,
+  type DatasetRunsQuery,
+  type DatasetRuns,
 } from './datasets.js';
 
 // Tasks

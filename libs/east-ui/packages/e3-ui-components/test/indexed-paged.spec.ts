@@ -321,3 +321,35 @@ test("interval Slice pages and counts overlapping original records once, includi
     assert.equal(h.requests("read", `records.${events.name}`).length, 0, "the record is never read whole");
     runtime.clear();
 });
+
+test("a window over an interval index is two requests — its searches in one, the runs they select in one — and its count's readers re-fire once (#1351)", async () => {
+    const events = ex.indexedIntervals;
+    const source = Data.bindPaged(events, { indexes: [ex.intervalsByStart, ex.intervalsByStatusTime, ex.intervalsByTime] });
+    const from = new Date("2026-10-02T00:00:00Z");
+    const to = new Date("2026-10-03T00:00:00Z");
+    const sliced = bindRecord("test.intervals.batched", source, { range: "start", initial: { status: ["Ready"], start: { from, to } } });
+    const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(program, slicePlatform(runtime))();
+    const R1 = await h.ready(() => handle.data.revision());
+    // The count, read as a view reads it: under tracking, its reader subscribed to what it read.
+    runtime.enableTracking();
+    assert.equal(handle.count().type, "none", "its searches are in flight");
+    let fired = 0;
+    const reader = () => { fired += 1; };
+    for (const key of runtime.disableTracking()) runtime.subscribe(key, reader);
+    await h.settle();
+    assert.equal(fired, 1, "the count's reader re-fires once, as every search lands together");
+    const searches = findsOf(events);
+    assert.deepEqual(searches.map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
+        [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the window's searches");
+    assert.ok(searches[0]!.searches.length > 50, "the start range and the carry-in ranges at each span");
+    assert.deepEqual(handle.count(), some(4n));
+    const rows = await h.ready(() => handle.data.page(0n, 4n));
+    assert.deepEqual(rows.map(row => row.key).sort(compareFor(StringType)), ["carry", "inside", "instant-at-from", "span"]);
+    assert.deepEqual(h.requests("runs", `records.${events.name}`).map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
+        [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the runs the searches select");
+    assert.deepEqual([pagesOf(events).length, findsOf(events).length], [0, 1], "no run is paged, and no search asked, on its own");
+    runtime.clear();
+});

@@ -19,7 +19,7 @@
  */
 
 import {
-  ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FunctionType, NullType,
+  ArrayType, BooleanType, DateTimeType, DictType, EastTypeType, FunctionType, IntegerType, NullType,
   OptionType, PatchType, StringType, StructType, VariantType,
   decodeBeast2For, dictPatchOpsType, setPatchOpsType, toEastTypeValue,
   type EastType, type EastTypeValue, type PatchTypeOf, type ValueTypeOf,
@@ -583,5 +583,33 @@ export function indexWindowType(keyType: EastType, indexKeyType: EastType, value
     value: valueType,
     /** The primary row — `some(...)` when the read asked for a join. */
     row: OptionType(rowType),
+  }));
+}
+
+/**
+ * What a read of a Dict's rows by key answers (#1351): one entry per key
+ * asked, in the order asked — an ORDERED array, as an index window is.
+ *
+ * @remarks
+ * Each entry says whether the Dict holds the key — its row, or none — and
+ * where the key sits in the Dict's canonical order: the row's position, the
+ * same row space a page's element windows address, or, for a key it does not
+ * hold, the position the key would take. So a client holds each row at its
+ * position, and answers a later search by the key, and a one-row page there,
+ * from what it holds.
+ *
+ * @param keyType - The Dict's key type, `K`
+ * @param rowType - Its value type, `V`
+ * @returns The answer's East type
+ */
+export function datasetRowsType(keyType: EastType, rowType: EastType): EastType {
+  return ArrayType(StructType({
+    /** The key asked: the stored key when the Dict holds it. */
+    key: keyType,
+    /** The row the Dict holds under it, or none. */
+    row: OptionType(rowType),
+    /** Its position in the Dict's canonical order: the row's, or the one the
+     *  key would take. */
+    position: IntegerType,
   }));
 }

@@ -13,10 +13,10 @@
  * Templates tab, and the source an app's tab names narrows that tab — each
  * tab counting what it shows and saying so, with Clear filters, when the rail
  * leaves it none. A hidden draft still saves to its original key. A window read
- * through interval indexes lands some fifty-five key searches a kind, each
- * re-rendering the window's reader alone, never the frame. A filter change
- * builds nothing again: the Calendar's body runs no more, and no payload is
- * decoded (#1354).
+ * through interval indexes asks a kind's some fifty-five key searches in one
+ * request (#1351), each kind's landing re-rendering the window's reader alone,
+ * never the frame. A filter change builds nothing again: the Calendar's body
+ * runs no more, and no payload is decoded (#1354).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -25,6 +25,7 @@ import { DateTimeType, OptionType, StringType, printFor, some, variant } from "@
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { act, calendarHarness, card, event, narrow, narrowing, programOf, searched, settle, slot, width, type Where } from "./harness.test-utils.js";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { countBuilds } from "../shared/builds.test-utils.js";
 import { setCalendarFrameRenderProbe } from "./index.js";
 
@@ -222,36 +223,50 @@ describe("the windowed Calendar's own navigation picks its days (#1343)", () => 
 });
 
 describe("a window read through interval indexes re-renders its reader, never the frame (#1343)", () => {
-    /** Every key search through an event kind's interval index, held on its way to e3 until it is let land, in the order asked. */
+    /**
+     * Each batch of key searches through an event kind's interval index —
+     * what a window's searches are asked in — held on its way to e3 until it
+     * is let land, in the order asked. A single search, such as a selected
+     * event's membership, goes on.
+     */
     function holdIntervalSearches() {
         const intervals = new Set<string>([ex.calendarJobsByTime.name, ex.calendarServicesByTime.name, ex.calendarShiftsByTime.name]);
-        const held = h.e3.hold(request => request.kind === "find" && intervals.has(request.query.get("index") ?? ""));
-        /** Lets every held search but the last land, one at a time, then the rest. */
+        const searching = (request: E3Request) => request.kind === "find" && request.method === "POST" && intervals.has(request.query.get("index") ?? "");
+        const held = h.e3.hold(searching);
+        /** Lets every held request but the last land, one at a time, then the rest. */
         return {
             get held() { return held.held; },
+            /** How many searches each request asked, in the order asked. */
+            asked: () => h.requests().filter(searching).map(request => request.searches.length),
             async landAllButOne() { while (held.held > 1) { await act(async () => { held.releaseOne(); }); } await settle(); },
             async landAll() { while (held.held > 0) { await act(async () => { held.releaseOne(); }); await settle(); } },
         };
     }
 
-    test("each of a window's key searches lands without rendering the frame, which renders once they all have — on the first window and on the next with an event selected", async () => {
+    test("a kind's window asks its key searches in one request (#1351), each kind's landing without rendering the frame, which renders once they all have — on the first window and on the next with an event selected", async () => {
         const searches = holdIntervalSearches();
         let renders = 0;
         setCalendarFrameRenderProbe(() => { renders += 1; });
         try {
             const { container } = await open(ex.calendarOperations);
-            // One start range and the carry-in ranges at each span, for each event kind's window.
-            expect(searches.held).toBeGreaterThan(3 * 50);
+            // One request for each event kind's window: its start range and its carry-in ranges at each span.
+            expect(searches.held).toBe(3);
+            expect(searches.asked()).toHaveLength(3);
+            expect(searches.asked().every(count => count > 50)).toBe(true);
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);
             expect(event(container, "job", "job1")).not.toBeNull();
+            // The jobs' backlog, read once their window has landed: a batch of its one search.
+            expect(searches.asked().slice(3)).toEqual([1]);
             // With an event selected, the next window's searches render nothing until they have all landed either.
             await press(event(container, "job", "job1"));
             await press(toolbar(container).getByRole("button", { name: "Next week" }));
-            expect(searches.held).toBeGreaterThan(3 * 50);
+            expect(searches.held).toBe(3);
+            expect(searches.asked().slice(4)).toHaveLength(3);
+            expect(searches.asked().slice(4).every(count => count > 50)).toBe(true);
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);

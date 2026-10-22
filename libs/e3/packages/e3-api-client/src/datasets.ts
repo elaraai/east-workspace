@@ -632,13 +632,17 @@ export async function parsePage(response: globalThis.Response): Promise<DatasetP
  *  address the index key, the `keyType` the record's signature names, and an
  *  exact key matches every entry under it; a range bounds the index
  *  collection's flattened key, `ik`'s fields first. */
-export type DatasetFindQuery = (
+export type DatasetFindQuery = DatasetKeySearch & { hash?: string; index?: string };
+
+/** One key search, in exactly one of its forms — what {@link DatasetFindQuery}
+ *  names beside its pin and index, and what each query of a batch
+ *  ({@link datasetFindKeys}) is. */
+export type DatasetKeySearch =
   | { key: string }
   | { prefix: string }
   | { fields: string[]; prefix?: string }
   | { from: string[]; to?: string[] }
-  | { from?: string[]; to: string[] }
-) & { hash?: string; index?: string };
+  | { from?: string[]; to: string[] };
 
 /** A key-search result over a Set/Dict dataset. */
 export interface DatasetFindResult {
@@ -734,6 +738,250 @@ export async function datasetFindKey(
 
   const body = await response.json() as { found: boolean; row: number; count: number };
   return { ...body, hash: response.headers.get('X-Content-SHA256') ?? '' };
+}
+
+/** The most queries, keys or runs one batch read takes (#1351): a server
+ *  refuses a larger batch, and a caller splits one beyond it. */
+export const DATASET_BATCH_MAX = 10_000;
+
+/**
+ * POST a batch read: its JSON body names what it reads, and a retry sends it
+ * again as a GET's is sent — a read changes nothing, so it is safe to — with a
+ * refusal raised as a page's is.
+ */
+async function postRead(target: string, body: unknown, accept: string, options: RequestOptions): Promise<globalThis.Response> {
+  const response = await fetchWithRetry(target, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': accept,
+      ...(options.token ? { 'Authorization': `Bearer ${options.token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  }, { idempotent: true, retry: options.retry, fetch: options.fetch });
+  if (response.ok) return response;
+  const text = await response.text();
+  const error = parseErrorBody(text, `http_${response.status}`);
+  if (response.status === 401) {
+    throw new AuthError(error.details as string ?? 'Authentication required');
+  }
+  if (error.code === 'dataset_hash_mismatch') {
+    throw new DatasetHashMismatchError(error.details, response.headers.get('X-Content-SHA256'));
+  }
+  throw error;
+}
+
+/** A dataset's URL with its batch read's query. */
+function batchUrl(url: string, repo: string, workspace: string, path: TreePath, params: URLSearchParams): string {
+  const pathStr = path.map(p => encodeURIComponent(p.value)).join('/');
+  return `${url}/api/repos/${encodeURIComponent(repo)}/workspaces/${encodeURIComponent(workspace)}/datasets/${pathStr}?${params.toString()}`;
+}
+
+/** Several key searches of one collection, for {@link datasetFindKeys}. */
+export interface DatasetFindKeysQuery {
+  /** The searches, answered in this order: at most {@link DATASET_BATCH_MAX}. */
+  queries: readonly DatasetKeySearch[];
+  /** Search one of a record's indexes, every query alike; the record's own
+   *  keys when absent. */
+  index?: string;
+  /** The content hash the searches are pinned to. */
+  hash?: string;
+}
+
+/** The answers to several key searches. */
+export interface DatasetFindKeysResult {
+  /** Each search's answer, as {@link datasetFindKey} answers it, in order. */
+  results: { found: boolean; row: number; count: number }[];
+  /** The content hash every answer is of. */
+  hash: string;
+}
+
+/**
+ * Locate several keys, prefixes or ranges of one Set/Dict dataset — or of one
+ * of a record's indexes — in one request, each as {@link datasetFindKey}
+ * locates it, at one content hash.
+ *
+ * @remarks
+ * The server places every query's bounds by its fences and reads each segment
+ * they land in once, so a window's searches cost its few segments and one
+ * round trip. A batch is a POST, so no cache keeps its answer; a stale pin is
+ * refused as a page's is.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset
+ * @param query - The searches, the index they search and the pin
+ * @param options - Request options including auth token
+ * @returns Each search's answer, in order
+ * @throws {DatasetHashMismatchError} When the batch is pinned to a hash the
+ *   dataset no longer holds; its `currentHash` names the one it does
+ * @throws {ApiError} On application-level errors: more than
+ *   {@link DATASET_BATCH_MAX} queries, or a query a single search refuses
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetFindKeys(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  query: DatasetFindKeysQuery,
+  options: RequestOptions,
+): Promise<DatasetFindKeysResult> {
+  const params = new URLSearchParams({ findKeys: 'true' });
+  if (query.index !== undefined) params.set('index', query.index);
+  if (query.hash !== undefined) params.set('hash', query.hash);
+  const response = await postRead(batchUrl(url, repo, workspace, path, params), { queries: query.queries }, 'application/json', options);
+  const body = await response.json() as { results: { found: boolean; row: number; count: number }[] };
+  return { results: body.results, hash: response.headers.get('X-Content-SHA256') ?? '' };
+}
+
+/** The keys of a Dict a read asks the rows of, for {@link datasetGetRows}. */
+export interface DatasetRowsQuery {
+  /** `.east` literals of the keys, answered in this order: at most
+   *  {@link DATASET_BATCH_MAX}. */
+  keys: readonly string[];
+  /** The content hash the read is pinned to. */
+  hash?: string;
+}
+
+/** The rows of several keys of a Dict. */
+export interface DatasetRows {
+  /** Raw BEAST2 of `datasetRowsType(K, V)` (e3-types): an entry per key
+   *  answered, in the order asked — the key, its row or none, and its
+   *  position in the Dict's canonical order. */
+  data: Uint8Array;
+  /** How many keys it answers: the first so many asked, the page byte budget
+   *  holding it to them. The rest are asked again. */
+  count: number;
+  /** The Dict's row count. */
+  totalElements: number;
+  /** The content hash the answer is of. */
+  hash: string;
+}
+
+/**
+ * Read the rows a Dict dataset — a record, say — holds under several keys in
+ * one request: each key's row, or its absence, and its position in the Dict's
+ * canonical order, the row space a page's element windows address.
+ *
+ * @remarks
+ * The server places each key in its segment by the fences and reads each such
+ * segment once. The answer is held to the page byte budget: it answers the
+ * first {@link DatasetRows.count} keys, and the caller asks again for the rest.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset: a Dict
+ * @param query - The keys and the pin
+ * @param options - Request options including auth token
+ * @returns The rows, and how many keys they answer
+ * @throws {DatasetHashMismatchError} When the read is pinned to a hash the
+ *   dataset no longer holds; its `currentHash` names the one it does
+ * @throws {ApiError} On application-level errors: more than
+ *   {@link DATASET_BATCH_MAX} keys, a key that is no literal of the key type, a
+ *   dataset that is not a Dict
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetGetRows(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  query: DatasetRowsQuery,
+  options: RequestOptions,
+): Promise<DatasetRows> {
+  const params = new URLSearchParams({ rows: 'true' });
+  if (query.hash !== undefined) params.set('hash', query.hash);
+  const response = await postRead(batchUrl(url, repo, workspace, path, params), { keys: query.keys }, BEAST2_CONTENT_TYPE, options);
+  const intHeader = (name: string): number => Number(response.headers.get(name) ?? '0');
+  return {
+    data: new Uint8Array(await response.arrayBuffer()),
+    count: intHeader('X-Page-Count'),
+    totalElements: intHeader('X-Total-Elements'),
+    hash: response.headers.get('X-Content-SHA256') ?? '',
+  };
+}
+
+/** Several runs of a collection's rows, for {@link datasetGetRuns}. */
+export interface DatasetRunsQuery {
+  /** The runs, `[row, count]`: ascending, disjoint, each inside the
+   *  collection — at most {@link DATASET_BATCH_MAX}. */
+  runs: readonly (readonly [number, number])[];
+  /** The content hash the runs are positions at. */
+  hash: string;
+  /** The runs are rows of one of a record's indexes; the dataset's own rows
+   *  when absent. */
+  index?: string;
+  /** With {@link index}: fill each entry's `row` from the record. */
+  join?: boolean;
+}
+
+/** The entries of several runs. */
+export interface DatasetRuns {
+  /** Raw BEAST2 of one window: through an index, its window type
+   *  (`indexWindowType`), and of the dataset itself, a value of its own type
+   *  holding the runs' rows. */
+  data: Uint8Array;
+  /** How many entries it holds: the runs' first so many, a page's bounds
+   *  holding it to them. */
+  count: number;
+  /** How many entries the runs hold: the rest, past {@link count}, are asked
+   *  again. */
+  runEntries: number;
+  /** The collection's row count: the index's, or the dataset's. */
+  totalElements: number;
+  /** The content hash the answer is of. */
+  hash: string;
+}
+
+/**
+ * Read the entries of several runs of a collection's rows in one request, in
+ * order, as one window — what a narrowing resolved to runs pages, in one round
+ * trip however many runs it has.
+ *
+ * @remarks
+ * The server reads each segment the runs touch once, and, joined, each record
+ * segment the entries' keys lie in once. The answer is held to a page's bounds
+ * (10,000 entries and the byte budget): it holds the runs' first
+ * {@link DatasetRuns.count} entries, and the caller asks again for the runs
+ * less those.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the dataset
+ * @param query - The runs, the pin, the index and the join
+ * @param options - Request options including auth token
+ * @returns The window, and how many of the runs' entries it holds
+ * @throws {DatasetHashMismatchError} When the runs are pinned to a hash the
+ *   dataset no longer holds; its `currentHash` names the one it does
+ * @throws {ApiError} On application-level errors: runs that are not ascending,
+ *   disjoint and inside the collection, more than {@link DATASET_BATCH_MAX} of
+ *   them, an index the record does not hold
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetGetRuns(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  query: DatasetRunsQuery,
+  options: RequestOptions,
+): Promise<DatasetRuns> {
+  const params = new URLSearchParams({ runs: 'true', hash: query.hash });
+  if (query.index !== undefined) params.set('index', query.index);
+  if (query.join === true) params.set('join', 'true');
+  const response = await postRead(batchUrl(url, repo, workspace, path, params), { runs: query.runs }, BEAST2_CONTENT_TYPE, options);
+  const intHeader = (name: string): number => Number(response.headers.get(name) ?? '0');
+  return {
+    data: new Uint8Array(await response.arrayBuffer()),
+    count: intHeader('X-Page-Count'),
+    runEntries: intHeader('X-Run-Entries'),
+    totalElements: intHeader('X-Total-Elements'),
+    hash: response.headers.get('X-Content-SHA256') ?? '',
+  };
 }
 
 const SIZE_THRESHOLD = 1 * 1024 * 1024; // 1 MB

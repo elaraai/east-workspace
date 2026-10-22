@@ -41,6 +41,17 @@
  * the answer in its own channel. A sheet reads an entry it is about to draft
  * as a one-element window, beside the windows it draws.
  *
+ * Several reads of one source are asked as one request when a reader asks
+ * them together (#1351): `seekAll` a batch of key searches (`findKeys`),
+ * `rowsAll` the rows of several keys of a Dict, `runsAll` the entries of
+ * several runs. A batch is one request and one channel, which re-fires its
+ * readers once. What it answers serves the single reads too: each search's
+ * bounds land in that search's own channel, each row is held at its position —
+ * a search by its key, or a one-row window at its row, is answered from it —
+ * and a window inside one of a runs read's runs is cut from it. A record Slice
+ * over a binding the indexed runtime built reads a plan's searches, and a
+ * window across several runs, through them.
+ *
  * The dataset store's CONTENT is deliberately not used: it holds whole values,
  * and a paged source is precisely the thing you cannot hold whole. A source
  * rides the store's status poll for hashes alone, through
@@ -64,10 +75,11 @@ import {
     StringType,
     decodeBeast2For,
     none,
+    parseFor,
+    printFor,
     some,
     type EastTypeValue,
     type option,
-    type ValueTypeOf,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
@@ -75,22 +87,35 @@ import { bindPagedPinnedPlatformFn, bindPagedPlatformFn, DataPagedPrimitives } f
 import {
     registerReactiveTracker,
     registerPlatformImplementation,
+    registerRecordSliceBatches,
 } from "@elaraai/east-ui-components/platform";
 import {
     datasetGetPage,
     datasetFindKey,
+    datasetFindKeys,
+    datasetGetRows,
+    datasetGetRuns,
     datasetGetStatus,
     DatasetHashMismatchError,
+    DATASET_BATCH_MAX,
     type DatasetPage,
     type DatasetFindQuery,
     type DatasetFindResult,
+    type DatasetFindKeysQuery,
+    type DatasetFindKeysResult,
+    type DatasetKeySearch,
+    type DatasetRows,
+    type DatasetRowsQuery,
+    type DatasetRuns,
+    type DatasetRunsQuery,
     type RequestOptions,
 } from "@elaraai/e3-api-client";
-import { TreePathType, type TreePath } from "@elaraai/e3-types";
+import { TreePathType, datasetRowsType, type TreePath } from "@elaraai/e3-types";
 
 import { datasetPathToString, type ReactiveDatasetCacheInterface } from "./dataset-store.js";
 import { TrackedChannelStore } from "./tracked-channel.js";
-import { IndexedPagedRuntime } from "./indexed-paged.js";
+import { IndexedPagedRuntime, recordSliceBatchesOf } from "./indexed-paged.js";
+import { toFindQuery } from "./find-query.js";
 
 // =============================================================================
 // API seam — the narrow surface the runtime talks through. Tests stub it; the
@@ -132,7 +157,22 @@ export interface PagedSource {
     readonly path: TreePath;
     /** The rows it serves: the dataset's own, or one of a record's indexes. */
     readonly selector: PagedSelector;
+    /** What a window of it decodes as: the dataset's own type, or an index's
+     *  window type. */
+    readonly type: EastTypeValue;
 }
+
+/** One row a read by key answers (#1351): the key, the row the dataset holds
+ *  under it or none, and the key's position in the dataset's canonical order —
+ *  the row space a window addresses. */
+export interface PagedRow {
+    readonly key: unknown;
+    readonly row: option<unknown>;
+    readonly position: number;
+}
+
+/** A run of a source's rows: its first row and how many it holds. */
+export type PagedRun = readonly [row: number, count: number];
 
 /** The selector a bind with no index has. */
 const NO_INDEX: PagedSelector = { index: null, join: false };
@@ -155,6 +195,16 @@ export interface PagedApi {
      *  `row` it answers with indexes the SAME row space {@link getPage}'s
      *  element windows serve, which is what makes a hit addressable. */
     findKey(workspace: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
+    /** Locate several key queries of one source in one request (#1351), each
+     *  as {@link findKey} would, in order. */
+    findKeys(workspace: string, path: TreePath, query: DatasetFindKeysQuery): Promise<DatasetFindKeysResult>;
+    /** Read the rows a Dict dataset holds under several keys in one request:
+     *  each key's row or absence and its position, the first `count` of the
+     *  keys the page byte budget reaches. */
+    getRows(workspace: string, path: TreePath, query: DatasetRowsQuery): Promise<DatasetRows>;
+    /** Read the entries of several runs of a source's rows in one request, in
+     *  order: the first `count` of them a page's bounds reach. */
+    getRuns(workspace: string, path: TreePath, query: DatasetRunsQuery): Promise<DatasetRuns>;
     /**
      * The dataset's current content hash, or `null` while it has no value. For
      * a record it is the record's state hash, which reads through its indexes
@@ -202,6 +252,15 @@ export function createDefaultPagedApi(
         async findKey(workspace, path, query) {
             return datasetFindKey(apiUrl, repo, workspace, path, query, getOptions());
         },
+        async findKeys(workspace, path, query) {
+            return datasetFindKeys(apiUrl, repo, workspace, path, query, getOptions());
+        },
+        async getRows(workspace, path, query) {
+            return datasetGetRows(apiUrl, repo, workspace, path, query, getOptions());
+        },
+        async getRuns(workspace, path, query) {
+            return datasetGetRuns(apiUrl, repo, workspace, path, query, getOptions());
+        },
         async getRevision(workspace, path) {
             const status = await datasetGetStatus(apiUrl, repo, workspace, path, getOptions());
             return status.hash.type === "some" ? status.hash.value : null;
@@ -230,10 +289,17 @@ interface PageEntry {
      *  a window the server trimmed holds fewer than it asked for. A read it
      *  covers is answered from it (#1217). */
     span?: WindowSpan;
+    /** A landed runs read's place (#1351): its family, and where each run's
+     *  entries sit in it — a read inside one of its runs is answered from it,
+     *  as from a window's span. */
+    runSpans?: RunSpans;
     /** Total elements in the source, learned from any landed window. */
     total?: number;
     /** Where a key query landed — the answer on a seek channel. */
     range?: DatasetFindResult;
+    /** A rows read's answer, every key asked's row in order — the answer on a
+     *  rows batch's channel (#1351). */
+    rows?: readonly PagedRow[];
     /** Why the last attempt failed — what a read of the channel throws. */
     error?: string;
     /** When the last attempt failed, so a retry can be rate-limited. */
@@ -251,6 +317,45 @@ interface WindowSpan {
     readonly offset: number;
     /** How many elements it holds. */
     readonly count: number;
+}
+
+/** Where a landed runs read's entries sit in its source's row space (#1351). */
+interface RunSpans {
+    /** The read's family — {@link pagedWindowFamily}. */
+    readonly family: string;
+    /** Each run, ascending: its first row, how many entries it holds, and
+     *  where they start in the read's window. */
+    readonly runs: readonly { readonly row: number; readonly count: number; readonly at: number }[];
+}
+
+/**
+ * Where a read of `[offset, offset + limit)` of a family starts in a landed
+ * window that holds all of it: by the window's span, or inside one of a runs
+ * read's runs (#1217, #1351).
+ *
+ * @param entry - A landed window's channel
+ * @param family - The read's family
+ * @param offset - The read's first element
+ * @param limit - How many elements it asks for
+ * @returns The element of the window it starts at, or `undefined` when the window holds none of it whole
+ */
+function coveringAt(entry: PageEntry, family: string, offset: number, limit: number): number | undefined {
+    const span = entry.span;
+    if (span !== undefined) {
+        return span.family === family && span.offset <= offset && offset + limit <= span.offset + span.count ? offset - span.offset : undefined;
+    }
+    const spans = entry.runSpans;
+    if (spans === undefined || spans.family !== family) return undefined;
+    // The last run starting at or before the read's offset.
+    let lo = 0;
+    let hi = spans.runs.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (spans.runs[mid]!.row <= offset) lo = mid + 1;
+        else hi = mid;
+    }
+    const run = spans.runs[lo - 1];
+    return run !== undefined && offset + limit <= run.row + run.count ? run.at + (offset - run.row) : undefined;
 }
 
 /** Searches of one source's rows launched in one synchronous turn (#1360). */
@@ -328,9 +433,66 @@ interface Snapshot {
     findFailedAtMs?: number;
     /** The channels of the current revision, dropped when it moves. */
     readonly channels: Set<string>;
+    /** The rows reads by key have held at this revision, by the family of the
+     *  rows they read (#1351): a search by one of their keys, and a one-row
+     *  page at one's position, answer from them. Dropped when it moves. */
+    readonly held: Map<string, HeldRows>;
     /** Stops following the dataset; `undefined` while it is not followed —
      *  nothing reads it, or no adapter is installed. */
     unwatch: (() => void) | undefined;
+}
+
+/** The rows reads by key have held at one revision, of one family (#1351). */
+interface HeldRows {
+    /** Every key answered: its row or absence, and its position. */
+    readonly byKey: SortedMap<unknown, PagedRow>;
+    /** The rows the dataset holds, by their position. */
+    readonly byPosition: Map<number, PagedRow>;
+}
+
+/** The most rows a family holds from reads by key; past it, what it held goes
+ *  and the newest read's rows are held alone. */
+const MAX_HELD_ROWS = 20_000;
+
+/**
+ * The runs left of `runs` once their first `taken` entries are in hand.
+ *
+ * @param runs - The runs asked
+ * @param taken - How many of their entries an answer held
+ * @returns The rest, the first one cut where the answer ended
+ */
+function runsAfter(runs: readonly PagedRun[], taken: number): PagedRun[] {
+    const rest: PagedRun[] = [];
+    let skip = taken;
+    for (const [row, count] of runs) {
+        if (skip >= count) { skip -= count; continue; }
+        rest.push([row + skip, count - skip]);
+        skip = 0;
+    }
+    return rest;
+}
+
+/**
+ * The parts of one window read in turn, as one value of the source's type: an
+ * Array's items one after another, a Set's or a Dict's in their key order.
+ *
+ * @param sourceType - The source's type: an Array, a Set or a Dict
+ * @param parts - The decoded parts, in order
+ * @returns The window
+ */
+function joinWindows(sourceType: EastTypeValue, parts: readonly unknown[]): unknown {
+    if (parts.length === 1) return parts[0];
+    switch (sourceType.type) {
+        case "Dict": {
+            const keyType = fromEastTypeValue((sourceType.value as { key: EastTypeValue }).key);
+            return new SortedMap(parts.flatMap((part) => [...(part as ReadonlyMap<unknown, unknown>)]), compareFor(keyType));
+        }
+        case "Set": {
+            const elementType = fromEastTypeValue(sourceType.value as EastTypeValue);
+            return new SortedSet(parts.flatMap((part) => [...(part as ReadonlySet<unknown>)]), compareFor(elementType));
+        }
+        default: return parts.flatMap((part) => [...(part as readonly unknown[])]);
+    }
 }
 
 /** Minimum gap between retries of a read whose fetch failed. */
@@ -490,48 +652,49 @@ export function pagedTotalKey(workspace: string, path: TreePath, revision: strin
 export function pagedSeekKey(
     workspace: string, path: TreePath, revision: string, query: DatasetFindQuery, selector: PagedSelector = NO_INDEX,
 ): string {
-    const q = "key" in query
+    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}@${revision}#seek:${seekQueryText(query)}`;
+}
+
+/** A key query's form and literals, as a channel's key names it. */
+function seekQueryText(query: DatasetFindQuery): string {
+    return "key" in query
         ? `k=${query.key}`
         : "fields" in query
             ? `f=${query.fields.join("\u0000")}|p=${query.prefix ?? ""}`
             : "prefix" in query
                 ? `p=${query.prefix}`
                 : `r=${(query.from ?? []).join("\u0000")}|${(query.to ?? []).join("\u0000")}`;
-    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}@${revision}#seek:${q}`;
 }
 
 /**
- * The decoded East {@link SeekQueryType} value as e3's wire query.
+ * Tracked-channel key for one batch of reads of one revision (#1351): several
+ * key searches, the rows of several keys, or the entries of several runs, each
+ * batch by what it asks.
  *
- * The two are deliberately the same shapes, so this is a re-tagging rather
- * than a translation: `.east` literals stay text, and the East option on the
- * `fields` arm, like an open end of a `range`, becomes an absent property
- * (`exactOptionalPropertyTypes`).
+ * @param workspace - The workspace
+ * @param path - The dataset's path
+ * @param revision - The revision the batch reads
+ * @param selector - The rows it reads
+ * @param kind - What it reads
+ * @param parts - What it asks, each in its channel text
+ * @returns The key
  */
-export function toFindQuery(query: unknown, selector: PagedSelector = NO_INDEX): DatasetFindQuery {
-    const q = query as ValueTypeOf<typeof SeekQueryType>;
-    const scope = selector.index === null ? {} : { index: selector.index };
-    if (q.type === "key") return { key: q.value, ...scope };
-    if (q.type === "prefix") return { prefix: q.value, ...scope };
-    if (q.type === "range") {
-        // A half-open bound on a leading prefix of the FLATTENED key — an
-        // empty side is an open end, which the wire says by omitting it. Open
-        // at both ends it names no run, and a server refuses it with an error
-        // the retry gate would keep re-asking, so it is refused here instead.
-        const r = q.value;
-        const from = [...r.from];
-        const to = [...r.to];
-        if (from.length === 0 && to.length === 0) {
-            throw new Error("Data.bindPaged: a range seek names no end — give it a `from`, a `to`, or both");
-        }
-        return from.length === 0 ? { to, ...scope } : to.length === 0 ? { from, ...scope } : { from, to, ...scope };
-    }
-    const f = q.value;
-    const fields = [...f.values];
-    return f.prefix.type === "some"
-        ? { fields, prefix: f.prefix.value, ...scope }
-        : { fields, ...scope };
+export function pagedBatchKey(
+    workspace: string, path: TreePath, revision: string, selector: PagedSelector, kind: "seekAll" | "rows" | "runs", parts: readonly string[],
+): string {
+    return `${pagedWindowFamily(workspace, path, revision, selector)}#${kind}:${parts.join("\u0001")}`;
 }
+
+/** A key query as a batch's wire takes it: its form alone, the index and the
+ *  pin being the batch's. */
+function searchOf(query: DatasetFindQuery): DatasetKeySearch {
+    const { index: _index, hash: _hash, ...search } = query;
+    return search as DatasetKeySearch;
+}
+
+// A search from East's form to e3's wire, in a module of its own so the
+// indexed runtime, which this module builds, reaches it without a cycle.
+export { toFindQuery } from "./find-query.js";
 
 /**
  * Encapsulates all `Data.bindPaged` runtime state. The module-level
@@ -577,6 +740,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
 
     /** Fetches launched so far — the source of every channel's `launchSeq`. */
     private launches = 0;
+
+    /** Each key type's printer and parser, and each landed Dict window's keys
+     *  in order — what reads by key look keys up by (#1351). */
+    private readonly printers = new WeakMap<EastTypeValue, (key: unknown) => string>();
+    private readonly parsers = new WeakMap<EastTypeValue, ReturnType<typeof parseFor>>();
+    private readonly keysOfWindows = new WeakMap<object, readonly unknown[]>();
 
     /** Monotonic clock seam so tests can drive the retry gate. */
     protected now(): number {
@@ -650,6 +819,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 findSeq: 0,
                 finding: false,
                 channels: new Set(),
+                held: new Map(),
                 unwatch: undefined,
             };
             this.snapshots.set(key, snapshot);
@@ -758,6 +928,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             this.loadedWindows.delete(key);
         }
         snapshot.channels.clear();
+        snapshot.held.clear();
         this.notify(pagedRevisionKey(workspace, path));
     }
 
@@ -946,6 +1117,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             this.loadedWindows.delete(candidate);
             entry.status = "idle";
             delete entry.window;
+            delete entry.rows;
         }
     }
 
@@ -1020,9 +1192,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
 
     /**
      * Answer a window from a landed one of its family that covers it — the
-     * same rows at the same revision (#1217): the cut lands in the window's
-     * own channel, so it keeps one identity, and nothing is fetched. The
-     * channel is the snapshot's, so a move drops the cut with every window.
+     * same rows at the same revision (#1217), a window's or one run of a runs
+     * read's (#1351): the cut lands in the window's own channel, so it keeps
+     * one identity, and nothing is fetched. The channel is the snapshot's, so
+     * a move drops the cut with every window.
      *
      * @param sourceType - The source's type
      * @param snapshot - The source's snapshot
@@ -1036,10 +1209,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     ): void {
         for (const key of snapshot.channels) {
             const covering = this.entries.get(key);
-            const span = covering?.span;
-            if (covering === undefined || covering === into || covering.status !== "loaded" || covering.window === undefined || span === undefined) continue;
-            if (span.family !== family || span.offset > offset || offset + limit > span.offset + span.count) continue;
-            const cut = cutWindow(sourceType, covering.window, offset - span.offset, limit);
+            if (covering === undefined || covering === into || covering.status !== "loaded" || covering.window === undefined) continue;
+            const from = coveringAt(covering, family, offset, limit);
+            if (from === undefined) continue;
+            const cut = cutWindow(sourceType, covering.window, from, limit);
             if (cut === undefined) return;
             into.status = "loaded";
             into.window = cut;
@@ -1099,6 +1272,377 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         return entry;
     }
 
+    // ----- batches (#1351) -------------------------------------------------
+
+    /**
+     * Several key searches of one source's rows, read as ONE request and ONE
+     * channel (#1351): each query's bounds, as `seek` answers them, in the order
+     * asked — `none` while any is in flight.
+     *
+     * @remarks
+     * A query the runtime already holds — one a search asked, or an earlier
+     * batch answered — is answered from its channel; the rest go in one
+     * `findKeys` request (one for each {@link DATASET_BATCH_MAX} of them), whose
+     * readers track the batch's one channel. As the answer lands, each query's
+     * bounds go into its own channel, so a search asked later answers from it,
+     * and the batch's channel re-fires once, with every reader waiting on one of
+     * its queries.
+     *
+     * @param source - The rows searched: a dataset's own, or one of a record's indexes
+     * @param queries - The searches, as e3's wire takes them; their index is the source's
+     * @returns Each search's bounds, in order, once every one has landed
+     * @throws The batch's failure, until a read after the retry gap asks again
+     */
+    seekAll(source: PagedSource, queries: readonly DatasetFindQuery[]): option<DatasetFindResult[]> {
+        const workspace = this.resolveWorkspace();
+        const { path, selector } = source;
+        const revision = this.revisionFor(workspace, path);
+        if (typeof revision !== "string") return none;
+        const snapshot = this.snapshotOf(workspace, path);
+        const keys = queries.map((query) => pagedSeekKey(workspace, path, revision, query, selector));
+        const results: DatasetFindResult[] = new Array<DatasetFindResult>(queries.length);
+        const missing: number[] = [];
+        for (const [i, key] of keys.entries()) {
+            const entry = this.entries.get(key);
+            if (entry?.status === "loaded" && entry.range !== undefined) results[i] = entry.range;
+            else missing.push(i);
+        }
+        if (missing.length === 0) return some(results);
+        const batchKey = pagedBatchKey(workspace, path, revision, selector, "seekAll", queries.map(seekQueryText));
+        this.track(batchKey);
+        const batch = this.channel(snapshot, batchKey);
+        // Landed, and a query's channel lost since: it is asked again.
+        if (batch.status === "loaded") batch.status = "idle";
+        if (this.due(batch)) {
+            this.launchSeekBatch(workspace, path, snapshot, revision, selector, batchKey,
+                missing.map((i) => ({ query: queries[i]!, key: keys[i]! })));
+        }
+        return this.answer<DatasetFindResult[]>(batch, undefined);
+    }
+
+    /** Launch a batch's key searches: one request for each
+     *  {@link DATASET_BATCH_MAX} of them, the answers landing together. */
+    private launchSeekBatch(
+        workspace: string,
+        path: TreePath,
+        snapshot: Snapshot,
+        revision: string,
+        selector: PagedSelector,
+        batchKey: string,
+        asked: readonly { query: DatasetFindQuery; key: string }[],
+    ): void {
+        const seq = this.launch(this.channel(snapshot, batchKey));
+        const api = this.api;
+        void (async () => {
+            const answers: DatasetFindResult[] = [];
+            try {
+                if (api === null) throw new Error("no PagedApi installed");
+                for (let at = 0; at < asked.length; at += DATASET_BATCH_MAX) {
+                    const { results, hash } = await api.findKeys(workspace, path, {
+                        queries: asked.slice(at, at + DATASET_BATCH_MAX).map(({ query }) => searchOf(query)),
+                        hash: revision,
+                        ...(selector.index !== null && { index: selector.index }),
+                    });
+                    for (const result of results) answers.push({ ...result, hash });
+                }
+            } catch (err) {
+                if (this.followed(workspace, path, snapshot, revision, err)) return;
+                this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
+                console.error(`Data.bindPaged: key searches failed for ${batchKey}:`, err);
+                return;
+            }
+            if (!this.pinnedTo(snapshot, revision)) return;
+            if (answers.length !== asked.length) {
+                this.fail(batchKey, seq, `Data.bindPaged: ${datasetPathToString(path)}: ${asked.length} key searches were asked, and ${answers.length} answered`, true);
+                return;
+            }
+            if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; delete e.error; })) return;
+            for (const [i, { key }] of asked.entries()) {
+                const entry = this.channel(snapshot, key);
+                entry.status = "loaded";
+                entry.range = answers[i]!;
+                delete entry.error;
+            }
+            this.notifyAll([batchKey, ...asked.map(({ key }) => key)]);
+        })();
+    }
+
+    /**
+     * The rows a Dict source holds under several keys, read as ONE request and
+     * ONE channel (#1351): each key's row, or its absence, and its position in
+     * the source's canonical order, in the order asked — `none` while the read
+     * is in flight.
+     *
+     * @remarks
+     * A key the runtime already holds — a row an earlier read by key answered,
+     * or a key a landed window of the same rows holds — is answered from what it
+     * holds, and the rest go in one rows request: the server holds an answer to
+     * its byte budget, and what it did not reach is asked again until every key
+     * is answered. Each row is held at its position, so a later read by its key
+     * — a search by the key, then a one-row page at its row — answers from it,
+     * with no request.
+     *
+     * @param source - A Dict dataset's own rows
+     * @param keys - The keys, as East values of the key type
+     * @returns Each key's row, in order, once every one is known
+     * @throws The read's failure, until a read after the retry gap asks again;
+     *   at once, for a source that is not a Dict's own rows
+     */
+    rowsAll(source: PagedSource, keys: readonly unknown[]): option<readonly PagedRow[]> {
+        if (source.selector.index !== null || source.type.type !== "Dict") {
+            throw new Error("Data.bindPaged: a read of rows by key reads a Dict dataset's own rows, never an index's or another collection's");
+        }
+        const workspace = this.resolveWorkspace();
+        const { path, selector } = source;
+        const revision = this.revisionFor(workspace, path);
+        if (typeof revision !== "string") return none;
+        const snapshot = this.snapshotOf(workspace, path);
+        const keyType = (source.type.value as { key: EastTypeValue }).key;
+        const literals = keys.map(this.printerOf(keyType));
+        const batchKey = pagedBatchKey(workspace, path, revision, selector, "rows", literals);
+        this.track(batchKey);
+        const batch = this.channel(snapshot, batchKey);
+        if (batch.status === "loaded" && batch.rows !== undefined) {
+            this.touchWindow(batchKey);
+            return some(batch.rows);
+        }
+        const family = pagedWindowFamily(workspace, path, revision, selector);
+        const held = this.heldRowsOf(snapshot, family, keyType);
+        const known = keys.map((key) => held.byKey.get(key) ?? this.rowInWindows(snapshot, family, keyType, key));
+        if (known.every((row): row is PagedRow => row !== undefined)) {
+            // Every key is held already: the answer is what is held.
+            batch.status = "loaded";
+            batch.rows = known;
+            this.touchWindow(batchKey);
+            return some(known);
+        }
+        if (this.due(batch)) this.launchRowsBatch(workspace, path, snapshot, revision, source.type, batchKey, literals, known);
+        return this.answer(batch, batch.rows);
+    }
+
+    /** Launch a rows read for the keys not already held, asking again for what
+     *  each answer's budget did not reach. */
+    private launchRowsBatch(
+        workspace: string,
+        path: TreePath,
+        snapshot: Snapshot,
+        revision: string,
+        sourceType: EastTypeValue,
+        batchKey: string,
+        literals: readonly string[],
+        known: readonly (PagedRow | undefined)[],
+    ): void {
+        const seq = this.launch(this.channel(snapshot, batchKey));
+        const api = this.api;
+        const { key: keyType, value: rowType } = sourceType.value as { key: EastTypeValue; value: EastTypeValue };
+        const decode = decodeBeast2For(datasetRowsType(fromEastTypeValue(keyType), fromEastTypeValue(rowType))) as
+            (bytes: Uint8Array) => { key: unknown; row: option<unknown>; position: bigint }[];
+        void (async () => {
+            const rows = [...known];
+            const asked = rows.flatMap((row, i) => (row === undefined ? [i] : []));
+            try {
+                if (api === null) throw new Error("no PagedApi installed");
+                for (let next = 0; next < asked.length;) {
+                    const chunk = asked.slice(next, next + DATASET_BATCH_MAX);
+                    const answer = await api.getRows(workspace, path, { keys: chunk.map((i) => literals[i]!), hash: revision });
+                    const decoded = decode(answer.data);
+                    if (answer.count < 1 || decoded.length !== answer.count) {
+                        throw new Error(`a read of ${chunk.length} rows by key answered ${decoded.length}, and said ${answer.count}`);
+                    }
+                    for (const [n, entry] of decoded.entries()) {
+                        rows[chunk[n]!] = { key: entry.key, row: entry.row, position: Number(entry.position) };
+                    }
+                    next += answer.count;
+                }
+            } catch (err) {
+                if (this.followed(workspace, path, snapshot, revision, err)) return;
+                this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
+                console.error(`Data.bindPaged: read by key failed for ${batchKey}:`, err);
+                return;
+            }
+            if (!this.pinnedTo(snapshot, revision)) return;
+            const answered = rows as PagedRow[];
+            if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; e.rows = answered; delete e.error; })) return;
+            this.hold(snapshot, pagedWindowFamily(workspace, path, revision, NO_INDEX), keyType, answered);
+            this.touchWindow(batchKey);
+            this.notify(batchKey);
+        })();
+    }
+
+    /**
+     * The entries of several runs of a source's rows, read as ONE request and
+     * ONE channel (#1351): one window of the source's type holding exactly the
+     * runs' entries, in order — `none` while the read is in flight.
+     *
+     * @remarks
+     * The server holds an answer to a page's bounds, and the runs' rest is asked
+     * again until every entry has landed, the parts joined in order. The window
+     * is kept as a landed window is, bounded with them, and a window of the same
+     * rows inside one of its runs is answered from it, as from a landed window
+     * that covers it (#1217).
+     *
+     * @param source - The rows read: a dataset's own, or one of a record's
+     *   indexes, joined as its selector says
+     * @param runs - The runs: ascending, disjoint, each inside the source
+     * @returns The window, once every entry has landed
+     * @throws The read's failure, until a read after the retry gap asks again
+     */
+    runsAll(source: PagedSource, runs: readonly PagedRun[]): option<unknown> {
+        const workspace = this.resolveWorkspace();
+        const { path, selector } = source;
+        const revision = this.revisionFor(workspace, path);
+        if (typeof revision !== "string") return none;
+        const snapshot = this.snapshotOf(workspace, path);
+        const batchKey = pagedBatchKey(workspace, path, revision, selector, "runs", runs.map(([row, count]) => `${row}+${count}`));
+        this.track(batchKey);
+        const batch = this.channel(snapshot, batchKey);
+        if (batch.status === "loaded" && batch.window !== undefined) {
+            this.touchWindow(batchKey);
+            return some(batch.window);
+        }
+        if (this.due(batch)) this.launchRunsBatch(workspace, path, snapshot, revision, source, batchKey, runs);
+        return this.answer(batch, batch.window);
+    }
+
+    /** Launch a runs read, asking again for the entries each answer's bounds
+     *  did not reach. */
+    private launchRunsBatch(
+        workspace: string,
+        path: TreePath,
+        snapshot: Snapshot,
+        revision: string,
+        source: PagedSource,
+        batchKey: string,
+        runs: readonly PagedRun[],
+    ): void {
+        const seq = this.launch(this.channel(snapshot, batchKey));
+        const api = this.api;
+        const { selector } = source;
+        const decode = decodeBeast2For(source.type);
+        void (async () => {
+            const parts: unknown[] = [];
+            try {
+                if (api === null) throw new Error("no PagedApi installed");
+                for (let rest: PagedRun[] = [...runs]; rest.length > 0;) {
+                    const chunk = rest.slice(0, DATASET_BATCH_MAX);
+                    const answer = await api.getRuns(workspace, path, {
+                        runs: chunk, hash: revision,
+                        ...(selector.index !== null && { index: selector.index, join: selector.join }),
+                    });
+                    const part = decode(answer.data);
+                    if (answer.count < 1 || elementCount(source.type, part) !== answer.count) {
+                        throw new Error(`a read of runs answered ${elementCount(source.type, part)} entries, and said ${answer.count}`);
+                    }
+                    parts.push(part);
+                    rest = [...runsAfter(chunk, answer.count), ...rest.slice(DATASET_BATCH_MAX)];
+                }
+            } catch (err) {
+                if (this.followed(workspace, path, snapshot, revision, err)) return;
+                this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
+                console.error(`Data.bindPaged: read of runs failed for ${batchKey}:`, err);
+                return;
+            }
+            if (!this.pinnedTo(snapshot, revision)) return;
+            const window = joinWindows(source.type, parts);
+            // Where each run's entries sit, so a read inside one is answered from them.
+            let at = 0;
+            const spans = runs.map(([row, count]) => { const span = { row, count, at }; at += count; return span; });
+            const runSpans: RunSpans = { family: pagedWindowFamily(workspace, path, revision, selector), runs: spans };
+            if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; e.window = window; e.runSpans = runSpans; delete e.error; })) return;
+            this.touchWindow(batchKey);
+            this.notify(batchKey);
+        })();
+    }
+
+    /** A printer of a key type's East text, built once per type. */
+    private printerOf(keyType: EastTypeValue): (key: unknown) => string {
+        let print = this.printers.get(keyType);
+        if (print === undefined) {
+            print = printFor(keyType) as (key: unknown) => string;
+            this.printers.set(keyType, print);
+        }
+        return print;
+    }
+
+    /** A parser of a key type's East text, built once per type. */
+    private parserOf(keyType: EastTypeValue): (text: string) => ReturnType<ReturnType<typeof parseFor>> {
+        let parse = this.parsers.get(keyType);
+        if (parse === undefined) {
+            parse = parseFor(keyType);
+            this.parsers.set(keyType, parse);
+        }
+        return parse;
+    }
+
+    /** The rows a family's reads by key hold, made empty on first use. */
+    private heldRowsOf(snapshot: Snapshot, family: string, keyType: EastTypeValue): HeldRows {
+        let held = snapshot.held.get(family);
+        if (held === undefined) {
+            held = { byKey: new SortedMap<unknown, PagedRow>(undefined, compareFor(fromEastTypeValue(keyType))), byPosition: new Map() };
+            snapshot.held.set(family, held);
+        }
+        return held;
+    }
+
+    /** Hold a read's rows, each by its key and the dataset's by position too;
+     *  past {@link MAX_HELD_ROWS}, the family's older rows go first. */
+    private hold(snapshot: Snapshot, family: string, keyType: EastTypeValue, rows: readonly PagedRow[]): void {
+        let held = this.heldRowsOf(snapshot, family, keyType);
+        if (held.byKey.size + rows.length > MAX_HELD_ROWS) {
+            snapshot.held.delete(family);
+            held = this.heldRowsOf(snapshot, family, keyType);
+        }
+        for (const row of rows) {
+            held.byKey.set(row.key, row);
+            if (row.row.type === "some") held.byPosition.set(row.position, row);
+        }
+    }
+
+    /** The row a landed Dict window of a family holds under a key — or the
+     *  key's absence, when the window's span takes it in — and its position. */
+    private rowInWindows(snapshot: Snapshot, family: string, keyType: EastTypeValue, key: unknown): PagedRow | undefined {
+        const cmp = compareFor(fromEastTypeValue(keyType)) as (a: unknown, b: unknown) => number;
+        for (const channelKey of snapshot.channels) {
+            const entry = this.entries.get(channelKey);
+            const span = entry?.span;
+            if (entry === undefined || entry.status !== "loaded" || entry.window === undefined || span === undefined || span.family !== family) continue;
+            const keys = this.windowKeys(entry.window as ReadonlyMap<unknown, unknown>);
+            if (keys.length === 0 || cmp(key, keys[0]) < 0 || cmp(key, keys[keys.length - 1]) > 0) continue;
+            let lo = 0;
+            let hi = keys.length;
+            while (lo < hi) {
+                const mid = (lo + hi) >> 1;
+                if (cmp(keys[mid], key) < 0) lo = mid + 1;
+                else hi = mid;
+            }
+            const window = entry.window as ReadonlyMap<unknown, unknown>;
+            return cmp(keys[lo], key) === 0
+                ? { key: keys[lo], row: some(window.get(keys[lo])), position: span.offset + lo }
+                : { key, row: none, position: span.offset + lo };
+        }
+        return undefined;
+    }
+
+    /** A Dict window's keys, in order, listed once per window. */
+    private windowKeys(window: ReadonlyMap<unknown, unknown>): readonly unknown[] {
+        let keys = this.keysOfWindows.get(window);
+        if (keys === undefined) {
+            keys = [...window.keys()];
+            this.keysOfWindows.set(window, keys);
+        }
+        return keys;
+    }
+
+    /** The row a family's reads by key hold under a key's East text, when they
+     *  hold one — what a search by the key answers from (#1351). */
+    private heldRow(snapshot: Snapshot, family: string, sourceType: EastTypeValue, literal: string): PagedRow | undefined {
+        if (sourceType.type !== "Dict") return undefined;
+        const held = snapshot.held.get(family);
+        if (held === undefined) return undefined;
+        const parsed = this.parserOf((sourceType.value as { key: EastTypeValue }).key)(literal);
+        return parsed.success ? held.byKey.get(parsed.value) : undefined;
+    }
+
     /**
      * The low-level primitives backing handle methods, bound to THIS runtime.
      * Registered globally (extension registry) and included by the scoped
@@ -1119,10 +1663,22 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     const key = pagedWindowKey(workspace, path, revision, offset, limit, selector);
                     this.track(key);
                     const snapshot = this.snapshotOf(workspace, path);
+                    const family = pagedWindowFamily(workspace, path, revision, selector);
                     // A window a landed one covers is answered from it, never fetched (#1217).
                     const own = this.channel(snapshot, key);
                     if (own.status !== "loaded") {
-                        this.cutFromCovering(sourceType, snapshot, pagedWindowFamily(workspace, path, revision, selector), offset, limit, own);
+                        this.cutFromCovering(sourceType, snapshot, family, offset, limit, own);
+                    }
+                    // A one-row window at a row a read by key holds is answered from it (#1351).
+                    if (own.status !== "loaded" && limit === 1 && selector.index === null && sourceType.type === "Dict") {
+                        const held = snapshot.held.get(family)?.byPosition.get(offset);
+                        if (held !== undefined && held.row.type === "some") {
+                            const keyType = fromEastTypeValue((sourceType.value as { key: EastTypeValue }).key);
+                            own.status = "loaded";
+                            own.window = new SortedMap([[held.key, held.row.value]], compareFor(keyType));
+                            own.span = { family, offset, count: 1 };
+                            delete own.error;
+                        }
                     }
                     const entry = this.ensureWindow(sourceType, workspace, path, snapshot, revision, offset, limit, selector, key);
                     if (entry.status === "loaded" && entry.window !== undefined) this.touchWindow(key);
@@ -1139,7 +1695,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     const entry = this.channel(this.snapshotOf(workspace, path), key);
                     return entry.total !== undefined ? some(BigInt(entry.total)) : none;
                 }),
-            DataPagedPrimitives.seek.implement((_sourceType: EastTypeValue) =>
+            DataPagedPrimitives.seek.implement((sourceType: EastTypeValue) =>
                 (pathArg: unknown, indexArg: unknown, joinArg: unknown, queryArg: unknown) => {
                     const workspace = this.resolveWorkspace();
                     const path = pathArg as TreePath;
@@ -1149,7 +1705,19 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     const query = toFindQuery(queryArg, selector);
                     const key = pagedSeekKey(workspace, path, revision, query, selector);
                     this.track(key);
-                    const entry = this.ensureSeek(workspace, path, this.snapshotOf(workspace, path), revision, selector, query, key);
+                    const snapshot = this.snapshotOf(workspace, path);
+                    // A key a read by key holds is answered from it, never searched (#1351).
+                    const own = this.channel(snapshot, key);
+                    if (own.status !== "loaded" && selector.index === null && "key" in query) {
+                        const held = this.heldRow(snapshot, pagedWindowFamily(workspace, path, revision, selector), sourceType, query.key);
+                        if (held !== undefined) {
+                            const found = held.row.type === "some";
+                            own.status = "loaded";
+                            own.range = { found, row: held.position, count: found ? 1 : 0, hash: revision };
+                            delete own.error;
+                        }
+                    }
+                    const entry = this.ensureSeek(workspace, path, snapshot, revision, selector, query, key);
                     const range = entry.range;
                     return this.answer(entry, range === undefined
                         ? undefined
@@ -1202,7 +1770,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         shape: "released" | "pinned",
     ): Record<string, unknown> {
         const id = `${datasetPathToString(path)}${selectorKey(selector)}`;
-        this.sources.set(id, { path, selector });
+        this.sources.set(id, { path, selector, type: sourceType });
         const cacheKey = `${id}#${shape}`;
         let byPath = this.handleCache.get(sourceType);
         if (byPath) {
@@ -1389,3 +1957,8 @@ registerReactiveTracker({
 });
 
 registerPlatformImplementation(PagedPlatform);
+
+// A record Slice over a binding an indexed runtime built — this one's, or a
+// spec's own — reads a plan's searches and its windows in batches, through that
+// runtime's channels (#1351).
+registerRecordSliceBatches(recordSliceBatchesOf);
