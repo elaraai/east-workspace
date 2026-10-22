@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Test: Docker image builds
 # Verifies: every published image Dockerfile builds, and every runtime it
-# carries starts in it (east-node, east-c, east-py, east-py-datascience
-# FROM-chained, e3)
+# carries starts in it (east-node, east-c, east-c-datascience and
+# east-py-datascience FROM-chained, east-py, e3)
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -65,8 +65,19 @@ echo "[2/5] Building Dockerfile.east-c..."
 # shellcheck disable=SC2046
 docker build -f docker/images/Dockerfile.east-c $(pin EAST_C_CLI_VERSION) -t test-east-c-$$ . --progress=plain
 runs test-east-c-$$ east-c version
-docker rmi test-east-c-$$ > /dev/null
 echo "[OK] Dockerfile.east-c (builds + evaluator runs)"
+
+# Test 2b: east-c-datascience image, FROM the east-c image just built (as the
+# publish job chains it): the package installed beside the runner, libtorch
+# fetched, and `east-c version -p east-c-datascience` naming both.
+echo "[2b/5] Building Dockerfile.east-c-datascience (FROM the east-c image above)..."
+# shellcheck disable=SC2046
+docker build -f docker/images/Dockerfile.east-c-datascience --build-arg BASE_IMAGE=test-east-c-$$ $(pin EAST_C_VERSION) -t test-east-c-datascience-$$ . --progress=plain
+runs test-east-c-datascience-$$ east-c version -p east-c-datascience
+runs test-east-c-datascience-$$ sh -c 'east-c version -p east-c-datascience | grep -q "libtorch 2"'
+docker rmi test-east-c-datascience-$$ > /dev/null
+docker rmi test-east-c-$$ > /dev/null
+echo "[OK] Dockerfile.east-c-datascience (builds + the package and libtorch load)"
 
 # Test 3: east-py image (python runtime, no datascience). Kept for test 4's
 # FROM chain, removed after. `east-py version` exits 0 when east cannot

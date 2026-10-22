@@ -16,6 +16,11 @@ add_library(east-c-std
 target_include_directories(east-c-std PUBLIC include)
 find_package(Threads REQUIRED)
 target_link_libraries(east-c-std PUBLIC east-c PRIVATE Threads::Threads)
+# No fused multiply-add: the normal draw's logarithm (src/random.c) must round
+# as the other runtimes round, one operation at a time; see east-c's own flag.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(east-c-std PRIVATE -ffp-contract=off)
+endif()
 # libm is part of the CRT on Windows/MSVC; link the separate libm elsewhere.
 if(NOT WIN32)
     target_link_libraries(east-c-std PRIVATE m)

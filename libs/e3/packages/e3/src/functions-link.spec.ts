@@ -152,6 +152,38 @@ describe('export_ links East.importFunction references (#628)', () => {
     );
   });
 
+  it("accepts an import whose platform calls a partial stock package implements, and refuses one it does not", async () => {
+    // east-c-datascience carries the OR-Tools, XGBoost and neural-network
+    // families of east-py-datascience, and none of the others
+    const fit = East.platform('lightgbm_train', [StringType], NullType);
+    const score = East.platform('xgboost_predict', [StringType], NullType);
+    const fitModel = East.function([StringType], NullType, ($, s) => { $(fit(s)); });
+    const scoreModel = East.function([StringType], NullType, ($, s) => { $(score(s)); });
+    const models = East.exportFunctions('models', '1.0.0', { fitModel, scoreModel }, {
+      providers: { lightgbm_train: 'east-py-datascience', xgboost_predict: 'east-py-datascience' },
+    });
+    const fitImport = East.importFunction('models', 'fitModel', FunctionType([StringType], NullType));
+    const scoreImport = East.importFunction('models', 'scoreModel', FunctionType([StringType], NullType));
+    const runner: Runner = { runtime: 'east-c', platforms: ['east-c-std', 'east-c-datascience'] };
+    const greeting = input('greeting', StringType, variant('value', 'hello'));
+
+    const scores = task('score', [greeting], East.function([StringType], NullType, ($, s) => { $(scoreImport(s)); }), { runner });
+    const zipPath = path.join(tempDir, 'partial-ok.zip');
+    await export_(package_('importer', '1.0.0', scores), zipPath, { functions: [models] });
+    assert.strictEqual(countImports(programOf(await readZip(zipPath), 'score').ir), 0);
+
+    const fits = task('fit', [greeting], East.function([StringType], NullType, ($, s) => { $(fitImport(s)); }), { runner });
+    await assert.rejects(
+      export_(package_('importer', '1.0.0', fits), path.join(tempDir, 'partial-bad.zip'), { functions: [models] }),
+      /task "fit" imports models\.fitModel, which calls platform function "lightgbm_train" provided by east-py-datascience, but its east-c runner lists east-c-std, east-c-datascience, which implements only some of east-py-datascience's functions and not "lightgbm_train" — run the task on a runner whose packages provide it/,
+    );
+    // the python package implements the whole contract
+    const onPython = task('fit', [greeting], East.function([StringType], NullType, ($, s) => { $(fitImport(s)); }), {
+      runner: { runtime: 'east-py', platforms: ['east-py-std', 'east-py-datascience'] },
+    });
+    await export_(package_('importer', '1.0.0', onPython), path.join(tempDir, 'partial-py.zip'), { functions: [models] });
+  });
+
   it('rejects a dependency whose manifest names no provider, and an import with no manifest', async () => {
     const unprovided = East.exportFunctions('pricing', '1.0.0', { shout });
     const greeting = input('greeting', StringType, variant('value', 'hello'));
@@ -195,6 +227,16 @@ describe('export_ links East.importFunction references (#628)', () => {
     assert.ok(runnerProvides({ runtime: 'east-py', platforms: [{ custom: 'acme' }] }, 'acme'));
     assert.ok(!runnerProvides({ runtime: 'east-py', platforms: [{ custom: 'acme' }] }, 'acme2'));
     assert.ok(runnerProvides({ runtime: 'custom', command: ['uv', 'run', 'east-py', 'run'] }, 'anything'));
+    // a stock package implementing part of its family's contract provides the functions it carries, and no other
+    const cDatascience: Runner = { runtime: 'east-c', platforms: ['east-c-std', 'east-c-datascience'] };
+    assert.ok(runnerProvides(cDatascience, 'east-py-datascience'));
+    for (const name of ['xgboost_predict', 'google_or_cpsat_solve', 'nn_run']) {
+      assert.ok(runnerProvides(cDatascience, 'east-py-datascience', name), name);
+    }
+    assert.ok(!runnerProvides(cDatascience, 'east-py-datascience', 'lightgbm_train'));
+    assert.ok(!runnerProvides(cDatascience, 'east-py-datascience', 'shap_kernel_explainer_create'));
+    assert.ok(runnerProvides({ runtime: 'east-py', platforms: ['east-py-datascience'] }, 'east-py-datascience', 'lightgbm_train'));
+    assert.ok(runnerProvides(cDatascience, 'east-py-std', 'fs_open_beast'));
   });
 });
 

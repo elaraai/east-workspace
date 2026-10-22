@@ -15,7 +15,7 @@ from east.runtime.platform import platform_function, platform_functions
 from east.types.types import FloatType, MatrixType, StringType
 from east.types.values import EastArray, EastMatrix, EastStruct, EastVariant, EastVector
 
-from east_py_datascience._categorical import apply_categorical
+from east_py_datascience._categorical import apply_categorical, categorical_config
 from east_py_datascience._common import deserialize, extra_guard, quiet_warnings, serialize
 from east_py_datascience.mapie.mapie_impl import extract_base_model_data
 from east_py_datascience.types import (
@@ -27,6 +27,7 @@ from east_py_datascience.types import (
     StringVectorType,
     TreeExplainerConfigType,
 )
+from east_py_datascience.xgboost._blob import load_classifier, load_quantiles, load_regressor
 
 _check_shap_support = extra_guard("shap", "shap", "SHAP")
 
@@ -59,19 +60,17 @@ def _extract_tree_model(model_blob: EastVariant, function_name: str):
     n_features = int(model_value["n_features"])
 
     if model_type in xgboost_types:
-        # Direct XGBoost model
-        model_data = deserialize(model_value["data"])
-
+        # Direct XGBoost model, read as xgboost/_blob.py writes it
         # For quantile models, select the median quantile (or closest to 0.5)
         if model_type == "xgboost_quantile":
-            quantiles = sorted(model_data.keys())
+            models = load_quantiles(model_value["data"])
+            quantiles = sorted(models.keys())
             median_q = min(quantiles, key=lambda q: abs(q - 0.5))
-            model = model_data[median_q]
+            model = models[median_q]
         elif model_type == "xgboost_classifier":
-            # Classifier stores {"model": xgb_model, "classes": ...}
-            model = model_data["model"]
+            model, _classes = load_classifier(model_value["data"])
         else:
-            model = model_data
+            model = load_regressor(model_value["data"])
 
     else:
         # A MAPIE wrapper (regressor or classifier): explain its underlying
@@ -214,16 +213,6 @@ def _get_predict_fn(model, model_type: str, categorical_features=None, categoric
         X_np = X.values if hasattr(X, "values") else X
         return apply_categorical(X_np, categorical_features, "shap_kernel_explainer", categorical_n)
 
-    if model_type == "torch_mlp":
-        import torch
-
-        def predict_torch(X):
-            model.eval()
-            with torch.no_grad():
-                output = model(torch.tensor(X, dtype=torch.float32)).numpy()
-            return output.flatten() if output.shape[1] == 1 else output
-
-        return predict_torch
     if model_type == "regressor_chain":
         # Multi-target: explain the first target
         def predict_first_target(X):
@@ -266,8 +255,16 @@ def _get_predict_fn(model, model_type: str, categorical_features=None, categoric
             return y_sets[:, :, 0].sum(axis=1).astype(float)
 
         return predict_set_size
-    # Tree models, NGBoost and GP: the point prediction
-    return model.predict
+    # Tree models, NGBoost and GP: the point prediction of the prepared rows.
+    # A function of its own, never the model's bound method: KernelExplainer
+    # clears the feature names of an estimator whose method it is handed, and
+    # XGBoost's are read-only — a model trained with categorical features was
+    # trained on a frame and has them, so the explainer could not be created.
+    def predict_point(X):
+        with quiet_warnings():
+            return model.predict(prepared(X))
+
+    return predict_point
 
 
 def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
@@ -293,24 +290,22 @@ def _extract_model_from_blob(model_blob: EastVariant, function_name: str):
         combined = deserialize(model_data["data"])
         model = combined["mapie"]
         n_features = int(model_data["n_features"])
+    elif model_type in ("xgboost_regressor", "xgboost_classifier", "xgboost_quantile"):
+        # As xgboost/_blob.py writes them; the blob carries the categorical
+        # encoding its training applied, which the predict function replays
+        # on the perturbed rows as xgboost_predict does
+        if model_type == "xgboost_quantile":
+            model = load_quantiles(model_data["data"])
+        elif model_type == "xgboost_classifier":
+            model, _classes = load_classifier(model_data["data"])
+        else:
+            model = load_regressor(model_data["data"])
+        n_features = int(model_data["n_features"])
+        categorical_features, categorical_n = categorical_config(model_data)
     else:
         # Standard model blobs
-        deserialized = deserialize(model_data["data"])
-        # Handle Torch model package format (dict with "model" key)
-        if (
-            model_type == "torch_mlp"
-            and isinstance(deserialized, dict)
-            and "model" in deserialized
-        ):
-            model = deserialized["model"]
-        else:
-            model = deserialized
+        model = deserialize(model_data["data"])
         n_features = int(model_data["n_features"])
-
-        # Extract categorical_n from xgboost model blobs
-        if model_type in ("xgboost_regressor", "xgboost_classifier", "xgboost_quantile"):
-            cat_n_opt = model_data["categorical_n"].unwrap_or(None)
-            categorical_n = cat_n_opt.to_numpy(dtype=np.int64).tolist() if cat_n_opt is not None else None
 
     return model, n_features, categorical_features, categorical_n, model_type
 
@@ -332,7 +327,7 @@ def shap_kernel_explainer_create(
     supports all model types in ``AnyModelBlobType``, including:
 
     - XGBoost / LightGBM regressors and classifiers.
-    - Torch MLP, NGBoost, Gaussian Process.
+    - NGBoost, Gaussian Process.
     - MAPIE regressor/classifier wrappers (any base model, including
       LightGBM).
     - MAPIE uncertainty predictors (``mapie_interval_width``,

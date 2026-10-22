@@ -9,12 +9,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 function parseArgs(argv) {
-  const out = {};
+  const out = { package: 'cli' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--target')  out.target  = argv[++i];
     else if (a === '--version') out.version = argv[++i];
     else if (a === '--out')     out.out     = argv[++i];
+    else if (a === '--package') out.package = argv[++i];
     else { console.error(`Unknown arg: ${a}`); process.exit(2); }
   }
   for (const k of ['target', 'version', 'out']) {
@@ -23,9 +24,30 @@ function parseArgs(argv) {
   return out;
 }
 
-const { target, version, out } = parseArgs(process.argv.slice(2));
+const { target, version, out, package: which } = parseArgs(process.argv.slice(2));
 
-const body = `# @elaraai/east-c-cli-${target}
+const datascience = `# @elaraai/east-c-datascience-${target}
+
+> east-c-datascience's libraries for \`${target}\` (version ${version}): OR-Tools, XGBoost and the neural networks on libtorch, for the east-c runner.
+
+This package holds \`lib/\`: \`libeast-c-datascience\`, which the \`east-c\` binary opens for \`-p east-c-datascience\`, \`libeast-c-nn\` (the libtorch-linked half, opened by the first \`nn_*\` call) and every library they load. It is published as an **optional dependency** of [\`@elaraai/east-c-datascience\`](https://www.npmjs.com/package/@elaraai/east-c-datascience), gated on the host's \`os\` / \`cpu\`. Install that package beside [\`@elaraai/east-c-cli\`](https://www.npmjs.com/package/@elaraai/east-c-cli) instead, and the \`east-c\` launcher points the binary here.
+
+libtorch is not in the tarball: the package's postinstall fetches the pinned build into \`libtorch/\` (\`fetch-libtorch.mjs\`, verified by SHA-256; \`EAST_LIBTORCH=skip\` leaves it out), and \`east-c-datascience fetch-libtorch\` does the same later. OR-Tools and XGBoost need none of it.
+
+## Source
+
+Native source: [\`libs/east-c/packages/east-c-datascience\`](https://github.com/elaraai/east-workspace/tree/main/libs/east-c/packages/east-c-datascience).
+
+## License
+
+[Business Source License 1.1](LICENSE.md). Production use by for-profit entities requires a commercial license — contact support@elara.ai.
+
+---
+
+*Developed by [Elara AI Pty Ltd](https://elaraai.com/).*
+`;
+
+const body = which === 'datascience' ? datascience : `# @elaraai/east-c-cli-${target}
 
 > Pre-built \`east-c\` native binary for \`${target}\` (version ${version}).
 
@@ -48,4 +70,4 @@ Native source: [\`libs/east-c\`](https://github.com/elaraai/east-workspace/tree/
 
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, body);
-console.log(`Wrote ${out} for @elaraai/east-c-cli-${target}@${version}`);
+console.log(`Wrote ${out} for @elaraai/east-c-${which === 'datascience' ? 'datascience' : 'cli'}-${target}@${version}`);

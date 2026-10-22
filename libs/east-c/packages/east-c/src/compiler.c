@@ -146,6 +146,10 @@ static size_t prof_entry_for(const void *key, const char *name, ProfKind kind, i
         .calls = 0,
         .total_ns = 0,
         .self_ns = 0,
+        .bridged = false,
+        .convert_in_ns = 0,
+        .convert_out_ns = 0,
+        .crossings = 0,
     };
     prof_index_insert(key, e);
     return e;
@@ -277,6 +281,25 @@ void east_profile_paged_exit(void)
     prof_exit();
 }
 
+void east_profile_platform_note(const char *name, uint64_t convert_in_ns, uint64_t convert_out_ns,
+                                uint64_t crossings)
+{
+    if (!g_prof_on || !name) return;
+    const char *key = prof_platform_key(name, hashmap_hash(name));
+    if (!key) return;
+    size_t e = prof_entry_for(key, key, PROF_PLATFORM, 0, NULL);
+    if (e == SIZE_MAX) return;
+    g_prof_entries[e].bridged = true;
+    g_prof_entries[e].convert_in_ns += convert_in_ns;
+    g_prof_entries[e].convert_out_ns += convert_out_ns;
+    g_prof_entries[e].crossings += crossings;
+}
+
+uint64_t east_profile_now_ns(void)
+{
+    return prof_now();
+}
+
 /* A loop's back-edge: the report printed while the profiler runs is due here
  * too, so a long loop that calls no function still says how it is going. */
 static inline void prof_tick(void)
@@ -400,6 +423,15 @@ void east_profile_print(FILE *out)
                 : e->paged ? "  read at "
                            : "  called at ",
                 called ? e->call_site : "");
+        /* What a host-run platform function spent on its bridge, under its
+         * line: the conversions either way, and the element crossings its
+         * body made — what tells a bridge-bound function from a slow one. */
+        if (e->bridged)
+            fprintf(out,
+                    "  %-16s %9.3f s converting arguments %9.3f s converting results %12llu "
+                    "element crossings\n",
+                    "  bridge", (double)e->convert_in_ns / 1e9, (double)e->convert_out_ns / 1e9,
+                    (unsigned long long)e->crossings);
     }
     free(entries);
     fflush(out);

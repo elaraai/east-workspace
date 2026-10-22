@@ -17,6 +17,7 @@ LP/MIP is designed for continuous and mixed optimization problems where:
 import time
 from typing import Any
 
+import numpy as np
 from east import none, some, variant
 from east.runtime.platform import platform_function, platform_functions
 from east.types.types import (
@@ -24,15 +25,21 @@ from east.types.types import (
     BooleanType,
     DictType,
     FloatType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
     StructType,
     VariantType,
+    VectorType,
 )
-from east.types.values import EastDict, EastStruct, EastVariant
+from east.types.values import EastDict, EastStruct, EastVariant, EastVector
 
-from east_py_datascience.google_or.types import GoogleOrStatusType, _check_google_or_support
+from east_py_datascience.google_or.types import (
+    GoogleOrStatusType,
+    _check_google_or_columns_support,
+    _check_google_or_support,
+)
 
 # ============================================================================
 # Type Definitions
@@ -162,6 +169,8 @@ LinearResultType = StructType(
         ("status", GoogleOrStatusType),
         ("objective_value", OptionType(FloatType)),
         ("assignments", DictType(StringType, FloatType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
@@ -170,7 +179,70 @@ LinearResultType = StructType(
 Fields: ``status`` (``GoogleOrStatusType``), ``objective_value``
 (``Option<Float>`` — present when feasible or optimal), ``assignments``
 (``Dict<String, Float>`` mapping variable names to solution values),
-``wall_time`` (``Float`` seconds).
+``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
+"""
+
+LinearModelColumnsType = StructType(
+    [
+        ("var_lower", VectorType(FloatType)),
+        ("var_upper", VectorType(FloatType)),
+        ("var_integer", VectorType(BooleanType)),
+        ("row_lower", VectorType(FloatType)),
+        ("row_upper", VectorType(FloatType)),
+        ("row_ptr", VectorType(IntegerType)),
+        ("col_ix", VectorType(IntegerType)),
+        ("coeff", VectorType(FloatType)),
+        ("objective", VectorType(FloatType)),
+        ("maximize", BooleanType),
+    ]
+)
+"""A linear program in columns, the form a solver takes in bulk.
+
+Variable ``i`` has the bounds ``[var_lower[i], var_upper[i]]`` and is integer
+when ``var_integer[i]``. Constraint ``r`` holds its sum in
+``[row_lower[r], row_upper[r]]`` (an unbounded side is ``-1e20`` or ``1e20``)
+and its terms are ``coeff[k] * variable(col_ix[k])`` for ``k`` in
+``row_ptr[r] .. row_ptr[r + 1]``; so ``row_ptr`` has one more entry than there
+are rows, starts at 0 and ends at the term count. The objective is
+``objective[i] * variable(i)`` summed, maximized when ``maximize``. The vectors
+cross between the East runtime and the solver whole — to numpy without a copy,
+then into OR-Tools in bulk — where ``LinearModelType`` crosses an element at a
+time.
+"""
+
+LinearColumnsHintType = StructType(
+    [
+        ("index", VectorType(IntegerType)),
+        ("value", VectorType(FloatType)),
+    ]
+)
+"""A partial solution hint by variable index: ``value[k]`` for variable ``index[k]``."""
+
+LinearColumnsConfigType = StructType(
+    [
+        ("solver", OptionType(LinearSolverType)),
+        ("max_time_seconds", OptionType(FloatType)),
+        ("relative_gap_limit", OptionType(FloatType)),
+        ("hints", OptionType(LinearColumnsHintType)),
+    ]
+)
+"""Solver configuration for a columnar linear solve: ``LinearConfigType``'s
+fields, with the hint by variable index. A hint reaches the backend that takes
+one (SCIP); Glop and HiGHS ignore it."""
+
+LinearColumnsResultType = StructType(
+    [
+        ("status", GoogleOrStatusType),
+        ("objective_value", OptionType(FloatType)),
+        ("values", VectorType(FloatType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
+        ("wall_time", FloatType),
+    ]
+)
+"""Result returned by ``google_or_linear_solve_columns``: the variables' values
+by index (``Vector<Float>``, empty unless ``optimal`` or ``feasible``) beside
+the ``status``, ``objective_value`` and the times of ``LinearResultType``.
 """
 
 
@@ -255,7 +327,7 @@ def linear_solve(
         ``infeasible``, or ``not_solved``), ``objective_value``
         (``Option<Float>`` - present when feasible or optimal),
         ``assignments`` (``Dict<String, Float>`` - variable name to solution
-        value), ``wall_time`` (``Float`` seconds).
+        value), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -278,13 +350,15 @@ def linear_solve(
     solver = pywraplp.Solver.CreateSolver(solver_id)
 
     if solver is None:
-        wall_time = time.perf_counter() - start_time
+        build_time = time.perf_counter() - start_time
         return EastStruct(
             {
                 "status": variant("model_invalid", None, GoogleOrStatusType),
                 "objective_value": none,
                 "assignments": EastDict(StringType, FloatType),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": 0.0,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -342,7 +416,7 @@ def linear_solve(
     # solution may name variables that dropped out of this epoch's model.
     # Duplicate names collapse to the last entry.
     hints = config["hints"].unwrap_or(None)
-    if hints is not None:
+    if hints is not None and solver_id.startswith("SCIP"):
         hint_by_name: dict[str, float] = {}
         for h in hints:
             hint_by_name[h.get("var")] = float(h.get("value"))
@@ -357,9 +431,11 @@ def linear_solve(
         if hint_vars:
             solver.SetHint(hint_vars, hint_values)
 
-    # Solve
+    # Solve: the build ends where the solver starts
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     result_status = solver.Solve(params)
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     # Map status
     status_map = {
@@ -385,7 +461,210 @@ def linear_solve(
             "status": status,
             "objective_value": obj_value,
             "assignments": assignments,
-            "wall_time": wall_time,
+            "build_time": build_time,
+            "solve_time": solve_time,
+            "wall_time": time.perf_counter() - start_time,
+        }
+    )
+
+
+def _columns_error(fn: str, what: str) -> RuntimeError:
+    return RuntimeError(f"{fn}: {what}")
+
+
+def _check_rows(fn: str, n_vars: int, row_ptr: np.ndarray, col_ix: np.ndarray,
+                n_coeff: int, n_rows: int) -> None:
+    """The row structure every columnar model must have, refused by name."""
+    if len(row_ptr) != n_rows + 1:
+        raise _columns_error(
+            fn, f"row_ptr has {len(row_ptr)} entries but there are {n_rows} rows: it needs {n_rows + 1}"
+        )
+    if len(row_ptr) > 0 and (row_ptr[0] != 0 or int(row_ptr[-1]) != len(col_ix)):
+        raise _columns_error(
+            fn, f"row_ptr must start at 0 and end at the term count {len(col_ix)}, "
+            f"got {int(row_ptr[0])} and {int(row_ptr[-1])}"
+        )
+    if len(row_ptr) > 1 and bool((np.diff(row_ptr) < 0).any()):
+        raise _columns_error(fn, "row_ptr must not decrease")
+    if len(col_ix) != n_coeff:
+        raise _columns_error(
+            fn, f"col_ix has {len(col_ix)} entries but coeff has {n_coeff}: one coefficient per term"
+        )
+    if len(col_ix) > 0 and (bool((col_ix < 0).any()) or bool((col_ix >= n_vars).any())):
+        raise _columns_error(fn, f"col_ix names a variable outside 0 .. {n_vars - 1}")
+
+
+@platform_function(
+    name="google_or_linear_solve_columns",
+    inputs=[LinearModelColumnsType, LinearColumnsConfigType],
+    output=LinearColumnsResultType,
+)
+def linear_solve_columns(
+    model_data: EastStruct,
+    config: EastStruct,
+) -> EastStruct:
+    """Solve a linear or mixed-integer program given in columns.
+
+    The same solve as :func:`linear_solve`, from the columnar form: the model's
+    vectors cross to numpy without a copy and OR-Tools takes them in bulk (the
+    model builder's sparse fill, then the linear solver loads the model whole),
+    so nothing crosses the bridge an element at a time. The backend is chosen
+    as :func:`linear_solve` chooses it.
+
+    Args:
+        model_data: ``LinearModelColumnsType`` (``EastStruct``) - the variables'
+            bounds and integrality by index, the constraints by rows
+            (``row_lower``, ``row_upper``, and the terms ``col_ix``/``coeff``
+            cut by ``row_ptr``), the objective's coefficients by variable and
+            ``maximize``.
+        config: ``LinearColumnsConfigType`` (``EastStruct``) - ``solver``,
+            ``max_time_seconds`` and ``relative_gap_limit`` as
+            ``LinearConfigType`` has them, and ``hints`` (``Option<{index:
+            Vector<Integer>, value: Vector<Float>}>``) by variable index -
+            advisory, handed to SCIP only; an index outside the variables is
+            ignored, an index given twice collapses to its last value.
+
+    Returns:
+        ``LinearColumnsResultType`` (``EastStruct``): ``status``,
+        ``objective_value`` (``Option<Float>``), ``values`` (``Vector<Float>``
+        - every variable's value by index when feasible or optimal, else
+        empty), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
+
+    Raises:
+        NotImplementedError: the ``google-or`` extra (ortools, scipy) is not
+            installed.
+        RuntimeError: the vectors do not describe one model - a bounds vector
+            of another length than the others, ``row_ptr`` not one longer than
+            the rows, not starting at 0, not ending at the term count or
+            decreasing, ``col_ix`` naming a variable outside the model.
+    """
+    _check_google_or_support()
+    _check_google_or_columns_support()
+    import importlib
+
+    from ortools.linear_solver import linear_solver_pb2, pywraplp
+    from scipy.sparse import csr_matrix
+
+    # Loaded by name: a static import of this module makes mypy resolve the
+    # ortools package, which does not declare its pywraplp submodule.
+    model_builder = importlib.import_module("ortools.linear_solver.python.model_builder")
+
+    fn = "google_or_linear_solve_columns"
+    start_time = time.perf_counter()
+
+    # The vectors cross to numpy as views; the model builder's bulk fill takes
+    # writable buffers, so each is copied once, whole (a memcpy, not a crossing
+    # per element).
+    def column(name: str, dtype: type) -> np.ndarray:
+        return np.array(model_data[name].to_numpy(dtype=dtype), dtype=dtype)
+
+    var_lower = column("var_lower", np.float64)
+    var_upper = column("var_upper", np.float64)
+    var_integer = column("var_integer", np.bool_)
+    row_lower = column("row_lower", np.float64)
+    row_upper = column("row_upper", np.float64)
+    row_ptr = column("row_ptr", np.int64)
+    col_ix = column("col_ix", np.int64)
+    coeff = column("coeff", np.float64)
+    objective = column("objective", np.float64)
+    maximize = bool(model_data["maximize"])
+
+    n_vars = len(var_lower)
+    if not len(var_upper) == len(var_integer) == len(objective) == n_vars:
+        raise _columns_error(
+            fn, f"var_lower, var_upper, var_integer and objective must have one entry per variable; "
+            f"got {n_vars}, {len(var_upper)}, {len(var_integer)} and {len(objective)}"
+        )
+    n_rows = len(row_lower)
+    if len(row_upper) != n_rows:
+        raise _columns_error(
+            fn, f"row_lower has {n_rows} entries but row_upper has {len(row_upper)}"
+        )
+    _check_rows(fn, n_vars, row_ptr, col_ix, len(coeff), n_rows)
+
+    has_integers = bool(var_integer.any())
+    solver_opt = config["solver"].unwrap_or(None)
+    solver_id = _detect_solver_id(solver_opt, has_integers)
+    solver = pywraplp.Solver.CreateSolver(solver_id)
+    if solver is None:
+        build_time = time.perf_counter() - start_time
+        return EastStruct(
+            {
+                "status": variant("model_invalid", None, GoogleOrStatusType),
+                "objective_value": none,
+                "values": EastVector(FloatType, np.zeros(0, dtype=np.float64)),
+                "build_time": build_time,
+                "solve_time": 0.0,
+                "wall_time": time.perf_counter() - start_time,
+            }
+        )
+
+    # The model, filled in bulk from the vectors, then handed to the solver whole
+    builder = model_builder.Model()
+    builder.helper.fill_model_from_sparse_data(
+        var_lower, var_upper, objective, row_lower, row_upper,
+        csr_matrix((coeff, col_ix, row_ptr), shape=(n_rows, n_vars)),
+    )
+    for i in np.flatnonzero(var_integer):
+        builder.helper.set_var_integrality(int(i), True)
+    builder.helper.set_maximize(maximize)
+    proto = builder.export_to_proto()
+
+    # A partial hint, advisory: a variable given twice keeps its last value, an
+    # index outside the model is dropped. Only SCIP takes one.
+    hints = config["hints"].unwrap_or(None)
+    if hints is not None and solver_id.startswith("SCIP"):
+        index = hints["index"].to_numpy(dtype=np.int64)
+        value = hints["value"].to_numpy(dtype=np.float64)
+        kept: dict[int, float] = {}
+        for i, v in zip(index.tolist(), value.tolist(), strict=False):
+            if 0 <= i < n_vars:
+                kept[i] = v
+        if kept:
+            proto.solution_hint.var_index.extend(kept.keys())
+            proto.solution_hint.var_value.extend(kept.values())
+
+    load_error = solver.LoadModelFromProto(proto)
+    if load_error:
+        raise _columns_error(fn, f"the solver refused the model - {load_error}")
+
+    max_time = config["max_time_seconds"].unwrap_or(None)
+    if max_time is not None:
+        solver.SetTimeLimit(int(float(max_time) * 1000))
+    params = pywraplp.MPSolverParameters()
+    rel_gap = config["relative_gap_limit"].unwrap_or(None)
+    if rel_gap is not None:
+        params.SetDoubleParam(params.RELATIVE_MIP_GAP, float(rel_gap))
+
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
+    result_status = solver.Solve(params)
+    solve_time = time.perf_counter() - solve_start
+
+    status_map = {
+        pywraplp.Solver.OPTIMAL: "optimal",
+        pywraplp.Solver.FEASIBLE: "feasible",
+        pywraplp.Solver.INFEASIBLE: "infeasible",
+    }
+    status_tag = status_map.get(result_status, "not_solved")
+
+    values = np.zeros(0, dtype=np.float64)
+    obj_value: EastVariant = none
+    if result_status in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+        # The solution read back whole, through the response proto
+        response = linear_solver_pb2.MPSolutionResponse()
+        solver.FillSolutionResponseProto(response)
+        values = np.fromiter(response.variable_value, dtype=np.float64, count=len(response.variable_value))
+        obj_value = some(float(solver.Objective().Value()))
+
+    return EastStruct(
+        {
+            "status": variant(status_tag, None, GoogleOrStatusType),
+            "objective_value": obj_value,
+            "values": EastVector(FloatType, values),
+            "build_time": build_time,
+            "solve_time": solve_time,
+            "wall_time": time.perf_counter() - start_time,
         }
     )
 
@@ -410,4 +689,8 @@ __all__ = [
     "LinearHintType",
     "LinearConfigType",
     "LinearResultType",
+    "LinearModelColumnsType",
+    "LinearColumnsHintType",
+    "LinearColumnsConfigType",
+    "LinearColumnsResultType",
 ]

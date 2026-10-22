@@ -547,6 +547,8 @@ importers:
         specifier: workspace:*
         version: link:../../../east
 
+  libs/east-c/packages/east-c-datascience: {}
+
   libs/east-claude-plugin:
     dependencies:
       '@elaraai/east':

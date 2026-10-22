@@ -15,6 +15,7 @@ reuse the implementations without an IR round-trip.
 
 import math
 import secrets
+import struct
 import time
 from abc import ABC, abstractmethod
 
@@ -148,11 +149,101 @@ def random_uniform() -> float:
     return _get_rng().next()
 
 
+_LN2_HI = 6.93147180369123816490e-01
+_LN2_LO = 1.90821492927058770002e-10
+_TWO54 = 1.80143985094819840000e+16
+_LG = (
+    6.666666666666735130e-01,
+    3.999999999940941908e-01,
+    2.857142874366239149e-01,
+    2.222219843214978396e-01,
+    1.818357216161805012e-01,
+    1.531383769920937332e-01,
+    1.479819860511658591e-01,
+)
+
+
+def _bits(x: float) -> int:
+    return struct.unpack("<Q", struct.pack("<d", x))[0]
+
+
+def _float(bits: int) -> float:
+    return struct.unpack("<d", struct.pack("<Q", bits))[0]
+
+
+def _fdlibm_log(x: float) -> float:
+    """fdlibm's log (e_log.c; "Developed at SunSoft, a Sun Microsystems, Inc.
+    business. Permission to use, copy, modify, and distribute this software is
+    freely granted, provided that this notice is preserved."), the algorithm
+    behind V8's Math.log, so east-node-std's normal draw. The polar method
+    takes its logarithm from this, not the host's libm — which rounds a few
+    inputs in a thousand differently from one host or runtime to the next — so
+    a seeded program draws the same normals on every runtime and host.
+    east-c-std carries the same algorithm in C."""
+    bits = _bits(x)
+    hx = bits >> 32
+    if hx >= 0x80000000:
+        hx -= 1 << 32
+    lx = bits & 0xFFFFFFFF
+    k = 0
+    if hx < 0x00100000:  # x < 2**-1022
+        if ((hx & 0x7FFFFFFF) | lx) == 0:
+            return -math.inf  # log(+-0) = -inf
+        if hx < 0:
+            return math.nan  # log(-#) = NaN
+        k -= 54
+        x *= _TWO54  # subnormal: scale up
+        bits = _bits(x)
+        hx = bits >> 32
+    if hx >= 0x7FF00000:
+        return x + x
+    k += (hx >> 20) - 1023
+    hx &= 0x000FFFFF
+    i = (hx + 0x95F64) & 0x100000
+    # normalize x or x/2: the high word becomes hx | (i ^ 0x3ff00000)
+    x = _float(((hx | (i ^ 0x3FF00000)) << 32) | (bits & 0xFFFFFFFF))
+    k += i >> 20
+    f = x - 1.0
+    if (0x000FFFFF & (2 + hx)) < 3:  # -2**-20 <= f < 2**-20
+        if f == 0.0:
+            if k == 0:
+                return 0.0
+            dk = float(k)
+            return dk * _LN2_HI + dk * _LN2_LO
+        r = f * f * (0.5 - 0.33333333333333333 * f)
+        if k == 0:
+            return f - r
+        dk = float(k)
+        return dk * _LN2_HI - ((r - dk * _LN2_LO) - f)
+    s = f / (2.0 + f)
+    dk = float(k)
+    z = s * s
+    i = hx - 0x6147A
+    w = z * z
+    j = 0x6B851 - hx
+    lg1, lg2, lg3, lg4, lg5, lg6, lg7 = _LG
+    t1 = w * (lg2 + w * (lg4 + w * lg6))
+    t2 = z * (lg1 + w * (lg3 + w * (lg5 + w * lg7)))
+    i |= j
+    r = t2 + t1
+    if i > 0:
+        hfsq = 0.5 * f * f
+        if k == 0:
+            return f - (hfsq - s * (hfsq + r))
+        return dk * _LN2_HI - ((hfsq - (s * (hfsq + r) + dk * _LN2_LO)) - f)
+    if k == 0:
+        return f - s * (f - r)
+    return dk * _LN2_HI - ((s * (f - r) - dk * _LN2_LO) - f)
+
+
 @platform_function(name="random_normal", inputs=[], output=FloatType)
 def random_normal() -> float:
     """Sample a random float from the standard normal distribution N(0, 1).
 
-    Uses the Marsaglia polar method (Box-Muller transform).
+    Uses the Marsaglia polar method (Box-Muller transform): the first draw of
+    the pair, its logarithm the one every runtime computes alike
+    (:func:`_fdlibm_log`), so a seeded program draws the same normals on
+    every runtime.
 
     Returns:
         ``Float`` (``float``) - variate drawn from N(0, 1).
@@ -164,7 +255,7 @@ def random_normal() -> float:
         v = 2.0 * rng.next() - 1.0
         s = u * u + v * v
         if 0 < s < 1:
-            return u * math.sqrt(-2.0 * math.log(s) / s)
+            return u * math.sqrt(-2.0 * _fdlibm_log(s) / s)
 
 
 @platform_function(

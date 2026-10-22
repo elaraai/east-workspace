@@ -4,8 +4,9 @@
 #
 """XGBoost platform functions for East.
 
-Provides gradient boosting for regression and classification.
-Uses cloudpickle for model serialization to enable portable inference.
+Provides gradient boosting for regression and classification. A model blob is
+XGBoost's own UBJSON model (``xgboost/_blob.py``), the form every runner reads,
+so a model trained here predicts on east-c-datascience and the other way round.
 """
 
 
@@ -21,17 +22,24 @@ from east_py_datascience._categorical import (
     prepare_categorical,
 )
 from east_py_datascience._common import (
-    deserialize,
     expect_case,
     extra_guard,
     quiet_warnings,
-    serialize,
 )
 from east_py_datascience.types import (
     XGBoostConfigType,
     XGBoostModelBlobType,
     XGBoostQuantileConfigType,
     XGBoostQuantilePredictResultType,
+)
+from east_py_datascience.xgboost._blob import (
+    booster_blob,
+    classifier_blob,
+    load_classifier,
+    load_quantiles,
+    load_regressor,
+    quantile_blob,
+    refuse_legacy,
 )
 
 _check_xgboost_support = extra_guard("xgboost", "xgboost", "XGBoost")
@@ -101,7 +109,7 @@ def xgboost_train_regressor(
 
     Returns:
         ``XGBoostModelBlobType`` (``EastVariant``) tagged ``xgboost_regressor``:
-        ``{data: Blob (cloudpickle), n_features: Integer,
+        ``{data: Blob (the UBJSON model), n_features: Integer,
         categorical_features: Option<Vector<Integer>>,
         categorical_n: Option<Vector<Integer>>}``.
 
@@ -173,7 +181,7 @@ def xgboost_train_regressor(
             f"xgboost_train_regressor: Training failed with X shape {X_np.shape} - {e}"
         ) from e
 
-    model_data = serialize(model)
+    model_data = booster_blob(model)
 
     # The encoding prediction must replay
     cat_features_blob, cat_n_blob = categorical_options(cat_indices, cat_n_list)
@@ -218,8 +226,9 @@ def xgboost_train_classifier(
 
     Returns:
         ``XGBoostModelBlobType`` (``EastVariant``) tagged ``xgboost_classifier``:
-        ``{data: Blob (cloudpickle of {model, classes}), n_features: Integer,
-        n_classes: Integer, categorical_features: Option<Vector<Integer>>,
+        ``{data: Blob (the UBJSON model, its class labels in the booster
+        attribute ``east_classes``), n_features: Integer, n_classes: Integer,
+        categorical_features: Option<Vector<Integer>>,
         categorical_n: Option<Vector<Integer>>}``.
 
     Raises:
@@ -298,8 +307,8 @@ def xgboost_train_classifier(
             f"xgboost_train_classifier: Training failed with X shape {X_np.shape} - {e}"
         ) from e
 
-    # Store model and class mapping together for prediction remapping
-    model_data = serialize({"model": model, "classes": unique_classes})
+    # The class labels ride in the booster so predictions map back
+    model_data = classifier_blob(model, unique_classes)
 
     # The encoding prediction must replay
     cat_features_blob, cat_n_blob = categorical_options(cat_indices, cat_n_list)
@@ -346,6 +355,7 @@ def xgboost_predict(
     """
     _check_xgboost_support()
     payload = expect_case(model_blob, "xgboost_regressor", "xgboost_predict")
+    refuse_legacy(payload["data"], "xgboost_predict")
 
     X_np = X.to_numpy()
 
@@ -353,7 +363,7 @@ def xgboost_predict(
     X_pred = apply_categorical(X_np, cat_indices, "xgboost_predict", categorical_n=cat_n_list)
 
     try:
-        model = deserialize(payload["data"])
+        model = load_regressor(payload["data"])
         # Suppress warnings during prediction
         with quiet_warnings():
             y_pred = model.predict(X_pred)
@@ -396,6 +406,7 @@ def xgboost_predict_class(
     """
     _check_xgboost_support()
     payload = expect_case(model_blob, "xgboost_classifier", "xgboost_predict_class")
+    refuse_legacy(payload["data"], "xgboost_predict_class")
 
     X_np = X.to_numpy()
 
@@ -403,9 +414,7 @@ def xgboost_predict_class(
     X_pred = apply_categorical(X_np, cat_indices, "xgboost_predict_class", categorical_n=cat_n_list)
 
     try:
-        model_dict = deserialize(payload["data"])
-        model = model_dict["model"]
-        classes = model_dict["classes"]
+        model, classes = load_classifier(payload["data"])
 
         # Suppress warnings during prediction
         with quiet_warnings():
@@ -454,6 +463,7 @@ def xgboost_predict_proba(
     """
     _check_xgboost_support()
     payload = expect_case(model_blob, "xgboost_classifier", "xgboost_predict_proba")
+    refuse_legacy(payload["data"], "xgboost_predict_proba")
 
     X_np = X.to_numpy()
 
@@ -461,8 +471,7 @@ def xgboost_predict_proba(
     X_pred = apply_categorical(X_np, cat_indices, "xgboost_predict_proba", categorical_n=cat_n_list)
 
     try:
-        model_dict = deserialize(payload["data"])
-        model = model_dict["model"]
+        model, _classes = load_classifier(payload["data"])
         # Note: probabilities are in order of 0-indexed classes, which matches
         # the classes array order. No remapping needed for probabilities.
 
@@ -533,9 +542,10 @@ def xgboost_train_quantile(
 
     Returns:
         ``XGBoostModelBlobType`` (``EastVariant``) tagged ``xgboost_quantile``:
-        ``{data: Blob (cloudpickle of {q: model} dict), quantiles:
-        Vector<Float>, n_features: Integer, categorical_features:
-        Option<Vector<Integer>>, categorical_n: Option<Vector<Integer>>}``.
+        ``{data: Blob (one UBJSON model per quantile, in the container
+        ``xgboost/_blob.py`` describes), quantiles: Vector<Float>, n_features:
+        Integer, categorical_features: Option<Vector<Integer>>, categorical_n:
+        Option<Vector<Integer>>}``.
 
     Raises:
         NotImplementedError: the ``xgboost`` extra is not installed.
@@ -625,7 +635,7 @@ def xgboost_train_quantile(
             f"xgboost_train_quantile: Training failed with X shape {X_np.shape} - {e}"
         ) from e
 
-    model_data = serialize(models)
+    model_data = quantile_blob(models)
 
     # The encoding prediction must replay
     cat_features_blob, cat_n_blob = categorical_options(cat_indices, cat_n_list)
@@ -675,6 +685,7 @@ def xgboost_predict_quantile(
     """
     _check_xgboost_support()
     payload = expect_case(model_blob, "xgboost_quantile", "xgboost_predict_quantile")
+    refuse_legacy(payload["data"], "xgboost_predict_quantile")
 
     X_np = X.to_numpy()
 
@@ -684,8 +695,8 @@ def xgboost_predict_quantile(
     n_samples = X_np.shape[0]
 
     try:
-        # Deserialize models dict
-        models = deserialize(payload["data"])
+        # The models by quantile, as the blob stores them
+        models = load_quantiles(payload["data"])
 
         # Use the model dict keys directly (they are the original quantile values)
         # This avoids float precision issues from serialization/deserialization
@@ -716,6 +727,46 @@ def xgboost_predict_quantile(
 # ============================================================================
 
 # Collected from the @platform_function decorations above.
+@platform_function(
+    name="xgboost_resave",
+    inputs=[XGBoostModelBlobType],
+    output=XGBoostModelBlobType,
+)
+def xgboost_resave(model_blob: EastVariant) -> EastVariant:
+    """Re-save a model blob in the UBJSON form every runner reads.
+
+    A blob from before that form — a cloudpickle, which this runner alone
+    reads — comes back as the library's UBJSON model, its class labels and
+    quantiles carried over; a UBJSON blob comes back as the library writes it
+    again. The other fields of the blob are kept. Every other function refuses
+    a pre-UBJSON blob, naming this one.
+
+    Args:
+        model_blob: ``XGBoostModelBlobType`` (``EastVariant``) - any case.
+
+    Returns:
+        ``XGBoostModelBlobType`` (``EastVariant``) - the same case, its ``data``
+        the UBJSON form.
+
+    Raises:
+        NotImplementedError: the ``xgboost`` extra is not installed.
+        RuntimeError: the blob is not one this runner reads.
+    """
+    _check_xgboost_support()
+    payload = model_blob.value
+    fields = dict(payload.items())
+    if model_blob.type == "xgboost_regressor":
+        fields["data"] = booster_blob(load_regressor(payload["data"], legacy=True))
+    elif model_blob.type == "xgboost_classifier":
+        model, classes = load_classifier(payload["data"], legacy=True)
+        fields["data"] = classifier_blob(model, classes)
+    elif model_blob.type == "xgboost_quantile":
+        fields["data"] = quantile_blob(load_quantiles(payload["data"], legacy=True))
+    else:
+        raise RuntimeError(f"xgboost_resave: unknown model blob case {model_blob.type}")
+    return EastVariant(model_blob.type, EastStruct(fields))
+
+
 xgboost_impl = platform_functions(__name__)
 
 __all__ = [

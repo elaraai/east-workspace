@@ -1,17 +1,23 @@
 # east-c
 
-C port of the East language runtime. Three packages:
+C port of the East language runtime. Four packages:
 
 - `packages/east-c/` — Core runtime (types, values, IR, compiler, builtins, serialization).
 - `packages/east-c-std/` — Standard platform functions (console, fs, path, crypto, time, random, fetch, test).
+- `packages/east-c-datascience/` — east-py-datascience's platform functions on this runtime, family by family (Google OR-Tools, XGBoost, the neural networks stated as data on libtorch), in C++ over the C API; built on request (`EAST_C_DATASCIENCE=ON`) against a prebuilt OR-Tools (`scripts/fetch-ortools.sh`, the AlmaLinux 9 archive: glibc 2.34), a prebuilt libtorch (`scripts/fetch-libtorch.sh`, pinned in `scripts/libtorch-pins.json`) and the vendored XGBoost source, as two shared libraries the CLI opens at run time (`libeast-c-datascience`, and `libeast-c-nn` for the libtorch half, opened by the first `nn_*` call) — `packages/east-c-cli/src/package_loader.c` finds them through `EAST_C_PACKAGE_PATH`, beside the binary, under `/usr/local/lib/east-c`, or in the build tree — and held to east-py-datascience's own exported suites. Published as `@elaraai/east-c-datascience` (+ `-linux-x64`) beside the runner; `scripts/stage-datascience.sh` stages what the package ships. See its `CLAUDE.md`.
+- The CLI links the whole runtime and exports it (`LINK_LIBRARY_OVERRIDE WHOLE_ARCHIVE`, `ENABLE_EXPORTS`), so a package library binds to the one runtime in the process; CMake ≥ 3.24.
 - `packages/east-c-cli/` — Native C CLI binary source **and** the npm launcher `@elaraai/east-c-cli`. The same directory carries both: CMake builds the binary; `package.json` + `bin/east-c.mjs` are the npm-side launcher that resolves a per-platform binary (`@elaraai/east-c-cli-<target>`) via `require.resolve` and spawns it. Per-platform packages are generated at release time, not committed. See `docs/npm-runner-distribution.md`.
 
 ## Commands
 
 ```bash
-make build    # Build both packages
+make build    # Build the runtime, std and the CLI
+make build EAST_C_DATASCIENCE=ON  # … and east-c-datascience's libraries (after make fetch-ortools fetch-libtorch)
 make unit     # Run the ctest gates (no exported IR needed)
 make test     # Gates + both compliance suites
+make test-east-c-datascience  # The data-science suites (make -C libs/east-py test-export first)
+make stage-datascience        # Stage the datascience libraries as the npm package ships them
+make check-datascience-floor  # … and hold every file to the glibc floor (passes for a build on it: AlmaLinux 9)
 make bench-cli # The interpreter, dict-output and paged-read benchmarks (needs a built libs/east)
 make clean    # Remove build directory
 ```
@@ -33,6 +39,8 @@ make test-all          # gates + both
 
 # Run a single compliance test (the checkout's export, from libs/east-c)
 ./build/packages/east-c/test_compliance ../../tmp/east-test-ir/Array.json
+# A test named "… (x86-64)" pins an answer only x86-64 gives (a native
+# library's own floating point); the harness skips it elsewhere, as [-]
 
 # ASan/LSan over the whole corpus — the oracle for any lifetime change
 REBUILD=1 make leak-check-all
@@ -93,3 +101,5 @@ REBUILD=1 make leak-check-all
   dict-output and paged-read profiles (`make bench-cli`).
 - `packages/east-c/tests/` — unit tests and compliance runner.
 - `packages/east-c-std/` — platform functions.
+- `packages/east-c-datascience/` — the data-science platform functions (C++); `src/value_util.h` is how C++ reads East values and builds results in the declared type.
+- `packages/east-c/include/east/location.h` — `EastLocation`, on its own so `eval_result.h` (what a platform function answers) names no IR header; the headers a platform package reaches (`types.h`, `values.h`, `eval_result.h`, `platform.h`, `hashmap.h`) carry `extern "C"` guards for C++ consumers.

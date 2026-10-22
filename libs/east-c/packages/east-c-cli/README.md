@@ -8,7 +8,7 @@
 
 ## Build
 
-Requires CMake 3.16+ and a C11 compiler.
+Requires CMake 3.24+ and a C11 compiler.
 
 ```bash
 make build    # From libs/east-c/
@@ -31,7 +31,7 @@ See [`docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conventions/MAKEFI
 ./build/packages/east-c-cli/east-c run program.beast2 --input '"hello"'
 ```
 
-The CLI loads the standard platform from `east-c-std` by default. Custom platform functions can be linked at build time.
+The CLI carries the standard platform (`-p east-c-std`, or `std`). The data-science platform — OR-Tools, XGBoost and the neural networks on libtorch — is a package the binary opens at run time (`-p east-c-datascience`, or `datascience`): the npm package `@elaraai/east-c-datascience`, installed beside `@elaraai/east-c-cli`, which the launcher points the binary at; a binary run without the launcher finds it through `EAST_C_PACKAGE_PATH`, beside itself in a flat `node_modules`, or under `/usr/local/lib/east-c` (`src/package_loader.c`). `east-c version -p east-c-datascience` says whether it is installed, where, and with which libtorch. The binary exports the runtime for such packages, so they link none of it.
 
 ### Running a unit (`exec`)
 
@@ -123,6 +123,14 @@ decoded. Keyed reads at random beyond the segments the pager keeps
 (`EAST_PAGED_CACHE_BYTES`), or a scan repeated, show there; the reading
 function's total time keeps those decodes, and its self time does not.
 
+A host that runs a platform function in its own runtime — east-py's python
+functions — reports what each call spent on the bridge
+(`east_profile_platform_note`), and the entry then carries a line of its own
+under it: the time converting the arguments into the host's values, the time
+converting the result back, and the element-level crossings its body made
+(each element read from or written to an East collection through the host).
+east-c's own platform functions cross no bridge and print none.
+
 `EAST_PROFILE` set to anything but `0` profiles without the flag, which is
 how a task run by e3 is profiled: e3 hands its environment to the runner,
 and the report lands in the task's log. `EAST_PROFILE_INTERVAL=N` (seconds)
@@ -189,7 +197,7 @@ Business Source License 1.1 — see [LICENSE.md](LICENSE.md). Same terms as `eas
   - [east-py-std](https://pypi.org/project/east-py-std/): Console, FileSystem, Fetch, Crypto, Time, Path, Random
   - [east-py-io](https://pypi.org/project/east-py-io/): SQLite, PostgreSQL, MySQL, MongoDB, Redis, S3, FTP, SFTP, XLSX, XML, compression
   - [east-py-cli](https://pypi.org/project/east-py-cli/): CLI for running East IR programs in Python
-  - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, PyTorch, Lightning, GP), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
+  - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, GP, neural networks as data run by torch or east-c), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
 
 - **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer, plus VS Code preview.
   - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs

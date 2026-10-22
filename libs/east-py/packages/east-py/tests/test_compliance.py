@@ -143,6 +143,19 @@ def _freeze_platform() -> list:
     ]
 
 
+X86_64_SUFFIX = " (x86-64)"
+"""A test named with this suffix pins an answer only x86-64 gives — a native
+library's own floating point, such as the bytes of an XGBoost fit — so this
+harness, east-c's and east-node's skip it on another architecture, reported
+as `[-]`, outside the passed and failed counts."""
+
+
+def _is_x86_64() -> bool:
+    import platform
+
+    return platform.machine().lower() in ("x86_64", "amd64")
+
+
 def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list | None = None) -> tuple[int, int]:
     """Run a single IR file. Returns (passed, failed). Writes east-c style output to `out`."""
     from east.runtime.compiler import compile_from_json
@@ -154,7 +167,9 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
 
     passed = 0
     failed = 0
+    skipped = 0
     depth = 0
+    x86_64 = _is_x86_64()
 
     def describe(name, test_fn):
         nonlocal depth
@@ -175,7 +190,14 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
                 out.write(f"{mark} {name} ({dur:.6f}ms)\n")
 
     def test_impl(name, test_fn):
-        nonlocal passed, failed
+        nonlocal passed, failed, skipped
+        if name.endswith(X86_64_SUFFIX) and not x86_64:
+            skipped += 1
+            if out:
+                import platform
+
+                out.write(f"{'  ' * depth}[-] {name} (an x86-64 answer; skipped on {platform.machine()})\n")
+            return
         t0 = time.perf_counter()
         ok = True
         err = None
@@ -229,6 +251,8 @@ def run_one(ir_file: Path, out: io.StringIO | None = None, extra_platform: list 
 
     if out:
         out.write(f"[i] tests {passed + failed}\n")
+        if skipped:
+            out.write(f"[i] skipped {skipped}\n")
 
     return passed, failed
 

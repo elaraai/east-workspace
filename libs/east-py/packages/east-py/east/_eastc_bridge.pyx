@@ -16,7 +16,7 @@ Memory management rules:
 from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_GET_SIZE
 from cpython.unicode cimport PyUnicode_AsUTF8AndSize, PyUnicode_DecodeUTF8
 from libc.stddef cimport size_t
-from libc.stdint cimport int64_t, uint8_t, uintptr_t
+from libc.stdint cimport uint64_t, int64_t, uint8_t, uintptr_t
 from libc.stdlib cimport free, malloc, calloc
 from libc.string cimport memcpy, strcmp, strdup
 from libc.math cimport NAN, isnan
@@ -425,6 +425,30 @@ cdef long _decode_entries = 0
 def decode_stats():
     """Total top-level C→python value decodes (see counter comment above)."""
     return _decode_entries
+
+
+# Element-level crossings (#1357): every read or write of a C collection's
+# element through a proxy — an array element decoded, a dict entry written, a
+# set probed — crosses the bridge once, with its fields' gets. The platform
+# bridge reads this before and after a python platform function's body and
+# reports the difference to the profiler, so a bridge-bound function shows
+# itself in a run's own profile. Monotonic; nested platform calls count
+# toward the outer body too.
+cdef uint64_t _bridge_crossings = 0
+
+
+cdef uint64_t bridge_crossings() noexcept:
+    return _bridge_crossings
+
+
+cdef void _bridge_crossings_add(size_t n) noexcept:
+    global _bridge_crossings
+    _bridge_crossings += n
+
+
+def bridge_crossing_count():
+    """The element-level crossings so far (see the counter comment above)."""
+    return _bridge_crossings
 
 
 cdef object c_value_to_py(_eastc.EastValue *val, _eastc.EastType *c_type):
@@ -1528,6 +1552,7 @@ def _paged_array_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
                 c_value_to_py(_eastc.east_array_get(seg, i), <_eastc.EastType*>elem_type_ptr)
                 for i in range(n)
             ]
+            _bridge_crossings_add(n)
         finally:
             _eastc.east_value_release(seg)
         yield from batch
@@ -1551,6 +1576,7 @@ def _paged_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
                 c_value_to_py(_eastc.east_set_at(seg, i), <_eastc.EastType*>elem_type_ptr)
                 for i in range(n)
             ]
+            _bridge_crossings_add(n)
         finally:
             _eastc.east_value_release(seg)
         yield from batch
@@ -1578,6 +1604,7 @@ def _paged_dict_items(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_
                 )
                 for i in range(n)
             ]
+            _bridge_crossings_add(n)
         finally:
             _eastc.east_value_release(seg)
         yield from batch
@@ -1587,6 +1614,8 @@ cpdef Py_ssize_t _proxy_array_len(uintptr_t ptr):
     return <Py_ssize_t>_eastc.east_array_len(<_eastc.EastValue*>ptr)
 
 cpdef object _proxy_array_get(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t index):
+    global _bridge_crossings
+    _bridge_crossings += 1
     cdef _eastc.EastValue *arr = <_eastc.EastValue*>ptr
     cdef Py_ssize_t n = <Py_ssize_t>_eastc.east_array_len(arr)
     cdef _eastc.EastValue *owned
@@ -1625,6 +1654,8 @@ cdef _guard_mutation(uintptr_t ptr, str container):
 
 
 cpdef void _proxy_array_set(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t index, object value):
+    global _bridge_crossings
+    _bridge_crossings += 1
     _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef Py_ssize_t n = <Py_ssize_t>arr.data.array.len
@@ -1637,6 +1668,8 @@ cpdef void _proxy_array_set(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t i
     arr.data.array.items[index] = new_val
 
 cpdef void _proxy_array_push(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
+    global _bridge_crossings
+    _bridge_crossings += 1
     _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
@@ -1663,6 +1696,8 @@ cpdef void _proxy_array_reverse(uintptr_t ptr):
         arr.data.array.items[n - 1 - i] = tmp
 
 cpdef object _proxy_array_pop(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t index):
+    global _bridge_crossings
+    _bridge_crossings += 1
     _guard_mutation(ptr, "Array")
     cdef _eastc.EastValue *arr = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef Py_ssize_t n = <Py_ssize_t>arr.data.array.len
@@ -1686,6 +1721,8 @@ cpdef Py_ssize_t _proxy_set_len(uintptr_t ptr):
     return <Py_ssize_t>_eastc.east_set_len(<_eastc.EastValue*>ptr)
 
 cpdef void _proxy_set_add(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
+    global _bridge_crossings
+    _bridge_crossings += 1
     _guard_mutation(ptr, "Set")
     cdef _eastc.EastValue *s = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
@@ -1693,6 +1730,8 @@ cpdef void _proxy_set_add(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
     _eastc.east_value_release(c_val)
 
 cpdef bint _proxy_set_contains(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
+    global _bridge_crossings
+    _bridge_crossings += 1
     cdef _eastc.EastValue *s = <_eastc.EastValue*>ptr
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
     cdef bint result
@@ -1711,6 +1750,8 @@ cpdef bint _proxy_set_contains(uintptr_t ptr, uintptr_t elem_type_ptr, object va
     return result
 
 cpdef void _proxy_set_remove(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
+    global _bridge_crossings
+    _bridge_crossings += 1
     _guard_mutation(ptr, "Set")
     cdef _eastc.EastValue *s = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>elem_type_ptr)
@@ -1729,6 +1770,8 @@ cpdef object _proxy_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
     cdef list result = []
     for i in range(n):
         result.append(c_value_to_py(_eastc.east_set_at(s, i), <_eastc.EastType*>elem_type_ptr))
+    global _bridge_crossings
+    _bridge_crossings += n
     return result
 
 cpdef Py_ssize_t _proxy_dict_len(uintptr_t ptr):
@@ -1745,6 +1788,8 @@ cdef object _missing_key_error(str container, _eastc.EastValue *c_key, _eastc.Ea
     return KeyError(f"{container} does not contain key {msg}")
 
 cpdef object _proxy_dict_get(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr, object key):
+    global _bridge_crossings
+    _bridge_crossings += 1
     cdef _eastc.EastValue *d = <_eastc.EastValue*>ptr
     cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*>key_type_ptr)
     cdef _eastc.EastValue *owned = NULL
@@ -1777,6 +1822,8 @@ cpdef object _proxy_dict_get(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t va
     return c_value_to_py(c_val, <_eastc.EastType*>val_type_ptr)
 
 cpdef void _proxy_dict_set(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_ptr, object key, object value):
+    global _bridge_crossings
+    _bridge_crossings += 1
     _guard_mutation(ptr, "Dict")
     cdef _eastc.EastValue *d = _paged_resolve(<_eastc.EastValue*>ptr)
     cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*>key_type_ptr)
@@ -1786,6 +1833,8 @@ cpdef void _proxy_dict_set(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_
     _eastc.east_value_release(c_val)
 
 cpdef bint _proxy_dict_contains(uintptr_t ptr, uintptr_t key_type_ptr, object key):
+    global _bridge_crossings
+    _bridge_crossings += 1
     cdef _eastc.EastValue *d = <_eastc.EastValue*>ptr
     cdef _eastc.EastValue *c_key = py_value_to_c(key, <_eastc.EastType*>key_type_ptr)
     cdef bint result
@@ -1812,19 +1861,31 @@ cpdef object _proxy_dict_items(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t 
         k = c_value_to_py(_eastc.east_dict_key_at(d, i), <_eastc.EastType*>key_type_ptr)
         v = c_value_to_py(_eastc.east_dict_val_at(d, i), <_eastc.EastType*>val_type_ptr)
         result.append((k, v))
+    global _bridge_crossings
+    _bridge_crossings += n
     return result
 
 cpdef object _proxy_ref_get(uintptr_t ptr, uintptr_t inner_type_ptr):
+    global _bridge_crossings
+    _bridge_crossings += 1
     cdef _eastc.EastValue *ref = <_eastc.EastValue*>ptr
     return c_value_to_py(ref.data.ref.value, <_eastc.EastType*>inner_type_ptr)
 
 cpdef void _proxy_ref_set(uintptr_t ptr, uintptr_t inner_type_ptr, object value):
+    global _bridge_crossings
+    _bridge_crossings += 1
     if _eastc.east_value_frozen(<_eastc.EastValue*>ptr):
         from east.runtime.errors import EastError
         raise EastError((<bytes>_eastc.EAST_FROZEN_MUTATION_MSG).decode("utf-8"), [])
     cdef _eastc.EastValue *c_val = py_value_to_c(value, <_eastc.EastType*>inner_type_ptr)
     _eastc.east_ref_set(<_eastc.EastValue*>ptr, c_val)
     _eastc.east_value_release(c_val)
+
+cpdef bint _proxy_frozen(uintptr_t ptr):
+    """Whether the C value at `ptr` carries the frozen (task-input) brand: a
+    platform function keying a cache by a value's address asks this first
+    (#1357 R24 — a frozen value cannot change under the address it holds)."""
+    return _eastc.east_value_frozen(<_eastc.EastValue*>ptr)
 
 cpdef void _proxy_retain(uintptr_t ptr):
     _eastc.east_value_retain(<_eastc.EastValue*>ptr)

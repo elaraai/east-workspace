@@ -153,6 +153,8 @@ RoutingResultType = StructType(
         ("status", GoogleOrStatusType),
         ("total_distance", IntegerType),
         ("routes", ArrayType(RoutingRouteType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
@@ -160,8 +162,7 @@ RoutingResultType = StructType(
 
 Fields: ``status`` (``GoogleOrStatusType``), ``total_distance``
 (``Integer`` sum of all vehicle route costs), ``routes``
-(``Array<RoutingRouteType>`` one entry per vehicle), ``wall_time``
-(``Float`` seconds).
+(``Array<RoutingRouteType>`` one entry per vehicle), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 """
 
 
@@ -266,8 +267,7 @@ def routing_solve(
         (``GoogleOrStatusType``), ``total_distance`` (``Integer`` sum over
         all vehicle routes), ``routes`` (``Array<RoutingRouteType>`` - one
         per vehicle; each ``{vehicle: Integer, nodes: Array<Integer>,
-        distance: Integer}`` including the return to depot), ``wall_time``
-        (``Float`` seconds).
+        distance: Integer}`` including the return to depot), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -389,9 +389,11 @@ def routing_solve(
     if max_time is not None:
         search_params.time_limit.FromSeconds(int(max_time))
 
-    # Solve
+    # Solve: the build ends where the solver starts
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     solution = routing.SolveWithParameters(search_params)
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     if solution is None:
         return EastStruct(
@@ -399,7 +401,9 @@ def routing_solve(
                 "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_distance": 0,
                 "routes": EastArray(RoutingRouteType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -457,7 +461,9 @@ def routing_solve(
             "status": status,
             "total_distance": total_distance,
             "routes": EastArray(RoutingRouteType, routes),
-            "wall_time": wall_time,
+            "build_time": build_time,
+            "solve_time": solve_time,
+            "wall_time": time.perf_counter() - start_time,
         }
     )
 

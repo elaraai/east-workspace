@@ -1,18 +1,12 @@
 #ifndef EAST_IR_H
 #define EAST_IR_H
 
+#include "location.h"
 #include "types.h"
 #include "values.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-// Source location for error reporting / stack traces
-typedef struct {
-    char *filename;
-    int64_t line;
-    int64_t column;
-} EastLocation;
 
 typedef enum {
     IR_VALUE,

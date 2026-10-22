@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // One-time bootstrap publisher for the @elaraai/east-c-cli launcher + the
-// 5 per-platform packages.
+// 5 per-platform packages, and for @elaraai/east-c-datascience + its
+// linux-x64 package when their tarball is among the artifacts.
 //
 // Why this exists
 // ---------------
@@ -61,6 +62,7 @@ function usage(msg) {
   if (msg) console.error(msg);
   console.error('Usage: NPM_TOKEN=npm_xxx node scripts/bootstrap-east-c-npm.mjs <artifacts-dir> [--dry-run]');
   console.error('  <artifacts-dir>  directory containing c-npm-<target>/elaraai-east-c-cli-<target>-<version>.tgz');
+  console.error('                   (and c-npm-datascience-linux-x64/elaraai-east-c-datascience-linux-x64-<version>.tgz)');
   console.error('  --dry-run        pack/publish in --dry-run mode (no registry mutation)');
   process.exit(2);
 }
@@ -94,14 +96,16 @@ function npmEnv() {
   return DRY_RUN ? process.env : { ...process.env, npm_config_userconfig: npmrcPath };
 }
 
-function findTarball(target) {
+function findTarball(target, family = 'cli') {
   // Artifacts layout per release.yml's actions/upload-artifact step: when
   // `merge-multiple: true` is used the .tgz files land flat in the dir;
   // otherwise each artifact lands in its own subdir. Look in both.
   // npm pack folds the scope into the filename (elaraai- prefix).
-  const flat = path.join(artifactsDir, `elaraai-east-c-cli-${target}-${VERSION}.tgz`);
+  const file = `elaraai-east-c-${family}-${target}-${VERSION}.tgz`;
+  const flat = path.join(artifactsDir, file);
   if (fs.existsSync(flat)) return flat;
-  const nested = path.join(artifactsDir, `c-npm-${target}`, `elaraai-east-c-cli-${target}-${VERSION}.tgz`);
+  const artifact = family === 'cli' ? `c-npm-${target}` : `c-npm-${family}-${target}`;
+  const nested = path.join(artifactsDir, artifact, file);
   if (fs.existsSync(nested)) return nested;
   return null;
 }
@@ -131,13 +135,14 @@ function publishDir(name, dir) {
   return r.status === 0;
 }
 
-function injectPlatformDeps(launcherDir) {
+function injectPlatformDeps(metaDir, family = 'cli') {
   const r = spawnSync(
     'node',
     [
       path.join(repoRoot, 'scripts/inject-east-c-platform-deps.mjs'),
       '--version', VERSION,
-      '--file', path.join(launcherDir, 'package.json'),
+      '--package', family,
+      '--file', path.join(metaDir, 'package.json'),
     ],
     { stdio: 'inherit' },
   );
@@ -176,6 +181,20 @@ try {
   const launcherDir = path.join(repoRoot, 'libs/east-c/packages/east-c-cli');
   injectPlatformDeps(launcherDir);
   if (!publishDir('@elaraai/east-c-cli', launcherDir)) { console.error('  FAILED: launcher'); failed++; }
+
+  // 3. east-c-datascience, when its linux-x64 tarball is among the artifacts
+  //    (release.yml's publish-c-datascience job): the per-platform package,
+  //    then the meta package with that optionalDependency injected.
+  const dsTgz = findTarball('linux-x64', 'datascience');
+  if (dsTgz) {
+    console.log('\n-- east-c-datascience --');
+    if (!publishTarball('@elaraai/east-c-datascience-linux-x64', dsTgz)) { console.error('  FAILED: @elaraai/east-c-datascience-linux-x64'); failed++; }
+    const dsDir = path.join(repoRoot, 'libs/east-c/packages/east-c-datascience');
+    injectPlatformDeps(dsDir, 'datascience');
+    if (!publishDir('@elaraai/east-c-datascience', dsDir)) { console.error('  FAILED: @elaraai/east-c-datascience'); failed++; }
+  } else {
+    console.log('\n-- east-c-datascience: no linux-x64 tarball among the artifacts, skipped --');
+  }
 } finally {
   if (!DRY_RUN) {
     try { fs.rmSync(npmrcDir, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -184,7 +203,8 @@ try {
   // committed state (no optionalDependencies). Best-effort — only attempts
   // if git is available.
   try {
-    spawnSync('git', ['checkout', '--', 'libs/east-c/packages/east-c-cli/package.json'], {
+    spawnSync('git', ['checkout', '--', 'libs/east-c/packages/east-c-cli/package.json',
+                       'libs/east-c/packages/east-c-datascience/package.json'], {
       cwd: repoRoot,
       stdio: 'ignore',
     });

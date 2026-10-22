@@ -60,6 +60,8 @@ MinCostFlowResultType = StructType(
         ("status", GoogleOrStatusType),
         ("total_cost", IntegerType),
         ("flows", ArrayType(IntegerType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
@@ -67,8 +69,7 @@ MinCostFlowResultType = StructType(
 
 Fields: ``status`` (``GoogleOrStatusType``), ``total_cost`` (``Integer``
 optimal objective when feasible; 0 otherwise), ``flows`` (``Array<Integer>``
-per-arc flow in arc-declaration order; empty when infeasible), ``wall_time``
-(``Float`` seconds).
+per-arc flow in arc-declaration order; empty when infeasible), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 """
 
 # --- Max flow ---
@@ -95,6 +96,8 @@ MaxFlowResultType = StructType(
         ("status", GoogleOrStatusType),
         ("total_flow", IntegerType),
         ("flows", ArrayType(IntegerType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
@@ -103,7 +106,7 @@ MaxFlowResultType = StructType(
 Fields: ``status`` (``GoogleOrStatusType`` — ``optimal`` when solved),
 ``total_flow`` (``Integer`` maximum flow value; 0 when not solved),
 ``flows`` (``Array<Integer>`` per-arc flow in arc-declaration order; empty
-when not solved), ``wall_time`` (``Float`` seconds).
+when not solved), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 """
 
 # --- Assignment ---
@@ -138,6 +141,8 @@ AssignmentResultType = StructType(
         ("status", GoogleOrStatusType),
         ("total_cost", IntegerType),
         ("assignments", ArrayType(AssignmentMatchType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
@@ -146,8 +151,7 @@ AssignmentResultType = StructType(
 Fields: ``status`` (``GoogleOrStatusType`` — ``optimal``, ``infeasible``,
 or ``not_solved``), ``total_cost`` (``Integer`` sum of assigned costs when
 optimal; 0 otherwise), ``assignments`` (``Array<AssignmentMatchType>`` one
-entry per worker when optimal; empty otherwise), ``wall_time`` (``Float``
-seconds).
+entry per worker when optimal; empty otherwise), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 """
 
 # --- Sparse min-cost assignment ---
@@ -177,6 +181,8 @@ MinCostAssignmentResultType = StructType(
         ("status", GoogleOrStatusType),
         ("total_cost", IntegerType),
         ("assignments", ArrayType(AssignmentMatchType)),
+        ("build_time", FloatType),
+        ("solve_time", FloatType),
         ("wall_time", FloatType),
     ]
 )
@@ -187,7 +193,7 @@ minimised objective — matched arc costs plus the penalty of every unmatched
 worker, so it equals the sum of ``assignments[].cost`` only when every worker
 was matched; 0 when not solved), ``assignments``
 (``Array<AssignmentMatchType>`` matched pairs only, unassigned workers
-omitted; empty when not solved), ``wall_time`` (``Float`` seconds).
+omitted; empty when not solved), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 """
 
 
@@ -228,7 +234,7 @@ def min_cost_flow(
         or ``not_solved``), ``total_cost`` (``Integer`` optimal objective
         when feasible/optimal; 0 otherwise), ``flows`` (``Array<Integer>``
         per-arc flow in the same order as ``start_nodes``; empty when
-        infeasible), ``wall_time`` (``Float`` seconds).
+        infeasible), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -254,8 +260,10 @@ def min_cost_flow(
     for i, supply in enumerate(supplies):
         smcf.set_node_supply(i, supply)
 
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     status_code = smcf.solve()
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     if status_code in (smcf.OPTIMAL, smcf.FEASIBLE):
         flows: EastArray = EastArray(
@@ -269,7 +277,9 @@ def min_cost_flow(
                 ),
                 "total_cost": int(smcf.optimal_cost()),
                 "flows": flows,
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
     elif status_code == smcf.INFEASIBLE:
@@ -278,7 +288,9 @@ def min_cost_flow(
                 "status": variant("infeasible", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "flows": EastArray(IntegerType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
     else:
@@ -287,7 +299,9 @@ def min_cost_flow(
                 "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "flows": EastArray(IntegerType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -319,8 +333,7 @@ def max_flow(
         (``GoogleOrStatusType`` - ``optimal`` when solved, ``not_solved``
         otherwise), ``total_flow`` (``Integer`` maximum flow value when
         optimal; 0 otherwise), ``flows`` (``Array<Integer>`` per-arc flow in
-        the same order as ``start_nodes``; empty when not solved), ``wall_time``
-        (``Float`` seconds).
+        the same order as ``start_nodes``; empty when not solved), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -341,8 +354,10 @@ def max_flow(
     for i in range(len(start_nodes)):
         smf.add_arc_with_capacity(start_nodes[i], end_nodes[i], capacities[i])
 
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     status_code = smf.solve(source, sink)
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     if status_code == smf.OPTIMAL:
         flows: EastArray = EastArray(
@@ -354,7 +369,9 @@ def max_flow(
                 "status": variant("optimal", None, GoogleOrStatusType),
                 "total_flow": int(smf.optimal_flow()),
                 "flows": flows,
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
     else:
@@ -363,7 +380,9 @@ def max_flow(
                 "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_flow": 0,
                 "flows": EastArray(IntegerType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -397,7 +416,7 @@ def assignment(
         ``total_cost`` (``Integer`` sum of assigned costs when optimal; 0
         otherwise), ``assignments`` (``Array<AssignmentMatchType>`` - one
         ``{worker: Integer, task: Integer, cost: Integer}`` per worker when
-        optimal; empty otherwise), ``wall_time`` (``Float`` seconds).
+        optimal; empty otherwise), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -410,13 +429,16 @@ def assignment(
     costs_data = input_data.get("costs")
     num_workers = len(costs_data)
     if num_workers == 0:
-        wall_time = time.perf_counter() - start_time
+        build_time = time.perf_counter() - start_time
+        solve_time = 0.0
         return EastStruct(
             {
                 "status": variant("optimal", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -427,8 +449,10 @@ def assignment(
         for task in range(len(row)):
             assignment.add_arc_with_cost(worker, task, int(row[task]))
 
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     status_code = assignment.solve()
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     if status_code == assignment.OPTIMAL:
         matches: list[EastStruct] = []
@@ -452,7 +476,9 @@ def assignment(
                 "status": variant("optimal", None, GoogleOrStatusType),
                 "total_cost": int(total_cost),
                 "assignments": EastArray(AssignmentMatchType, matches),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
     elif status_code == assignment.INFEASIBLE:
@@ -461,7 +487,9 @@ def assignment(
                 "status": variant("infeasible", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
     else:
@@ -470,7 +498,9 @@ def assignment(
                 "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -518,8 +548,7 @@ def min_cost_assignment(
         ``not_solved``), ``total_cost`` (``Integer`` the minimised objective —
         matched arc costs plus the penalty of every unmatched worker; 0 when not
         solved), ``assignments`` (``Array<AssignmentMatchType>`` matched pairs
-        only, unassigned workers omitted; empty when not solved), ``wall_time``
-        (``Float`` seconds).
+        only, unassigned workers omitted; empty when not solved), ``build_time`` (``Float`` seconds from the call's entry to the solver's start), ``solve_time`` (``Float`` seconds inside the solver), ``wall_time`` (``Float`` seconds for the whole call, so what is left of it is the write-back).
 
     Raises:
         NotImplementedError: the ``google-or`` extra (ortools) is not installed.
@@ -582,13 +611,16 @@ def min_cost_assignment(
             )
 
     if num_workers == 0:
-        wall_time = time.perf_counter() - start_time
+        build_time = time.perf_counter() - start_time
+        solve_time = 0.0
         return EastStruct(
             {
                 "status": variant("optimal", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 
@@ -623,8 +655,10 @@ def min_cost_assignment(
     smcf.set_node_supply(0, num_workers)
     smcf.set_node_supply(sink, -num_workers)
 
+    build_time = time.perf_counter() - start_time
+    solve_start = time.perf_counter()
     status_code = smcf.solve()
-    wall_time = time.perf_counter() - start_time
+    solve_time = time.perf_counter() - solve_start
 
     if status_code in (smcf.OPTIMAL, smcf.FEASIBLE):
         matches: list[EastStruct] = [
@@ -645,7 +679,9 @@ def min_cost_assignment(
                 ),
                 "total_cost": int(smcf.optimal_cost()),
                 "assignments": EastArray(AssignmentMatchType, matches),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
     elif status_code == smcf.INFEASIBLE:
@@ -654,7 +690,9 @@ def min_cost_assignment(
                 "status": variant("infeasible", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
     else:
@@ -663,7 +701,9 @@ def min_cost_assignment(
                 "status": variant("not_solved", None, GoogleOrStatusType),
                 "total_cost": 0,
                 "assignments": EastArray(AssignmentMatchType, []),
-                "wall_time": wall_time,
+                "build_time": build_time,
+                "solve_time": solve_time,
+                "wall_time": time.perf_counter() - start_time,
             }
         )
 

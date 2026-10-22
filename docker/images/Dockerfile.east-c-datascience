@@ -1,0 +1,56 @@
+# East C Datascience Runtime (BUSL-1.1)
+# east-c PLUS east-c-datascience: the OR-Tools, XGBoost and neural-network
+# platform functions, as the npm package the runner opens at run time
+# (@elaraai/east-c-datascience), with the pinned libtorch fetched beside it.
+#
+# Built FROM the east-c image as ONE added layer, so registries (ghcr, ECR)
+# dedup the shared base — pulling this image only adds the datascience delta
+# on top of an east-c already present (elaraai/east-workspace#299), as
+# east-py-datascience sits on east-py.
+#
+# License: Contains BUSL-1.1 components - production use requires commercial license
+# See: https://github.com/elaraai/e3/blob/main/LICENSE.md
+#
+# Usage:
+#   docker build -f Dockerfile.east-c-datascience -t ghcr.io/elaraai/east-c-datascience .
+#   docker run --rm -v $(pwd):/workspace ghcr.io/elaraai/east-c-datascience east-c run program.beast2 -p std -p datascience
+
+# The base MUST be the same lockstep version this layer installs: the runner
+# refuses a package of another version. BASE_IMAGE is overridable for CI
+# smoke builds (point it at a locally-built east-c tag).
+ARG EAST_C_VERSION=latest
+ARG BASE_IMAGE=ghcr.io/elaraai/east-c:${EAST_C_VERSION}
+FROM ${BASE_IMAGE}
+
+LABEL org.opencontainers.image.source="https://github.com/elaraai/east-workspace"
+LABEL org.opencontainers.image.description="East C Datascience Runtime - BUSL-1.1"
+LABEL org.opencontainers.image.licenses="BUSL-1.1"
+
+# Re-declare after FROM (args before FROM are not in the build stage scope).
+ARG EAST_C_VERSION=latest
+
+# The package beside the runner, then libtorch (the package's own command; the
+# install's postinstall fetches it too, when npm runs scripts). The runner here
+# is the raw binary, not the launcher that would point it at the package (the
+# east-c image symlinks the binary for its 2 ms start), so the package is
+# linked where the binary looks on its own: /usr/local/lib/east-c. The layer
+# ends with the runner naming the package and its libtorch, or fails.
+RUN set -e; \
+    if [ "$EAST_C_VERSION" = "latest" ]; then \
+      npm install -g @elaraai/east-c-datascience; \
+    else \
+      npm install -g "@elaraai/east-c-datascience@${EAST_C_VERSION}"; \
+    fi; \
+    LIB="$(find "$(npm root -g)" -name libeast-c-datascience.so -path '*@elaraai/east-c-datascience-*' 2>/dev/null | head -1)"; \
+    if [ -z "$LIB" ]; then echo "east-c-datascience libraries not found after installing @elaraai/east-c-datascience@${EAST_C_VERSION}" >&2; exit 1; fi; \
+    mkdir -p /usr/local/lib/east-c; \
+    ln -sfn "$(dirname "$(dirname "$LIB")")" /usr/local/lib/east-c/east-c-datascience; \
+    east-c-datascience fetch-libtorch; \
+    east-c version -p east-c-datascience | tee /tmp/east-c-version.txt; \
+    grep -q 'platform functions; OR-Tools' /tmp/east-c-version.txt; \
+    grep -q 'libtorch 2' /tmp/east-c-version.txt; \
+    rm /tmp/east-c-version.txt; \
+    npm cache clean --force
+
+# Default command
+CMD ["bash"]

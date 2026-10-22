@@ -1623,7 +1623,13 @@ without the flag — e3 hands its environment to the runner, so a task's report
 lands in its log (`e3 task logs`) — and `EAST_PROFILE_INTERVAL=N` prints the
 profile so far every N seconds while the work runs. A python function linked
 into a TypeScript task carries its locations through the manifest, so the
-report names its python lines.
+report names its python lines. A python platform function's entry carries a
+`bridge` line under it: the time its calls spent converting their arguments
+into python values and their results back, and the element-level crossings
+their bodies made (a row read from an East array, an entry written to an East
+dict, each one crossing) — a function whose bridge outweighs its self time is
+bound by the bridge, not its library, and wants its data in columns or the C
+runtime.
 
 ## Key Patterns
 

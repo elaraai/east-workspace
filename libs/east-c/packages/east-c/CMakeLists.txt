@@ -296,6 +296,12 @@ add_executable(test_small_collections tests/test_small_collections.c)
 target_link_libraries(test_small_collections east-c)
 add_test(NAME small_collections COMMAND test_small_collections)
 
+# east_dict_load gate: a dict loaded in key order (the tree's bulk load past
+# the small collection) is the dict set pair by pair, in any order.
+add_executable(test_dict_load tests/test_dict_load.c)
+target_link_libraries(test_dict_load east-c)
+add_test(NAME dict_load COMMAND test_dict_load)
+
 # GC pacing + pure-data untracking gate (issue #437): full collections must be
 # paced on old-generation growth (a fixed interval is quadratic while building
 # a large live structure — CPython bpo-4074), and containers whose type cannot
@@ -539,6 +545,15 @@ add_test(NAME value_compare COMMAND test_value_compare)
 add_executable(test_east_text tests/test_east_text.c)
 target_link_libraries(test_east_text east-c)
 add_test(NAME east_text COMMAND test_east_text)
+
+# Profiler bridge-note gate (#1357): a host running a platform function in its
+# own runtime reports what a call spent on the bridge (converting arguments and
+# results, the element crossings its body made); the note lands on the platform
+# function's entry, prints under its line, and is nothing while the profiler
+# is off.
+add_executable(test_profile_note tests/test_profile_note.c)
+target_link_libraries(test_profile_note east-c)
+add_test(NAME profile_note COMMAND test_profile_note)
 
 # Platform-signature check parity gate (#62): compiles TS-exported IR against
 # drifted typed platform registrations and asserts east_compile_checked's

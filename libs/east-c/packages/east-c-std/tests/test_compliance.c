@@ -15,6 +15,12 @@
 #include <east/type_of_type.h>
 #include <east/compat.h>
 #include <east_std/east_std.h>
+/* Built a second time as east-c-datascience's runner, which opens that package
+ * as the CLI does — the build tree's library, or the one EAST_C_PACKAGE_PATH
+ * names — and registers it beside std (packages/east-c-datascience/CMakeLists.txt). */
+#ifdef EAST_COMPLIANCE_DATASCIENCE
+#include "package_loader.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -96,6 +102,23 @@ static EvalResult plat_describe(EastValue **args, size_t num_args, EastType **in
     return eval_ok(east_null());
 }
 
+/* A test named "… (x86-64)" pins an answer only x86-64 gives (a native
+ * library's own floating point, such as the bytes of an XGBoost fit); the
+ * east-c, east-py and east-node harnesses skip it on another architecture,
+ * as [-], outside the counts. */
+#if defined(__x86_64__) || defined(_M_X64)
+#define HARNESS_X86_64 1
+#else
+#define HARNESS_X86_64 0
+#endif
+
+static int pins_x86_64(const char *name)
+{
+    static const char suffix[] = " (x86-64)";
+    size_t n = strlen(name), m = sizeof(suffix) - 1;
+    return n >= m && strcmp(name + n - m, suffix) == 0;
+}
+
 static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_types,
                             size_t num_input_types, EastType *output_type)
 {
@@ -104,6 +127,11 @@ static EvalResult plat_test(EastValue **args, size_t num_args, EastType **input_
     const char *name = "";
     if (num_args > 0 && args[0] && args[0]->kind == EAST_VAL_STRING) {
         name = args[0]->data.string.data;
+    }
+
+    if (!HARNESS_X86_64 && pins_x86_64(name)) {
+        printf("  [-] %s (an x86-64 answer; skipped on this architecture)\n", name);
+        return eval_ok(east_null());
     }
 
     g_tests_run++;
@@ -203,6 +231,17 @@ static int run_suite(void *arg)
     /* Register standard library platform functions first */
     PlatformRegistry *platform = platform_registry_new();
     east_std_register_all(platform);
+#ifdef EAST_COMPLIANCE_DATASCIENCE
+    {
+        char err[4096];
+        const EastDatasciencePackage *ds = east_package_datascience(err, sizeof err);
+        if (!ds) {
+            fprintf(stderr, "%s\n", err);
+            exit(1);
+        }
+        ds->register_all(platform);
+    }
+#endif
 
     /* Override test harness functions (east_std stubs don't run tests) */
     platform_registry_add(platform, "testPass", plat_test_pass, false);
@@ -335,5 +374,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "Usage: %s <ir-json-file>\n", argv[0]);
         return 1;
     }
-    return east_run_on_large_stack(run_suite, (void *)argv[1]);
+    /* Under EAST_PROFILE the profiler is armed as a runner arms it, and its
+     * report printed at the end: what a platform function spent outside its
+     * library (east-c-datascience's bridge lines, #1357 R30) is read off it. */
+    east_profile_start(false);
+    int rc = east_run_on_large_stack(run_suite, (void *)argv[1]);
+    east_profile_finish(stderr);
+    return rc;
 }

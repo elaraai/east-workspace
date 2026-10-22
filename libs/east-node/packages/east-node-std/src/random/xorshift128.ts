@@ -38,14 +38,19 @@ export default class XorShift128RNG extends RNG {
      * Generate next random number in [0, 1)
      */
     next(): number {
-        // xorshift128+ algorithm
+        // xorshift128+ over 64-bit words: every sum and shift wraps at 64 bits,
+        // as the C and python runtimes' uint64 arithmetic wraps, so a seeded
+        // stream is the same on every runtime (test/random.spec.ts pins it).
+        // Without the masks the shifted word grew past 64 bits and the stream
+        // parted from theirs at the second draw.
+        const MASK64 = 0xFFFFFFFFFFFFFFFFn;
         let s1 = this.state0;
         const s0 = this.state1;
-        const result = s0 + s1;
+        const result = (s0 + s1) & MASK64;
 
         this.state0 = s0;
-        s1 ^= s1 << 23n;
-        this.state1 = s1 ^ s0 ^ (s1 >> 17n) ^ (s0 >> 26n);
+        s1 ^= (s1 << 23n) & MASK64;
+        this.state1 = (s1 ^ s0 ^ (s1 >> 17n) ^ (s0 >> 26n)) & MASK64;
 
         // Convert to [0, 1) range
         // Use upper 53 bits for double precision

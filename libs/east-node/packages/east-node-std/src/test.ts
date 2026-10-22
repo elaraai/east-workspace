@@ -47,6 +47,9 @@ const testFail = East.platform("testFail", [StringType], NullType);
  */
 const test = East.asyncPlatform("test", [StringType, AsyncFunctionType([], NullType)], NullType);
 
+/** The suffix of a test name that pins an x86-64 answer: skipped on any other architecture. */
+const X86_64_SUFFIX = " (x86-64)";
+
 /**
  * Platform function that defines a test suite.
  *
@@ -69,7 +72,15 @@ export const TestImpl: PlatformFunction[] = [
         // Assertion failed - throw to fail the test
         assert.fail(message);
     }),
-    test.implement((name: string, body: () => Promise<null>) => testNode(name, async () => { await body(); })),
+    test.implement((name: string, body: () => Promise<null>) => {
+        // A test named `… (x86-64)` pins an answer only x86-64 gives (a native
+        // library's own floating point); this harness, east-c's and east-py's
+        // skip it elsewhere, outside the counts.
+        if (name.endsWith(X86_64_SUFFIX) && process.arch !== "x64") {
+            return testNode(name, { skip: `an x86-64 answer; skipped on ${process.arch}` }, async () => { });
+        }
+        return testNode(name, async () => { await body(); });
+    }),
     describe.implement((name: string, body: () => Promise<null>) => describeNode(name, async () => { await body(); })),
 ]
 

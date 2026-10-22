@@ -1,6 +1,10 @@
 #ifndef EAST_HASHMAP_H
 #define EAST_HASHMAP_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -40,5 +44,9 @@ void hashmap_iter(Hashmap *map, HashmapIterFn fn, void *ctx);
 
 // Get all keys
 char **hashmap_keys(Hashmap *map, size_t *out_count);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

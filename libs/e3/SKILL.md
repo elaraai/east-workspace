@@ -301,7 +301,7 @@ anything a task should react to is an input.
 |---|---|
 | omitted | `{ runtime: 'east-node', platforms: ['@elaraai/east-node-std'] }` — every project has Node |
 | `{ runtime: 'east-py', platforms: ['east-py-std', 'east-py-io', 'east-py-datascience'] }` | Python |
-| `{ runtime: 'east-c', platforms: ['east-c-std'] }` | native, the lowest overhead |
+| `{ runtime: 'east-c', platforms: ['east-c-std'] }` | native, the lowest overhead; `'east-c-datascience'` adds the OR-Tools, XGBoost and NeuralNet families (the package `@elaraai/east-c-datascience` installed beside `@elaraai/east-c-cli`, or the `east-c-datascience` Docker tier; the networks on libtorch, CPU or CUDA) and nothing else of east-py-datascience: an imported function calling any other of its platform functions is refused at export for this runner |
 | `{ runtime: 'custom', command: ['uv', 'run', 'east-py', 'run', '-p', 'east-py-std'] }` | any command: e3 appends `run`'s arguments (`-i <input>` each, `-o <output>`, the program's file) |
 
 Platform names are typed per runtime — a typo, or another runtime's platform, is
@@ -781,7 +781,11 @@ called: the python lines of a function `East.importFunction` linked in
 included. Each input read lazily is an entry too, named as `-v` names it
 (`input 1`): the time its reads spent decoding segments, a call each — keyed
 reads at random beyond the segments the runner keeps, or a scan repeated,
-which `-v`'s account counts — and not the reading function's own time.
+which `-v`'s account counts — and not the reading function's own time. A
+python platform function's entry (a solver, a model) carries a `bridge` line:
+the time converting its arguments and results across the python bridge, and
+the element crossings its body made, so a task bound by the bridge rather than
+its library shows it, and wants its data in columns or the C runtime.
 `EAST_PROFILE_INTERVAL=300` adds the profile so far every five minutes while a
 long task runs. east-node does not profile. Like `-v` it changes no hash: add
 `--force` for a cached task.

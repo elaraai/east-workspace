@@ -1,6 +1,6 @@
 ---
 name: east-py-datascience
-description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, ALNS, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, Torch MLP, Lightning, GP), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal or ALNS, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks with Torch MLP or Lightning, (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) One declarative causal experiment — naive vs adjusted effect, overlap, robustness, and an honesty verdict — with Causal.experiment, (16) Calling the east_py_datascience functions (xgboost_train_regressor, mads_optimize, …) from a project's own Python @East.platform_function, or inside an East.function body — the same object does both."
+description: "Data science and machine learning platform functions for the East language (TypeScript types + directly-callable Python implementations). Use when writing East programs that need optimization (MADS, Optuna, SimAnneal, ALNS, Scipy, Optimization, GoogleOr), machine learning (XGBoost, LightGBM, NGBoost, GP, and neural networks stated as data with NeuralNet), Bayesian inference (PyMC), causal inference (Causal: DoWhy, EconML DML, ALE), simulation (Simulation DES), ML utilities (Sklearn preprocessing, metrics, splits), conformal prediction (MAPIE), or model explainability (SHAP). Triggers for: (1) Writing East programs with @elaraai/east-py-datascience, (2) Derivative-free optimization with MADS, (3) Bayesian optimization with Optuna, (4) Discrete/combinatorial optimization with SimAnneal or ALNS, (5) Gradient boosting with XGBoost or LightGBM, (6) Probabilistic predictions with NGBoost or GP, (7) Neural networks stated as data with NeuralNet (one definition, trained by torch and run by torch or east-c), (8) Data preprocessing and metrics with Sklearn, (9) Conformal prediction intervals with MAPIE, (10) Model explainability with Shap, (11) Iterative coordinate descent with Optimization, (12) Constraint programming, vehicle routing, LP/MIP, or graph algorithms with GoogleOr, (13) Bayesian regression, hierarchical models, and multi-layer estimation with PyMC, (14) Economic ontology simulation via discrete event simulation with Simulation, (15) One declarative causal experiment — naive vs adjusted effect, overlap, robustness, and an honesty verdict — with Causal.experiment, (16) Calling the east_py_datascience functions (xgboost_train_regressor, mads_optimize, …) from a project's own Python @East.platform_function, or inside an East.function body — the same object does both."
 ---
 
 # East Data Science
@@ -10,7 +10,10 @@ ML models, Bayesian and causal inference, simulation, preprocessing and
 explainability. This is the platform's **Reason** layer — a model earns its
 place by improving a decision (a forecast or optimisation that feeds a
 `decision`), so wire its outputs toward one. The functions run on the python
-runtime only: an e3 task needs a python runner (see Related skills).
+runtime, and the Google OR-Tools, XGBoost and NeuralNet families on the C
+runtime too (`east-c-datascience`, the same names, types and results; the
+networks on libtorch, training included): an e3 task needs a python runner, or
+an east-c runner for those (see Related skills).
 
 ## Before writing code — search the example index
 
@@ -70,10 +73,12 @@ Task → What do you need?
     │   │   where a move changed it (coordinate or swap mode)
     │   └─ .iterativeGrouped(groupObjective, paramSpaces, config) — contributions grouped by VALUE (employees, bins,
     │       vehicles): a move from A to B recomputes groups A and B
-    ├─ GoogleOr (OR-Tools)
-    │   ├─ CP-SAT → .cpsatSolve(), .cpsatSolveAll()
+    ├─ GoogleOr (OR-Tools; on the python and the C runtimes)
+    │   ├─ CP-SAT → .cpsatSolve(), .cpsatSolveAll() · in columns .cpsatSolveColumns() (domains and linear rows as
+    │   │   vectors, the other constraint kinds over named variables; values by index)
     │   ├─ Routing → .routingSolve() (TSP, CVRP, VRPTW, VRPPD)
-    │   ├─ Linear → .linearSolve() (LP, MIP)
+    │   ├─ Linear → .linearSolve() (LP, MIP) · in columns .linearSolveColumns() (bounds, rows by row_ptr/col_ix/coeff
+    │   │   and the objective as vectors — nothing crosses an element at a time; values by index)
     │   └─ Graph → .minCostFlow(), .maxFlow(), .assignment() (dense cost matrix),
     │              .minCostAssignment() (sparse arcs, task capacity, opt-out penalty)
     ├─ Scipy
@@ -83,22 +88,22 @@ Task → What do you need?
     │   ├─ Histogram / KDE → .histogram(), .kdeFit(), .kdeEvaluate()
     │   ├─ Curve fitting → .curveFit()
     │   └─ Interpolation → .interpolate1dFit(), .interpolate1dPredict()
-    ├─ XGBoost → train .trainRegressor(), .trainClassifier(), .trainQuantile() · predict .predict(), .predictClass(),
-    │            .predictProba(), .predictQuantile()
+    ├─ XGBoost (on the python and the C runtimes) → train .trainRegressor(), .trainClassifier(), .trainQuantile() ·
+    │            predict .predict(), .predictClass(), .predictProba(), .predictQuantile(), .resave() — a model blob is XGBoost's
+    │            own UBJSON model, so one trained on either runtime predicts on the other
     ├─ LightGBM → train .trainRegressor(), .trainClassifier() · predict .predict(), .predictClass(), .predictProba()
     ├─ NGBoost (probabilistic boosting) → .trainRegressor() · .predict(), .predictDist()
-    ├─ Torch (MLP) → train .mlpTrain(), .mlpTrainMulti() · predict .mlpPredict(), .mlpPredictMulti() · embeddings
-    │                .mlpEncode(), .mlpDecode()
-    ├─ Lightning (PyTorch Lightning)
-    │   ├─ .train(X, y, config, masks, group_weights, conditions) · .predict(model, X, masks, conditions)
-    │   ├─ Embeddings (autoencoders) → .encode(), .decode(), .decodeConditional()
-    │   ├─ Generation (sequential models) → .generateSequence(model, prefix, condition: Option, config{n_steps,
-    │   │   temperature (0 = argmax), return_probs}) — the generated steps, not the prefix
-    │   ├─ Architectures → mlp · autoencoder · conv1d (temporal) · sequential (LSTM/GRU, temporal) · transformer (temporal)
-    │   ├─ Output modes → regression (MSE) · binary (BCE; per-position pos_weights, masks) ·
-    │   │                 multi_head (N CE heads; per-head class_weights, masks)
-    │   └─ condition_dim for conditional generation in the temporal architectures; early stopping, gradient clipping,
-    │       epoch callbacks, group_weights
+    ├─ NeuralNet — a network as East data (NetType: inputs, params, modules, nodes in dependency order, outputs;
+    │   the operations of docs/neural-networks.md: gather/take_along/mask_select/mask_indices/repeat/range/searchsorted,
+    │   embedding_bag/segment ops, linear/einsum/conv1d/norms, element-wise (float, float64, integer, boolean element
+    │   types), axis reductions, attention with none/causal/segments/key_sets masks (segments and key_sets in memory
+    │   proportional to the allowed pairs), rotary (halves or interleaved), dropout, call, loop)
+    │   → .init(net, seed) weights · .train(net, weights, batches, validation, config) · .run(net, weights,
+    │     batch, outputs, config) · .importTorch(blob, names) / .exportTorch(weights, names) (a torch state dict
+    │     as weights and back), each on the python runtime or on east-c (libtorch), CPU or CUDA — for a
+    │     transformer over ragged grouped sequences, a conditioned U-Net, any architecture a fixed one cannot state;
+    │     a model's prepared form is kept between calls by the weights' identity, so a long-lived model pays
+    │     its preparation once; every random draw is a function of the seed, the node and the row's key
     ├─ GP (Gaussian process regression) → .train() · .predict(), .predictStd()
     ├─ MAPIE (conformal prediction)
     │   ├─ Regression → .trainConformalRegressor(), .trainCQR() · classification → .trainConformalClassifier()
@@ -135,7 +140,7 @@ Task → What do you need?
     └─ Shap (explainability)
         ├─ Create → .treeExplainerCreate() (XGBoost only), .kernelExplainerCreate() (any model)
         ├─ Compute → .computeValues(), .featureImportance()
-        └─ KernelExplainer takes XGBoost, LightGBM, NGBoost, GP, Torch, RegressorChain and MAPIE models
+        └─ KernelExplainer takes XGBoost, LightGBM, NGBoost, GP, RegressorChain and MAPIE models
 ```
 
 ## Data and Types
@@ -203,7 +208,7 @@ The platform functions are exported from `east_py_datascience` as **plain
 callables over East values** — no IR, no compile — and, the same objects,
 callable inside an `East.function` body, where the call is the `Platform`
 node with the declared signature. A project's own `@East.platform_function`
-imports and calls them (the preferred way to use lightning / torch / xgboost
+imports and calls them (the preferred way to use xgboost / torch
 / sklearn from project python); a python East body calls them the same way and
 compiles against the package's `platform` list:
 
@@ -239,8 +244,9 @@ Rules:
   mirroring the TypeScript `Module.Types.*`.
 - **Names are the platform names** (`xgboost_train_regressor`,
   `mads_optimize`, …), except GoogleOr's, exported without the `google_or_`
-  prefix: `cpsat_solve`, `cpsat_solve_all`, `routing_solve`, `linear_solve`,
-  `min_cost_flow`, `max_flow`, `assignment`, `min_cost_assignment`.
+  prefix: `cpsat_solve`, `cpsat_solve_all`, `cpsat_solve_columns`,
+  `routing_solve`, `linear_solve`, `linear_solve_columns`, `min_cost_flow`,
+  `max_flow`, `assignment`, `min_cost_assignment`.
 - **Inside an East body**: `East.function([...], ..., lambda b, X, y, cfg:
   xgboost_predict(xgboost_train_regressor(X, y, cfg), X))` — the calls are
   `Platform` nodes; `East.compile(fn, platform=east_py_datascience.platform)`
@@ -265,8 +271,12 @@ For the East-value API (eager methods, `coerce_to`, `to_numpy` / `to_torch`,
 - **e3** — **required to run these**: they need the python runtime, so wrap each
   call in an `e3.task` with a python runner (`{ runner: { runtime: 'east-py',
   platforms: ['east-py-datascience'] } }` — the typed runner resolves east-py
-  from the project's `.venv`, no `uv run` wrapper needed). They do not run on
-  the Node or C runtimes.
+  from the project's `.venv`, no `uv run` wrapper needed). The GoogleOr,
+  XGBoost and NeuralNet families also run on the C runtime (`{ runner: {
+  runtime: 'east-c', platforms: ['east-c-std', 'east-c-datascience'] } }`, the
+  package `@elaraai/east-c-datascience` beside the runner, the networks on
+  libtorch): a task moves by changing its runner and nothing else. Nothing runs
+  on the Node runtime.
 - **east** — the language for objective functions, configs and results.
 - **east-py** — the python runtime: East values as plain python data, eager
   methods, and the `@East.platform_function` on-ramp the direct calls live in.

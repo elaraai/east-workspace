@@ -114,6 +114,27 @@ if [ "$INSTALL_EAST_C" = true ]; then
     fi
     chmod +x "$EAST_C_BIN"
     ln -sf "$EAST_C_BIN" /usr/local/bin/east-c
+
+    # east-c-datascience (OR-Tools, XGBoost and the neural networks on east-c;
+    # e3's stock platform for an east-c runner beside east-c-std), with the
+    # pinned CPU libtorch fetched beside it — as the east-c-datascience tier
+    # image has them, so a task naming the package runs in the full image too.
+    # The package is linked where the raw binary looks on its own
+    # (/usr/local/lib/east-c), the launcher not being on PATH here.
+    if [ "$INSTALL_DATASCIENCE" = true ]; then
+        echo "Installing east-c-datascience..."
+        npm install -g "@elaraai/east-c-datascience@${EAST_C_CLI_VERSION}"
+        DS_LIB="$(find "$(npm root -g)" -name libeast-c-datascience.so -path '*@elaraai/east-c-datascience-*' 2>/dev/null | head -1)"
+        if [ -z "$DS_LIB" ]; then
+            echo "east-c-datascience libraries not found after installing @elaraai/east-c-datascience@${EAST_C_CLI_VERSION}" >&2
+            exit 1
+        fi
+        mkdir -p /usr/local/lib/east-c
+        ln -sfn "$(dirname "$(dirname "$DS_LIB")")" /usr/local/lib/east-c/east-c-datascience
+        east-c-datascience fetch-libtorch
+        east-c version -p east-c-datascience | grep -q 'libtorch 2' || {
+            echo "east-c does not report east-c-datascience's libtorch" >&2; exit 1; }
+    fi
 fi
 
 # Deduplicate @elaraai packages to a SINGLE instance each.

@@ -7,6 +7,7 @@ on:
       - "libs/east-c/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      - "libs/east-py/packages/east-py-datascience/**"
       - ".github/workflows/test-east-c.yml"
   pull_request:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - "libs/east-c/**"
       - "libs/east/**"
       - "libs/east-node/**"
+      - "libs/east-py/packages/east-py-datascience/**"
       - ".github/workflows/test-east-c.yml"
 
 concurrency:
@@ -40,10 +42,11 @@ jobs:
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install
-      - name: Export IR (east + east-node-std)
+      - name: Export IR (east + east-node-std + east-py-datascience)
         run: |
           make -C libs/east test-export
           make -C libs/east-node test-export-std
+          make -C libs/east-py test-export
       - uses: actions/upload-artifact@v4
         with:
           name: ir-east
@@ -53,6 +56,12 @@ jobs:
         with:
           name: ir-std
           path: tmp/east-node-std/
+          if-no-files-found: error
+      # The data-science suites, which east-c-datascience runs too (below).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ir-datascience
+          path: tmp/east-py-datascience/
           if-no-files-found: error
 
   test-east-c:
@@ -278,6 +287,233 @@ jobs:
         env:
           EAST_TEST_IR_DIR: ${{ github.workspace }}/tmp/east-test-ir
         run: ctest --test-dir build-asan --output-on-failure
+
+  # east-c-datascience: east-py-datascience's platform functions on this
+  # runtime (OR-Tools, XGBoost, the neural networks on libtorch), built on
+  # request (-DEAST_C_DATASCIENCE=ON) as the libraries the CLI opens at run
+  # time, against the pinned prebuilt OR-Tools and libtorch releases and the
+  # vendored XGBoost source, then held to the same suites east-py-datascience
+  # runs — the IR the export job wrote — through the build tree's libraries.
+  # Linux only: the one platform the pinned OR-Tools archive is fetched for
+  # (libs/east-c/scripts/fetch-ortools.sh).
+  test-east-c-datascience:
+    name: Test east-c-datascience
+    needs: export-ir
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+
+      # The pinned OR-Tools release (some 55 MB), kept between runs.
+      - name: Cache OR-Tools
+        uses: actions/cache@v4
+        with:
+          path: libs/east-c/build-deps/or-tools
+          key: or-tools-${{ hashFiles('libs/east-c/scripts/fetch-ortools.sh') }}
+      - name: Fetch OR-Tools
+        run: make -C libs/east-c fetch-ortools
+      - name: Cache libtorch
+        uses: actions/cache@v4
+        with:
+          path: libs/east-c/build-deps/libtorch
+          key: libtorch-${{ hashFiles('libs/east-c/scripts/libtorch-pins.json') }}
+      - name: Fetch libtorch (the pinned CPU build)
+        run: make -C libs/east-c fetch-libtorch
+
+      - name: Build east-c with east-c-datascience
+        run: make -C libs/east-c build EAST_C_DATASCIENCE=ON
+
+      # The gates still pass with the package built — the cli_packages gate
+      # among them, which opens it from the build tree and through
+      # EAST_C_PACKAGE_PATH.
+      - name: east-c gates (ctest)
+        working-directory: libs/east-c
+        run: ctest --test-dir build --output-on-failure
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-datascience
+          path: tmp/east-py-datascience
+
+      - name: east-c-datascience compliance
+        run: make -C libs/east-c test-east-c-datascience test-east-c-datascience-profile
+
+  # The published shape: the libraries built on the runner's glibc floor — an
+  # AlmaLinux 9 container (glibc 2.34, GCC 11's libstdc++), as release.yml's
+  # publish-c-datascience builds them — staged as the npm package ships them
+  # (libs/east-c/scripts/stage-datascience.sh), every file held to the floor,
+  # and packed with the binary and the two meta packages.
+  package-east-c-datascience:
+    name: Package east-c-datascience (AlmaLinux 9)
+    needs: export-ir
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    container: almalinux:9
+    steps:
+      - name: Install build deps
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            gcc gcc-c++ cmake make git tar gzip unzip python3 binutils findutils which
+          dnf clean all
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache OR-Tools
+        uses: actions/cache@v4
+        with:
+          path: libs/east-c/build-deps/or-tools
+          key: or-tools-${{ hashFiles('libs/east-c/scripts/fetch-ortools.sh') }}
+      - name: Fetch OR-Tools
+        run: make -C libs/east-c fetch-ortools
+      - name: Cache libtorch
+        uses: actions/cache@v4
+        with:
+          path: libs/east-c/build-deps/libtorch
+          key: libtorch-${{ hashFiles('libs/east-c/scripts/libtorch-pins.json') }}
+      - name: Fetch libtorch (the pinned CPU build)
+        run: make -C libs/east-c fetch-libtorch
+      - name: Build east-c with east-c-datascience
+        working-directory: libs/east-c
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DEAST_C_DATASCIENCE=ON
+          cmake --build . -j$(nproc)
+      - name: Stage the libraries
+        run: libs/east-c/scripts/stage-datascience.sh libs/east-c/build stage-datascience
+      - name: glibc and libstdc++ floor, every shipped file
+        run: |
+          node scripts/check-glibc-floor.mjs stage-datascience/lib \
+            libs/east-c/build/packages/east-c-cli/east-c \
+            libs/east-c/build/packages/east-c-datascience/test_datascience_compliance
+      # What publish-c-native and publish-c-datascience pack, and the two meta
+      # packages from source (their per-platform optionalDependencies are
+      # injected only at publish, so the install below names the four
+      # tarballs directly).
+      - name: Pack the npm packages
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          mkdir -p packed cli-linux-x64 ds-linux-x64
+          cp libs/east-c/build/packages/east-c-cli/east-c cli-linux-x64/
+          cp libs/east-c/packages/east-c-cli/LICENSE.md cli-linux-x64/
+          node scripts/emit-east-c-platform-manifest.mjs --target linux-x64 --version "$VERSION" --out cli-linux-x64/package.json
+          node scripts/emit-east-c-platform-readme.mjs --target linux-x64 --version "$VERSION" --out cli-linux-x64/README.md
+          ( cd cli-linux-x64 && npm pack --pack-destination ../packed )
+          ( cd libs/east-c/packages/east-c-cli && npm pack --pack-destination "$GITHUB_WORKSPACE/packed" )
+          cp -r stage-datascience/lib ds-linux-x64/lib
+          cp libs/east-c/packages/east-c-datascience/npm/fetch-libtorch.mjs libs/east-c/scripts/libtorch-pins.json libs/east-c/packages/east-c-datascience/LICENSE.md ds-linux-x64/
+          node scripts/emit-east-c-platform-manifest.mjs --package datascience --target linux-x64 --version "$VERSION" --out ds-linux-x64/package.json
+          node scripts/emit-east-c-platform-readme.mjs --package datascience --target linux-x64 --version "$VERSION" --out ds-linux-x64/README.md
+          ( cd ds-linux-x64 && npm pack --pack-destination ../packed )
+          ( cd libs/east-c/packages/east-c-datascience && npm pack --pack-destination "$GITHUB_WORKSPACE/packed" )
+          cp libs/east-c/build/packages/east-c-datascience/test_datascience_compliance packed/
+          ls -la packed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: east-c-datascience-packed
+          path: packed/
+          if-no-files-found: error
+
+  # The acceptance of the published shape: installed from those tarballs in a
+  # clean node:22-slim (Debian 12: glibc 2.36 — the Docker tiers' base, and
+  # above the 2.34 floor), `east-c version -p east-c-datascience` names the
+  # package, and the compliance suites run through the installed libraries
+  # with the runner the package was built beside: OR-Tools' and XGBoost's at
+  # once, the neural networks' once `east-c-datascience fetch-libtorch` has
+  # put libtorch beside them.
+  install-east-c-datascience:
+    name: Install east-c-datascience (node:22-slim)
+    needs: [export-ir, package-east-c-datascience]
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    container: node:22-slim
+    steps:
+      # The runner's one runtime link (east-c-std's libcurl), as the east-c
+      # Docker tier installs it; no compiler, no build tree.
+      - name: Install libcurl
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends libcurl4 ca-certificates
+          rm -rf /var/lib/apt/lists/*
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: east-c-datascience-packed
+          path: packed
+      - uses: actions/download-artifact@v4
+        with:
+          name: ir-datascience
+          path: ir
+      - name: Install from the tarballs
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          mkdir smoke && cd smoke
+          cat > package.json <<EOF
+          {
+            "name": "smoke", "private": true,
+            "dependencies": {
+              "@elaraai/east-c-cli": "file:../packed/elaraai-east-c-cli-${VERSION}.tgz",
+              "@elaraai/east-c-cli-linux-x64": "file:../packed/elaraai-east-c-cli-linux-x64-${VERSION}.tgz",
+              "@elaraai/east-c-datascience": "file:../packed/elaraai-east-c-datascience-${VERSION}.tgz",
+              "@elaraai/east-c-datascience-linux-x64": "file:../packed/elaraai-east-c-datascience-linux-x64-${VERSION}.tgz"
+            }
+          }
+          EOF
+          EAST_LIBTORCH=skip npm install --no-audit --no-fund
+      - name: east-c names the package, libtorch not yet fetched
+        working-directory: smoke
+        run: |
+          npx east-c version -p east-c-datascience | tee version.txt
+          grep -q '^  east-c-datascience .* platform functions; OR-Tools 9\.15' version.txt
+          grep -q 'XGBoost 3\.2' version.txt
+          grep -q 'libtorch not installed' version.txt
+      - name: GoogleOr and XGBoost suites through the installed package
+        working-directory: smoke
+        run: |
+          chmod +x ../packed/test_datascience_compliance
+          export EAST_C_PACKAGE_PATH="$(npx east-c-datascience path)"
+          echo "EAST_C_PACKAGE_PATH=$EAST_C_PACKAGE_PATH"
+          for suite in GoogleOr_platform_functions XGBoost_platform_functions; do
+            echo "── $suite ──"
+            ../packed/test_datascience_compliance "../ir/$suite.json"
+          done
+      - name: Cache the libtorch archive
+        uses: actions/cache@v4
+        with:
+          path: libtorch-zip
+          key: libtorch-zip-${{ hashFiles('libs/east-c/scripts/libtorch-pins.json') }}
+      # The archive is kept between runs (actions/cache above); node fetches it
+      # — the slim image has no curl — and the package's command takes it.
+      - name: Fetch libtorch beside the package
+        working-directory: smoke
+        run: |
+          mkdir -p ../libtorch-zip
+          if [ ! -f ../libtorch-zip/libtorch.zip ]; then
+            node --input-type=module -e '
+              import fs from "node:fs";
+              import { pipeline } from "node:stream/promises";
+              import { Readable } from "node:stream";
+              const p = JSON.parse(fs.readFileSync("../libs/east-c/scripts/libtorch-pins.json", "utf8"));
+              const url = p.url.replaceAll("{variant}", "cpu").replaceAll("{version}", p.version);
+              const res = await fetch(url);
+              if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+              await pipeline(Readable.fromWeb(res.body), fs.createWriteStream("../libtorch-zip/libtorch.zip"));
+            '
+          fi
+          npx east-c-datascience fetch-libtorch --archive ../libtorch-zip/libtorch.zip
+          npx east-c version -p east-c-datascience | tee version.txt
+          grep -q 'libtorch 2\.' version.txt
+      - name: NeuralNet suites through the installed package
+        working-directory: smoke
+        run: |
+          export EAST_C_PACKAGE_PATH="$(npx east-c-datascience path)"
+          for suite in NeuralNet_platform_functions NeuralNet_training; do
+            echo "── $suite ──"
+            ../packed/test_datascience_compliance "../ir/$suite.json"
+          done
 
   lint-east-c:
     name: Lint east-c (clang-format)

@@ -1,8 +1,27 @@
-add_executable(east-c-cli src/main.c)
+add_executable(east-c-cli src/main.c src/package_loader.c)
 set_target_properties(east-c-cli PROPERTIES OUTPUT_NAME east-c)
-target_link_libraries(east-c-cli east-c-std)
+target_link_libraries(east-c-cli east-c-std ${CMAKE_DL_LIBS})
+# east-c-datascience is a shared library the binary opens at run time
+# (src/package_loader.c) that links none of east-c: its east_* calls bind to
+# the runtime this binary carries. So the whole of east-c and east-c-std is
+# linked in and exported — not only what the CLI itself reaches — with the
+# third-party archives kept private, so nothing of theirs can interpose on a
+# package's own libraries. One published binary then serves every package
+# (docs/npm-runner-distribution.md). Not on Windows, where the package is not
+# published and an executable exports nothing.
 if(WIN32)
     target_link_libraries(east-c-cli psapi)
+else()
+    if(CMAKE_VERSION VERSION_LESS 3.24)
+        message(FATAL_ERROR "east-c needs CMake 3.24 or newer to export the runtime for its "
+                            "loadable packages (LINK_LIBRARY_OVERRIDE); found ${CMAKE_VERSION}")
+    endif()
+    set_property(TARGET east-c-cli PROPERTY LINK_LIBRARY_OVERRIDE "WHOLE_ARCHIVE,east-c-std,east-c")
+    set_target_properties(east-c-cli PROPERTIES ENABLE_EXPORTS ON)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_link_options(east-c-cli PRIVATE
+            "LINKER:--exclude-libs,libpcre2-8.a:libpcre2-posix.a:libbtreec.a:libminiz.a:libdeflate.a")
+    endif()
 endif()
 target_compile_definitions(east-c-cli PRIVATE
     EAST_CLI_VERSION="${EAST_VERSION}"
@@ -70,3 +89,20 @@ target_link_libraries(test_cli_ir east-c)
 add_test(NAME cli_ir COMMAND test_cli_ir $<TARGET_FILE:east-c-cli>
          ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures)
 set_tests_properties(cli_ir PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+
+# CLI package gate: east-c-datascience is opened at run time. A binary copied
+# to a directory of its own, told by EAST_C_PACKAGE_PATH to look in an empty
+# one, reports the package as not installed (and how to install it) from
+# `version`, and refuses `run -p east-c-datascience` before reading anything;
+# with the package built, the build tree's binary opens it and `version` names
+# it, and EAST_C_PACKAGE_PATH set to its directory opens it from there.
+add_executable(test_cli_packages tests/test_cli_packages.c)
+target_compile_definitions(test_cli_packages PRIVATE EAST_RUNTIME_VERSION="${EAST_VERSION}")
+if(TARGET east-c-datascience)
+    add_test(NAME cli_packages COMMAND test_cli_packages $<TARGET_FILE:east-c-cli>
+             ${CMAKE_CURRENT_BINARY_DIR}/packages-scratch $<TARGET_FILE:east-c-datascience>)
+else()
+    add_test(NAME cli_packages COMMAND test_cli_packages $<TARGET_FILE:east-c-cli>
+             ${CMAKE_CURRENT_BINARY_DIR}/packages-scratch)
+endif()
+set_tests_properties(cli_packages PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})

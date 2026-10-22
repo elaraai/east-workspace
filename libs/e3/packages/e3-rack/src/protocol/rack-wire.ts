@@ -28,7 +28,7 @@ import {
 /**
  * What an enrolling agent declares about its host: the operator-facing
  * label, the runner tiers it has rootfs images for (node | py |
- * py-datascience | c | full — the #57 vocabulary), its max concurrent
+ * py-datascience | c | c-datascience | full — the #57 vocabulary), its max concurrent
  * microVMs, and the agent build it runs.
  */
 export const RackHostInfoType = StructType({

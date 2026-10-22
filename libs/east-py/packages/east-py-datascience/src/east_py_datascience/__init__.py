@@ -32,6 +32,7 @@ from east_py_datascience.google_or import google_or_impl
 from east_py_datascience.google_or.cpsat import (
     cpsat_solve,
     cpsat_solve_all,
+    cpsat_solve_columns,
 )
 from east_py_datascience.google_or.graph import (
     assignment,
@@ -41,6 +42,7 @@ from east_py_datascience.google_or.graph import (
 )
 from east_py_datascience.google_or.linear import (
     linear_solve,
+    linear_solve_columns,
 )
 from east_py_datascience.google_or.routing import (
     routing_solve,
@@ -58,15 +60,6 @@ from east_py_datascience.lightgbm.lightgbm_impl import (
     lightgbm_predict_proba,
     lightgbm_train_classifier,
     lightgbm_train_regressor,
-)
-from east_py_datascience.lightning import lightning_impl
-from east_py_datascience.lightning.lightning_impl import (
-    lightning_decode,
-    lightning_decode_conditional,
-    lightning_encode,
-    lightning_generate_sequence,
-    lightning_predict,
-    lightning_train,
 )
 from east_py_datascience.mads import mads_impl
 from east_py_datascience.mads.mads import (
@@ -88,6 +81,7 @@ from east_py_datascience.ngboost.ngboost_impl import (
     ngboost_predict_dist,
     ngboost_train_regressor,
 )
+from east_py_datascience.nn import nn_impl, nn_init, nn_run, nn_train
 from east_py_datascience.optimization import (
     optimization_impl,
     optimization_iterative,
@@ -179,15 +173,6 @@ from east_py_datascience.sklearn.sklearn import (
     sklearn_standard_scaler_fit,
     sklearn_standard_scaler_transform,
 )
-from east_py_datascience.torch import torch_impl
-from east_py_datascience.torch.torch_impl import (
-    torch_mlp_decode,
-    torch_mlp_encode,
-    torch_mlp_predict,
-    torch_mlp_predict_multi,
-    torch_mlp_train,
-    torch_mlp_train_multi,
-)
 from east_py_datascience.types import (
     ClassificationAverageType,
     ClassificationMetricResultsType,
@@ -253,10 +238,9 @@ platform = [
     *xgboost_impl,
     *lightgbm_impl,
     *ngboost_impl,
+    *nn_impl,
     *shap_impl,
-    *torch_impl,
     *gp_impl,
-    *lightning_impl,
     *mapie_impl,
     *alns_impl,
     *optimization_impl,
@@ -275,6 +259,7 @@ __all__ = [
     "causal_experiment",
     "cpsat_solve",
     "cpsat_solve_all",
+    "cpsat_solve_columns",
     "gp_predict",
     "gp_predict_std",
     "gp_train",
@@ -283,13 +268,8 @@ __all__ = [
     "lightgbm_predict_proba",
     "lightgbm_train_classifier",
     "lightgbm_train_regressor",
-    "lightning_decode",
-    "lightning_decode_conditional",
-    "lightning_encode",
-    "lightning_generate_sequence",
-    "lightning_predict",
-    "lightning_train",
     "linear_solve",
+    "linear_solve_columns",
     "mads_optimize",
     "mapie_predict_interval",
     "mapie_predict_set",
@@ -304,6 +284,9 @@ __all__ = [
     "ngboost_predict",
     "ngboost_predict_dist",
     "ngboost_train_regressor",
+    "nn_init",
+    "nn_run",
+    "nn_train",
     "optimization_iterative",
     "optimization_iterative_grouped",
     "optimization_iterative_incremental",
@@ -376,12 +359,6 @@ __all__ = [
     "sklearn_split",
     "sklearn_standard_scaler_fit",
     "sklearn_standard_scaler_transform",
-    "torch_mlp_decode",
-    "torch_mlp_encode",
-    "torch_mlp_predict",
-    "torch_mlp_predict_multi",
-    "torch_mlp_train",
-    "torch_mlp_train_multi",
     "xgboost_predict",
     "xgboost_predict_class",
     "xgboost_predict_proba",
@@ -399,9 +376,7 @@ __all__ = [
     "lightgbm_impl",
     "ngboost_impl",
     "shap_impl",
-    "torch_impl",
     "gp_impl",
-    "lightning_impl",
     "mapie_impl",
     "alns_impl",
     "optimization_impl",

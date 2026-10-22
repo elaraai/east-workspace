@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, IntegerType, BooleanType, variant, example } from "@elaraai/east";
+import { East, IntegerType, BooleanType, variant, some, none, example } from "@elaraai/east";
 import { XGBoost } from "@elaraai/east-py-datascience";
 
 export const xgboostTrainPredict = example({
@@ -204,6 +204,46 @@ export const xgboostClassifierScalePosWeight = example({
 
         return East.equal(classes.get(0n), 0n)
             .and(() => East.equal(classes.get(1n), 1n));
+    }),
+    inputs: [],
+    returns: true,
+});
+
+export const xgboostResave = example({
+    keywords: ["xgboost", "resave", "model blob", "UBJSON", "legacy", "cloudpickle", "convert"],
+    description: "Re-save a model blob in the UBJSON form every runner reads; a blob already in that form predicts the same afterwards",
+    fn: East.function([], BooleanType, ($) => {
+        const X_train = $.let(East.Matrix.fromArray([
+            [0.5, 60.0], [0.8, 65.0], [1.2, 70.0], [1.5, 72.0], [2.0, 78.0], [2.5, 82.0], [3.0, 88.0], [3.5, 92.0],
+        ]));
+        const y_train = $.let(East.Vector.fromArray([900.0, 700.0, 500.0, 350.0, 200.0, 100.0, 50.0, 10.0]));
+        const config = $.let({
+            n_estimators: some(20n),
+            max_depth: some(2n),
+            learning_rate: some(0.3),
+            min_child_weight: none,
+            subsample: none,
+            colsample_bytree: none,
+            reg_alpha: none,
+            reg_lambda: none,
+            gamma: none,
+            random_state: some(42n),
+            n_jobs: some(1n),
+            sample_weight: none,
+            categorical_features: none,
+            categorical_n: none,
+            max_cat_to_onehot: none,
+            max_cat_threshold: none,
+            scale_pos_weight: none,
+        });
+        const model = $.let(XGBoost.trainRegressor(X_train, y_train, config));
+        // a blob from before the UBJSON form (a cloudpickle, which only the python runner reads)
+        // would come back as UBJSON here; this one is UBJSON already and predicts the same
+        const resaved = $.let(XGBoost.resave(model));
+        const X_new = $.let(East.Matrix.fromArray([[1.0, 68.0], [2.2, 80.0]]));
+        const before = $.let(XGBoost.predict(model, X_new));
+        const after = $.let(XGBoost.predict(resaved, X_new));
+        return after.map(($, v, i) => v.subtract(before.get(i)).abs()).max().equal(0.0);
     }),
     inputs: [],
     returns: true,

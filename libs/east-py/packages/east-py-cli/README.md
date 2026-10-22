@@ -118,7 +118,14 @@ input's decoding: each segment its reads decode is a call of one entry named
 after the input as `-v` names it (`input 1`), so keyed reads at random beyond
 the segments the pager keeps, or a scan repeated, show there rather than in
 the reading function's self time. The profiler is east-c's, so the report is
-the one `east-c run --profile` prints.
+the one `east-c run --profile` prints — with one line east-c's own never has:
+under a python platform function's entry, what its calls spent on the bridge,
+the time converting its arguments into python values, the time converting its
+result back, and the element crossings its body made (every row it read from
+an East array, every entry it wrote to an East dict). A function whose
+bridge line weighs more than its self time is bound by the bridge, not by
+its library: hand it its data in columns (`google_or_linear_solve_columns`),
+or move it to east-c.
 
 `EAST_PROFILE=1` profiles without the flag — e3 hands its environment to the
 runner, so a task's report lands in its log — and `EAST_PROFILE_INTERVAL=N`
@@ -258,7 +265,7 @@ See [LICENSE.md](LICENSE.md) for full details.
   - [east-py-std](https://pypi.org/project/east-py-std/): Console, FileSystem, Fetch, Crypto, Time, Path, Random
   - [east-py-io](https://pypi.org/project/east-py-io/): SQLite, PostgreSQL, MySQL, MongoDB, Redis, S3, FTP, SFTP, XLSX, XML, compression
   - [east-py-cli](https://pypi.org/project/east-py-cli/): CLI for running East IR programs in Python
-  - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, PyTorch, Lightning, GP), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
+  - [east-py-datascience](https://pypi.org/project/east-py-datascience/) (PyPI) + [@elaraai/east-py-datascience](https://www.npmjs.com/package/@elaraai/east-py-datascience) (npm): Optimization (MADS, Optuna, ALNS, GoogleOR), ML (XGBoost, LightGBM, NGBoost, GP, neural networks as data run by torch or east-c), Bayesian inference (PyMC), explainability (SHAP), conformal prediction (MAPIE)
 
 - **[East UI](https://github.com/elaraai/east-workspace/tree/main/libs/east-ui)**: Typed UI component definitions and React renderer, plus VS Code preview.
   - [@elaraai/east-ui](https://www.npmjs.com/package/@elaraai/east-ui): 50+ typed UI components for layouts, forms, charts, tables, dialogs

@@ -927,7 +927,9 @@ EastValue *east_dict_new_with_capacity(EastType *key_type, EastType *val_type, s
     return v;
 }
 
-void east_dict_set(EastValue *dict, EastValue *key, EastValue *val)
+/* The insert behind east_dict_set and east_dict_load: `load` takes the tree's
+ * bulk-load path, which is set's when the key is out of order. */
+static void dict_insert(EastValue *dict, EastValue *key, EastValue *val, bool load)
 {
     if (!dict || dict->kind != EAST_VAL_DICT) return;
     if (!dict->data.dict.tree) {
@@ -967,7 +969,8 @@ void east_dict_set(EastValue *dict, EastValue *key, EastValue *val)
     DictPair pair = {key, val};
     if (key) east_value_retain(key);
     if (val) east_value_retain(val);
-    const void *replaced = btree_set(dict->data.dict.tree, &pair);
+    const void *replaced =
+        load ? btree_load(dict->data.dict.tree, &pair) : btree_set(dict->data.dict.tree, &pair);
     if (btree_oom(dict->data.dict.tree)) {
         if (key) east_value_release(key);
         if (val) east_value_release(val);
@@ -976,6 +979,16 @@ void east_dict_set(EastValue *dict, EastValue *key, EastValue *val)
     /* A replace item_free'd the old key+val; only a fresh key grows len. */
     if (!replaced) dict->data.dict.len++;
     dict->data.dict.dirty = true;
+}
+
+void east_dict_set(EastValue *dict, EastValue *key, EastValue *val)
+{
+    dict_insert(dict, key, val, false);
+}
+
+void east_dict_load(EastValue *dict, EastValue *key, EastValue *val)
+{
+    dict_insert(dict, key, val, true);
 }
 
 EastValue *east_dict_get(EastValue *dict, EastValue *key)

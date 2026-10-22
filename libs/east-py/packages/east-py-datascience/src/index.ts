@@ -14,6 +14,47 @@
  * @packageDocumentation
  */
 
+// NeuralNet - networks as East data, run by torch and by east-c (#1357)
+export {
+    NeuralNet,
+    NeuralNetTypes,
+    nn_init,
+    nn_train,
+    nn_run,
+    nn_import_torch,
+    nn_export_torch,
+    nnOpType,
+    NetType,
+    TensorType,
+    IntegerTensorType,
+    BooleanTensorType,
+    NnValueType,
+    NnBatchType,
+    NnWeightsType,
+    NnDTypeType,
+    NnInputSpecType,
+    NnInitType,
+    NnParamSpecType,
+    NnMaskType,
+    NnReduceType,
+    NnPadModeType,
+    NnGeluType,
+    NnConstantType,
+    NnRotaryType,
+    NnStepsType,
+    NnDeviceType,
+    NnRunConfigType,
+    NnOptimizerType,
+    NnScheduleUnitType,
+    NnScheduleType,
+    NnValidationType,
+    NnEmaType,
+    NnPrecisionType,
+    NnTrainConfigType,
+    NnTrainHistoryType,
+    NnTrainResultType,
+} from "./nn/nn.js";
+
 // MADS - Derivative-free optimization
 export {
     MADS,
@@ -160,6 +201,7 @@ export {
     xgboost_predict_class,
     xgboost_predict_proba,
     xgboost_predict_quantile,
+    xgboost_resave,
     XGBoostTypes,
     XGBoostConfigType,
     XGBoostQuantileConfigType,
@@ -209,22 +251,6 @@ export {
     StringVectorType,
 } from "./shap/shap.js";
 
-// Torch - PyTorch neural networks
-export {
-    Torch,
-    torch_mlp_train,
-    torch_mlp_predict,
-    TorchTypes,
-    TorchActivationType,
-    TorchLossType,
-    TorchOptimizerType,
-    TorchMLPConfigType,
-    TorchTrainConfigType,
-    TorchTrainResultType,
-    TorchTrainOutputType,
-    TorchModelBlobType,
-} from "./torch/torch.js";
-
 // GP - Gaussian Process regression
 export {
     GP,
@@ -271,23 +297,6 @@ export {
     PyMCObservedFitType,
     PyMCModelBlobType,
 } from "./pymc/pymc.js";
-
-// Lightning - PyTorch Lightning neural networks
-export {
-    Lightning,
-    lightning_train,
-    lightning_predict,
-    lightning_encode,
-    lightning_decode,
-    LightningTypes,
-    LightningOutputType,
-    LightningArchitectureType,
-    LightningEpochCallbackType,
-    LightningConfigType,
-    LightningResultType,
-    LightningModelBlobType,
-    Tensor3DBoolType,
-} from "./lightning/lightning.js";
 
 // MAPIE - Conformal prediction intervals
 export {
@@ -349,8 +358,10 @@ export {
     GoogleOrTypes,
     google_or_cpsat_solve,
     google_or_cpsat_solve_all,
+    google_or_cpsat_solve_columns,
     google_or_routing_solve,
     google_or_linear_solve,
+    google_or_linear_solve_columns,
     google_or_min_cost_flow,
     google_or_max_flow,
     google_or_assignment,
@@ -369,6 +380,10 @@ export {
     CpSatHintType,
     CpSatConfigType,
     CpSatResultType,
+    CpSatModelColumnsType,
+    CpSatColumnsHintType,
+    CpSatColumnsConfigType,
+    CpSatColumnsResultType,
     RoutingFirstSolutionType,
     RoutingMetaheuristicType,
     RoutingTimeWindowType,
@@ -386,6 +401,10 @@ export {
     LinearHintType,
     LinearConfigType,
     LinearResultType,
+    LinearModelColumnsType,
+    LinearColumnsHintType,
+    LinearColumnsConfigType,
+    LinearColumnsResultType,
     MinCostFlowInputType,
     MinCostFlowResultType,
     MaxFlowInputType,

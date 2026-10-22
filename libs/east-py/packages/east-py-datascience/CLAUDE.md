@@ -7,7 +7,9 @@ TypeScript + Python package:
 - `src/east_py_datascience/` — Python source (platform function
   implementations).
 - `test/` — TypeScript export-only specs (`*.spec.ts`); their IR is what
-  the Python side runs.
+  the Python side runs. A test named `… (x86-64)` pins an answer only x86-64
+  gives (XGBoost's fit, whose floating point is the library's own); the
+  east-c, east-py and east-node harnesses skip it on another architecture.
 - `tests/` — `test_compliance.py`, a pytest wrapper that replays that IR
   (one subprocess per IR file, through east-py's core runner).
 
@@ -60,8 +62,7 @@ See [`../../../../docs/conventions/MAKEFILE_TARGETS.md`](../../../../docs/conven
 - **XGBoost** (`xgboost/`) — gradient boosting (regression, classification, quantile).
 - **LightGBM** (`lightgbm/`) — fast gradient boosting with leaf-wise growth.
 - **NGBoost** (`ngboost/`) — probabilistic gradient boosting with uncertainty.
-- **Torch** (`torch/`) — neural networks with PyTorch (MLP).
-- **Lightning** (`lightning/`) — PyTorch Lightning (MLP, autoencoder, conv1d, sequential, transformer); the torch classes live in `_models.py`, imported lazily so the package never loads torch at import.
+- **NeuralNet** (`nn/`) — a network as East data (#1357): `types.py` the East types (twins of `src/nn/nn.ts`), `_plan.py` the resolution, element-type inference and refusals of `docs/neural-networks.md` (the specification both runners follow), `_torch.py` the torch interpreter (f32 and f64 element kinds, differentiable; `segments` and `key_sets` attention in memory proportional to the allowed pairs — groups bucketed by length through the fused kernel, listed pairs scored in chunks — the dense path for `none`, `causal` and a bias), `nn_impl.py` the platform functions `nn_init`/`nn_train`/`nn_run` with the plan and weight caches. `tests/nn_families.py` holds the reference families as `NetType` values and as hand-written torch (the ragged transformer, the conditioned U-Net, and three small ones for the selection, grid and rotary operations), `tests/test_nn_reference.py` proves the interpreter against them, and `tests/fixtures/make_nn_reference.py` writes `test/nn.reference.generated.ts` — the families, their weights and torch's outputs as East literals, which `test/nn.spec.ts` holds both runners to. `bench/attention.mjs` measures a masked attention's memory on both runners at the requirements' size (R17); `bench/model.mjs` (with `bench/model_forward.py`) a long-lived model's preparation and per-call cost beyond the forward pass (R24). `tests/fixtures/make_nn_torch_reference.py` writes `test/nn.torch.reference.generated.ts`, a torch-trained state dict both runners import (R28). `tests/fixtures/make_nn_train_reference.py` writes `test/nn.train.reference.generated.ts` — one AdamW step with a weight decay per parameter group from torch's own optimiser, and the weights after an epoch in the seeded shuffle's order — which `test/nn.train.spec.ts` holds both runners to; regenerate it when the trainer's arithmetic changes. Regenerate it when a family, the interpreter's numerics or the init change (`uv run --package elaraai-east-py-datascience python tests/fixtures/make_nn_reference.py`). A change to an operation's semantics is a change to the specification first, then to both interpreters (`east-c-datascience/src/nn/torch_interp.cc`, on libtorch).
 - **GP** (`gp/`) — Gaussian Process regression.
 
 ### Bayesian inference

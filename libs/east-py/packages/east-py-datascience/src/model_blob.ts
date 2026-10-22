@@ -16,9 +16,7 @@ import { XGBoostModelBlobType } from "./xgboost/xgboost.js";
 import { LightGBMModelBlobType } from "./lightgbm/lightgbm.js";
 import { NGBoostModelBlobType } from "./ngboost/ngboost.js";
 import { ShapModelBlobType } from "./shap/shap.js";
-import { TorchModelBlobType } from "./torch/torch.js";
 import { GPModelBlobType } from "./gp/gp.js";
-import { LightningModelBlobType } from "./lightning/lightning.js";
 
 /**
  * The canonical union of every serializable model artifact across the package,
@@ -33,7 +31,7 @@ import { LightningModelBlobType } from "./lightning/lightning.js";
  *
  * Distinct from {@link AnyModelBlobType}, which is the SHAP-kernel-explainer
  * input union (it adds `mapie_*` cases and omits the scaler/encoder/scipy/
- * lightning/shap cases) — that one is not a substitute for this canonical union.
+ * shap cases) — that one is not a substitute for this canonical union.
  *
  * The structural type is identical across the TS and Python (east-c) runtimes
  * and validates by case name at the runtime boundary. The beast2 type-descriptor
@@ -49,7 +47,5 @@ export const ModelBlobType = VariantType({
     ...LightGBMModelBlobType.cases,
     ...NGBoostModelBlobType.cases,
     ...ShapModelBlobType.cases,
-    ...TorchModelBlobType.cases,
     ...GPModelBlobType.cases,
-    ...LightningModelBlobType.cases,
 });

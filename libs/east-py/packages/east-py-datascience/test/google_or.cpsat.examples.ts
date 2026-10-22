@@ -286,3 +286,48 @@ export const cpsatSolveWithHints = example({
     inputs: [],
     returns: true,
 });
+
+export const cpsatSolveColumns = example({
+    keywords: ["google or", "cpsat", "cpsatSolveColumns", "columns", "columnar", "vectors", "bulk", "linear rows", "constraint programming"],
+    description: "Solve a CP-SAT model given in columns: the variables' domains and the linear constraint rows as vectors",
+    fn: East.function([], BooleanType, ($) => {
+        // Maximize 2x + 3y with x + y <= 10, x and y in [0, 10]: the model of
+        // cpsatSolveWithHints as columns. Variable i's domain is
+        // [var_lower[i], var_upper[i]]; the one row holds its terms at
+        // row_ptr[0] .. row_ptr[1] of col_ix and coeff, and an open side of
+        // its range is the Integer's min.
+        const model = $.let({
+            var_lower: new BigInt64Array([0n, 0n]),
+            var_upper: new BigInt64Array([10n, 10n]),
+            row_lower: new BigInt64Array([-9223372036854775808n]),
+            row_upper: new BigInt64Array([10n]),
+            row_ptr: new BigInt64Array([0n, 2n]),
+            col_ix: new BigInt64Array([0n, 1n]),
+            coeff: new BigInt64Array([1n, 1n]),
+            objective: some({ coeff: new BigInt64Array([2n, 3n]), maximize: true }),
+            names: none,
+            interval_vars: [],
+            constraints: [],
+        }, GoogleOr.Types.CpSatModelColumnsType);
+
+        const config = $.let({
+            max_time_seconds: some(10.0),
+            num_workers: none,
+            log_search_progress: none,
+            seed: some(42n),
+            relative_gap_limit: none,
+            absolute_gap_limit: none,
+            hints: none,
+        }, GoogleOr.Types.CpSatColumnsConfigType);
+
+        const result = $.let(GoogleOr.cpsatSolveColumns(model, config));
+
+        // x = 0, y = 10: the optimum 30, the values by index
+        return result.objective_value.match({
+            some: ($, v) => v.equal(30.0).and(() => result.values.get(1n).equal(10n)),
+            none: ($) => false,
+        });
+    }),
+    inputs: [],
+    returns: true,
+});
