@@ -15,7 +15,7 @@ import {
     RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType,
     recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry, type RecordSlicePlacement,
 } from "@elaraai/east-ui/internal";
-import { SeekQueryType } from "@elaraai/east-ui";
+import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
 import { getStore, trackKey } from "../state-runtime.js";
 import type { UIStoreInterface } from "../state-store.js";
@@ -333,6 +333,41 @@ export function recordSlicePlace(slice: Pick<ValueTypeOf<RecordSliceBindType>, "
  */
 export function recordSliceWithin(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
     return controllerOf(slice).within(where, rows);
+}
+
+/**
+ * Which of a record Slice's record's own rows `[offset, offset + limit)`, in
+ * the record's order, its narrowing holds (#1349): the rows read from the
+ * record's own pages — the window a view of the record reads them in, so a
+ * view drawing them reads nothing more — and asked of the narrowing's runs in
+ * one read. What the Sheet's lens asks of each record segment it draws. A
+ * tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing
+ * @param offset - The first row, in the record's order
+ * @param limit - How many rows: a page's, at most 2,048 of them read
+ * @returns Whether the narrowing holds each row read, in order; none while the rows or the read are pending
+ * @throws {Error} When its binding reads no memberships, or reads its record's own rows without joining them
+ */
+export function recordSliceWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+    return controllerOf(slice).withinAt(where, offset, limit);
+}
+
+/**
+ * Where a key query lands in a record Slice's narrowing of its record — with
+ * no narrowing, in the record's own order (#1349): the rows a view over the
+ * whole record addresses, which the Sheet's lens and its key search seek and
+ * reveal by. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing; empty, the record's own rows
+ * @param query - The key query, in the narrowing's index's order — its primary key's with no narrowing
+ * @returns Where it lands, in the narrowing's rows; none while pending
+ */
+export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, query: Query): option<ValueTypeOf<typeof SeekRangeType>> {
+    const controller = controllerOf(slice);
+    return controller.windows.seek(controller.plan(where), query);
 }
 
 /** Persist through the same store-key mechanism as local Slice, validating

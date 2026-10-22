@@ -239,6 +239,8 @@ export interface SheetMessages extends EditingMessages {
     retry: () => string;
     /** A window whose read failed (#853). */
     windowFailed: (p: { from: string; to: string; reason: string }) => string;
+    /** Why the lens draws a record's rows as a failed band (#1349): which of them the narrowing holds disagrees with where e3 placed its rows — the record changed between the two reads. */
+    lensChanged: () => string;
     /** A row that threw as it drew. */
     rowFailed: (p: { number: string; reason: string }) => string;
     /** A paged source that failed before anything landed. */
@@ -681,6 +683,7 @@ export const sheetMessages: SheetMessages = {
     bandUnloaded: ({ count, loading }) => `${count} ${loading ? "loading" : "not loaded"}`,
     retry: () => "Retry",
     windowFailed: ({ from, to, reason }) => `Elements ${from}–${to} could not be read — ${reason}`,
+    lensChanged: () => "the record changed while they were read",
     rowFailed: ({ number, reason }) => `Row ${number} could not be drawn — ${reason}`,
     noSource: ({ reason }) => `NO ROWS — the paged source could not be read. ${reason} `,
     gapMore: ({ count }) => `+${count}`,

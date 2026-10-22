@@ -22,8 +22,10 @@
  * through its rail (#1345), then two view tabs of its own, named from the
  * search — the frame narrowed until the second folds the first into `+n`,
  * which picks it again — and
- * on the stress sheet another of its views picked, the active tab's × shown
- * and the others' hidden. On the phone the workshop's two views fold with the
+ * on the stress sheet another of its views picked — from the strip, or from
+ * `+n` where its lens's context switch and count line leave the strip short of
+ * room (#1349) — the active tab's × shown and the others' hidden. On the phone
+ * the workshop's two views fold with the
  * key search into its popover (#1345), and the row still fits. And a search's
  * list closes when the focus moves outside it, as on a desktop (#1228): ⏎ in
  * the workshop rail's Customer search applies its prefix, and Tab leaves the paged sheet's
@@ -195,19 +197,27 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
         ],
     },
     {
-        // Its three views on the strip, side by side: wide, the stress sheet has the room the workshop's frame has not.
+        // Its views beside its lens's context switch and count line (#1349): a strip short of room folds the views it
+        // cannot hold into `+n`, the open one kept, before the count line goes — so another view is picked from the
+        // strip or from `+n`, whichever holds it.
         name: "sheetStress", hash: "e3/sheet/sheet/sheetStress",
         wide: [{
             what: "another of its views picked",
             run: async (entry, page) => {
-                await expect(viewTabs(entry)).toHaveCount(3);
-                await viewTabs(entry).nth(1).tap();
-                await expect(viewTabs(entry).nth(1)).toHaveAttribute("data-active", "");
-                // Only the active tab's × shows: another's halo would take a tap that switches to it.
-                await expect(viewTabs(entry).nth(1).locator("[data-slot='tabClose']")).toBeVisible();
-                await expect(viewTabs(entry).first().locator("[data-slot='tabClose']")).toBeHidden();
-                await expect(viewTabs(entry).nth(2).locator("[data-slot='tabClose']")).toBeHidden();
+                const routers = entry.locator("[data-frame-slot='toolbar'] [data-slot='tab'][data-tab='routers']");
+                if (await routers.isVisible()) {
+                    await routers.tap();
+                } else {
+                    await entry.locator("[data-frame-slot='toolbar'] [data-slot='tabMore']").tap();
+                    await page.getByRole("menuitem", { name: /^ROUTERS/ }).tap();
+                    await expect(page.locator("[role='menu']")).toHaveCount(0);
+                }
+                await expect(routers).toHaveAttribute("data-active", "");
                 await settled(page);
+                // Only the active tab's × shows: another's halo would take a tap that switches to it.
+                await expect(routers.locator("[data-slot='tabClose']")).toBeVisible();
+                const others = await entry.locator("[data-frame-slot='toolbar'] [data-slot='tab']:not([data-tab='all']):not([data-active])").all();
+                for (const other of others) await expect(other.locator("[data-slot='tabClose']")).toBeHidden();
             },
         }],
     },

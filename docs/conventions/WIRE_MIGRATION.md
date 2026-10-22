@@ -389,3 +389,19 @@ Each wire changed under this rule, with the kind it is.
   its own fields instead — a radius, an outline's corners — from which an
   accessor makes the shape; rewriting its rows is that record's own migration,
   as with any record whose type an application changes.
+- **e3-ui's `Sheet` draws its `rows` source's narrowing over the record's rows
+  as the lens (#1349)** — package-borne, and an application's saved views
+  change type with it. A sheet over the rows of its slice's `rows` source takes
+  that source's record, every row in the record's order — a `pinned` arm over
+  the record's own rows — where it took the narrowing's rows in a `live` arm,
+  and draws the narrowing over them, placed by e3 from the source's index.
+  `Sheet.Types.RecordView`'s `reveals` holds the runs of rows the planner
+  opened by their first and last rows' keys (`Sheet.Types.Reveal`), where it
+  held row positions. A UI value encoded under either type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. A UI task's output is not stored
+  state, so no repository upgrade step ships with it. An application's own
+  record of saved views (`Array<Sheet.Types.RecordView>`) changes type with
+  it, as with `window` above: a deploy resets an input that holds them to its
+  package's value, and refuses a record that holds them until the record
+  declares the migration that carries them across.

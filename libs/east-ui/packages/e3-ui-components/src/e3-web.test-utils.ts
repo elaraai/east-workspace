@@ -198,9 +198,26 @@ export interface E3UnitHold {
  * - `network`: the request never reaches e3, and the fetch fails as a network does;
  * - `lost`: e3 answers the request — a mutation commits — but its answer never arrives, and the fetch fails as a network does;
  * - `untagged`: e3 answers, and its answer arrives without the headers that tag it — its `ETag`, and the content hash it
- *   names (`X-Content-SHA256`) — as through a proxy that drops them.
+ *   names (`X-Content-SHA256`) — as through a proxy that drops them;
+ * - an {@link E3Alteration}: e3 answers, and its answer's body arrives as the alteration makes it from e3's.
  */
-export type E3Failure = { readonly status?: number; readonly type?: string; readonly message?: string } | "network" | "lost" | "untagged";
+export type E3Failure = { readonly status?: number; readonly type?: string; readonly message?: string } | "network" | "lost" | "untagged" | E3Alteration;
+
+/**
+ * A fault that alters e3's answer on its way back: a server whose answers
+ * disagree with one another — one read's with another's at the same revision —
+ * which no write can make e3 do.
+ */
+export interface E3Alteration {
+    /**
+     * The body that arrives, made from e3's.
+     *
+     * @param body - e3's answer's body
+     * @param request - The request it answers
+     * @returns The body the fetch answers with, under e3's status and headers
+     */
+    readonly alter: (body: Uint8Array, request: E3Request) => Uint8Array<ArrayBuffer>;
+}
 
 /** e3 under test: see the module's documentation. */
 export interface TestE3 {
@@ -243,7 +260,7 @@ export interface TestE3 {
      * @returns The hold
      */
     holdAnswers(match: E3Match): E3Hold;
-    /** Answers each request it matches as e3 answers a failure, from now until the returned function stops it. */
+    /** Answers each request it matches as the fault says ({@link E3Failure}) — as e3 answers a failure, unless given another — from now until the returned function stops it. */
     fail(match: E3Match, failure?: E3Failure): () => void;
     /**
      * Keeps the answer to each request it matches, from now until the test
@@ -545,7 +562,7 @@ function heldUnits(start: () => UnitWorker): HeldUnits {
 }
 
 /** An answer as e3's API server sends a failure (`sendJsonError`): its status, and its error's type and message as JSON. */
-function failureResponse(failure: Exclude<E3Failure, "network" | "lost" | "untagged">, request: E3Request): Response {
+function failureResponse(failure: Exclude<E3Failure, "network" | "lost" | "untagged" | E3Alteration>, request: E3Request): Response {
     const status = failure.status ?? 500;
     const type = failure.type ?? "internal";
     const message = failure.message ?? `the test failed ${request.method} ${request.path}`;
@@ -677,6 +694,13 @@ function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
                     throw new TypeError(`fetch failed: the test lost e3's answer to ${entry.method} ${entry.path}`);
                 }
                 if (failure === "network") throw new TypeError(`fetch failed: the test failed the network for ${entry.method} ${entry.path}`);
+                if ("alter" in failure) {
+                    const answered = await web.fetch(request);
+                    const body = failure.alter(new Uint8Array(await answered.arrayBuffer()), entry);
+                    const headers = new Headers(answered.headers);
+                    headers.delete("Content-Length");
+                    return await kept(entry, new Response(body, { status: answered.status, statusText: answered.statusText, headers }));
+                }
                 return await kept(entry, failureResponse(failure, entry));
             }
             const answer = await web.fetch(request);

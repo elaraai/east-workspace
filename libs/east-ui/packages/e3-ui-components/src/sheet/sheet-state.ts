@@ -51,10 +51,10 @@
  *   fill or the selected proposal rejects it and remembers.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
  *   chevron folds it; the summary gutter selects its children. Insertion
- *   uses explicit controls. Grouped sheets have no local lens or view tabs.
- *   A line with SUB ROWS takes Space the way a band does: they show or
- *   hide (⇧Space: every line of the group); the ring never lands on a sub
- *   row.
+ *   uses explicit controls. A lens over a grouped sheet narrows its groups,
+ *   the records (#1349). A line with SUB ROWS takes Space the way a band
+ *   does: they show or hide (⇧Space: every line of the group); the ring
+ *   never lands on a sub row.
  *
  * @packageDocumentation
  */
@@ -71,7 +71,7 @@ import {
     suggestKey, escSuggest, fillRow, takeFill, takeProposals, rejectProposal, applyReady, applyLanded, rekeySuggest, clearSuggest, afterRowsChanged,
 } from "./sheet-suggest-state.js";
 import {
-    setContext, bandReveal, narrowed, switchTab, createTab, closeTab, updateTab, revertTab,
+    setContext, bandReveal, lensReveal, lensNamed, lensPlaced, narrowed, switchTab, createTab, closeTab, updateTab, revertTab,
     renameStart, renameChange, renameCommit, renameCancel, reorderTab, escTabs, searchKey,
 } from "./sheet-lens-state.js";
 import type { SheetCellValue } from "./values.js";
@@ -470,7 +470,7 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
  */
 export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCtx): Transition {
     // Tab, lens, band and search events run on a grouped sheet too: its lens
-    // works on the lines (#845).
+    // works on the groups, the records (#1349).
     switch (e.t) {
         case "cell.down": {
             // A click commits an open editor in place first.
@@ -619,6 +619,12 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return { state: setContext(s, e.context), effects: [] };
         case "band.reveal":
             return { state: bandReveal(s, e), effects: [] };
+        case "lens.reveal":
+            return { state: lensReveal(s, e.runs), effects: [] };
+        case "lens.named":
+            return { state: lensNamed(s, e.named), effects: [] };
+        case "lens.placed":
+            return { state: lensPlaced(s, e.named, e.runs), effects: [] };
         case "lens.narrowed":
             return narrowed(s, ctx);
         case "tab.switch":

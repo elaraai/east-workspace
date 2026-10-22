@@ -8,8 +8,9 @@
  * items in the frame's toolbar, the grid with its strip in main, and the
  * footer in the frame's footer, each in a region of its own under one
  * `SheetProvider`, drive one grid. A tab switched in the toolbar narrows the
- * grid — the rows the rail's `rows` source narrows the record to (#1345) —
- * the history item's Undo undoes the grid's typed cell, the footer's message
+ * grid — its view's narrowing of the rail's `rows` source drawn over the
+ * record's rows as the lens (#1345, #1349) — the history item's Undo undoes
+ * the grid's typed cell, the footer's message
  * follows a paste, and ⌘F and ⌘/ in the grid find the key search in the
  * toolbar. Every value is built by `<Sheet>`'s factory and COMPILED, the
  * narrowed sheet over its records on e3 itself (#1376).
@@ -56,8 +57,8 @@ const editable = East.compile(East.function([], SheetPayloadType, ($) => {
 }), getRegisteredPlatformImplementations());
 /**
  * The workshop's orders, through the rail's `rows` source, with one saved view kept per viewer, opening on the whole
- * sheet — in a Reactive root, as a ui task draws it: a narrowing written to the rail builds the sheet again over the
- * rows its `rows` source pages now.
+ * sheet — in a Reactive root, as a ui task draws it: a narrowing written to the rail is drawn over the orders as the
+ * lens (#1349).
  */
 const narrowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
@@ -98,7 +99,7 @@ function partsOf(utils: RenderResult) {
     return { ...utils, region, root, card, cell, numbers, bands, flush, press };
 }
 
-test("each part draws in its region of the frame, and a tab switched in the toolbar narrows the grid to the rows its view's narrowing pages (SB4, SB5, #1345)", async () => {
+test("each part draws in its region of the frame, and a tab switched in the toolbar draws its view's narrowing over the grid as the lens (SB4, SB5, #1345, #1349)", async () => {
     const ui = await mountNarrowed();
     await waitFor(() => expect(ui.bands()[0]).toBe("WO-2201"));
     expect(ui.region("main").querySelector('[data-slot="tab"]')).toBeNull();
@@ -108,10 +109,11 @@ test("each part draws in its region of the frame, and a tab switched in the tool
     fireEvent.mouseDown(ui.region("toolbar").querySelector('[data-slot="tab"][data-tab="planned"]')!, { button: 0 });
     await settle();
     expect(ui.root().getAttribute("data-view")).toBe("planned");
-    // WO-2201 is RELEASED: the rail's `rows` source leaves it out; the lens is switched off (#1349), so nothing marks hits.
+    // WO-2201 is RELEASED: the view's narrowing, drawn over the orders as the lens (#1349), hides it in a gap of one.
     await waitFor(() => expect(ui.bands()[0]).toBe("WO-2202"));
     expect(ui.bands()).not.toContain("WO-2201");
-    expect(ui.root().hasAttribute("data-lens")).toBe(false);
+    expect(ui.root().hasAttribute("data-lens")).toBe(true);
+    expect(ui.region("main").querySelector('[data-slot="band"][data-band="lens"]')?.getAttribute("data-hidden")).toBe("1");
 });
 
 test("Undo in the history item, in the toolbar, commits the grid's open editor and undoes it; Redo restores it (SB5)", async () => {

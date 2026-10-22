@@ -23,7 +23,7 @@ const componentSpecs = {
     // The Schematic (#1384) has no suite of its own yet: its hosts are in the
     // shared ones (the toolbar sweep, the shadow sweep), which it always runs.
     schematic: [],
-    sheet: ["sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-narrowing.spec.ts"],
+    sheet: ["sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
     studio: ["studio-builder.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts"],
 } as const;
 

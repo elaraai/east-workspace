@@ -9,7 +9,8 @@
  * its row, and next steps to the following match — the value built by
  * `<Sheet>`'s factory and COMPILED, and the Sheet rendered in its frame
  * (#1216). (The lens and the view tabs over a local Slice that this suite held
- * went with the local Slice, #1345; #1349 restores the lens over records.)
+ * went with the local Slice, #1345; the lens over records, #1349, and its key
+ * search are `sheet-lens.dom.test.tsx`'s.)
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";

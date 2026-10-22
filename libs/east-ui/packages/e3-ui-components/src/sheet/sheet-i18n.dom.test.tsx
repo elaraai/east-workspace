@@ -11,10 +11,9 @@
  * `I18nProvider` sets, and `SheetMessagesProvider` overrides the words for a
  * subtree. The Plan's #820 test, for the Sheet. Every sheet is built by
  * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216); the view
- * tabs over the workshop's orders, through the rail's `rows` source and the
- * harness's records on e3 itself (#1345, #1376). (The lens's words — its count
- * line, its context switch and its gap pills — went with the lens, #1345; #1349
- * restores them over records.)
+ * tabs and the lens's words — its count line, its context switch and its gap
+ * pills — over the workshop's orders, through the rail's `rows` source and the
+ * harness's records on e3 itself (#1345, #1349, #1376).
  */
 
 import { describe, test, expect, vi } from "vitest";
@@ -180,9 +179,14 @@ describe("one message table (#861)", () => {
         const add = q('[data-slot="tabAdd"]')!;
         allMarked(attrs(add, "aria-label", "title"));
         expect(words(add)).toEqual(["⟦tab"]);
-        // The lens is switched off (#1349): no count line, no context switch.
-        expect(q('[data-slot="toolbarCount"]')).toBeNull();
-        expect(q('[data-slot="contextSwitch"]')).toBeNull();
+        // The lens's words (#1349): the count line, the context switch and its options, a gap's pill and its controls.
+        await waitFor(() => expect(q('[data-slot="toolbarCount"]')?.textContent).toBe("⟦4 matches"));
+        const context = q('[data-slot="contextSwitch"]')!;
+        expect(context.getAttribute("aria-label")).toBe("⟦Context rows either side of a hit");
+        allMarked(words(context));
+        const gap = q('[data-slot="band"][data-band="lens"]')!;
+        allMarked(words(gap));
+        allMarked([...gap.querySelectorAll('[data-slot="bandControl"]')].flatMap((control) => attrs(control, "aria-label", "title")));
         // A rename box's name.
         fireEvent.doubleClick(planned);
         expect(q('[data-slot="tabRename"]')!.getAttribute("aria-label")).toBe("⟦Rename tab");

@@ -29,7 +29,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { EastErrorBoundary } from "@elaraai/east-ui-components/internal";
 import {
-    TITLE_KEY, cellIsBlank, cellText, driverKeyOf, isLinePosition, lineNumberOf, resolveMember,
+    TITLE_KEY, cellIsBlank, cellText, driverKeyOf, resolveMember,
     type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetRegisterIndex, type SheetWindowFailure,
 } from "./model.js";
 import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
@@ -551,8 +551,6 @@ export interface SheetSubRowProps {
     /** Its index under the line, and how many the line has (the last ends the tree). */
     index: number;
     count: number;
-    /** A lens hit through this row's own text. */
-    hit: boolean;
     /** The gutter's width (px) — the well starts at its edge. */
     gutterPx: number;
     /** The width of the view (px): the well's content stays inside it while the columns scroll sideways. */
@@ -578,7 +576,7 @@ export interface SheetSubRowProps {
  * at the view's left edge as the columns scroll sideways. Read-only, and
  * outside the row space: the ring never lands on it.
  */
-export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow, parent, index, count, hit, gutterPx, viewPx, membership, entering, ariaRowIndex, colCount }: SheetSubRowProps) {
+export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow, parent, index, count, gutterPx, viewPx, membership, entering, ariaRowIndex, colCount }: SheetSubRowProps) {
     const last = index === count - 1;
     const detail = subRow.chips.length > 0 || subRow.facets.length > 0;
     const self = useRef<HTMLDivElement | null>(null);
@@ -592,7 +590,6 @@ export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow,
             data-sub-row=""
             data-detail={detail ? "" : undefined}
             data-last={last ? "" : undefined}
-            data-hit={hit ? "" : undefined}
             role="row"
             aria-rowindex={ariaRowIndex}
         >
@@ -766,7 +763,7 @@ export interface SheetBandRowProps extends SheetBandAria {
     loading: boolean;
 }
 
-/** A paged source's unloaded run — one band sized by the ledger. */
+/** A paged source's unloaded run — one band sized by the ledger — or a stretch of the record the lens is still reading or placing (#1349), sized by what it will draw. */
 export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading, ariaRowIndex, colCount }: SheetBandRowProps) {
     const n = Math.max(0, band.to - band.from + 1);
     // The element count, in the app's locale and the sheet's words (#850, #861).
@@ -889,9 +886,9 @@ export interface SheetGapRowProps extends SheetBandAria {
 }
 
 /**
- * A run the lens hides (B§8): 22 px, a dashed rule, the `n hidden` pill —
- * hover opens `⌃ +1 · n hidden · +1 ⌄ · all`, each press reaching further
- * from the top, the bottom, or both.
+ * A run of the record's rows the lens hides (B§8, #1349): 22 px, a dashed
+ * rule, the `n hidden` pill — hover opens `⌃ +1 · n hidden · +1 ⌄ · all`,
+ * each press reaching further from the top, the bottom, or both.
  */
 export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onReveal, ariaRowIndex, colCount }: SheetGapRowProps) {
     const press = (where: "top" | "bottom" | "both" | "all") => (e: MouseEvent) => {
@@ -901,9 +898,9 @@ export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onRev
         onReveal(gap, where);
     };
     const middle = gap.first ? "bottom" : gap.last ? "top" : "both";
-    // A run inside a group (#740) is bounded by line numbers, not sheet rows.
-    const above = isLinePosition(gap.from) ? lineNumberOf(gap.from) - 1 : gap.from;
-    const below = isLinePosition(gap.to) ? lineNumberOf(gap.to) + 1 : gap.to + 2;
+    // The rows either side of it, by their numbers: the run's positions are the record's.
+    const above = gap.from;
+    const below = gap.to + 2;
     // The gap's words, its counts in the app's locale (#850, #861).
     const words = useSheetWords();
     const { m } = words;

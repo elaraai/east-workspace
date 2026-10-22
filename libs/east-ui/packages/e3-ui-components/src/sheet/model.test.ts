@@ -15,7 +15,7 @@
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
-import { BAND_MIN_PX, buildBody, drawnPx, indexColumns, itemPx, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, linePosition, parseLineId, layoutRun, segmentOf, type ItemBox, type SheetGeometry, type SheetWindowFailure } from "./model.js";
+import { BAND_MIN_PX, COARSE_GAP_PX, buildBody, buildLensBody, drawnPx, indexColumns, itemPx, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, parseLineId, layoutLensRun, layoutRun, segmentOf, type ItemBox, type SheetGeometry, type SheetWindowFailure } from "./model.js";
 import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 
@@ -82,6 +82,35 @@ describe("a run with failed windows (#853)", () => {
     });
 });
 
+describe("the lens's rows (#1349)", () => {
+    const positionOf = (at: Record<string, number>) => (id: string): number | undefined => at[id];
+
+    test("each row keeps its place in the record, a row the planner added follows the row before it, and the runs of places in a row are what an author's context sees", () => {
+        const rows = [row("a", {}), row("b", {}), row("x", {}), row("c", {})];
+        const run = layoutLensRun(rows, positionOf({ a: 10, b: 11, c: 40 }));
+        expect(run.positions).toEqual([10, 11, 12, 40]);
+        expect(run.failures).toEqual([]);
+        expect(run.segments).toEqual([{ start: 0, end: 3, position: 10 }, { start: 3, end: 4, position: 40 }]);
+        expect(segmentOf(run.segments, 3)).toEqual({ start: 3, end: 4, position: 40 });
+        expect(layoutLensRun([], positionOf({}))).toEqual({ positions: [], failures: [], segments: [{ start: 0, end: 0, position: 0 }] });
+    });
+
+    test("the body is what the lens laid out: its rows at their places, each its index among the rows drawn, its gaps and bands between, no padding", () => {
+        const a = row("a", {});
+        const c = row("c", {});
+        const body = buildLensBody([
+            { kind: "row", position: 10, row: a, hit: true },
+            { kind: "gap", gap: { key: "h10_u20", from: 11, to: 19, hidden: 9, first: false, last: false } },
+            { kind: "band", band: { at: "reading", from: 20, to: 39, px: 66 } },
+            { kind: "failed", failure: { w: 40, from: 40, to: 59, px: 22, error: "timeout" } },
+            { kind: "row", position: 60, row: c, hit: false },
+        ], undefined);
+        expect(body.map((it) => it.kind)).toEqual(["real", "gap", "band", "failed", "real"]);
+        expect(body[0]).toMatchObject({ kind: "real", position: 10, residentIndex: 0, hit: true, row: a });
+        expect(body[4]).toMatchObject({ kind: "real", position: 60, residentIndex: 1, hit: false, row: c });
+    });
+});
+
 describe("cells", () => {
     const en = formatters("en-US");
     const columns = indexColumns([
@@ -140,27 +169,24 @@ describe("grouped rows (#740)", () => {
         expect(again[1]!.kind === "real" && first.kind === "real" && Object.is(again[1]!.row, first.row)).toBe(true);
     });
 
-    test("a lens narrows the groups, then the lines inside a shown group; hits keep their numbers and the blank line hides", () => {
-        const hiddenLine = linePosition(20, 0);
-        const body = buildBody({
-            rows: [p1, p2], rowsOffset: 20, blanks: 1, exhausted: false, total: 100,
-            head: { at: "head", from: 0, to: 19, px: 200 },
-            tail: { at: "tail", from: 22, to: 99, px: 780 },
-            lens: {
-                hits: [true, false], visible: [true, false],
-                gaps: [{ key: "20_-2", from: 21, to: 21, hidden: 1, first: false, last: true }],
-                lineHits: [[false, true], [false]], lineVisible: [[false, true], [false]],
-                lineGaps: [[{ key: "-1_" + String(linePosition(20, 1)), from: hiddenLine, to: hiddenLine, hidden: 1, first: true, last: false }], []],
-            },
-            grouped: { foldedOf },
-        });
-        expect(body.map(it => it.kind)).toEqual(["band", "group", "gap", "real", "gap", "band"]);
-        expect(body[3]).toMatchObject({ kind: "real", hit: true, group: { number: 2 } });
-        expect(body[2]).toMatchObject({ kind: "gap", gap: { from: hiddenLine } });
-        expect(body[4]).toMatchObject({ kind: "gap", gap: { from: 21 } });
+    test("under the lens the groups — the records — narrow as flat rows do: a match's band and its lines marked, a context group's not, gaps and bands between, no blank line (#1349)", () => {
+        const body = buildLensBody([
+            { kind: "band", band: { at: "reading", from: 0, to: 19, px: 200 } },
+            { kind: "row", position: 20, row: p1, hit: true },
+            { kind: "gap", gap: { key: "h20_e", from: 21, to: 99, hidden: 79, first: false, last: true } },
+        ], { foldedOf });
+        expect(body.map(it => it.kind)).toEqual(["band", "group", "real", "real", "gap"]);
+        expect(body[1]).toMatchObject({ kind: "group", position: 20, residentIndex: 0, folded: false });
+        expect(body[2]).toMatchObject({ kind: "real", position: 20, hit: true, group: { number: 1 } });
+        expect(body[3]).toMatchObject({ kind: "real", position: 20, hit: true, group: { number: 2 } });
+        // A context group's lines are no matches; a folded match is its band.
+        const context = buildLensBody([{ kind: "row", position: 20, row: p1, hit: false }, { kind: "row", position: 21, row: p2, hit: true }], { foldedOf });
+        expect(context.map(it => it.kind)).toEqual(["group", "real", "real", "group"]);
+        expect(context.every(it => it.kind !== "real" || !it.hit)).toBe(true);
+        expect(context[3]).toMatchObject({ kind: "group", folded: true, residentIndex: 1 });
     });
 
-    test("an open line's sub rows hang under it — opened by hand, or by the lens through them — and proposals follow them", () => {
+    test("an open line's sub rows hang under it, opened by hand, and proposals follow them", () => {
         const g = group("g", [line("0", "Assemble", [sub("Cut"), sub("Fit")]), line("1", "Inspect", [sub("Check")])]);
         const closed = buildBody({ rows: [g], rowsOffset: 0, blanks: 0, exhausted: true, total: undefined, head: undefined, tail: undefined, grouped: { foldedOf } });
         expect(closed.map(it => it.kind)).toEqual(["group", "real", "real"]);
@@ -168,12 +194,6 @@ describe("grouped rows (#740)", () => {
             grouped: { foldedOf, subRowsOpen: (id) => (id === lineId("g", "0") ? true : undefined) } });
         expect(open.map(it => it.kind)).toEqual(["group", "real", "subRow", "subRow", "real"]);
         expect(open[3]).toMatchObject({ kind: "subRow", lineId: lineId("g", "0"), index: 1, count: 2, subRow: { name: "Fit" } });
-        // A search hit through a sub row opens its line unless the hand closed it.
-        const lensed = buildBody({ rows: [g], rowsOffset: 0, blanks: 0, exhausted: true, total: undefined, head: undefined, tail: undefined,
-            lens: { hits: [true], visible: [true], gaps: [], lineHits: [[false, true]], lineVisible: [[true, true]], lineGaps: [[]], lineSubRowHits: [[[false, false], [true]]] },
-            grouped: { foldedOf } });
-        expect(lensed.map(it => it.kind)).toEqual(["group", "real", "real", "subRow"]);
-        expect(lensed[3]).toMatchObject({ kind: "subRow", hit: true });
         // Proposals under line 1 land after its open sub rows.
         const withRows = withProposals(open, 1, [{ cells: new Map(), meta: "pattern" }]);
         expect(withRows.map(it => it.kind)).toEqual(["group", "real", "subRow", "subRow", "proposal", "real"]);
@@ -192,7 +212,7 @@ describe("grouped rows (#740)", () => {
     });
 
     test("what a row draws is what the body builds for it (#855): a group's band, its lines, their open sub rows, and a blank line only when the sheet draws one", () => {
-        const g: SheetGeometry = { rowPx: 36, bandPx: 42, subRowPx: 30 };
+        const g: SheetGeometry = { rowPx: 36, bandPx: 42, subRowPx: 30, gapPx: BAND_MIN_PX };
         const tooled = group("t", [line("0", "Assemble", [sub("Cut"), sub("Fit")]), line("1", "Inspect")]);
         const openFirst = (id: string) => (id === lineId("t", "0") ? true : undefined);
         const cases: { row: SheetRowValue; blanks: number; subRowsOpen?: (id: string) => boolean | undefined; px: number }[] = [
@@ -217,6 +237,8 @@ describe("grouped rows (#740)", () => {
         expect(itemPx({ kind: "band", band: { at: "tail", from: 0, to: 999, px: 36_000 } }, g)).toBe(36_000);
         expect(itemPx({ kind: "failed", failure: { w: 0, from: 0, to: 199, px: 7_200, error: "timeout" } }, g)).toBe(7_200);
         expect(itemPx({ kind: "gap", gap: { key: "k", from: 0, to: 3, hidden: 4, first: true, last: false } }, g)).toBe(BAND_MIN_PX);
+        // A lens gap is what the recipe draws it at: on a coarse pointer, a touch's height (#1349).
+        expect(itemPx({ kind: "gap", gap: { key: "k", from: 0, to: 3, hidden: 4, first: true, last: false } }, { ...g, gapPx: COARSE_GAP_PX })).toBe(32);
     });
 
     test("what sticks is read off the mounted rows: the band once it scrolls under the header, then an open line pushed up by its last sub row", () => {
@@ -245,7 +267,7 @@ describe("grouped rows (#740)", () => {
         const brief = row("brief", { task: cell("String", "Review") });
         const handover = row("handover", { task: cell("String", "Hand over") });
 
-        test("a loose row is one plain row — no band, no lines, no blank line — numbered in the groups' sequence and counted among the loose rows, the ones a lens hides included", () => {
+        test("a loose row is one plain row — no band, no lines, no blank line — numbered in the groups' sequence and counted among the loose rows drawn", () => {
             const body = buildBody({ rows: [brief, p1, handover], rowsOffset: 0, blanks: 1, exhausted: true, total: undefined, head: undefined, tail: undefined, grouped: { foldedOf } });
             expect(body.map((it) => it.kind)).toEqual(["real", "group", "real", "real", "blank", "real"]);
             expect(body[0]).toMatchObject({ kind: "real", position: 0, residentIndex: 0, loose: 0, row: brief });
@@ -253,19 +275,17 @@ describe("grouped rows (#740)", () => {
             expect(body[0]!.kind === "real" && body[0]!.group).toBeUndefined();
             // A line belongs to its group: it is no loose row.
             expect(body[2]!.kind === "real" && body[2]!.loose).toBeUndefined();
-            // A lens: the first loose row hidden in a gap, the second a hit — still the second loose row.
-            const lensed = buildBody({
-                rows: [brief, p1, handover], rowsOffset: 0, blanks: 1, exhausted: true, total: undefined, head: undefined, tail: undefined,
-                lens: {
-                    hits: [false, true, true], visible: [false, true, true], gaps: [{ key: "-1_1", from: 0, to: 0, hidden: 1, first: true, last: false }],
-                    lineHits: [[], [true, true], []], lineVisible: [[], [true, true], []], lineGaps: [[], [], []],
-                },
-                grouped: { foldedOf },
-            });
+            // The lens (#1349): the first loose row hidden in a gap, the second a match — the first loose row drawn, as the
+            // rows drawn are what its context counts among.
+            const lensed = buildLensBody([
+                { kind: "gap", gap: { key: "s_h1", from: 0, to: 0, hidden: 1, first: true, last: false } },
+                { kind: "row", position: 1, row: p1, hit: true },
+                { kind: "row", position: 2, row: handover, hit: true },
+            ], { foldedOf });
             expect(lensed.map((it) => it.kind)).toEqual(["gap", "group", "real", "real", "real"]);
-            expect(lensed[4]).toMatchObject({ kind: "real", loose: 1, hit: true });
+            expect(lensed[4]).toMatchObject({ kind: "real", position: 2, residentIndex: 1, loose: 0, hit: true });
             // It draws one row, whatever the groups keep below their lines.
-            expect(drawnPx(brief, { rowPx: 36, bandPx: 42, subRowPx: 30 }, { foldedOf }, 1)).toBe(36);
+            expect(drawnPx(brief, { rowPx: 36, bandPx: 42, subRowPx: 30, gapPx: BAND_MIN_PX }, { foldedOf }, 1)).toBe(36);
         });
 
         test("no band sticks over a loose row — the walk up to a band stops at it", () => {
