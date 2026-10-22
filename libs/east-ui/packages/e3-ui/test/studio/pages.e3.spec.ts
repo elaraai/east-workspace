@@ -135,7 +135,7 @@ describe("the pages record in e3 (#992)", () => {
         assert.equal(head.actor, "ana");
         assert.ok(Math.abs(head.at.getTime() - Date.now()) < 60_000, "committed just now");
         if (head.delta.type !== "some") assert.fail("the save's commit carries its delta");
-        assert.deepEqual(await summarizeDelta(storage, repo, head.delta.value), [{ target: "primary", insert: 0, update: 1, delete: 0 }]);
+        assert.deepEqual(await summarizeDelta(storage, repo, head.delta.value), [{ target: "primary", insert: 0, update: 1, delete: 0, add: 0 }]);
         assert.deepEqual((await current()).get(OVERVIEW_KEY), after);
     });
 
