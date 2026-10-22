@@ -41,7 +41,9 @@
  * matches and cleared, then the frame narrowed until LR · TD and find state
  * fold; over a record of flows (#1246) its row ending with the history item;
  * and over a record its `flows` source narrows (#1346), the rail and its
- * summary in the row.
+ * summary in the row. And the Schematic's frame (#1387): on the phone the
+ * rail's icon and the View, and on the wide screen its tools, every one named,
+ * its zoom and Fit and its Find's box.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test toolbar-touch --project mobile`.
@@ -244,6 +246,9 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
     // Over a record its `flows` source narrows, the rail and its summary fold first, and on the phone LR · TD and find
     // state bundle into the key search's popover (#1346).
     { name: "flowchartRecordIndexes", hash: "e3/flowchart/flowchart/flowchartRecordIndexes" },
+    // The Schematic's tools, its zoom and Fit and its Find, after its rail (#1387): on the phone the rail's icon and the
+    // View; on the wide screen every tool named, edge to edge.
+    { name: "schematicDataCentre", hash: "e3/schematic/schematic/schematicDataCentre" },
 ];
 
 /** Open an example's page at rest and return its entry. */

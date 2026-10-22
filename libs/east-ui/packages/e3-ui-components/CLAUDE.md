@@ -31,11 +31,16 @@ issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
 parts, and
 keeps its slot recipes there too, the canvas's and the inspector's. The
 Schematic's renderer (`src/schematic/`, #1384) registers against its
-`Schematic` extension the same way, its slot recipe in the theme too: its
-composition root (`index.tsx`) over its reads of the app's records, in a
-component of their own (`data.ts`, #1386), and its pure canvas modules
-(`canvas/`: what it draws, the camera, the painter, the selection, the model
-and the palette probe), whose invariants are `canvas/CLAUDE.md`'s. The
+`Schematic` extension the same way, its slot recipe in the theme too, and
+renders in its `BuilderFrame` (#1387): its frame (`index.tsx`) over its reads
+of the app's records, in a component of their own (`data.ts`, #1386) — its
+toolbar's items (`toolbar.tsx`: the rail, the tools, held under its `id` in
+`tools.ts`, the zoom and Fit, Find over its items in `find.ts`, and the
+steps), its footer (`footer.tsx` over `counts.ts`) and its words
+(`messages.ts`) — and its canvas (`canvas/`: the canvas itself, `view.tsx`,
+and what it draws, the camera, the painter, the selection, the model, the
+layers, the colours and the theme bridge), whose invariants are
+`canvas/CLAUDE.md`'s. The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it

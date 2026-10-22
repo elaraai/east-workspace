@@ -24,7 +24,6 @@ import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-component
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness } from "../e3-web-mount.test-utils.js";
-import { entityId } from "./canvas/drawn.js";
 import { at as atPx, card, layOutCanvas, tap as tapAt } from "./schematic.test-utils.js";
 // The Schematic is an extension: its renderer registers as it loads.
 import "./index.js";
@@ -112,34 +111,43 @@ const at = (x: number, y: number) => atPx(PPU, x, y);
 /** A tap on the canvas at a world point. */
 const tap = (canvas: Element, x: number, y: number) => tapAt(canvas, PPU, x, y);
 
+/** Lets B01's card answer a tap at its centre, as a page would hit it, and gives the card. */
+function hitB01(container: HTMLElement): HTMLElement {
+    const b01 = card(container, "racks", "B01")!;
+    canvasLayout.hits((x, y) => (Math.hypot(x - 2.4 * PPU, y - 8.6 * PPU) < 4 ? b01 : null));
+    return b01;
+}
+
 describe("<Schematic> through its carrier", () => {
-    test("the Schematic is the Schematic extension, and the dispatcher draws it: its navigator lists the areas and the items inside them", async () => {
-        const { container, getByText } = await h.mount({ fn: view });
-        await waitFor(() => expect(container.querySelector("[data-schematic-canvas]")).not.toBeNull());
-        await waitFor(() => expect(getByText("Cage A")).toBeDefined());
-        // The items outside every outline area lie on the floor, after the areas.
-        const listed = () => [...container.querySelectorAll("[data-nav-key]")].map((el) => el.getAttribute("data-nav-key"));
-        expect(listed()).toEqual([entityId({ kind: "racks", key: "B01" }), entityId({ kind: "racks", key: "B02" }), entityId({ kind: "network", key: "ODF-1" })]);
-        fireEvent.click(getByText("Cage A"));
-        await waitFor(() => expect(listed()).toContain(entityId({ kind: "racks", key: "A01" })));
+    test("the Schematic is the Schematic extension, and the dispatcher draws it in its frame: the toolbar's tools over the canvas's cards (#1387)", async () => {
+        const { container, getByRole } = await h.mount({ fn: view });
+        await waitFor(() => expect(card(container, "racks", "B01")).not.toBeNull());
+        expect(container.querySelector("[data-builder-frame] [data-frame-slot=main] [data-schematic-canvas]")).not.toBeNull();
+        // The tools: Select, Zoom box and Marquee, and Connect over the fibre runs, bound with their patch door; no item kind edits, so no Move.
+        expect(getByRole("radiogroup", { name: "Tool" })).toBeDefined();
+        const tools = [...container.querySelectorAll('[data-schematic-seg="tools"] [role=radio]')].map((radio) => radio.textContent);
+        expect(tools).toEqual(["Select", "Zoom box", "Marquee", "Connect"]);
+        expect(getByRole("radio", { name: "Select" }).getAttribute("aria-checked")).toBe("true");
     });
 
-    test("a rack selected from the navigator is heard by `onSelect`, named by its kind and key (SC29)", async () => {
+    test("a rack tapped on the canvas is heard by `onSelect`, named by its kind and key (SC29)", async () => {
         const { container } = await h.mount({ fn: view });
-        const b01 = entityId({ kind: "racks", key: "B01" });
-        await waitFor(() => expect(container.querySelector(`[data-nav-key=${JSON.stringify(b01)}]`)).not.toBeNull());
-        fireEvent.click(container.querySelector(`[data-nav-key=${JSON.stringify(b01)}]`)!);
+        await waitFor(() => expect(card(container, "racks", "B01")).not.toBeNull());
+        const b01 = hitB01(container);
+        await tap(container.querySelector("[data-schematic-canvas]")!, 2.4, 8.6);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }])));
-        await waitFor(() => expect(container.querySelector(`[data-nav-key=${JSON.stringify(b01)}]`)?.hasAttribute("data-selected")).toBe(true));
+        await waitFor(() => expect(b01.hasAttribute("data-selected")).toBe(true));
     });
 
     test("an area selected beside a rack is heard with it: the whole selection, each entity by its kind and key (SC29)", async () => {
-        const { container, getByText } = await h.mount({ fn: view });
-        const b01 = entityId({ kind: "racks", key: "B01" });
-        await waitFor(() => expect(container.querySelector(`[data-nav-key=${JSON.stringify(b01)}]`)).not.toBeNull());
-        fireEvent.click(container.querySelector(`[data-nav-key=${JSON.stringify(b01)}]`)!);
+        const { container } = await h.mount({ fn: view });
+        await waitFor(() => expect(card(container, "racks", "B01")).not.toBeNull());
+        hitB01(container);
+        const canvas = container.querySelector("[data-schematic-canvas]")!;
+        await tap(canvas, 2.4, 8.6);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }])));
-        fireEvent.click(getByText("Cage A"));
+        // Cage A, outlined, clear of its racks: a tap on it selects it beside the rack.
+        await tap(canvas, 10.0, 1.0);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }, { kind: "areas", key: "cage-a" }])));
     });
 
@@ -164,15 +172,15 @@ describe("<Schematic> through its carrier", () => {
     });
 
     test("Esc clears the whole selection, and the host hears it empty, once (SC29)", async () => {
-        const { container, getByText } = await h.mount({ fn: view });
-        const b01 = entityId({ kind: "racks", key: "B01" });
-        await waitFor(() => expect(container.querySelector(`[data-nav-key=${JSON.stringify(b01)}]`)).not.toBeNull());
-        fireEvent.click(container.querySelector(`[data-nav-key=${JSON.stringify(b01)}]`)!);
+        const { container } = await h.mount({ fn: view });
+        await waitFor(() => expect(card(container, "racks", "B01")).not.toBeNull());
+        hitB01(container);
+        const canvas = container.querySelector("[data-schematic-canvas]")!;
+        await tap(canvas, 2.4, 8.6);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }])));
-        fireEvent.click(getByText("Cage A"));
+        await tap(canvas, 10.0, 1.0);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "racks", key: "B01" }, { kind: "areas", key: "cage-a" }])));
         expect(reportsOf()).toBe(2n);
-        const canvas = container.querySelector("[data-schematic-canvas]")!;
         fireEvent.pointerEnter(canvas);
         // One gesture clears the items, the zones and the link: the host hears it once.
         await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
@@ -184,7 +192,7 @@ describe("<Schematic> through its carrier", () => {
     });
 
     test("`canConnect` hears each candidate a connect drag would write; its words refuse it, and `none` lets it snap and record (SC39)", async () => {
-        const { container, getByLabelText } = await h.mount({ fn: view });
+        const { container, getByRole } = await h.mount({ fn: view });
         await waitFor(() => expect(card(container, "network", "ODF-1")).not.toBeNull());
         const cards = {
             A01: card(container, "racks", "A01")!, A02: card(container, "racks", "A02")!,
@@ -193,7 +201,7 @@ describe("<Schematic> through its carrier", () => {
         // Each card answers at its centre, as a page would hit it.
         const centres: readonly (readonly [Element, number, number])[] = [[cards.A01, 2.4, 2.9], [cards.A02, 6.0, 2.9], [cards.ODF1, 8.4, 9.6], [cards.MMR1, 24.2, 2.9]];
         canvasLayout.hits((x, y) => centres.find(([, cx, cy]) => Math.hypot(x - cx * PPU, y - cy * PPU) < 4)?.[0] ?? null);
-        fireEvent.click(getByLabelText("Connect tool"));
+        fireEvent.click(getByRole("radio", { name: "Connect" }));
         const canvas = container.querySelector("[data-schematic-canvas]")!;
         // From a frame to a frame: refused, its words kept, and the target rings danger.
         await act(async () => {
@@ -219,7 +227,7 @@ describe("<Schematic> through its carrier", () => {
         expect(stateOf(HEARD_KEY)).toBe(printCandidate({ kind: "fibre", from: { kind: "racks", key: "A01" }, to: { kind: "network", key: "MMR-1" } }));
         expect(cards.MMR1.hasAttribute("data-forbidden")).toBe(false);
         await act(async () => { fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(24.2, 2.9) }); });
-        fireEvent.click(getByLabelText("Grab / pan tool"));
+        fireEvent.click(getByRole("radio", { name: "Select" }));
         // Where the refused run would lie — along y 9.6, out to MMR-1's column — a tap finds the network room beneath.
         await tap(canvas, 20.0, 9.6);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "areas", key: "net-room" }])));
@@ -233,12 +241,12 @@ describe("<Schematic> through its carrier", () => {
 
     test("a veto that throws allows the candidate, and the console says why (SC39)", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
-        const { container, getByLabelText } = await h.mount({ fn: view });
+        const { container, getByRole } = await h.mount({ fn: view });
         await waitFor(() => expect(card(container, "racks", "B01")).not.toBeNull());
         const cards = { B01: card(container, "racks", "B01")!, MMR1: card(container, "network", "MMR-1")! };
         const centres: readonly (readonly [Element, number, number])[] = [[cards.B01, 2.4, 8.6], [cards.MMR1, 24.2, 2.9]];
         canvasLayout.hits((x, y) => centres.find(([, cx, cy]) => Math.hypot(x - cx * PPU, y - cy * PPU) < 4)?.[0] ?? null);
-        fireEvent.click(getByLabelText("Connect tool"));
+        fireEvent.click(getByRole("radio", { name: "Connect" }));
         const canvas = container.querySelector("[data-schematic-canvas]")!;
         // The host's veto has no rule for B01, and throws: the frame is no refusal's target, and the console says why.
         await act(async () => {
@@ -250,7 +258,7 @@ describe("<Schematic> through its carrier", () => {
         expect(logged).toHaveBeenCalledWith("[Schematic] canConnect veto failed (allowing):", expect.anything());
         // Let go: the run is recorded, along B01's row out to MMR-1's column, where a tap finds it.
         await act(async () => { fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(24.2, 2.9) }); });
-        fireEvent.click(getByLabelText("Grab / pan tool"));
+        fireEvent.click(getByRole("radio", { name: "Select" }));
         await tap(canvas, 17.0, 8.6);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "fibre", key: "connect-1" }])));
     });

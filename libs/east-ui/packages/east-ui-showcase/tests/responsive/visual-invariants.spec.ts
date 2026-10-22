@@ -745,8 +745,9 @@ test.describe("Visual invariants — the Table, on touch", () => {
  * fold into its chip and find state into its icon — over the host's tables,
  * which no rail narrows (#1346), with nothing before them. A builder over one
  * `Slice.bindRecords` rail — the Calendar's (#1343), the Sheet's (#1345), the
- * Flowchart's over a record of flows (#1346) — folds every step of the rail
- * first, then the rail's summary, then its own steps (ruled 18 Oct, #1340).
+ * Flowchart's over a record of flows (#1346), the Schematic's (#1387) — folds
+ * every step of the rail first, then the rail's summary, then its own steps
+ * (ruled 18 Oct, #1340).
  */
 const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readonly number[]; nudge: readonly number[]; box?: number; rail?: readonly string[]; ladder?: Ladder }> = [
     { name: "Plan", route: `${PLAN_EXAMPLES}/planTargetState`, widths: [1600, 1500, 1400, 1300, 1200, 1100, 1000, 900], nudge: [1500, 1400, 1000], rail: ["record-slices"], ladder: planLadder },
@@ -762,6 +763,7 @@ const TOOLBAR_HOSTS: ReadonlyArray<{ name: string; route: string; widths: readon
     { name: "Library (gallery)", route: "collections/library/libraryGalleryReports", widths: [1600, 1200, 900, 700, 600], nudge: [900], ladder: () => LIBRARY_LADDER },
     { name: "Flowchart", route: "e3/flowchart/flowchart/flowchartDepot", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => FLOWCHART_LADDER },
     { name: "Flowchart (records)", route: "e3/flowchart/flowchart/flowchartRecordIndexes", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => FLOWCHART_LADDER },
+    { name: "Schematic", route: "e3/schematic/schematic/schematicDataCentre", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], rail: ["record-slices"], ladder: () => SCHEMATIC_LADDER },
     { name: "SnapGrid editor", route: "layout/snap-grid/snapGridEditor", widths: [1600, 1200, 1000, 900, 800, 700, 600], nudge: [1000, 800], ladder: () => SNAP_GRID_LADDER },
     { name: "Studio builder", route: "e3/studio/studio/studioBuilder", widths: [1600, 1400, 1200, 1000, 900, 800, 700, 600], nudge: [1200, 900], ladder: () => STUDIO_LADDER },
 ];
@@ -820,6 +822,16 @@ const STUDIO_LADDER: ReadonlyArray<readonly [string, number]> = [
  *  its session — over a record of flows (#1246; `flowchart-flows.spec.ts`
  *  sweeps that row). */
 const FLOWCHART_LADDER: ReadonlyArray<readonly [string, number]> = [["record-summary", 1], ["freshness", 1], ["orientation", 1], ["seek", 1], ["history", 1]];
+
+/** The Schematic's own order (#1387, §6.1, SC24), after its rail: the rail's
+ *  summary first, after every step of the rail (ruled 18 Oct, #1340); then the
+ *  tools' strip drops its words for its icons, Find's box folds to its icon,
+ *  the strip folds into one chip naming the tool, and the tools, the zoom, Fit
+ *  and the steps fold into Find's popover, the View, one move; the history
+ *  item last, where the Schematic edits. */
+const SCHEMATIC_LADDER: ReadonlyArray<readonly [string, number]> = [
+    ["record-summary", 1], ["tools", 1], ["seek", 1], ["tools", 2], ["tools", 3], ["zoom", 1], ["seek", 2], ["step", 1], ["history", 1],
+];
 
 /** The Calendar's own order (#1343), after its rail: the rail's summary
  *  first, after every step of the rail and before the Calendar's own (ruled 18

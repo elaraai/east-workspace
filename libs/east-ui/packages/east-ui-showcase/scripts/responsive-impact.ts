@@ -20,9 +20,10 @@ const componentSpecs = {
     plan: ["plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
     query: ["query-builder.spec.ts", "query-library.spec.ts", "query-runs.spec.ts"],
     roster: ["roster.spec.ts", "roster-inspector.spec.ts", "roster-load.spec.ts"],
-    // The Schematic (#1384) has no suite of its own yet: its hosts are in the
-    // shared ones (the toolbar sweep, the shadow sweep), which it always runs.
-    schematic: [],
+    // The Schematic's frame (#1387); its hosts in the shared suites — the
+    // toolbar sweep, the touch toolbars, the cold load, the shadow sweep —
+    // run with it always.
+    schematic: ["schematic-frame.spec.ts"],
     sheet: ["sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
     studio: ["studio-builder.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts"],
 } as const;

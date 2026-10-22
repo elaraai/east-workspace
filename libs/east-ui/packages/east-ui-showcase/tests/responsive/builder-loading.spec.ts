@@ -9,7 +9,19 @@ import { settled } from "./settle";
 type Paint = { width: number; height: number; main: number; busy: boolean; visible: boolean; narrow: boolean; agenda: boolean; content: boolean };
 type Probe = { active: boolean; paints: Paint[] };
 
-for (const [scope, name] of [["roster", "rosterWarehouse"], ["calendar", "calendarOperations"]] as const) {
+/**
+ * Each builder by its example: what its main's content is, and whether that
+ * content turns to agenda cards below 480px of main — the Roster's and the
+ * Calendar's do; the Schematic's canvas (#1387, SC32) is one canvas at every
+ * width.
+ */
+const BUILDERS = [
+    { scope: "roster", name: "rosterWarehouse", main: "[data-roster-main]", narrows: true },
+    { scope: "calendar", name: "calendarOperations", main: "[data-calendar-main]", narrows: true },
+    { scope: "schematic", name: "schematicDataCentre", main: "[data-schematic-canvas]", narrows: false },
+] as const;
+
+for (const { scope, name, main: mainSelector, narrows } of BUILDERS) {
     for (const theme of ["light", "dark"] as const) {
         test(`${scope} cold load uses a stable Chakra skeleton before the complete layout (${theme}) @narrow`, async ({ page }, info) => {
             if (info.project.name === "desktop") await page.setViewportSize({ width: 1440, height: 1080 });
@@ -17,13 +29,13 @@ for (const [scope, name] of [["roster", "rosterWarehouse"], ["calendar", "calend
             const fonts = new Promise<void>(resolve => { release = resolve; });
             await page.route(/\.woff2(?:\?.*)?$/, async route => { await fonts; await route.continue(); });
             const route = `e3/${scope}/${scope}/${name}`;
-            await page.addInitScript(({ scope, route }) => {
+            await page.addInitScript(({ scope, route, mainSelector }) => {
                 const probe: Probe = { active: true, paints: [] };
                 (window as unknown as { builderLoad: Probe }).builderLoad = probe;
                 const next = () => requestAnimationFrame(() => setTimeout(() => {
                     const entry = document.querySelector(`a[href="#${route}"]`)?.closest('[data-index]');
                     const frame = entry?.querySelector('[data-builder-frame]');
-                    const main = frame?.querySelector(`[data-${scope}-main]`);
+                    const main = frame?.querySelector(mainSelector);
                     if (frame && main) {
                         const rect = frame.getBoundingClientRect();
                         probe.paints.push({ width: rect.width, height: rect.height, main: main.getBoundingClientRect().width,
@@ -34,7 +46,7 @@ for (const [scope, name] of [["roster", "rosterWarehouse"], ["calendar", "calend
                     if (probe.active) next();
                 }, 0));
                 next();
-            }, { scope, route });
+            }, { scope, route, mainSelector });
             try {
                 await page.goto(`/?theme=${theme}#${route}`, { waitUntil: "domcontentloaded" });
                 const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
@@ -89,7 +101,7 @@ for (const [scope, name] of [["roster", "rosterWarehouse"], ["calendar", "calend
                 const visible = paints.filter(p => p.visible && !p.busy && p.content);
                 expect(visible.length).toBeGreaterThan(0);
                 expect(paints.filter(p => p.busy && p.visible)).toEqual([]);
-                expect(visible.filter(p => p.narrow !== (p.main < 480) || p.agenda !== (p.main < 480))).toEqual([]);
+                if (narrows) expect(visible.filter(p => p.narrow !== (p.main < 480) || p.agenda !== (p.main < 480))).toEqual([]);
                 expect(Math.max(...paints.map(p => p.width)) - Math.min(...paints.map(p => p.width))).toBeLessThanOrEqual(1);
             } finally {
                 release();
