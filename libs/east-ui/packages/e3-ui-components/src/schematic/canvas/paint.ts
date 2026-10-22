@@ -6,12 +6,18 @@
 /**
  * Pure Canvas2D paint layer for the Schematic. Given a 2D context, the East
  * value, a camera, the (already culled / LOD-decided) visible set, and a
- * theme-resolved colour palette, it draws the **bulk shapes** — zones (rect
+ * theme-resolved palette, it draws the **bulk shapes** — zones (rect
  * outline / hatch + circle / polyline / polygon geometry, arcs included), links,
  * item footprints, and the dot / pin LOD markers. Rich item *cards* stay DOM
  * (the React layer draws
  * those at close zoom); this module never touches React, Chakra, or the DOM, so
  * it is unit-testable under any Canvas2D implementation (browser or node-skia).
+ *
+ * Every colour it draws is a design-system token the theme bridge resolved
+ * (`theme.tsx`, #1387): its own marks' roles, and each entity's colour by its
+ * id — its colour token, its tone, or its status's, resolved as the cards
+ * resolve theirs (D14). Its labels draw in the font the bridge read from the
+ * recipe: the design system's mono face.
  *
  * @packageDocumentation
  */
@@ -38,30 +44,49 @@ export type LodTier = "card" | "label" | "dot";
 export type RGB = [number, number, number];
 
 /**
- * Theme-resolved colours the paint layer needs. The React layer resolves these
- * from Chakra semantic tokens (CSS custom properties) once per theme; the paint
- * layer is colour-system-agnostic and just consumes RGB.
+ * What the paint layer draws with, resolved by the theme bridge
+ * (`theme.tsx`) from the design system's tokens through the recipe, once per
+ * theme: its own marks' colours, each a role named after its token, and its
+ * fonts. The paint layer is colour-system-agnostic and consumes RGB and font
+ * strings.
  */
 export interface SchematicPalette {
-    /** Brand teal (links, `info` status). */
-    brand600: RGB;
-    brand500: RGB;
-    /** Foreground ink (`ink` tone). */
+    /** `brandMark`: marks and dots — a match's ring, a connection's flash. */
+    brandMark: RGB;
+    /** `brand.solid`: the brand's line — a selected zone's and link's edge, a draft, a frame. */
+    brandSolid: RGB;
+    /** `brandTint`: the brand's area fill — a selected zone's wash. */
+    brandTint: RGB;
+    /** `fg`: ink — a selected marker's ring, a label. */
     fg: RGB;
+    /** `fg.strong`: strong secondary ink. */
+    fgStrong: RGB;
+    /** `fg.muted`: secondary ink — a metric, an eyebrow, a context mark. */
     fgMuted: RGB;
+    /** `fg.subtle`: labels and captions. */
     fgSubtle: RGB;
-    /** Zone `muted` stroke. */
-    borderStrong: RGB;
-    borderSubtle: RGB;
-    /** Card / pin background, and the eyebrow-label halo. */
+    /** `fg.faint`: muted marks. */
+    fgFaint: RGB;
+    /** `bg.surface`: paper — a pill's and a handle's fill, a dot's ring. */
     bgSurface: RGB;
-    bgPanel: RGB;
-    /** Status tones. */
-    statusOk: RGB;
+    /** `bg.canvas`: the canvas's paper — an eyebrow's halo. */
+    bgCanvas: RGB;
+    /** `border.subtle`: a pill's rule. */
+    borderSubtle: RGB;
+    /** `border.strong`: a pin's rule. */
+    borderStrong: RGB;
+    /** `status.pos`. */
+    statusPos: RGB;
+    /** `status.neg`: a refused connection. */
+    statusNeg: RGB;
+    /** `status.warn`. */
     statusWarn: RGB;
-    statusBad: RGB;
-    /** Dot ring. */
-    white: RGB;
+    /** `status.info`. */
+    statusInfo: RGB;
+    /** The labels' font — a labelled pin's and a link's pill — in the design system's mono face, as `ctx.font` takes it. */
+    labelFont: string;
+    /** A zone's eyebrow's font, in the mono face. */
+    eyebrowFont: string;
 }
 
 /** The pan/zoom transform in CSS pixels: `screen = world × ppu + t`. */
@@ -113,6 +138,13 @@ export interface PaintInput {
     /** Item key → world centre, for link endpoints. */
     centers: ReadonlyMap<string, Pt>;
     palette: SchematicPalette;
+    /**
+     * Each entity's colour, by its id: an item's (its markers' and its
+     * footprint's), a zone's, a link's and a net's — its colour token, else
+     * its tone, else its status's or its pattern's, as the bridge resolved it
+     * (`theme.tsx`). An entity it lacks draws in its kind's ground colour.
+     */
+    tints: ReadonlyMap<string, RGB>;
     /** Optional slice-effect paint parameters (ghost / emphasis / frame). */
     effect?: SchematicPaintEffect;
     /** Entity keys in a hidden layer — zones / links with a hidden-layer key are
@@ -142,36 +174,6 @@ export interface PaintInput {
 const css = (c: RGB, a = 1): string =>
     a >= 1 ? `rgb(${c[0]},${c[1]},${c[2]})` : `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
-/** Zone / link tone → palette colour. `muted` differs by surface (zones use the
- * heavier border, links the muted foreground), matching the slot recipe. */
-function toneRGB(p: SchematicPalette, tone: string, kind: "zone" | "link"): RGB {
-    switch (tone) {
-        case "brand": return p.brand600;
-        case "ink": return p.fg;
-        case "muted": return kind === "zone" ? p.borderStrong : p.fgMuted;
-        case "success": return p.statusOk;
-        case "warning": return p.statusWarn;
-        case "danger": return p.statusBad;
-        default: return p.fgMuted;
-    }
-}
-
-/** Item status tone → dot / footprint colour. */
-function statusRGB(p: SchematicPalette, status: string | undefined): RGB {
-    switch (status) {
-        case "success": return p.statusOk;
-        case "warning": return p.statusWarn;
-        case "danger": return p.statusBad;
-        case "info": return p.brand500;
-        default: return p.fgMuted;
-    }
-}
-
-/** The tone an item's status draws in, if it has one. */
-function statusTone(status: DrawnItem["status"]): string | undefined {
-    return status.type === "some" ? status.value.tone.type : undefined;
-}
-
 /** Whether an item's status draws as an open ring, as a tentative one does. */
 function statusRing(status: DrawnItem["status"]): boolean {
     return status.type === "some" && status.value.ring;
@@ -192,19 +194,6 @@ export function placedVertices<V extends { x: number; y: number; bulge: number }
 /** A zone's anchor: its box's centre, what its geometry is drawn about. */
 export function zoneAnchor(zone: { x: number; y: number; width: number; height: number }): Pt {
     return { x: zone.x + zone.width / 2, y: zone.y + zone.height / 2 };
-}
-
-/**
- * Resolve an entity's stroke / tint colour to a CSS string, applying the
- * override precedence: a raw `color` string wins, then a semantic `tone`
- * (mapped through the theme palette for the entity's `kind` — `muted`
- * resolves differently for zones vs links/items), then the status / pattern
- * fallback RGB.
- */
-function resolveTint(p: SchematicPalette, color: string | undefined, tone: string | undefined, fallback: RGB, kind: "zone" | "link"): string {
-    if (color !== undefined) return color;
-    if (tone !== undefined) return css(toneRGB(p, tone, kind));
-    return css(fallback);
 }
 
 /** Expand anchors into an axis-aligned point list (one elbow per diagonal).
@@ -308,9 +297,6 @@ function traceVertices(ctx: CanvasRenderingContext2D, pts: Vert[], closed: boole
     }
 }
 
-/** Font the labelled-pin marker is drawn with; the pick must measure label
- * widths with the SAME font so its hitbox matches the drawn pill. */
-export const MARKER_LABEL_FONT = '600 10px ui-monospace, "SF Mono", Menlo, monospace';
 /** Drawn radius of a `dot`-tier marker, in screen px. */
 export const MARKER_DOT_RADIUS = 5;
 /** Hit radius of a `dot`-tier marker, in screen px — comfortably over the
@@ -331,7 +317,7 @@ export type MarkerHitbox =
  * drawn area and the two cannot silently drift (issue #57, P11). A `dot` is a
  * circle of {@link MARKER_DOT_HIT_RADIUS}; a `label` is the rounded pill whose
  * width is `pad + dot + gap + textWidth + pad` — the text measured by `measure`
- * (the caller sets the context font to {@link MARKER_LABEL_FONT} first).
+ * (the caller sets the context font to the palette's `labelFont` first).
  *
  * @param item - the item's world anchor and label
  * @param tier - the LOD tier (`dot` or `label`; `card` markers are DOM)
@@ -641,7 +627,7 @@ function drawEdgeLabel(
     if (label === undefined && metric === undefined) return;
     const mid = polylineMidpoint(pts);
     ctx.save();
-    ctx.font = MARKER_LABEL_FONT;
+    ctx.font = p.labelFont;
     const main = label ?? "";
     const tail = metric !== undefined ? (label !== undefined ? ` · ${metric}` : metric) : "";
     const mainW = main !== "" ? ctx.measureText(main).width : 0;
@@ -670,7 +656,9 @@ function drawEdgeLabel(
 
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
-    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, effect, layerHiddenKeys, layerAlpha, draftLink, session, connectFlash, selectedLink } = input;
+    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, tints, effect, layerHiddenKeys, layerAlpha, draftLink, session, connectFlash, selectedLink } = input;
+    // An entity's colour by its id, as the bridge resolved it; else its kind's ground.
+    const tintOf = (key: string, ground: RGB): string => css(tints.get(key) ?? ground);
     const wx = (x: number) => x * cam.ppu + cam.tx;
     const wy = (y: number) => y * cam.ppu + cam.ty;
     const ppu = cam.ppu;
@@ -702,8 +690,8 @@ export function paintSchematic(input: PaintInput): void {
         const geom = getSomeorUndefined(zone.geometry);
         if (!bboxOverlaps(zoneWorldBbox(zone, geom), viewBbox)) continue;
         const pattern = zone.pattern;
-        const patternTone = (pattern.value.tone.type === "some" ? pattern.value.tone.value.type : undefined) ?? "muted";
-        const tint = resolveTint(p, getSomeorUndefined(zone.color), getSomeorUndefined(zone.tone)?.type, toneRGB(p, patternTone, "zone"), "zone");
+        // Its colour token, else its tone, else its pattern's (§4.2).
+        const tint = tintOf(zone.key, p.borderStrong);
         // A zone is unfilled unless its `fillOpacity` says how much: then it is filled in its tint.
         const zFillAlpha = getSomeorUndefined(zone.fillOpacity);
         const zWeight = getSomeorUndefined(zone.weight);
@@ -802,8 +790,9 @@ export function paintSchematic(input: PaintInput): void {
             ctx.setLineDash([]);
         }
 
-        // Selected-zone highlight (#177): a light brand wash + solid 2px brand
-        // stroke over the zone's actual shape, drawn above its pattern.
+        // Selected-zone highlight (#177): the brand's area fill — the design
+        // system's `brandTint` at 0.7 — and a solid 2px `brand.solid` stroke
+        // over the zone's actual shape, drawn above its pattern.
         if (selectedZones?.has(zone.key) ?? false) {
             ctx.save();
             ctx.beginPath();
@@ -814,23 +803,23 @@ export function paintSchematic(input: PaintInput): void {
             } else {
                 ctx.rect(x, y, w, h);
             }
-            ctx.globalAlpha = 0.06;
-            ctx.fillStyle = css(p.brand500);
+            ctx.globalAlpha = 0.7;
+            ctx.fillStyle = css(p.brandTint);
             ctx.fill();
             ctx.globalAlpha = 1;
             ctx.setLineDash([]);
             ctx.lineWidth = 2;
-            ctx.strokeStyle = css(p.brand600);
+            ctx.strokeStyle = css(p.brandSolid);
             ctx.stroke();
             ctx.restore();
         }
 
-        // eyebrow label at the bbox top-left (the nav / minimap anchor)
+        // eyebrow label at the bbox top-left (the minimap's anchor), in the mono face
         if (w >= zone.label.length * 6.2 + 24) {
-            ctx.font = '600 9px ui-monospace, "SF Mono", Menlo, monospace';
+            ctx.font = p.eyebrowFont;
             const label = zone.label.toUpperCase();
             const tw = ctx.measureText(label).width;
-            ctx.fillStyle = css(p.bgPanel);
+            ctx.fillStyle = css(p.bgCanvas);
             ctx.fillRect(x + 6, y - 7, tw + 6, 12);
             ctx.fillStyle = css(p.fgMuted);
             ctx.textBaseline = "middle";
@@ -870,13 +859,12 @@ export function paintSchematic(input: PaintInput): void {
             ? (link.route.value.corner.type === "some" ? link.route.value.corner.value : 8) : 0;
         const pts = link.route.type === "orthogonal" ? orthogonalize(anchors) : anchors;
         const style = link.style;
-        const tone = (style.value.tone.type === "some" ? style.value.tone.value.type : undefined)
-            ?? (style.type === "solid" ? "brand" : "muted");
         const weight = style.value.weight.type === "some" ? style.value.weight.value
             : (style.type === "solid" ? 2.5 : 1.5);
-        const color = toneRGB(p, tone, "link");
+        // Its style's tone, or its style's own: a solid run the brand's, a dashed one muted.
+        const color = tintOf(link.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
         ctx.lineCap = "round";
-        ctx.strokeStyle = css(color);
+        ctx.strokeStyle = color;
         ctx.lineWidth = weight;
         ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
         ctx.beginPath();
@@ -888,7 +876,7 @@ export function paintSchematic(input: PaintInput): void {
         if (selectedLink !== undefined && selectedLink.key === link.key) {
             ctx.save();
             ctx.lineWidth = weight + 4;
-            ctx.strokeStyle = css(p.brand600, 0.25);
+            ctx.strokeStyle = css(p.brandSolid, 0.25);
             ctx.beginPath();
             traceRounded(ctx, pts, corner);
             ctx.stroke();
@@ -899,13 +887,13 @@ export function paintSchematic(input: PaintInput): void {
                     ctx.fillStyle = css(p.bgSurface);
                     ctx.fill();
                     ctx.lineWidth = 2;
-                    ctx.strokeStyle = css(p.brand600);
+                    ctx.strokeStyle = css(p.brandSolid);
                     ctx.stroke();
                 }
             }
             ctx.restore();
         }
-        ctx.fillStyle = css(color);
+        ctx.fillStyle = color;
         for (const end of [anchors[0]!, anchors[anchors.length - 1]!]) {
             ctx.beginPath();
             ctx.arc(end.x, end.y, weight + 1.5, 0, Math.PI * 2);
@@ -936,13 +924,12 @@ export function paintSchematic(input: PaintInput): void {
         const netBbox = pointsBbox([...srcPts, ...net.via, ...dstPts]);
         if (netBbox !== null && !bboxOverlaps(netBbox, viewBbox)) continue;
         const style = net.style;
-        const tone = (style.value.tone.type === "some" ? style.value.tone.value.type : undefined)
-            ?? (style.type === "solid" ? "brand" : "muted");
         const weight = style.value.weight.type === "some" ? style.value.weight.value
             : (style.type === "solid" ? 2.5 : 1.5);
         const corner = net.route.type === "orthogonal"
             ? (net.route.value.corner.type === "some" ? net.route.value.corner.value : 8) : 0;
-        const color = toneRGB(p, tone, "link");
+        // Its style's tone, or its style's own, as a link's.
+        const color = tintOf(net.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
         const toScreen = (q: Pt): Pt => ({ x: wx(q.x), y: wy(q.y) });
         const routed = (worldAnchors: Pt[]): Pt[] => {
             const screen = worldAnchors.map(toScreen);
@@ -957,7 +944,7 @@ export function paintSchematic(input: PaintInput): void {
         ctx.lineCap = "round";
         ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
         const trunkPts = routed(geo.trunk);
-        ctx.strokeStyle = css(color);
+        ctx.strokeStyle = color;
         ctx.lineWidth = weight + 1;
         ctx.beginPath();
         traceRounded(ctx, trunkPts, corner);
@@ -977,7 +964,7 @@ export function paintSchematic(input: PaintInput): void {
         ctx.setLineDash([]);
         // Junction dots: 3-way taps on the bars (one-line diagram convention — a dot
         // means lines JOIN; plain elbows and crossings stay dot-free).
-        ctx.fillStyle = css(color);
+        ctx.fillStyle = color;
         for (const j of geo.taps.map(toScreen)) {
             ctx.beginPath();
             ctx.arc(j.x, j.y, weight + 1.5, 0, Math.PI * 2);
@@ -988,7 +975,7 @@ export function paintSchematic(input: PaintInput): void {
         const selLeg = isSel ? selectedLink?.leg : undefined;
         if (isSel && selLeg === undefined) {
             ctx.lineWidth = weight + 5;
-            ctx.strokeStyle = css(p.brand600, 0.25);
+            ctx.strokeStyle = css(p.brandSolid, 0.25);
             ctx.beginPath();
             traceRounded(ctx, trunkPts, corner);
             ctx.stroke();
@@ -1003,7 +990,7 @@ export function paintSchematic(input: PaintInput): void {
             const stub = idx >= 0 ? geo.stubs[selLeg.end === "source" ? idx : srcK.length + idx] : undefined;
             if (stub !== undefined) {
                 ctx.lineWidth = weight + 5;
-                ctx.strokeStyle = css(p.brand600, 0.35);
+                ctx.strokeStyle = css(p.brandSolid, 0.35);
                 ctx.beginPath();
                 traceRounded(ctx, stub.map(toScreen), corner);
                 ctx.stroke();
@@ -1027,7 +1014,7 @@ export function paintSchematic(input: PaintInput): void {
         ctx.lineCap = "round";
         ctx.setLineDash([6, 5]);
         ctx.lineWidth = 2;
-        ctx.strokeStyle = css(p.brand500, 0.75);
+        ctx.strokeStyle = css(p.brandMark, 0.75);
         if (session.kind === "edge") {
             ctx.beginPath();
             traceRounded(ctx, routeScreen(session.from, session.to), 8);
@@ -1058,7 +1045,7 @@ export function paintSchematic(input: PaintInput): void {
         // affordance, and a red ring on the forbidden marker (cards get the
         // ring via CSS `data-forbidden`; here we ring dot / label tiers).
         const vetoed = draftLink.forbiddenKey !== undefined;
-        const edge = vetoed ? p.statusBad : p.brand600;
+        const edge = vetoed ? p.statusNeg : p.brandSolid;
         const pts = routeScreen(draftLink.from, draftLink.to);
         ctx.save();
         ctx.lineCap = "round";
@@ -1089,7 +1076,7 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.beginPath();
                 ctx.arc(wx(fc.x), wy(fc.y), r, 0, Math.PI * 2);
                 ctx.lineWidth = 2;
-                ctx.strokeStyle = css(p.statusBad, 0.75);
+                ctx.strokeStyle = css(p.statusNeg, 0.75);
                 ctx.stroke();
             }
         }
@@ -1104,7 +1091,7 @@ export function paintSchematic(input: PaintInput): void {
         ctx.setLineDash([10, 6]);
         ctx.lineDashOffset = -t * 32;
         ctx.lineWidth = 3;
-        ctx.strokeStyle = css(p.brand600, 0.9 * (1 - t));
+        ctx.strokeStyle = css(p.brandSolid, 0.9 * (1 - t));
         ctx.beginPath();
         traceRounded(ctx, pts, 8);
         ctx.stroke();
@@ -1114,7 +1101,7 @@ export function paintSchematic(input: PaintInput): void {
             ctx.beginPath();
             ctx.arc(q.x, q.y, 6 + t * 12, 0, Math.PI * 2);
             ctx.lineWidth = 2;
-            ctx.strokeStyle = css(p.brand500, 0.8 * (1 - t));
+            ctx.strokeStyle = css(p.brandMark, 0.8 * (1 - t));
             ctx.stroke();
         }
         ctx.restore();
@@ -1133,14 +1120,14 @@ export function paintSchematic(input: PaintInput): void {
             ctx.save();
             ctx.beginPath();
             ctx.rect(fx, fy, fw, fh);
-            ctx.globalAlpha = 0.07;
-            ctx.fillStyle = css(p.brand500);
+            ctx.globalAlpha = 0.7;
+            ctx.fillStyle = css(p.brandTint);
             ctx.fill();
             ctx.restore();
             ctx.save();
             ctx.setLineDash([7, 5]);
             ctx.lineWidth = 1.5;
-            ctx.strokeStyle = css(p.brand600);
+            ctx.strokeStyle = css(p.brandSolid);
             ctx.strokeRect(fx, fy, fw, fh);
             ctx.setLineDash([]);
             ctx.restore();
@@ -1160,7 +1147,7 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.beginPath();
                 ctx.arc(wx(item.x), wy(item.y), r, 0, Math.PI * 2);
                 ctx.lineWidth = 2;
-                ctx.strokeStyle = css(p.brand500, alpha);
+                ctx.strokeStyle = css(p.brandMark, alpha);
                 ctx.stroke();
                 ctx.restore();
             }
@@ -1175,7 +1162,8 @@ export function paintSchematic(input: PaintInput): void {
         if (footprint === undefined || footprint.type === "rect") continue;
         if ((tiers.get(item.key) ?? "dot") !== "card") continue;
         const isSel = selected.has(item.key);
-        let tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)), "link");
+        // Its colour token, else its tone, else its status's — the colour its card's dot is.
+        let tint = tintOf(item.key, p.fgMuted);
         if (desatOf(item.key)) tint = css(p.fgMuted);
         const a = alphaOf(item.key);
         const fillAlpha = getSomeorUndefined(item.fillOpacity) ?? (isSel ? 0.24 : 0.12);
@@ -1225,7 +1213,7 @@ export function paintSchematic(input: PaintInput): void {
     for (const item of visibleItems) {
         const tier = tiers.get(item.key) ?? "dot";
         if (tier === "card") continue; // rich card rendered by the React layer
-        let tint = resolveTint(p, getSomeorUndefined(item.color), getSomeorUndefined(item.tone)?.type, statusRGB(p, statusTone(item.status)), "link");
+        let tint = tintOf(item.key, p.fgMuted);
         if (desatOf(item.key)) tint = css(p.fgMuted);
         const isSel = selected.has(item.key);
         const x = wx(item.x), y = wy(item.y);
@@ -1240,7 +1228,7 @@ export function paintSchematic(input: PaintInput): void {
             ctx.fillStyle = ring ? css(p.bgSurface) : tint;
             ctx.fill();
             ctx.lineWidth = ring ? 2 : 1.5;
-            ctx.strokeStyle = ring ? tint : css(p.white);
+            ctx.strokeStyle = ring ? tint : css(p.bgSurface);
             ctx.stroke();
             if (isSel) {
                 ctx.beginPath();
@@ -1252,7 +1240,7 @@ export function paintSchematic(input: PaintInput): void {
         } else {
             // labelled pin — bounds come from the SHARED markerHitbox so the drawn
             // pill and the click target are identical (issue #57, P11).
-            ctx.font = MARKER_LABEL_FONT;
+            ctx.font = p.labelFont;
             const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
             if (box.kind === "rect") {
                 const { left, top, w, h } = box;

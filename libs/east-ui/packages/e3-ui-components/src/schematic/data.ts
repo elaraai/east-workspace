@@ -15,6 +15,11 @@
  * when that moves. While a read the drawing needs is in flight, the frame keeps
  * the last complete drawing; one it has never read is never drawn as empty.
  *
+ * Each kind is read on its own (#1387, SC32): a kind whose read fails keeps
+ * what was drawn of it, says why under its slot, and leaves every other kind
+ * read; the frame says so in a banner, with Retry. A read again — `attempt`
+ * moving — reads every kind afresh.
+ *
  * @packageDocumentation
  */
 
@@ -38,18 +43,30 @@ const sameDetails = equalFor(Schematic.Types.DetailsRoles);
 
 /** What the Schematic has read of its kinds' records. */
 export interface SchematicData {
-    /** What the canvas draws: the last complete read's entities. */
+    /** What the canvas draws: the last settled read's entities. */
     readonly drawn: SchematicDrawn;
     /** Whether a read the drawing needs — a kind's rows, or its details read whole — is in flight. */
     readonly loading: boolean;
-    /** Whether a complete read has landed. */
+    /** Whether a read has settled: every kind read, or its read failed. */
     readonly ready: boolean;
-    /** Why the latest read failed. */
+    /** Why the read as a whole failed — outside any one kind's. */
     readonly error: string | undefined;
+    /** Why a kind's read failed, by the kind's slot. */
+    readonly failures: ReadonlyMap<string, string>;
+    /** How many rows each kind's settled read holds, by the kind's slot — those with no position among them. */
+    readonly rows: ReadonlyMap<string, number>;
 }
 
+/** No kind failed. */
+const NO_FAILURES: ReadonlyMap<string, string> = new Map();
+
+/** No kind read. */
+const NO_ROWS: ReadonlyMap<string, number> = new Map();
+
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
-export const INITIAL_SCHEMATIC_DATA: SchematicData = { drawn: EMPTY_DRAWN, loading: true, ready: false, error: undefined };
+export const INITIAL_SCHEMATIC_DATA: SchematicData = {
+    drawn: EMPTY_DRAWN, loading: true, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS,
+};
 
 /** One entity as it was last drawn: the roles it was drawn from, and what was drawn — none for an unplaced item. */
 interface Kept {
@@ -68,18 +85,32 @@ interface Held {
 /** One kind's stored rows a read holds, each its roles. */
 type Rows<R> = ReadonlyMap<string, { readonly roles: R }>;
 
+/** Why a read failed, as the banner says it. */
+function messageOf(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+/** A map's entries as one string: equal whenever the map holds the same. */
+function signatureOf(map: ReadonlyMap<string, string | number>): string {
+    return [...map].map(([key, value]) => `${key}\u0000${value}`).join("\u0001");
+}
+
 /**
  * Reads the drawing (see the module docs).
  *
  * @param value - The payload
+ * @param attempt - Moves to read every kind afresh: a Retry
  * @returns What the Schematic has read
  */
-export function useSchematicData(value: SchematicValue): SchematicData {
+export function useSchematicData(value: SchematicValue, attempt = 0): SchematicData {
     const held = useRef<Held>({ value: undefined, kinds: new Map(), drawn: EMPTY_DRAWN });
     const read = useCallback(() => {
+        // A Retry reads every kind again, from what was drawn.
+        void attempt;
         // A payload built again holds functions of its own: what they draw is read again.
         const prior: Held = Object.is(held.current.value, value) ? held.current : { value, kinds: new Map(), drawn: EMPTY_DRAWN };
         const kinds = new Map<string, ReadonlyMap<string, Kept>>();
+        const failures = new Map<string, string>();
         let loading = false;
         let changed = prior.kinds.size === 0;
         /** One kind's entities: each kept where its roles and its details read again as they were, else drawn again. */
@@ -100,55 +131,89 @@ export function useSchematicData(value: SchematicValue): SchematicData {
             }
             kinds.set(slot, kept);
         };
+        /** A kind whose read failed: what was drawn of it stays, and why is kept under its slot. */
+        const failed = <E>(slot: string, error: unknown, out: E[]) => {
+            failures.set(slot, messageOf(error));
+            const was = prior.kinds.get(slot);
+            if (was === undefined) return;
+            kinds.set(slot, was);
+            for (const kept of was.values()) if (kept.drawn !== undefined) out.push(kept.drawn as E);
+        };
         const items: DrawnItem[] = [];
         const zones: DrawnZone[] = [];
         const links: DrawnLink[] = [];
         const nets: DrawnNet[] = [];
         for (const kind of value.items) {
-            const rows = kind.rows();
-            // A kind's details read whole beside it: what its cards draw where the kind gives none.
-            let details: Rows<DetailsRoles> | undefined;
-            if (kind.details.type === "some" && kind.details.value.rows.type === "some") {
-                const got = kind.details.value.rows.value();
-                if (got.type === "some") details = got.value;
-                else loading = true;
+            try {
+                const rows = kind.rows();
+                // A kind's details read whole beside it: what its cards draw where the kind gives none.
+                let details: Rows<DetailsRoles> | undefined;
+                if (kind.details.type === "some" && kind.details.value.rows.type === "some") {
+                    const got = kind.details.value.rows.value();
+                    if (got.type === "some") details = got.value;
+                    else loading = true;
+                }
+                if (rows.type !== "some") { loading = true; continue; }
+                take(kind.key, rows.value, details, sameItem, drawnItem, items);
+            } catch (error) {
+                failed(kind.key, error, items);
             }
-            if (rows.type !== "some") { loading = true; continue; }
-            take(kind.key, rows.value, details, sameItem, drawnItem, items);
         }
         for (const kind of value.zones) {
-            const rows = kind.rows();
-            if (rows.type !== "some") { loading = true; continue; }
-            take(kind.key, rows.value, undefined, sameZone, (ref, roles) => drawnZone(ref, roles), zones);
+            try {
+                const rows = kind.rows();
+                if (rows.type !== "some") { loading = true; continue; }
+                take(kind.key, rows.value, undefined, sameZone, (ref, roles) => drawnZone(ref, roles), zones);
+            } catch (error) {
+                failed(kind.key, error, zones);
+            }
         }
         for (const kind of value.links) {
-            const rows = kind.rows();
-            if (rows.type !== "some") { loading = true; continue; }
-            take(kind.key, rows.value, undefined, sameLink, (ref, roles) => drawnLink(ref, roles), links);
+            try {
+                const rows = kind.rows();
+                if (rows.type !== "some") { loading = true; continue; }
+                take(kind.key, rows.value, undefined, sameLink, (ref, roles) => drawnLink(ref, roles), links);
+            } catch (error) {
+                failed(kind.key, error, links);
+            }
         }
         for (const kind of value.nets) {
-            const rows = kind.rows();
-            if (rows.type !== "some") { loading = true; continue; }
-            take(kind.key, rows.value, undefined, sameNet, (ref, roles) => drawnNet(ref, roles), nets);
+            try {
+                const rows = kind.rows();
+                if (rows.type !== "some") { loading = true; continue; }
+                take(kind.key, rows.value, undefined, sameNet, (ref, roles) => drawnNet(ref, roles), nets);
+            } catch (error) {
+                failed(kind.key, error, nets);
+            }
         }
         const drawn = changed || kinds.size !== prior.kinds.size ? { items, zones, links, nets } : prior.drawn;
-        return { held: { value, kinds, drawn } satisfies Held, loading };
-    }, [value]);
+        return { held: { value, kinds, drawn } satisfies Held, loading, failures };
+    }, [value, attempt]);
     const { result } = useTrackedEvaluation(read);
-    // The last complete read: a newer one in flight keeps it, so a scan landing redraws nothing until the read is whole.
-    const complete = useRef<SchematicData | undefined>(undefined);
+    // The last settled read: a newer one in flight keeps it, so a scan landing redraws nothing until the read is whole.
+    const settled = useRef<{ drawn: SchematicDrawn; failures: ReadonlyMap<string, string>; rows: ReadonlyMap<string, number> } | undefined>(undefined);
     if (result.ok) {
         const got = result.value;
         held.current = got.held;
-        if (!got.loading && (complete.current === undefined || !Object.is(complete.current.drawn, got.held.drawn))) {
-            complete.current = { drawn: got.held.drawn, loading: false, ready: true, error: undefined };
+        if (!got.loading) {
+            const rows = new Map([...got.held.kinds].map(([slot, kept]) => [slot, kept.size] as const));
+            const was = settled.current;
+            if (was === undefined || !Object.is(was.drawn, got.held.drawn) || signatureOf(was.failures) !== signatureOf(got.failures)
+                || signatureOf(was.rows) !== signatureOf(rows)) {
+                settled.current = {
+                    drawn: got.held.drawn,
+                    failures: was !== undefined && signatureOf(was.failures) === signatureOf(got.failures) ? was.failures : got.failures,
+                    rows: was !== undefined && signatureOf(was.rows) === signatureOf(rows) ? was.rows : rows,
+                };
+            }
         }
     }
-    const last = complete.current;
+    const last = settled.current;
     const loading = result.ok ? result.value.loading : false;
-    const error = result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error);
-    return useMemo(() => last === undefined ? { ...INITIAL_SCHEMATIC_DATA, loading, error }
-        : last.loading === loading && last.error === error ? last : { ...last, loading, error }, [last, loading, error]);
+    const error = result.ok ? undefined : messageOf(result.error);
+    return useMemo((): SchematicData => (last === undefined
+        ? { ...INITIAL_SCHEMATIC_DATA, loading, error }
+        : { drawn: last.drawn, loading, ready: true, error, failures: last.failures, rows: last.rows }), [last, loading, error]);
 }
 
 /**
@@ -156,11 +221,11 @@ export function useSchematicData(value: SchematicValue): SchematicData {
  * that lands re-runs it alone, and it hands the frame what it read only when
  * what the frame shows moves.
  *
- * @param props - The payload, and where the data goes
+ * @param props - The payload, the read's attempt, and where the data goes
  * @returns Nothing: it reads
  */
-export function SchematicDataReader({ value, onData }: { value: SchematicValue; onData: (data: SchematicData) => void }): null {
-    const data = useSchematicData(value);
+export function SchematicDataReader({ value, attempt, onData }: { value: SchematicValue; attempt: number; onData: (data: SchematicData) => void }): null {
+    const data = useSchematicData(value, attempt);
     const reported = useRef<SchematicData | undefined>(undefined);
     useLayoutEffect(() => {
         if (Object.is(reported.current, data)) return;

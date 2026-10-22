@@ -31,7 +31,8 @@ const THEME_KEEPS = ['east-ui-components/dist/theme/slot-recipes/schematic.d.ts:
 test('what the Schematic exports is read whole — its IR\'s names and its renderer\'s', () => {
     for (const name of ['Schematic', 'SchematicPayloadType', 'SchematicComponent', 'SchematicTag', 'SchematicTypes', 'SchematicShapes',
         'SchematicProps', 'SchematicItemType', 'SchematicLinkType', 'SchematicNetType', 'SchematicNarrowedType', 'SchematicDrawnItemType',
-        'SchematicDataReader', 'EastChakraSchematic', 'EastChakraSchematicProps', 'SchematicValue', 'SchematicPalette', 'SchematicPaletteProbe']) {
+        'SchematicDataReader', 'EastChakraSchematic', 'EastChakraSchematicProps', 'SchematicValue', 'SchematicPalette', 'SchematicProbe',
+        'SchematicCanvas', 'SchematicFooter', 'useSchematicToolbarItems', 'SchematicMessages']) {
         assert.ok(SCHEMATIC_NAMES.has(name), `the Schematic's ${name} is read`);
     }
 });

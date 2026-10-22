@@ -80,8 +80,8 @@ test("the data centre draws each kind's rows — the racks through their source 
     // The racks are read through their source — its key searches and pages — and never whole.
     expect(h.requests("read", "records.schematic_racks")).toEqual([]);
     expect(h.requests(undefined, "records.schematic_racks").length).toBeGreaterThan(0);
-    // The navigator lists the areas, which hold the racks inside them.
-    expect(container.textContent).toContain("Cage A");
+    // The footer counts the five racks drawn of the seven the record holds, as their source counts it (#1387).
+    await waitFor(() => expect(container.querySelector('[data-schematic-count="racks"]')?.textContent).toBe("Rack 5 of 7"));
 });
 
 test("the data centre draws each cooling unit's footprint from the unit's own radius, about its centre (SC37)", async () => {
@@ -101,7 +101,7 @@ test("the data centre draws each cooling unit's footprint from the unit's own ra
 });
 
 test("the data centre's host keeps the whole selection, and its veto refuses a run between two frames in its words (D34)", async () => {
-    const { container, getByLabelText } = await h.mount(ex.schematicDataCentre);
+    const { container, getByRole } = await h.mount(ex.schematicDataCentre);
     await settle();
     await waitFor(() => expect(card(container, "network", "CORE-1")).not.toBeNull());
     const cards = { A05: card(container, "racks", "A05")!, MMR1: card(container, "network", "MMR-1")!, CORE1: card(container, "network", "CORE-1")! };
@@ -113,7 +113,7 @@ test("the data centre's host keeps the whole selection, and its veto refuses a r
     await tap(canvas, DATA_CENTRE_PPU, 16.8, 2.9);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A05" }])));
     // A run from the meet-me room's frame to the core: two frames, refused, the target ringed.
-    fireEvent.click(getByLabelText("Connect tool"));
+    fireEvent.click(getByRole("radio", { name: "Connect" }));
     await act(async () => {
         fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(DATA_CENTRE_PPU, 24.2, 2.9) });
         fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, ...at(DATA_CENTRE_PPU, 23.2, 9.7) });
