@@ -38,6 +38,7 @@ import {
   type DatasetKeySearch,
 } from '@elaraai/e3-api-client';
 
+import { assertMutationCommitted } from '../assertions.js';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { createBatchReadsPackageZip, ItemGroupKeyType, ItemRowType, ItemsType } from '../fixtures.js';
@@ -72,7 +73,7 @@ export function datasetBatchTests(setup: TestSetup<TestContext>): void {
       ctx.config.baseUrl, ctx.repoName, WS, 'items', 'seed',
       { args: [encodeInt(ROWS)], actor: none, limits: none }, opts,
     );
-    assert.equal(seeded.outcome.type, 'committed', `seeding must commit, got ${seeded.outcome.type}`);
+    assertMutationCommitted(seeded, 'seeding');
     const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, WS, itemsPath, opts);
     assert.ok(status.hash.type === 'some', 'the record holds a state');
     return { ctx, hash: status.hash.value };
