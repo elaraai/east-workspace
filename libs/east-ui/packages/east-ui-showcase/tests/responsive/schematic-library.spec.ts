@@ -31,7 +31,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { DATA_CENTRE, card, centred, openSchematic, openTab, pane, sizeTo } from "./schematic-page";
+import { DATA_CENTRE, card, centred, collapseInspector, openSchematic, openTab, pane, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 import { token } from "./tokens";
 
@@ -163,8 +163,9 @@ test.describe("The Schematic's library (#1389)", () => {
         test(`the Layers tab's rows are the pick-panel row: 44px, a hairline between, each swatch its layer's colour token, the name 12.5px at 600 in the ink and a hidden layer's in the faint ink at 500, never by opacity; Isolate, Lock and Show 24px, the brand's while on; Show all under the rows; a hidden layer's cards go, a locked one's take no pointer (SC27, ${theme})`, async ({ page }) => {
             await page.setViewportSize({ width: 1600, height: 1000 });
             const root = await openSchematic(page, DATA_CENTRE, theme);
-            // A box wide enough, beside the pane, for the racks to draw as their cards.
+            // A box wide enough, beside the pane and the inspector's rail (#1391), for the racks to draw as their cards.
             await sizeTo(page, root, 1440);
+            await collapseInspector(page, root);
             await expect(card(root, "racks", "A01")).toBeVisible();
             await openTab(page, root, "Layers");
             // Power hidden: its racks' cards go, and Show all offers itself under the rows.

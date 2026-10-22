@@ -52,6 +52,11 @@
  *   and on a touch screen a tap on the selected card, drops it on the
  *   selection or at the view's centre, and where that is refused the footer
  *   says why;
+ * - **the inspector** (#1391, `inspector.tsx`): the end pane, given
+ *   `inspector` — Details of what is selected (`inspect.ts`), its rows read in
+ *   a component of their own (`inspector-rows.ts`), every edit one step of the
+ *   history; and Issues (`issues.ts`), each selecting what it names. Enter, or
+ *   a double-click on an entity, opens Details, its open tab kept per viewer;
  * - **the skeleton** — `BuilderFrame.loading` covers the frame until every
  *   kind has been read once (or its read failed); later reads keep the canvas
  *   and what it draws until they land (§6.5, §10.4).
@@ -79,8 +84,9 @@ import { ArrayType, StringType, equalFor, equivalentFor, none, some, type option
 import { Schematic, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
-    implementUIComponent, typedInto, useDataStable, useFormatters, useSlicesReactivity, type EditIssue, type EditingWords, type HistoryAction,
+    implementUIComponent, typedInto, useDataStable, useFormatters, usePersistedState, useSlicesReactivity, type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
+import { schematicColorTokens } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
 import { backlogEntries } from "./backlog.js";
@@ -92,10 +98,14 @@ import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, type SchematicData, type S
 import { schematicCounts } from "./counts.js";
 import { draftedDrawing, type DraftedCache } from "./drafted.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
-import type { SchematicEdit } from "./edits.js";
+import type { NetLeg, SchematicEdit } from "./edits.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
 import { useFindItem, type FindableItem } from "./find.js";
 import { SchematicFooter, savedRecords, type SchematicNotice } from "./footer.js";
+import { drawnEntities, inspectedEqual, inspectedOf } from "./inspect.js";
+import { schematicInspectorPane } from "./inspector.js";
+import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
+import { drawingIssues, sessionIssues } from "./issues.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
 import { useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
@@ -220,6 +230,9 @@ const NOTHING_SELECTED: ReadonlySet<string> = new Set();
 /** No card of the library selected. */
 const NO_PICKS: ReadonlyMap<string, string> = new Map();
 
+/** The theme colour tokens a colour may name (D14): what the Issues tab holds each colour to (#1391). */
+const THEME_COLOURS: ReadonlySet<string> = new Set(schematicColorTokens);
+
 /** The frame, its regions holding the Schematic's parts over one shared state — see the module docs. */
 function SchematicFrame({ value, data, readAgain, storageKey, followed }: SchematicFrameProps & { readonly followed: FollowedSources }) {
     const styles = useSlotRecipe({ key: "schematic" })() as Styles;
@@ -267,8 +280,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
 
     // ── The canvas: the camera and the selection are its own ────────────
     const canvasRef = useRef<SchematicCanvasHandle>(null);
-    // What the canvas has selected, by id: the toolbar's steps show while something is, and the Index marks its rows.
+    // What the canvas has selected, by id: the toolbar's steps show while something is, the Index marks its rows, and
+    // the inspector shows it — a net's leg with it (#1391).
     const [selection, setSelection] = useState<ReadonlySet<string>>(NOTHING_SELECTED);
+    const [leg, setLeg] = useState<NetLeg | null>(null);
+    const onSelection = useCallback((ids: ReadonlySet<string>, next: NetLeg | null) => {
+        setSelection(ids);
+        setLeg(next);
+    }, []);
     const selected = selection.size > 0;
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
     const fit = useCallback(() => canvasRef.current?.fit(), []);
@@ -496,9 +515,50 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
         </>
     );
 
+    // ── The inspector (#1391, §9): the end pane, given `inspector` ──────
+    // What Details shows: the selection as the drawing draws it, a net's leg with it; and its rows, read on their own.
+    const entities = useMemo(() => drawnEntities(drawing), [drawing]);
+    const inspectedNow = useMemo(() => inspectedOf(selection, leg, entities), [selection, leg, entities]);
+    const inspected = useDataStable(inspectedNow, inspectedEqual);
+    const inspectedRef = inspected.view === "entity" || inspected.view === "leg" ? inspected.ref : undefined;
+    const [inspectedRows, setInspectedRows] = useState<SchematicInspectedRows>(NO_INSPECTED_ROWS);
+    // Its open tab, kept per viewer; Enter, or a double-click on an entity, opens Details — the pane too, collapsed.
+    const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" });
+    const onInspectorTab = useCallback((tab: string) => setInspectorTab({ tab }), [setInspectorTab]);
+    const frameRef = useRef<HTMLDivElement>(null);
+    const inspectorName = words.m.inspectorPane();
+    const openDetails = useCallback(() => {
+        setInspectorTab({ tab: "details" });
+        frameRef.current?.querySelector<HTMLButtonElement>(`button[aria-label="Expand ${inspectorName}"]`)?.click();
+    }, [setInspectorTab, inspectorName]);
+    // What Details and Issues name, selected through the canvas — and flown to.
+    const revealEntity = useCallback((id: string | undefined, at?: NetLeg) => canvasRef.current?.reveal(id, at), []);
+    const zoneAt = useCallback((x: number, y: number) => zoneHolding(hosts, x, y)?.label, [hosts]);
+    // The issues: each record's session's first — they block — then the drawing's. Whether an item is held is known for
+    // an item kind read whole: its drawn rows and its backlog, the drafts in place.
+    const itemSlots = useMemo(() => new Set(value.items.map((kind) => kind.key)), [value.items]);
+    const wholeItems = useMemo(() => new Set(value.items.filter((kind) => kind.entries.type === "none").map((kind) => kind.key)), [value.items]);
+    const heldItems = useMemo(() => new Set([...drawing.items.map((item) => item.key), ...backlog.map((entry) => entry.id)]), [drawing.items, backlog]);
+    const historyVersion = editing.version;
+    const issues = useMemo(() => [
+        ...sessionIssues(sessions, kindName, (id) => labels.get(id)),
+        ...drawingIssues({
+            drawn: drawing, extent: value.extent, names: kindName, layers: layerValues, colours: THEME_COLOURS,
+            holds: (ref) => (!itemSlots.has(ref.kind) ? false : wholeItems.has(ref.kind) ? heldItems.has(entityId(ref)) : undefined),
+        }),
+        // A session's readiness and its Save's issues move with the history's version.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    ], [sessions, historyVersion, kindName, labels, drawing, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
+    const end = schematicInspectorPane({
+        value, inspected, rows: inspectedRows, drawn: drawing, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
+        tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
+    });
+
     return (
         <Box css={styles.root} data-schematic="" {...(data.loading ? { "aria-busy": "true" } : {})}>
+            {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} onRows={setInspectedRows} />}
             <BuilderFrame
+                ref={frameRef}
                 storageKey={keys.frame}
                 label={words.m.frameLabel()}
                 loading={!data.ready && data.error === undefined}
@@ -506,13 +566,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
                 toolbarRef={toolbarRef}
                 banners={banners}
                 start={library}
+                end={end}
                 footer={<SchematicFooter styles={styles} words={words} counts={counts} rows={data.rows} sources={sources} records={records}
                     pending={pending} notices={notices} refusal={refusal} />}
                 onKeyDown={onKeyDown}
             >
                 <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} tool={held.tool} linkKind={held.link}
-                    words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={setSelection} onZoneInView={listsIndex ? setInView : undefined}
-                    drop={drop.canvas} connectValues={connectValues} />
+                    words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
+                    onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues} />
             </BuilderFrame>
         </Box>
     );

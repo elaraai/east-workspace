@@ -377,7 +377,7 @@ function readOf(rowType: StructType, rolesOf: ExprType<FunctionType<[EastType, S
 }
 
 /** The app's check over drafted rows, one result each; a check that throws refuses its own row alone. */
-function readyOf(rowType: StructType, ready: ((row: ExprType<EastType>, key: ExprType<StringType>) => unknown) | undefined) {
+function readyOf(rowType: StructType, ready: ((row: ExprType<StructType>, key: ExprType<StringType>) => unknown) | undefined) {
     if (ready === undefined) return undefined;
     const author = East.function([rowType, StringType], EditingReadinessType, ($, row, key) =>
         $.const(ready(row, key) as SubtypeExprOrValue<typeof EditingReadinessType>, EditingReadinessType));
@@ -429,16 +429,21 @@ function rowSetter(rowType: StructType) {
     });
 }
 
-/** What every kind and every details record declare beside their roles. */
-interface RecordSide {
+/**
+ * What every kind and every details record declare beside their roles, each
+ * typed over the record's row, as Schedule's kinds' are (#1391).
+ *
+ * @typeParam R - The record's row type
+ */
+interface RecordSide<R extends StructType = StructType> {
     /** A paged read of the record's own entries, for an editable record read through its source. */
     entries?: unknown;
-    /** Hints for the inspector's form over the fields no role writes. */
-    fields?: Readonly<Record<string, unknown>>;
-    /** The app's check on a drafted row: a refusal holds Save, naming the row. */
-    ready?: (row: ExprType<EastType>, key: ExprType<StringType>) => unknown;
-    /** The kind's own Details, in place of its form. */
-    inspector?: unknown;
+    /** Hints for the inspector's form over the fields no role writes (`Fields`). */
+    fields?: FieldHints<R["fields"]>;
+    /** The app's check on a drafted row, over the row and its key: a refusal holds Save, naming the row and its field. */
+    ready?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<typeof EditingReadinessType>;
+    /** The kind's own Details, in place of its form: an East function over the row and its writer. */
+    inspector?: RowInspector<R>;
 }
 
 /**
@@ -455,7 +460,7 @@ interface RecordSide {
  * @returns The fields every kind and details record carry
  * @throws {Error} As `Fields.specs`, `rowInspector` and the patch door's check refuse
  */
-function recordSide(bound: Bound, entries: ExprType<EastType> | undefined, byKey: ExprType<EastType> | undefined, config: RecordSide,
+function recordSide<R extends StructType>(bound: Bound, entries: ExprType<EastType> | undefined, byKey: ExprType<EastType> | undefined, config: RecordSide<R>,
     omitted: readonly (string | undefined)[], where: string): Record<string, unknown> {
     const rowType = bound.rowType;
     const form = Fields.specs(rowType, (config.fields ?? {}) as never,
@@ -463,7 +468,8 @@ function recordSide(bound: Bound, entries: ExprType<EastType> | undefined, byKey
     const inspector = config.inspector === undefined ? undefined : rowInspector(config.inspector, rowType,
         `${where}: \`inspector\` is the kind's own Details — an East.function over the row and its writer: ` +
         "East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), RowType the record's row");
-    const ready = readyOf(rowType, config.ready);
+    // Typed over the kind's row, as its author wrote it: called over the row the check decodes.
+    const ready = readyOf(rowType, config.ready as never);
     let editing: unknown = none;
     let seam: unknown;
     let history: unknown = none;
@@ -623,7 +629,7 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
                 }
             }
             const byKey = throughSource ? (bound.form === "paged" ? bound.handle : entries) : undefined;
-            const side = recordSide(bound, entries, byKey, config as RecordSide, [], at);
+            const side = recordSide(bound, entries, byKey, config, [], at);
             return East.value({
                 ...side,
                 rows: throughSource ? none : some(storedRows(schematicWholeRows(bound.handle, rowType), rolesOf, SchematicDetailsEntryType)),
@@ -672,7 +678,7 @@ function templatesOf(templates: unknown, where: string): SchematicTemplates<Stru
  * @typeParam Y - The `y` field
  * @typeParam SF - The status field, when it has one
  */
-export interface SchematicItemsConfig<R extends StructType, X extends string, Y extends string, SF extends string = never> extends RecordSide {
+export interface SchematicItemsConfig<R extends StructType, X extends string, Y extends string, SF extends string = never> extends RecordSide<R> {
     /** The kind's name: in the library, the inspector and the rail. */
     name: string;
     /** Its Font Awesome solid icon, and its cards' — or an accessor giving each card's. */
@@ -899,7 +905,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
         templatesSource: templates?.source,
         build(slot, part) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where);
-            const side = recordSide(bound, entries, byKey, config as RecordSide,
+            const side = recordSide(bound, entries, byKey, config,
                 [config.x, config.y, labelField, widthField, heightField, layerField, status?.field], where);
             return East.value({
                 ...side,
@@ -931,7 +937,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
  *
  * @typeParam R - The record's row type
  */
-export interface SchematicZonesConfig<R extends StructType> extends RecordSide {
+export interface SchematicZonesConfig<R extends StructType> extends RecordSide<R> {
     /** The kind's name. */
     name: string;
     /** Its Font Awesome solid icon. */
@@ -1032,7 +1038,7 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
         templatesSource: undefined,
         build(slot, part) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where);
-            const side = recordSide(bound, entries, byKey, config as RecordSide,
+            const side = recordSide(bound, entries, byKey, config,
                 [xField, yField, widthField, heightField, labelField, layerField], where);
             return East.value({
                 ...side,
@@ -1072,7 +1078,7 @@ export interface SchematicEnd<R extends StructType, F extends string> {
  * @typeParam FF - The `from` field
  * @typeParam TF - The `to` field
  */
-export interface SchematicLinksConfig<R extends StructType, FF extends string, TF extends string> extends RecordSide {
+export interface SchematicLinksConfig<R extends StructType, FF extends string, TF extends string> extends RecordSide<R> {
     /** The kind's name: in the Connect tool's menu, the library and the inspector. */
     name: string;
     /** Its Font Awesome solid icon. */
@@ -1241,7 +1247,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         templatesSource: templates?.source,
         build(slot, part) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where);
-            const side = recordSide(bound, entries, byKey, config as RecordSide,
+            const side = recordSide(bound, entries, byKey, config,
                 [from.field, to.field, edge.viaField, edge.layerField], where);
             return East.value({
                 ...side,
@@ -1286,7 +1292,7 @@ export interface SchematicSide<R extends StructType> {
  * @typeParam SRC - The `sources` field
  * @typeParam DST - The `destinations` field
  */
-export interface SchematicNetsConfig<R extends StructType, SRC extends string, DST extends string> extends RecordSide {
+export interface SchematicNetsConfig<R extends StructType, SRC extends string, DST extends string> extends RecordSide<R> {
     /** The kind's name. */
     name: string;
     /** Its Font Awesome solid icon. */
@@ -1427,7 +1433,7 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
         templatesSource: templates?.source,
         build(slot, part) {
             const { rows, byKey } = readsOf(bound, entries, slot, part, where);
-            const sideOf = recordSide(bound, entries, byKey, config as RecordSide,
+            const sideOf = recordSide(bound, entries, byKey, config,
                 [sources.field, destinations.field, edge.viaField, edge.layerField], where);
             return East.value({
                 ...sideOf,

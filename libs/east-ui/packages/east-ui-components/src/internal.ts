@@ -86,6 +86,8 @@ export { parseCssSize } from "./style/parse-size.js";
 export { coarseHitArea } from "./style/hit-area.js";
 // The Plan's slot recipe: in the theme with every recipe, and its geometry measured against it.
 export { planSlotRecipe } from "./theme/slot-recipes/plan.js";
+// The theme colour tokens a Schematic's colour may name (D14): what its Issues tab holds a colour to (#1391).
+export { schematicColorTokens } from "./theme/slot-recipes/schematic.js";
 
 // The Chooser: a searchable, sectioned single-choice list with reasons (#1322).
 export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps, type ChooserSection } from "./pick/chooser/index.js";

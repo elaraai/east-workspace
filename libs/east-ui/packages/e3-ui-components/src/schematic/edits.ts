@@ -37,7 +37,9 @@
  * A library card's drop (#1390, `drop.ts`) writes its rows as edits too: an
  * item template's new item, a backlog row placed, a link or net template's
  * values written over a link or a net of its kind, and an author's card's
- * fields set on an entity.
+ * fields set on an entity. So does the inspector (#1391): a field of its
+ * form, of the row or its details row; the row a kind's own Details hands
+ * back; an item's centre, or Unplace; a link's ends; a net's sides.
  *
  * @packageDocumentation
  */
@@ -74,8 +76,11 @@ const sidesEqual = equalFor(Schematic.Types.Sides);
  *   template's values or their types' defaults (#1390);
  * - `retype`: a link's or a net's fields a template of its kind gives, its
  *   ends or its sides and its key as they are (#1390);
- * - `set`: the fields an author's card sets, every other field as it was
- *   (#1390);
+ * - `set`: the fields an author's card sets (#1390), or the inspector's
+ *   form edits (#1391), every other field as it was — of the row, or of its
+ *   details row (`details`);
+ * - `row`: the row as a kind's own Details hands it back (`update`, #1391),
+ *   whole — the row's, or its details row's;
  * - `remove`: the row deleted.
  */
 export type SchematicEdit =
@@ -86,7 +91,8 @@ export type SchematicEdit =
     | { readonly op: "net"; readonly ref: SchematicRef; readonly sides: SchematicSides; readonly values: option<Uint8Array> }
     | { readonly op: "item"; readonly ref: SchematicRef; readonly at: option<Point>; readonly values: option<Uint8Array> }
     | { readonly op: "retype"; readonly ref: SchematicRef; readonly values: Uint8Array }
-    | { readonly op: "set"; readonly ref: SchematicRef; readonly sets: readonly SchematicFieldWrite[] }
+    | { readonly op: "set"; readonly ref: SchematicRef; readonly sets: readonly SchematicFieldWrite[]; readonly details?: true }
+    | { readonly op: "row"; readonly ref: SchematicRef; readonly row: Uint8Array; readonly details?: true }
     | { readonly op: "remove"; readonly ref: SchematicRef };
 
 /** A link kind, as the edits read it: its name, whether it writes, and the item slots each end holds keys of. */

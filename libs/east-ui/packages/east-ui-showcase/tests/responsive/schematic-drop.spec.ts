@@ -6,8 +6,9 @@
 /**
  * The Schematic's drag and drop in a real browser (#1390, `Schematic Builder
  * Spec.md` §7, §8, SC4, SC11–SC13), on the data centre floor in a page 1600px
- * wide, its library pinned beside main in a box wide enough for every rack to
- * draw as its card. By the mouse:
+ * wide, its library pinned beside main and its inspector (#1391) collapsed to
+ * its rail, in a box wide enough for every rack to draw as its card. By the
+ * mouse:
  *
  * - **A rack template** carried over Cage A's clear floor: the ghost says
  *   where it lands — the zone and the point, at the screen's resolution — and
@@ -41,27 +42,28 @@
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import {
-    DATA_CENTRE, captionOf, card, carryTo, centred, libraryCard, named, openSchematic, openTab, pane, pickUp, printedRef, screenPoint, sizeTo,
+    DATA_CENTRE, captionOf, card, carryTo, centred, collapseInspector, libraryCard, named, openSchematic, openTab, pane, pickUp, printedRef, screenPoint, sizeTo,
     type Point,
 } from "./schematic-page";
 import { settled } from "./settle";
 import { token } from "./tokens";
 
 /**
- * The Schematic's box on a desktop: the library pinned at 272px beside main leaves it 938px, the data centre's 28 m
- * floor 33.5px a metre, where every rack draws as its card (from 30px a metre).
+ * The Schematic's box on a desktop: the library pinned at 272px beside main and the inspector collapsed to its 44px
+ * rail leave it 938px, the data centre's 28 m floor 33.5px a metre, where every rack draws as its card (from 30px a
+ * metre).
  */
-const WIDE = 1210;
+const WIDE = 1254;
 
 /**
  * Opens the data centre at rest in a page 1600px wide, in a box wide enough for every rack's card, centred in the
- * window, its library pinned beside main.
+ * window, its library pinned beside main and its inspector collapsed to its rail.
  */
 async function openWide(page: Page, theme: "light" | "dark"): Promise<Locator> {
     await page.setViewportSize({ width: 1600, height: 1000 });
     const root = await openSchematic(page, DATA_CENTRE, theme);
     await sizeTo(page, root, WIDE);
-    await centred(page, root);
+    await collapseInspector(page, root);
     await expect(pane(root)).toHaveAttribute("data-pane-mode", "pinned");
     await expect(card(root, "racks", "A03")).toBeVisible();
     return root;

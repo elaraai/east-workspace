@@ -63,6 +63,13 @@ function colourTokens(tree: Readonly<Record<string, unknown>>, prefix: string): 
  */
 const COLOR_TOKENS: readonly string[] = colourTokens(semanticTokens.colors as Readonly<Record<string, unknown>>, "");
 
+/**
+ * The theme colour tokens an author's colour may name (D14), as the colour
+ * chain resolves them: what the Schematic's Issues tab holds an entity's or a
+ * layer's colour to (#1391) — one naming none of them draws its tone.
+ */
+export const schematicColorTokens: readonly string[] = COLOR_TOKENS;
+
 /** A tone's token (`Schematic.Types.Tone`), as an item, a link and a layer draw it. */
 const TONE_TOKENS: Readonly<Record<string, string>> = {
     brand: "brand.solid", ink: "fg", muted: "fg.muted", success: "status.pos", warning: "status.warn", danger: "status.neg",

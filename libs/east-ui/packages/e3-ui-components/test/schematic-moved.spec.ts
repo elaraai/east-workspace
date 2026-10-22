@@ -6,10 +6,12 @@
 /**
  * The Schematic moved to e3 (#1384): its IR is e3-ui's (`src/schematic/`) and
  * its renderer this package's (`src/schematic/`), and east-ui and
- * east-ui-components keep nothing of it — only its slot recipe, which stays in
- * the theme. This reads every declaration file east-ui and east-ui-components
+ * east-ui-components keep nothing of it — only its slot recipes, the canvas's
+ * and the inspector's (#1391), and the colour tokens the canvas's colour chain
+ * resolves, which its Issues hold an author's colour to, each staying in the
+ * theme. This reads every declaration file east-ui and east-ui-components
  * build — what they publish — and finds no name the Schematic's own modules
- * export, no name of the Schematic's but its recipe's, and no `Schematic` arm
+ * export, no name of the Schematic's but the theme's, and no `Schematic` arm
  * in `UIComponentType`.
  */
 
@@ -25,8 +27,17 @@ const SCHEMATIC_NAMES = new Set([
     ...files(join(PACKAGES, 'e3-ui-components/src/schematic'), (name) => /\.tsx?$/u.test(name) && !/\.(test|spec)\.|test-utils/u.test(name)),
 ].flatMap((path) => [...exported(code(readFileSync(path, 'utf8')))].filter((name) => /schematic/iu.test(name))));
 
-/** What the theme keeps of the Schematic: its slot recipe, by the file it is declared in. */
-const THEME_KEEPS = ['east-ui-components/dist/theme/slot-recipes/schematic.d.ts: schematicSlotRecipe'];
+/**
+ * What the theme keeps of the Schematic, by the file each is declared in: its slot recipes — the canvas's, and its
+ * inspector's (#1391) — and the colour tokens the canvas's chain resolves, which the renderer reads through the
+ * internal entry (#1391).
+ */
+const THEME_KEEPS = [
+    'east-ui-components/dist/theme/slot-recipes/schematic.d.ts: schematicSlotRecipe',
+    'east-ui-components/dist/theme/slot-recipes/schematic.d.ts: schematicColorTokens',
+    'east-ui-components/dist/theme/slot-recipes/schematicInspector.d.ts: schematicInspectorSlotRecipe',
+    'east-ui-components/dist/internal.d.ts: schematicColorTokens',
+];
 
 test('what the Schematic exports is read whole — its IR\'s names and its renderer\'s', () => {
     for (const name of ['Schematic', 'SchematicPayloadType', 'SchematicComponent', 'SchematicTag', 'SchematicTypes', 'SchematicShapes',
@@ -51,11 +62,11 @@ for (const pkg of ['east-ui', 'east-ui-components']) {
     });
 }
 
-test('east-ui and east-ui-components export nothing of the Schematic but its slot recipe (#1384)', () => {
+test('east-ui and east-ui-components export nothing of the Schematic but its slot recipes and the colour tokens its chain resolves (#1384, #1391)', () => {
     const named = (pkg: string): string[] => declarations(pkg).flatMap((path) =>
         [...exported(code(readFileSync(path, 'utf8')))].filter((name) => /schematic/iu.test(name)).map((name) => `${relative(PACKAGES, path)}: ${name}`));
     assert.deepEqual(named('east-ui'), []);
-    // The recipe is the theme's, beside every other component's — and only it.
+    // The recipes are the theme's, beside every other component's, with the tokens the canvas's chain resolves — and only they.
     assert.deepEqual(named('east-ui-components').sort(), [...THEME_KEEPS].sort());
 });
 

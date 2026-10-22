@@ -60,7 +60,15 @@ values; a backlog row is placed; an author's card sets its `Schematic.patch`
 through the kind's `set` — and `use-drop.ts` is the drop target, the canvas
 its one cell, each drop and each card's ⏎ (a touch screen's tap on the
 selected card) one step of the history; the canvas paints where a card lands,
-and takes none of the shared stage's frame or wash. The
+and takes none of the shared stage's frame or wash. Its inspector
+(`inspector.tsx`, #1391) is the end pane, given `inspector`: Details — what is
+selected (`inspect.ts`), its rows read in a component of their own
+(`inspector-rows.ts`), each field through `FieldForm` by its kind's form over
+the fields no role writes, or its kind's own `inspector` in its place, its
+details record's beside it, an item's position, a link's ends as Choosers, a
+net's sides as tags, several by kind and, with nothing selected, the
+drawing's counts and saves — and Issues (`issues.ts`, pure), each selecting
+what it names; every edit there is one step of the history. The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it

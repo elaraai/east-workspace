@@ -5,10 +5,10 @@
 
 /**
  * The Schematic's drags in a real browser (#1388, `Schematic Builder Spec.md`
- * §7, SC8, SC9), on the data centre floor in a page 1600px wide, its library
- * collapsed to its rail, where the example's own box draws every rack as its
- * card — below 480px of main the canvas takes no drag (#1394). By the mouse
- * and by touch — Chromium's own
+ * §7, SC8, SC9), on the data centre floor in a page 1600px wide, its box
+ * 1100px wide and its library and its inspector (#1391) collapsed to their
+ * rails, where every rack draws as its card — below 480px of main the canvas
+ * takes no drag (#1394). By the mouse and by touch — Chromium's own
  * touch input, through its DevTools protocol, as a touchscreen delivers it:
  *
  * - **Move**: a rack's card follows the pointer while the drag is under way;
@@ -27,19 +27,21 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { DATA_CENTRE, card, openSchematic } from "./schematic-page";
+import { DATA_CENTRE, card, collapseInspector, openSchematic, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /**
- * Open the data centre at rest and return its root: in a page 1600px wide, its library collapsed to its rail, as a
- * viewer leaves it — the column then gives the canvas room for every rack to draw as its card (#1389) — each where
- * nothing of the page lies over it.
+ * Open the data centre at rest and return its root: in a page 1600px wide, its box 1100px wide and its library and its
+ * inspector collapsed to their rails, as a viewer leaves them — main then 1012px, the 28 m floor 36px a metre, where
+ * every rack draws as its card and none hides another (#1389, #1391) — each where nothing of the page lies over it.
  */
 async function openDataCentre(page: Page): Promise<Locator> {
     await page.setViewportSize({ width: 1600, height: 1000 });
     const root = await openSchematic(page, DATA_CENTRE);
     await root.locator("[data-frame-slot='start']").getByRole("button", { name: "Collapse Library" }).click();
     await settled(page);
+    await sizeTo(page, root, 1100);
+    await collapseInspector(page, root);
     // Each card a drag starts or ends on, the page's topmost element at its centre: a press there is the card's.
     for (const [kind, key] of [["racks", "A03"], ["racks", "A05"], ["pdus", "PDU-B"], ["network", "MMR-1"]] as const) {
         await expect.poll(() => card(root, kind, key).evaluate((el) => {

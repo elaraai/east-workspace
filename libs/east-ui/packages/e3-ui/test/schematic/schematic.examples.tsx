@@ -27,6 +27,8 @@ export const schematicSystems = e3.record("schematic_systems", DictType(StringTy
     ["cooling", { label: "Cooling", colour: "brand.solid", order: 3n, fixed: false, dim: 1.0 }],
     ["network", { label: "Network", colour: "status.pos", order: 4n, fixed: false, dim: 1.0 }],
 ]));
+/** The systems' patch door: another session's change of a layer — its colour, say — which the floor redraws. */
+export const schematicSystemsPatch = e3.mutation.patch(schematicSystems);
 // ============================================================================
 
 // ----------------------------------------------------------------------------
@@ -230,6 +232,8 @@ export const schematicRackLoads = e3.record("schematic_rack_loads", DictType(Str
     ["A04", { kw: 11.6, capacity: 12.0, alarm: variant("hot", null) }],
     ["A05", { kw: 0.0, capacity: 12.0, alarm: variant("ok", null) }],
 ]));
+/** The racks' loads' patch door: a rack's capacity edited in the inspector's details. */
+export const schematicRackLoadsPatch = e3.mutation.patch(schematicRackLoads);
 export const schematicFrames = e3.record("schematic_frames", DictType(StringType, DcUnit), new Map([
     ["MMR-1", { name: "MMR-1", x: 24.2, y: 2.9, w: 4.0, h: 1.2, kind: "demarc · 48 ports", system: "network" }],
     ["ODF-1", { name: "ODF-1", x: 8.4, y: 9.6, w: 12.8, h: 1.0, kind: "fibre frame · 288 F", system: "network" }],
@@ -305,12 +309,14 @@ export const schematicDataCentre = example({
         "details", "templates", "backlog", "layers", "narrowed", "inspector", "accessor", "id", "onSelect", "canConnect", "Schematic.Types.Ref",
         "Schematic.Types.Candidate", "veto", "editing", "Save", "undo", "Move", "Connect", "nets", "drag and drop", "drop",
     ],
-    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
+    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card, editable in the inspector; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const racks = $.let(Record.bind(schematicRacks, [schematicRacksPatch]));
             const rackEntries = $.let(Data.bindPaged(schematicRacks));
-            const loads = $.let(Data.bindPaged(schematicRackLoads));
+            // The racks' loads, edited in the inspector: their patch door, read by key beside the racks' source.
+            const loads = $.let(Record.bind(schematicRackLoads, [schematicRackLoadsPatch]));
+            const loadEntries = $.let(Data.bindPaged(schematicRackLoads));
             const frames = $.let(Data.bind(schematicFrames));
             const pdus = $.let(Data.bind(schematicPdus));
             const cooling = $.let(Record.bind(schematicCooling, [schematicCoolingPatch]));
@@ -378,6 +384,7 @@ export const schematicDataCentre = example({
                                 name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system", entries: rackEntries,
                                 sublabel: (r) => r.model,
                                 details: Schematic.details(loads, {
+                                    entries: loadEntries,
                                     meter: (l) => ({ value: l.kw, max: l.capacity }),
                                     metric: (l) => some(East.str`${East.Float.printFixed(l.kw, 1n)} kW`),
                                     status: { field: "alarm", cases: {

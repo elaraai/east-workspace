@@ -146,7 +146,11 @@ the row's own fields (`footprint: (u) => some(Schematic.circle(u.radius))`),
 so no record of the app's holds a type of the Schematic's. Its props are the
 Plan's: `id`, an `inspector` opted into (a kind's own Details its kind's
 `inspector`), `onSelect` over the whole selection and `canConnect` answering
-a candidate with the refusal's words. The library's tabs are
+a candidate with the refusal's words. The inspector (#1391) edits each kind's
+fields no role writes — its `fields`, the `Fields` hints over its row — and
+its details record's, bound with its patch door beside the kind, and a kind's
+`ready` checks a drafted row; `fields`, `ready` and `inspector` are typed over
+the kind's own row (`RecordSide<R>`). The library's tabs are
 `Schematic.library`'s, each over every kind as the Calendar's are:
 `templates()`, `backlog()` (every item kind's rows with no position), the
 zones' `index()` and the `layers()`, drawn in the frame's start pane

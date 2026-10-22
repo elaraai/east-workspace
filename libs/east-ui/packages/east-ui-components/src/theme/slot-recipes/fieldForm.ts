@@ -88,7 +88,8 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
             _coarse: { minHeight: "44px" },
         },
         /* The control filling the line: a text longer than its box ends in an
-         * ellipsis where the box cuts it, the whole its title (#1250). */
+         * ellipsis where the box cuts it — a choice's words, in the select's
+         * own value text — the whole its title (#1250). */
         control: {
             display: "flex",
             alignItems: "center",

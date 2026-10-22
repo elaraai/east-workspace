@@ -28,8 +28,11 @@
  *   way: a template's new item through its kind's `create`; a link or net
  *   template's values over a link or a net through its kind's `create` over
  *   the ends or the sides its row holds, so they and its key stay as they are
- *   (SC11); an author's card's fields through its kind's `set`. A gesture any
- *   of whose rows its kind refuses records nothing.
+ *   (SC11); an author's card's fields through its kind's `set`. The
+ *   inspector's (#1391) the same: a field of its form through the `set` of
+ *   the row's record or its details record, and the row a kind's own Details
+ *   hands back, whole. A gesture any of whose rows its kind refuses records
+ *   nothing.
  * - **Its drafts.** Each draft is decoded once: its roles read through its
  *   kind's `read`, kept while its session keeps the entry's version — what the
  *   frame draws over the stored rows (`drafted.ts`).
@@ -52,6 +55,7 @@ import { draftedRow, heldInWindow, keptAtRevision, mintKey, rowCodec } from "../
 import type { SchematicHeldRows, SchematicValue } from "./data.js";
 import type { DraftedRow, SchematicDrafts, SortDrafts } from "./drafted.js";
 import type { SchematicEdit } from "./edits.js";
+import { detailsKey } from "./record-keys.js";
 
 const stringEqual = equalFor(StringType);
 
@@ -61,28 +65,8 @@ const NO_KINDS: readonly ScheduleEditingKind[] = [];
 /** No session made elsewhere joins the Schematic's history. */
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 
-/**
- * What a change names a kind's details record by: never a kind's slot, which
- * holds no NUL.
- *
- * @param slot - The kind's slot
- * @returns The details record's key in the history
- */
-export function detailsKey(slot: string): string {
-    return `${slot}\u0000details`;
-}
-
-/**
- * The slot of the kind a record of the history is: the kind's own, or the kind
- * whose details it is ({@link detailsKey}).
- *
- * @param key - The record's key in the history
- * @returns The kind's slot
- */
-export function recordSlot(key: string): string {
-    const at = key.indexOf("\u0000");
-    return at < 0 ? key : key.slice(0, at);
-}
+// What the history names each record by: pure, in a module of its own, so what reads it needs no editing.
+export { detailsKey, recordSlot } from "./record-keys.js";
 
 /** The Schematic's editing: its history, every kind's drafts, and how a gesture is recorded. */
 export interface SchematicEditing {
@@ -274,11 +258,17 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                     break;
                 }
                 case "set": {
+                    // A field of the row, or of its details row (#1391), through its record's own setter.
                     const kind = of(kindsOf(payload), slot);
-                    if (kind === undefined) return false;
-                    changes.push({ kind: slot, id, rewrite: (row) => someOf(kind.set(row, [...edit.sets])) });
+                    const side = edit.details === true ? (kind === undefined ? undefined : someOf(kind.details)) : kind;
+                    if (side === undefined) return false;
+                    changes.push({ kind: edit.details === true ? detailsKey(slot) : slot, id, rewrite: (row) => someOf(side.set(row, [...edit.sets])) });
                     break;
                 }
+                case "row":
+                    // The row a kind's own Details hands back (#1391), whole.
+                    changes.push({ kind: edit.details === true ? detailsKey(slot) : slot, id, row: edit.row });
+                    break;
             }
         }
         return changes.length > 0 && editing.record(changes, origin, label);
