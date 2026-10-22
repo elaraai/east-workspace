@@ -29,7 +29,7 @@ import {
   type EastType,
   type ValueTypeOf,
 } from '@elaraai/east';
-import { computeHash, datasetWrite, InMemoryTransferBackend, writeRecordState } from '@elaraai/e3-core';
+import { computeHash, datasetWrite, InMemoryTransferBackend, readRecordState, writeRecordState } from '@elaraai/e3-core';
 import { InMemoryStorage, encodeInSegmentsOf, storeSegmentsOf } from '@elaraai/e3-core/test';
 import {
   BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceRecordType, datasetRowsType, decodeCollectionManifest,
@@ -870,6 +870,7 @@ async function seedIndexedRecord(
     keyIr: '0'.repeat(64), multi: false, valueIr: some('0'.repeat(64)),
     keyType: toEastTypeValue(IntegerType), valueType: toEastTypeValue(StringType),
     buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
+    form: variant('entries', null),
   }));
   const StatusEntryType = StructType({ ik: PlanStatusKeyType, k: StringType });
   type StatusEntry = ValueTypeOf<typeof StatusEntryType>;
@@ -883,6 +884,7 @@ async function seedIndexedRecord(
     keyIr: '0'.repeat(64), multi: false, valueIr: some('0'.repeat(64)),
     keyType: toEastTypeValue(PlanStatusKeyType), valueType: toEastTypeValue(StringType),
     buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
+    form: variant('entries', null),
   }));
   const state = await writeRecordState(storage, REPO, {
     primary, indexes: new Map([
@@ -968,6 +970,95 @@ describe('getDatasetPage (index reads)', () => {
     objects.read = read;
     assert.equal(response.status, 200, await response.clone().text());
     assert.deepEqual(touched, [], 'a covering read is the index alone');
+  });
+});
+
+/** A summary index's key (#1039): a week, then a press. */
+const PressWeekType = StructType({ __tile: IntegerType, press: StringType });
+/** Its entries' keys: each stands for every row of its key, so names none. */
+const PressWeekEntryType = StructType({ ik: PressWeekType, k: NullType });
+/** Its totals. */
+const TotalsType = StructType({ count: IntegerType, ms: IntegerType });
+type PressWeekEntry = ValueTypeOf<typeof PressWeekEntryType>;
+type Totals = ValueTypeOf<typeof TotalsType>;
+
+describe('a summary index (#1039)', () => {
+  /**
+   * The `plans` record of `seedIndexedRecord`, with a summary beside its
+   * indexes: `presses` presses by `weeks` weeks, each total its own count and
+   * milliseconds. Its entries are `{ik, k: Null}`: one stands for many rows.
+   */
+  async function seedSummary(storage: InMemoryStorage, presses: number, weeks: number): Promise<SortedMap<PressWeekEntry, Totals>> {
+    await seedIndexedRecord(storage, 300);
+    const ref = await storage.datasets.read(REPO, WS, 'records/plans');
+    assert.ok(ref?.type === 'value');
+    const totals = new SortedMap<PressWeekEntry, Totals>(undefined, compareFor(PressWeekEntryType));
+    for (let week = 0; week < weeks; week++) {
+      for (let p = 0; p < presses; p++) {
+        totals.set({ ik: { __tile: BigInt(week), press: `P-${String(p).padStart(4, '0')}` }, k: null }, { count: BigInt(week + p + 1), ms: BigInt((week + p) * 1000) });
+      }
+    }
+    const manifest = await datasetWrite(storage, REPO, totals, indexCollectionType(NullType, PressWeekType, TotalsType));
+    const summary = await storage.objects.write(REPO, encodeBeast2For(RecordIndexObjectType)({
+      keyIr: '0'.repeat(64), multi: true, valueIr: none,
+      keyType: toEastTypeValue(PressWeekType), valueType: toEastTypeValue(TotalsType),
+      buildIr: '0'.repeat(64), runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
+      form: variant('summary', { mergeIr: '1'.repeat(64) }),
+    }));
+    const held = await readRecordState(storage, REPO, ref.value.hash);
+    const state = await writeRecordState(storage, REPO, {
+      primary: held.primary, indexes: new Map([...held.indexes, ['by_press_week', { manifest, index: summary }]]),
+    });
+    await storage.datasets.write(REPO, WS, 'records/plans', variant('value', { hash: state, versions: new Map() }));
+    return totals;
+  }
+
+  /** A summary's window, as e3 answers it: `indexWindowType` with a Null `key`. */
+  const SummaryWindowType = ArrayType(StructType({ ik: PressWeekType, key: NullType, value: TotalsType, row: OptionType(PlanRowType) }));
+  const decodeSummaryWindow = decodeBeast2For(SummaryWindowType);
+
+  it('pages its totals as an index page, each entry naming no row, and answers a block\'s search and its runs', async () => {
+    const storage = new InMemoryStorage();
+    const totals = await seedSummary(storage, 50, 12);
+    const state = await stateOf(storage);
+    const page = await getDatasetPage(storage, REPO, WS, plansPath, { offset: 0, limit: 600, index: 'by_press_week' });
+    assert.equal(page.status, 200, await page.clone().text());
+    const window = decodeSummaryWindow(new Uint8Array(await page.arrayBuffer()));
+    assert.equal(window.length, 600);
+    const unjoined = equalFor(OptionType(PlanRowType));
+    for (const [i, [entry, value]] of [...totals].entries()) {
+      const read = window[i]!;
+      assert.ok(equalFor(PressWeekType)(read.ik, entry.ik) && equalFor(TotalsType)(read.value, value), `total ${i}`);
+      assert.ok(equalFor(NullType)(read.key, null), 'a summary\'s entry names no row');
+      assert.ok(unjoined(read.row, none));
+    }
+
+    // A block: week 3's presses P-0010 to P-0019, one contiguous run of the summary.
+    const { results } = await batchJson<{ results: { found: boolean; row: number; count: number }[] }>(await findDatasetKeys(storage, REPO, WS, plansPath, {
+      queries: [{ from: ['3', '"P-0010"'], to: ['3', '"P-0020"'] }], index: 'by_press_week', hash: state,
+    }));
+    assert.deepEqual(results, [{ found: true, row: 3 * 50 + 10, count: 10 }]);
+    const runs = await getDatasetRuns(storage, REPO, WS, plansPath, { runs: [[results[0]!.row, results[0]!.count]], hash: state, index: 'by_press_week' });
+    assert.equal(runs.status, 200, await runs.clone().text());
+    const block = decodeSummaryWindow(new Uint8Array(await runs.arrayBuffer()));
+    assert.deepEqual(block.map((entry) => entry.ik.press), Array.from({ length: 10 }, (_, i) => `P-${String(10 + i).padStart(4, '0')}`));
+    assert.ok(block.every((entry) => equalFor(IntegerType)(entry.ik.__tile, 3n)), 'all in week 3');
+  });
+
+  it('refuses a joined read of it, a page or runs, naming it: its entries name no row to join', async () => {
+    const storage = new InMemoryStorage();
+    await seedSummary(storage, 10, 4);
+    const state = await stateOf(storage);
+    for (const response of [
+      await getDatasetPage(storage, REPO, WS, plansPath, { offset: 0, limit: 10, index: 'by_press_week', join: true }),
+      await getDatasetRuns(storage, REPO, WS, plansPath, { runs: [[0, 5]], hash: state, index: 'by_press_week', join: true }),
+    ]) {
+      const refused = await refusalOf(response);
+      assert.deepEqual([refused.status, refused.type], [400, 'bad_request']);
+      assert.match(refused.message, /^index 'by_press_week' of 'records\/plans' is a summary: each entry stands for every row of its key and names none to join — read it without join$/);
+    }
+    // The record's other indexes still join.
+    assert.equal((await getDatasetPage(storage, REPO, WS, plansPath, { offset: 0, limit: 10, index: 'by_due', join: true })).status, 200);
   });
 });
 

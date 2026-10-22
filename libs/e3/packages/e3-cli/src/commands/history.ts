@@ -92,8 +92,9 @@ async function historyLocal(
   for (const e of entries) {
     const line: CommitLine = { hash: e.hash, mutation: e.commit.mutation, actor: e.commit.actor, at: e.commit.at };
     if (delta && e.commit.delta.type === 'some') {
+      // A summary's arm adds to its totals (#1039): counted as changes, `±`.
       line.delta = (await summarizeDelta(storage, repoPath, e.commit.delta.value)).map((arm) =>
-        `${arm.target.padEnd(18)}  +${arm.insert}  ~${arm.update}  -${arm.delete}`);
+        arm.add > 0 ? `${arm.target.padEnd(18)}  ±${arm.add}` : `${arm.target.padEnd(18)}  +${arm.insert}  ~${arm.update}  -${arm.delete}`);
     }
     lines.push(line);
   }

@@ -458,6 +458,65 @@ export async function createPlaceRecordPackageZip(
   return zipPath;
 }
 
+/** When the series fixture's first job may start: midnight UTC on Monday 5 October 2026, a week's start. */
+export const JOBS_FROM = new Date(Date.UTC(2026, 9, 5));
+/** The row of the series fixture's record: a print job's press, when it runs, and its title. */
+export const JobRowType = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, title: StringType });
+/** The series fixture's record: jobs by key. */
+export const JobsType = DictType(StringType, JobRowType);
+/** The key of the series fixture's two indexes: a week's start, then a press. */
+export const JobWeekPressKeyType = StructType({ __tile: DateTimeType, press: StringType });
+
+/**
+ * Create a package whose record is read in two dimensions (#1039): a block of
+ * presses over a span of weeks, through a series index from the index alone,
+ * and, zoomed out, through a summary index's totals.
+ *
+ * Creates a package with:
+ * - Record: "jobs" (Dict<String, {press, start, end, title}>, empty), its patch
+ *   door, and Mutation "seed" (count) => `count` jobs keyed `job-<i>`: on one of
+ *   forty presses (`P-1001`…`P-1040`, by `i` mod 40), starting `i` × 7 mod 1,680
+ *   hours after {@link JOBS_FROM} — over ten weeks — and running `i` mod 50 + 1
+ *   hours, so many run into the next week
+ * - Index: "jobs_by_press_week", each job under each week it touches and its
+ *   press, carrying its row; and "jobs_by_press_week_totals", how many jobs
+ *   touch each week on each press and the time of it they cover. Both are keyed
+ *   {@link JobWeekPressKeyType}
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createSeriesRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const jobs = e3.record('jobs', JobsType, new Map());
+  const seed = e3.mutation.reduce('seed', jobs,
+    East.function([JobsType, IntegerType], JobsType, ($, _state, count) => {
+      const from = $.const(JOBS_FROM, DateTimeType);
+      const out = $.let(new Map(), JobsType);
+      $.for(East.Array.range(0n, count), ($, i) => {
+        const start = $.let(from.addHours(i.multiply(7n).remainder(1_680n)));
+        const end = $.let(start.addHours(i.remainder(50n).add(1n)));
+        $(out.insert(East.str`job-${i}`, { press: East.str`P-${i.remainder(40n).add(1_001n)}`, start, end, title: East.str`Job ${i}` }));
+      });
+      return out;
+    }));
+  const byPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' });
+  const totals = e3.recordIndex.summary('jobs_by_press_week_totals', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' });
+  const pkg = e3.package(name, version, jobs, seed, e3.mutation.patch(jobs), byPressWeek, totals);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
 /** A row of the migration fixture's record before its migration. */
 export const TaskRowV1Type = StructType({ title: StringType });
 /** A row after it, which gives each row an owner. */

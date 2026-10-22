@@ -1470,16 +1470,23 @@ export const RecordSignatureType = StructType({
   })),
   /** The indexes the record declares. A page read through one is decoded by
    *  `indexWindowType(K, keyType, valueType, V)` over the record's
-   *  `Dict<K, V>`, and a key search through one takes a `keyType` key. */
+   *  `Dict<K, V>` — a summary's by `indexWindowType(Null, keyType, valueType,
+   *  V)`, its entries naming no row — and a key search through one takes a
+   *  `keyType` key. */
   indexes: ArrayType(StructType({
     name:      StringType,
     /** The index key's type. */
     keyType:   EastTypeType,
     /** The covering projection's type: `Null` when the index projects
-     *  nothing, and a read joins the rows instead. */
+     *  nothing, and a read joins the rows instead; a summary's totals,
+     *  `{ count, ms }`. */
     valueType: EastTypeType,
     /** Whether a row may hold several index keys. */
     multi:     BooleanType,
+    /** Whether it is a summary (#1039): each entry stands for every row of
+     *  its key, its `k` Null and its value the totals, so a read through it
+     *  is never joined. */
+    summary:   BooleanType,
     /** Whether the record's head state holds the index, built under the
      *  declaration the deployed package carries. A deploy, a reindex and a
      *  system commit build what the state lacks; a read through an index the

@@ -336,7 +336,7 @@ export async function getDatasetRuns(
     }
 
     const resolved = request.index === undefined ? undefined
-      : await indexOf(storage, repoPath, workspace, treePath, dataset.hash, request.index);
+      : await indexOf(storage, repoPath, workspace, treePath, dataset.hash, request.index, request.join === true);
     if (resolved instanceof Response) return resolved;
     const collection = resolved === undefined
       ? await openForRead(storage, repoPath, dataset.hash, dataset.size)

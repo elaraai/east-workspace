@@ -392,6 +392,10 @@ search and batch reads through them — so a window read again, or a pan over
 the same segments, decodes none. A value read whole is streamed as its
 segments' bytes, and decodes none of them.
 
+A summary index's entry stands for every row of its key — its `key` Null, its
+value the rows' totals — so it names no row to join: a `page` or `runs` read of
+one with `join` is refused 400 `bad_request`, naming the index.
+
 Where a narrowing's rows sit among a record's is two reads of its index alone,
 never of a record segment. `place` reads the window's entries from the
 index's own segments and places each entry's row in the record segment that
@@ -484,7 +488,7 @@ grant polls only a platform-free call, or one such a caller launched.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/repos/:repo/workspaces/:ws/records/:rec` | The record's mutations, indexes and migrations, with their types: whether each index is built for the head's state, and when each migration was applied and by which commit, read from the record's ref and state, never its history |
+| GET | `/api/repos/:repo/workspaces/:ws/records/:rec` | The record's mutations, indexes and migrations, with their types: whether each index is a summary and whether it is built for the head's state, and when each migration was applied and by which commit, read from the record's ref and state, never its history |
 | GET | `/api/repos/:repo/workspaces/:ws/records/:rec/history` | Its commits, newest first: `?limit=` of them from `?from=`, the head when absent; with no limit, the whole chain, or the host's page (`historyLimit`). Each previews its arguments: the arguments' object, and each argument's type, size and East text, cut at 256 characters, the text of one over 64 KiB left out, and no argument of an object over 1 MiB, which the objects route serves whole |
 | POST | `/api/repos/:repo/workspaces/:ws/records/:rec/mutations/:mut` | Apply a mutation: `committed`, `invalid`, `failed`, `timed_out` or `conflict`; with an `Idempotency-Key`, a retry answers the first call's commit |
 | POST | `/api/repos/:repo/workspaces/:ws/records/:rec/compact` | Collapse the history to a `$compact` root, the state kept (an elevated role when auth is on) |

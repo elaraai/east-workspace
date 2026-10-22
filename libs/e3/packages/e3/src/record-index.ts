@@ -22,9 +22,12 @@
 
 import type { DateTimeType, DictType, EastType, FloatType, FunctionExpr, IntegerType, OptionType } from '@elaraai/east';
 import { East, Expr, NullType, SetType, StructType, printType } from '@elaraai/east';
+import { RecordSummaryTotalsType } from '@elaraai/e3-types';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import { intervalKey } from './record-interval.js';
 import { AREA_FIELD, areaCellExponent, areaKey } from './record-area.js';
+import { TILE_FIELD, seriesKeys, summaryContributions } from './record-series.js';
+import { checkTile, type RecordTile } from './record-tiles.js';
 import { checkPure, sameEastType } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
@@ -62,12 +65,15 @@ type FieldKey<T> = T extends SetType<infer K extends EastType> ? K : T extends E
 /**
  * The field names an index declaration orders by: its `on` fields, an interval
  * index's leading fields then its start, an area index's leading fields then
- * `__area`; undefined for a computed key.
+ * `__area`, a series or summary index's leading fields then `__tile` and its
+ * key; undefined for a computed key.
  *
  * @typeParam S - The index spec as written
  */
 export type IndexOn<S> = S extends { cell: number }
   ? S extends { on: infer On extends readonly string[] } ? readonly [...On, '__area'] : readonly ['__area']
+  : S extends { tile: string; key: infer K extends string }
+    ? S extends { on: infer On extends readonly string[] } ? readonly [...On, '__tile', K] : readonly ['__tile', K]
   : S extends { from: infer F extends string; to: string }
     ? S extends { on: infer On extends readonly string[] } ? readonly [...On, F] : readonly [F]
   : S extends { on: infer On extends readonly string[] } ? On : undefined;
@@ -77,6 +83,8 @@ type IntervalField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends Dat
 type PlaceField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends FloatType | OptionType<FloatType> ? F : never }[keyof RowFields<T>] & string;
 /** A row field an area index may size a box by: a Float. */
 type FloatField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends FloatType ? F : never }[keyof RowFields<T>] & string;
+/** A row field a series or summary index files events under: any but a Set. */
+type KeyField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends SetType<any> ? never : F }[keyof RowFields<T>] & string;
 /** A generated index's exact leading fields, by name, as its key holds them. */
 type LeadingKey<S, T> = S extends { on: infer On extends readonly (keyof RowFields<T> & string)[] }
   ? { [F in On[number]]: FieldKey<RowFields<T>[F]> } : Record<never, never>;
@@ -153,6 +161,53 @@ export interface AreaIndexSpec<T extends EastType = EastType> {
   value?: never;
 }
 
+/**
+ * What a series index files a record's events by (`e3.recordIndex.series`,
+ * #1039): the key an event is on — a Plan's resource — and the time tiles it
+ * touches, so the events of a block of keys over a span of tiles are a few
+ * contiguous ranges, a range a tile.
+ *
+ * @typeParam T - The owning record's state type
+ */
+export interface SeriesIndexSpec<T extends EastType = EastType> {
+  /** Exact leading fields before the tile. Set fields fan out. */
+  on?: readonly (keyof RowFields<T> & string)[];
+  /** The field naming what an event is on — a Plan's resource: any field but a Set. */
+  key: KeyField<T>;
+  /** The field an event starts at: a DateTime, or an Option of one; a row
+   *  with none is in no tile, and not in the index. */
+  from: IntervalField<T>;
+  /** The field it ends at; a missing one, or one at or before the start, is an instant. */
+  to: IntervalField<T>;
+  /** The tile: `day`, `week` (ISO, from Monday), `month`, `quarter` or `year`, in UTC. */
+  tile: RecordTile;
+  /** Refused: a series index carries the whole row as its projection. */
+  value?: never;
+}
+
+/**
+ * What a summary index totals a record's events by (`e3.recordIndex.summary`,
+ * #1039): the same key and tiles as a series index, and under each key how
+ * many rows touch its tile and the milliseconds of it they cover.
+ *
+ * @typeParam T - The owning record's state type
+ */
+export interface SummaryIndexSpec<T extends EastType = EastType> {
+  /** Exact leading fields before the tile. Set fields fan out. */
+  on?: readonly (keyof RowFields<T> & string)[];
+  /** The field naming what an event is on — a Plan's resource: any field but a Set. */
+  key: KeyField<T>;
+  /** The field an event starts at: a DateTime, or an Option of one; a row
+   *  with none is in no tile, and counts in none. */
+  from: IntervalField<T>;
+  /** The field it ends at; a missing one, or one at or before the start, is an instant. */
+  to: IntervalField<T>;
+  /** The tile: `day`, `week` (ISO, from Monday), `month`, `quarter` or `year`, in UTC. */
+  tile: RecordTile;
+  /** Refused: a summary index holds its totals. */
+  value?: never;
+}
+
 /** The type an East function returns, read off the expression itself. */
 type OutputOf<F> = F extends FunctionExpr<any, infer O> ? (O extends EastType ? O : EastType) : EastType;
 
@@ -174,6 +229,8 @@ type OutputOf<F> = F extends FunctionExpr<any, infer O> ? (O extends EastType ? 
 export type IndexKeyOf<S, T extends EastType = EastType> =
   S extends { cell: number }
     ? StructType<LeadingKey<S, T> & { __area: IntegerType }>
+  : S extends { tile: string; key: infer KF extends keyof RowFields<T> & string }
+    ? StructType<LeadingKey<S, T> & { __tile: DateTimeType } & { [K in KF]: RowFields<T>[K] }>
   : S extends { from: infer F extends keyof RowFields<T> & string; to: string }
     ? StructType<LeadingKey<S, T> & { __interval: IntegerType } & { [K in F]: RowFields<T>[K] }>
   : S extends { on: readonly [infer F extends keyof RowFields<T>] } ? FieldKey<RowFields<T>[F]>
@@ -251,7 +308,7 @@ function checkEntryParams(name: string, role: string, keyType: EastType, valueTy
 }
 
 /** The constructor a refusal names. */
-type Constructor = 'e3.recordIndex' | 'e3.recordIndex.interval' | 'e3.recordIndex.area';
+type Constructor = 'e3.recordIndex' | 'e3.recordIndex.interval' | 'e3.recordIndex.area' | 'e3.recordIndex.series' | 'e3.recordIndex.summary';
 
 /**
  * A record's entry types, once an index's name and its record pass: a name that
@@ -597,11 +654,167 @@ function areaIndex<Name extends string, T extends EastType, const S extends Area
   };
 }
 
+/** The fields and tile a series or summary index files by, as its definition carries them. */
+export interface TimeTileOf<S> {
+  /** The field naming what an event is on. */
+  readonly key: S extends { key: infer K extends string } ? K : string;
+  /** The field an event starts at. */
+  readonly from: S extends { from: infer F extends string } ? F : string;
+  /** The field it ends at. */
+  readonly to: S extends { to: infer F extends string } ? F : string;
+  /** The tile. */
+  readonly tile: RecordTile;
+}
+
+/**
+ * Defines a series index over a record (#1039): its events filed by the key
+ * they are on — a Plan's resource — and by each time tile they touch, so the
+ * events of a block of keys over a tile are one contiguous range, a cell.
+ *
+ * It is an ordinary maintained index whose keys the SDK generates: an entry per
+ * tile an event `[from, to)` overlaps, `{ …on, __tile, <key> }`, the tile its
+ * start in UTC. An instant — no end, or one at or before its start — is under
+ * the one tile holding it; a row with no start is under none. An event touching
+ * more than 4,096 tiles is refused where it is written, naming it and the tile.
+ *
+ * It carries its rows: each entry's projection is the whole row, so a cell
+ * reads the index alone and no record segment. It takes no `value`.
+ *
+ * @typeParam Name - Index name (literal type)
+ * @typeParam T - The owning record's state type (a Dict of Struct rows)
+ * @typeParam S - The spec as written, from which the index key type is read
+ * @param name - Index name: an identifier, never `primary`, declared once on the record
+ * @param rec - The record to index
+ * @param spec - `key`, the field naming what an event is on (any but a Set);
+ *   `from` and `to`, its DateTime (or Option<DateTime>) start and end fields;
+ *   `tile`, `day`, `week`, `month`, `quarter` or `year`; and optional exact
+ *   leading `on` fields
+ * @param config - Optional runner selection (known runtimes only)
+ * @returns A RecordIndexDef to pass to `e3.package`, its key `{ …on, __tile, <key> }`, its projection the row
+ * @throws {Error} When a field is not of its option's type, naming the option,
+ *   the field and its type; when the tile is not one of the five; when the row
+ *   has a field named `__tile`; or on any guard `e3.recordIndex` applies to a
+ *   name and a record
+ *
+ * @example
+ * ```ts
+ * const jobs = e3.record('jobs', DictType(StringType, JobRow), new Map());
+ * // The jobs on each press, a week at a time:
+ * const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, {
+ *   key: 'press', from: 'start', to: 'end', tile: 'week',
+ * });
+ * ```
+ */
+function seriesIndex<Name extends string, T extends EastType, const S extends SeriesIndexSpec<T>>(
+  name: Name,
+  rec: RecordDef<T>,
+  spec: S,
+  config?: { runner?: FunctionRunner },
+): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { series: TimeTileOf<S> } {
+  const { keyType, valueType } = indexedEntry('e3.recordIndex.series', name, rec);
+  onlyOptions('e3.recordIndex.series', name, spec, ['on', 'key', 'from', 'to', 'tile'],
+    'value' in spec ? 'a series index carries the whole row as its projection, so it takes no value' : undefined);
+  const fields = { key: spec.key, from: spec.from, to: spec.to, tile: checkTile('e3.recordIndex.series', name, spec.tile) };
+  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
+  const generated = seriesKeys(name, keyType, valueType, spec.on ?? [], fields, prefix);
+  // It carries its rows: each entry's projection is the whole row, so a cell
+  // reads the index alone and no record segment.
+  const valueFn = East.function([keyType as never, valueType as never], valueType as never, (_$: any, _key: any, row: any) => row);
+  const { runner, indexKeyType, projectionType } = indexFunctions(name, keyType, valueType, generated.fn, generated.multi, valueFn, config);
+
+  return {
+    kind: 'recordIndex',
+    name,
+    record: rec,
+    on: Object.freeze([...(spec.on ?? []), TILE_FIELD, spec.key]) as unknown as IndexOn<S>,
+    series: Object.freeze(fields) as TimeTileOf<S>,
+    keyFn: generated.fn,
+    valueFn,
+    multi: generated.multi,
+    keyType: indexKeyType as IndexKeyOf<S, T>,
+    valueType: projectionType as RowOf<T>,
+    runner,
+  };
+}
+
+/**
+ * Defines a summary index over a record (#1039): under each key and time tile
+ * of a series index, how many rows touch the tile and the milliseconds of it
+ * they cover — what a zoomed-out view draws where its events are too many to
+ * read.
+ *
+ * Its entries are `{ ik: { …on, __tile, <key> }, k: Null }` → `{ count, ms }`,
+ * one per key a row touches, standing for every row that does. A write changes
+ * them by adding what its rows took away and gave, summed — its program reads
+ * the record, never the summary — and the apply drops a total whose count
+ * reaches zero, so a maintained summary equals the one a reindex sums, byte for
+ * byte. The totals are Integers, so the sum is exact in any order.
+ *
+ * An event's share of a tile is the milliseconds of it the event overlaps, and
+ * its shares add up to its length; an instant counts in the tile holding it and
+ * covers none of it. A row with no start counts in no tile. An event touching
+ * more than 4,096 tiles is refused where it is written, naming it and the tile.
+ *
+ * @typeParam Name - Index name (literal type)
+ * @typeParam T - The owning record's state type (a Dict of Struct rows)
+ * @typeParam S - The spec as written, from which the index key type is read
+ * @param name - Index name: an identifier, never `primary`, declared once on the record
+ * @param rec - The record to total
+ * @param spec - `key`, `from`, `to` and `tile`, as a series index takes them,
+ *   and optional exact leading `on` fields
+ * @param config - Optional runner selection (known runtimes only)
+ * @returns A RecordIndexDef to pass to `e3.package`, its key `{ …on, __tile, <key> }`, its value the totals
+ * @throws {Error} As {@link seriesIndex} does
+ *
+ * @example
+ * ```ts
+ * const jobs = e3.record('jobs', DictType(StringType, JobRow), new Map());
+ * // How busy each press is, a month at a time:
+ * const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', jobs, {
+ *   key: 'press', from: 'start', to: 'end', tile: 'month',
+ * });
+ * ```
+ */
+function summaryIndex<Name extends string, T extends EastType, const S extends SummaryIndexSpec<T>>(
+  name: Name,
+  rec: RecordDef<T>,
+  spec: S,
+  config?: { runner?: FunctionRunner },
+): RecordIndexDef<Name, T, IndexKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>> & { summary: TimeTileOf<S> } {
+  const { keyType, valueType } = indexedEntry('e3.recordIndex.summary', name, rec);
+  onlyOptions('e3.recordIndex.summary', name, spec, ['on', 'key', 'from', 'to', 'tile'],
+    'value' in spec ? 'a summary index holds its totals, so it takes no value' : undefined);
+  const fields = { key: spec.key, from: spec.from, to: spec.to, tile: checkTile('e3.recordIndex.summary', name, spec.tile) };
+  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
+  const generated = summaryContributions(name, keyType, valueType, spec.on ?? [], fields, prefix);
+  const runner = config?.runner ?? DEFAULT_RUNNER;
+  // Validate eagerly so a bad runner fails at definition time, not export time.
+  runnerToVariant(runner);
+  checkPure(`e3.recordIndex.summary '${name}' contributions`, generated.fn, INDEX_PURITY);
+  checkEntryParams(name, 'contributions', keyType, valueType, signatureOf(generated.fn).inputs);
+
+  return {
+    kind: 'recordIndex',
+    name,
+    record: rec,
+    on: Object.freeze([...(spec.on ?? []), TILE_FIELD, spec.key]) as unknown as IndexOn<S>,
+    summary: Object.freeze(fields) as TimeTileOf<S>,
+    keyFn: generated.fn,
+    // A row touches several keys, and a key stands for several rows.
+    multi: true,
+    keyType: generated.indexType as unknown as IndexKeyOf<S, T>,
+    valueType: RecordSummaryTotalsType,
+    runner,
+  };
+}
+
 /**
  * Defines a secondary index over a record — `e3.recordIndex(name, record, {
  * on | key | keys, value? })`, an order to page in — and, as its own
  * constructors, the indexes that answer more than an order:
- * `e3.recordIndex.interval` (the events overlapping a time window) and
- * `e3.recordIndex.area` (the boxes meeting a window).
+ * `e3.recordIndex.interval` (the events overlapping a time window),
+ * `e3.recordIndex.area` (the boxes meeting a window), `e3.recordIndex.series`
+ * (the events of a block of keys over a span of time tiles) and
+ * `e3.recordIndex.summary` (their totals per key and tile).
  */
-export const recordIndex = Object.assign(plainIndex, { interval: intervalIndex, area: areaIndex });
+export const recordIndex = Object.assign(plainIndex, { interval: intervalIndex, area: areaIndex, series: seriesIndex, summary: summaryIndex });

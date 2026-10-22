@@ -69,6 +69,8 @@ e3.mutation.editType(recordType)
 e3.recordIndex(name, record, spec, config?)      // spec: { on | key | keys, value? }, an order to page in
 e3.recordIndex.interval(name, record, { on?, from, to }, config?)                      // the events overlapping a time window
 e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell }, config?)  // the rows whose box meets a 2D window, carrying each row
+e3.recordIndex.series(name, record, { on?, key, from, to, tile }, config?)    // the events on a block of keys over a span of time tiles, carrying each row
+e3.recordIndex.summary(name, record, { on?, key, from, to, tile }, config?)   // under each key and tile, how many rows touch it and the time of it they cover
 e3.migration.value(name, record, fn, config?)    // (Old) => New; config: { after?, runner? }
 e3.migration.rows(name, record, fn, config?)     // a Dict's rows (K, V1) => V2, or an Array's elements (T1) => T2
 e3.migration.rekey(name, record, fn, config?)    // a Dict's (K1, V1) => { key, value }, or a Set's elements (T1) => T2
@@ -306,15 +308,16 @@ A driver passes the owner the task's own execution is recorded under. `taskExecu
 
 **Records run on the engine:**
 - **Index builds** are split tasks over the record's primary.
-  - e3-core writes an index's build task from its index object: the build program as the body, on the index's runner, over one input, the primary, partitioned with no `by`, into a `dict` output with no merge.
+  - e3-core writes an index's build task from its index object: the build program as the body, on the index's runner, over one input, the primary, partitioned with no `by`, into a `dict` output.
   - It runs as any task does, so a rebuild over an unchanged primary is served from the execution cache. A larger one runs as pieces and merges with the engine's plan, logs, budget and cancellation.
-  - The build program emits each row's entries as it reads them. An index object carries no merge function: two pieces never emit one entry, since an entry's `k` is in one piece.
+  - The build program emits each row's entries as it reads them. An index whose entries name their row takes no merge: two pieces never emit one entry, since an entry's `k` is in one piece. A summary's entry (#1039) stands for every row of its key, its `k` Null, so every piece holding a row of the key emits it: its index object's `form` names the merge that sums the pieces' totals (`summary { mergeIr }`), and the output takes it. Integer addition is associative, so a summary built in any pieces sums to the totals one unit sums.
 - **Mutations** run as one unit through the same executor as tasks, with its execution records, logs, cancellation and a timeout.
   - e3-core writes a mutation's task from its mutation object: the mutation's program, or an unkeyed record's reducer, as the body; the state and each argument as its inputs; and a `dict` output, the delta, or a `value`, the reducer's new state.
   - The mutation API runs it outside the dataflow graph, and one that ran over the same state and arguments before is served from the execution cache.
   - The state reaches the runner as the primary's manifest, its segments linked, and the program reads it lazily. It emits the delta's entries as it computes them, in any order.
   - A stale write is a `$conflict` entry in the delta, keyed by what went stale, which sorts before every target.
   - The delta is applied over the touched segments inside the compare-and-swap loop, one target segment at a time: the apply holds that segment and its changes, and re-cuts through Recut. The Merger does not apply a delta, since a change can delete a row.
+  - A summary's arm (#1039) carries what to add to each of its totals (`add { count, ms }`). The program reads the record, never the summary, so it sums the change the write's rows make under each key — what each touched row's old version took away and its new one gave — and emits none that is nothing. The apply adds each to the total held: a key the summary lacks is inserted, and one whose count reaches zero deleted. A change that would leave a total no rebuild sums — a count or time below zero, time with no row, or past the largest Integer — fails the write, naming the total and `e3 reindex` (`SummaryIntegrityError`); it is no stale write, so nothing retries it.
   - A mutation's output is stored as segments and never read whole, so it has no result-size cap.
 - **Migrations** run on the engine too (§3.18): a `value` step as one unit, and a `rows` or `rekey` step as a task split over the state.
 
@@ -732,7 +735,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
   - A mint or a reset names its `$init` or `$reset` commit for every step. A migration names each step it runs by its own `$migrate:<name>` commit, and keeps the entries of the steps applied before.
   - A compaction rewrites the slot, keeping each step's time and dropping its commit, which the chain no longer holds. Deploy and compaction are its only writers.
   - A step a record applied before e3 kept the slot has no entry, and no upgrade step fills one in: the slot is a new key of the ref's version vector, whose type is unchanged.
-- **Describe reads them.** A record's describe (`RecordSignatureType`) lists the chain the package declares, each step with its form and types and, once applied, the time and commit `$migrations` names, `none` for what it names none of. It says of each index whether the head's state holds it built under the package's declaration (`built`). It reads the ref and the state object, and nothing of the history.
+- **Describe reads them.** A record's describe (`RecordSignatureType`) lists the chain the package declares, each step with its form and types and, once applied, the time and commit `$migrations` names, `none` for what it names none of. It says of each index whether the head's state holds it built under the package's declaration (`built`), and whether it is a summary (`summary`, #1039), whose window's `key` is Null and which a read never joins. It reads the ref and the state object, and nothing of the history.
 
 **Deploy plans before it writes** (`record-deploy.ts`). For each record, it compares the stored `$schema` and the stored state's type with the package's chain:
 

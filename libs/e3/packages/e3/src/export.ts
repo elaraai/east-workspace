@@ -21,7 +21,7 @@ import yazl from 'yazl';
 import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
 import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
-import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, migrationProgram } from './record-programs.js';
+import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
 import { runnerProvides, runnerToVariant, type Runner } from './runner.js';
@@ -423,6 +423,10 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
         buildIr: addObject(zipfile, Buffer.from(
           encodeEastIR(link(indexBuildProgram(idef.record.type, idef), owner, idef.runner)))),
         runner: runnerToVariant(idef.runner),
+        // A summary's build sums its pieces' totals by the merge it names (#1039).
+        form: idef.summary === undefined
+          ? variant('entries', null)
+          : variant('summary', { mergeIr: addObject(zipfile, Buffer.from(encodeEastIR(link(summaryMergeProgram(idef), owner, idef.runner)))) }),
       };
       indexes.set(iname, addObject(zipfile, Buffer.from(indexEncoder(indexObject))));
     }

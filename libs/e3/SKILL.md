@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex, and e3.recordIndex.interval / e3.recordIndex.area for reads by a time window or a 2D window) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex, e3.recordIndex.interval / e3.recordIndex.area for reads by a time window or a 2D window, and e3.recordIndex.series / e3.recordIndex.summary for a block of keys over a span of time tiles and their totals) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -67,7 +67,8 @@ What do you need?
 │   ├─ A shell command           → e3.customTask(name, [inputs], outputType, command)
 │   ├─ A named function (RPC)    → e3.function(name, fn, config?) — called by name, persists nothing
 │   ├─ Audited state             → e3.record + e3.mutation.reduce | edit | patch, e3.recordIndex
-│   │   └─ Read by a time window or a 2D window → e3.recordIndex.interval | e3.recordIndex.area
+│   │   ├─ Read by a time window or a 2D window → e3.recordIndex.interval | e3.recordIndex.area
+│   │   └─ Read a block of keys over time tiles, or their totals → e3.recordIndex.series | e3.recordIndex.summary
 │   ├─ A record's type changes   → e3.migration.value | rows | rekey(name, record, fn, { after? })
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
@@ -604,9 +605,9 @@ const pkg = e3.package('planning', '1.0.0',
 
 #### Interval and area indexes — `e3.recordIndex.interval`, `e3.recordIndex.area`
 
-Two indexes answer more than an order, each with a constructor of its own whose
-keys the SDK generates; `e3.recordIndex` refuses an `interval` option, naming
-its constructor. Underneath each is an ordinary index — the same build,
+These indexes answer more than an order — as do the series and summary indexes
+below — each with a constructor of its own whose keys the SDK generates;
+`e3.recordIndex` refuses an `interval` option, naming its constructor. Underneath each is an ordinary index — the same build,
 mutation, storage, paging and `e3 reindex` — and the record Slice reads a
 window through either (see **e3-ui**). Their generated keys are query
 machinery: edits and sessions always target the record's primary key.
@@ -678,6 +679,54 @@ grown by an eighth of its larger side on each side, as at most 266 disjoint
 searches per exact prefix, sent in one request, which together hold every row
 whose box meets it, each once — beside rows of the cells searched that it
 misses, which the reader draws or not.
+
+#### Series and summary indexes — `e3.recordIndex.series`, `e3.recordIndex.summary`
+
+What a planning board reads: the events on a block of keys — a Plan's
+resources — over a span of time, and, zoomed out past what a screen can draw,
+how busy each key is. Both file a row's event by the key it is on and by each
+time tile it touches — `day`, `week` (ISO, from Monday), `month`, `quarter` or
+`year`, in UTC, half-open — their key `{ …on, __tile, <key> }`. The tile leads
+the key, so a block of keys in one tile is one contiguous range:
+
+```typescript
+// jobs: Dict<String, { press: String, start: Option<DateTime>, end: Option<DateTime>, … }>
+const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, {
+  key: 'press', from: 'start', to: 'end', tile: 'week',
+});
+const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', jobs, {
+  key: 'press', from: 'start', to: 'end', tile: 'month',
+});
+```
+
+| Option | |
+|---|---|
+| `key` | the field naming what an event is on: any field but a Set |
+| `from`, `to` | the event's start and end: DateTime or Option<DateTime> fields. A row with no start is in no tile; no end, or one at or before the start, is an instant, in the one tile holding it |
+| `tile` | `day`, `week`, `month`, `quarter` or `year` |
+| `on` | exact leading fields, before the tile; a Set field fans out |
+
+**A series index** is an ordinary index whose keys the SDK generates, an entry
+per tile an event touches, and it **carries its rows**, as the area index does:
+a block of keys over a span of tiles reads the index alone, a search a tile, in
+one request. **A summary index** holds, under each key, `{ count, ms }`: how
+many rows touch its tile, and the milliseconds of it they cover — a row's shares
+add up to its length, and an instant's is none. Each entry stands for every row
+of its key, so its window's `key` is Null, a read of it joins nothing (a joined
+read is refused), and the record's describe says it is a summary. A write
+changes its totals by what its rows took away and gave — its program reads the
+record, never the summary — and the apply adds that to each total, dropping one
+whose count reaches zero; the totals are Integers, so a maintained summary is the
+one `e3 reindex` sums, byte for byte, and a build split into pieces adds the
+pieces' totals of a key. A change that would leave a total no rebuild sums — a
+count below zero, or time with no row — fails the write, naming the total and
+`e3 reindex`, which rebuilds it.
+
+An event touching more than 4,096 tiles — eleven years of days — is refused
+where it is written, naming it, its span and the tile: declare a coarser tile.
+Each option takes only the row's fields of its type, as the area index's do,
+and the definition checks them again; a row field named `__tile` is refused, the
+name being the key's, and so is a `value`.
 
 #### Migrations — how a record's type changes
 
@@ -777,7 +826,7 @@ a task is `<ws>.<task>` and a mutation `<record>.<mutation>`.
 | **Records** (`-w <ws>` required) | |
 | `e3 mutate <repo> <record.mutation> [args…] -w <ws> [-j <n>] [--memory <size>] [-v]` | Apply a mutation. |
 | `e3 seed <repo> <record> <file.beast2> -w <ws> [-j <n>] [--memory <size>]` | Commit a record's first state from a beast2 file, as its `$init`: for a record declared with no initial value, unassigned until then (local). The file is taken in as a `file` source is, never read whole; a record that holds a state is refused. |
-| `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first (`--delta`: what each changed, per target; local). |
+| `e3 history <repo> <record> -w <ws> [--limit <n>] [--from <hash>] [--delta]` | Commits, newest first (`--delta`: what each changed, per target — a summary's totals added to as `±n`; local). |
 | `e3 reindex <repo> <record> -w <ws> [--index <name>] [-j <n>] [--memory <size>]` · `e3 compact <repo> <record> -w <ws>` | Rebuild indexes (local) · collapse the history to a `$compact` root, the state kept. |
 | **Development** | |
 | `e3 watch <src.ts> <repo> <ws> [--start] [--schema <p>] [--inputs <p>] [--abort-on-change] [--functions <manifest…>] [-j <n>] [--memory <size>]` | Redeploy on each change (and run, with `--start`). |
