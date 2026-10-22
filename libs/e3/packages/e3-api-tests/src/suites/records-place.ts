@@ -71,6 +71,7 @@ const printInteger = printFor(IntegerType);
 const printDateTime = printFor(DateTimeType);
 const stringEqual = equalFor(StringType);
 const integerOrder = compareFor(IntegerType);
+const dateTimeOrder = compareFor(DateTimeType);
 
 /** An entry key of an index whose key is one String: `(ik=…, k=…)`. */
 const printStringEntry = printFor(StructType({ ik: StringType, k: StringType }));
@@ -143,8 +144,8 @@ const PLANS: readonly Plan[] = [
   {
     name: 'an interval index\'s start and carry-in runs', index: 'orders_by_time', searches: intervalSearches(WINDOW.from, WINDOW.to),
     // Starts inside the window, or carried into it: started before, ended after its start.
-    matches: (order) => (order.start.getTime() >= WINDOW.from.getTime() && order.start.getTime() < WINDOW.to.getTime())
-      || (order.start.getTime() < WINDOW.from.getTime() && order.end.getTime() > WINDOW.from.getTime()),
+    matches: (order) => (dateTimeOrder(order.start, WINDOW.from) >= 0 && dateTimeOrder(order.start, WINDOW.to) < 0)
+      || (dateTimeOrder(order.start, WINDOW.from) < 0 && dateTimeOrder(order.end, WINDOW.from) > 0),
   },
 ];
 
