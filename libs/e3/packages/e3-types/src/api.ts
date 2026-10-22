@@ -931,11 +931,15 @@ export const DataflowEventType = VariantType({
  * Execution status for API polling responses.
  *
  * - `running`: Execution is in progress
- * - `stopping`: Execution was asked to stop, and its tasks have not all
- *   stopped yet: it holds its workspace until they have
+ * - `stopping`: Execution holds its workspace and is letting it go: it was
+ *   asked to stop and its tasks have not all stopped yet, or it has ended —
+ *   its summary given — and has not yet let the workspace go
  * - `completed`: Execution finished successfully
  * - `failed`: Execution finished with failures
  * - `aborted`: Execution was cancelled
+ *
+ * A run answered `completed`, `failed` or `aborted` has let its workspace go,
+ * so a gc, a deploy or a run asked of next takes it.
  *
  * `stopping` is named to sort after every case before it, so its tag is the
  * last and a poll a server answered before it read as itself.

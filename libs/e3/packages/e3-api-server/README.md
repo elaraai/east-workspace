@@ -162,7 +162,10 @@ once the cancel is recorded, before the run's tasks in other processes or
 machines have stopped, has its store's summary say so (`cancelRequested`): the
 poll answers the run `stopping` until it has stopped, and a start, a deploy or
 a workspace's removal the workspace's lock refuses meanwhile is answered
-`workspace_locked` with a `Retry-After`. The dataset transfer routes
+`workspace_locked` with a `Retry-After`. A run that has ended is answered
+`stopping` too while it still holds the dataflow lock it took as it started,
+which the poll asks the storage backend's lock service, so a run answered
+ended has let its workspace go. The dataset transfer routes
 (`createTransferRoutes`) take the transfer backend, whose upload store takes a
 delivery in on the runner it was given: an init adopts only what takes nothing
 in, and answers at once. A poll reads the latest run's summary from the store
@@ -499,7 +502,7 @@ grant polls only a platform-free call, or one such a caller launched.
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling), with the `ETag` and `304 Not Modified` of `/workspaces/:ws/status` |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state, its id (`runId`) and the sequence number of its last event (`lastSeq`), and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them, and never more than 1,000, the default: a `nextSeq` before `lastSeq` left some for the next poll), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them. A run asked to stop that has not yet stopped is `stopping` |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state, its id (`runId`) and the sequence number of its last event (`lastSeq`), and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them, and never more than 1,000, the default: a `nextSeq` before `lastSeq` left some for the next poll), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them. A run asked to stop that has not yet stopped is `stopping`, and so is one that has ended — its summary given — until it has let its workspace go: a run answered `completed`, `failed` or `aborted` holds nothing, so a gc, a deploy or a run asked of next takes the workspace |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress: this server answers once the run has ended; a host whose run's tasks run elsewhere may answer once the cancel is recorded, the poll answering the run `stopping` until it has stopped. e3-api-client's `dataflowCancel` follows the run until it has |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |

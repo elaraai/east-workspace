@@ -147,7 +147,7 @@ export function createExecutionRoutes(
     const window = wholeQuery(c, { since: 0, limit: 0 });
     if (window instanceof Response) return window;
 
-    return getDataflowExecution(seams.getStateStore(repoPath), seams.getOrchestrator(repoPath), repoPath, ws, window, seams.budget);
+    return getDataflowExecution(storage, seams.getStateStore(repoPath), seams.getOrchestrator(repoPath), repoPath, ws, window, seams.budget);
   });
 
   // GET /api/repos/:repo/workspaces/:ws/dataflow/budget - The budget a run gets
