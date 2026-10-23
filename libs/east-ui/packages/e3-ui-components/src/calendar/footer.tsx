@@ -6,7 +6,7 @@ import { useRef } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { CalendarKind, CalendarStyles } from "./model.js";
 import type { CalendarEventPart } from "./window.js";
 
@@ -17,7 +17,8 @@ import type { CalendarEventPart } from "./window.js";
  * the period being read — `Loading November 2026` — or why it could not be,
  * with Retry. The rail never wraps and never cuts a word: the legend stays
  * whole and in place, ending at a whole kind, then "…", only where it cannot
- * fit.
+ * fit. The line shows on the frame's one reveal clock (CL4, its
+ * `LoadingReveal`), which the period's placeholders keep too.
  */
 export function CalendarFooter({ styles, kinds, parts, locale, line }: {
     styles: CalendarStyles;
@@ -32,8 +33,7 @@ export function CalendarFooter({ styles, kinds, parts, locale, line }: {
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(ref);
-    // The shared reveal's clock (CL4): a read shows after 150 ms, and stays 300 ms once shown.
-    const shown = useLoadingReveal(line?.kind === "loading");
+    const shown = useRevealed() === true;
     return <Box ref={ref} css={styles.footer} data-calendar-footer="">
         {kinds.map((kind, i) => <Box as="span" key={kind.key} css={styles.footerItem} data-calendar-legend={kind.key}
             data-footer-unit="" data-footer-cut={footerCut(i, fit)}>

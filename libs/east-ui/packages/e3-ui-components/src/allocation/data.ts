@@ -86,6 +86,12 @@ export interface AllocationData {
     readonly filtering: boolean;
     /** Whether a complete read of the day has landed. */
     readonly ready: boolean;
+    /**
+     * Whether a complete read of any day has landed: the frame's cold load is
+     * over (#1398, CL5), and a day not read yet is read with the frame live,
+     * its geometry drawn and its placeholders where its content goes.
+     */
+    readonly landed: boolean;
     /** Why the latest read failed. */
     readonly error: string | undefined;
 }
@@ -100,7 +106,7 @@ const NO_STATUSES = new SortedMap<Date, Status>([], compareDate);
  * @returns The state
  */
 export function initialAllocationData(day: Date): AllocationData {
-    return { day, bins: NO_BINS, period: undefined, picker: NO_STATUSES, loading: true, filtering: false, ready: false, error: undefined };
+    return { day, bins: NO_BINS, period: undefined, picker: NO_STATUSES, loading: true, filtering: false, ready: false, landed: false, error: undefined };
 }
 
 /** Bins read again, each kept as it was where its bytes are: the same object, its row not decoded again. */
@@ -180,19 +186,20 @@ export function useAllocationData(value: AllocationValue, day: Date, pickerDays:
             landed.current = { day, choices };
             if (was === undefined || compareDate(was.day, day) !== 0 || !Object.is(was.bins, got.bins)
                 || !Object.is(was.picker, got.picker) || (was.period === undefined ? got.period !== undefined : got.period === undefined || !sameBytes(was.period, got.period))) {
-                complete.current = { day, bins: got.bins, period: got.period, picker: got.picker, loading: false, filtering: false, ready: true, error: undefined };
+                complete.current = { day, bins: got.bins, period: got.period, picker: got.picker, loading: false, filtering: false, ready: true, landed: true, error: undefined };
             }
         }
     }
     const last = complete.current;
     // A day moved to holds nothing of the day before it: its read is in flight until it lands.
     const current = last !== undefined && compareDate(last.day, day) === 0 ? last : undefined;
+    const everLanded = last !== undefined;
     const loading = result.ok ? result.value.loading || current === undefined : false;
     const filtering = filteringBins(loading, landed.current, day, choices);
     const error = result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error);
-    return useMemo(() => current === undefined ? { ...initialAllocationData(day), loading, error }
+    return useMemo(() => current === undefined ? { ...initialAllocationData(day), loading, landed: everLanded, error }
         : current.loading === loading && current.filtering === filtering && current.error === error ? current : { ...current, loading, filtering, error },
-    [current, day, loading, filtering, error]);
+    [current, day, loading, filtering, everLanded, error]);
 }
 
 /**

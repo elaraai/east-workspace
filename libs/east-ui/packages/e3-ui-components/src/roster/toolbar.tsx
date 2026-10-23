@@ -3,6 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
+import { useState } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation, faSliders } from "@fortawesome/free-solid-svg-icons";
@@ -25,9 +26,10 @@ interface ToolbarArgs extends RosterWindow {
     status: string | undefined;
     /**
      * Whether the week is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
-     * placeholder — never "Not started" before its row is read — and the issues one too; filled once the reveal says so.
+     * placeholder — never "Not started" before its row is read — and the issues one too, each unseen at its footprint
+     * until the frame's reveal says so.
      */
-    unread: { readonly filled: boolean } | undefined;
+    unread: boolean;
     /** Whether Publish is under way. */
     publishing: boolean;
     /** The open picker's weeks' statuses, by their start. */
@@ -58,9 +60,13 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // Publish: only over periods, on a week that takes edits; its slot held wherever the Roster publishes and edits at all.
     const publishable = value.periods.type === "some" && commands.available && !args.publishing;
     const heldPublish = value.periods.type === "some" && !value.settings.readOnly;
-    // The history: wherever the week takes edits, and wherever a draft of another week waits to be saved.
+    // The history: wherever the week takes edits, and wherever a draft of another week waits to be saved. A week not read
+    // yet keeps it as the last week read had it, so a read landing never shifts the toolbar nor folds it again (#1398, CL1).
     const history = editing?.history;
-    const showHistory = history !== undefined && !value.settings.readOnly && (commands.available || history.pending > 0 || history.status !== "idle");
+    const historyNow = history !== undefined && !value.settings.readOnly && (commands.available || history.pending > 0 || history.status !== "idle");
+    const [historyHeld, setHistoryHeld] = useState(historyNow);
+    if (!unread && historyHeld !== historyNow) setHistoryHeld(historyNow);
+    const showHistory = history !== undefined && (historyNow || (unread && historyHeld));
     const displayChoice = (key: string) => {
         if (key === "compact" || key === "comfortable") args.onDisplay({ density: key });
         else if (key === "skills") args.onDisplay({ chipSkills: !value.settings.chipSkills });
@@ -71,14 +77,14 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const menu = <ChipMenu label="View" icon={faCalendarWeek} onSelect={key => {
         if (key === "people" || key === "shifts") setView({ ...view, layout: key });
         else if (key === "day" || key === "week") period(key);
-        else if (key === "publish") commands.publish();
+        else if (key === "publish" && publishable) commands.publish();
         else if (key === "previous") navigate(-1); else if (key === "next") navigate(1);
         else if (key === "issues") args.onIssues(); else displayChoice(key);
     }}>
         {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
         {view.layout === "shifts" && <><ChakraMenu.Separator />{PERIODS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}</>}
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
-        {publishable && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish">Publish week</ChakraMenu.Item></>}
+        {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>Publish week</ChakraMenu.Item></>}
     </ChipMenu>;
     // When the frame itself is narrower than a phone viewport, one popover
     // holds both week and view controls. It folds before the shared history.
@@ -87,7 +93,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         {view.layout === "shifts" && <Seg label="Period" scope="roster" name="compact-period" items={PERIODS} active={view.period} onPick={period} />}
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
         {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
-        {publishable && <Button size="xs" variant="solid" onClick={() => commands.publish()}>Publish week</Button>}
+        {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish week</Button>}
     </Box>;
     const navigation = (compact = false, combined = false) => <TimeNavigator scope="roster" date={view.date} period={unit}
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })}
@@ -106,11 +112,11 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         view.layout === "shifts" && view.period === "day" && { key: "roster.days", side: "start", rank: HOST_RANK + 2, forms: [daySelect, null] },
         // The status, the issues and Publish keep their slots from cold load, whatever the week's read (#1398, CL1): a read
         // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
-        status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [unread !== undefined
-            ? <Box css={[styles.status, styles.heldSlot]} data-roster-status="" data-pending="" data-unfilled={unread.filled ? undefined : ""}><PlaceholderShape kind="enum" index={0} /></Box>
+        status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [unread
+            ? <Box css={[styles.status, styles.heldSlot]} data-roster-status="" data-pending=""><PlaceholderShape kind="enum" index={0} /></Box>
             : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
-        value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [unread !== undefined
-            ? <Box css={styles.heldSlot} data-roster-issues="" data-pending="" data-unfilled={unread.filled ? undefined : ""}><PlaceholderShape kind="count" index={0} /></Box>
+        value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
+            ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
             : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
                 : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),

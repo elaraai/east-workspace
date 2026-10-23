@@ -5,6 +5,7 @@
  */
 import { expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { act, press, rosterHarness, settle, slot, width } from "./harness.test-utils.js";
@@ -96,6 +97,8 @@ test("a step to a week not read yet never covers the frame (#1398, CL5): the too
     expect([status.hasAttribute("data-pending"), status.textContent]).toEqual([true, ""]);
     expect(toolbar().querySelector("[data-roster-issues]")!.hasAttribute("data-pending")).toBe(true);
     expect(within(toolbar()).getByRole("button", { name: "Publish" }).hasAttribute("disabled")).toBe(true);
+    // The history keeps its slot as the week read last had it: the toolbar never shifts as the week lands.
+    expect(within(toolbar()).getByRole("button", { name: editingMessages.apply() })).toBeTruthy();
     // The week's slots draw at once, unread: no duty, no figure of another week's, and no false empty.
     expect(main().querySelector("[data-roster-unread]")).not.toBeNull();
     expect(main().querySelector("[data-roster-assignment]")).toBeNull();
