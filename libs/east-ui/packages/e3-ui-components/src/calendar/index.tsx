@@ -158,8 +158,11 @@ function CalendarFrame(props: HostProps) {
     // A followed source not yet resolved holds the frame's cold load, as an event kind's window does.
     const cold = [...followed.values()].some(source => !source.shown.ready && source.error === undefined);
     // What the footer's loading line says (#1398, CL3): the period being read, a followed source's new narrowing, or
-    // why one could not be read, with Retry — the period's asking again each event kind's record.
-    const retryWindow = useCallback(() => retryPeriod(dates.eventParts.map(({ kind, part }) => ({ entries: kind.entries, part }))), [dates.eventParts]);
+    // why one could not be read, with Retry — the period's asking again each event kind's record, whether or not a
+    // source of the slice narrows it.
+    const retryWindow = useCallback(() => retryPeriod(value.events.map(kind => ({
+        entries: kind.entries, part: dates.eventParts.find(event => event.kind.key === kind.key)?.part,
+    }))), [value.events, dates.eventParts]);
     const periodName = periodWords(view, range, value.settings, format);
     const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading, error: data.error, retry: retryWindow },
         [...followed.values()].map(source => ({ noun: source.name, ready: source.shown.ready, loading: source.shown.busy && source.error === undefined,

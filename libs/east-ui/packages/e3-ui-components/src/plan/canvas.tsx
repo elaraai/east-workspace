@@ -474,10 +474,9 @@ export function usePlanCanvas({
     // narrowing's rows are, or which read failed; never how many have landed.
     const failures = paging.failures;
     const pagingError = paging.sourceError;
-    const retryFailed = useCallback(() => {
-        if (failures.length === 0) controller.refreshSource();
-        for (const f of failures) controller.retry(f.w);
-    }, [failures, controller]);
+    // Its Retry asks every failed window and the source's own failed reads again, at once — never after the
+    // runtime's retry gap, which a read alone waits out.
+    const retryFailed = useCallback(() => controller.retry(), [controller]);
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
         const failed = failures[0];
