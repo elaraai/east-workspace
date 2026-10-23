@@ -22,6 +22,18 @@ export interface NavZone {
     items: SchematicItemValue[];
 }
 
+/**
+ * Labels in natural order — `A2` before `A10`, `Cage 2` before `Cage 10` — as
+ * the Index lists zones and items and the steps walk them.
+ *
+ * @param a - One labelled entity
+ * @param b - Another
+ * @returns Below zero where `a`'s label comes first, above where `b`'s does, else zero
+ */
+export function byLabel(a: { readonly label: string }, b: { readonly label: string }): number {
+    return a.label.localeCompare(b.label, undefined, { numeric: true });
+}
+
 /** Whether a zone's box holds a world point, its edges among it. */
 const contains = (outer: SchematicZoneValue, x: number, y: number): boolean =>
     x >= outer.x && x <= outer.x + outer.width && y >= outer.y && y <= outer.y + outer.height;

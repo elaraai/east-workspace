@@ -282,7 +282,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     readonly followed: FollowedSources;
     readonly look: SchematicNarrowedLook;
 }) {
-    const styles = useSlotRecipe({ key: "schematic" })() as Styles;
+    // The recipe's styles, resolved once a recipe: the frame renders again as each window lands.
+    const recipe = useSlotRecipe({ key: "schematic" });
+    const styles = useMemo(() => recipe() as Styles, [recipe]);
     // The counts and the dates, in the app's locale (#850), and the Schematic's words.
     const formatters = useFormatters();
     const words = useMemo((): SchematicWords => ({ ...formatters, m: schematicMessages }), [formatters]);

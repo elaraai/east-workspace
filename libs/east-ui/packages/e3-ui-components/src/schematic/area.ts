@@ -76,13 +76,18 @@
  * inside the window, plans nothing, asks nothing, makes nothing and hands the
  * frame nothing new.
  *
+ * What a kind's `rowsOf` — or its details' — made of each row is kept by the
+ * row's key while the row reads again as it was, as many as a window reads,
+ * and made a budget a read (`made-rows.ts`): a window over rows another
+ * window made — a zoom into finer cells, which searches anew, or a pan back —
+ * makes only the rows it adds, the rows it made before the same objects,
+ * which the drawing keeps; and a window of thousands of rows new to it is
+ * made over several reads, a frame drawing between (#1393).
+ *
  * @packageDocumentation
  */
 
-import {
-    ArrayType, IntegerType, StringType, StructType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, printFor,
-    type StructType as StructTypeOf, type ValueTypeOf,
-} from "@elaraai/east";
+import { IntegerType, StringType, compareFor, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
 import {
     RecordSliceWhereType, areaCells,
@@ -99,6 +104,7 @@ import {
 import { defaultPagedRuntime, pagedSourceOf, type PagedRow } from "../platform/paged-runtime.js";
 import { SCHEMATIC_CARD_MAX_PX, type LodTier, type WorldBox } from "./canvas/model.js";
 import type { SchematicValue } from "./data.js";
+import { RowMaking, type StoredRows } from "./made-rows.js";
 
 /** An item kind or a zone kind: what reads by area. */
 export type SchematicAreaKind = SchematicValue["items"][number] | SchematicValue["zones"][number];
@@ -112,8 +118,6 @@ type Details = Extract<SchematicAreaKind["details"], { type: "some" }>["value"];
 type Query = ValueTypeOf<typeof SeekQueryType>;
 /** One search's bounds, decoded. */
 type Range = ValueTypeOf<typeof SeekRangeType>;
-/** A kind's stored rows, by key: each one's roles beside its bytes. */
-type StoredRows = ReadonlyMap<string, { readonly roles: unknown; readonly row: Uint8Array }>;
 
 const stringEqual = equalFor(StringType);
 const rowOrder = compareFor(IntegerType);
@@ -423,9 +427,6 @@ const NO_JOINED: readonly RecordSliceJoined[] = [];
 /** The most within answers a kind keeps at a revision and a narrowing, past which those of rows no longer read go. */
 const MAX_KEPT_ANSWERS = 20_000;
 
-/** Each kind's encoder of the rows it read, as its `rowsOf` takes them: an Array of `{ key, row }`. */
-type RowsEncoder = (read: { key: string; row: unknown }[]) => Uint8Array;
-
 /**
  * A window's plan, and its searches as the cells it reads — each where it is beside it, in the same order: for the
  * source's config, the narrowing and the window they were planned for.
@@ -543,7 +544,18 @@ interface Slot {
  */
 export class SchematicAreaReader {
     private readonly slots = new Map<string, Slot>();
-    private readonly encoders = new WeakMap<object, RowsEncoder>();
+    /** What each kind's `rowsOf` — and its details' — has made of its rows, a budget a read (`made-rows.ts`). */
+    private readonly making = new RowMaking();
+
+    /** Begins a read: it makes rows for a budget's time, and leaves the rest to the next read ({@link unmade}). */
+    begin(): void {
+        this.making.begin();
+    }
+
+    /** Whether the last read left rows to make: its reader reads again a task later, so a frame draws between. */
+    get unmade(): boolean {
+        return this.making.unmade;
+    }
 
     /** A kind's state, made empty on first use. */
     private slotOf(key: string): Slot {
@@ -912,32 +924,23 @@ export class SchematicAreaReader {
         return next;
     }
 
-    /** A kind's encoder of the rows it read, made once per kind's row type. */
-    private encoderOf(kind: { readonly rowType: SchematicAreaKind["rowType"] }): RowsEncoder {
-        let encode = this.encoders.get(kind);
-        if (encode === undefined) {
-            const row = fromEastTypeValue(kind.rowType) as StructTypeOf;
-            encode = encodeBeast2For(ArrayType(StructType({ key: StringType, row }))) as RowsEncoder;
-            this.encoders.set(kind, encode);
-        }
-        return encode;
-    }
-
     /**
      * A kind's rows made its stored rows (#1393), through its `rowsOf`: each
      * one's roles beside its bytes — made again only when what they were read
-     * from moved.
+     * from moved, and then only the rows it has not made already, over as
+     * many reads as its budget takes.
      *
      * @param kind - The kind
      * @param read - Its rows, the narrowing asked of them
-     * @returns Its stored rows, by key
+     * @returns Its stored rows, by key; {@link READING} while rows are left to make
      */
-    rowsOf<K extends SchematicAreaKind>(kind: K, read: SchematicAreaRead): ReturnType<K["rowsOf"]> {
+    rowsOf<K extends SchematicAreaKind>(kind: K, read: SchematicAreaRead): ReturnType<K["rowsOf"]> | Reading {
         const slot = this.slotOf(kind.key);
         const from = [kind, ...read.from];
         const last = slot.made;
         if (last !== undefined && sameFrom(last.from, from)) return last.rows as ReturnType<K["rowsOf"]>;
-        const rows = (kind.rowsOf as (bytes: Uint8Array) => StoredRows)(this.encoderOf(kind)([...read.rows].map(([key, row]) => ({ key, row }))));
+        const rows = this.making.make(kind, read.rows);
+        if (rows === undefined) return READING;
         slot.made = { from, rows };
         return rows as ReturnType<K["rowsOf"]>;
     }
@@ -957,7 +960,7 @@ export class SchematicAreaReader {
      * @param details - Its details
      * @param part - Its source of the slice: the area index its window was read through
      * @param read - Its window, as it was read
-     * @returns Their details' rows, by key; `undefined` for details read whole or by no paged read; {@link READING} while the read is in flight
+     * @returns Their details' rows, by key; `undefined` for details read whole or by no paged read; {@link READING} while the read is in flight, or rows are left to make
      * @throws {Error} When the details' paged read is bound on no page this runtime serves
      */
     detailsOf(slot: string, details: Details, part: Part, read: SchematicWindowRead): StoredRows | Reading | undefined {
@@ -979,11 +982,12 @@ export class SchematicAreaReader {
         if (parts === READING) return READING;
         const last = state.details;
         if (last !== undefined && Object.is(last.details, details) && sameFrom(last.from, parts)) return last.rows;
-        const present: { key: string; row: unknown }[] = [];
+        const present = new Map<string, unknown>();
         for (const joined of parts) {
-            for (const entry of joined) if (entry.row.type === "some") present.push({ key: entry.key as string, row: entry.row.value });
+            for (const entry of joined) if (entry.row.type === "some") present.set(entry.key as string, entry.row.value);
         }
-        const made = details.rowsOf(this.encoderOf(details)(present)) as StoredRows;
+        const made = this.making.make(details, present);
+        if (made === undefined) return READING;
         state.details = { details, from: parts, rows: made };
         return made;
     }

@@ -70,7 +70,7 @@ import {
     zoneAnchor, type EdgeGeometry, type RGB, type SchematicPaintEffect, type SchematicPalette,
 } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, linkAt, linkIndex, marqueeHits } from "./selection";
-import { type LodTier, type NavZone, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, cardContentWidth, declutterTiers, matchesExtent, tierSize } from "./model";
+import { type LodTier, type NavZone, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, byLabel, cardContentWidth, declutterTiers, matchesExtent, tierSize } from "./model";
 import { entityId, refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
@@ -196,6 +196,8 @@ const MINIMAP_AUTO = 25;
 const NO_TINTS: ReadonlyMap<string, RGB> = new Map();
 /** No kind drawing its density. */
 const NO_DENSITY: ReadonlyMap<string, SchematicDensity> = new Map();
+/** No item's centre: what the declutter is given at the dots' zoom, where it reads none. */
+const NO_CENTERS = buildCenterTree([]);
 /** How long the camera rests before the canvas tells the reader where its viewport is (#1393, CL6), in ms. */
 const REST_READ_MS = 100;
 /** Moving slower than a viewport each this many ms, the canvas tells the reader as it moves (CL6). */
@@ -395,7 +397,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
     viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, onZoomRange, ref,
 }: SchematicCanvasProps) {
-    const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
+    // The recipe's styles, resolved once a recipe: the canvas renders at every frame its camera moves.
+    const recipe = useSlotRecipe({ key: "schematic" });
+    const styles = useMemo(() => recipe() as SlotStyles, [recipe]);
     const { width: W, height: H } = value.extent;
     // What never selects, by any path — a tap, the marquee, the steps, a drop, a reveal — and lets go of what is
     // selected: a locked layer's entities (SC27), and what the narrowing takes out, its context among them (#1392).
@@ -913,9 +917,6 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         }).map(b => b.item);
     }, [index, size, ppu, cameraSnapshot]);
 
-    // The zones nested by containment, and the items in each: what the steps
-    // through the items walk (the Index tab's tree, #1389, is built the same way).
-    const nav = useMemo(() => buildNavTree(shownZones, items), [shownZones, items]);
     // The zone the viewport is in (#1389): the one covering most of it, kept until it clearly loses, none at the fit —
     // told the frame only as it changes, never at every frame of a pan — among the zones the Index lists, what the
     // narrowing takes out left out (#1392).
@@ -1045,14 +1046,16 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         commitLinkSelection({ key, leg });
     }, [commitLinkSelection, commitSelection, clearZoneSelection]);
 
-    // Selection stepping order: zones alphabetical (natural-numeric), each
-    // zone's items alphabetical within it, nested zones after their
-    // parent's own items, floor items last — a locked layer's and the
-    // narrowing's context left out, as they never select (SC27, #1392).
-    // Computed once per data change; the key→index map makes each step O(1).
-    const itemOrder = useMemo(() => {
-        const byLabel = (a: { label: string }, b: { label: string }) =>
-            a.label.localeCompare(b.label, undefined, { numeric: true });
+    // Selection stepping order: the zones nested by containment (`buildNavTree`, as the Index tab's tree is, #1389),
+    // in natural label order, each zone's items in it, nested zones after their parent's own items, floor items last — a
+    // locked layer's and the narrowing's context left out, as they never select (SC27, #1392). Worked out as a step asks
+    // for it, and kept while the zones, the items and what never selects are as they were — never as a window lands,
+    // whose thousands of rows a step may never walk (#1393); the key→index map makes each step O(1).
+    const orderRef = useRef<{ zones: unknown; items: unknown; inert: unknown; ordered: DrawnItem[]; indexOf: ReadonlyMap<string, number> } | undefined>(undefined);
+    const itemOrder = useCallback((): { ordered: readonly DrawnItem[]; indexOf: ReadonlyMap<string, number> } => {
+        const was = orderRef.current;
+        if (was !== undefined && Object.is(was.zones, shownZones) && Object.is(was.items, items) && Object.is(was.inert, inertKeys)) return was;
+        const nav = buildNavTree(shownZones, items);
         const unlocked = (item: DrawnItem) => !inertKeys.has(item.key);
         const ordered: DrawnItem[] = [];
         const walk = (nodes: NavZone[]) => {
@@ -1063,9 +1066,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         };
         walk(nav.roots);
         ordered.push(...nav.floor.filter(unlocked).sort(byLabel));
-        const indexOf = new Map(ordered.map((item, i) => [item.key, i]));
-        return { ordered, indexOf };
-    }, [nav, inertKeys]);
+        const order = { zones: shownZones, items, inert: inertKeys, ordered, indexOf: new Map(ordered.map((item, i) => [item.key, i])) };
+        orderRef.current = order;
+        return order;
+    }, [shownZones, items, inertKeys]);
 
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
 
@@ -1097,8 +1101,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     }, [viewport, size, ppu, cameraSnapshot, lod]);
 
     // Every item drawn by its centre — never only the viewport's: what an item keeps clear of, so a pan never changes
-    // what it draws as (#1393).
-    const centerTree = useMemo(() => buildCenterTree(items), [items]);
+    // what it draws as (#1393). Built only where the declutter reads it: at the dots' zoom every item is a dot, and a
+    // window of thousands of rows lands there.
+    const dotZoom = lod === "dot";
+    const centerTree = useMemo(() => (dotZoom ? NO_CENTERS : buildCenterTree(items)), [items, dotZoom]);
     const tiers = useMemo(() => {
         const base = declutterTiers(visibleItems, centerTree, lod, ppu, selected);
         // `dot` (§10.3): what draws as context is a bare marker, so the matches stand out.
@@ -1597,7 +1603,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         commitLinkSelection(null);
     }, [flyTo, commitSelection, clearZoneSelection, commitLinkSelection]);
     const stepSelection = useCallback((delta: number) => {
-        const { ordered, indexOf } = itemOrder;
+        const { ordered, indexOf } = itemOrder();
         if (ordered.length === 0) return;
         const anchor = selection.anchor;
         const idx = anchor !== null ? (indexOf.get(anchor) ?? -1) : -1;

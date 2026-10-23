@@ -33,8 +33,11 @@ keeps its slot recipes there too, the canvas's and the inspector's. The
 Schematic's renderer (`src/schematic/`, #1384) registers against its
 `Schematic` extension the same way, its slot recipe in the theme too, and
 renders in its `BuilderFrame` (#1387): its frame (`index.tsx`) over its reads
-of the app's records, in a component of their own (`data.ts`, #1386) — its
-toolbar's items (`toolbar.tsx`: the rail, the tools, held under its `id` in
+of the app's records, in a component of their own (`data.ts`, #1386), which
+hands the frame what it read in a task of its own — a kind read by area's
+rows each made once by its `rowsOf`, and a budget's worth a read, the rest a
+task later, so a window of thousands of rows landing never stutters the page
+(`made-rows.ts`, #1393) — its toolbar's items (`toolbar.tsx`: the rail, the tools, held under its `id` in
 `tools.ts`, the zoom and Fit, Find in `find.ts` — every item kind's record
 sought by key, one read through its source through e3, never what the canvas
 draws (#1404), a pick shown in the box by its key, asked again only as what
@@ -328,7 +331,10 @@ again asks only the searches still pending (#1360); it keeps the counts of at
 most 1,024 cells a revision, and a cell or a run a request in flight asks
 waits on it — at most 32 of them — rather than being asked again (#1039). The Sheet's lens has at
 most 16 pages in flight (`LENS_BUDGET`), reading the segments a view wants a
-turn at a time and keeping only what that view wants (#1349). Never raise those
+turn at a time and keeping only what that view wants (#1349). The Schematic
+keeps what a kind read by area's `rowsOf` made of its rows — and its details'
+— for as many as a window reads (`MAX_MADE_ROWS`, 20,000), past which the rows
+a read does not ask for go (#1393). Never raise those
 bounds or pin every page to make Save or a scan finish.
 A read no reader waits on any longer is aborted on its way to e3 (#1398, CL6):
 the paging runtime aborts a request once no channel it answers has a
