@@ -13,8 +13,10 @@
  * @packageDocumentation
  */
 
-/** A caption's knockout: the paper either side of its text (px). */
-export const RIBBON_CAPTION_PAD = 4;
+import { LINK_KNOCKOUT_PAD } from "./look.js";
+
+/** A caption's knockout: the paper either side of its text (px) — the links' look's (`look.ts`). */
+export const RIBBON_CAPTION_PAD = LINK_KNOCKOUT_PAD;
 
 /** The widest a caption's letter draws — mono 10px, its advance 0.6em and a
  *  margin over it (px): what keeps a caption inside the bounds before its text

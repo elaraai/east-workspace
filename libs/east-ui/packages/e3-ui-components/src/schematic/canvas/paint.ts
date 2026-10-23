@@ -19,13 +19,30 @@
  * resolve theirs (D14). Its labels draw in the font the bridge read from the
  * recipe: the design system's mono face.
  *
+ * Its links and nets draw in the shared links look (#1403), through the shared
+ * Canvas2D painter (`shared/links/canvas.ts`) the Plan's and the Allocation's
+ * look is drawn by on SVG: each routed between the items it joins — orthogonal
+ * or direct, through its bends, two of one pair fanned into lanes, a net as its
+ * bus — its ends on the items' edges where they draw at the zoom (a card's
+ * side, a labelled pin's edge, a dot's rim), its head where it arrives, a net's
+ * on each of its destination legs; cased in the paper, in the muted ink or its
+ * style's tone, a caption on its knockout at its route's middle, and the lit
+ * and the selected ones in the strong ink, their ends ringed. Its colours and
+ * its caption's font are the shared part's (`linkRibbons`), as the bridge
+ * reads them. The routes are pure here too (`linkRoutes`, `netRoutes`), so the
+ * hit-tests and a selected link's handles take the routes the painter draws.
+ *
  * @packageDocumentation
  */
 
 import { match, type option, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
+import { arrive, paintLinks, traceHead, traceRoute, type CanvasEnd, type CanvasHead, type CanvasLink, type CanvasLinkLook } from "../../shared/links/canvas.js";
+import { placeCaptions, type RibbonCaption } from "../../shared/links/captions.js";
+import { LINK_CAPTION_DROP, LINK_CORNER } from "../../shared/links/look.js";
 import { type Bbox, type ScreenCamera, bboxOverlaps, pointsBbox, project, viewportWorldBbox } from "./camera";
-import { type DrawnItem, type DrawnZone, type SchematicDrawn } from "./drawn";
+import { type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn } from "./drawn";
+import { tierSize } from "./model";
 
 /** An Option's value, or `undefined` — East's `match`, as east-ui-components'
  *  `getSomeorUndefined` reads one, without loading that package's renderers:
@@ -87,6 +104,27 @@ export interface SchematicPalette {
     labelFont: string;
     /** A zone's eyebrow's font, in the mono face. */
     eyebrowFont: string;
+    /**
+     * What links and nets draw in (#1403): the colours and the caption's font the page computes for the shared links
+     * part's elements (`linkRibbons`), which the Plan's and the Allocation's links draw with too.
+     */
+    links: SchematicLinkLook;
+}
+
+/**
+ * What the Schematic's links draw in (#1403): the shared look's colours and caption font, and a link drag's new line
+ * and a moved link's `was` line, each with its width — every one the page computes for the shared links part's
+ * elements.
+ */
+export interface SchematicLinkLook extends CanvasLinkLook {
+    /** A link drag's new line: Connect's draft. */
+    readonly preview: string;
+    /** Its width (px). */
+    readonly previewWidth: number;
+    /** A moved link's line while a retarget drags its end. */
+    readonly was: string;
+    /** Its width (px). */
+    readonly wasWidth: number;
 }
 
 /** The pan/zoom transform in CSS pixels: `screen = world × ppu + t`. */
@@ -155,10 +193,13 @@ export interface PaintInput {
     /** Item key → layer opacity (0–1), for items in a dimmed layer. Multiplies
      * the item marker / footprint alpha. Absent / missing key ⇒ full. */
     layerAlpha?: ReadonlyMap<string, number>;
-    /** Connect-tool draft edge (#176), world coords — routed like a real link. */
-    /** The in-flight connect draft; `forbiddenKey` = the hovered target the
-     *  canConnect validator vetoed — the edge and its ring go DANGER. */
-    draftLink?: { from: Pt; to: Pt; snapped: boolean; forbiddenKey?: string };
+    /**
+     * The in-flight connect draft (#176): the shared drag preview from the item it runs from — `from` its centre, in
+     * world coords, `fromKey` its id — to the pointer (`to`), or once `snapped`, to the item `toKey` names, ending on
+     * each one's edge, with a head (#1403); `forbiddenKey` the target the veto refuses, the draft in the danger ink and
+     * its marker ringed.
+     */
+    draftLink?: { from: Pt; to: Pt; fromKey: string; toKey?: string; snapped: boolean; forbiddenKey?: string };
     /** Open connect-session edges (#176, `connect` mode), world coords. */
     /** The open connect-session proposal: one pair is a dashed edge; a grown
      *  session previews as a dashed BUS (same geometry a committed net gets). */
@@ -178,6 +219,15 @@ export interface PaintInput {
      * ring. A card-tier item's mark is its DOM card's (`data-drop-target`).
      */
     dropMark?: { kind: "point"; x: number; y: number } | { kind: "entity"; id: string };
+    /**
+     * Each card's size as the page lays it out, by its item's id (#1403): what a link's end meets at card zoom. A card
+     * it lacks is reckoned as the declutter reckons it (`tierSize`).
+     */
+    cardSizes?: ReadonlyMap<string, { readonly w: number; readonly h: number }>;
+    /** The link or the net under the pointer, by its id (#1403): drawn last, in the strong ink, its ends ringed. */
+    lit?: string;
+    /** The link whose end a retarget drags, by its id (#1403): drawn as its `was` line until the drag lets go. */
+    was?: string;
 }
 
 const css = (c: RGB, a = 1): string =>
@@ -361,9 +411,6 @@ export function markerHit(box: MarkerHitbox, sx: number, sy: number): boolean {
         ? Math.hypot(sx - box.cx, sy - box.cy) <= box.r
         : sx >= box.left && sx <= box.left + box.w && sy >= box.top && sy <= box.top + box.h;
 }
-
-/** Screen-px hit slop around a link stroke (over its drawn weight). */
-export const LINK_HIT_SLOP = 5;
 
 /**
  * Segment-wise distance from a screen point to a polyline — the link
@@ -640,43 +687,280 @@ export function netGeometry(sources: readonly Pt[], destinations: readonly Pt[],
     };
 }
 
-/** Draw a mid-path label pill (`label` in fg + optional muted `metric`) at the
- *  routed path's arc-length midpoint — shared by links and net trunks (#180/#189). */
-function drawEdgeLabel(
-    ctx: CanvasRenderingContext2D,
-    p: SchematicPalette,
-    pts: readonly Pt[],
-    label: string | undefined,
-    metric: string | undefined,
-): void {
-    if (label === undefined && metric === undefined) return;
-    const mid = polylineMidpoint(pts);
-    ctx.save();
-    ctx.font = p.labelFont;
-    const main = label ?? "";
-    const tail = metric !== undefined ? (label !== undefined ? ` · ${metric}` : metric) : "";
-    const mainW = main !== "" ? ctx.measureText(main).width : 0;
-    const tailW = tail !== "" ? ctx.measureText(tail).width : 0;
-    const w = mainW + tailW + 12, h = 16;
-    const left = mid.x - w / 2, top = mid.y - h / 2;
-    ctx.beginPath();
-    ctx.roundRect?.(left, top, w, h, h / 2);
-    if (!ctx.roundRect) ctx.rect(left, top, w, h);
-    ctx.fillStyle = css(p.bgSurface);
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = css(p.borderSubtle);
-    ctx.stroke();
-    ctx.textBaseline = "middle";
-    if (main !== "") {
-        ctx.fillStyle = css(p.fg);
-        ctx.fillText(main, left + 6, mid.y);
+// ---- The links' routes on the screen (#1403) ----------------------------------------------------------------
+
+/** Where an item draws at the zoom, in the canvas's px — a card's box, a labelled pin's, a dot's circle: what a link's end meets. */
+export type EndShape = CanvasEnd;
+
+/**
+ * Where an item draws at the zoom, in the canvas's px (#1403): its card's box,
+ * its labelled pin's — the box a tap meets it in ({@link markerHitbox}) — or
+ * its dot's circle. A card's box is its card's size as the page lays it out,
+ * or, unmeasured, the size the declutter reckons it at (`tierSize`).
+ *
+ * @param item - The item, where it draws
+ * @param tier - What it draws as at the zoom
+ * @param cam - The screen camera
+ * @param measure - A label's width in px, in the pins' font
+ * @param card - Its card's size as the page lays it out; `undefined`, unmeasured
+ * @returns Its shape
+ */
+export function endShape(item: DrawnItem, tier: LodTier, cam: ScreenCamera, measure: (text: string) => number, card: { readonly w: number; readonly h: number } | undefined): EndShape {
+    const { sx, sy } = project(item.x, item.y, cam);
+    if (tier === "dot") return { kind: "circle", x: sx, y: sy, r: MARKER_DOT_RADIUS };
+    if (tier === "label") {
+        const pin = markerHitbox(item, "label", cam, measure);
+        if (pin.kind === "rect") return { kind: "box", left: pin.left, top: pin.top, right: pin.left + pin.w, bottom: pin.top + pin.h };
     }
-    if (tail !== "") {
-        ctx.fillStyle = css(p.fgMuted);
-        ctx.fillText(tail, left + 6 + mainW, mid.y);
+    const size = card ?? tierSize(item, "card", cam.ppu);
+    return { kind: "box", left: sx - size.w / 2, top: sy - size.h / 2, right: sx + size.w / 2, bottom: sy + size.h / 2 };
+}
+
+/** Whether a point lies in a shape, its edge among it. */
+function inShape(shape: EndShape, p: Pt): boolean {
+    return shape.kind === "circle"
+        ? Math.hypot(p.x - shape.x, p.y - shape.y) <= shape.r
+        : p.x >= shape.left && p.x <= shape.right && p.y >= shape.top && p.y <= shape.bottom;
+}
+
+/** Where a segment from a point in a shape to one out of it leaves the shape: the last of it the shape holds. */
+function leavesAt(shape: EndShape, a: Pt, b: Pt): Pt {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    let t: number;
+    if (shape.kind === "circle") {
+        const fx = a.x - shape.x, fy = a.y - shape.y;
+        const qa = dx * dx + dy * dy, qb = 2 * (fx * dx + fy * dy), qc = fx * fx + fy * fy - shape.r * shape.r;
+        t = qa > 0 ? (-qb + Math.sqrt(Math.max(0, qb * qb - 4 * qa * qc))) / (2 * qa) : 0;
+    } else {
+        const tx = dx > 0 ? (shape.right - a.x) / dx : dx < 0 ? (shape.left - a.x) / dx : Infinity;
+        const ty = dy > 0 ? (shape.bottom - a.y) / dy : dy < 0 ? (shape.top - a.y) / dy : Infinity;
+        t = Math.min(tx, ty);
     }
-    ctx.restore();
+    const at = Math.max(0, Math.min(1, t));
+    return { x: a.x + dx * at, y: a.y + dy * at };
+}
+
+/**
+ * A route leaving its source where the source draws (#1403): from the point
+ * its line first leaves the source's shape, every point before it dropped. A
+ * route that starts outside the shape stands as it is; one the shape holds
+ * whole is no route.
+ *
+ * @param points - The route, from inside the source
+ * @param shape - The source's shape
+ * @returns The route from the shape's edge
+ */
+export function leaveShape(points: readonly Pt[], shape: EndShape): Pt[] {
+    const first = points[0];
+    if (first === undefined || !inShape(shape, first)) return [...points];
+    for (let i = 0; i < points.length - 1; i++) {
+        if (inShape(shape, points[i + 1]!)) continue;
+        return [leavesAt(shape, points[i]!, points[i + 1]!), ...points.slice(i + 1)];
+    }
+    return [];
+}
+
+/**
+ * A route meeting its destination where the destination draws (#1403): to the
+ * point its line first meets the destination's shape, every point after it
+ * dropped — {@link leaveShape} walked from the far end.
+ *
+ * @param points - The route, into the destination
+ * @param shape - The destination's shape
+ * @returns The route to the shape's edge
+ */
+export function meetShape(points: readonly Pt[], shape: EndShape): Pt[] {
+    return leaveShape([...points].reverse(), shape).reverse();
+}
+
+/** A link's or a net's weight: its style's, else a solid run's 2.5 and a dashed one's 1.5. */
+export function edgeWeight(style: DrawnLink["style"]): number {
+    return getSomeorUndefined(style.value.weight) ?? (style.type === "solid" ? 2.5 : 1.5);
+}
+
+/** A caption's text: a link's label and its metric (`uplink · 100G`), either alone, or none. */
+export function captionText(label: string | undefined, metric: string | undefined): string | undefined {
+    return label !== undefined && metric !== undefined ? `${label} · ${metric}` : label ?? metric;
+}
+
+/** One run of a link's or a net's drawing, in the canvas's px. */
+export interface EdgeRun {
+    /** Its route, from where it leaves to where it arrives — its head's tip, where it has one: what the pointer meets. */
+    readonly route: readonly Pt[];
+    /** What its line draws: its route, to its head's base where it has one. */
+    readonly line: readonly Pt[];
+    /** Its head, where it arrives at an item. */
+    readonly head: CanvasHead | undefined;
+    /** Its weight (px). */
+    readonly width: number;
+    /** The radius its corners turn at, before their clamp. */
+    readonly corner: number;
+    /** The net's leg it is — its side and its member — or `undefined`: a link's line, a trunk, a bar. */
+    readonly leg: { readonly end: "source" | "destination"; readonly item: string } | undefined;
+}
+
+/** What a link or a net draws, in the canvas's px, before its look (#1403). */
+export interface EdgeGeometry {
+    /** Its runs: a link's line; a net's trunk, its bars and its legs. */
+    readonly runs: readonly EdgeRun[];
+    /** Where a net's legs join its bars: its junction dots. */
+    readonly dots: readonly { readonly x: number; readonly y: number; readonly r: number }[];
+    /** The shapes of the items it joins: what its rings go round while it is lit or selected. */
+    readonly ends: readonly EndShape[];
+    /** A link's ends where its line leaves its source and meets its destination — where its handles stand; none for a net. */
+    readonly handles: { readonly from: Pt; readonly to: Pt } | undefined;
+    /** Its route's middle — a net's trunk's — where its caption centres; `undefined` with no route to draw. */
+    readonly middle: Pt | undefined;
+}
+
+/** What a link's or a net's routes are worked out over: the camera, the items' centres and shapes, and the links' lanes. */
+export interface RouteEnv {
+    /** The screen camera. */
+    readonly cam: ScreenCamera;
+    /** Each item's centre drawn, in world units, by its id. */
+    readonly centers: ReadonlyMap<string, Pt>;
+    /** Each item's shape on the screen, by its id; `undefined` for one not drawn. */
+    readonly shapeOf: (id: string) => EndShape | undefined;
+    /** The links' lanes, by their ids (`parallelLanes`). */
+    readonly lanes: ReadonlyMap<string, { i: number; n: number }>;
+}
+
+/**
+ * What a link's or a net's routes are worked out over, each item's shape
+ * worked out once, as it is asked.
+ *
+ * @param input - The camera, each item drawn and its centre, what each draws as, its card's size, the lanes and a label's width
+ * @returns The routes' environment
+ */
+export function routeEnv(input: {
+    readonly cam: ScreenCamera;
+    readonly centers: ReadonlyMap<string, Pt>;
+    readonly items: ReadonlyMap<string, DrawnItem>;
+    readonly tiers: ReadonlyMap<string, LodTier>;
+    readonly cardSizes: ReadonlyMap<string, { readonly w: number; readonly h: number }> | undefined;
+    readonly lanes: ReadonlyMap<string, { i: number; n: number }>;
+    readonly measure: (text: string) => number;
+}): RouteEnv {
+    const shapes = new Map<string, EndShape | undefined>();
+    return {
+        cam: input.cam, centers: input.centers, lanes: input.lanes,
+        shapeOf: (id) => {
+            if (shapes.has(id)) return shapes.get(id);
+            const item = input.items.get(id);
+            const shape = item === undefined || !input.centers.has(id) ? undefined
+                : endShape(item, input.tiers.get(id) ?? "dot", input.cam, input.measure, input.cardSizes?.get(id));
+            shapes.set(id, shape);
+            return shape;
+        },
+    };
+}
+
+/**
+ * A link's drawing on the screen (#1403): routed from its source's centre to
+ * its destination's — orthogonal or direct, through its bends, translated
+ * rigidly onto its lane — then from where its line leaves its source's shape to
+ * where it meets its destination's, its head there.
+ *
+ * @param link - The link
+ * @param env - What its routes are worked out over
+ * @returns Its drawing; `undefined` while an item it joins is drawn nowhere
+ */
+export function linkRoutes(link: DrawnLink, env: RouteEnv): EdgeGeometry | undefined {
+    const from = env.centers.get(link.from), to = env.centers.get(link.to);
+    if (from === undefined || to === undefined) return undefined;
+    const { cam } = env;
+    const anchors = [from, ...link.via, to].map((q) => ({ x: q.x * cam.ppu + cam.tx, y: q.y * cam.ppu + cam.ty }));
+    // Its fan lane (#180): the whole routed line translated along the pair's perpendicular, so its lanes stay parallel
+    // through its elbows and fan at its ends.
+    const lane = env.lanes.get(link.key);
+    if (lane !== undefined) {
+        const a0 = anchors[0]!, a1 = anchors[anchors.length - 1]!;
+        const len = Math.hypot(a1.x - a0.x, a1.y - a0.y);
+        if (len > 1e-6) {
+            const d = (lane.i - (lane.n - 1) / 2) * LINK_LANE_GAP;
+            const ox = -(a1.y - a0.y) / len * d, oy = (a1.x - a0.x) / len * d;
+            for (const q of anchors) { q.x += ox; q.y += oy; }
+        }
+    }
+    const orthogonal = link.route.type === "orthogonal";
+    const corner = link.route.type === "orthogonal" ? getSomeorUndefined(link.route.value.corner) ?? LINK_CORNER : 0;
+    const width = edgeWeight(link.style);
+    const fromShape = env.shapeOf(link.from), toShape = env.shapeOf(link.to);
+    const routed = orthogonal ? orthogonalize(anchors) : anchors;
+    const left = fromShape === undefined ? routed : leaveShape(routed, fromShape);
+    const route = toShape === undefined ? left : meetShape(left, toShape);
+    const ends = [fromShape, toShape].filter((shape): shape is EndShape => shape !== undefined);
+    const arrived = arrive(route, width);
+    if (arrived === undefined) return { runs: [], dots: [], ends, handles: undefined, middle: undefined };
+    return {
+        runs: [{ route, line: arrived.line, head: arrived.head, width, corner, leg: undefined }],
+        dots: [], ends,
+        handles: { from: route[0]!, to: route[route.length - 1]! },
+        middle: polylineMidpoint(route),
+    };
+}
+
+/**
+ * A net's drawing on the screen (#1403): its bus (`netGeometry`) — its trunk,
+ * a bar across each side of several members, a leg from each of them — its
+ * trunk leaving a lone source where it draws and meeting a lone destination so,
+ * its head there; each source's leg leaving its member's shape, and each
+ * destination's meeting it, its head there. Its trunk and its bars carry no
+ * head; its junctions are dots.
+ *
+ * @param net - The net
+ * @param env - What its routes are worked out over
+ * @returns Its drawing; `undefined` while a side has no member drawn
+ */
+export function netRoutes(net: DrawnNet, env: RouteEnv): EdgeGeometry | undefined {
+    const sources = net.sources.filter((k) => env.centers.has(k));
+    const destinations = net.destinations.filter((k) => env.centers.has(k));
+    if (sources.length === 0 || destinations.length === 0) return undefined;
+    const geo = netGeometry(sources.map((k) => env.centers.get(k)!), destinations.map((k) => env.centers.get(k)!), net.via);
+    const { cam } = env;
+    const toScreen = (q: Pt): Pt => ({ x: q.x * cam.ppu + cam.tx, y: q.y * cam.ppu + cam.ty });
+    const orthogonal = net.route.type === "orthogonal";
+    const routed = (world: readonly Pt[]): Pt[] => { const screen = world.map(toScreen); return orthogonal ? orthogonalize(screen) : screen; };
+    const corner = net.route.type === "orthogonal" ? getSomeorUndefined(net.route.value.corner) ?? LINK_CORNER : 0;
+    const weight = edgeWeight(net.style);
+    const runs: EdgeRun[] = [];
+    // A side whose members draw no leg is a lone member — or members at one point — which the trunk itself joins.
+    const loneSource = !geo.legs.some((leg) => leg.end === "source");
+    const loneDestination = !geo.legs.some((leg) => leg.end === "destination");
+    const sourceShape = loneSource ? env.shapeOf(sources[0]!) : undefined;
+    const destinationShape = loneDestination ? env.shapeOf(destinations[0]!) : undefined;
+    let trunk = routed(geo.trunk);
+    if (sourceShape !== undefined) trunk = leaveShape(trunk, sourceShape);
+    if (destinationShape !== undefined) trunk = meetShape(trunk, destinationShape);
+    // The trunk and the bars carry the trunk's weight; the legs are a step lighter.
+    const arrivedTrunk = loneDestination ? arrive(trunk, weight + 1) : undefined;
+    if (trunk.length >= 2) runs.push({ route: trunk, line: arrivedTrunk?.line ?? trunk, head: arrivedTrunk?.head, width: weight + 1, corner, leg: undefined });
+    for (const bar of geo.bars) {
+        const line = bar.map(toScreen);
+        runs.push({ route: line, line, head: undefined, width: weight + 1, corner: 0, leg: undefined });
+    }
+    for (const [i, stub] of geo.stubs.entries()) {
+        const leg = geo.legs[i]!;
+        const member = leg.end === "source" ? sources[leg.index]! : destinations[leg.index]!;
+        const shape = env.shapeOf(member);
+        if (leg.end === "source") {
+            const route = shape === undefined ? routed(stub) : leaveShape(routed(stub), shape);
+            if (route.length >= 2) runs.push({ route, line: route, head: undefined, width: weight, corner, leg: { end: "source", item: member } });
+            continue;
+        }
+        // A destination's leg runs from its bar to its member, and arrives there.
+        const toward = routed([stub[stub.length - 1]!, stub[0]!]);
+        const route = shape === undefined ? toward : meetShape(toward, shape);
+        const arrived = arrive(route, weight);
+        if (arrived !== undefined) runs.push({ route, line: arrived.line, head: arrived.head, width: weight, corner, leg: { end: "destination", item: member } });
+    }
+    return {
+        runs,
+        dots: geo.taps.map((q) => ({ ...toScreen(q), r: weight + 1.5 })),
+        ends: [...sources, ...destinations].flatMap((k) => { const shape = env.shapeOf(k); return shape === undefined ? [] : [shape]; }),
+        handles: undefined,
+        middle: trunk.length >= 2 ? polylineMidpoint(trunk) : undefined,
+    };
 }
 
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
@@ -897,239 +1181,127 @@ export function paintSchematic(input: PaintInput): void {
         ctx.restore();
     }
 
-    // ---- links --------------------------------------------------------------
-    // Parallel-link fan-out (#180): lanes for links sharing an endpoint pair,
-    // so N same-pair links (multi-operation data) read as N distinct edges.
+    // ---- links and nets, in the shared links look (#1403) ------------------------
+    // Each routed between the items it joins, its ends on their edges where they
+    // draw at the zoom; culled by the box over every item it joins and its bends,
+    // so one whose ends sit off screen but which crosses it draws (issue #57, 1e).
+    // Parallel links (#180) fan into lanes, so N runs of one pair read as N.
     const lanes = parallelLanes(value.links, l =>
         !layerHidden(l.key) && centers.has(l.from) && centers.has(l.to) && l.via.length === 0);
-    for (const link of value.links) {
-        if (layerHidden(link.key)) continue;   // link in a hidden layer
-        const from = centers.get(link.from), to = centers.get(link.to);
-        if (!from || !to) continue;   // endpoint item hidden (a layer, or the narrowing) ⇒ no centre
-        // Cull by the AABB over ALL anchors (endpoints + waypoints), not the
-        // endpoints alone — a trunk whose two ends sit off-screen but whose
-        // segment crosses the viewport must NOT be culled (issue #57, 1e).
-        const linkBbox = pointsBbox([from, ...link.via, to]);
-        if (linkBbox !== null && !bboxOverlaps(linkBbox, viewBbox)) continue;
-        const anchors = [from, ...link.via, to].map(q => ({ x: wx(q.x), y: wy(q.y) }));
-        // Fan lane: translate the whole routed line rigidly along the pair's
-        // perpendicular (screen px) — parallel lanes stay parallel through
-        // orthogonal elbows, and edges fan at the endpoints like graph editors.
-        const lane = lanes.get(link.key);
-        if (lane !== undefined) {
-            const a0 = anchors[0]!, a1 = anchors[anchors.length - 1]!;
-            const len = Math.hypot(a1.x - a0.x, a1.y - a0.y);
-            if (len > 1e-6) {
-                const d = (lane.i - (lane.n - 1) / 2) * LINK_LANE_GAP;
-                const ox = -(a1.y - a0.y) / len * d, oy = (a1.x - a0.x) / len * d;
-                for (const q of anchors) { q.x += ox; q.y += oy; }
-            }
-        }
-        const corner = link.route.type === "orthogonal"
-            ? (link.route.value.corner.type === "some" ? link.route.value.corner.value : 8) : 0;
-        const pts = link.route.type === "orthogonal" ? orthogonalize(anchors) : anchors;
-        const style = link.style;
-        const weight = style.value.weight.type === "some" ? style.value.weight.value
-            : (style.type === "solid" ? 2.5 : 1.5);
-        // Its style's tone, or its style's own: a solid run the brand's, a dashed one muted; as context, the muted ink.
-        const color = desatOf(link.key) ? css(p.fgMuted) : tintOf(link.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
-        // Its whole drawing faded as context (#1392).
+    const itemsById = new Map(value.items.map((item) => [item.key, item] as const));
+    // A pin's label, measured in the pins' font, as the marker pass and a tap measure it.
+    const measure = (text: string): number => {
         ctx.save();
-        ctx.globalAlpha = contextAlpha(link.key);
-        ctx.lineCap = "round";
-        // A matched link's emphasis (#1392): the brand's mark, wide under its line.
-        if (emphasised(link.key)) {
-            ctx.save();
-            ctx.lineWidth = weight + 4 + ringGrow;
-            ctx.strokeStyle = css(p.brandMark, ringAlpha);
-            ctx.beginPath();
-            traceRounded(ctx, pts, corner);
-            ctx.stroke();
-            ctx.restore();
-        }
-        // The link a card's drop lands on (#1390): the brand's wash, wide under its line.
-        if (dropOn === link.key) {
-            ctx.save();
-            ctx.lineWidth = weight + 10;
-            ctx.strokeStyle = css(p.brandSolid, 0.3);
-            ctx.beginPath();
-            traceRounded(ctx, pts, corner);
-            ctx.stroke();
-            ctx.restore();
-        }
-        ctx.strokeStyle = color;
-        ctx.lineWidth = weight;
-        ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
-        ctx.beginPath();
-        traceRounded(ctx, pts, corner);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        // Selected-link halo (#176) — a soft brand over-stroke; when editable,
-        // endpoint connector handles invite the re-target drag.
-        if (selectedLink !== undefined && selectedLink.key === link.key) {
-            ctx.save();
-            ctx.lineWidth = weight + 4;
-            ctx.strokeStyle = css(p.brandSolid, 0.25);
-            ctx.beginPath();
-            traceRounded(ctx, pts, corner);
-            ctx.stroke();
-            if (selectedLink.editable) {
-                for (const q of [pts[0]!, pts[pts.length - 1]!]) {
-                    ctx.beginPath();
-                    ctx.arc(q.x, q.y, 5, 0, Math.PI * 2);
-                    ctx.fillStyle = css(p.bgSurface);
-                    ctx.fill();
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = css(p.brandSolid);
-                    ctx.stroke();
-                }
-            }
-            ctx.restore();
-        }
-        ctx.fillStyle = color;
-        for (const end of [anchors[0]!, anchors[anchors.length - 1]!]) {
-            ctx.beginPath();
-            ctx.arc(end.x, end.y, weight + 1.5, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        // Mid-path label pill (#180) — hidden when zoomed out past the label band.
-        if (ppu >= LINK_LABEL_MIN_PPU) {
-            drawEdgeLabel(ctx, p, pts, getSomeorUndefined(link.label), getSomeorUndefined(link.metric));
-        }
+        ctx.font = p.labelFont;
+        const w = ctx.measureText(text).width;
         ctx.restore();
+        return w;
+    };
+    const env = routeEnv({ cam, centers, items: itemsById, tiers, cardSizes: input.cardSizes, lanes, measure });
+    const edges: { readonly drawn: DrawnLink | DrawnNet; readonly net: boolean; readonly geometry: EdgeGeometry }[] = [];
+    for (const link of value.links) {
+        if (layerHidden(link.key)) continue;   // a link in a hidden layer
+        const from = centers.get(link.from), to = centers.get(link.to);
+        if (!from || !to) continue;   // an end hidden (a layer, or the narrowing): no centre
+        const box = pointsBbox([from, ...link.via, to]);
+        if (box !== null && !bboxOverlaps(box, viewBbox)) continue;
+        const geometry = linkRoutes(link, env);
+        if (geometry !== undefined) edges.push({ drawn: link, net: false, geometry });
     }
-
-    // ---- nets: bus trunks with branches (#189) ---------------------------------
-    // One entity, many endpoints: the trunk spine runs head-junction → via… →
-    // tail-junction (routed like a link; via = TRUNK waypoints; empty via ⇒
-    // centroid heuristic); each resolved source branches into the head, each
-    // destination off the tail. A hidden endpoint just drops its branch; the
-    // whole net hides when either side empties or its layer is hidden.
+    // A net (#189): one entity, many members — a hidden member drops its leg, and the whole net goes while a side has
+    // none drawn or its layer is hidden.
     for (const net of value.nets) {
         if (layerHidden(net.key)) continue;
-        const srcK = net.sources.filter(k => centers.has(k));
-        const dstK = net.destinations.filter(k => centers.has(k));
-        const srcPts = srcK.map(k => centers.get(k)!);
-        const dstPts = dstK.map(k => centers.get(k)!);
-        if (srcPts.length === 0 || dstPts.length === 0) continue;
-        // Cull by the AABB over every endpoint + waypoint (same rule as links;
-        // bar offsets stay within the endpoint↔trunk gap, so the AABB holds).
-        const netBbox = pointsBbox([...srcPts, ...net.via, ...dstPts]);
-        if (netBbox !== null && !bboxOverlaps(netBbox, viewBbox)) continue;
-        const style = net.style;
-        const weight = style.value.weight.type === "some" ? style.value.weight.value
-            : (style.type === "solid" ? 2.5 : 1.5);
-        const corner = net.route.type === "orthogonal"
-            ? (net.route.value.corner.type === "some" ? net.route.value.corner.value : 8) : 0;
-        // Its style's tone, or its style's own, as a link's; as context, the muted ink.
-        const color = desatOf(net.key) ? css(p.fgMuted) : tintOf(net.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
-        const toScreen = (q: Pt): Pt => ({ x: wx(q.x), y: wy(q.y) });
-        const routed = (worldAnchors: Pt[]): Pt[] => {
-            const screen = worldAnchors.map(toScreen);
-            return net.route.type === "orthogonal" ? orthogonalize(screen) : screen;
-        };
-        const isSel = selectedLink !== undefined && selectedLink.key === net.key;
-        // Bus-bar geometry (shared with the hit-test): header bars spanning
-        // each multi-endpoint side, short stubs tapping in, the trunk running
-        // bar → via… → bar. Dots ONLY where a tap 3-way joins a bar.
-        const geo = netGeometry(srcPts, dstPts, net.via);
+        const members = [...net.sources, ...net.destinations].flatMap((k) => { const c = centers.get(k); return c === undefined ? [] : [c]; });
+        const box = pointsBbox([...members, ...net.via]);
+        if (box !== null && !bboxOverlaps(box, viewBbox)) continue;
+        const geometry = netRoutes(net, env);
+        if (geometry !== undefined) edges.push({ drawn: net, net: true, geometry });
+    }
+    // Under every line: a match's emphasis — the brand's mark, wide (#1392) — and where a card's drop lands, the
+    // brand's wash (#1390), along each run to its head's tip.
+    const underline = (geometry: EdgeGeometry, width: number, style: string, alpha: number) => {
         ctx.save();
-        // Its whole drawing faded as context (#1392).
-        ctx.globalAlpha = contextAlpha(net.key);
+        ctx.globalAlpha = alpha;
+        ctx.setLineDash([]);
         ctx.lineCap = "round";
-        const trunkPts = routed(geo.trunk);
-        // A matched net's emphasis (#1392): the brand's mark, wide under its trunk, its bars and its stubs.
-        if (emphasised(net.key)) {
+        ctx.lineJoin = "round";
+        ctx.lineWidth = width;
+        ctx.strokeStyle = style;
+        for (const run of geometry.runs) {
+            ctx.beginPath();
+            traceRoute(ctx, run.route, run.corner);
+            ctx.stroke();
+        }
+        ctx.restore();
+    };
+    for (const edge of edges) {
+        const key = edge.drawn.key, weight = edgeWeight(edge.drawn.style);
+        if (emphasised(key)) underline(edge.geometry, weight + (edge.net ? 5 : 4) + ringGrow, css(p.brandMark, ringAlpha), contextAlpha(key));
+        if (dropOn === key) underline(edge.geometry, weight + 10, css(p.brandSolid, 0.3), contextAlpha(key));
+    }
+    // Each caption — a link's label and its metric — at its route's middle, from the label zoom, kept inside the
+    // canvas and stepped clear of an earlier one (`placeCaptions`).
+    const captions = new Map<string, RibbonCaption>();
+    if (ppu >= LINK_LABEL_MIN_PPU) {
+        for (const edge of edges) {
+            const text = captionText(getSomeorUndefined(edge.drawn.label), getSomeorUndefined(edge.drawn.metric));
+            const middle = edge.geometry.middle;
+            if (text !== undefined && middle !== undefined) captions.set(edge.drawn.key, { label: text, lx: middle.x, ly: middle.y + LINK_CAPTION_DROP });
+        }
+        placeCaptions([...captions.values()], 0, width);
+    }
+    // The links as the shared painter draws them: the muted ink — or its style's tone, drained as context — cased in
+    // the paper; the selected one, then the lit one, in the strong ink, their ends ringed; a net's selected leg in the
+    // strong ink; a retarget's link its `was` line while its end is dragged.
+    const look = p.links;
+    const selectedLeg = selectedLink?.leg;
+    paintLinks(ctx, edges.map(({ drawn, geometry }): CanvasLink => {
+        const key = drawn.key;
+        const moved = input.was === key;
+        const selected = !moved && selectedLink !== undefined && selectedLink.key === key && selectedLeg === undefined;
+        const lit = !moved && input.lit === key;
+        const tint = tints.get(key);
+        // A leg to an item drawn as context fades with it, the net itself drawing as itself (#1392); the net's selected leg is strong.
+        const own = (leg: EdgeRun["leg"]) => {
+            const faded = leg !== undefined && isExcluded(leg.item) && !isExcluded(key);
+            const strong = selectedLeg !== undefined && selectedLink?.key === key && leg !== undefined && leg.end === selectedLeg.end && leg.item === selectedLeg.item;
+            return {
+                ...(faded ? { alpha: effect!.excludedOpacity, ...(effect!.excludedDesaturate ? { ink: look.ink } : {}) } : {}),
+                ...(strong ? { strong: true } : {}),
+            };
+        };
+        const caption = captions.get(key);
+        return {
+            id: key,
+            strokes: geometry.runs.map((run) => ({ points: run.line, width: moved ? look.wasWidth : run.width, corner: run.corner, ...own(run.leg) })),
+            heads: geometry.runs.flatMap((run) => (run.head === undefined ? [] : [{ ...run.head, ...own(run.leg) }])),
+            dots: geometry.dots,
+            dash: drawn.style.type === "dashed" ? [6, 5] : [],
+            ink: moved ? look.was : desatOf(key) || tint === undefined ? undefined : css(tint),
+            alpha: contextAlpha(key),
+            lit, selected,
+            ends: lit || selected ? geometry.ends : [],
+            caption: caption === undefined || caption.label === undefined ? undefined : { text: caption.label, x: caption.lx, y: caption.ly },
+        };
+    }), look);
+    // A selected link's handles (#176, SC10), over it at its ends' edges, while it writes: a press there that moves
+    // retargets that end.
+    if (selectedLink?.editable === true) {
+        const handles = edges.find((edge) => edge.drawn.key === selectedLink.key)?.geometry.handles;
+        if (handles !== undefined) {
             ctx.save();
-            ctx.lineWidth = weight + 5 + ringGrow;
-            ctx.strokeStyle = css(p.brandMark, ringAlpha);
-            for (const pl of [trunkPts, ...geo.bars.map(bar => bar.map(toScreen)), ...geo.stubs.map(stub => stub.map(toScreen))]) {
+            for (const q of [handles.from, handles.to]) {
                 ctx.beginPath();
-                traceRounded(ctx, pl, corner);
+                ctx.arc(q.x, q.y, 5, 0, Math.PI * 2);
+                ctx.fillStyle = css(p.bgSurface);
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = css(p.brandSolid);
                 ctx.stroke();
             }
             ctx.restore();
         }
-        // The net a card's drop lands on (#1390): the brand's wash, wide under its trunk, its bars and its stubs.
-        if (dropOn === net.key) {
-            ctx.lineWidth = weight + 10;
-            ctx.strokeStyle = css(p.brandSolid, 0.3);
-            for (const pl of [trunkPts, ...geo.bars.map(bar => bar.map(toScreen)), ...geo.stubs.map(stub => stub.map(toScreen))]) {
-                ctx.beginPath();
-                traceRounded(ctx, pl, corner);
-                ctx.stroke();
-            }
-        }
-        ctx.setLineDash(style.type === "dashed" ? [6, 5] : []);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = weight + 1;
-        ctx.beginPath();
-        traceRounded(ctx, trunkPts, corner);
-        ctx.stroke();
-        // Header bars carry the trunk weight; stubs are one step lighter.
-        for (const bar of geo.bars) {
-            ctx.beginPath();
-            traceRounded(ctx, bar.map(toScreen), 0);
-            ctx.stroke();
-        }
-        ctx.lineWidth = weight;
-        for (const [i, stub] of geo.stubs.entries()) {
-            // A leg to an item drawn as context is faded with it, the net itself drawing as itself (#1392).
-            const leg = geo.legs[i]!;
-            const member = leg.end === "source" ? srcK[leg.index] : dstK[leg.index];
-            const faded = member !== undefined && isExcluded(member) && !isExcluded(net.key);
-            if (faded) {
-                ctx.save();
-                ctx.globalAlpha = effect!.excludedOpacity;
-                if (effect!.excludedDesaturate) ctx.strokeStyle = css(p.fgMuted);
-            }
-            ctx.beginPath();
-            traceRounded(ctx, stub.map(toScreen), corner);
-            ctx.stroke();
-            if (faded) ctx.restore();
-        }
-        ctx.setLineDash([]);
-        // Junction dots: 3-way taps on the bars (one-line diagram convention — a dot
-        // means lines JOIN; plain elbows and crossings stay dot-free).
-        ctx.fillStyle = color;
-        for (const j of geo.taps.map(toScreen)) {
-            ctx.beginPath();
-            ctx.arc(j.x, j.y, weight + 1.5, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        // Selected-net halo (#176 channel) — trunk + bars, or (leg selection)
-        // ONLY the selected stub; no endpoint handles (endpoints are sets).
-        const selLeg = isSel ? selectedLink?.leg : undefined;
-        if (isSel && selLeg === undefined) {
-            ctx.lineWidth = weight + 5;
-            ctx.strokeStyle = css(p.brandSolid, 0.25);
-            ctx.beginPath();
-            traceRounded(ctx, trunkPts, corner);
-            ctx.stroke();
-            for (const bar of geo.bars) {
-                ctx.beginPath();
-                traceRounded(ctx, bar.map(toScreen), 0);
-                ctx.stroke();
-            }
-        } else if (selLeg !== undefined) {
-            // The selected leg's stub, as the geometry names each stub's leg: a side with one member draws none.
-            const idx = selLeg.end === "source" ? srcK.indexOf(selLeg.item) : dstK.indexOf(selLeg.item);
-            const at = geo.legs.findIndex((leg) => leg.end === selLeg.end && leg.index === idx);
-            const stub = idx >= 0 && at >= 0 ? geo.stubs[at] : undefined;
-            if (stub !== undefined) {
-                ctx.lineWidth = weight + 5;
-                ctx.strokeStyle = css(p.brandSolid, 0.35);
-                ctx.beginPath();
-                traceRounded(ctx, stub.map(toScreen), corner);
-                ctx.stroke();
-            }
-        }
-        // Mid-trunk label / metric, like links (#180).
-        if (ppu >= LINK_LABEL_MIN_PPU) {
-            drawEdgeLabel(ctx, p, trunkPts, getSomeorUndefined(net.label), getSomeorUndefined(net.metric));
-        }
-        ctx.lineCap = "butt";
-        ctx.restore();
     }
 
     // ---- connect-tool overlays (#176): session edges, draft edge, flash ------
@@ -1170,33 +1342,32 @@ export function paintSchematic(input: PaintInput): void {
         ctx.restore();
     }
     if (draftLink !== undefined) {
-        // A canConnect veto turns the whole draft DANGER — red edge, red target
-        // affordance, and a red ring on the forbidden marker (cards get the
-        // ring via CSS `data-forbidden`; here we ring dot / label tiers).
+        // The shared drag preview (#1403): the brand's line from the item the draft runs from — off its edge — to the
+        // pointer, or to the item it snaps to, onto its edge, with a head. A canConnect veto turns it DANGER, and rings
+        // the forbidden marker (a card's ring is the recipe's `data-forbidden`; here the dot and label tiers').
         const vetoed = draftLink.forbiddenKey !== undefined;
-        const edge = vetoed ? p.statusNeg : p.brandSolid;
-        const pts = routeScreen(draftLink.from, draftLink.to);
+        const ink = vetoed ? css(p.statusNeg) : look.preview;
+        const fromShape = env.shapeOf(draftLink.fromKey);
+        const toShape = draftLink.snapped && draftLink.toKey !== undefined ? env.shapeOf(draftLink.toKey) : undefined;
+        let route = routeScreen(draftLink.from, draftLink.to);
+        if (fromShape !== undefined) route = leaveShape(route, fromShape);
+        if (toShape !== undefined) route = meetShape(route, toShape);
+        const arrived = arrive(route, look.previewWidth);
         ctx.save();
-        ctx.lineCap = "round";
-        ctx.setLineDash([6, 5]);
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = css(edge, draftLink.snapped ? 1 : (vetoed ? 0.85 : 0.65));
-        ctx.beginPath();
-        traceRounded(ctx, pts, 8);
-        ctx.stroke();
-        // Source dot + target affordance: a ring when snapped to a valid item,
-        // a faint open circle at the cursor otherwise.
-        const a = pts[0]!, b = pts[pts.length - 1]!;
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.arc(a.x, a.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = css(edge);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, draftLink.snapped ? 9 : 6, 0, Math.PI * 2);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = css(edge, draftLink.snapped ? 1 : (vetoed ? 0.85 : 0.5));
-        ctx.stroke();
+        if (arrived !== undefined) {
+            ctx.setLineDash([]);
+            ctx.lineJoin = "round";
+            ctx.lineCap = "butt";
+            ctx.lineWidth = look.previewWidth;
+            ctx.strokeStyle = ink;
+            ctx.beginPath();
+            traceRoute(ctx, arrived.line, LINK_CORNER);
+            ctx.stroke();
+            ctx.fillStyle = ink;
+            ctx.beginPath();
+            traceHead(ctx, arrived.head);
+            ctx.fill();
+        }
         if (vetoed) {
             const fc = centers.get(draftLink.forbiddenKey!);
             const tier = tiers.get(draftLink.forbiddenKey!) ?? "dot";

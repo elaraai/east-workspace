@@ -167,6 +167,8 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D36 | **The layers are the app's rows.** `layers={Schematic.layers(rows, { label, order?, tone?, color?, visible?, locked?, opacity? })}` reads a keyed record of the app's through accessors, as `Roster.groups(teams.read(), { label, order })` does, in their `order`, then key order; an entity's `layer` names a layer by its key. A list written in the code is refused, naming `Schematic.layers`. | ruled 22 Oct 2026 (#1401) |
 | D37 | **Find seeks every item kind's record, by key.** A kind read through its source is sought in its record's own order through e3 — a find of its keys and a page of the rows it lists, never the record read whole — and a kind read whole in its rows, as the Sheet's Search Records seeks its record. A hit the rail's filters leave out is listed and marked; its pick flies to where it stands, selects nothing, and the footer says so, with Clear filters (§6.1). | ruled 23 Oct 2026 (#1404) |
 | D38 | **The key search is 28px in a toolbar's row**, in every builder, its input filling it; the strips beside it stay 25px. The box a folded row's popover opens stays the design system's 32px search field, and on a touch screen the 44px field (#1221). | ruled 23 Oct 2026 (#1404) |
+| D39 | **The links' look is the Plan's.** The Schematic's links and nets draw in the shared links look — the casing, the round corner, the head, the caption on its knockout, and the lit link with the rings round its ends — through a Canvas2D painter beside the SVG layer, in the colours and the caption's font its theme probe reads from the `linkRibbons` part, so a change to the part changes the Plan, the Allocation and the Schematic together. Their routes, and a net's bus, stay the Schematic's own (§4.3, §15). | ruled 23 Oct 2026 (#1403) |
+| D40 | **Heads at the far end; the muted ink, the author's tone kept.** A link points from its `from` item to its `to` item; a net's head sits on each of its destination legs, its trunk and its bars carrying none. Every link and net draws in the shared muted ink, and in the strong ink while lit or selected; a kind's `style` tone still recolours its links (D14). | ruled 23 Oct 2026 (#1403) |
 
 ## 4. The kinds
 
@@ -228,7 +230,7 @@ the inspector, when the kind is bound with its patch door.
 |---|---|---|---|
 | `from`, `to` | `{ field, of }`: a `String` field holding a key of the item slot `of` names, or a variant field of String cases, `of` naming an item slot per case (Schedule's resource shapes) | Connect, Retarget | the link's ends |
 | `via`? | an `Array` of `{ x: Float, y: Float }` (`Schematic.Types.Point`): the app's own points | the inspector | its waypoints |
-| `label`?, `metric`? | accessors | — | the pill at the path's middle, from the label zoom |
+| `label`?, `metric`? | accessors | — | the caption on a knockout at the path's middle, from the label zoom |
 | `style`?, `route`? | accessors to `Schematic.Types.LinkStyle` and `Route` | — | solid or dashed, its tone and weight; orthogonal or direct |
 | `layer`? | `String` | the inspector | its layer |
 
@@ -964,6 +966,7 @@ constructors (§11.1).
 | the footer rail | `slot-recipes/builder-footer.ts` |
 | narrow layout | `useContainerBelow` |
 | a complete read | `PagedScan` through `recordSliceReadPlatform` |
+| the links' look | `e3-ui-components/src/shared/links/` (`canvas.ts` beside `layer.tsx`), `slot-recipes/links/ribbons.ts` |
 
 ## 16. Wires
 

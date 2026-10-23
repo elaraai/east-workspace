@@ -2239,7 +2239,15 @@ reads them only.
 The canvas draws each kind's rows: an item at its centre, as a card or a
 marker by the zoom, its footprint about its centre; a zone in its box,
 outlined or hatched, its shape about the box's centre; a link routed between
-its ends, two of one pair fanning into lanes; a net as a bus. An item kind
+its ends, two of one pair fanning into lanes; a net as a bus. Its links and
+nets draw in the Plan's and the Allocation's links look (#1403): cased in the
+paper, in the muted ink or their style's tone, each ending on the edges of the
+items it joins where they draw at the zoom — a card's side, a labelled pin's
+edge, a dot's rim — a link's head where it arrives at its `to` item and a
+net's on each of its destination legs, a caption — its `label` and its
+`metric`, `uplink · 100G` — on a knockout at its middle from the label zoom;
+the one under the pointer lit, and a selected one, in the strong ink, their
+ends ringed. An item kind
 whose `x` and `y` are Options keeps its rows with no position as its backlog,
 drawn nowhere. A record another session commits is drawn again. `onSelect`
 hears the whole selection after each change — items, zones, links and nets
@@ -2596,7 +2604,7 @@ const slice = $.let(Slice.bindRecords("ops.floor", {
 | `slice={{ slice: Slice.bindRecords(key, { racks: { source: Data.bindPaged(racks, { indexes }) }, … }) }}` · `narrowed="dim"` **❗** | One rail (#1392): each source narrows its kind everywhere it appears — the canvas, the Backlog, the Index, the templates it names, the inspector's Choosers and the footer's counts — a link or a net only while its ends draw. Hidden by default, the kind reading only its narrowing; `dim` reads every row and draws what the narrowing leaves out as context, faded and greyed, never selected. `emphasis`, `frame` and `fit` take the matches whatever `show` is. | `schematicDataCentre` |
 | `footprint: (u) => some(Schematic.circle(u.radius))` + `width` / `height`; `Schematic.polygon` / `.circle` / `.polyline` **❗** | An accessor over the row's own fields, returning an `Option<Schematic.Types.Geometry>`: geometry about the item's centre, or a zone's `geometry` about its box's centre, each vertex an offset from it — the row's own `{ x, y }` points, or `{ x, y, bulge }`. A footprint without the box, and a shape role naming a field, are refused, naming the accessor to write. | `schematicShapes`, `schematicDataCentre` |
 | `zones={{ areas: Schematic.zones(…, { x, y, width, height, label, pattern?, geometry? }) }}`, `pattern: (a) => a.kind.match({ … })`, `Schematic.outline()` / `.hatch()` | Zones in their boxes under the items, outlined or hatched by what the row says it is. | `schematicShapes`, `schematicDataCentre` |
-| `links={{ fibre: Schematic.links(…, { from: { field, of }, to: { field, of }, via? }) }}`, `Schematic.solid()` / `.dashed()` | Links between items, routed orthogonally, two of one pair fanning into lanes; an end of a variant field takes its slot from its case. | `schematicDataCentre` |
+| `links={{ fibre: Schematic.links(…, { from: { field, of }, to: { field, of }, via? }) }}`, `Schematic.solid()` / `.dashed()` | Links between items, routed orthogonally, two of one pair fanning into lanes, in the shared links look: each from its `from` item's edge to its `to` item's, its head there, in the links' muted ink or its style's tone; an end of a variant field takes its slot from its case. | `schematicDataCentre` |
 | `nets={{ feeds: Schematic.nets(…, { sources: { field, of }, destinations: { field, of } }) }}` | A bus joining many items to many. | `schematicDataCentre` |
 | a kind bound with its patch door — `Record.bind(record, [e3.mutation.patch(record)])` **❗** | Every gesture one step of one history over a session per record (#1388): Move, Connect, Shift growing a net of the first editable net kind that takes its items, an end retargeted, a net extended, Del; Undo, Redo and Discard; Save sending each record's changes through its patch door, one refused leaving the others' commits standing. A gesture writes only the fields its roles map, a new row under a minted key. | `schematicDataCentre` |
 | `details: Schematic.details(record, { status?, meter?, metric?, sublabel?, fields?, inspector?, entries? })` **❗** | A record keyed as its kind is, its roles drawn on the cards; a role given by the kind too is refused. Bound with its patch door — `entries` beside it where the kind is read through its source — the inspector edits it beside the kind's row. | `schematicDataCentre` |

@@ -33,6 +33,7 @@ import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { semanticTokens } from "../semantic-tokens.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
+import { linkRibbons } from "./links/ribbons.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
 /** The theme's colour groups that hold no design-system role: Chakra's own hues' hovers, and the translucent overlays. */
@@ -429,15 +430,19 @@ export const schematicSlotRecipe = defineSlotRecipe({
          * canvas reads its colours and its fonts from, each named by a data
          * attribute — a role of its own marks (`data-role`), a font
          * (`data-font`), or an entity's colour, through the cards' chain
-         * (`data-tint`) — so the canvas draws what the recipe says. */
+         * (`data-tint`) — so the canvas draws what the recipe says. Its links
+         * (#1403) draw in the shared links part, merged here as the Plan's rows
+         * and the Allocation's board merge it, over the part's own elements the
+         * probe holds: the Schematic's links read what the Plan's draw with. */
         probe: {
+            ...linkRibbons,
             position: "absolute",
             width: "0",
             height: "0",
             overflow: "hidden",
             pointerEvents: "none",
             ...Object.fromEntries(Object.entries(PALETTE_ROLES).map(([role, token]) => [`& [data-role="${role}"]`, { color: token }])),
-            /* The canvas's labels — a labelled pin's, a link's pill — and a zone's eyebrow, in the mono face. */
+            /* The canvas's labels — a labelled pin's — and a zone's eyebrow, in the mono face. */
             '& [data-font="label"]': { fontFamily: "mono", fontSize: "label.sm", fontWeight: "semibold" },
             '& [data-font="eyebrow"]': { fontFamily: "mono", fontSize: "label.xs", fontWeight: "semibold" },
             "& [data-tint]": { ...TINT_PROPERTIES, color: TINT },

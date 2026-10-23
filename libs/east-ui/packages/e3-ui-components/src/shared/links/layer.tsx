@@ -34,6 +34,9 @@
  * pointer wherever it is, so the bounds' clip does not cut them: the host's box
  * does, and they draw over the captions.
  *
+ * Its measures are the links' look's (`look.ts`), which the Schematic's
+ * Canvas2D painter (`canvas.ts`, #1403) draws with too.
+ *
  * The DOM's vocabulary is Plan's, where these parts began (`data-plan-link`,
  * `data-plan-ribbon-band`, `data-plan-casing`, …), so Plan's tests and its
  * responsive invariants read it unchanged; the theme's shared `linkRibbons`
@@ -48,22 +51,12 @@ import {
 import { chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
-import { RIBBON_CAPTION_PAD } from "./captions.js";
 import { RIBBON_SLOT_W, type RibbonEdgeSlot, type RibbonEnd, type RibbonPath } from "./geometry.js";
+import {
+    LINK_CASING as CASING, LINK_HALO_OUT as HALO_OUT, LINK_HALO_R as HALO_R, LINK_HIT_REACH as HIT_REACH, LINK_KNOCKOUT_H as KNOCKOUT_H,
+    LINK_KNOCKOUT_PAD as KNOCKOUT_PAD, LINK_KNOCKOUT_RISE as KNOCKOUT_RISE,
+} from "./look.js";
 
-/** How far beyond the band the hit area reaches, each side (px). */
-const HIT_REACH = 5;
-/** The paper either side of a link's ink — its casing (px). */
-const CASING = 1;
-/** A caption's knockout: its height, the space either side of its text, and
- *  how far above the text's baseline it starts (px). */
-const KNOCKOUT_H = 12;
-const KNOCKOUT_PAD = RIBBON_CAPTION_PAD;
-const KNOCKOUT_RISE = 9.5;
-/** A lit link's halo: how far outside an end it is drawn (the middle of its
- *  1px line), and its corner — an end's corner, 4 out (px). */
-const HALO_OUT = 4.5;
-const HALO_R = 7.5;
 /** A selected caption's ×: its square target, and the gap from the knockout (px). */
 const UNLINK_SIZE = 16;
 const UNLINK_GAP = 2;

@@ -70,9 +70,9 @@ describe("a zone's colour", () => {
 });
 
 describe("a link's and a net's colour", () => {
-    test("is its style's tone, else its style's own: a solid run the brand's, a dashed one muted", () => {
-        expect(edgeTint(run(variant("solid", { tone: none, weight: none })))).toEqual({ surface: "link", tone: "brand" });
-        expect(edgeTint(run(variant("dashed", { tone: none, weight: none })))).toEqual({ surface: "link", tone: "muted" });
+    test("is its style's tone; a style naming none has no colour of its own, and draws in the links look's muted ink (#1403)", () => {
+        expect(edgeTint(run(variant("solid", { tone: none, weight: none })))).toBeUndefined();
+        expect(edgeTint(run(variant("dashed", { tone: none, weight: none })))).toBeUndefined();
         expect(edgeTint(run(variant("dashed", { tone: some(variant("danger", null)), weight: none })))).toEqual({ surface: "link", tone: "danger" });
         expect(edgeTint(feed(variant("solid", { tone: some(variant("success", null)), weight: some(3) })))).toEqual({ surface: "link", tone: "success" });
     });
@@ -94,13 +94,17 @@ describe("a drawing's colours", () => {
         const a01 = rack({ status: HOT });
         const a02 = rack({ status: HOT }, { kind: "racks", key: "A02" });
         const a03 = rack({ color: some("status.info") }, { kind: "racks", key: "A03" });
-        const tints = tintsOf({ items: [a01, a02, a03], zones: [area()], links: [run(variant("solid", { tone: none, weight: none }))], nets: [] });
+        const tints = tintsOf({
+            items: [a01, a02, a03], zones: [area()], links: [run(variant("solid", { tone: some(variant("warning", null)), weight: none }))], nets: [],
+        });
         expect([...tints.specs.values()]).toEqual([
-            itemTint(a01), itemTint(a03), zoneTint(area()), { surface: "link", tone: "brand" },
+            itemTint(a01), itemTint(a03), zoneTint(area()), { surface: "link", tone: "warning" },
         ]);
         expect(tints.byEntity.get(a01.key)).toBe(tintKey(itemTint(a01)));
         expect(tints.byEntity.get(a02.key)).toBe(tintKey(itemTint(a01)));
-        expect(tints.byEntity.get(entityId({ kind: "fibre", key: "u1" }))).toBe(tintKey({ surface: "link", tone: "brand" }));
+        expect(tints.byEntity.get(entityId({ kind: "fibre", key: "u1" }))).toBe(tintKey({ surface: "link", tone: "warning" }));
+        // A run whose style names no tone has none to resolve: it draws in the links look's ink.
+        expect(tintsOf({ items: [], zones: [], links: [run(variant("solid", { tone: none, weight: none }))], nets: [] }).byEntity.size).toBe(0);
     });
 
     test("its signature holds while the drawing names the same colours, and moves when one changes", () => {

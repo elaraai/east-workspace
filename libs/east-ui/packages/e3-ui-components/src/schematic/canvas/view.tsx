@@ -37,6 +37,13 @@
  * net takes its other fields from the template of its kind the library has
  * selected (§4.3).
  *
+ * Its links and nets draw in the shared links look (#1403): each ends on the
+ * edges of the items it joins where they draw at the zoom — a card's side, as
+ * the page lays the card out, a labelled pin's edge, a dot's rim — and the one
+ * under the pointer lights, named in `data-lit-link`, while no gesture is under
+ * way; a tap, a hover, a drop and a selected link's handles meet each one's
+ * route as the painter draws it, searched through the links' R-tree.
+ *
  * Its gestures, its selection funnels, its camera and its paint path are the
  * ones `CLAUDE.md` holds to its invariants: no render-phase ref write, one
  * commit-phase snapshot, the paint's identity short-circuit, the fly before
@@ -57,10 +64,10 @@ import {
     getSomeorUndefined, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload, type DropCellOptions, type Origin,
 } from "@elaraai/east-ui-components";
 import {
-    LINK_HIT_SLOP, distanceToPolyline, markerHit, markerHitbox, netGeometry, orthogonalize, paintSchematic, parallelLanes as paintParallelLanes, placedVertices,
-    zoneAnchor, LINK_LANE_GAP, type RGB, type SchematicPaintEffect, type SchematicPalette,
+    linkRoutes, markerHit, markerHitbox, netRoutes, paintSchematic, parallelLanes as paintParallelLanes, placedVertices, routeEnv,
+    zoneAnchor, type EdgeGeometry, type RGB, type SchematicPaintEffect, type SchematicPalette,
 } from "./paint";
-import { EMPTY_STRING_SET, type ItemBox, marqueeHits } from "./selection";
+import { EMPTY_STRING_SET, type ItemBox, linkAt, linkIndex, marqueeHits } from "./selection";
 import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers, matchesExtent, tierSize } from "./model";
 import { entityId, refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import {
@@ -334,6 +341,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // STUB click selects one LEG (`leg` non-null): the halo narrows to that stub
     // and Del removes just that endpoint (#189 follow-up).
     const [selectedLink, setSelectedLink] = useState<{ key: string; leg: NetLeg | null } | null>(null);
+    // The link or the net under the pointer (#1403), lit: drawn last in the strong ink, its ends ringed, and named in
+    // `data-lit-link`. It lights while no gesture is under way, and nothing opens on it (invariant 12).
+    const [lit, setLit] = useState<string | undefined>(undefined);
     const scaleUnit = getSomeorUndefined(value.scaleUnit);
     const showGrid = getSomeorUndefined(value.grid) ?? true;
     const showMinimap = getSomeorUndefined(value.minimap) ?? data.items.length >= MINIMAP_AUTO;
@@ -525,6 +535,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
 
     const canvasRef = useRef<HTMLDivElement | null>(null);
     const drawRef = useRef<HTMLCanvasElement | null>(null);
+    // Each card's size as the page lays it out, by its item's id (#1403): what a link's end meets at card zoom. Heard
+    // by a ResizeObserver as each card is laid out and as its box changes — never in a render — a fresh map each time it
+    // moves (invariant 2); a card it hasn't heard, or one laid out at no size, is reckoned (`tierSize`).
+    const cardSizesRef = useRef<ReadonlyMap<string, { w: number; h: number }>>(new Map());
     const cardLayerRef = useRef<HTMLDivElement | null>(null);
     const gridRef = useRef<HTMLDivElement | null>(null);
 
@@ -610,8 +624,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // the selection) where the drag found them, the world start point of the
     // gesture, and the delta it has them at, clamped to the extent (SC8).
     const moveDragRef = useRef<{ key: string; movers: readonly (Mover & { readonly id: string })[]; startWorld: Pt; delta: { dx: number; dy: number } } | null>(null);
-    // A refused draft keeps the refusal's words (`reason`) — its kind's, or the veto's — which it shows (SC9).
-    const [connectDraft, setConnectDraft] = useState<{ from: string; toWorld: Pt; target: string | undefined; forbidden?: string; reason?: string | undefined } | null>(null);
+    // A refused draft keeps the refusal's words (`reason`) — its kind's, or the veto's — which it shows (SC9). A
+    // retarget's names the link it moves (`retarget`), drawn as its `was` line while its end is dragged (#1403).
+    const [connectDraft, setConnectDraft] = useState<{
+        from: string; toWorld: Pt; target: string | undefined; retarget?: string; forbidden?: string; reason?: string | undefined;
+    } | null>(null);
     // Where a library card's drag rests while its drop lands there (#1390): the point it lands at, or the entity it
     // lands on — what the canvas marks. A drag over, nothing stays marked.
     const dragging = useDragLayerOptional()?.active ?? false;
@@ -728,19 +745,35 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         for (const item of items) out.set(item.key, { x: item.x, y: item.y });
         return out;
     }, [items]);
+    // Each item drawn, by its id: what a link's end is worked out over (#1403).
+    const itemById = useMemo(() => new Map(items.map((item) => [item.key, item] as const)), [items]);
 
-    // World-resolved connect visuals (#176): the draft edge (from item centre to
-    // the cursor / snapped target centre) and the open session's edges.
+    // The links' lanes (#180), as the painter fans them, and the links' R-tree (#1403): what a hover, a tap and a drop
+    // search for the link or the net under a point, so a pointer's move costs what is near it, never every link.
+    const lanes = useMemo(() => paintParallelLanes(data.links, l =>
+        !layerHiddenKeys.has(l.key) && centers.has(l.from) && centers.has(l.to) && l.via.length === 0), [data.links, layerHiddenKeys, centers]);
+    const linkTree = useMemo(() => linkIndex(data.links, data.nets, centers, layerHiddenKeys, lanes), [data.links, data.nets, centers, layerHiddenKeys, lanes]);
+    const linkById = useMemo(() => new Map(data.links.map((link) => [link.key, link] as const)), [data.links]);
+    const netById = useMemo(() => new Map(data.nets.map((net) => [net.key, net] as const)), [data.nets]);
+    // The link lit, while it still draws and takes the pointer: one gone, hidden, locked or out of the narrowing lights nothing.
+    const litShown = lit !== undefined && (linkById.has(lit) || netById.has(lit)) && !layerHiddenKeys.has(lit) && !inertKeys.has(lit) ? lit : undefined;
+
+    // World-resolved connect visuals (#176): the draft edge (from the item it
+    // runs from to the cursor or the target it snaps to, each named, so the
+    // painter ends it on their edges, #1403) and the open session's edges.
     const connectDraftWorld = useMemo(() => {
         if (connectDraft === null) return undefined;
         const from = centers.get(connectDraft.from);
         if (from === undefined) return undefined;
         const to = connectDraft.target !== undefined ? (centers.get(connectDraft.target) ?? connectDraft.toWorld) : connectDraft.toWorld;
         return {
-            from, to, snapped: connectDraft.target !== undefined,
+            from, to, fromKey: connectDraft.from, snapped: connectDraft.target !== undefined,
+            ...(connectDraft.target !== undefined ? { toKey: connectDraft.target } : {}),
             ...(connectDraft.forbidden !== undefined ? { forbiddenKey: connectDraft.forbidden } : {}),
         };
     }, [connectDraft, centers]);
+    // The link a retarget moves, drawn as its `was` line while its end is dragged (#1403).
+    const wasLink = connectDraft?.retarget;
     // Spatial index for viewport culling (item half-extent ~2.4 world units
     // covers the widest constant-size marker at the card threshold).
     const index = useMemo(() => {
@@ -858,10 +891,33 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         }
         return best?.key;
     }, [shownZones, inertKeys]);
-    // The link under a screen point (#176): every visible link's ROUTED screen
-    // polyline — fan lanes included, so the clickable path equals the drawn one
-    // — tested segment-wise within the stroke weight + slop; nearest wins.
-    // `accept` narrows it to the links and nets a drop's card lands on (#1390).
+    // A link's or a net's drawing as the painter draws it, worked out over a camera (#1403): its runs from the edges of
+    // the items it joins where they draw at the zoom — a card's side as the page lays it out, a pin's edge, a dot's rim
+    // — its heads, and a link's handles. What a tap, a hover, a drop and a selected link's handles meet: hit-testing is
+    // the drawing (invariant 9). A pin's label is measured in the painter's font, else reckoned at 6px a letter.
+    const routesAt = useCallback((cam: { ppu: number; tx: number; ty: number }) => {
+        const snap = renderSnapRef.current;
+        const ctx = drawRef.current?.getContext("2d") ?? null;
+        const labelFont = snap.palette?.labelFont;
+        const measure = (text: string): number => {
+            if (ctx === null || labelFont === undefined) return text.length * 6;
+            ctx.save();
+            ctx.font = labelFont;
+            const w = ctx.measureText(text).width;
+            ctx.restore();
+            return w;
+        };
+        const env = routeEnv({ cam, centers: snap.centers, items: itemById, tiers: snap.tiers, cardSizes: cardSizesRef.current, lanes, measure });
+        return (id: string): EdgeGeometry | undefined => {
+            const link = linkById.get(id);
+            if (link !== undefined) return linkRoutes(link, env);
+            const net = netById.get(id);
+            return net === undefined ? undefined : netRoutes(net, env);
+        };
+    }, [itemById, lanes, linkById, netById]);
+    // The link or the net under a screen point (#176, #1403), and a net's leg: of those the links' R-tree holds near it,
+    // the nearest whose drawn route it lies within the weight and the hit reach of — a net's trunk and bars the whole
+    // net, a stub its leg. `accept` narrows it to the links and nets a drop's card lands on (#1390).
     const linkKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number, accept?: (id: string) => boolean): { key: string; leg: NetLeg | null } | undefined => {
         const snap = renderSnapRef.current;
         if (snap.size === null) return undefined;
@@ -870,69 +926,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         if (ppuLive === 0) return undefined;
         const rect = host.getBoundingClientRect();
         const sx = clientX - rect.left, sy = clientY - rect.top;
-        const lanes = paintParallelLanes(data.links, l =>
-            !layerHiddenKeys.has(l.key) && centers.has(l.from) && centers.has(l.to) && l.via.length === 0);
-        let best: { key: string; leg: NetLeg | null } | undefined;
-        let bestD = Infinity;
-        for (const link of data.links) {
-            if (layerHiddenKeys.has(link.key) || inertKeys.has(link.key)) continue;
-            if (accept !== undefined && !accept(link.key)) continue;
-            const from = centers.get(link.from), to = centers.get(link.to);
-            if (from === undefined || to === undefined) continue;
-            const anchors = [from, ...link.via, to].map(q => ({ x: q.x * ppuLive + cam.tx, y: q.y * ppuLive + cam.ty }));
-            const lane = lanes.get(link.key);
-            if (lane !== undefined) {
-                const a0 = anchors[0]!, a1 = anchors[anchors.length - 1]!;
-                const len = Math.hypot(a1.x - a0.x, a1.y - a0.y);
-                if (len > 1e-6) {
-                    const d = (lane.i - (lane.n - 1) / 2) * LINK_LANE_GAP;
-                    const ox = -(a1.y - a0.y) / len * d, oy = (a1.x - a0.x) / len * d;
-                    for (const q of anchors) { q.x += ox; q.y += oy; }
-                }
-            }
-            const pts = link.route.type === "orthogonal" ? orthogonalize(anchors) : anchors;
-            const weight = link.style.value.weight.type === "some" ? link.style.value.weight.value
-                : (link.style.type === "solid" ? 2.5 : 1.5);
-            const d = distanceToPolyline(pts, sx, sy);
-            if (d <= weight / 2 + LINK_HIT_SLOP && d < bestD) { best = { key: link.key, leg: null }; bestD = d; }
-        }
-        // Nets (#189): trunk, header bars, and every stub are clickable — the
-        // SAME netGeometry the painter draws, so the target equals the drawing.
-        for (const net of data.nets) {
-            if (layerHiddenKeys.has(net.key) || inertKeys.has(net.key)) continue;
-            if (accept !== undefined && !accept(net.key)) continue;
-            const srcK = net.sources.filter(k => centers.has(k));
-            const dstK = net.destinations.filter(k => centers.has(k));
-            const srcPts = srcK.map(k => centers.get(k)!);
-            const dstPts = dstK.map(k => centers.get(k)!);
-            if (srcPts.length === 0 || dstPts.length === 0) continue;
-            const geo = netGeometry(srcPts, dstPts, net.via);
-            const toScreen = (q: Pt): Pt => ({ x: q.x * ppuLive + cam.tx, y: q.y * ppuLive + cam.ty });
-            const orth = net.route.type === "orthogonal";
-            const routePts = (anchors: readonly Pt[]): Pt[] => orth ? orthogonalize(anchors.map(toScreen)) : anchors.map(toScreen);
-            const weight = net.style.value.weight.type === "some" ? net.style.value.weight.value
-                : (net.style.type === "solid" ? 2.5 : 1.5);
-            // Trunk + bars hit the WHOLE net; a stub hits its LEG, as the geometry
-            // names each stub's: a side with one member draws no stub (#1388).
-            const legOf = (stubIdx: number): NetLeg => {
-                const leg = geo.legs[stubIdx]!;
-                return leg.end === "source" ? { end: "source", item: srcK[leg.index]! } : { end: "destination", item: dstK[leg.index]! };
-            };
-            const whole: Pt[][] = [routePts(geo.trunk), ...geo.bars.map(bar => bar.map(toScreen))];
-            for (const pl of whole) {
-                const d = distanceToPolyline(pl, sx, sy);
-                if (d <= (weight + 1) / 2 + LINK_HIT_SLOP && d < bestD) { best = { key: net.key, leg: null }; bestD = d; }
-            }
-            for (const [i, stub] of geo.stubs.entries()) {
-                // A leg to an item the narrowing draws as context is context too: it takes no tap (#1392).
-                const leg = legOf(i);
-                if (narrowedOut.has(leg.item)) continue;
-                const d = distanceToPolyline(routePts(stub), sx, sy);
-                if (d <= (weight + 1) / 2 + LINK_HIT_SLOP && d < bestD) { best = { key: net.key, leg }; bestD = d; }
-            }
-        }
-        return best;
-    }, [data.links, data.nets, centers, layerHiddenKeys, inertKeys, narrowedOut]);
+        return linkAt(linkTree, routesAt({ ppu: ppuLive, tx: cam.tx, ty: cam.ty }), { x: (sx - cam.tx) / ppuLive, y: (sy - cam.ty) / ppuLive }, { x: sx, y: sy }, ppuLive,
+            // A locked layer's, and what the narrowing takes out, take no point; nor a net's leg to an item drawn as context (#1392).
+            (id, leg) => !inertKeys.has(id) && (accept === undefined || accept(id)) && (leg === null || !narrowedOut.has(leg.item)));
+    }, [linkTree, routesAt, inertKeys, narrowedOut]);
     // Click-select a link or a net — selection works read-only (inspection
     // channel); the host hears it in the whole selection, named by its kind and key.
     // A plain tap selects it alone, letting go of the items and the zones (D16, #1391); Shift adds it to them.
@@ -1029,6 +1026,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         selectedLink, selectedLinkEditable,
         dropMark,
         paintEffect, fitBox,
+        lit: litShown, wasLink,
         palette: null as SchematicPalette | null,
         tints: NO_TINTS,
     };
@@ -1046,6 +1044,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; tints: unknown; w: number; h: number; dpr: number; val: unknown;
         lay: unknown; alp: unknown;
         dl: unknown; cf: number; slk: unknown; sle: boolean; dm: unknown; eff: unknown; phase: number;
+        lit: string | undefined; was: string | undefined; cs: unknown;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -1084,6 +1083,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         // Connect-flash phase (0..1; -1 = no flash) — animates via the flash rAF.
         const cf = connectFlashRef.current;
         const cfPhase = cf !== null ? Math.min(1, (performance.now() - cf.t0) / 450) : -1;
+        const cardSizes = cardSizesRef.current;
         const last = lastPaintRef.current;
         if (last !== null
             && last.zoom === cam.zoom && last.tx === cam.tx && last.ty === cam.ty
@@ -1093,7 +1093,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             && last.lay === snap.layerHiddenKeys && last.alp === snap.layerAlpha
             && last.dl === snap.connectDraftWorld && last.cf === cfPhase
             && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable && last.dm === snap.dropMark
-            && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current) return;
+            && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current
+            && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizes) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
             sel: snap.renderSelected, zsel: snap.zoneSelection, pal, tints: snap.tints, w: sz.w, h: sz.h, dpr: dprLive, val: snap.value,
@@ -1101,6 +1102,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             dl: snap.connectDraftWorld, cf: cfPhase,
             slk: snap.selectedLink, sle: snap.selectedLinkEditable, dm: snap.dropMark,
             eff: snap.paintEffect, phase: pulsePhaseRef.current,
+            lit: snap.lit, was: snap.wasLink, cs: cardSizes,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -1131,6 +1133,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 ...(snap.dropMark !== undefined ? { dropMark: snap.dropMark } : {}),
                 // What the narrowing paints (#1392): context, the matches' rings at the pulse's phase, and their frame.
                 ...(snap.paintEffect !== undefined ? { effect: { ...snap.paintEffect, pulsePhase: pulsePhaseRef.current } } : {}),
+                // The links' ends on the cards' sides as the page lays them out, the link lit, and a retarget's run (#1403).
+                cardSizes,
+                ...(snap.lit !== undefined ? { lit: snap.lit } : {}),
+                ...(snap.wasLink !== undefined ? { was: snap.wasLink } : {}),
             });
         } catch (err) {
             console.error("[Schematic] paint failed (frame skipped):", err);
@@ -1161,6 +1167,33 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         commitCtxRef.current = commitCtx;
         applyCamera();
     });
+
+    // Each card's size as the page lays it out (#1403): a ResizeObserver hears each card as it is laid out and as its box
+    // changes — a card with an explicit width grows with the zoom — and the paint draws again over a fresh map. Made as
+    // the first card is laid out, and let go with the canvas.
+    const cardObserverRef = useRef<ResizeObserver | null>(null);
+    const observeCard = useCallback((el: HTMLElement | null) => {
+        if (el === null || typeof ResizeObserver === "undefined") return undefined;
+        cardObserverRef.current ??= new ResizeObserver((entries) => {
+            let next: Map<string, { w: number; h: number }> | undefined;
+            for (const entry of entries) {
+                const key = entry.target.getAttribute("data-card-key");
+                const box = entry.borderBoxSize[0];
+                if (key === null || box === undefined || !(box.inlineSize > 0 && box.blockSize > 0)) continue;
+                const was = (next ?? cardSizesRef.current).get(key);
+                if (was !== undefined && was.w === box.inlineSize && was.h === box.blockSize) continue;
+                next ??= new Map(cardSizesRef.current);
+                next.set(key, { w: box.inlineSize, h: box.blockSize });
+            }
+            if (next === undefined) return;
+            cardSizesRef.current = next;
+            applyCamera();
+        });
+        const observer = cardObserverRef.current;
+        observer.observe(el);
+        return () => observer.unobserve(el);
+    }, [applyCamera]);
+    useEffect(() => () => { cardObserverRef.current?.disconnect(); cardObserverRef.current = null; }, []);
 
     // Coalesce many camera mutations within a frame into one paint + one
     // throttled snapshot — keeps the hot pan path off React (invariant 2). Each
@@ -1609,6 +1642,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
+        // A press is a gesture: the link lit goes out until no button is held again (#1403).
+        setLit(undefined);
         // Pinch-zoom (#353): the second touch starts a pinch — cancel any
         // pan/press in flight; moves are consumed by the pinch until a
         // finger lifts.
@@ -1669,10 +1704,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             if (lk2 !== undefined && ppu2 > 0) {
                 const r2 = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const sx2 = e.clientX - r2.left, sy2 = e.clientY - r2.top;
-                const fC = snap.centers.get(lk2.from), tC = snap.centers.get(lk2.to);
-                const near = (c: { x: number; y: number } | undefined) =>
-                    c !== undefined && Math.hypot(c.x * ppu2 + cam2.tx - sx2, c.y * ppu2 + cam2.ty - sy2) <= 10;
-                const movingEnd = near(fC) ? "from" as const : near(tC) ? "to" as const : undefined;
+                // Its handles stand at its ends' edges, as the painter draws them (#1403).
+                const handles = routesAt({ ppu: ppu2, tx: cam2.tx, ty: cam2.ty })(lk2.key)?.handles;
+                const near = (q: Pt | undefined) => q !== undefined && Math.hypot(q.x - sx2, q.y - sy2) <= 10;
+                const movingEnd = near(handles?.from) ? "from" as const : near(handles?.to) ? "to" as const : undefined;
                 if (movingEnd !== undefined) {
                     transition("cancel");
                     // A tap until it moves: its first move past the threshold starts the drag (onCanvasPointerMove).
@@ -1739,7 +1774,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         if (linkSessionRef.current !== null) endLinkSession();
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-    }, [transition, itemKeyAt, data.links, data.nets, endLinkSession, refById, movableKinds, kinds]);
+    }, [transition, itemKeyAt, data.links, data.nets, endLinkSession, refById, movableKinds, kinds, routesAt]);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
         // Pinch-zoom (#353): with two live touches the gesture owns the
         // canvas — zoom about the midpoint, ratio of successive distances.
@@ -1807,7 +1842,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 // DANGER (red edge + ring on the target, not-allowed cursor), its
                 // words kept for the draft to show (#1388).
                 const forbidden = tk !== undefined && tk !== cd.from && !ok ? tk : undefined;
-                setConnectDraft({ from: cd.from, toWorld: { x: wxp, y: wyp }, target, ...(forbidden !== undefined ? { forbidden, reason: refusal } : {}) });
+                setConnectDraft({
+                    from: cd.from, toWorld: { x: wxp, y: wyp }, target,
+                    ...(cd.retarget !== undefined ? { retarget: cd.retarget.key } : {}),
+                    ...(forbidden !== undefined ? { forbidden, reason: refusal } : {}),
+                });
             }
             return;
         }
@@ -1846,11 +1885,21 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             return;
         }
         const pan = panRef.current;
-        if (!pan) return;
+        if (!pan) {
+            // No gesture under way, no button held and no card dragged over the canvas: the link or the net under the
+            // pointer lights (#1403), found through the links' R-tree — as a tap would find it, an item over it first, so
+            // nothing lights under a card, a pin or a dot; and nothing under the minimap.
+            if (e.buttons === 0 && !dragging) {
+                const host = e.currentTarget as HTMLElement;
+                const overMinimap = e.target instanceof Element && e.target.closest("[data-schematic-minimap]") !== null;
+                setLit(overMinimap || itemKeyAt(host, e.clientX, e.clientY) !== undefined ? undefined : linkKeyAt(host, e.clientX, e.clientY)?.key);
+            }
+            return;
+        }
         if (Math.abs(e.clientX - pan.x) > DRAG_THRESHOLD_PX || Math.abs(e.clientY - pan.y) > DRAG_THRESHOLD_PX) movedRef.current = true;
         cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
         requestRender();
-    }, [requestRender, collectMarquee, itemKeyAt, W, H, candidateRefusal, transition]);
+    }, [requestRender, collectMarquee, itemKeyAt, W, H, candidateRefusal, transition, linkKeyAt, dragging]);
     // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
     // was active; never disturbs a running fly.
     const endPan = useCallback(() => {
@@ -2167,13 +2216,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             css={styles.canvas}
             data-schematic-canvas=""
             data-tool={effectiveTool}
+            {...(litShown !== undefined ? { "data-lit-link": litShown } : {})}
             {...(connectDraft?.forbidden !== undefined ? { "data-forbidden": "" } : {})}
             tabIndex={0}
             role="application"
             aria-label={words.m.canvasLabel()}
             onKeyDown={onCanvasKeyDown}
             onPointerEnter={() => { hoveredRef.current = true; }}
-            onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); }}
+            onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); setLit(undefined); }}
             onPointerDown={onCanvasPointerDown}
             onPointerMove={onCanvasPointerMove}
             onPointerUp={onCanvasPointerUp}
@@ -2218,6 +2268,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                             return (
                                 <Box
                                     key={item.key}
+                                    ref={observeCard}
                                     css={styles.item}
                                     data-card-key={item.key}
                                     {...(isSelected ? { "data-selected": "" } : {})}

@@ -8,20 +8,22 @@
  * paint layer can't be pixel-snapshotted here, so these assert the maths an arc
  * renders from: centre, radius, endpoints-on-circle, and — the bit a data test
  * can't catch — that the arc bulges to the side the bulge sign dictates. A
- * drop's marks (#1390), and the narrowing's context, emphasis and frame
- * (#1392), are asserted over a 2D context that records what each stroke and
- * fill draws: its style, width, dash and alpha, and its path's arcs.
+ * drop's marks (#1390), the narrowing's context, emphasis and frame (#1392),
+ * and the links' look (#1403) are asserted over a 2D context that records what
+ * each stroke and fill draws — its style, width, dash and alpha, and its path's
+ * arcs — and each text; the links' routes, each end on an item's edge where it
+ * draws at the zoom, over the routes themselves.
  */
 
 import { describe, it, expect } from "vitest";
 import { defaultValue, none, some, variant } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { drawnItem, drawnLink, drawnNet, drawnZone, type SchematicDrawn } from "./drawn";
+import { drawnItem, drawnLink, drawnNet, drawnZone, type DrawnItem, type SchematicDrawn } from "./drawn";
 import {
     netGeometry,
     MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS,
     arcFromBulge, hatchLineCount, hatchSpacing, hatchSweepBounds, markerHit, markerHitbox, type BulgeArc,
-    paintSchematic, parallelLanes, polylineMidpoint, type PaintInput, type RGB, type SchematicPalette,
+    linkRoutes, netRoutes, paintSchematic, parallelLanes, polylineMidpoint, routeEnv, type LodTier, type PaintInput, type RGB, type SchematicPalette,
 } from "./paint";
 
 type Pt = { x: number; y: number };
@@ -347,9 +349,18 @@ interface Drawn {
     readonly arcs: readonly { readonly x: number; readonly y: number; readonly r: number }[];
 }
 
-/** A Canvas2D context that records each stroke and fill: what the paint layer drew, without pixels. */
-function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[] } {
+/** A text as a context drew it: its words, where, and its style. */
+interface Text {
+    readonly text: string;
+    readonly x: number;
+    readonly y: number;
+    readonly style: string;
+}
+
+/** A Canvas2D context that records each stroke and fill, and each text: what the paint layer drew, without pixels. */
+function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Text[] } {
     const drawn: Drawn[] = [];
+    const texts: Text[] = [];
     let state = { strokeStyle: "", fillStyle: "", lineWidth: 1, globalAlpha: 1, dash: [] as number[] };
     const saved: (typeof state)[] = [];
     let arcs: { x: number; y: number; r: number }[] = [];
@@ -362,30 +373,36 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[] } {
         get fillStyle() { return state.fillStyle; }, set fillStyle(v: string) { state.fillStyle = v; },
         get lineWidth() { return state.lineWidth; }, set lineWidth(v: number) { state.lineWidth = v; },
         get globalAlpha() { return state.globalAlpha; }, set globalAlpha(v: number) { state.globalAlpha = v; },
-        lineJoin: "miter", lineCap: "butt", font: "", textBaseline: "alphabetic", lineDashOffset: 0,
+        lineJoin: "miter", lineCap: "butt", font: "", textAlign: "start", textBaseline: "alphabetic", lineDashOffset: 0,
         save() { saved.push({ ...state, dash: [...state.dash] }); },
         restore() { state = saved.pop() ?? state; },
         setLineDash(dash: number[]) { state.dash = [...dash]; },
         setTransform() {}, clearRect() {}, clip() {}, closePath() {},
         beginPath() { arcs = []; },
-        moveTo() {}, lineTo() {}, quadraticCurveTo() {}, rect() {}, roundRect() {},
+        moveTo() {}, lineTo() {}, arcTo() {}, quadraticCurveTo() {}, rect() {}, roundRect() {},
         arc(x: number, y: number, r: number) { arcs.push({ x, y, r }); },
         stroke() { record("stroke"); },
         fill() { record("fill"); },
         strokeRect() { record("stroke"); },
         fillRect() { record("fill"); },
-        fillText() {},
+        fillText(text: string, x: number, y: number) { texts.push({ text, x, y, style: state.fillStyle }); },
         measureText(text: string) { return { width: text.length * 6 }; },
     };
-    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn };
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn, texts };
 }
 
-/** A palette whose every role is its own colour: the brand's line `rgb(10,20,30)`, its wash `rgb(40,50,60)`. */
+/** The links' look, each part a colour of its own (#1403). */
+const LINKS: SchematicPalette["links"] = {
+    casing: "link-paper", ink: "link-ink", strong: "link-strong", ring: "link-ring", ringWidth: 1, knockout: "link-knockout", outline: "link-outline",
+    caption: "link-caption", captionFont: "500 10px mono", preview: "link-preview", previewWidth: 3, was: "link-was", wasWidth: 1.5,
+};
+
+/** A palette whose every role is its own colour: the brand's line `rgb(10,20,30)`, its wash `rgb(40,50,60)`; the links' look each part's own. */
 const PALETTE: SchematicPalette = (() => {
     const roles = ["brandMark", "brandSolid", "brandTint", "fg", "fgStrong", "fgMuted", "fgSubtle", "fgFaint", "bgSurface", "bgCanvas",
         "borderSubtle", "borderStrong", "statusPos", "statusNeg", "statusWarn", "statusInfo"] as const;
     const palette = Object.fromEntries(roles.map((role, i): [string, RGB] => [role, [i, i, i]])) as unknown as SchematicPalette;
-    return { ...palette, brandSolid: [10, 20, 30], brandTint: [40, 50, 60], labelFont: "10px mono", eyebrowFont: "9px mono" };
+    return { ...palette, brandSolid: [10, 20, 30], brandTint: [40, 50, 60], labelFont: "10px mono", eyebrowFont: "9px mono", links: LINKS };
 })();
 
 describe("a drop's marks (#1390)", () => {
@@ -415,9 +432,9 @@ describe("a drop's marks (#1390)", () => {
     const BRAND_WASH = "rgba(10,20,30,0.3)";
     const BRAND = "rgb(10,20,30)";
 
-    it("with no drag resting, nothing of the brand's line is drawn but the run itself", () => {
-        expect(paint().filter((d) => d.style === BRAND_WASH)).toEqual([]);
-        expect(paint().filter((d) => d.style === BRAND && d.op === "stroke").map((d) => d.width)).toEqual([2.5]);
+    it("with no drag resting, nothing of the brand's is drawn: the run is the links' ink (#1403)", () => {
+        expect(paint().filter((d) => d.style === BRAND_WASH || d.style === BRAND)).toEqual([]);
+        expect(paint().filter((d) => d.style === LINKS.ink && d.op === "stroke").map((d) => d.width)).toEqual([2.5]);
     });
 
     it("the run a card lands on takes the brand's wash, wide under its line", () => {
@@ -431,8 +448,8 @@ describe("a drop's marks (#1390)", () => {
 
     it("the zone a card lands on takes the brand's wash under a dashed brand edge — a selection's edge is solid", () => {
         const marks = paint({ kind: "entity", id: cage.key });
-        // The zones paint under the runs: the zone's dashed edge, then the run's own line.
-        expect(marks.filter((d) => d.style === BRAND && d.op === "stroke").map((d) => [d.width, d.dash])).toEqual([[2, [6, 4]], [2.5, []]]);
+        // The zone's dashed edge: the run draws in the links' ink.
+        expect(marks.filter((d) => d.style === BRAND && d.op === "stroke").map((d) => [d.width, d.dash])).toEqual([[2, [6, 4]]]);
         expect(marks.filter((d) => d.style === "rgb(40,50,60)" && d.op === "fill").map((d) => d.alpha)).toEqual([0.5]);
     });
 
@@ -503,11 +520,11 @@ describe("the narrowing's context, emphasis and frame (#1392)", () => {
         const drawn = paint(effect({ excluded: new Set([c.key, u2.key, cage.key]) }));
         expect([dotAt(drawn, 140, 20).style, dotAt(drawn, 140, 20).alpha]).toEqual([MUTED, 0.35]);
         expect([dotAt(drawn, 20, 20).style, dotAt(drawn, 20, 20).alpha]).toEqual([RED_CSS, 1]);
-        // The runs: u1 as itself, u2 faded in the muted ink — their lines, 2.5 wide.
+        // The runs: u1 as itself, u2 faded in the links' muted ink — their lines, 2.5 wide.
         expect(drawn.filter((d) => d.op === "stroke" && d.width === 2.5 && d.arcs.length === 0).map((d) => [d.style, d.alpha])).toEqual([
-            [GREEN_CSS, 1], [MUTED, 0.35],
-            // The feed's stubs, its weight: A's as itself, C's faded with C.
-            [GREEN_CSS, 1], [MUTED, 0.35],
+            [GREEN_CSS, 1], [LINKS.ink, 0.35],
+            // The feed's legs, its weight: A's as itself, C's faded with C.
+            [GREEN_CSS, 1], [LINKS.ink, 0.35],
         ]);
         // The cage's dashed edge, drained to a zone's ground.
         expect(drawn.filter((d) => d.op === "stroke" && d.dash.length === 2 && d.dash[0] === 5).map((d) => [d.style, d.alpha])).toEqual([[GROUND, 0.35]]);
@@ -537,5 +554,152 @@ describe("the narrowing's context, emphasis and frame (#1392)", () => {
     it("the frame boxes the matches in a dashed brand edge over the brand's wash", () => {
         const drawn = paint(effect({ matches: new Set([a.key, b.key]), frame: { minX: 2, minY: 2, maxX: 8, maxY: 2 } }));
         expect(drawn.filter((d) => d.dash.length === 2 && d.dash[0] === 7).map((d) => [d.op, d.style, d.width])).toEqual([["stroke", BRAND_LINE, 1.5]]);
+    });
+});
+
+// ============================================================================
+// The links' look (#1403)
+// ============================================================================
+
+describe("the links' routes: each end on an item's edge where it draws at the zoom (#1403)", () => {
+    const T = Schematic.Types;
+    const at = (key: string, x: number, y: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y }), label: key,
+    }, undefined)!;
+    const run = (key: string, from: string, to: string, route: ReturnType<typeof defaultValue<typeof T.Link>>["route"] = variant("direct", null)) =>
+        drawnLink({ kind: "fibre", key }, {
+            ...defaultValue<typeof T.Link>(T.Link), from: { kind: "racks", key: from }, to: { kind: "racks", key: to },
+            route, style: variant("solid", { tone: none, weight: none }),
+        });
+    /** What the routes are worked out over: the items as `tier`, the camera at `ppu` from the corner, each pin's label 6px a letter. */
+    const envOf = (items: readonly DrawnItem[], tier: LodTier, ppu: number, cardSizes?: ReadonlyMap<string, { w: number; h: number }>) => routeEnv({
+        cam: { ppu, tx: 0, ty: 0 }, centers: new Map(items.map((i) => [i.key, { x: i.x, y: i.y }])), items: new Map(items.map((i) => [i.key, i])),
+        tiers: new Map(items.map((i) => [i.key, tier])), cardSizes, lanes: new Map(), measure: (text) => text.length * 6,
+    });
+    const a = at("A", 2, 2), b = at("B", 8, 2);
+
+    it("between two dots it leaves the one's rim and meets the other's, its head's tip there, its line to the head's base", () => {
+        const drawn = linkRoutes(run("u1", "A", "B"), envOf([a, b], "dot", 10))!;
+        expect(drawn.handles).toEqual({ from: { x: 25, y: 20 }, to: { x: 75, y: 20 } });
+        expect(drawn.runs.map((r) => [r.line, r.head])).toEqual([[[{ x: 25, y: 20 }, { x: 67, y: 20 }], { tip: { x: 75, y: 20 }, base: { x: 67, y: 20 }, half: 4 }]]);
+    });
+
+    it("between two labelled pins it leaves the one's edge and meets the other's: a pin 6 + 7 + 4 + its label + 6 wide", () => {
+        // "A" is 6px: each pin 29 wide, 14.5 either side of its centre.
+        expect(linkRoutes(run("u1", "A", "B"), envOf([a, b], "label", 10))!.handles).toEqual({ from: { x: 34.5, y: 20 }, to: { x: 65.5, y: 20 } });
+    });
+
+    it("between two cards it leaves the one's side and meets the other's — as the page lays the cards out, else as the declutter reckons them", () => {
+        const measured = new Map([[a.key, { w: 100, h: 40 }], [b.key, { w: 60, h: 40 }]]);
+        expect(linkRoutes(run("u1", "A", "B"), envOf([a, b], "card", 40, measured))!.handles).toEqual({ from: { x: 130, y: 80 }, to: { x: 290, y: 80 } });
+        // Unmeasured, a card is 88 wide at least.
+        expect(linkRoutes(run("u1", "A", "B"), envOf([a, b], "card", 40))!.handles).toEqual({ from: { x: 124, y: 80 }, to: { x: 276, y: 80 } });
+    });
+
+    it("an orthogonal run turns at its elbow and meets its destination's edge along its last leg: from above, the head pointing down", () => {
+        const low = at("B", 8, 6);
+        const drawn = linkRoutes(run("u1", "A", "B", variant("orthogonal", { corner: none })), envOf([a, low], "dot", 10))!;
+        expect(drawn.runs[0]!.route).toEqual([{ x: 25, y: 20 }, { x: 80, y: 20 }, { x: 80, y: 55 }]);
+        expect(drawn.runs[0]!.head).toEqual({ tip: { x: 80, y: 55 }, base: { x: 80, y: 47 }, half: 4 });
+        expect(drawn.runs[0]!.corner).toBe(8);
+    });
+
+    it("a feed's head sits on each of its destination legs, at its rack's rim, and its trunk and its bar carry none", () => {
+        const p = at("P", 8, 12), c = at("C", 14, 2);
+        const feed = drawnNet({ kind: "feeds", key: "f" }, {
+            ...defaultValue<typeof T.Net>(T.Net), sources: [{ kind: "racks", key: "P" }], destinations: [{ kind: "racks", key: "A" }, { kind: "racks", key: "C" }],
+            route: variant("direct", null), style: variant("solid", { tone: none, weight: none }),
+        });
+        const drawn = netRoutes(feed, envOf([a, c, p], "dot", 10))!;
+        // The trunk leaves P's rim up to the bar under the racks; each leg runs from the bar up to its rack, arriving there.
+        expect(drawn.runs.map((r) => [r.route, r.head?.tip, r.leg?.item])).toEqual([
+            [[{ x: 80, y: 115 }, { x: 80, y: 50 }], undefined, undefined],
+            [[{ x: 20, y: 50 }, { x: 140, y: 50 }], undefined, undefined],
+            [[{ x: 20, y: 50 }, { x: 20, y: 25 }], { x: 20, y: 25 }, a.key],
+            [[{ x: 140, y: 50 }, { x: 140, y: 25 }], { x: 140, y: 25 }, c.key],
+        ]);
+        // The trunk's tap on the bar is its junction: a dot.
+        expect(drawn.dots).toEqual([{ x: 80, y: 50, r: 4 }]);
+        expect(drawn.handles).toBeUndefined();
+    });
+});
+
+describe("the links' look (#1403)", () => {
+    const T = Schematic.Types;
+    const at = (key: string, x: number, y: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y }), label: key,
+    }, undefined)!;
+    const a = at("A", 2, 2), b = at("B", 8, 2), c = at("C", 14, 2);
+    const run = (key: string, from: string, to: string, over: Partial<ReturnType<typeof defaultValue<typeof T.Link>>> = {}) =>
+        drawnLink({ kind: "fibre", key }, {
+            ...defaultValue<typeof T.Link>(T.Link), from: { kind: "racks", key: from }, to: { kind: "racks", key: to },
+            route: variant("direct", null), style: variant("solid", { tone: none, weight: none }), ...over,
+        });
+    const u1 = run("u1", "A", "B", { label: some("uplink"), metric: some("100G") }), u2 = run("u2", "B", "C");
+    const DRAWN: SchematicDrawn = { items: [a, b, c], zones: [], links: [u1, u2], nets: [] };
+
+    /** What a frame paints at `ppu` px a unit, the items as dots, with what `over` gives. */
+    function paint(over: Partial<PaintInput> = {}, ppu = 10) {
+        const { ctx, drawn, texts } = recorder();
+        paintSchematic({
+            ctx, value: DRAWN, cam: { ppu, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: DRAWN.items, tiers: new Map(DRAWN.items.map((i) => [i.key, "dot" as const])), selected: new Set(), selectedZones: new Set(),
+            centers: new Map(DRAWN.items.map((i) => [i.key, { x: i.x, y: i.y }])), palette: PALETTE, tints: new Map(), ...over,
+        });
+        return { drawn, texts };
+    }
+    const BRAND = "rgb(10,20,30)";
+    const strokes = (drawn: readonly Drawn[]) => drawn.filter((d) => d.op === "stroke").map((d) => [d.style, d.width]);
+
+    it("every run is cased in the paper under every run's ink, in the links' muted ink, with no brand of its own", () => {
+        const { drawn } = paint();
+        // u1's casing and its head's, u2's, then u1's ink and u2's.
+        expect(strokes(drawn).filter(([style]) => String(style).startsWith("link-"))).toEqual([
+            [LINKS.casing, 4.5], [LINKS.casing, 2], [LINKS.casing, 4.5], [LINKS.casing, 2], [LINKS.ink, 2.5], [LINKS.ink, 2.5],
+        ]);
+        expect(drawn.some((d) => d.style === BRAND)).toBe(false);
+    });
+
+    it("a tone recolours its run's ink and its head", () => {
+        const { drawn } = paint({ tints: new Map([[u1.key, [200, 100, 0] as RGB]]) });
+        expect(drawn.filter((d) => d.style === "rgb(200,100,0)").map((d) => d.op)).toEqual(["stroke", "fill"]);
+    });
+
+    it("the lit run is drawn last, in the strong ink, the dots it joins ringed 1px four outside their rims", () => {
+        const { drawn } = paint({ lit: u1.key });
+        const inks = strokes(drawn).filter(([style]) => style === LINKS.ink || style === LINKS.strong || style === LINKS.ring);
+        expect(inks).toEqual([[LINKS.ink, 2.5], [LINKS.strong, 2.5], [LINKS.ring, 1], [LINKS.ring, 1]]);
+        expect(drawn.filter((d) => d.style === LINKS.ring).map((d) => d.arcs)).toEqual([[{ x: 20, y: 20, r: 9.5 }], [{ x: 80, y: 20, r: 9.5 }]]);
+    });
+
+    it("a selected run is in the strong ink, its ends ringed and its caption outlined; while it writes, its handles stand at its ends' edges", () => {
+        const { drawn } = paint({ selectedLink: { key: u1.key, editable: true } }, 20);
+        expect(strokes(drawn).filter(([style]) => style === LINKS.strong).length).toBe(1);
+        expect(drawn.filter((d) => d.style === LINKS.outline).map((d) => d.op)).toEqual(["stroke"]);
+        // Its handles: on the dots' rims, where its line leaves A and meets B.
+        expect(drawn.filter((d) => d.style === BRAND && d.op === "stroke").map((d) => d.arcs)).toEqual([[{ x: 45, y: 40, r: 5 }], [{ x: 155, y: 40, r: 5 }]]);
+    });
+
+    it("a caption — its label and its metric — sits on its knockout at its route's middle, from the label zoom", () => {
+        expect(paint({}, 10).texts).toEqual([]);
+        const { drawn, texts } = paint({}, 20);
+        // u1 runs from A's rim (45, 40) to B's (155, 40): its middle at x 100, the text's baseline 3 below.
+        expect(texts).toEqual([{ text: "uplink · 100G", x: 100, y: 43, style: LINKS.caption }]);
+        expect(drawn.filter((d) => d.style === LINKS.knockout).map((d) => d.op)).toEqual(["fill"]);
+    });
+
+    it("Connect's draft is the brand's preview from the source's edge to the pointer, with a head — snapped, to the target's edge; refused, the danger ink", () => {
+        const loose = paint({ draftLink: { from: { x: 2, y: 2 }, to: { x: 5, y: 2 }, fromKey: a.key, snapped: false } }).drawn;
+        expect(loose.filter((d) => d.style === LINKS.preview).map((d) => [d.op, d.width])).toEqual([["stroke", 3], ["fill", 3]]);
+        const refused = paint({ draftLink: { from: { x: 2, y: 2 }, to: { x: 8, y: 2 }, fromKey: a.key, snapped: false, forbiddenKey: b.key } }).drawn;
+        expect(refused.some((d) => d.style === LINKS.preview)).toBe(false);
+        // The danger ink: the palette's `statusNeg`, the line and its head.
+        expect(refused.filter((d) => d.style === "rgb(13,13,13)").map((d) => d.op)).toEqual(["stroke", "fill"]);
+    });
+
+    it("the run a retarget moves draws as its `was` line while its end is dragged — never lit, nor selected", () => {
+        const { drawn } = paint({ was: u1.key, lit: u1.key, selectedLink: { key: u1.key, editable: true } });
+        expect(strokes(drawn).filter(([style]) => style === LINKS.was)).toEqual([[LINKS.was, 1.5]]);
+        expect(drawn.some((d) => d.style === LINKS.strong || d.style === LINKS.ring)).toBe(false);
     });
 });

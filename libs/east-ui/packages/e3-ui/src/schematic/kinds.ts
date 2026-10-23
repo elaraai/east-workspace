@@ -1092,7 +1092,7 @@ export interface SchematicLinksConfig<R extends StructType, FF extends string, T
     to: SchematicEnd<R, TF>;
     /** The field its waypoints are: an `Array` of `{ x, y }` Floats, the app's own points. */
     via?: SchematicViaField<R>;
-    /** The pill at its path's middle. */
+    /** Its caption, on a knockout at its path's middle (#1403). */
     label?: Accessor<R, OptionType<StringType>>;
     /** The figure after its label. */
     metric?: Accessor<R, OptionType<StringType>>;
@@ -1306,7 +1306,7 @@ export interface SchematicNetsConfig<R extends StructType, SRC extends string, D
     destinations: { field: DST; of: string };
     /** The field its trunk's waypoints are: an `Array` of `{ x, y }` Floats, the app's own points. */
     via?: SchematicViaField<R>;
-    /** The pill at its trunk's middle. */
+    /** Its caption, on a knockout at its trunk's middle (#1403). */
     label?: Accessor<R, OptionType<StringType>>;
     /** The figure after its label. */
     metric?: Accessor<R, OptionType<StringType>>;

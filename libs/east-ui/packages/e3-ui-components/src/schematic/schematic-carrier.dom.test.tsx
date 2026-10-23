@@ -203,8 +203,8 @@ describe("<Schematic> through its carrier", () => {
     test("a fibre run tapped on its path is heard by `onSelect`, named by its kind and key (SC29)", async () => {
         const { container } = await h.mount({ fn: view });
         await waitFor(() => expect(card(container, "network", "ODF-1")).not.toBeNull());
-        // u1 runs from A01 (2.4, 2.9) down to ODF-1's level, then across to it (8.4, 9.6): its path crosses (5.2, 9.6), where no card is.
-        await tap(container.querySelector("[data-schematic-canvas]")!, 5.2, 9.6);
+        // u1 runs down from A01's foot (2.4, 2.9) to ODF-1's top, its ends on the cards' edges (#1403): its path crosses (2.4, 6.0), where no card is.
+        await tap(container.querySelector("[data-schematic-canvas]")!, 2.4, 6.0);
         await waitFor(() => expect(stateOf(SELECTED_KEY)).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
     });
 
