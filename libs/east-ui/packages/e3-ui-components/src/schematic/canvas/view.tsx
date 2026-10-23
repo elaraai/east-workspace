@@ -53,6 +53,7 @@
  */
 
 import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
+import { flushSync } from "react-dom";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, library, type IconName } from "@fortawesome/fontawesome-svg-core";
@@ -1066,7 +1067,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // dependency list) to drift. The palette and each entity's colour are read
     // there too, from the probe the commit just laid out.
     const renderSnap = {
-        value: paintValue, drawn: data, size, fit, dpr, visibleItems, tiers,
+        value: paintValue, drawn: data, size, fit, dpr, camera: cameraSnapshot, visibleItems, tiers,
         selection, zoneSelection, renderSelected, centers,
         layerHiddenKeys, layerAlpha,
         effectiveTool, isBoxTool,
@@ -1264,6 +1265,17 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         const cz = coalescerRef.current;
         if (cz !== null) cz.request(run); else run();
     }, [applyCamera]);
+
+    // A press meets what the canvas has drawn (invariant 9): a camera move still waiting on its frame — Fit, a zoom, the
+    // wheel, a fly's last step — is drawn and committed first, so the culling, the tiers and the routes a press, a tap or
+    // a double-click hit-tests are those of the camera it lands on, never the frame's before. Asked only as a press
+    // lands: a move, a hover or a drag over the canvas waits for the frame as the drawing does.
+    const drawPending = useCallback(() => {
+        const snap = renderSnapRef.current;
+        const cam = cameraRef.current;
+        if (snap.size === null || (snap.camera.zoom === cam.zoom && snap.camera.tx === cam.tx && snap.camera.ty === cam.ty)) return;
+        flushSync(() => { setCameraSnapshot({ zoom: cam.zoom, tx: cam.tx, ty: cam.ty }); });
+    }, []);
 
     // Interaction-mode machine: an input mode supersedes a running fly as a
     // transition, not a hand-added cancel at each call site (P4 / invariant 5).
@@ -1608,6 +1620,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // (#177); a tap on nothing lets go of everything. Shift extends, and keeps what is selected on nothing. A tap on the
     // density zooms into it, eight of its cells across about the tap (D25).
     const tapAt = useCallback((host: HTMLElement, clientX: number, clientY: number, additive: boolean) => {
+        drawPending();
         if (pickAt(host, clientX, clientY, additive)) return;
         const dense = densityAt(host, clientX, clientY);
         if (dense !== undefined) {
@@ -1619,7 +1632,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         const zk = zoneKeyAt(host, clientX, clientY);
         if (zk !== undefined) zoneTap(zk, additive);
         else if (!additive) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
-    }, [pickAt, densityAt, flyTo, linkKeyAt, selectLink, zoneKeyAt, zoneTap, clearSelection, clearZoneSelection, commitLinkSelection]);
+    }, [drawPending, pickAt, densityAt, flyTo, linkKeyAt, selectLink, zoneKeyAt, zoneTap, clearSelection, clearZoneSelection, commitLinkSelection]);
 
     // Collect the items a marquee region encloses — the pure rule lives in
     // `selection.ts` (`marqueeHits`: R-tree sweep + CENTER-in-region test,
@@ -1716,6 +1729,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
+        // What the press hit-tests is what the canvas draws: a camera move waiting on its frame is drawn first.
+        drawPending();
         // A press is a gesture: the link lit goes out until no button is held again (#1403).
         setLit(undefined);
         // Pinch-zoom (#353): the second touch starts a pinch — cancel any
@@ -1848,7 +1863,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         if (linkSessionRef.current !== null) endLinkSession();
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-    }, [transition, itemKeyAt, data.links, data.nets, endLinkSession, refById, movableKinds, kinds, routesAt]);
+    }, [drawPending, transition, itemKeyAt, data.links, data.nets, endLinkSession, refById, movableKinds, kinds, routesAt]);
     const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
         // Pinch-zoom (#353): with two live touches the gesture owns the
         // canvas — zoom about the midpoint, ratio of successive distances.
@@ -2092,13 +2107,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // the background it fits the view. Locked entities never resolve.
     const onCanvasDoubleClick = useCallback((e: React.MouseEvent) => {
         const host = e.currentTarget as HTMLElement;
+        drawPending();
         if (itemKeyAt(host, e.clientX, e.clientY) !== undefined || linkKeyAt(host, e.clientX, e.clientY) !== undefined
             || zoneKeyAt(host, e.clientX, e.clientY) !== undefined) {
             onOpen?.();
             return;
         }
         resetView();
-    }, [itemKeyAt, linkKeyAt, zoneKeyAt, resetView, onOpen]);
+    }, [drawPending, itemKeyAt, linkKeyAt, zoneKeyAt, resetView, onOpen]);
     const zoomBy = useCallback((factor: number) => {
         const sz = renderSnapRef.current.size;
         if (sz === null) return;
