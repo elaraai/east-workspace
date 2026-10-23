@@ -36,7 +36,7 @@
  * @packageDocumentation
  */
 
-import { memo, useLayoutEffect, useState, type Ref } from "react";
+import { memo, useLayoutEffect, useMemo, useState, type Ref } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import type { RGB, SchematicLinkLook, SchematicPalette } from "./paint";
 import { tintAttributes, type SchematicTint } from "./tints";
@@ -73,7 +73,9 @@ export interface SchematicProbeProps {
  * @returns The probe
  */
 export const SchematicProbe = memo(function SchematicProbe({ tints, probeRef }: SchematicProbeProps) {
-    const styles = useSlotRecipe({ key: "schematic" })() as Record<string, SystemStyleObject>;
+    // The recipe's styles, resolved once a recipe: the probe draws again as each window's colours do.
+    const recipe = useSlotRecipe({ key: "schematic" });
+    const styles = useMemo(() => recipe() as Record<string, SystemStyleObject>, [recipe]);
     return (
         <Box ref={probeRef} css={styles.probe} aria-hidden="true" data-schematic-probe="">
             {PALETTE_ROLES.map((role) => <span key={role} data-role={role} />)}

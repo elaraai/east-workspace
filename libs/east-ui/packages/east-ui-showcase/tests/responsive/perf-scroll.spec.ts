@@ -23,21 +23,19 @@
  * - the Calendar's 12,000 events (`calendarRecordIndexes`) across its
  *   Timeline at 1,500 px/s for 3 s.
  *
- * Each records the frames (how many, the longest, how many took longer than one
- * and two 60 Hz frames), the long animation frames — the browser's
- * `long-animation-frame` entries: how many, their total and blocking time, the
- * longest, the time in script, in forced style and layout, in the rendering
- * phase and in style and layout, and the script time by what invoked it — and
- * the page reads the page made meanwhile. It prints them as JSON and holds no
- * budget.
+ * Each records what it cost the main thread (`main-thread-cost.ts`' `costOf`:
+ * the frames, and the browser's long animation frames by what invoked their
+ * scripts) and the page reads the page made meanwhile. It prints them as JSON
+ * and holds no budget.
  *
  * Run (from the showcase, over its build):
  * `E3_UI_PERF=1 pnpm exec playwright test perf-scroll --project desktop --workers 1`.
  */
 
-import { expect, test, type Locator, type Page } from "playwright/test";
+import { expect, test, type Locator } from "playwright/test";
 import { visitBuilder } from "./builder-page";
 import { e3Requests, heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
+import { costOf } from "./main-thread-cost";
 import { settled } from "./settle";
 
 /** Whether the measurement runs: `E3_UI_PERF=1`, as the renderers' benchmarks are asked for. */
@@ -47,97 +45,6 @@ const PERF = process.env["E3_UI_PERF"] === "1";
 const SPEED = 1_500;
 const FLING = 12_000;
 const SECONDS = 3;
-
-/** What a stretch of the page's work cost the main thread. */
-interface Cost {
-    readonly ms: number;
-    readonly frames: number;
-    readonly fps: number;
-    readonly longestFrame: number;
-    readonly over16: number;
-    readonly over33: number;
-    readonly loaf: {
-        readonly count: number;
-        readonly total: number;
-        readonly blocking: number;
-        readonly longest: number;
-        readonly script: number;
-        readonly forcedStyleAndLayout: number;
-        readonly rendering: number;
-        readonly styleAndLayout: number;
-        readonly byInvoker: readonly string[];
-    };
-}
-
-/** The measurement's state on the page's window. */
-const PROBE = "__cl9Probe";
-
-/**
- * The page's main-thread cost while `work` runs: the frames it drew and the
- * long animation frames the browser reported, the last delivered after `work`
- * is done.
- */
-async function costOf(page: Page, work: () => Promise<unknown>): Promise<Cost> {
-    await page.evaluate((name) => {
-        const probe = { loafs: [] as PerformanceEntry[], frames: [] as number[], drawing: true, start: performance.now(), observer: undefined as PerformanceObserver | undefined };
-        probe.observer = new PerformanceObserver((list) => { probe.loafs.push(...list.getEntries()); });
-        probe.observer.observe({ type: "long-animation-frame", buffered: false });
-        const frame = (now: number) => { probe.frames.push(now); if (probe.drawing) requestAnimationFrame(frame); };
-        requestAnimationFrame(frame);
-        (window as unknown as Record<string, unknown>)[name] = probe;
-    }, PROBE);
-    await work();
-    return page.evaluate(async (name): Promise<Cost> => {
-        type Script = { duration: number; invoker: string; invokerType: string; forcedStyleAndLayoutDuration: number };
-        type Loaf = PerformanceEntry & { blockingDuration: number; renderStart: number; styleAndLayoutStart: number; scripts: Script[] };
-        const probe = (window as unknown as Record<string, { loafs: Loaf[]; frames: number[]; drawing: boolean; start: number; observer: PerformanceObserver }>)[name]!;
-        const end = performance.now();
-        probe.drawing = false;
-        // The last frames' entries are delivered after them.
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        probe.observer.disconnect();
-        const frames = probe.frames.filter((t) => t <= end);
-        const gaps = frames.slice(1).map((t, i) => t - frames[i]!);
-        const during = probe.loafs.filter((l) => l.startTime + l.duration >= probe.start && l.startTime <= end);
-        const byInvoker = new Map<string, number>();
-        let script = 0;
-        let forced = 0;
-        let rendering = 0;
-        let styleAndLayout = 0;
-        for (const l of during) {
-            const frameEnd = l.startTime + l.duration;
-            if (l.renderStart > 0) rendering += frameEnd - l.renderStart;
-            if (l.styleAndLayoutStart > 0) styleAndLayout += frameEnd - l.styleAndLayoutStart;
-            for (const s of l.scripts) {
-                script += s.duration;
-                forced += s.forcedStyleAndLayoutDuration;
-                const key = `${s.invokerType} ${s.invoker}`;
-                byInvoker.set(key, (byInvoker.get(key) ?? 0) + s.duration);
-            }
-        }
-        const round = (n: number) => Math.round(n);
-        const seconds = (end - probe.start) / 1000;
-        return {
-            ms: round(end - probe.start),
-            frames: frames.length,
-            fps: Math.round((frames.length / seconds) * 10) / 10,
-            longestFrame: round(Math.max(0, ...gaps)),
-            over16: gaps.filter((g) => g > 1000 / 60 + 0.5).length,
-            over33: gaps.filter((g) => g > 2000 / 60 + 0.5).length,
-            loaf: {
-                count: during.length,
-                total: round(during.reduce((sum, l) => sum + l.duration, 0)),
-                blocking: round(during.reduce((sum, l) => sum + l.blockingDuration, 0)),
-                longest: round(Math.max(0, ...during.map((l) => l.duration))),
-                script: round(script),
-                forcedStyleAndLayout: round(forced),
-                rendering: round(rendering),
-                styleAndLayout: round(styleAndLayout),
-                byInvoker: [...byInvoker.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k}: ${round(v)} ms`),
-            },
-        };
-    }, PROBE);
-}
 
 /** A scroll of `target` at `speed` px/s for {@link SECONDS}, along `axis`, a frame at a time: the px it moved. */
 function scroll(target: Locator, axis: "x" | "y", speed: number): Promise<number> {

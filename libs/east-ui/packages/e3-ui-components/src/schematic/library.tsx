@@ -234,7 +234,9 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
         words, followed, picked, onPick, enter,
     } = props;
     const m = words.m;
-    const styles = useSlotRecipe({ key: "schematic" })() as Styles;
+    // The recipe's styles, resolved once a recipe: the frame renders it again as each window lands.
+    const recipe = useSlotRecipe({ key: "schematic" });
+    const styles = useMemo(() => recipe() as Styles, [recipe]);
     const library = value.library;
     const listsBacklog = library.some((tab) => tab.type === "backlog");
     // A touch screen: a tap on the selected card drops it, as its ⏎ does (SC13).

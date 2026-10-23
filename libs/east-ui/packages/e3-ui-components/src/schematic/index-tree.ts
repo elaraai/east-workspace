@@ -33,7 +33,7 @@
 
 import { StringType, equalFor } from "@elaraai/east";
 import type { DrawnItem, DrawnZone } from "./canvas/drawn.js";
-import type { NavZone } from "./canvas/model.js";
+import { byLabel, type NavZone } from "./canvas/model.js";
 
 const stringEqual = equalFor(StringType);
 
@@ -70,10 +70,6 @@ export type IndexRow = IndexPlace & (
 
 /** What one level of the Index lists: a zone, or an item. */
 type IndexEntry = { readonly kind: "zone"; readonly node: NavZone } | { readonly kind: "item"; readonly item: DrawnItem };
-
-/** Labels in natural order: `A2` before `A10`. */
-const byLabel = (a: { readonly label: string }, b: { readonly label: string }): number =>
-    a.label.localeCompare(b.label, undefined, { numeric: true });
 
 /** How many items a zone holds, its nested zones' among them. */
 function countOf(node: NavZone): number {

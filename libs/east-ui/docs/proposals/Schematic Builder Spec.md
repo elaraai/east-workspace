@@ -181,6 +181,7 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D50 | **A rail's editor keeps to its frame.** A field's editor — a chip's, or the Filters' — opens inside the frame's sides while it fits between them, sliding along its trigger rather than hanging past the frame's side; in a frame narrower than it, a phone's, inside the page. Down the page it keeps to the page, flipping above its trigger where there is no room below. In every builder's rail (`SliceEditPopover`, over `frameBounds`). | my call (#1393), on the hand test of 23 Oct 2026 |
 | D51 | **Beside a kind read by area, the Backlog is one paged list.** The rows in hand first — those of the kinds read whole or complete, and the drafted rows with no position — then each kind read by area's, a page of 32 at a time through the area index its window reads through, by its unplaced clause (§11.4): the narrowing's choices that index leads read with it, so the tab counts `N of M` while they narrow it. A choice no area index leads is asked of each page's rows in one `within` (D28), and a row it leaves out draws as context, faded and never dragged, as does a stored row a draft has placed or deleted. A drop or a card's ⏎ places a row at once, the row its page read the gesture's original, and the row draws where it lands while its draft waits, though its window doesn't hold it. The list has no search box: no index answers a search beside the unplaced clause. | my call (#1393), building §8 |
 | D52 | **The Index reads a kind read by area itself.** An open zone's items are read by its box through the area index its window would read through — the box's cells counted, then their entries read while they hold no more than a window reads (20,000), each cell's kept while an open zone wants it — the rows whose centre the zone holds its items, the narrowing's choices the index doesn't lead asked of them (D28). A zone counts such items only once its box, or an enclosing zone's, is read, and opens to read it; one holding more says so under the tree. The search reads each such kind through its source's `search` fields, a prefix as a paged tab's search reads it, its first 50 matches listed under their zones and how many more said. Its items in no zone, and those with no position, are listed only by the search and the Backlog. | my call (#1393), building §8 |
+| D53 | **A window lands without a stutter.** The rows a kind read by area reads are made by its `rowsOf` each once — kept by key while a row reads again as it was, the same object or one East holds equal, so a window over rows another window made makes only the rows it adds — and a budget's worth a read (12 ms, a batch of 64 rows at least), the rest by the next read a task later, a frame drawing between. A kind whose rows are still being made keeps what was drawn of it, and the reader hands the frame what it read in a task of its own. Wheeled from Fit to 40× and back over the floor of 20,000 racks, no frame takes over 50 ms (§10.4, SC42). | my call (#1393), on the hand test of 23 Oct 2026 |
 
 ## 4. The kinds
 
@@ -642,9 +643,13 @@ What each read brings, in the reader components:
   window is read by its key, all of a window's in one request (§12).
 - **Readers.** The reads run in components of their own (`SchematicDataReader`,
   as `CalendarDataReader` and `RosterDataReader` do). They hand the frame what
-  they read only when that moves.
+  they read only when that moves, and in a task of their own. A kind read by
+  area's rows are made by its `rowsOf` each once, a budget's worth a read, the
+  rest a task later, so a window of thousands of rows never stutters the page
+  as it lands (D53).
 - **Bounds.** The paged runtime's and the record slice's caches keep their
-  limits (24 windows; 32 windows of 2,048 rows; 1,024 searches).
+  limits (24 windows; 32 windows of 2,048 rows; 1,024 searches). What a kind's
+  `rowsOf` made is kept for as many rows as a window reads, 20,000 (D53).
 
 ## 11. The area index (#1350)
 
@@ -989,6 +994,7 @@ records in the file, and each Schematic named by its `id`:
 | SC39 | `canConnect` hears the gesture's `Candidate`: `none` lets it snap and record, and words refuse it; a veto that throws allows the pair and logs it. | renderer | DOM |
 | SC40 | A rail's chip counts its value's own rows under the other fields' choices, the chosen marked (D46); a field's editor opens inside the frame's sides while it fits between them, else inside the page, and flips above its trigger down the page as before (D50). Every builder's rail. | east-ui `runtime/record-slice.ts` (`values`), east-ui-components `overlays/popover/frame-bounds.ts` | spec; pure; responsive (`schematic-narrowing.spec.ts`, `allocation-narrowing.spec.ts`) |
 | SC41 | Beside a kind read by area, the Backlog pages its rows with no position through the area index's unplaced clause, counted `N of M`, a choice no area index leads drawn as context, and a drop places a row at once (D51); the Index reads an open zone's items by its box, counted once read, and finds through the sources' `search` fields (D52) — never the record read whole. | renderer `backlog-pages.ts`, `index-area.ts` | DOM on e3-web: request log (`schematic-area-library.dom.test.tsx`); pure (`index-tree.test.ts`) |
+| SC42 | Wheeled from Fit to 40× and back over the floor of 20,000 racks, no frame takes over 50 ms and the browser reports no long animation frame as its windows land: a row is made once, a budget's worth a read (D53). | renderer `made-rows.ts`, `data.ts`, `canvas/view.tsx` | pure (`made-rows.test.ts`); `E3_UI_PERF=1` (`schematic-perf.spec.ts`), never in CI |
 
 The area index's rules are §11.5's tests; the rows form's are §12's.
 
@@ -1012,6 +1018,7 @@ The area index's rules are §11.5's tests; the rows form's are §12's.
 - `edits.ts`: each gesture's rows, pure.
 - `drop.ts` (pure) and `use-drop.ts`.
 - `data.ts`: `SchematicDataReader`: the window's, the density's, the details' and the far ends' reads.
+- `made-rows.ts`: a kind read by area's rows made by its `rowsOf` each once, a budget's worth a read (D53).
 
 **e3 (`packages/e3/src/record-area.ts`, `record-index.ts`).** The generated
 keys, as `record-interval.ts`'s, `cell`, the whole-row projection, and the two
