@@ -517,6 +517,15 @@ that refuses, goes into the e3-ui example module it belongs to.
 
 ### Links that are drag grips, and lines that follow the pointer
 
+The links' look is one look on two surfaces (#1403): its measures — the
+casing, the round corner, the head, the hit reach, the caption's knockout and
+the lit link's ring — are `src/shared/links/look.ts`'s, which the SVG layer
+draws with, and the Canvas2D painter beside it (`canvas.ts`) draws the same
+look for a host whose links are painted: the Schematic's links and nets, their
+ends on their items' edges, in the colours and the caption's font its theme
+probe reads from the theme's `linkRibbons` part, as the Plan's are drawn in.
+The routes stay each host's own.
+
 The shared links layer (`src/shared/links/layer.tsx`) draws only what a host
 opts into beyond Plan's links, and Plan opts into none of it: a `grip`, the
 host's component drawn in each link's line and in each caption that takes the

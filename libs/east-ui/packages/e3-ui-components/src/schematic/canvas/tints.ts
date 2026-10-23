@@ -6,8 +6,10 @@
 /**
  * An entity's colour, as its roles name it (#1387, D14, SC26): an item's
  * colour token, else its tone, else its status's; a zone's colour token, else
- * its tone, else its pattern's; a link's or a net's style's tone, else its
- * style's own; a layer's swatch its colour token, else its tone (#1389). The
+ * its tone, else its pattern's; a link's or a net's style's tone — one whose
+ * style names none draws in the shared links look's muted ink, which the theme
+ * bridge reads from the links part (#1403); a layer's swatch its colour token,
+ * else its tone (#1389). The
  * recipe's one chain of custom properties resolves it, for
  * the canvas — through the theme bridge's probe (`theme.tsx`) — and for an
  * item's card alike, so both draw one colour in each mode, and a value naming
@@ -69,15 +71,16 @@ export function zoneTint(zone: DrawnZone): SchematicTint {
 }
 
 /**
- * A link's or a net's colour roles: its style's tone, else its style's own —
- * a solid run the brand's, a dashed one muted.
+ * A link's or a net's colour roles: its style's tone (#1403). A style naming
+ * none has no colour of its own: it draws in the shared links look's muted ink,
+ * as the Plan's and the Allocation's links do.
  *
  * @param edge - The link or the net, as the canvas draws it
- * @returns Its colour roles
+ * @returns Its colour roles; `undefined` for a style naming no tone
  */
-export function edgeTint(edge: DrawnLink | DrawnNet): SchematicTint {
-    const tone = getSomeorUndefined(edge.style.value.tone)?.type ?? (edge.style.type === "solid" ? "brand" : "muted");
-    return { surface: "link", tone };
+export function edgeTint(edge: DrawnLink | DrawnNet): SchematicTint | undefined {
+    const tone = getSomeorUndefined(edge.style.value.tone)?.type;
+    return tone === undefined ? undefined : { surface: "link", tone };
 }
 
 /**
@@ -137,7 +140,8 @@ export interface SchematicTints {
 export function tintsOf(drawn: SchematicDrawn): SchematicTints {
     const specs = new Map<string, SchematicTint>();
     const byEntity = new Map<string, string>();
-    const take = (id: string, tint: SchematicTint) => {
+    const take = (id: string, tint: SchematicTint | undefined) => {
+        if (tint === undefined) return;
         const key = tintKey(tint);
         if (!specs.has(key)) specs.set(key, tint);
         byEntity.set(id, key);

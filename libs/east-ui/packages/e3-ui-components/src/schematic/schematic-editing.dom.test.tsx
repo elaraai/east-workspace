@@ -47,19 +47,27 @@ const fibreEqual = equalFor(ex.DcFibre);
 const printText = printFor(StringType);
 const printRefs = printFor(ArrayType(Schematic.Types.Ref));
 
-/** Where each card the tests press sits, by kind, key and centre in metres. */
-const CENTRES: readonly (readonly [kind: string, key: string, x: number, y: number])[] = [
-    ["racks", "A01", 2.4, 2.9], ["racks", "A02", 6.0, 2.9], ["racks", "A03", 9.6, 2.9], ["racks", "A04", 13.2, 2.9], ["racks", "A05", 16.8, 2.9],
-    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6], ["pdus", "PDU-A", 1.6, 4.2], ["pdus", "PDU-B", 18.6, 4.2],
+/**
+ * Where each card the tests press sits — by kind, key and centre in metres — and its box, as the canvas reckons it with no
+ * page to lay it out (`tierSize`): its own width, a rack 60px tall (its model, its load's meter and figure), a frame or a
+ * unit 37px (its kind) — the box a run's end meets it at (#1403).
+ */
+const CARDS: readonly (readonly [kind: string, key: string, x: number, y: number, w: number, h: number])[] = [
+    ["racks", "A01", 2.4, 2.9, 3.2, 60], ["racks", "A02", 6.0, 2.9, 3.2, 60], ["racks", "A03", 9.6, 2.9, 3.2, 60], ["racks", "A04", 13.2, 2.9, 3.2, 60],
+    ["racks", "A05", 16.8, 2.9, 3.2, 60], ["network", "MMR-1", 24.2, 2.9, 4.0, 37], ["network", "ODF-1", 8.4, 9.6, 12.8, 37],
+    ["pdus", "PDU-A", 1.6, 4.2, 1.2, 37], ["pdus", "PDU-B", 18.6, 4.2, 1.2, 37],
 ];
 
-/** Lets each card answer at its centre, as a page would hit it: where a drag presses and lets go. */
+/** ODF-1's top edge, in metres: where u1, down from A01, meets it — its handle there once it is selected (#1403). */
+const ODF1_TOP = 9.6 - 37 / 2 / PPU;
+
+/** Lets each card answer anywhere in its box, as a page would hit it: where a drag presses and lets go. */
 function hits(container: HTMLElement) {
-    const found = CENTRES.flatMap(([kind, key, x, y]) => {
+    const found = CARDS.flatMap(([kind, key, x, y, w, h]) => {
         const el = card(container, kind, key);
-        return el === null ? [] : [[el, x, y] as const];
+        return el === null ? [] : [[el, x * PPU, y * PPU, (w * PPU) / 2, h / 2] as const];
     });
-    canvasLayout.hits((px, py) => found.find(([, x, y]) => Math.hypot(px - x * PPU, py - y * PPU) < 4)?.[0] ?? null);
+    canvasLayout.hits((px, py) => found.find(([, x, y, hw, hh]) => Math.abs(px - x) <= hw && Math.abs(py - y) <= hh)?.[0] ?? null);
 }
 
 /** The canvas. */
@@ -249,11 +257,11 @@ test("a Shift-drag grows the session into a fibre trunk, absorbing the run it gr
 test("Retarget writes the end of the run it moves, and every other field of it stands; an end no field holds goes danger first (SC10)", async () => {
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
-    // u1 runs from A01 down to ODF-1's level, then across to it: a tap on its path selects it.
-    await tap(canvas, PPU, 5.2, 9.6);
+    // u1 runs down from A01's foot to ODF-1's top (#1403): a tap on its path selects it.
+    await tap(canvas, PPU, 2.4, 6.0);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
-    // Its end at ODF-1 is a handle: pressed, the run's end follows the pointer — over PDU-A, refused; on to MMR-1, let go.
-    await act(async () => { pointer(canvas, "pointerDown", 8.4, 9.6); pointer(canvas, "pointerMove", 1.6, 4.2); });
+    // Its end on ODF-1's top edge is a handle: pressed, the run's end follows the pointer — over PDU-A, refused; on to MMR-1, let go.
+    await act(async () => { pointer(canvas, "pointerDown", 2.4, ODF1_TOP); pointer(canvas, "pointerMove", 1.6, 4.2); });
     expect(container.querySelector("[data-schematic-refusal]")?.textContent).toBe("Fibre run can't end at PDU-A");
     await act(async () => { pointer(canvas, "pointerMove", 24.2, 2.9); pointer(canvas, "pointerUp", 24.2, 2.9); });
     await settle();
@@ -266,10 +274,10 @@ test("Retarget writes the end of the run it moves, and every other field of it s
 test("a tap on a selected run's end selects the item there and records nothing: only a press that moves retargets it (SC10)", async () => {
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
-    await tap(canvas, PPU, 5.2, 9.6);
+    await tap(canvas, PPU, 2.4, 6.0);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
-    // u1's end at ODF-1 is a handle, and ODF-1 is under it: let go where it was pressed, the press is a tap.
-    await tap(canvas, PPU, 8.4, 9.6);
+    // u1's end on ODF-1's top edge is a handle, and ODF-1 is under it: let go where it was pressed, the press is a tap.
+    await tap(canvas, PPU, 2.4, ODF1_TOP + 1 / PPU);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "network", key: "ODF-1" }])));
     expect(pending(container)).toBeUndefined();
 });
@@ -285,9 +293,9 @@ test("Extend adds a rack to a selected feed; Del on a leg takes its rack off the
     await tool(container, "Connect");
     await drag(canvas, [6.0, 2.9], [13.2, 2.9], true);
     expect(pending(container)).toBe("1 pending");
-    // Feed B's leg to A05, tapped: Del takes A05 off it.
+    // Feed B's leg to A05, tapped where it shows — between the bar and A05's foot, its head (#1403): Del takes A05 off it.
     await tool(container, "Select");
-    await tap(canvas, PPU, 16.8, 3.5);
+    await tap(canvas, PPU, 16.8, 3.74);
     await waitFor(() => expect(kept()).toBe(printRefs([{ kind: "feeds", key: "feed-b" }])));
     await del();
     expect(pending(container)).toBe("2 pending");

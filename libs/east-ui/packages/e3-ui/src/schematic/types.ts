@@ -95,14 +95,14 @@ export type SchematicZonePatternType = typeof SchematicZonePatternType;
 export const SchematicLinkStyleType = VariantType({
     /** A physical run (fibre, power cable) */
     solid: StructType({
-        /** Stroke tone (default `brand`) */
+        /** Stroke tone (default: the links' muted ink, #1403) */
         tone: OptionType(SchematicToneType),
         /** Stroke width in pixels (default 2.5) */
         weight: OptionType(FloatType),
     }),
     /** A routing / logical connection */
     dashed: StructType({
-        /** Stroke tone (default `muted`) */
+        /** Stroke tone (default: the links' muted ink, #1403) */
         tone: OptionType(SchematicToneType),
         /** Stroke width in pixels (default 1.5) */
         weight: OptionType(FloatType),
@@ -476,7 +476,7 @@ export type SchematicZoneType = typeof SchematicZoneType;
  * @property from - The item it runs from
  * @property to - The item it runs to
  * @property via - Its waypoints, in world units, in order
- * @property label - The pill at its path's middle
+ * @property label - Its caption, on a knockout at its path's middle
  * @property metric - The figure after its label
  * @property style - Solid or dashed, its tone and its weight
  * @property route - Orthogonal or direct
@@ -503,7 +503,7 @@ export type SchematicLinkType = typeof SchematicLinkType;
  * @property sources - The items on its feeding side
  * @property destinations - The items on its fed side
  * @property via - Its trunk's waypoints, in world units, in order
- * @property label - The pill at its trunk's middle
+ * @property label - Its caption, on a knockout at its trunk's middle
  * @property metric - The figure after its label
  * @property style - Solid or dashed, its tone and its weight
  * @property route - Its trunk: orthogonal or direct

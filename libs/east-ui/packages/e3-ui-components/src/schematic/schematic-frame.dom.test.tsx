@@ -405,15 +405,20 @@ test("the canvas's probe resolves its own marks' colours and fonts, and each col
     expect(probe.querySelectorAll("[data-role]")).toHaveLength(16);
     expect([...probe.querySelectorAll("[data-font]")].map((el) => el.getAttribute("data-font"))).toEqual(["label", "eyebrow"]);
     // Each colour once: the items in their ground, naming none; the rooms outlined in their pattern's muted, the cold aisle hatched in the
-    // brand's and the hot in warning's; the fibre runs solid in the brand's, and a logical run dashed and muted.
+    // brand's and the hot in warning's. The fibre runs and the feeds name no tone of their own: they draw in the links' look (#1403).
     expect([...probe.querySelectorAll("[data-tint]")].map(tintOf).sort()).toEqual([
         "data-surface=item data-color= data-tone= data-status= data-pattern=",
-        "data-surface=link data-color= data-tone=brand data-status= data-pattern=",
-        "data-surface=link data-color= data-tone=muted data-status= data-pattern=",
         "data-surface=zone data-color= data-tone= data-status= data-pattern=brand",
         "data-surface=zone data-color= data-tone= data-status= data-pattern=muted",
         "data-surface=zone data-color= data-tone= data-status= data-pattern=warning",
     ]);
+    // The links' look: the shared links part's own elements, at rest and lit, a caption on its knockout, a moved link's line and a drag's.
+    const parts = probe.querySelector("[data-schematic-links]")!;
+    expect([
+        "[data-plan-casing='band']", "[data-plan-link]:not([data-lit]) [data-plan-ribbon-band]", "[data-plan-link][data-lit] [data-plan-ribbon-band]",
+        "[data-plan-linkend]", "[data-plan-ribbon-knockout]", "[data-plan-ribbon-caption]", "[data-was] [data-plan-ribbon-band]",
+        "[data-plan-link-preview] [data-plan-ribbon-band]",
+    ].filter((selector) => parts.querySelector(selector) === null)).toEqual([]);
     // A card whose item names no colour draws no dot.
     expect(card(container, "racks", "A01")!.querySelector("[data-surface]")).toBeNull();
 });
