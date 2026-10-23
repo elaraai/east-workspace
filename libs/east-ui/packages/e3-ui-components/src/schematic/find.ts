@@ -4,110 +4,281 @@
  */
 
 /**
- * Find (#1387, §6.1): the toolbar's search over the item kinds' keys — the
+ * Find (#1387, #1404, §6.1): the toolbar's search over the item kinds' keys,
+ * each kind sought in its own record, never in what the canvas draws — the
  * shared key search's item (`useKeySearchToolbarItem`), its box folding to its
- * icon, then into the View popover on a phone — over the items the drawing
- * holds, each kind's read whole or complete through its source. A pick flies
- * to the item and selects it. ⌘F focuses it (`focusKeySearch`).
+ * icon, then into the View popover on a phone. ⌘F focuses it
+ * (`focusKeySearch`).
  *
- * The shared search asks its source for a run of rows, labels a window of
- * them for its list and jumps to one; here the rows are the items a query
- * finds, in East's order of their keys, each kind's in the order the
- * Schematic lists its kinds where two share a key. Bare text finds an item
- * whose key starts with it or whose label holds it, either in any case; a
- * quoted key (`"A01"`) finds the items of that key; a range (`A01..A04`) the
- * keys in it.
+ * - **A kind read through its source of the slice** is sought in its record's
+ *   own order, through e3: `recordSliceSeek` with no narrowing places the
+ *   query's run, `recordSlicePage` reads the rows a list shows by position,
+ *   each made its roles by the kind's `read`, and `recordSliceWithin` asks, in
+ *   one request, which of them the rail's narrowing holds.
+ * - **A kind read whole** is sought in its rows — every row of its record —
+ *   its keys in East's order, as the server finds a key (`findKeyInline`).
+ *
+ * The query is the shared key search's: a key's start, a quoted key or a
+ * range, keys case-sensitive, as the Sheet's Search Records takes it. The
+ * matches are one list: each kind's in its keys' order, the kinds in the order
+ * the Schematic lists them, each kind's run after the one before. A line names
+ * an item by its key, its label where it is not its key, and its kind's name,
+ * and says what keeps it off the canvas: the rail's filters, its layer, or no
+ * position. A pick hands the frame the item and what it knows of it
+ * (`onPick`). The box asks its query again when a source's record moves.
  *
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { StringType, compareFor, equalFor, parseFor, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
-import { keyRangePredicates, type DatasetKeyMatchRange, type DatasetKeyQuery } from "@elaraai/east-ui/internal";
-import type { KeySearchSource } from "@elaraai/east-ui-components";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { StringType, compareFor, equalFor, match, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
+import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
+import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { entityId, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
+import type { RowCodec } from "../shared/schedule/records.js";
+import type { SchematicWords } from "./messages.js";
 
 /** An item's key is a String: the search's text parses against that. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
-/** An empty box lists the items in hand, reading nothing. */
+
+const compareKey = compareFor(StringType);
+const keyEqual = equalFor(StringType);
+
+/** No narrowing: a record's own rows, in its order. */
+const WHOLE: ValueTypeOf<typeof RecordSliceWhereType> = new Map();
+
+/** An empty box lists the first of the matches every item kind's record holds. */
 const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
 
-const keyOrder = compareFor(StringType);
-const keyEqual = equalFor(StringType);
-const readKey = parseFor(StringType);
+/** An Option's value, or `undefined`. */
+const someOf = <T,>(opt: option<T>): T | undefined => match(opt, { some: (value) => value }, undefined);
 
-/** One item, as Find lists it. */
-export interface FindableItem {
-    /** Its id on the canvas: what a pick flies to. */
-    readonly id: string;
-    /** Its key in its kind's record. */
+/** A record Slice's part, as a kind's source of the slice. */
+type RecordPart = ValueTypeOf<RecordSliceBindType>;
+
+/** An entry of a record's window, as every record Slice binding reads one: its key — a kind's are Strings — and its row, joined. */
+interface RecordEntry {
     readonly key: string;
+    readonly row: option<unknown>;
+}
+
+/** One item kind, as Find seeks it. */
+export interface FindKind {
+    /** Its slot. */
+    readonly slot: string;
+    /** Its name (`Rack`). */
+    readonly name: string;
+    /** Its source of the slice, whose record it is sought in, through e3; `undefined` for a kind read whole. */
+    readonly part: RecordPart | undefined;
+    /** Its rows, read whole — every row of its record, by key, each its roles; none while the read is in flight. */
+    readonly rows: () => option<ReadonlyMap<string, { readonly roles: ItemRoles }>>;
+    /** A stored row's roles, from its bytes and its key. */
+    readonly read: (bytes: Uint8Array, key: string) => ItemRoles;
+    /** Its record's rows, as bytes and back. */
+    readonly codec: RowCodec;
+}
+
+/** One item Find found. */
+export interface FoundItem {
+    /** Its id on the canvas: its reference, printed. */
+    readonly id: string;
+    /** Its kind's slot and its key. */
+    readonly ref: SchematicRef;
     /** Its card's name. */
     readonly label: string;
-    /** Its kind's name (`Rack`). */
+    /** Its kind's name. */
     readonly kind: string;
-    /** Its kind's place among the Schematic's item kinds: the order of two items of one key. */
-    readonly order: number;
+    /** Its centre; `undefined` for a row with no position. */
+    readonly position: { readonly x: number; readonly y: number } | undefined;
+    /** The layer it is on, by the layer's key. */
+    readonly layer: string | undefined;
+    /** Whether the rail's narrowing of its kind's source leaves it out. */
+    readonly filtered: boolean;
 }
 
+/** What keeps a found item off the canvas, as its line marks it — or `undefined` while nothing does. */
+export type FoundMark = "hidden" | "dimmed" | "layer" | "unplaced" | undefined;
+
 /**
- * The items a query finds, in East's order of their keys, then their kinds'
- * (see the module docs).
+ * What keeps a found item off the canvas: no position first, then the rail's filters — `dimmed` where the narrowing
+ * draws what it leaves out as context — then a hidden layer.
  *
- * @param items - The items the drawing holds
- * @param query - The query the search's box parsed
- * @returns The items found
+ * @param item - The item found
+ * @param dim - Whether the narrowing dims what it leaves out
+ * @param hiddenLayers - The layers hidden, by key
+ * @returns Its mark
  */
-export function findItems(items: readonly FindableItem[], query: DatasetKeyQuery): FindableItem[] {
-    const byKey = [...items].sort((a, b) => keyOrder(a.key, b.key) || a.order - b.order);
-    if ("key" in query) {
-        const read = readKey(query.key);
-        return read.success ? byKey.filter((item) => keyEqual(item.key, read.value)) : [];
-    }
-    if ("prefix" in query && !("fields" in query)) {
-        const text = query.prefix.toLowerCase();
-        return byKey.filter((item) => item.key.toLowerCase().startsWith(text) || item.label.toLowerCase().includes(text));
-    }
-    const range = keyRangePredicates(KEY_TYPE, query);
-    return range === null ? [] : byKey.filter((item) => range.lower(item.key) && !range.upper(item.key));
+export function foundMark(item: FoundItem, dim: boolean, hiddenLayers: ReadonlySet<string>): FoundMark {
+    if (item.position === undefined) return "unplaced";
+    if (item.filtered) return dim ? "dimmed" : "hidden";
+    return item.layer !== undefined && hiddenLayers.has(item.layer) ? "layer" : undefined;
 }
 
 /**
- * How an item reads in Find's list: its key, its label when it is not its key,
- * and its kind's name.
+ * How a found item reads in Find's list: its key, its label when it is not its key, its kind's name, and what keeps
+ * it off the canvas.
  *
  * @param item - The item
+ * @param mark - What keeps it off the canvas
+ * @param words - The Schematic's words
  * @returns Its line
  */
-export function itemLine(item: FindableItem): string {
-    return keyEqual(item.label, item.key) ? `${item.key} · ${item.kind}` : `${item.key} · ${item.label} · ${item.kind}`;
+export function foundLine(item: FoundItem, mark: FoundMark, words: SchematicWords): string {
+    const parts = keyEqual(item.label, item.ref.key) ? [item.ref.key, item.kind] : [item.ref.key, item.label, item.kind];
+    return [...parts, ...(mark === undefined ? [] : [words.m.findMark({ mark })])].join(" · ");
 }
 
 /**
- * Find's source, for the shared key search's toolbar item.
+ * The keys of a kind read whole that a query finds, in East's order: as the server finds a key in a record's own
+ * order (`findKeyInline`) — a key's start, a quoted key, a range.
  *
- * @param items - The items the drawing holds
- * @param noMatches - What a query that finds nothing says
- * @param onPick - Told the id of the item a pick lands on
+ * @param keys - The kind's keys, in any order
+ * @param query - The query the box parsed
+ * @returns The keys it finds, in order
+ */
+export function wholeMatches(keys: readonly string[], query: DatasetKeyQuery): string[] {
+    const sorted = [...keys].sort(compareKey);
+    const range = findKeyInline(KEY_TYPE, sorted, query);
+    return range.found ? sorted.slice(range.row, range.row + range.count) : [];
+}
+
+/** One kind's matches: a run of its record's rows, from `start`, or a kind read whole's keys. */
+export interface FindRun {
+    /** The kind. */
+    readonly kind: FindKind;
+    /** Where its matches start, in its record's own order: a kind read through its source. */
+    readonly start: number;
+    /** How many it finds. */
+    readonly count: number;
+    /** A kind read whole's matches' keys, in order. */
+    readonly keys: readonly string[] | undefined;
+}
+
+/**
+ * The runs a list's rows `[row, row + limit)` fall in: each kind's matches after the one before.
+ *
+ * @param runs - Each kind's matches, in the Schematic's order of its kinds
+ * @param row - The list's first row
+ * @param limit - How many rows
+ * @returns Each run's part of the rows: the run, the first of its matches, how many, and the list's row it is at
+ */
+export function runsAt(runs: readonly FindRun[], row: number, limit: number): { run: FindRun; offset: number; n: number; at: number }[] {
+    const out: { run: FindRun; offset: number; n: number; at: number }[] = [];
+    let base = 0;
+    for (const run of runs) {
+        const from = Math.max(row, base), to = Math.min(row + limit, base + run.count);
+        if (from < to) out.push({ run, offset: from - base, n: to - from, at: from });
+        base += run.count;
+    }
+    return out;
+}
+
+/** An item found, from its kind's roles of its row. */
+function foundOf(kind: FindKind, key: string, roles: ItemRoles, filtered: boolean): FoundItem {
+    const ref = { kind: kind.slot, key };
+    const position = someOf(roles.position);
+    return {
+        id: entityId(ref), ref, label: roles.label, kind: kind.name,
+        position: position === undefined ? undefined : { x: position.x, y: position.y }, layer: someOf(roles.layer), filtered,
+    };
+}
+
+/**
+ * Some of a kind's matches, read: a kind read through its source's rows by position, through e3, and which of them its
+ * narrowing leaves out in one request; a kind read whole's from its rows.
+ */
+async function matchesOf(run: FindRun, offset: number, n: number): Promise<FoundItem[]> {
+    const { kind } = run;
+    if (kind.part === undefined || run.keys !== undefined) {
+        const rows = await awaitTracked(() => kind.rows());
+        return (run.keys ?? []).slice(offset, offset + n).flatMap((key) => {
+            const roles = rows.get(key)?.roles;
+            return roles === undefined ? [] : [foundOf(kind, key, roles, false)];
+        });
+    }
+    const part = kind.part;
+    // Every record Slice binding reads joined entries of its record's String keys: record.ts' bind refuses any other.
+    const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, BigInt(run.start + offset), BigInt(n))) as readonly RecordEntry[];
+    const rows = entries.flatMap((entry) => { const row = someOf(entry.row); return row === undefined ? [] : [{ key: entry.key, row }]; });
+    const where = part.read().where;
+    const held = where.size === 0 ? undefined : await awaitTracked(() => recordSliceWithin(part, where, rows));
+    return rows.map(({ key, row }, i) => foundOf(kind, key, kind.read(kind.codec.encode(row), key), held !== undefined && !held[i]));
+}
+
+/** Props of {@link useSchematicFind}. */
+export interface SchematicFindProps {
+    /** The item kinds, in the Schematic's order. */
+    readonly kinds: readonly FindKind[];
+    /** The Schematic's words. */
+    readonly words: SchematicWords;
+    /** Whether the narrowing dims what it leaves out. */
+    readonly dim: boolean;
+    /** The layers hidden, by key. */
+    readonly hiddenLayers: ReadonlySet<string>;
+    /** Moves whenever what the Schematic draws does: the box asks its query again, as a source's record moving does. */
+    readonly version: unknown;
+    /** Told the item a pick lands on. */
+    readonly onPick: (item: FoundItem) => void;
+}
+
+/**
+ * Find's source, for the shared key search's toolbar item (see the module docs).
+ *
+ * @param props - The kinds, the words, how the narrowing and the layers show, what moves the drawing, and the pick
  * @returns The source
  */
-export function useFindItem(items: readonly FindableItem[], noMatches: string, onPick: (id: string) => void): KeySearchSource {
-    // What the last find found, by row: the box asks for the rows' lines, and
-    // jumps to one, with what it captured before the find answered.
-    const found = useRef<readonly FindableItem[]>([]);
-    // What a find reads, and whom a pick tells: the latest.
-    const latest = useRef({ items, onPick });
-    useLayoutEffect(() => { latest.current = { items, onPick }; });
+export function useSchematicFind({ kinds, words, dim, hiddenLayers, version, onPick }: SchematicFindProps): KeySearchSource {
+    // What a find reads, and whom a pick tells: the latest — the box calls what it captured before the find answered.
+    const latest = useRef({ kinds, words, dim, hiddenLayers, onPick });
+    useLayoutEffect(() => { latest.current = { kinds, words, dim, hiddenLayers, onPick }; });
+    // What the last find found, each kind's run; a find answered after a newer one asked finds nothing here.
+    const found = useRef<readonly FindRun[]>([]);
+    const asked = useRef(0);
     const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
-        const matches = findItems(latest.current.items, query);
-        found.current = matches;
-        return { found: matches.length > 0, row: 0, count: matches.length };
+        const mine = ++asked.current;
+        const seek = toSeekQuery(query);
+        const runs = await Promise.all(latest.current.kinds.map(async (kind): Promise<FindRun> => {
+            if (kind.part !== undefined) {
+                const part = kind.part;
+                const range = await awaitTracked(() => recordSliceSeek(part, WHOLE, seek));
+                return { kind, start: range.found ? Number(range.row) : 0, count: range.found ? Number(range.count) : 0, keys: undefined };
+            }
+            const rows = await awaitTracked(() => kind.rows());
+            const keys = wholeMatches([...rows.keys()], query);
+            return { kind, start: 0, count: keys.length, keys };
+        }));
+        if (mine === asked.current) found.current = runs;
+        const count = runs.reduce((sum, run) => sum + run.count, 0);
+        return { found: count > 0, row: 0, count };
     }, []);
-    const listRange = useCallback(async (row: number, limit: number): Promise<string[]> => found.current.slice(row, row + limit).map(itemLine), []);
+    /** The matches at the list's rows `[row, row + limit)`, each with the row it is at. */
+    const itemsAt = useCallback(async (row: number, limit: number): Promise<{ at: number; item: FoundItem }[]> => {
+        const parts = await Promise.all(runsAt(found.current, row, limit).map(async ({ run, offset, n, at }) =>
+            (await matchesOf(run, offset, n)).map((item, i) => ({ at: at + i, item }))));
+        return parts.flat();
+    }, []);
+    const listRange = useCallback(async (row: number, limit: number) => {
+        const { words: w, dim: d, hiddenLayers: hidden } = latest.current;
+        return (await itemsAt(row, limit)).map(({ at, item }) => ({ row: at, label: foundLine(item, foundMark(item, d, hidden), w) }));
+    }, [itemsAt]);
     const jump = useCallback((row: number) => {
-        const item = found.current[row];
-        if (item !== undefined) latest.current.onPick(item.id);
-    }, []);
-    const clear = useCallback(() => { found.current = []; }, []);
-    return useMemo(() => ({ resetKey: "schematic", keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY, noMatchesText: noMatches }),
-        [find, listRange, jump, clear, noMatches]);
+        void itemsAt(row, 1).then(([hit]) => { if (hit !== undefined) latest.current.onPick(hit.item); })
+            .catch((error: unknown) => { console.error("[Schematic] Find could not read the item it found:", error); });
+    }, [itemsAt]);
+    const clear = useCallback(() => { asked.current++; found.current = []; }, []);
+    // The box asks its query again when a source's record moves, or anything the Schematic draws does.
+    const readRevisions = useCallback(() => kinds.map((kind) => (kind.part === undefined ? "" : someOf(recordSliceRevision(kind.part)) ?? "")).join("\n"), [kinds]);
+    const { result } = useTrackedEvaluation(readRevisions);
+    const revisions = result.ok ? result.value : "";
+    const [requery, setRequery] = useState(0);
+    const seen = useRef({ revisions, version });
+    useEffect(() => {
+        if (keyEqual(seen.current.revisions, revisions) && Object.is(seen.current.version, version)) return;
+        seen.current = { revisions, version };
+        setRequery((n) => n + 1);
+    }, [revisions, version]);
+    const noMatches = words.m.findNoMatches();
+    return useMemo(() => ({ resetKey: "schematic", requery, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY, noMatchesText: noMatches }),
+        [requery, find, listRange, jump, clear, noMatches]);
 }

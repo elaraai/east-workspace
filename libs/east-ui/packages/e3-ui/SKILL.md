@@ -2246,10 +2246,11 @@ hears the whole selection after each change — items, zones, links and nets
 alike, each a `Schematic.Types.Ref`, `{ kind, key }`, and `[]` once it is
 cleared — one call a change, however many entities it selects, and none for a
 change that leaves the selection as it was. Its frame came with #1387: one
-toolbar — the rail of its `slice`, the tools, the zoom and Fit, Find over its
-items, the steps and, where it edits, the history item — over the canvas, and
-the footer's counts; its library pane with #1389, its inspector with #1391
-and its narrowing with #1392 (below).
+toolbar — the rail of its `slice`, the tools, the zoom and Fit, Find, the
+steps and, where it edits, the history item — over the canvas, and the
+footer's counts; its library pane with #1389, its inspector with #1391, its
+narrowing with #1392 and Find over every item kind's record with #1404
+(below).
 
 Its narrowing (#1392) is the one rail of its `slice`, each source narrowing
 its kind wherever the kind appears: on the canvas, in the library's Backlog,
@@ -2262,11 +2263,27 @@ narrowing, so a choice reads no row again, and a row the narrowing leaves out
 draws as context — faded to `opacity` (0.35), drained of colour while
 `desaturate` (on by default), a bare marker with `dot` — as do a link to one
 and a net whose members on a side are all context. Context takes no tap, no
-marquee, no step and no drop, and leaves every list and count. Whatever `show`
-is, `emphasis` rings each match — `halo`, or `pulse`, which breathes — `frame`
-boxes the matches, and `fit` flies the camera to them as they change. Which
-rows match is each source's shown keys, never a predicate over the rows, and
-a choice builds the Schematic no more.
+marquee, no step and no drop, and leaves every list and count but Find's.
+Whatever `show` is, `emphasis` rings each match — `halo`, or `pulse`, which
+breathes — `frame` boxes the matches, and `fit` flies the camera to them as
+they change. Which rows match is each source's shown keys, never a predicate
+over the rows, and a choice builds the Schematic no more.
+
+Find (#1404) seeks every item kind's record by key, never what the canvas
+draws, as the Sheet's Search Records seeks its record: a kind read through
+its source is sought through e3 in its record's own order — a find of its keys
+and a page of the rows its list shows, never the record read whole — and a
+kind read whole in its rows. Its box takes a key's start, a quoted key or a
+range, keys case-sensitive, and asks again as a record moves. Each line reads
+the item's key, its label where it is not its key, its kind's name and what
+keeps it off the canvas: `hidden` (`dimmed` under `narrowed="dim"`) where the
+rail's filters leave it out, `on a hidden layer`, or `no position`. A pick
+flies to an item drawn as itself and selects it; to one the canvas doesn't
+show as itself it flies to where it stands, selects nothing, and the footer
+says why — `A07 is hidden by the filters`, with Clear filters, which clears
+its kind's source's choices and selects it once it draws; `A06 has no
+position: it is in the Backlog`. In a toolbar's row the box is 28px, as every
+builder's key search is there.
 
 The library (#1389) is the frame's start pane, 272px open, holding the tabs
 `library` lists, in its order, each with its count; its open tab and whether

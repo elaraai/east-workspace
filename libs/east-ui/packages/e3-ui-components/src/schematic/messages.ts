@@ -9,7 +9,9 @@
  * through the items, the View popover a phone's row folds them into, and what
  * the rail counts a templates list's source in; the footer's counts and each
  * record's last save; the banner over a kind whose read failed, and its
- * Retry; the canvas's and the frame's accessible names; and its editing's
+ * Retry; what Find marks an item it found by and what the footer says of one
+ * the canvas doesn't show as itself (#1404); the canvas's and the frame's
+ * accessible names; and its editing's
  * (#1388): the changes waiting on Save, what a Save's notice counts a kind's
  * rows in, a details record's banners, why a connection's draft doesn't snap
  * or a Delete is refused, and each gesture's step in the history; and its
@@ -68,6 +70,15 @@ export interface SchematicMessages {
     findLabel: () => string;
     /** What Find says when a query finds nothing. */
     findNoMatches: () => string;
+    /**
+     * What keeps an item Find found off the canvas, at its line's end (#1404): the rail's filters hide it, or dim it
+     * as context; its layer is hidden; it has no position.
+     */
+    findMark: (p: { mark: "hidden" | "dimmed" | "layer" | "unplaced" }) => string;
+    /** What the footer says of an item a Find's pick landed on that the canvas doesn't show it as itself — `A07 is hidden by the filters`. */
+    foundOff: (p: { item: string; mark: "hidden" | "dimmed" | "layer" | "unplaced" }) => string;
+    /** The footer's action beside a found item the rail's filters leave out: they clear, and the item is selected. */
+    clearFilters: () => string;
     /** The View popover's name: a phone's row's tools, zoom, Fit and Find. */
     viewLabel: () => string;
     /** The steps' group's accessible name. */
@@ -325,7 +336,15 @@ export const schematicMessages: SchematicMessages = {
     zoomIn: () => "Zoom in",
     fit: () => "Fit",
     findLabel: () => "Find item",
-    findNoMatches: () => "No matching items. Search by key or label.",
+    findNoMatches: () => "No item's key matches. Keys are case-sensitive.",
+    findMark: ({ mark }) => ({ hidden: "hidden", dimmed: "dimmed", layer: "on a hidden layer", unplaced: "no position" })[mark],
+    foundOff: ({ item, mark }) => ({
+        hidden: `${item} is hidden by the filters`,
+        dimmed: `${item} is dimmed by the filters`,
+        layer: `${item} is on a hidden layer`,
+        unplaced: `${item} has no position: it is in the Backlog`,
+    })[mark],
+    clearFilters: () => "Clear filters",
     viewLabel: () => "View",
     stepLabel: () => "Step through items",
     previousItem: () => "Previous item",

@@ -13,7 +13,9 @@
  * record's (#1388); each Save's notice, the rows it took out of a source's
  * narrowing (`RecordSliceSaveNotice`); and why the last gesture was refused,
  * until one is recorded — a Delete a read-only link or net blocks, and later a
- * drop or an inspector edit (#1390, #1391). Each item is its own on the rail,
+ * drop or an inspector edit (#1390, #1391); and where Find's last pick landed
+ * on an item the canvas doesn't show as itself, why — the rail's filters, with
+ * Clear filters; its layer; no position (#1404). Each item is its own on the rail,
  * so the rail wraps item by item where main is narrow (`useRailWrap`).
  *
  * A kind's rows are its record's: a kind read whole counts the rows its read
@@ -24,7 +26,7 @@
  */
 
 import { useCallback, useMemo, useRef } from "react";
-import { Box, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, Button, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -96,6 +98,19 @@ export interface SchematicFooterProps {
     readonly notices: readonly SchematicNotice[];
     /** Why the last gesture was refused; `undefined` once one is recorded, or for none. */
     readonly refusal: string | undefined;
+    /**
+     * What keeps the item Find's last pick landed on from the canvas as itself (#1404) — the rail's filters, with their
+     * Clear filters; its layer; no position — or `undefined` while nothing does.
+     */
+    readonly found?: SchematicFoundNotice | undefined;
+}
+
+/** What the footer says of the item Find's last pick landed on, where the canvas doesn't show it as itself. */
+export interface SchematicFoundNotice {
+    /** Its words: `A07 is hidden by the filters`. */
+    readonly words: string;
+    /** Clears the filters that leave it out, and selects it once it draws; `undefined` where no filter does. */
+    readonly clear: (() => void) | undefined;
 }
 
 /**
@@ -104,7 +119,7 @@ export interface SchematicFooterProps {
  * @param props - What it counts, where each kind's rows are read from, and each record's commits
  * @returns The footer
  */
-export function SchematicFooter({ styles, words, counts, rows, sources, records, pending, notices, refusal }: SchematicFooterProps) {
+export function SchematicFooter({ styles, words, counts, rows, sources, records, pending, notices, refusal, found }: SchematicFooterProps) {
     // A kind read through its source: its record's total, as its source reads it; and each record's newest commit.
     // Each read on its own: one that fails leaves the others read.
     const read = useCallback(() => ({
@@ -166,11 +181,18 @@ export function SchematicFooter({ styles, words, counts, rows, sources, records,
         ];
     }, [counts, rows, sources, totals, saved, pending, refusal, words]);
     const ref = useRef<HTMLDivElement>(null);
-    const wrap = useRailWrap(ref, lines.map((line) => line.text).join("\n"));
+    const wrap = useRailWrap(ref, [...lines.map((line) => line.text), found?.words ?? ""].join("\n"));
     return (
         <Box ref={ref} css={styles.footer} data-schematic-footer="" data-builder-narrow={wrap ? "" : undefined}>
             {lines.map((line) => <Box as="span" key={line.key} css={styles.footerItem} {...line.attribute}>{line.text}</Box>)}
             {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
+            {/* Where Find's last pick landed, the canvas not showing it as itself: why, and — the filters — their Clear, as the Save notice's Retry. */}
+            {found !== undefined && (
+                <Box as="span" css={styles.footerItem} data-schematic-found="" role="status">
+                    {found.words}
+                    {found.clear !== undefined && <> <Button size="xs" variant="plain" onClick={found.clear}>{words.m.clearFilters()}</Button></>}
+                </Box>
+            )}
         </Box>
     );
 }

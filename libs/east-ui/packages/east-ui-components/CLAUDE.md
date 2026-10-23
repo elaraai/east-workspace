@@ -275,9 +275,12 @@ component, nothing in east-ui.
   (`reviewToolbarItem`, `./internal`: the summary goes, then the buttons fold
   into one menu — no builder takes it since the Plan's review went, #1260) and
   the key search over a keyed source's `seek`
-  (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
-  edit popover, and keeps its form while a query is typed; `focusKeySearch`
-  brings a host's key for it, the Sheet's ⌘F, to it in either form). A record
+  (`useKeySearchToolbarItem`: in the row its box is 28px, the search pill's
+  height, its input filling it, while the box its popover opens stays the
+  design system's 32px field (the combobox recipe's `search` slot, ruled 23
+  Oct 2026, #1404); the box folds to its icon, which opens it in the edit
+  popover, and keeps its form while a query is typed; `focusKeySearch` brings
+  a host's key for it, the Sheet's ⌘F, to it in either form). A record
   rail's summary (`12 of 69 people`) folds after every step of the rail and
   before a host's own items (`SUMMARY_RANK`, ruled 18 Oct 2026, #1340). Over
   several records it names only the sources a narrowing hides rows of

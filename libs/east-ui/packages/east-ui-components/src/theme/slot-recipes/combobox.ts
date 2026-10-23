@@ -34,6 +34,14 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             width: "min(var(--key-search-width), 40rem)",
             maxWidth: "100%",
             minWidth: "0",
+            /* In a toolbar's row, 28px tall, its input filling it: the history's buttons' height and the design
+             * system's toolbar search pill's (ruled 23 Oct 2026). Elsewhere — the popover a folded row opens, a
+             * dataset's preview — the design system's 32px search field. On a touch screen the control's 44px
+             * field (#1221) stands. */
+            "[data-toolbar] &": {
+                "& [data-scope='combobox'][data-part='control']": { height: "28px", _coarse: { height: "auto" } },
+                "& [data-scope='combobox'][data-part='input']": { paddingBlock: "0", _coarse: { paddingBlock: "7px" } },
+            },
         },
         searchStatus: {
             textStyle: "body.sm",
