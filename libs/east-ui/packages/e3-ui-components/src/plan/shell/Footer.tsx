@@ -31,7 +31,7 @@ import { useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
 import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { pagedLoadingLine } from "../../shared/loading.js";
 import type { PlanTransport } from "./transport.js";
@@ -68,6 +68,8 @@ export interface PlanFooterProps {
     noun: string;
     /** The event kinds' counts (#1193, PB23) — omitted for a Plan without event kinds. */
     counts?: PlanEventCounts | undefined;
+    /** The event kinds' first read has not landed (#1398, CL13): their count holds its place, "…", never 0. */
+    unread?: boolean | undefined;
     /** The changes waiting on Save — omitted for a Plan that does not edit. */
     pending?: number | undefined;
     /** Exact, confirmed feedback when saved records leave a source's narrowing — one per source (#1344). */
@@ -75,19 +77,23 @@ export interface PlanFooterProps {
 }
 
 /** The 28px footer band (renders nothing with nothing to say). */
-export function PlanFooter({ styles, items, transport, noun, counts, pending, notices }: PlanFooterProps) {
+export function PlanFooter({ styles, items, transport, noun, counts, unread, pending, notices }: PlanFooterProps) {
     const words = usePlanWords();
     const { m } = words;
-    // The loading line, in the Plan's words, on the shared reveal's clock (#1398, CL3, CL4).
+    // The loading line, in the Plan's words (#1398, CL3), on the Plan's one reveal clock (CL4): its frame's
+    // `LoadingReveal`, which the runs' placeholders read too — else, alone, a clock of its own.
     const loading = transport?.loading;
     const retry = transport?.retry ?? NO_RETRY;
     const line = useMemo(() => pagedLoadingLine(loading, noun, m, words.number, retry), [loading, noun, m, words, retry]);
-    const shown = useLoadingReveal(loading !== undefined && loading.kind !== "failed");
+    const revealed = useRevealed();
+    const alone = useLoadingReveal(revealed === undefined && loading !== undefined && loading.kind !== "failed");
+    const shown = revealed ?? alone;
     const rail = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(rail);
-    // The Plan's own counts, in the order the footer reads them.
+    // The Plan's own counts, in the order the footer reads them — the events' "…" until their first read lands.
     const own: { key: string; text: string }[] = [];
     if (counts !== undefined) own.push({ key: "events", text: m.footerEvents({ n: counts.events, count: words.number(counts.events) }) });
+    else if (unread === true) own.push({ key: "events", text: m.footerEvents({ n: 2, count: "…" }) });
     if (counts?.backlog !== undefined) own.push({ key: "backlog", text: m.footerBacklog({ n: counts.backlog, count: words.number(counts.backlog) }) });
     if (pending !== undefined) own.push({ key: "pending", text: m.footerPending({ n: pending, count: words.number(pending) }) });
     const saved = counts?.saved;

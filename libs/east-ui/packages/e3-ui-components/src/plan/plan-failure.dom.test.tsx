@@ -186,7 +186,7 @@ describe("Plan failure is local (#811)", () => {
         expect(chip.textContent).toBe("1 row skipped");
     });
 
-    test("paged: window 2's page throws — a window-height band with Retry; Retry lands the rows once the source recovers; its neighbours are untouched", async () => {
+    test("paged: window 2's page throws — a window-height run that says so once, with Retry; Retry lands the rows once the source recovers; its neighbours are untouched", async () => {
         const state = { failing: true };
         const asked: number[] = [];
         const source = {
@@ -213,7 +213,9 @@ describe("Plan failure is local (#811)", () => {
             // Window-height: window 2's ledger slot (0 measured 64px over 200
             // elements; the frozen rate floors at 1px per element → 200px).
             expect(band.getAttribute("data-plan-px")).toBe("200");
-            expect(band.textContent).toMatch(/Elements 401–600 could not be read — fetch failed: 503/);
+            // Said once, in its first row in view, in the rows' noun (#1398, CL11).
+            const said = [...band.querySelectorAll("[data-loading-failed-message]")].map((el) => el.textContent);
+            expect(said).toEqual(["Couldn't read rows 401–600"]);
             // The neighbours landed and render.
             expect(container.querySelector(rowSel("w0r0"))).toBeTruthy();
             expect(container.querySelector(rowSel("w1r1"))).toBeTruthy();
@@ -228,7 +230,7 @@ describe("Plan failure is local (#811)", () => {
             // The source recovers; Retry asks window 2 again and its rows land.
             const tries = asked.filter((w) => w === 2).length;
             state.failing = false;
-            fireEvent.click(band.querySelector('[data-plan-retry="2"]')!);
+            fireEvent.click(band.querySelector("[data-loading-retry]")!);
             await waitFor(() => expect(container.querySelector(rowSel("w2r0"))).toBeTruthy());
             expect(asked.filter((w) => w === 2).length).toBe(tries + 1);
             expect(container.querySelector("[data-plan-failed]")).toBeNull();
@@ -360,7 +362,7 @@ describe("Plan failure is local (#811)", () => {
             expect(chip.textContent).toBe("1 row skipped");
 
             state.failing = false;
-            fireEvent.click(container.querySelector('[data-plan-retry="1"]')!);
+            fireEvent.click(container.querySelector('[data-plan-failed="1"] [data-loading-retry]')!);
             await waitFor(() => expect(container.querySelector(rowSel("w1r0", "data-plan-card"))).toBeTruthy());
             expect(container.querySelector("[data-plan-failed]")).toBeNull();
         } finally {

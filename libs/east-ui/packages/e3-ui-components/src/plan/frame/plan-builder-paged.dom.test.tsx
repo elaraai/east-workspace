@@ -420,7 +420,7 @@ describe("the presses paged (PB55)", () => {
 });
 
 describe("a window of presses that cannot be read (PB55)", () => {
-    test("is a band where its rows would be, saying why, with its Retry — read once", async () => {
+    test("is a run where its rows would be that says so once, with its Retry — the footer's line saying why — read once", async () => {
         // The presses' first window refused, as a request no retry can help is.
         h.e3.fail((request) => servedOf(request) === "presses" && askedOf(request) === "page 0+200",
             { status: 400, type: "bad_request", message: "the first window of presses is refused" });
@@ -428,9 +428,10 @@ describe("a window of presses that cannot be read (PB55)", () => {
         await settle();
         const band = container.querySelector<HTMLElement>('[data-plan-failed="0"]');
         expect(band).not.toBeNull();
-        expect(band!.textContent).toContain("Elements 1–200 could not be read");
-        expect(band!.textContent).toContain("bad_request");
-        expect(band!.querySelector('[data-plan-retry="0"]')).not.toBeNull();
+        // Said once, in its first row in view, in the rows' noun (#1398, CL11); why is the footer line's to say.
+        expect([...band!.querySelectorAll("[data-loading-failed-message]")].map((said) => said.textContent)).toEqual(["Couldn't read rows 1–200"]);
+        expect(band!.querySelector("[data-loading-retry]")).not.toBeNull();
+        expect(slot(container, "footer")!.querySelector("[data-footer-line] [data-line-reason]")!.textContent).toContain("bad_request");
         expect(draws(container, "P-1001")).toBe(false);
         // Asked once: a refusal no retry can help is not asked again while the presses hold the same content.
         expect(of("presses").filter((r) => r === "page 0+200")).toHaveLength(1);

@@ -5,8 +5,8 @@
 
 /**
  * Every word the Plan says itself (#820) — ONE typed message table. The
- * canvas's own chrome (the toolbar, the footer, the diagnostics, the bands,
- * the narrow layout's tabs and cards), the words it gives a reader for what
+ * canvas's own chrome (the toolbar, the footer, the diagnostics, a failed
+ * run's line, the narrow layout's tabs and cards), the words it gives a reader for what
  * it shows only by shape or colour, and what its live region announces all
  * come from here. What the AUTHOR wrote — a row's label,
  * a footer item, a series title — is data, and never passes through it.
@@ -279,20 +279,15 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     expandControl: () => string;
 
     // ── Rows and bands ─────────────────────────────────────────────────────
-    /** A group's derived member count — `8 rows`, or `~8 rows` while it covers only
-     *  the loaded windows (a top-level section on a paged canvas still
-     *  loading — the one parent whose members span windows, #822). */
-    groupMeta: (p: { n: number; count: string; partial: boolean }) => string;
+    /** A group's derived member count — `8 rows`. While it covers only the
+     *  loaded windows (a top-level section on a paged canvas still loading —
+     *  the one parent whose members span windows, #822) it is a short bar,
+     *  never a count (#1398, CL13). */
+    groupMeta: (p: { n: number; count: string }) => string;
     /** What a links focus's gap band stands for — `12 hidden rows`. */
     hiddenRows: (p: { n: number; count: string; what: "row" | "group" }) => string;
-    /** An unloaded run whose window is in flight. */
-    bandLoading: (p: { from: string; to: string }) => string;
-    /** An unloaded run above the resident rows. */
-    bandEarlier: (p: { n: number; count: string }) => string;
-    /** An unloaded run below the resident rows. */
-    bandLater: (p: { n: number; count: string }) => string;
-    /** A window whose read failed. */
-    windowFailed: (p: { from: string; to: string; reason: string }) => string;
+    // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
+    // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed window's retry button. */
     retry: () => string;
     /** A run bar's churn counter — `moved ×3`. */
@@ -362,8 +357,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     tabRows: () => string;
     /** The Measures tab. */
     tabMeasures: () => string;
-    /** A tab's count — `~` over a partial prefix. */
-    tabCount: (p: { n: number; count: string; partial: boolean }) => string;
+    /** A tab's count — "…" in its place over a partial prefix, until the source's read completes (#1398, CL13). */
+    tabCount: (p: { n: number; count: string }) => string;
     /** The card and section for rows in no group. */
     otherRows: () => string;
     /** Back to the group list. */
@@ -646,12 +641,8 @@ export const planMessages: PlanMessages = {
     linksControl: () => "Focus linked rows",
     expandControl: () => "Expand row",
 
-    groupMeta: ({ n, count, partial }) => `${partial ? "~" : ""}${count} ${plural(n, "row", "rows")}`,
+    groupMeta: ({ n, count }) => `${count} ${plural(n, "row", "rows")}`,
     hiddenRows: ({ n, count, what }) => `${count} hidden ${what}${n === 1 ? "" : "s"}`,
-    bandLoading: ({ from, to }) => `Loading elements ${from}–${to}`,
-    bandEarlier: ({ count }) => `${count} earlier elements — scroll to load`,
-    bandLater: ({ count }) => `${count} more elements — scroll to load`,
-    windowFailed: ({ from, to, reason }) => `Elements ${from}–${to} could not be read — ${reason}`,
     retry: () => "Retry",
     moved: ({ count }) => `moved ×${count}`,
     rollupCaption: ({ count, quantity }) =>
@@ -687,7 +678,7 @@ export const planMessages: PlanMessages = {
     tabGroups: () => "Groups",
     tabRows: () => "Rows",
     tabMeasures: () => "Measures",
-    tabCount: ({ count, partial }) => `${partial ? "~" : ""}${count}`,
+    tabCount: ({ count }) => count,
     otherRows: () => "Other rows",
     backToGroups: () => "← Groups",
     backToAllRows: () => "← All rows",
@@ -778,7 +769,7 @@ export interface PlanMessagesProviderProps {
  * const GERMAN: Partial<PlanMessages> = {
  *     allRows: () => "← Alle Zeilen",
  *     tabRows: () => "Zeilen",
- *     groupMeta: ({ count, partial }) => `${partial ? "~" : ""}${count} Zeilen`,
+ *     groupMeta: ({ count }) => `${count} Zeilen`,
  * };
  *
  * <I18nProvider locale="de-DE">

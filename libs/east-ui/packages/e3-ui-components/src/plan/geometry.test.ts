@@ -84,8 +84,8 @@ describe("the Plan geometry table (#817)", () => {
         expect(slot("ruler").height).toBe(v("ruler"));
         expect(slot("narrowRuler").height).toBe(v("ruler"));
         expect(slot("footer").minHeight).toBe(v("footer"));
-        // The unloaded run's rule reads as rows — one rule per row height.
-        expect(String(slot("windowBand").backgroundImage)).toContain(v("row"));
+        // An unloaded run's rows are the canvas's rows (#1398, CL2): the rule inside their height, as a row's.
+        expect(slot("runRow").borderBottomWidth).toBe(v("rule"));
     });
 
     test("each width a link's end meets an element by is drawn from its variable, never a pixel literal (#1258)", () => {

@@ -19,6 +19,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown } from "@fortawesome/free-solid-svg-icons";
 import { type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { HeatCells } from "./HeatRow.js";
@@ -70,10 +71,10 @@ export interface GroupRowProps {
     memberCount?: number | undefined;
     /** Whether the derived numbers cover only the windows that have landed —
      *  a top-level section band on a paged canvas still loading, the one
-     *  parent whose members span windows (`spansWindows`, #822). The count
-     *  prints `~8 rows` and the band carries `data-plan-partial` (#567 D9). The
-     *  author's own `meta` is never rewritten: it is their text, not a
-     *  derivation. */
+     *  parent whose members span windows (`spansWindows`, #822). The count is
+     *  a short bar until its members land (#1398, CL13) and the band carries
+     *  `data-plan-partial` (#567 D9). The author's own `meta` is never
+     *  rewritten: it is their text, not a derivation. */
     partial?: boolean | undefined;
     /** Set when the band's own declared strip rides another arm than the axis
      *  (#811): the band keeps its toggle and its members, and its plot says
@@ -91,11 +92,14 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const words = usePlanWords();
-    // A declared meta line wins; otherwise the derived member count stands in.
+    // A declared meta line wins; otherwise the derived member count stands in — a short bar while it covers only the
+    // windows that have landed, never a count the read has not finished (#1398, CL13).
     const meta = row.gutter.meta.type === "some"
         ? row.gutter.meta.value
         : (memberCount !== undefined && memberCount > 0
-            ? words.m.groupMeta({ n: memberCount, count: words.number(memberCount), partial: partial === true })
+            ? (partial === true
+                ? <PlaceholderShape kind="aggregate" index={memberCount} />
+                : words.m.groupMeta({ n: memberCount, count: words.number(memberCount) }))
             : undefined);
     const value = row.gutter.value.type === "some" ? row.gutter.value.value : undefined;
     const statusTone = row.status.type === "some" ? row.status.value.type : undefined;

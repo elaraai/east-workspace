@@ -68,6 +68,8 @@ export interface PlanChrome {
     eventParts: readonly PlanEventPart[];
     /** What the rail counts each source in, and heads it with folded, where the source has no label of its own. */
     nouns: Readonly<Record<string, string>>;
+    /** What the rail counts the rows in — `work orders`, `rows`: what the loading line and a failed run name them by (#1398). */
+    rowsNoun: string;
     /** Why the window could not be written into a source. */
     windowError: string | undefined;
     /** The rail's affordance kinds. */

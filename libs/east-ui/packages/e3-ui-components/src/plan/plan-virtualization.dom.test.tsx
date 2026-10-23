@@ -354,14 +354,15 @@ describe("Plan narrow paged demand (#812)", () => {
             return { left: 0, top: 0, right: 360, bottom: 600, width: 360, height: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
         };
     };
-    /** 2,000 elements, one row each — ten windows. Records the windows asked. */
-    function source2k() {
+    /** 2,000 elements, one row each — ten windows. Records the windows asked; a window in `held` stays in flight while it is. */
+    function source2k(held: ReadonlySet<number> = new Set()) {
         const asked: number[] = [];
         const value = {
             id: "dom-812-narrow",
             page: (offset: bigint) => {
                 const from = Number(offset);
                 asked.push(from / 200);
+                if (held.has(from / 200)) return none;
                 return some(Array.from({ length: Math.max(0, Math.min(200, 2_000 - from)) }, (_u, i) =>
                     planRow(`u${pad(from + i, 4)}`, span())));
             },
@@ -420,24 +421,26 @@ describe("Plan narrow paged demand (#812)", () => {
         expect(asked.filter((w) => w === 9)).toHaveLength(1);
     });
 
-    test("with no IntersectionObserver the list's load-more still loads the next window", async () => {
+    test("with no IntersectionObserver the list's tail still asks for the next window once every row is shown — placeholder cards, saying nothing, busy while it is read", async () => {
         phoneWidth();
         delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
-        const { value: source, asked } = source2k();
+        // Window 3, past the opening ring, stays in flight: the tail stands while it is read.
+        const { value: source, asked } = source2k(new Set([3]));
         const { container } = renderPlan(planRoot([], { source }), "plan-812-narrow-tap");
         await vi.waitFor(() => expect(container.querySelector(rowSel("u0000", "data-plan-card"))).toBeTruthy());
+        expect(Math.max(...asked)).toBe(2);
         // Nothing reports the viewport, so the resident rows run out: reveal
-        // them all, and the load-more becomes the tail band in list form.
+        // them all, and the list ends in the tail band in list form —
+        // placeholder cards at a row card's height, saying nothing (#1398, CL2, CL3).
         for (let step = 0; step < 200 && container.querySelector('[data-plan-more="rows"]') !== null; step++) {
             fireEvent.click(container.querySelector('[data-plan-more="rows"]')!);
         }
         const tail = container.querySelector('[data-plan-more="source"]')!;
-        expect(tail.textContent).toBe("1,400 more elements — scroll to load");
-        expect(Math.max(...asked)).toBe(2);
-        // A tap loads past the run — and opens the next page of it.
-        fireEvent.click(tail);
-        await vi.waitFor(() => expect(container.querySelector(rowSel("u0600", "data-plan-card"))).toBeTruthy());
+        expect(tail.querySelectorAll("[data-placeholder-card]").length).toBeGreaterThan(0);
+        expect(tail.textContent).toBe("");
+        // With no observer to say it came into view, its showing asked for the window past the run, which is on its way.
         expect(asked).toContain(3);
+        expect(tail.getAttribute("aria-busy")).toBe("true");
     });
 });
 
@@ -570,16 +573,16 @@ describe("a paged window drawing otherwise than its estimate (#823, #878)", () =
         // Windows 0–5 are the head band: 0–2 as they drew, 3–5 estimates.
         const head = EST + 2 * TALL + 3 * EST;
         // Up to window 6's first row, 10px into it. Once the scroll settles,
-        // window 5 above it is asked for — and lands 2,000px taller than its
-        // estimate.
+        // the two windows above it, the way the view travels (#1398, CL6), are
+        // asked for — 5 and 4 — and each lands 2,000px taller than its estimate.
         scrollFrame(container, head + 10);
         const first = () => container.querySelector(rowSel("w0006r000"))!;
         expect(frameOf(container).scrollTop - topOf(container, first())).toBe(10);
-        await waitFor(() => expect(extentOf(container)).toBe(EST + 2 * TALL + 2 * EST + 5 * TALL), { timeout: 10_000 });
-        expect(asked).toContain(5);
+        await waitFor(() => expect(extentOf(container)).toBe(EST + 2 * TALL + EST + 6 * TALL), { timeout: 10_000 });
+        expect(asked).toEqual(expect.arrayContaining([4, 5]));
         // The rows in view kept their places: the view moved with them, by
-        // exactly what window 5 drew beyond its estimate.
-        expect(frameOf(container).scrollTop).toBe(head + 10 + (TALL - EST));
+        // exactly what windows 5 and 4 drew beyond their estimates.
+        expect(frameOf(container).scrollTop).toBe(head + 10 + 2 * (TALL - EST));
         expect(frameOf(container).scrollTop - topOf(container, first())).toBe(10);
     });
 });

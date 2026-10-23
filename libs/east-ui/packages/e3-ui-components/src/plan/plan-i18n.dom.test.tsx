@@ -228,7 +228,7 @@ describe("one message table (#820)", () => {
         allMarked(tags.flatMap(words));
     });
 
-    test("paged: a failed window's reason and its Retry", async () => {
+    test("paged: a failed window's line and its Retry, said once (#1398, CL11)", async () => {
         const state = { failing: true };
         const source = {
             id: "plan-820-failing",
@@ -247,22 +247,25 @@ describe("one message table (#820)", () => {
             const { container } = renderPlan(planRoot([], { source }), "plan-820-failed", marked);
             await waitFor(() => expect(container.querySelector("[data-plan-failed='1']")).toBeTruthy());
             const band = container.querySelector("[data-plan-failed='1']")!;
-            expect(words(band)).toEqual(["⟦Elements 201–400 could not be read — fetch failed: 503", "⟦Retry"]);
+            // In the rows' noun, the table's too; its Retry named by what it asks again.
+            expect(words(band)).toEqual(["⟦Couldn't read ⟦rows 201–400", "⟦Retry"]);
+            expect(band.querySelector("[data-loading-retry]")!.getAttribute("aria-label")).toBe("⟦Retry ⟦rows 201–400");
         } finally {
             err.mockRestore();
         }
     });
 
-    test("paged: the footer's loading line — its words, its short form — and the unloaded band (#1398)", async () => {
+    test("paged: the footer's loading line — its words, its short form — and the unloaded run, which says nothing (#1398)", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-820-paged", marked);
         await waitFor(() => expect(container.querySelector(itemSel("w0r15"))).toBeTruthy());
-        // Windows 1 and 2 are on the wire: once the wait passes its reveal, the line says so in the table's words —
-        // the rows' noun the table's too.
+        // Windows 1 and 2 are on the wire, the run they stand in in view: once the wait passes its reveal, the line
+        // says so in the table's words — the rows' noun the table's too.
         const line = () => container.querySelector("[data-frame-slot='footer'] [data-footer-line]")!;
         await waitFor(() => expect(line().querySelector("[data-line-text]")?.textContent).toBe("⟦Loading ⟦rows 201–600"));
         expect(line().querySelector("[data-line-short]")!.textContent).toBe("⟦Loading…");
-        allMarked(words(container.querySelector("[data-plan-window-band]")!));
+        // No caption in the gap (CL3): the run draws its rows' placeholders, and no word.
+        expect(words(container.querySelector("[data-plan-window-band]")!)).toEqual([]);
     });
 
     // A canvas that edits (#880) — the factory's, compiled over a source the

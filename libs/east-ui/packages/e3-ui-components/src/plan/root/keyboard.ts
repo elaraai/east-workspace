@@ -305,8 +305,9 @@ export const PLAN_WALK_SELECTOR = `${PLAN_ELEMENT_SELECTOR},[data-tile-more]`;
  *  author's render mounts. */
 const WIDGET_SELECTOR = "button, a[href], input, select, textarea, [tabindex]";
 /** The canvas's own row widgets — out of the tab order (`tabIndex=-1`), reached
- *  through the row's Tab walk instead. */
-const OWN_WIDGET_SELECTOR = "[data-plan-control], [data-plan-retry]";
+ *  through the row's Tab walk instead: a row's controls, and a failed run's
+ *  Retry (#1398, the shared loading parts'). */
+const OWN_WIDGET_SELECTOR = "[data-plan-control], [data-loading-retry]";
 
 /**
  * The grid item (row, band) a node belongs to in THIS canvas — a canvas nested
