@@ -19,7 +19,7 @@ import {
 import { RecordSliceChoiceType, RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { planRecordSlice } from "../../src/platform/slice/record-plan.js";
 import {
-    AREA_FIELD, AREA_UNPLACED, MAX_AREA_RASTER, MAX_AREA_SEARCHES, areaMarkerFields, areaQueries, areaRaster, readAreaMarker, type AreaWindow,
+    AREA_FIELD, AREA_UNPLACED, MAX_AREA_RASTER, MAX_AREA_SEARCHES, areaCells, areaMarkerFields, areaQueries, areaRaster, readAreaMarker, type AreaWindow,
 } from "../../src/platform/slice/record-area.js";
 import { SeekQueryType } from "../../src/contracts/source.js";
 
@@ -232,6 +232,28 @@ test("a window planned again plans the same searches for each cell it shares, so
     assert.deepEqual(text(areaQueries([], view, cell)), [...first], "the same window plans the same searches, in key order");
 });
 
+test("a window's searches are its cells, each where its search's key says — its level, its indices and its box — so a reader can weigh its count by how much of it a view holds", () => {
+    const next = stream(1393);
+    for (const cell of [2 ** -7, 1, 2 ** 5]) {
+        const half = cell * 2 ** 27;
+        for (let w = 0; w < 60; w++) {
+            const view = randomView(next, cell);
+            const prefix = w % 3 === 0 ? [] : ['"H1"'];
+            const cells = areaCells(prefix, view, cell);
+            assert.deepEqual(cells.map(c => c.query), areaQueries(prefix, view, cell), "the cells are the window's searches, in their order");
+            for (const c of cells) {
+                const size = cell * 2 ** (28 - c.level);
+                assert.deepEqual([c.side, c.minX, c.minY], [size, -half + c.ix * size, -half + c.iy * size], `the cell ${c.level}:${c.ix},${c.iy}'s box`);
+                // Its search starts at its own key: the key a box half its side, centred in it, files under.
+                const start = c.query.type === "range" ? c.query.value.from.at(-1)! : c.query.type === "fields" ? c.query.value.values.at(-1)! : "";
+                const centre = (i: number) => -half + (i + 0.5) * size;
+                assert.ok(sameKey(integer(start), c.level === 0 ? 0n : keyOf(centre(c.ix), centre(c.iy), size / 2, cell)),
+                    `the cell ${c.level}:${c.ix},${c.iy} is the one its search names`);
+            }
+        }
+    }
+});
+
 test("a window that is not finite, is inverted, or reads an index whose cell is no power of two is refused", () => {
     assert.throws(() => areaQueries([], { minX: Number.NaN, minY: 0, maxX: 1, maxY: 1 }, 1), /finite bounds/);
     assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: Number.POSITIVE_INFINITY }, 1), /finite bounds/);
@@ -338,7 +360,9 @@ test("a raster's level is the deepest whose cells are a sixty-fourth of its box'
     const half = cell * 2 ** 27;
     const domain = areaRaster([], { minX: -4 * half, minY: -4 * half, maxX: 4 * half, maxY: 4 * half }, cell);
     assert.deepEqual([domain.level, domain.side, domain.cells.length, domain.coarse.length], [4, 2 ** 24, 256, 1 + 4 + 16 + 64]);
-    assert.deepEqual(domain.cells[0], { ix: 0, iy: 0, minX: -half, minY: -half, query: variant("range", { from: ["4"], to: [`${4n ** 24n * 32n}`] }) });
+    assert.deepEqual(domain.cells[0], {
+        level: 4, ix: 0, iy: 0, minX: -half, minY: -half, side: 2 ** 24, query: variant("range", { from: ["4"], to: [`${4n ** 24n * 32n}`] }),
+    });
 });
 
 test("a raster's box that is not finite or is inverted, an index whose cell is no power of two, and a budget of no cell are refused", () => {

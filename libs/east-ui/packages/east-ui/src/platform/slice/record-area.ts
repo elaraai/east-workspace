@@ -162,9 +162,41 @@ function morton(ix: number, iy: number, level: number): bigint {
 }
 
 /**
+ * One cell of an area index that a window or a density raster searches
+ * (§11.3, D25): its level, where it is, and the search its rows file under —
+ * at the window's or the raster's own level, the range from its own key up to
+ * its last descendant's, which holds every row filed at that level or finer
+ * whose centre lies in it; at a coarser level, its exact key, which holds the
+ * rows filed in it, their centres anywhere in it.
+ */
+export interface AreaCell {
+    /** Its level. */
+    readonly level: number;
+    /** Its index along x, at its level. */
+    readonly ix: number;
+    /** Its index along y. */
+    readonly iy: number;
+    /** Its left edge, in world units. */
+    readonly minX: number;
+    /** Its top edge. */
+    readonly minY: number;
+    /** Its side, in world units: `cell · 2^(28 − level)`. */
+    readonly side: number;
+    /** The search its rows file under: a range at the window's or the raster's level, an exact key at a coarser one. */
+    readonly query: ValueTypeOf<SeekQueryType>;
+}
+
+/** A level's cell, its search given: where it is, from its indices. */
+function cellAt(level: number, ix: number, iy: number, half: number, side: number, query: ValueTypeOf<SeekQueryType>): AreaCell {
+    return { level, ix, iy, minX: -half + ix * side, minY: -half + iy * side, side, query };
+}
+
+/**
  * Plan a window over an area index (§11.3): at most {@link MAX_AREA_SEARCHES}
  * disjoint key searches for one combination of the index's leading values,
- * which together hold every row whose box meets the window, each once.
+ * which together hold every row whose box meets the window, each once — each
+ * search a cell, where it is beside it, so a reader can weigh its count by
+ * how much of the cell a view holds.
  *
  * 1. The window is the viewport grown by an eighth of its larger side on each
  *    side: the margin, which keeps a pan of that much in hand.
@@ -185,11 +217,11 @@ function morton(ix: number, iy: number, level: number): bigint {
  * @param prefix - The `.east` literals of the index's leading fields, in order
  * @param box - The viewport, in world units: its minimum and maximum corners
  * @param cell - The index's finest cell's side, a power of two (its `area.cell`)
- * @returns The searches, in key order
+ * @returns The cells, in their searches' key order
  * @throws {Error} When the viewport is not finite or its maximum is below its
  *   minimum, or when `cell` is not a positive power of two
  */
-export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: number): ValueTypeOf<SeekQueryType>[] {
+export function areaCells(prefix: readonly string[], box: AreaWindow, cell: number): AreaCell[] {
     const { minX, minY, maxX, maxY } = box;
     if (![minX, minY, maxX, maxY].every(Number.isFinite)) throw new Error("Choose a window with finite bounds");
     if (maxX < minX || maxY < minY) throw new Error("A window's maximum is below its minimum");
@@ -202,7 +234,7 @@ export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: nu
     const half = cell * 2 ** 27;
     let deepest = AREA_FINEST_LEVEL;
     while (deepest > 0 && cell * 2 ** (AREA_FINEST_LEVEL - deepest) < larger / 8) deepest--;
-    const searches: { start: bigint; query: ValueTypeOf<SeekQueryType> }[] = [];
+    const searches: { start: bigint; cell: AreaCell }[] = [];
     for (let level = 0; level <= deepest; level++) {
         const size = cell * 2 ** (AREA_FINEST_LEVEL - level);
         const count = 2 ** level;
@@ -213,45 +245,34 @@ export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: nu
                 const m = morton(ix, iy, level);
                 const start = m * 32n + BigInt(level);
                 if (level < deepest) {
-                    searches.push({ start, query: variant("fields", { values: [...prefix, integerText(start)], prefix: none }) });
+                    searches.push({ start, cell: cellAt(level, ix, iy, half, size, variant("fields", { values: [...prefix, integerText(start)], prefix: none })) });
                     continue;
                 }
                 const end = (m + 4n ** (FINEST - BigInt(level))) * 32n;
-                searches.push({ start, query: variant("range", { from: [...prefix, integerText(start)], to: [...prefix, integerText(end)] }) });
+                const query = variant("range", { from: [...prefix, integerText(start)], to: [...prefix, integerText(end)] });
+                searches.push({ start, cell: cellAt(level, ix, iy, half, size, query) });
             }
         }
     }
-    return searches.sort((a, b) => keyOrder(a.start, b.start)).map(search => search.query);
+    return searches.sort((a, b) => keyOrder(a.start, b.start)).map(search => search.cell);
+}
+
+/**
+ * Plan a window over an area index (§11.3): its searches, as
+ * {@link areaCells} plans them, without where each cell is.
+ *
+ * @param prefix - The `.east` literals of the index's leading fields, in order
+ * @param box - The viewport, in world units: its minimum and maximum corners
+ * @param cell - The index's finest cell's side, a power of two (its `area.cell`)
+ * @returns The searches, in key order
+ * @throws {Error} As {@link areaCells} does
+ */
+export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: number): ValueTypeOf<SeekQueryType>[] {
+    return areaCells(prefix, box, cell).map(found => found.query);
 }
 
 /** The most counted ranges a density raster asks in one request (§10.4, D25). */
 export const MAX_AREA_RASTER = 4096;
-
-/** One cell of a density raster (§10.4, D25): where it is, and the range its rows file under. */
-export interface AreaRasterCell {
-    /** Its index along x, at the raster's level. */
-    readonly ix: number;
-    /** Its index along y. */
-    readonly iy: number;
-    /** Its left edge, in world units. */
-    readonly minX: number;
-    /** Its top edge. */
-    readonly minY: number;
-    /** The range holding its own rows and every finer level's inside it, so a row counts once, in the cell holding its centre. */
-    readonly query: ValueTypeOf<SeekQueryType>;
-}
-
-/** One cell of a level coarser than a density raster's (§10.4, D25): where it is, and the exact key its rows file under. */
-export interface AreaRasterCoarse {
-    /** Its level, coarser than the raster's. */
-    readonly level: number;
-    /** Its index along x, at its level. */
-    readonly ix: number;
-    /** Its index along y. */
-    readonly iy: number;
-    /** Its exact key: the rows filed in it, boxes larger than half a raster cell, their centres anywhere in it. */
-    readonly query: ValueTypeOf<SeekQueryType>;
-}
 
 /** A density raster over a box (§10.4, D25): its level's cells, counted, and the coarser levels' cells, by exact key. */
 export interface AreaRaster {
@@ -259,13 +280,17 @@ export interface AreaRaster {
     readonly level: number;
     /** Its cells' side, in world units. */
     readonly side: number;
-    /** Its cells that meet the box, row by row. */
-    readonly cells: readonly AreaRasterCell[];
     /**
-     * The coarser levels' cells whose loose bounds meet the box, in key order: their rows are boxes larger than half a
-     * raster cell, which the raster's ranges leave out, counted by their keys and read as rows while they are few.
+     * Its cells that meet the box, row by row: each the range holding its own rows and every finer level's inside it, so
+     * a row counts once, in the cell holding its centre.
      */
-    readonly coarse: readonly AreaRasterCoarse[];
+    readonly cells: readonly AreaCell[];
+    /**
+     * The coarser levels' cells whose loose bounds meet the box, in key order, each by its exact key: their rows are
+     * boxes larger than half a raster cell, their centres anywhere in it, which the raster's ranges leave out — counted
+     * by their keys and read as rows while they are few.
+     */
+    readonly coarse: readonly AreaCell[];
 }
 
 /**
@@ -319,7 +344,7 @@ export function areaRaster(prefix: readonly string[], box: AreaWindow, cell: num
     };
     while (level > 0 && cellsAt(level) > budget) level--;
     const side = sizeOf(level);
-    const cells: AreaRasterCell[] = [];
+    const cells: AreaCell[] = [];
     const xs = span(minX, maxX, side, 2 ** level);
     const ys = span(minY, maxY, side, 2 ** level);
     if (xs !== undefined && ys !== undefined) {
@@ -328,18 +353,18 @@ export function areaRaster(prefix: readonly string[], box: AreaWindow, cell: num
             for (let ix = xs[0]; ix <= xs[1]; ix++) {
                 const m = morton(ix, iy, level);
                 const query = variant("range", { from: [...prefix, integerText(m * 32n + BigInt(level))], to: [...prefix, integerText((m + descendants) * 32n)] });
-                cells.push({ ix, iy, minX: -half + ix * side, minY: -half + iy * side, query });
+                cells.push(cellAt(level, ix, iy, half, side, query));
             }
         }
     }
-    const coarse: { start: bigint; cell: AreaRasterCoarse }[] = [];
+    const coarse: { start: bigint; cell: AreaCell }[] = [];
     for (let l = 0; l < level; l++) {
         const size = sizeOf(l);
         const count = 2 ** l;
         for (const ix of l === 0 ? [0] : cellsMeeting(minX, maxX, half, size, count)) {
             for (const iy of l === 0 ? [0] : cellsMeeting(minY, maxY, half, size, count)) {
                 const start = morton(ix, iy, l) * 32n + BigInt(l);
-                coarse.push({ start, cell: { level: l, ix, iy, query: variant("fields", { values: [...prefix, integerText(start)], prefix: none }) } });
+                coarse.push({ start, cell: cellAt(l, ix, iy, half, size, variant("fields", { values: [...prefix, integerText(start)], prefix: none })) });
             }
         }
     }

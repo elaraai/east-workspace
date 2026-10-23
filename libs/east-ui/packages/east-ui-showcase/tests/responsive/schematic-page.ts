@@ -8,7 +8,8 @@
  * on the real in-page e3 at rest, its box sized and centred in the window, its
  * inspector collapsed to its rail, an item's card, a world point of its drawing
  * on the screen, the cards that overlap and those standing in a box, a box of
- * the drawing zoomed into, its library's tabs and cards, a card picked up from it and carried onto the
+ * the drawing zoomed into, the box the canvas shows and its camera at rest on
+ * one, its library's tabs and cards, a card picked up from it and carried onto the
  * canvas, with what the drag's ghost says, the history's Discard and Save, and
  * the drawing's counts as the inspector says them.
  */
@@ -176,6 +177,53 @@ export function cardsIn(root: Locator, box: { readonly left: number; readonly to
     }), box);
 }
 
+/** A box of the drawing, in its units. */
+export interface WorldBox {
+    readonly minX: number;
+    readonly minY: number;
+    readonly maxX: number;
+    readonly maxY: number;
+}
+
+/**
+ * The box of the drawing the canvas shows, as it tells its reader where its viewport rests: its camera — the card
+ * layer's `--cam-ppu`, `--cam-tx` and `--cam-ty` — over its size.
+ *
+ * @param root - The Schematic's root
+ * @returns The box, in the drawing's units
+ */
+export function viewOf(root: Locator): Promise<WorldBox> {
+    return root.evaluate((el) => {
+        const canvas = el.querySelector<HTMLElement>("[data-schematic-canvas]")!;
+        const layer = canvas.querySelector<HTMLElement>("[style*='--cam-ppu']")!;
+        const ppu = Number(layer.style.getPropertyValue("--cam-ppu"));
+        const tx = parseFloat(layer.style.getPropertyValue("--cam-tx")), ty = parseFloat(layer.style.getPropertyValue("--cam-ty"));
+        return { minX: -tx / ppu, minY: -ty / ppu, maxX: (canvas.clientWidth - tx) / ppu, maxY: (canvas.clientHeight - ty) / ppu };
+    });
+}
+
+/**
+ * Waits for the canvas's camera to rest with a box of the drawing in view: still across two frames, as a fly, which
+ * moves it every frame until it lands, never is. The page at rest (`settled`) reads the rows and the document, never
+ * the camera, so it can come to rest while a fly is still under way.
+ *
+ * @param root - The Schematic's root
+ * @param box - The box, in the drawing's units
+ */
+export async function restsOn(root: Locator, box: WorldBox): Promise<void> {
+    await expect.poll(() => root.evaluate(async (el, b) => {
+        const canvas = el.querySelector<HTMLElement>("[data-schematic-canvas]")!;
+        const layer = canvas.querySelector<HTMLElement>("[style*='--cam-ppu']")!;
+        const camera = () => ["--cam-ppu", "--cam-tx", "--cam-ty"].map((name) => layer.style.getPropertyValue(name)).join(" ");
+        const before = camera();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        if (camera() !== before) return false;
+        const ppu = Number(layer.style.getPropertyValue("--cam-ppu"));
+        const tx = parseFloat(layer.style.getPropertyValue("--cam-tx")), ty = parseFloat(layer.style.getPropertyValue("--cam-ty"));
+        return -tx / ppu <= b.minX && -ty / ppu <= b.minY && (canvas.clientWidth - tx) / ppu >= b.maxX && (canvas.clientHeight - ty) / ppu >= b.maxY;
+    }, box), { message: "the camera rests with the box in view" }).toBe(true);
+}
+
 /**
  * Zooms the canvas into a box of the drawing as a viewer does: the pointer over the canvas, Ctrl held for the Zoom
  * tool, a drag from one corner of the box to the other, and the camera's flight to it let land.
@@ -184,7 +232,7 @@ export function cardsIn(root: Locator, box: { readonly left: number; readonly to
  * @param root - The Schematic's root
  * @param box - The box, in the drawing's units
  */
-export async function zoomInto(page: Page, root: Locator, box: { readonly minX: number; readonly minY: number; readonly maxX: number; readonly maxY: number }): Promise<void> {
+export async function zoomInto(page: Page, root: Locator, box: WorldBox): Promise<void> {
     const canvas = root.locator("[data-schematic-canvas]");
     const from = await screenPoint(root, box.minX, box.minY);
     const to = await screenPoint(root, box.maxX, box.maxY);
@@ -196,6 +244,7 @@ export async function zoomInto(page: Page, root: Locator, box: { readonly minX: 
     await page.mouse.up();
     await page.keyboard.up("Control");
     await expect(canvas).not.toHaveAttribute("data-tool", "zoom");
+    await restsOn(root, box);
     await settled(page);
 }
 

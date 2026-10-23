@@ -482,6 +482,7 @@ export {
     SchematicLibraryCardType,
     SCHEMATIC_DEF,
     SCHEMATIC_TEMPLATES,
+    SCHEMATIC_WINDOW_READ_ROWS,
     SCHEMATIC_WINDOW_ROWS,
     buildSchematicLibrary,
     checkedSchematicTemplates,

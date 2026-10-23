@@ -14,34 +14,45 @@
  * its items draw at — to a store of its own ({@link createViewportStore}),
  * rendering nothing for it. A kind's window is that viewport padded by the
  * largest card's half size at the zoom ({@link windowOf}), so a card whose
- * centre lies just outside still draws; it holds while the viewport stays
- * inside the box its searches reach — the window grown by its margin — and is
- * at least half its size ({@link windowHolds}), so a pan or a zoom inside the
- * margin reads nothing.
+ * centre lies just outside still draws. Drawn as its rows, it holds while the
+ * viewport stays inside the box its searches reach — the window grown by its
+ * margin — and is at least half its size, so a pan or a zoom inside the
+ * margin reads nothing. Drawn as its density, it holds only at the zoom it
+ * was made for, so one view draws one raster by whatever route it was
+ * reached, and only while the viewport still holds more rows than a window
+ * draws ({@link windowHolds}).
  *
  * # What it reads
  *
  * e3-ui's planner names the area index a window reads and its leading values
- * (`schematicWindowPlan`, SC34); each of the window's searches (`areaQueries`)
- * is a cell. Every cell not yet found goes in one request, counted before an
- * entry is read; while they hold at most `SCHEMATIC_WINDOW_ROWS`, the entries
- * of the cells not held go in one read of their runs, each cell's kept at the
- * revision it was read at while the window wants it — so a window into new
- * cells searches and reads only those. A narrowing the index doesn't lead is
- * asked of the window's rows, and of the far ends read beside them, in one
- * `within` (D28), each row's answer kept for its revision and narrowing; under
- * `narrowed="dim"` every row is read, and `within` says which match.
+ * (`schematicWindowPlan`, SC34); each of the window's searches is a cell
+ * (`areaCells`). Every cell not yet found goes in one request, counted before
+ * an entry is read, and the rows the viewport holds are counted from those
+ * counts (D25, {@link cellsInView}): each cell's rows held evenly over its
+ * part of the drawing's extent, the viewport's share of them. While they
+ * number at most `SCHEMATIC_WINDOW_ROWS`, and the window's cells hold at most
+ * `SCHEMATIC_WINDOW_READ_ROWS`, the entries of the cells not held go in one
+ * read of their runs, each cell's kept at the revision it was read at while
+ * the window wants it — so a window into new cells searches and reads only
+ * those. A narrowing the index doesn't lead is asked of the window's rows, and
+ * of the far ends read beside them, in one `within` (D28), each row's answer
+ * kept for its revision and narrowing; under `narrowed="dim"` every row is
+ * read, and `within` says which match.
  *
- * Past `SCHEMATIC_WINDOW_ROWS`, the density (D25): one request finds the
- * bounds of the raster's cells — the level whose cells are about a
+ * Past `SCHEMATIC_WINDOW_ROWS` in view, the density (D25): one request finds
+ * the bounds of the raster's cells — the level whose cells are about a
  * sixty-fourth of the window's reach — and of the coarser levels' cells, by
- * their exact keys (`schematicRaster`). The coarser levels' rows, boxes larger
- * than half a raster cell, are read as rows while they number no more than a
- * window draws, in one read of their runs; past that they are spread over the
- * raster cells their cells cover (`schematicDensityCells`), and no row is read.
- * No search of the density is kept as a cell: the source's cells are the
- * window's alone. The footer says how many rows it shades in the viewport
- * ({@link densityInView}).
+ * their exact keys (`schematicRaster`). The density's own count of the
+ * viewport ({@link densityInView}), finer than the cells', decides at last:
+ * once it counts no more than `SCHEMATIC_WINDOW_ROWS` there, the rows are read
+ * after all, so the footer, which says that count, never says one the rows
+ * would draw at. A window whose cells hold more than
+ * `SCHEMATIC_WINDOW_READ_ROWS` draws its density whatever its view holds. The
+ * coarser levels' rows, boxes larger than half a raster cell, are read as rows
+ * while they number no more than a window draws, in one read of their runs;
+ * past that they are spread over the raster cells their cells cover
+ * (`schematicDensityCells`), and no row is read. No search of the density is
+ * kept as a cell: the source's cells are the window's alone.
  *
  * Its items' details are read at every tier — a dot draws its item's status
  * too (D45) — by the runs its window's rows were read by: the window's cells,
@@ -70,10 +81,11 @@ import {
 } from "@elaraai/east";
 import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
 import {
-    RecordSliceWhereType, areaQueries, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry, type RecordSliceJoined,
+    RecordSliceWhereType, areaCells,
+    type AreaCell, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry, type RecordSliceJoined,
 } from "@elaraai/east-ui/internal";
 import {
-    SCHEMATIC_WINDOW_ROWS, schematicDensityCells, schematicRaster, schematicWindowPlan,
+    SCHEMATIC_WINDOW_READ_ROWS, SCHEMATIC_WINDOW_ROWS, schematicDensityCells, schematicRaster, schematicWindowPlan,
     type SchematicAreaIndexes, type SchematicDensityCell, type SchematicRaster, type SchematicWindowPlan,
 } from "@elaraai/e3-ui/internal";
 import {
@@ -169,12 +181,14 @@ export const SCHEMATIC_CARD_REACH_PX = SCHEMATIC_CARD_MAX_PX / 2;
 /** A dot's reach past the viewport, in screen pixels: its marker and its ring. */
 const DOT_REACH_PX = 10;
 
-/** A kind's window (§10.4): the viewport padded by the largest card's half size, and the box its searches reach. */
+/** A kind's window (§10.4): the viewport padded by the largest card's half size, the box its searches reach, and its zoom. */
 export interface SchematicWindow {
     /** The viewport padded by the largest card's half size at its zoom: what its searches are planned over. */
     readonly box: WorldBox;
-    /** The box its searches hold: the padded viewport grown by an eighth of its larger side on each side (`areaQueries`'s margin). */
+    /** The box its searches hold: the padded viewport grown by an eighth of its larger side on each side (`areaCells`' margin). */
     readonly reach: WorldBox;
+    /** The zoom it was made for, in px per world unit: drawn as its density, it holds only at it. */
+    readonly ppu: number;
 }
 
 /** A box's larger side. */
@@ -184,7 +198,8 @@ function larger(box: WorldBox): number {
 
 /**
  * A viewport's window (§10.4): the viewport padded by the largest card's half
- * size at its zoom — a dot's at dot zoom — and the box its searches reach.
+ * size at its zoom — a dot's at dot zoom — the box its searches reach, and
+ * the zoom.
  *
  * @param viewport - Where the viewport rests
  * @returns Its window
@@ -194,24 +209,42 @@ export function windowOf(viewport: SchematicViewport): SchematicWindow {
     const { minX, minY, maxX, maxY } = viewport.box;
     const box = { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
     const margin = larger(box) / 8;
-    return { box, reach: { minX: box.minX - margin, minY: box.minY - margin, maxX: box.maxX + margin, maxY: box.maxY + margin } };
+    return { box, reach: { minX: box.minX - margin, minY: box.minY - margin, maxX: box.maxX + margin, maxY: box.maxY + margin }, ppu: viewport.ppu };
+}
+
+/** A window drawn as its density, as whether it holds weighs it: the density, and whether its cells hold more rows than a window reads. */
+export interface SchematicWindowDensity {
+    /** The density it draws. */
+    readonly density: SchematicDensity;
+    /** Whether its cells hold more than `SCHEMATIC_WINDOW_READ_ROWS`: then it draws its density whatever its view holds. */
+    readonly capped: boolean;
 }
 
 /**
- * Whether a window holds for a viewport (§10.4): its padded box lies inside
- * the window's reach and is at least half the window's size, so a pan or a
- * zoom inside the margin reads nothing, and a zoom in by more than half plans
- * the window again at its finer cells.
+ * Whether a window holds for a viewport (§10.4, D25). Drawn as its rows, it
+ * holds while the viewport's padded box lies inside the window's reach and is
+ * at least half its size, so a pan or a zoom inside the margin reads nothing,
+ * and a zoom in by more than half plans the window again at its finer cells.
+ * Drawn as its density, it holds only at the zoom it was made for — so a view
+ * draws one raster by whatever route it was reached, Fit's button or the
+ * wheel — while the viewport's padded box lies inside its reach, which its
+ * raster covers, and while the density counts more rows in the viewport than
+ * a window draws or its cells hold more than a window reads: past that, the
+ * viewport's own window is planned, which reads the rows.
  *
  * @param window - The window read
  * @param viewport - Where the viewport rests now
+ * @param drawn - Its density, while it is drawn as its density; `undefined` while it is drawn as its rows, or not yet read
+ * @param extent - The drawing's extent, in world units: where a density's rows lie
  * @returns Whether the window still holds
  */
-export function windowHolds(window: SchematicWindow, viewport: SchematicViewport): boolean {
+export function windowHolds(window: SchematicWindow, viewport: SchematicViewport, drawn: SchematicWindowDensity | undefined, extent: WorldBox): boolean {
     const next = windowOf(viewport).box;
     const { reach } = window;
-    return next.minX >= reach.minX && next.minY >= reach.minY && next.maxX <= reach.maxX && next.maxY <= reach.maxY
-        && larger(next) >= larger(window.box) / 2;
+    const inside = next.minX >= reach.minX && next.minY >= reach.minY && next.maxX <= reach.maxX && next.maxY <= reach.maxY;
+    if (drawn === undefined) return inside && larger(next) >= larger(window.box) / 2;
+    return inside && viewport.ppu === window.ppu
+        && (drawn.capped || densityInView(drawn.density, viewport.box, extent).rows > SCHEMATIC_WINDOW_ROWS);
 }
 
 // ============================================================================
@@ -271,19 +304,52 @@ export function densityInView(density: SchematicDensity, box: WorldBox, extent: 
     let exact = !density.spread && box.minX >= covered.minX && box.minY >= covered.minY && box.maxX <= covered.maxX && box.maxY <= covered.maxY;
     let rows = 0;
     for (const cell of density.cells) {
-        // The cell's rows lie in its part of the extent; a cell outside the extent holds them where they stand.
-        const whole = { minX: cell.minX, minY: cell.minY, maxX: cell.minX + side, maxY: cell.minY + side };
-        const part = overlap(whole, extent) ?? whole;
-        const seen = overlap(part, box);
-        if (seen === undefined) continue;
-        if (part.minX >= box.minX && part.maxX <= box.maxX && part.minY >= box.minY && part.maxY <= box.maxY) {
-            rows += cell.count;
-            continue;
-        }
-        exact = false;
-        rows += cell.count * ((seen.maxX - seen.minX) / (part.maxX - part.minX)) * ((seen.maxY - seen.minY) / (part.maxY - part.minY));
+        const share = shareInBox(cell.minX, cell.minY, side, box, extent);
+        if (share === 0) continue;
+        if (share < 1) exact = false;
+        rows += cell.count * share;
     }
     return { rows: exact ? rows : roughly(rows), exact };
+}
+
+/**
+ * How many rows a window's cells hold in a box, by their counts (#1393, D25) —
+ * the viewport's, where it rests: what the density switch weighs before a row
+ * or a raster is read. Each cell's rows are held evenly over its part of the
+ * drawing's extent, as a density's cell's are ({@link densityInView}), the
+ * box giving its share of them; a coarser level's cell by its exact key the
+ * same, its rows' centres anywhere in it.
+ *
+ * @param cells - The window's cells, as `areaCells` plans them
+ * @param counts - How many entries each holds, in their order
+ * @param box - The box, in world units
+ * @param extent - The drawing's extent, in world units
+ * @returns How many rows they hold in the box: an estimate, unrounded
+ * @throws {Error} When the counts are not one a cell
+ */
+export function cellsInView(cells: readonly AreaCell[], counts: readonly bigint[], box: WorldBox, extent: WorldBox): number {
+    if (counts.length !== cells.length) throw new Error(`A window of ${cells.length} cells was counted ${counts.length}`);
+    let rows = 0;
+    cells.forEach((cell, i) => {
+        const count = counts[i]!;
+        if (count > 0n) rows += Number(count) * shareInBox(cell.minX, cell.minY, cell.side, box, extent);
+    });
+    return rows;
+}
+
+/**
+ * The share of a cell's rows a box holds: its rows lie evenly over its part of the drawing's extent, as Issues holds
+ * every item to the extent, so a cell reaching past the extent's edge gives all of them to a box holding its part; a
+ * cell wholly outside the extent holds them where they stand. Whole for a part inside the box, none for one only
+ * touching it.
+ */
+function shareInBox(minX: number, minY: number, side: number, box: WorldBox, extent: WorldBox): number {
+    const whole = { minX, minY, maxX: minX + side, maxY: minY + side };
+    const part = overlap(whole, extent) ?? whole;
+    const seen = overlap(part, box);
+    if (seen === undefined) return 0;
+    if (part.minX >= box.minX && part.maxX <= box.maxX && part.minY >= box.minY && part.maxY <= box.maxY) return 1;
+    return ((seen.maxX - seen.minX) / (part.maxX - part.minX)) * ((seen.maxY - seen.minY) / (part.maxY - part.minY));
 }
 
 /** Where two boxes overlap, with an area; `undefined` where they only touch, or not at all. */
@@ -356,13 +422,36 @@ const MAX_KEPT_ANSWERS = 20_000;
 /** Each kind's encoder of the rows it read, as its `rowsOf` takes them: an Array of `{ key, row }`. */
 type RowsEncoder = (read: { key: string; row: unknown }[]) => Uint8Array;
 
-/** A window's plan, and its searches as the cells it reads: for the source's config, the narrowing and the window they were planned for. */
+/**
+ * A window's plan, and its searches as the cells it reads — each where it is beside it, in the same order: for the
+ * source's config, the narrowing and the window they were planned for.
+ */
 interface Planned {
     readonly config: unknown;
     readonly where: Where;
     readonly window: SchematicWindow;
     readonly plan: SchematicWindowPlan;
     readonly cells: readonly RecordSliceCell[];
+    readonly places: readonly AreaCell[];
+}
+
+/** How many entries a window's cells hold, found at a revision: each cell's, in their order, and all of them. */
+interface Found {
+    readonly revision: string;
+    readonly planned: Planned;
+    readonly counts: readonly bigint[];
+    readonly total: bigint;
+}
+
+/**
+ * A window's density raster as its bounds were found: the density it draws, the bounds, the coarser levels' bounds,
+ * and whether their rows are read as rows — they hold some, and no more than a window draws.
+ */
+interface Rasterized {
+    readonly density: SchematicDensity;
+    readonly found: readonly Range[];
+    readonly coarse: readonly Range[];
+    readonly few: boolean;
 }
 
 /** A window's density raster: its plan's, over its reach, and its searches — its cells' ranges, then the coarser levels' keys. */
@@ -399,7 +488,7 @@ interface Slot {
     /** Its window's plan and cells. */
     planned?: Planned;
     /** How many entries its window's cells hold, found at a revision. */
-    found?: { readonly revision: string; readonly planned: Planned; readonly total: bigint };
+    found?: Found;
     /** Each cell's entries, read through an index at a revision. */
     kept?: { readonly index: string; readonly revision: string; readonly cells: Map<string, RecordSliceEntry[]> };
     /** Its density's raster. */
@@ -410,8 +499,8 @@ interface Slot {
     coarse?: { readonly found: readonly Range[]; readonly runs: readonly Range[]; readonly entries: readonly RecordSliceEntry[] };
     /** The density it last drew. */
     density?: SchematicDensity;
-    /** Its window as it was last read, for its plan and its revision. */
-    read?: { readonly planned: Planned; readonly revision: string; readonly read: SchematicWindowRead };
+    /** Its window as it was last read, for its plan and its revision, and whether its cells hold more rows than a window reads. */
+    read?: { readonly planned: Planned; readonly revision: string; readonly read: SchematicWindowRead; readonly capped: boolean };
     /** Its far ends' rows, as the read by key gave them. */
     far?: { readonly read: readonly PagedRow[]; readonly rows: SchematicAreaRows };
     /** The narrowing's answers, at a revision and a narrowing. */
@@ -466,38 +555,55 @@ export class SchematicAreaReader {
     }
 
     /**
-     * A kind's window as it is read (see the module docs): its rows, or its
-     * density past the rows a window draws — the same object while its plan
-     * and its revision hold.
+     * A kind's window as it is read (see the module docs): its rows while the
+     * viewport holds no more than a window draws, else its density — the same
+     * object while its plan and its revision hold.
      *
      * @param kind - The kind
      * @param part - Its source of the slice
      * @param areas - Its area indexes
      * @param viewport - Where the viewport rests
      * @param dim - Whether every row is read, the narrowing drawn as context (`narrowed="dim"`)
+     * @param extent - The drawing's extent, in world units: where a cell's rows lie, as the viewport's count weighs them
      * @returns What the window holds; {@link READING} while a search or a read is in flight
      */
-    window(kind: SchematicAreaKind, part: Part, areas: SchematicAreaIndexes, viewport: SchematicViewport, dim: boolean): SchematicWindowRead | Reading {
+    window(kind: SchematicAreaKind, part: Part, areas: SchematicAreaIndexes, viewport: SchematicViewport, dim: boolean, extent: WorldBox): SchematicWindowRead | Reading {
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
         const slot = this.slotOf(kind.key);
-        const planned = this.plannedOf(slot, part, areas, dim ? NO_WHERE : part.read().where, this.windowFor(slot, viewport));
+        const planned = this.plannedOf(slot, part, areas, dim ? NO_WHERE : part.read().where, this.windowFor(slot, viewport, extent));
         const last = slot.read;
         if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision.value)) return last.read;
-        const total = this.totalOf(slot, part, planned, revision.value);
-        if (total === READING) return READING;
-        const read = total > BigInt(SCHEMATIC_WINDOW_ROWS)
-            ? this.density(slot, part, planned, revision.value, dim)
-            : this.rows(slot, part, planned, revision.value);
+        const found = this.foundOf(slot, part, planned, revision.value);
+        if (found === READING) return READING;
+        // The rows are read while the viewport holds no more than a window draws — by the cells' counts, else by the
+        // density's finer one, which the footer says — and the cells no more than a window reads (D25).
+        const capped = found.total > BigInt(SCHEMATIC_WINDOW_READ_ROWS);
+        let read: SchematicWindowRead | Reading;
+        if (!capped && cellsInView(planned.places, found.counts, viewport.box, extent) <= SCHEMATIC_WINDOW_ROWS) {
+            read = this.rows(slot, part, planned, revision.value);
+        } else {
+            const raster = this.rasterOf(slot, part, planned, revision.value, dim);
+            if (raster === READING) return READING;
+            read = !capped && densityInView(raster.density, viewport.box, extent).rows <= SCHEMATIC_WINDOW_ROWS
+                ? this.rows(slot, part, planned, revision.value)
+                : this.density(slot, part, planned, revision.value, raster);
+        }
         if (read === READING) return READING;
-        slot.read = { planned, revision: revision.value, read };
+        slot.read = { planned, revision: revision.value, read, capped };
         return read;
     }
 
-    /** The window a kind reads for a viewport: the one it holds while it holds, else the viewport's own. */
-    private windowFor(slot: Slot, viewport: SchematicViewport): SchematicWindow {
+    /**
+     * The window a kind reads for a viewport: the one it holds while it holds as it was drawn ({@link windowHolds}) —
+     * as its rows until its read lands — else the viewport's own.
+     */
+    private windowFor(slot: Slot, viewport: SchematicViewport, extent: WorldBox): SchematicWindow {
         const held = slot.window;
-        if (held !== undefined && windowHolds(held, viewport)) return held;
+        const last = slot.read;
+        const density = last !== undefined && Object.is(last.planned.window, held) ? last.read.density : undefined;
+        const drawn = density === undefined || last === undefined ? undefined : { density, capped: last.capped };
+        if (held !== undefined && windowHolds(held, viewport, drawn, extent)) return held;
         const next = windowOf(viewport);
         slot.window = next;
         return next;
@@ -508,23 +614,26 @@ export class SchematicAreaReader {
         const last = slot.planned;
         if (last !== undefined && Object.is(last.config, part.config) && Object.is(last.where, where) && Object.is(last.window, window)) return last;
         const plan = schematicWindowPlan(areas, where, window.box);
-        // A cell a search: the same search in every window that holds it (`areaQueries`), so a pan asks only the cells it adds.
-        const cells = plan.prefixes.flatMap((prefix) => areaQueries(prefix, window.box, plan.cell)).map((query) => ({ id: printQuery(query), queries: [query] }));
-        const planned = { config: part.config, where, window, plan, cells };
+        // A cell a search: the same search in every window that holds it (`areaCells`), so a pan asks only the cells it adds.
+        const places = plan.prefixes.flatMap((prefix) => areaCells(prefix, window.box, plan.cell));
+        const cells = places.map((place) => ({ id: printQuery(place.query), queries: [place.query] }));
+        const planned = { config: part.config, where, window, plan, cells, places };
         slot.planned = planned;
         return planned;
     }
 
-    /** How many entries a window's cells hold: found in one request, once a revision. */
-    private totalOf(slot: Slot, part: Part, planned: Planned, revision: string): bigint | Reading {
+    /** How many entries a window's cells hold, each cell's and all of them: found in one request, once a revision. */
+    private foundOf(slot: Slot, part: Part, planned: Planned, revision: string): Found | Reading {
         const last = slot.found;
-        if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision)) return last.total;
+        if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision)) return last;
         const runs = recordSliceCellRuns(part, planned.plan.index.name, planned.cells);
         if (runs.type !== "some") return READING;
+        const counts = planned.cells.map((cell) => runs.value.get(cell.id)?.total ?? 0n);
         let total = 0n;
-        for (const found of runs.value.values()) total += found.total;
-        slot.found = { revision, planned, total };
-        return total;
+        for (const count of counts) total += count;
+        const found = { revision, planned, counts, total };
+        slot.found = found;
+        return found;
     }
 
     /** A window's rows: its cells' entries, those of the cells not held read in one read of their runs. */
@@ -560,16 +669,14 @@ export class SchematicAreaReader {
     }
 
     /**
-     * A kind's density past the rows a window draws (D25): the bounds of the
-     * raster's cells over the window's reach and of the coarser levels' cells,
-     * in one request; the coarser levels' rows read in one read of their runs
-     * while they number no more than a window draws, else spread over the
-     * raster.
+     * A window's density raster (D25): the bounds of the raster's cells over
+     * the window's reach and of the coarser levels' cells, in one request, and
+     * the density they draw — the coarser levels' rows spread over the raster
+     * while they number more than a window draws.
      */
-    private density(slot: Slot, part: Part, planned: Planned, revision: string, dim: boolean): SchematicWindowRead | Reading {
-        const index = planned.plan.index.name;
+    private rasterOf(slot: Slot, part: Part, planned: Planned, revision: string, dim: boolean): Rasterized | Reading {
         const rastered = this.rasteredOf(slot, planned);
-        const found = this.boundsOf(slot, part, index, rastered, revision);
+        const found = this.boundsOf(slot, part, planned.plan.index.name, rastered, revision);
         if (found === READING) return READING;
         const counts = found.slice(0, rastered.cells).map((range) => range.count);
         const coarse = found.slice(rastered.cells);
@@ -577,18 +684,23 @@ export class SchematicAreaReader {
         for (const range of coarse) total += range.count;
         // The coarser levels' rows, boxes larger than half a raster cell: drawn as rows while a window would draw them all.
         const few = total <= BigInt(SCHEMATIC_WINDOW_ROWS);
+        // Under `dim` the raster counts every row; otherwise the fields the index doesn't lead aren't counted in it.
+        const unnarrowed = dim ? part.read().where.size > 0 : planned.plan.residual.length > 0;
+        const density = this.densityOf(slot, rastered, counts, few ? undefined : coarse.map((range) => range.count), unnarrowed);
+        return { density, found, coarse, few: few && total > 0n };
+    }
+
+    /** A window drawn as its density (D25): the coarser levels' rows read in one read of their runs while they are few. */
+    private density(slot: Slot, part: Part, planned: Planned, revision: string, raster: Rasterized): SchematicWindowRead | Reading {
         let entries = NO_ENTRIES;
         let runs = NO_RUNS;
-        if (few && total > 0n) {
-            const read = this.coarseOf(slot, part, index, found, coarse);
+        if (raster.few) {
+            const read = this.coarseOf(slot, part, planned.plan.index.name, raster.found, raster.coarse);
             if (read === READING) return READING;
             entries = read.entries;
             runs = read.runs;
         }
-        // Under `dim` the raster counts every row; otherwise the fields the index doesn't lead aren't counted in it.
-        const unnarrowed = dim ? part.read().where.size > 0 : planned.plan.residual.length > 0;
-        const density = this.densityOf(slot, rastered, counts, few ? undefined : coarse.map((range) => range.count), unnarrowed);
-        return { plan: planned.plan, revision, rows: rowsOfEntries([entries]), density, at: { runs }, from: [entries, density] };
+        return { plan: planned.plan, revision, rows: rowsOfEntries([entries]), density: raster.density, at: { runs }, from: [entries, raster.density] };
     }
 
     /** A window's density raster and its searches, planned again only with the window's plan. */
