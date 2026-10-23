@@ -234,26 +234,40 @@ test("arrows step the selection, flying to each item; Esc clears it; Del deletes
     const { container, getByRole } = await dataCentre();
     const canvas = canvasOf(container);
     canvas.focus();
-    // From nothing selected, the first item in order: Cage A's first rack by name.
-    await act(async () => { fireEvent.keyDown(canvas, { key: "ArrowRight" }); });
-    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A01" }])));
-    // The camera flies to it: once there, its card wears the selection.
-    await waitFor(() => expect(card(container, "racks", "A01")?.hasAttribute("data-selected")).toBe(true));
-    await act(async () => { fireEvent.keyDown(canvas, { key: "ArrowDown" }); });
-    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A02" }])));
-    await act(async () => { fireEvent.keyDown(canvas, { key: "ArrowLeft" }); });
-    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A01" }])));
-    // Esc, with the pointer over the canvas: the selection clears.
-    fireEvent.pointerEnter(canvas);
-    await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
-    await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
-    // Fit, back to the whole floor: a run tapped on its path is selected; Del deletes it, and a tap where it ran finds nothing.
-    await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
-    await tap(canvas, PPU, 5.2, 9.6);
+    // The camera moves over animation frames — each step's fly, and Fit's paint: the test runs them on a clock of its own,
+    // so each lands however busy the machine running it is, and a tap after Fit meets the floor Fit drew.
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        const frames = (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
+        // From nothing selected, the first item in order: Cage A's first rack by name.
+        await act(async () => { fireEvent.keyDown(canvas, { key: "ArrowRight" }); });
+        await frames(FLY_MS);
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A01" }])));
+        // Flown to it: its card wears the selection.
+        expect(card(container, "racks", "A01")?.hasAttribute("data-selected")).toBe(true);
+        await act(async () => { fireEvent.keyDown(canvas, { key: "ArrowDown" }); });
+        await frames(FLY_MS);
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A02" }])));
+        await act(async () => { fireEvent.keyDown(canvas, { key: "ArrowLeft" }); });
+        await frames(FLY_MS);
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A01" }])));
+        // Esc, with the pointer over the canvas: the selection clears.
+        fireEvent.pointerEnter(canvas);
+        await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
+        // Fit, back to the whole floor, drawn.
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
+        await frames(FRAME_MS);
+    } finally {
+        vi.useRealTimers();
+    }
+    // A run tapped on its path — u1, from A01 straight down to ODF-1's top — is selected; Del deletes it, and a tap where it
+    // ran finds nothing.
+    await tap(canvas, PPU, 2.4, 6.0);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
     await act(async () => { fireEvent.keyDown(window, { key: "Delete" }); });
     await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
-    await tap(canvas, PPU, 5.2, 9.6);
+    await tap(canvas, PPU, 2.4, 6.0);
     await settle();
     expect(keptSelection()).toBe(printRefs([]));
 });
