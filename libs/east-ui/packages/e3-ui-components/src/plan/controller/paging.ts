@@ -213,6 +213,13 @@ export interface PlanPagingSnapshot {
     complete: boolean;
     /** Whether a requested window is still in flight. */
     loading: boolean;
+    /** The elements being read (#1398, CL3): of the bands of the block the
+     *  viewport is in, the loading span nearest it — what the footer's loading
+     *  line names; `undefined` while none is, or before the source's count. */
+    reading: { from: number; to: number } | undefined;
+    /** Whether the view the last narrowing drew stands in while a new one's
+     *  first window is read (#1354): the footer's line says it is filtering. */
+    replacing: boolean;
     /** The resident windows whose read failed, ascending — one each, whatever
      *  blocks hold it (#811). */
     failures: readonly PlanWindowFailure[];
@@ -239,7 +246,7 @@ const NO_BLOCKS: readonly PlanPagedBlock[] = [];
 /** The snapshot of a driver with no source (an inline canvas). */
 export const IDLE_PAGING: PlanPagingSnapshot = {
     seq: 0, rows: NO_ROWS, origin: NO_ORIGIN, blocks: NO_BLOCKS,
-    total: undefined, resident: undefined, complete: true, loading: false,
+    total: undefined, resident: undefined, complete: true, loading: false, reading: undefined, replacing: false,
     failures: NO_FAILURES, sourceError: undefined, revision: undefined, dataSnapshot: undefined,
 };
 
@@ -405,6 +412,22 @@ function sameShape(a: readonly BlockShape[], b: readonly BlockShape[]): boolean 
 function sameLoading(a: PlanBand["loading"], b: PlanBand["loading"]): boolean {
     if (a === undefined || b === undefined) return a === b;
     return a.from === b.from && a.to === b.to;
+}
+
+/**
+ * Of a block's bands, the loading span nearest the element the viewport is
+ * centred on (#1398): what the footer's loading line names.
+ *
+ * @param block - The block the viewport is in
+ * @param at - The element it is centred on
+ * @returns The span; `undefined` when neither band is loading
+ */
+function readingOf(block: PlanPagedBlock | undefined, at: number): PlanBand["loading"] {
+    const head = block?.head?.loading;
+    const tail = block?.tail?.loading;
+    if (head === undefined || tail === undefined) return head ?? tail;
+    const distance = (span: { from: number; to: number }) => (at < span.from ? span.from - at : at > span.to ? at - span.to : 0);
+    return distance(tail) <= distance(head) ? tail : head;
 }
 
 function sameBand(a: PlanBand | undefined, b: PlanBand | undefined): boolean {
@@ -930,7 +953,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         if (transition !== undefined) {
             if (cache.size === 0 && last.total !== 0 && last.failed.length === 0 && last.sourceError === undefined) {
                 if (!snapshot.loading || snapshot.rows !== transition.rows) {
-                    snapshot = { ...transition, seq: ++published, loading: true, complete: false };
+                    snapshot = { ...transition, seq: ++published, loading: true, complete: false, reading: undefined, replacing: true };
                     options.onChange();
                 }
                 return;
@@ -981,6 +1004,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             }
         }
         failures.sort((a, b) => a.w - b.w);
+        const reading = readingOf(focus, (focus === undefined ? undefined : lanes.get(focus.index)?.viewportAt) ?? 0);
         const next: PlanPagingSnapshot = {
             seq: prev.seq,
             rows: assembled.rows,
@@ -990,6 +1014,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             resident: sameResident(prev.resident, focus?.resident) ? prev.resident : focus?.resident,
             complete,
             loading: last.inFlight.length > 0,
+            reading: sameLoading(prev.reading, reading) ? prev.reading : reading,
+            replacing: false,
             failures: failures.length === 0 ? NO_FAILURES
                 : sameFailures(prev.failures, failures) ? prev.failures : failures,
             sourceError: last.sourceError,
@@ -998,7 +1024,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         };
         const changed = next.rows !== prev.rows || next.origin !== prev.origin || next.blocks !== prev.blocks
             || next.total !== prev.total || next.resident !== prev.resident || next.complete !== prev.complete
-            || next.loading !== prev.loading || next.failures !== prev.failures || next.sourceError !== prev.sourceError
+            || next.loading !== prev.loading || next.reading !== prev.reading || next.replacing !== prev.replacing
+            || next.failures !== prev.failures || next.sourceError !== prev.sourceError
             || next.revision !== prev.revision || next.dataSnapshot !== prev.dataSnapshot;
         if (!changed) return;
         published += 1;

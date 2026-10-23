@@ -30,6 +30,7 @@ import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { act, sheetHarness } from "./frame/harness.test-utils.js";
 import { SheetBandRow, SheetFailedBandRow, SheetRowBoundary } from "./Rows.js";
+import { SheetFooter } from "./Footer.js";
 import { SheetMessagesProvider, sheetMessages, type SheetMessages } from "./messages.js";
 
 // The harness's 400px frame, its store, and the examples' records on e3
@@ -147,9 +148,14 @@ function words(root: Element): string[] {
     return out;
 }
 
+/** A message's words marked `⟦`: a string's, or the first part of a line's words, which set what they name strong (#1398). */
+function markWords(said: string | readonly (string | { readonly strong: string })[]): string | (string | { readonly strong: string })[] {
+    if (typeof said === "string") return `⟦${said}`;
+    return said.map((part, i) => (i > 0 ? part : typeof part === "string" ? `⟦${part}` : { strong: `⟦${part.strong}` }));
+}
 /** The English table with every message marked `⟦` — a word the Sheet says without the mark did not come from the table. */
 const MARKED = Object.fromEntries(Object.entries(sheetMessages).map(([k, f]) =>
-    [k, (p: never) => `⟦${(f as (p: never) => string)(p)}`])) as unknown as SheetMessages;
+    [k, (p: never) => markWords((f as (p: never) => string | readonly (string | { readonly strong: string })[])(p))])) as unknown as SheetMessages;
 const marked = (sheet: ReactNode) => <SheetMessagesProvider messages={MARKED}>{sheet}</SheetMessagesProvider>;
 
 const allMarked = (texts: readonly (string | null | undefined)[]) => {
@@ -286,10 +292,25 @@ describe("one message table (#861)", () => {
         expect(message()).toBe("⟦Deleted 1 row");
     });
 
-    test("paged, in German: the transport line in the locale's numbers, and the scope badge", async () => {
+    test("paged, in German: the scope badge, and the footer's loading line in the table's words and the locale's numbers (#1398)", async () => {
         const { q } = mount(PAGED(), "sheet-861-paged", (sheet) => <I18nProvider locale="de-DE">{marked(sheet)}</I18nProvider>);
-        await waitFor(() => expect(q('[data-slot="footerTransport"]')!.textContent).toMatch(/^⟦[\d.]+ loaded of 1\.000$/), { timeout: 15_000 });
+        await waitFor(() => expect(q('[data-row-id="J10000"]')).not.toBeNull(), { timeout: 15_000 });
         expect(q('[data-slot="toolbarBadge"]')!.textContent).toBe("⟦loaded rows only");
+        // A read that failed shows at once: its words, its short form and its Retry, each the table's.
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <I18nProvider locale="de-DE">
+                    <SheetMessagesProvider messages={MARKED}>
+                        <SheetFooter styles={{}} items={[]} hint="" message="" noun="rows" onRetry={() => {}}
+                            loading={{ kind: "failed", from: 8_300, to: 8_499, reason: "fetch failed: 503" }} />
+                    </SheetMessagesProvider>
+                </I18nProvider>
+            </ChakraProvider>,
+        );
+        const line = container.querySelector("[data-footer-line]")!;
+        expect(line.querySelector("[data-line-text]")!.textContent).toBe("⟦Couldn't read rows 8.301–8.500");
+        expect(line.querySelector("[data-line-short]")!.textContent).toBe("⟦Couldn't read");
+        expect(line.querySelector("[data-line-retry]")!.textContent).toBe("⟦Retry");
     });
 });
 

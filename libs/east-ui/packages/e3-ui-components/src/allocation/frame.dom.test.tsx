@@ -5,19 +5,26 @@
  *
  * The board in its frame (#1325, #1372): the toolbar's items, the day's
  * status and its banners, the day stepping and the picker's marks, Publish,
- * the footer's legend and the loading cover — over the kiln yard's own
- * records: its bins, and its days, whose row says a day's status.
+ * the footer's legend, the loading cover and the days either side read ahead
+ * (#1398) — over the kiln yard's own records: its bins, and its days, whose
+ * row says a day's status.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import { DateTimeType, equalFor, none, printFor, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { issueSummary } from "./toolbar.js";
 import type { Issue } from "./model.js";
-import { act, allocationHarness, settle, slot, THU, TUE, TUE_4 } from "./harness.test-utils.js";
+import { act, allocationHarness, settle, slot, THU, TUE, TUE_4, WED } from "./harness.test-utils.js";
 
 const h = allocationHarness();
+/** The bins and the days the windowed board reads a day at a time, as the request log names their datasets. */
+const BINS = `records.${ex.kilnBinHistory.name}`, DAYS = `records.${ex.yardDayHistory.name}`;
+/** A read of the bins or of the days — a page, a key search, a read of runs or of rows by key (#1351). */
+const READS = new Set(["page", "find", "runs", "rows"]);
+const dayRead = (request: E3Request) => READS.has(request.kind) && (request.dataset === BINS || request.dataset === DAYS);
 const day = printFor(DateTimeType);
 async function press(node: Element) { await act(async () => { fireEvent.click(node); }); await settle(); }
 async function key(c: HTMLElement, k: string) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: k }); }); await settle(); }
@@ -128,9 +135,36 @@ describe("the board's frame", () => {
 
     test("A80 — the frame is covered until the active day resolves, a day at a time through the window", async () => {
         const { container } = await h.mount(ex.allocationWindowed);
-        expect(container.querySelector("[data-allocation-main]")!.getAttribute("aria-busy")).toBe("false");
+        // The day resolved: the frame's main is not busy, and the footer's loading line says nothing (#1398).
+        expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+        expect(slot(container, "footer").querySelector("[data-footer-line]")!.hasAttribute("data-idle")).toBe(true);
         expect(shownDay(container)).toBe(TUE.getTime());
         expect(day(TUE)).toContain("2027-05-11");
+    });
+
+    test("#1398, CL6, CL7 — once its day has landed, the board reads the days either side ahead: a step to the next shows it at once with every read held, and asks for the day after it; a step back drops that read, each of its requests aborted on its way to e3", async () => {
+        const { container } = await h.mount(ex.allocationWindowed);
+        // From now on every read of the bins and the days is held on its way to e3.
+        const held = h.e3.hold(dayRead);
+        const before = h.requests().length;
+        await key(container, "]");
+        // The day stepped to was read before the step: nothing covers the frame, its main is not busy, and the footer's line says nothing.
+        expect(shownDay(container)).toBe(WED.getTime());
+        expect(container.querySelector("[data-builder-loading]")).toBeNull();
+        expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+        expect(slot(container, "footer").querySelector("[data-footer-line]")!.hasAttribute("data-idle")).toBe(true);
+        // What it asks now is the day after it, read ahead in turn: on its way, none given up.
+        const ahead = h.requests().slice(before).filter(dayRead);
+        expect(ahead.length).toBeGreaterThan(0);
+        expect(ahead.some(request => request.signal.aborted)).toBe(false);
+        // Back at the day it opened on, its neighbours read already: nothing reads the day after the next any more, and every request for it is aborted.
+        await key(container, "[");
+        expect(shownDay(container)).toBe(TUE.getTime());
+        expect(ahead.every(request => request.signal.aborted)).toBe(true);
+        expect(container.querySelector("[data-builder-loading]")).toBeNull();
+        expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+        await act(async () => { held.release(); });
+        await settle();
     });
 
     test("A81 — the issues chip's words: its count of warnings and dangers, its breakdown and `show them`", () => {

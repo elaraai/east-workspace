@@ -718,10 +718,8 @@ describe("the source's channels (#815)", () => {
         // its windows landed too — one settle, one notification.
         expect(c.getSnapshot().paging.rows.length).toBeGreaterThan(2);
         expect(notified()).toBe(n + 1);
-        // The live region says what landed, in that same notification (#819).
-        const resident = c.getSnapshot().paging.resident!;
-        expect(c.getSnapshot().announce?.text)
-            .toBe(`Loaded elements 1–${resident.to.toLocaleString()} of ${(10 * PLAN_PAGE_SIZE).toLocaleString()}`);
+        // A landing is no announcement of the canvas's own: a load is said once, by the footer's loading line (#1398, CL12).
+        expect(c.getSnapshot().announce).toBeNull();
     });
 
     test("connect after a disconnect listens again — a rehearsed unmount does not deafen the canvas", () => {

@@ -9,17 +9,16 @@
  * reads through its own source, the date window written to every one; each
  * resource kind's source narrows its columns, rows and Choosers; each
  * templates list's and each tab's narrows that tab. Overlaps, checks and
- * commands read everything.
+ * commands read everything. Its footer explains the event kinds, beside the
+ * shared loading line (#1398): the period being read, or why it could not be.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StatusDisplay } from "../components/StatusDisplay.js";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import { BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters } from "@elaraai/east-ui-components";
-import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
+import { periodLoading, periodLoadingLine, retryPeriod } from "../shared/loading.js";
 import { useScheduleEditing, type ScheduleEditing } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
@@ -27,6 +26,7 @@ import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
 import { CalendarDataReader, initialCalendarData, resourceRows, type CalendarDataState } from "./data.js";
 import { useCalendarDrag } from "./drag.js";
+import { CalendarFooter } from "./footer.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { templatesTab, useCalendarLibrary } from "./library.js";
 import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
@@ -34,7 +34,7 @@ import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
 import { useCalendarWindow, type CalendarWindow } from "./window.js";
 import { CalendarViews } from "./views.js";
-import { calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, type CalendarItem, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
+import { calendarAhead, calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, periodWords, type CalendarItem, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
 
 export type { CalendarValue } from "./model.js";
 /** Props of the Calendar extension renderer. */
@@ -99,8 +99,10 @@ function CalendarFrame(props: HostProps) {
         setRefs(next); if (value.onSelect.type === "some") for (const ref of next) value.onSelect.value(ref);
     }, [value.onSelect]);
     const selected = useMemo(() => new Set(refs.map(ref => eventKey(ref))), [refs]);
-    // The window read reports from a component of its own, so a search landing re-renders it alone (#1343).
+    // The window read reports from a component of its own, so a search landing re-renders it alone (#1343); once the
+    // window lands, it reads the periods either side ahead (#1398, CL7).
     const [data, setData] = useState<CalendarDataState>(() => initialCalendarData(range));
+    const ahead = useMemo(() => calendarAhead(view, value.settings), [view, value.settings]);
     useEffect(() => {
         if (reveal === undefined || main.current === null) return;
         const key = CSS.escape(eventKey(reveal));
@@ -155,10 +157,18 @@ function CalendarFrame(props: HostProps) {
     }, [select, selected, refs]);
     // A followed source not yet resolved holds the frame's cold load, as an event kind's window does.
     const cold = [...followed.values()].some(source => !source.shown.ready && source.error === undefined);
+    // What the footer's loading line says (#1398, CL3): the period being read, a followed source's new narrowing, or
+    // why one could not be read, with Retry — the period's asking again each event kind's record.
+    const retryWindow = useCallback(() => retryPeriod(dates.eventParts.map(({ kind, part }) => ({ entries: kind.entries, part }))), [dates.eventParts]);
+    const periodName = periodWords(view, range, value.settings, format);
+    const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading, error: data.error, retry: retryWindow },
+        [...followed.values()].map(source => ({ noun: source.name, ready: source.shown.ready, loading: source.shown.busy && source.error === undefined,
+            error: source.error, retry: source.retry }))), periodName), [data.loading, data.error, retryWindow, followed, periodName]);
     return <Box css={styles.root} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}>
-        <CalendarDataReader value={value} range={range} editing={editing} onData={setData} />
+        <CalendarDataReader value={value} range={range} editing={editing} ahead={ahead} onData={setData} />
         <CalendarSelectionReader value={value} refs={refs} range={range} commands={commands} onSelection={setSelection} />
-        <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} toolbar={toolbar} start={start} end={end}
+        <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold}
+            busy={data.loading || resourcesBusy} liveFooter toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 if (event.defaultPrevented || typedInto(event.target)) return;
                 const action = historyShortcut(event);
@@ -174,14 +184,8 @@ function CalendarFrame(props: HostProps) {
                 {dates.error !== undefined && <BannerView status="error" title="Dates unavailable" description={dates.error} />}
                 {(error ?? data.error) !== undefined && <Box role="alert" css={styles.error}>{error ?? data.error}</Box>}
             </>}
-            footer={<Box css={styles.footer} data-calendar-footer="" data-builder-narrow={narrow ? "" : undefined} data-calendar-narrow={narrow ? "" : undefined}>
-                {value.events.map(kind => <Box as="span" key={kind.key} css={styles.footerItem} data-calendar-legend={kind.key}>
-                    <Box as="span" css={styles.eventIcon}><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></Box> {kind.name}
-                </Box>)}
-                {dates.eventParts.map(({ kind, part }) => <RecordSliceSaveNotice key={kind.key} slice={part}
-                    singular={`${kind.name.toLocaleLowerCase(format.locale)} event`} plural={`${kind.name.toLocaleLowerCase(format.locale)} events`} />)}
-            </Box>}>
-            <Box ref={main} css={styles.main} data-calendar-main="" inert={!available ? true : undefined} aria-busy={(data.loading && data.error === undefined) || resourcesBusy} data-calendar-narrow={narrow ? "" : undefined}>
+            footer={<CalendarFooter styles={styles} kinds={value.events} parts={dates.eventParts} locale={format.locale} line={line} />}>
+            <Box ref={main} css={styles.main} data-calendar-main="" inert={!available ? true : undefined} data-calendar-narrow={narrow ? "" : undefined}>
                 {!data.ready && data.error !== undefined ? <StatusDisplay variant="error" title="Calendar unavailable" message={data.error} /> : <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={available ? narrow ? displayRange : range : data.range} visibleRange={available ? displayRange : data.range} onVisible={showRange} items={items}
                     rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles}
                     selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={gestures} drag={drag} />}

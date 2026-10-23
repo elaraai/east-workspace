@@ -10,15 +10,15 @@
 
 /**
  * The canvas's words (#819): every element's accessible name carries what its
- * look encodes — a bar's state, a cell's value, a chart's shape — and a window
- * landing is announced as the elements it added. Every phrase is the message
- * table's and every number and date the locale's (#820).
+ * look encodes — a bar's state, a cell's value, a chart's shape. Every phrase
+ * is the message table's and every number and date the locale's (#820). What a
+ * paged source reads is the footer's loading line's to say (#1398, CL12).
  */
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import {
-    cellName, chartSummary, chipName, decisionName, heatValueText, landedText, markName, runName,
+    cellName, chartSummary, chipName, decisionName, heatValueText, markName, runName,
     segmentsText, stateText, tablePartsText, tileName, weightValueText, type PlanStateValue,
 } from "./a11y.js";
 import { planScale } from "./scale.js";
@@ -140,21 +140,6 @@ describe("chart summary (#819)", () => {
     });
 });
 
-describe("window landings (#819)", () => {
-    test("say the elements that became resident — at either end, or a whole run on a rebase", () => {
-        expect(landedText(undefined, { from: 0, to: 200 }, 5000, w)).toBe("Loaded elements 1–200 of 5,000");
-        expect(landedText({ from: 0, to: 200 }, { from: 0, to: 400 }, 5000, w)).toBe("Loaded elements 201–400 of 5,000");
-        expect(landedText({ from: 400, to: 800 }, { from: 200, to: 800 }, undefined, w)).toBe("Loaded elements 201–400");
-        expect(landedText({ from: 0, to: 400 }, { from: 2000, to: 2200 }, 5000, w)).toBe("Loaded elements 2,001–2,200 of 5,000");
-    });
-
-    test("an eviction or an unmoved run says nothing", () => {
-        expect(landedText({ from: 0, to: 600 }, { from: 200, to: 600 }, 5000, w)).toBeUndefined();
-        expect(landedText({ from: 0, to: 600 }, { from: 0, to: 600 }, 5000, w)).toBeUndefined();
-        expect(landedText({ from: 0, to: 600 }, undefined, 5000, w)).toBeUndefined();
-    });
-});
-
 describe("the words a name is said in (#820)", () => {
     // German numbers and dates, and a table whose every message is marked, so
     // each phrase and each formatted part can be told apart in the result.
@@ -172,7 +157,6 @@ describe("the words a name is said in (#820)", () => {
         expect(runName(heavy as never, deScale, de)).toBe("J-4642, 29. Juni 2026 – 27. Juli 2026, actual, 1.234,5 k sheets");
         expect(heatValueText(1234.5, undefined, false, de)).toBe("1.234,5");
         expect(cellName(deScale, deScale.buckets[0]!, "72", de)).toBe("Week of 29. Juni 2026: 72");
-        expect(landedText({ from: 0, to: 400 }, { from: 2000, to: 2200 }, 5000, de)).toBe("Loaded elements 2.001–2.200 of 5.000");
         expect(weightValueText(0.6, false, de)).toMatch(/^60\s%/u);
     });
 
@@ -188,6 +172,5 @@ describe("the words a name is said in (#820)", () => {
         expect(heatValueText(undefined, undefined, false, stub)).toBe("⟦no data");
         expect(segmentsText([], stub)).toBe("⟦no data");
         expect(chartSummary({ layers: [], left: none, right: none } as unknown as ChartKindValue, scale, stub)).toBe("⟦Chart: no data");
-        expect(landedText(undefined, { from: 0, to: 200 }, 5000, stub)).toBe("⟦Loaded elements 1–200 of 5,000");
     });
 });

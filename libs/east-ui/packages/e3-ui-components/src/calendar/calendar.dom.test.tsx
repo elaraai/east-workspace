@@ -29,8 +29,13 @@ describe("Calendar in the shared frame", () => {
         expect(event(container, "service", "service1").hasAttribute("data-overlap")).toBe(true);
         expect(event(container, "shift", "shift1").hasAttribute("data-overlap")).toBe(false);
         expect(container.querySelector("[data-calendar-overlaps]")?.textContent).toContain("1");
+        // The footer is the legend, the "…" a cut legend ends with, and the one shared loading line (#1398) — saying nothing once
+        // the window has landed.
         const footer = container.querySelector("[data-calendar-footer]")!;
-        expect([...footer.children].map(item => item.getAttribute("data-calendar-legend"))).toEqual(["job", "service", "shift"]);
+        expect([...footer.querySelectorAll(":scope > [data-calendar-legend]")].map(item => item.getAttribute("data-calendar-legend"))).toEqual(["job", "service", "shift"]);
+        expect([...footer.children].every(item => item.hasAttribute("data-calendar-legend") || item.hasAttribute("data-footer-more")
+            || item.hasAttribute("data-footer-line"))).toBe(true);
+        expect(footer.querySelector("[data-footer-line]")!.hasAttribute("data-idle")).toBe(true);
         expect(footer.textContent).not.toMatch(/pending|backlog|saved|events in view/);
     });
     test("optional library and inspector really omit their panes; every example is the same Calendar", async () => {

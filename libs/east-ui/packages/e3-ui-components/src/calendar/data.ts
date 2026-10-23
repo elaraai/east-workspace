@@ -3,11 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Tracked Schedule reads over the author-selected window. */
+/**
+ * Tracked Schedule reads over the author-selected window. Once the window has
+ * landed, the periods either side are read ahead (`shared/schedule/read-ahead.ts`,
+ * #1398, CL7), in a read of their own, so a step to one shows it at once and
+ * a page of theirs landing hands the frame nothing; a step further drops
+ * their reads.
+ */
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { DateTimeType, compareFor, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing } from "../shared/schedule/editing.js";
+import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { chronological, resourceKey, type CalendarItem, type CalendarRange, type CalendarRow, type CalendarValue } from "./model.js";
 
 /** A window read, including its unscheduled source. */
@@ -35,8 +42,11 @@ export function initialCalendarData(range: CalendarRange): CalendarDataState {
     return { ...EMPTY, range, ready: false, error: undefined };
 }
 
-/** Read only the requested window and, when listed, its unscheduled source. */
-export function useCalendarData(value: CalendarValue, range: CalendarRange, editing?: ScheduleEditing): CalendarDataState {
+/** No period read ahead. */
+const NO_RANGES: readonly CalendarRange[] = [];
+
+/** Read only the requested window and, when listed, its unscheduled source; once it lands, the periods `ahead` too (`calendarAhead`). */
+export function useCalendarData(value: CalendarValue, range: CalendarRange, editing?: ScheduleEditing, ahead: readonly CalendarRange[] = NO_RANGES): CalendarDataState {
     const drafts = editing?.drafts;
     const read = useCallback((): CalendarData => {
         const items: CalendarItem[] = []; const backlog: CalendarItem[] = [];
@@ -57,6 +67,16 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
         return { items: chronological(items), backlog, loading, saved };
     }, [value.events, range.from, range.to, drafts]);
     const { result } = useTrackedEvaluation(read);
+    // Once the window has landed, the periods either side are read ahead (CL7), each as it is read, its backlog with it —
+    // in a read of their own, so a page of theirs landing runs the window's read no more: a step to one shows it at once.
+    const readNext = useCallback((next: CalendarRange) => {
+        for (const kind of value.events) {
+            const changes = drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
+            kind.items(next.from, next.to, changes);
+            if (kind.backlog) kind.unscheduled(next.from, next.to, changes);
+        }
+    }, [value.events, drafts]);
+    useReadAhead(result.ok && !result.value.loading, ahead, readNext);
     const held = useRef(EMPTY);
     const heldRange = useRef(range);
     // A pending or failed replacement is not a partial/empty result. Publish
@@ -77,13 +97,13 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
  * its data only when what the frame shows moves. A kind narrowed through an interval index lands some fifty-five
  * searches before its count is known, and each would otherwise re-render the whole frame.
  *
- * @param props - The payload, the range read, the editing whose drafts the read holds, and where the data goes
+ * @param props - The payload, the range read, the editing whose drafts the read holds, the periods read ahead once it lands, and where the data goes
  * @returns Nothing: it reads
  */
-export function CalendarDataReader({ value, range, editing, onData }: {
-    value: CalendarValue; range: CalendarRange; editing: ScheduleEditing | undefined; onData: (data: CalendarDataState) => void;
+export function CalendarDataReader({ value, range, editing, ahead, onData }: {
+    value: CalendarValue; range: CalendarRange; editing: ScheduleEditing | undefined; ahead: readonly CalendarRange[]; onData: (data: CalendarDataState) => void;
 }): null {
-    const data = useCalendarData(value, range, editing);
+    const data = useCalendarData(value, range, editing, ahead);
     const reported = useRef<CalendarDataState | undefined>(undefined);
     useLayoutEffect(() => {
         const was = reported.current;

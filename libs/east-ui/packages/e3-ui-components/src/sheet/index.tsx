@@ -88,7 +88,7 @@ import {
     focusKeySearch, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget, useTrackedEvaluation,
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, toSeekQuery, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, toSeekQuery, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
@@ -142,7 +142,7 @@ import { SheetCellContent } from "./cells/Cell.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
 import { SheetEditor, type EditorFocusRequest, type EditorOption, type LinkEditorView } from "./Editor.js";
 import { SheetStrip, buildStrip, type StripAction, type StripLinkInput, type StripSuggestInput } from "./Strip.js";
-import type { SheetFooterProps, SheetTransport } from "./Footer.js";
+import type { SheetFooterProps, SheetLoadingLine } from "./Footer.js";
 import { useSheetEditing, type DraftEdit, type LocalLayer, type SheetSeeds } from "./use-editing.js";
 import { draftPresentation, discardDraft, type DraftPresentation } from "./draft-state.js";
 import { useSheetToolbarItemsFor, type SheetToolbarTabs } from "./Toolbar.js";
@@ -441,6 +441,8 @@ export interface SheetParts {
     grid: ReactNode;
     /** The footer's props: today's footer, fed from the shared state. */
     footer: SheetFooterProps;
+    /** How the frame shows a paged source being read (#1398): its cold load, a read in flight after it, and the rows' pitch. */
+    loading: SheetLoadingFacts;
     /** The editing session and its history actions: what the frame's banners report, and what their Retry and Discard run. */
     history: SheetHistory;
     /** What shows in place of the whole sheet when its source failed before any row landed (#853). */
@@ -449,6 +451,20 @@ export interface SheetParts {
     inspect: SheetInspect;
     /** A library card's ⏎ (#1187, SB45): the card, by its library and its key, taken as a drop below the ring's row. Stable. */
     enter: (library: string, key: string) => void;
+}
+
+/**
+ * How the frame shows a paged source being read (#1398, CL4, CL5) — what
+ * `BuilderFrame` takes as `loading`, `busy` and `loadingPitch`
+ * ({@link useSheetLoading}).
+ */
+export interface SheetLoadingFacts {
+    /** Cold load: nothing of a paged source drawn yet, and no failure to say — the frame's skeleton covers it; `undefined` for an inline sheet, which has none. */
+    cold: boolean | undefined;
+    /** After cold load, a read in flight — a window, a narrowing's rows, the lens's stretch: the grid, the region being read, is busy. */
+    busy: boolean;
+    /** The rows' pitch, in px: the skeleton's rows draw at it, so it matches what it covers. */
+    pitch: number;
 }
 
 /** The editing session as the frame reads it ({@link useSheetHistory}). */
@@ -2169,24 +2185,37 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         };
     }, [edit, linkEdit, linkEditCtx, editMeta, linkVocabularies]);
 
-    // Under the lens (#1349): the rows it draws of the record's, whether it is still reading, and why it could not
-    // place the narrowing's rows — beside the rows it drew, or beside the pages that stand in while it reads.
-    const lensRowsDrawn = lens.rows.length;
-    const lensTotal = lens.total;
+    // Under the lens (#1349): whether it is still reading, and why it could not place the narrowing's rows — beside
+    // the rows it drew, or beside the pages that stand in while it reads.
     const lensLoading = lens.loading;
     const lensSourceError = lens.sourceError;
     const lensError = lens.error;
-    const transport = useMemo<SheetTransport | undefined>(() => {
+    // A source that failed before anything landed: nothing else to show (#853) — the pages', or the lens's
+    // placement of the narrowing's rows with no rows drawn and none standing in (#1349).
+    const sourceFailure = paging.error ?? (lensWanted && !pagesStandIn ? lensError : undefined);
+    // What the footer's loading line says (#1398, CL3): a read that failed — a window's or a stretch's, else the
+    // source's own — then a narrowing's rows read while the last ones stand in, then the elements in flight: the
+    // pages' nearest the view, or the lens's first stretch it reads.
+    const line = useMemo<SheetLoadingLine | undefined>(() => {
         if (pagedSource === undefined) return undefined;
-        if (lensDrawn) return { loaded: lensRowsDrawn, total: lensTotal, loading: lensLoading, error: lensSourceError };
-        return {
-            loaded: paging.rows.length,
-            total: paging.total,
-            loading: paging.loading || pagesStandIn,
-            // A source that could not count itself says so here, beside the rows it did serve (#853).
-            error: pagesStandIn ? lensError : paging.sourceError,
-        };
-    }, [pagedSource, lensDrawn, lensRowsDrawn, lensTotal, lensLoading, lensSourceError, lensError, pagesStandIn, paging.rows.length, paging.total, paging.loading, paging.sourceError]);
+        const failed = body.find((it) => it.kind === "failed");
+        if (failed?.kind === "failed") return { kind: "failed", from: failed.failure.from, to: failed.failure.to, reason: failed.failure.error };
+        const reason = sourceFailure ?? (lensDrawn ? lensSourceError : pagesStandIn ? lensError : paging.sourceError);
+        if (reason !== undefined) return { kind: "failed", from: undefined, to: undefined, reason };
+        if (standingIn) return { kind: "filtering" };
+        if (lensDrawn) {
+            if (!lensLoading) return undefined;
+            const reading = body.find((it) => it.kind === "band" && it.band.at === "reading");
+            return reading?.kind === "band" ? { kind: "loading", from: reading.band.from, to: reading.band.to } : { kind: "loading", from: undefined, to: undefined };
+        }
+        if (!paging.loading) return undefined;
+        return { kind: "loading", from: paging.reading?.from, to: paging.reading?.to };
+    }, [pagedSource, body, sourceFailure, lensDrawn, lensSourceError, pagesStandIn, lensError, paging.sourceError, standingIn, lensLoading, paging.loading, paging.reading]);
+    // Cold load (#1398, CL5): a paged source with nothing drawn yet and no failure to say — the frame's skeleton
+    // covers it at the rows' pitch. After it, a read in flight leaves everything live and the grid busy.
+    const cold = pagedSource === undefined ? undefined : decodedRows === undefined && !lensDrawn && !pagesReady && !pagesStandIn && sourceFailure === undefined;
+    const busy = cold === false && (standingIn || (lensDrawn ? lensLoading : paging.loading));
+    const loadingFacts = useMemo<SheetLoadingFacts>(() => ({ cold, busy, pitch: rowPx }), [cold, busy, rowPx]);
 
     // ── The key search over a keyed paged source (§3.13) ──────────────────
     // Its jumps are its own (#860): cleared — by the viewer, or by a new
@@ -3720,7 +3749,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         nouns: railNouns,
         count,
         // Loaded rows only, while nothing narrows them: a `rows` source pages the record's own narrowing.
-        partial: transport !== undefined && !exhausted && rowsPart === undefined,
+        partial: pagedSource !== undefined && !exhausted && rowsPart === undefined,
         tabs,
         // The context switch, while the `rows` source's narrowing narrows the rows (#1349).
         context: lensWanted ? { value: ui.lens.context, onChange: onContext } : undefined,
@@ -3730,7 +3759,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     });
     const toolbar = { items: toolbarItems, ref: toolbarRef };
     const root: SheetRootFacts = {
-        partial: transport !== undefined && !exhausted,
+        partial: pagedSource !== undefined && !exhausted,
         copilot: copilotOn,
         lens: lensWanted,
         view: ui.tabs.active ?? undefined,
@@ -3740,14 +3769,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const lensRetry = lens.retry;
     const pagesRetry = paging.retry;
     const retrySource = useCallback(() => { if (lensWanted) lensRetry(); else pagesRetry(); }, [lensWanted, lensRetry, pagesRetry]);
+    // What the loading line names the rows by: what the rail counts them in (#1398).
+    const rowsSource = chrome?.slice.parts.find((part) => part.source === "rows");
+    const rowsNoun = rowsSource === undefined ? (group !== undefined ? noun.plural : words.m.railRows()) : recordSliceNoun(rowsSource, railNouns, words.locale);
     const footer: SheetFooterProps = {
-        styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), transport, onRetry: retrySource,
+        styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), loading: line, noun: rowsNoun, onRetry: retrySource,
     };
     const history: SheetHistory = { session, onAction: onHistoryAction };
 
-    // A source that failed before anything landed: nothing else to show (#853) — the pages', or the lens's
-    // placement of the narrowing's rows with no rows drawn and none standing in (#1349).
-    const sourceFailure = paging.error ?? (lensWanted && !pagesStandIn ? lensError : undefined);
     if (sourceFailure !== undefined) {
         const failure = (
             <Box css={styles.diagnostic} data-sheet-error role="alert">
@@ -3755,7 +3784,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 <SheetRetry styles={styles} onRetry={retrySource} />
             </Box>
         );
-        return { styles, root, toolbar, grid: null, footer, history, failure, inspect, enter };
+        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
@@ -3864,7 +3893,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 css={styles.card}
                 tabIndex={0}
                 data-sheet-card
-                aria-busy={standingIn || undefined}
                 // Where the gutter ends — what the seam lines start from — whether it folded (#1215), and how wide its number column is.
                 data-gutter={folded ? "folded" : undefined}
                 style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px` } as CSSProperties}
@@ -3919,7 +3947,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
         </>
     );
-    return { styles, root, toolbar, grid, footer, history, failure: undefined, inspect, enter };
+    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter };
 }
 
 const SheetContext = createContext<SheetParts | undefined>(undefined);
@@ -4110,13 +4138,25 @@ export function useSheetToolbarRef(): RefObject<HTMLDivElement | null> {
 }
 
 /**
- * Reads the footer's props: the counts, the key hint, the paged transport
- * line and the live message, for the footer the frame places.
+ * Reads the footer's props: the counts, the key hint, the live message and
+ * what the loading line says of a paged source, for the footer the frame
+ * places.
  *
  * @returns The props of the sheet's footer.
  */
 export function useSheetFooter(): SheetFooterProps {
     return useSheetParts().footer;
+}
+
+/**
+ * Reads how the frame shows a paged source being read (#1398): its cold load
+ * — the frame's skeleton, at the rows' pitch — and a read in flight after it,
+ * which leaves everything live and the region being read busy.
+ *
+ * @returns The facts the frame takes as `loading`, `busy` and `loadingPitch`
+ */
+export function useSheetLoading(): SheetLoadingFacts {
+    return useSheetParts().loading;
 }
 
 /**

@@ -41,7 +41,7 @@ export interface WindowBandProps {
  * What an unloaded run says — how many source elements it covers and that
  * scrolling there loads them, or, while windows it covers are in flight,
  * which of its elements are loading: just theirs (#1082), 1-based like the
- * transport line and a failed window's band. The canvas band and the narrow
+ * footer's loading line and a failed window's band. The canvas band and the narrow
  * list's load-more card (#812) both say it, the same way.
  *
  * @param band - The unloaded run
@@ -89,8 +89,8 @@ export function WindowBand({ band, styles }: WindowBandProps) {
 
 /**
  * What a failed window's band (and the narrow layout's failure card) says —
- * which source elements could not be read, 1-based like the transport line,
- * and why.
+ * which source elements could not be read, 1-based like the footer's loading
+ * line, and why.
  *
  * @param failure - The failed window
  * @param w - The canvas's words (#820)

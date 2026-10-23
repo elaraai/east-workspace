@@ -164,10 +164,15 @@ function words(root: Element): string[] {
     return out;
 }
 
+/** A message's words marked `⟦`: a string's, or the first part of a line's words, which set what they name strong (#1398). */
+function markWords(said: string | readonly (string | { readonly strong: string })[]): string | (string | { readonly strong: string })[] {
+    if (typeof said === "string") return `⟦${said}`;
+    return said.map((part, i) => (i > 0 ? part : typeof part === "string" ? `⟦${part}` : { strong: `⟦${part.strong}` }));
+}
 /** The English table with every message marked `⟦` — a word the canvas says
  *  without the mark did not come from the table. */
 const MARKED = Object.fromEntries(Object.entries(planMessages).map(([k, f]) =>
-    [k, (p: never) => `⟦${(f as (p: never) => string)(p)}`])) as unknown as PlanMessages;
+    [k, (p: never) => markWords((f as (p: never) => string | readonly (string | { readonly strong: string })[])(p))])) as unknown as PlanMessages;
 const marked = (plan: ReactNode) => <PlanMessagesProvider messages={MARKED}>{plan}</PlanMessagesProvider>;
 
 const allMarked = (texts: readonly string[]) => {
@@ -248,14 +253,16 @@ describe("one message table (#820)", () => {
         }
     });
 
-    test("paged: the footer's transport line, the unloaded band, and what the live region says", async () => {
+    test("paged: the footer's loading line — its words, its short form — and the unloaded band (#1398)", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-820-paged", marked);
         await waitFor(() => expect(container.querySelector(itemSel("w0r15"))).toBeTruthy());
-        allMarked(words(container.querySelector("[data-slot='footerTransport']")!));
+        // Windows 1 and 2 are on the wire: once the wait passes its reveal, the line says so in the table's words —
+        // the rows' noun the table's too.
+        const line = () => container.querySelector("[data-frame-slot='footer'] [data-footer-line]")!;
+        await waitFor(() => expect(line().querySelector("[data-line-text]")?.textContent).toBe("⟦Loading ⟦rows 201–600"));
+        expect(line().querySelector("[data-line-short]")!.textContent).toBe("⟦Loading…");
         allMarked(words(container.querySelector("[data-plan-window-band]")!));
-        // The controller speaks the table too — the landing it announced.
-        allMarked(words(container.querySelector("[data-plan-announce]")!));
     });
 
     // A canvas that edits (#880) — the factory's, compiled over a source the

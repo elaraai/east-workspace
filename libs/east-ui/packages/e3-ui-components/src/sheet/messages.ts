@@ -30,6 +30,7 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
+import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { pluralKind } from "./link/grammar.js";
 import type { SheetKind } from "./model.js";
 
@@ -104,7 +105,7 @@ export type SheetDropRefusalWord =
  * number, as written. `noun` / `nouns` are the host's words for a group
  * (#844), `header` a column's header, `name` a view's name — the author's.
  */
-export interface SheetMessages extends EditingMessages {
+export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     // ── Counting ───────────────────────────────────────────────────────────
     /** A count of the host's groups — `3 plans`. */
     countNoun: (p: { n: number; count: string; noun: string; nouns: string }) => string;
@@ -305,12 +306,8 @@ export interface SheetMessages extends EditingMessages {
     // ── The footer (B§9) ───────────────────────────────────────────────────
     /** A grouped sheet's count line — `3 plans · 14 lines`, and `· 2 loose rows` when rows stand between the groups (#846). */
     summary: (p: { groups: string; n: number; lines: string; nLoose: number; loose: string; nSub: number; subRows: string }) => string;
-    /** The transport line — `600 loaded of 1,000`. */
-    transport: (p: { loaded: string; total: string | undefined }) => string;
-    /** The same line while a window is on its way. */
-    transportLoading: (p: { line: string }) => string;
-    /** The transport line's failure (#853). */
-    transportFailed: (p: { reason: string }) => string;
+    // The footer's loading line over a paged source (#1398, CL3), in what the rail counts the rows in: `lineLoading`,
+    // `lineFiltering`, `lineFailed` and `lineShort` (`PagedLoadingMessages`).
     /** The key hint — a selected suggestion. */
     hintProposal: () => string;
     /** The key hint — the ring on a band. */
@@ -612,6 +609,7 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 /** The English table — the default: the editing session's words, then the sheet's own. */
 export const sheetMessages: SheetMessages = {
     ...editingMessages,
+    ...pagedLoadingMessages,
     countNoun: ({ n, count, noun, nouns }) => `${count} ${plural(n, noun, nouns)}`,
     groupNoun: () => "group",
     groupNouns: () => "groups",
@@ -717,10 +715,7 @@ export const sheetMessages: SheetMessages = {
 
     summary: ({ groups, n, lines, nLoose, loose, nSub, subRows }) =>
         `${groups} · ${lines} ${plural(n, "line", "lines")}${nLoose > 0 ? ` · ${loose} loose ${plural(nLoose, "row", "rows")}` : ""}${nSub > 0 ? ` · ${subRows} sub ${plural(nSub, "row", "rows")}` : ""}`,
-    transport: ({ loaded, total }) => (total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`),
-    transportLoading: ({ line }) => `${line} · Loading…`,
-    transportFailed: ({ reason }) => ` · could not be read — ${reason} `,
-    hintProposal: () => "⏎ adds the selected row · ⌫ rejects it · esc deselects",
+    hintProposal:() => "⏎ adds the selected row · ⌫ rejects it · esc deselects",
     hintBand: ({ noun }) => `⏎ renames the ${noun} · Space folds it · ⇧Space folds all · click its number to select its lines`,
     hintSubRows: ({ open, n, count, noun }) => `Space ${open ? "hides" : "shows"} its ${count} sub ${plural(n, "row", "rows")} · ⇧Space every line's in the ${noun} · ⏎ edit`,
     hintRows: ({ n, count }) => `${count} ${plural(n, "row", "rows")} selected · ⌫ deletes them · ⌘C copies`,
@@ -975,7 +970,7 @@ export interface SheetMessagesProviderProps {
  * const GERMAN: Partial<SheetMessages> = {
  *     tabAll: () => "Alle",
  *     scopeBadge: () => "nur geladene Zeilen",
- *     transport: ({ loaded, total }) => (total !== undefined ? `${loaded} von ${total} geladen` : `${loaded} geladen`),
+ *     lineLoading: ({ noun, from, to }) => (from === undefined || to === undefined ? [`${noun} werden geladen…`] : [`${noun} `, { strong: `${from}–${to}` }, " werden geladen"]),
  * };
  *
  * <I18nProvider locale="de-DE">

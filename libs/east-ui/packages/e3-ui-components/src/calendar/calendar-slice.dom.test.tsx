@@ -15,7 +15,8 @@
  * leaves it none. A hidden draft still saves to its original key. A window read
  * through interval indexes asks a kind's some fifty-five key searches in one
  * request (#1351), each kind's landing re-rendering the window's reader alone,
- * never the frame. A filter change builds nothing again: the Calendar's body
+ * never the frame; the weeks either side, read ahead once it has landed, land
+ * without rendering the frame (#1398). A filter change builds nothing again: the Calendar's body
  * runs no more, and no payload is decoded (#1354).
  */
 import { describe, expect, test } from "vitest";
@@ -238,12 +239,14 @@ describe("a window read through interval indexes re-renders its reader, never th
             get held() { return held.held; },
             /** How many searches each request asked, in the order asked. */
             asked: () => h.requests().filter(searching).map(request => request.searches.length),
+            /** Lets every request held now land, one at a time, the first asked first — not the ones their landing asks. */
+            async landHeld() { for (let n = held.held; n > 0; n--) { await act(async () => { held.releaseOne(); }); } await settle(); },
             async landAllButOne() { while (held.held > 1) { await act(async () => { held.releaseOne(); }); } await settle(); },
             async landAll() { while (held.held > 0) { await act(async () => { held.releaseOne(); }); await settle(); } },
         };
     }
 
-    test("a kind's window asks its key searches in one request (#1351), each kind's landing without rendering the frame, which renders once they all have — on the first window and on the next with an event selected", async () => {
+    test("a kind's window asks its key searches in one request (#1351), each kind's landing without rendering the frame, which renders once they all have; the weeks either side are read ahead once it has (#1398, CL7), and a step to one shows it at once; a step on to a week not read yet, with an event selected, renders nothing until its searches have all landed", async () => {
         const searches = holdIntervalSearches();
         let renders = 0;
         setCalendarFrameRenderProbe(() => { renders += 1; });
@@ -259,21 +262,61 @@ describe("a window read through interval indexes re-renders its reader, never th
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);
             expect(event(container, "job", "job1")).not.toBeNull();
-            // The jobs' backlog, read once their window has landed: a batch of its one search.
-            expect(searches.asked().slice(3)).toEqual([1]);
-            // With an event selected, the next window's searches render nothing until they have all landed either.
+            // The jobs' backlog, read once their window has landed: a batch of its one search. The week whole, the weeks
+            // either side are read ahead: each kind's window, a batch each — the backlog's search, the same whatever the
+            // week, is not asked again.
+            const after = searches.asked().slice(3);
+            expect(after[0]).toBe(1);
+            expect(after.slice(1)).toHaveLength(6);
+            expect(after.slice(1).every(count => count > 50)).toBe(true);
+            // With an event selected, a step to the next week, read ahead, shows it at once: nothing is asked for it, nothing is busy.
             await press(event(container, "job", "job1"));
+            const before = searches.asked().length;
+            await press(toolbar(container).getByRole("button", { name: "Next week" }));
+            expect(event(container, "job", "job1")).toBeNull();
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+            // What it asks is the week after it, read ahead in turn: each kind's window.
+            expect(searches.asked().slice(before)).toHaveLength(3);
+            expect(searches.asked().slice(before).every(count => count > 50)).toBe(true);
+            // A step on to that week, its searches still on their way: the frame renders nothing until they have all landed.
             await press(toolbar(container).getByRole("button", { name: "Next week" }));
             expect(searches.held).toBe(3);
-            expect(searches.asked().slice(4)).toHaveLength(3);
-            expect(searches.asked().slice(4).every(count => count > 50)).toBe(true);
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("true");
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);
             await searches.landAll();
-            // The next week holds none of the operations' events, and its read has landed.
+            expect(renders).toBeGreaterThan(0);
+            // That week holds none of the operations' events, and its read has landed.
             expect(event(container, "job", "job1")).toBeNull();
-            expect(container.querySelector("[data-calendar-main]")!.getAttribute("aria-busy")).toBe("false");
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+        } finally {
+            setCalendarFrameRenderProbe(undefined);
+        }
+    });
+
+    test("the weeks either side, read ahead once the week has landed, land without rendering the frame: what it shows has not moved (#1398, CL7)", async () => {
+        const searches = holdIntervalSearches();
+        let renders = 0;
+        setCalendarFrameRenderProbe(() => { renders += 1; });
+        try {
+            const { container } = await open(ex.calendarOperations);
+            // The week: each kind's window, then the jobs' backlog, each let land as it is asked.
+            expect(searches.held).toBe(3);
+            await searches.landHeld();
+            expect(searches.held).toBe(1);
+            await searches.landHeld();
+            expect(event(container, "job", "job1")).not.toBeNull();
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+            // Landed, the week reads the weeks either side ahead: each kind's window for each, on its way.
+            expect(searches.held).toBe(6);
+            renders = 0;
+            await searches.landHeld();
+            expect(searches.held).toBe(0);
+            // Their pages landed in a read of their own: the frame rendered nothing for them, and shows the week as it was.
+            expect(renders).toBe(0);
+            expect(event(container, "job", "job1")).not.toBeNull();
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
         } finally {
             setCalendarFrameRenderProbe(undefined);
         }

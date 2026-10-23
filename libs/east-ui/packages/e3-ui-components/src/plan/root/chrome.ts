@@ -78,6 +78,16 @@ export interface PlanChrome {
     grain: PlanGrain | undefined;
     /** A paged source's transport state; `undefined` on an inline canvas. */
     transport: PlanTransport | undefined;
+    /**
+     * Cold load (#1398, CL5): a paged source with nothing landed yet, and no
+     * failure to say — the frame's skeleton covers the Plan at its rows'
+     * pitch, its footer live; `undefined` on an inline canvas, which has none.
+     */
+    cold: boolean | undefined;
+    /** After cold load, a read the view needs in flight — a window, a narrowing's rows, a resource kind's narrowing: main, the canvas, is busy. */
+    busy: boolean;
+    /** The rows' pitch, in px: the cold-load skeleton's rows draw at it. */
+    pitch: number;
     /** Key search over the source, when a paged source declares `seek` (#574). */
     search: PlanSearch | undefined;
     /** What the canvas carried on past (#811). */
@@ -105,7 +115,7 @@ export interface PlanChrome {
     footer: readonly PlanFooterItemValue[];
     /** The root's `id`: what the Plan's viewer state is kept under (`planKeys`). */
     id: string | undefined;
-    /** Whether the canvas draws its narrow layout (§10): the footer's items then wrap. */
+    /** Whether the canvas draws its narrow layout (§10). */
     narrow: boolean;
     /** What the inspector reads of the rows (#1197): a row by its key, and what a measure draws at a bucket. */
     inspect: PlanCanvasInspect;

@@ -126,7 +126,7 @@ describe("the paged arm's key search (§3.13)", () => {
         // The frame shows what it can of the rows that land, and scrolls to the ring (#856).
         restoreScroll = frameScrolls();
         const { container } = mount(buildKeyed());
-        await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
+        await waitFor(() => expect(cellOf(container, "J10000", "activity")).toBeTruthy(), { timeout: 15_000 });
         const search = container.querySelector('[data-part="dataset-key-search"]')!;
         expect(search).toBeTruthy();
         const input = search.querySelector("input") as HTMLInputElement;

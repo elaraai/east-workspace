@@ -35,9 +35,10 @@ preview into view and wait for `settled`; offscreen deferred previews do
 not block readiness. `settled` gives what a page starts (East compiling,
 e3 starting, builders loading) a budget of its own, apart from the
 layout's: a cold e3 deploys a fresh workspace in the page, some 20 s on a
-hosted runner. Query changes can keep the old Calendar window
-painted while `data-calendar-main` is `aria-busy`; wait for that state to
-clear before asserting the new rows. Remount checks must explicitly
+hosted runner. A read in flight keeps a builder's last window painted
+while its frame's main (`[data-frame-slot="main"]`) is `aria-busy` (#1398)
+— the Calendar's on a query change; `settled` waits for that state to
+clear, so assert the new rows after it. Remount checks must explicitly
 unmount and revisit a representative example per category, rather than
 sweep a catalog whose scroll height grows as previews load. Relative date
 preset tests use a fixed clock. Do not add retries, fixed sleeps or longer timeouts to

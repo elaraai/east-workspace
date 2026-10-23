@@ -107,6 +107,8 @@ export interface SheetPaging {
     exhausted: boolean;
     /** Whether a requested window is still in flight. */
     loading: boolean;
+    /** The source elements being read (#1398, CL3): the stretch of windows in flight nearest the viewport, first and last element; `undefined` while none is. */
+    reading: { from: number; to: number } | undefined;
     /** The last query is still displayed while its replacement loads. */
     replacing: boolean;
     /** Why the SOURCE could not be read — its `total()` or `revision()` threw — while its rows show (#853): chrome, never their replacement. */
@@ -129,13 +131,38 @@ export interface SheetPaging {
 
 const IDLE: SheetPaging = {
     rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined,
-    exhausted: true, loading: false, replacing: false, sourceError: undefined, error: undefined, sizeVersion: 0, jump: undefined,
+    exhausted: true, loading: false, reading: undefined, replacing: false, sourceError: undefined, error: undefined, sizeVersion: 0, jump: undefined,
     reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
 };
 
 /** One line naming why a source read failed. */
 function readFailure(err: unknown): string {
     return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The elements being read (#1398, CL3): of the windows in flight, the
+ * stretch of adjacent ones nearest the viewport's window — what the footer's
+ * loading line names.
+ *
+ * @param pending - The windows in flight, ascending
+ * @param at - The viewport's window
+ * @param total - The source's element count, once known: the last window ends there
+ * @returns The stretch's first and last element; `undefined` with none in flight
+ */
+export function readingStretch(pending: readonly number[], at: number, total: number | undefined): { from: number; to: number } | undefined {
+    let best: { first: number; last: number; distance: number } | undefined;
+    for (let i = 0; i < pending.length;) {
+        const first = pending[i]!;
+        let last = first;
+        while (pending[i + 1] === last + 1) { last += 1; i += 1; }
+        i += 1;
+        const distance = at < first ? first - at : at > last ? at - last : 0;
+        if (best === undefined || distance < best.distance) best = { first, last, distance };
+    }
+    if (best === undefined) return undefined;
+    const end = (best.last + 1) * SHEET_PAGE_SIZE;
+    return { from: best.first * SHEET_PAGE_SIZE, to: (total === undefined ? end : Math.min(total, end)) - 1 };
 }
 
 /** The caller-owned read-once cache, keyed by window index. */
@@ -273,6 +300,8 @@ export function useSheetPaging(
         }
         const landed: { w: number; rows: readonly SheetRowValue[] }[] = [];
         const failed: { w: number; error: string }[] = [];
+        // The windows in flight, ascending: what the footer's loading line names (#1398).
+        const pending: number[] = [];
         let loading = false;
         let standingIn = false;
         for (const w of residentWindows(residency)) {
@@ -295,6 +324,7 @@ export function useSheetPaging(
                 // In flight — its channel is tracked, so the landing re-reads.
                 // Until then the rows it had at the previous revision stand in.
                 loading = true;
+                pending.push(w);
                 const previous = held.stale?.get(w);
                 if (previous !== undefined) {
                     landed.push({ w, rows: previous });
@@ -310,7 +340,7 @@ export function useSheetPaging(
         // Every resident window reads at the new revision now: the old one
         // has nothing left to stand in for.
         if (!standingIn) held.stale = undefined;
-        return { total, landed, failed, loading, sourceError, standingIn, landedOnce: held.landedOnce };
+        return { total, landed, failed, pending, loading, sourceError, standingIn, landedOnce: held.landedOnce };
     }, [source, residency, retries]);
 
     const { result } = useTrackedEvaluation(read);
@@ -518,6 +548,7 @@ export function useSheetPaging(
         total,
         exhausted,
         loading: value?.loading ?? false,
+        reading: value === undefined ? undefined : readingStretch(value.pending, viewportWindow, total),
         replacing: false,
         sourceError: nothingShown ? undefined : value?.sourceError,
         error: readError ?? (nothingShown ? failure : undefined),
@@ -539,7 +570,7 @@ export function useSheetPaging(
             rowsOffset: previous.result.rowsOffset, failures: previous.result.failures,
             head: previous.result.head, tail: previous.result.tail, total: previous.result.total,
             exhausted: previous.result.exhausted, sizeVersion: previous.result.sizeVersion,
-            jump: undefined, replacing: true, loading: reason === undefined,
+            jump: undefined, replacing: true, loading: reason === undefined, reading: undefined,
             error: undefined, sourceError: reason };
     }
     if (family !== undefined && (current.rows.length > 0 || current.exhausted)) {

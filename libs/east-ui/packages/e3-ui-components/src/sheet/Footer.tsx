@@ -4,34 +4,39 @@
  */
 
 /**
- * The footer (B§9): the host's counts · a state-sensitive key hint · the
- * paged transport line · a right-aligned `aria-live` message for every action.
- * A builder adds the record's last save after the counts (SB22).
+ * The footer (B§9): the host's counts · a state-sensitive key hint · a
+ * right-aligned `aria-live` message for every action · and over a paged
+ * source the shared loading line at its trailing end (#1398, CL3): what is
+ * read, in what the rail counts the rows in — `Loading work orders
+ * 8,301–8,500`, `Filtering work orders…`, `Couldn't read work orders
+ * 8,301–8,500 · Retry` — never a count of the rows read. The rail never wraps
+ * and never cuts a word: the key hint's hints end at a whole hint, then "…",
+ * and the line shows its full text, its short form or its dot alone. A
+ * builder adds the record's last save after the counts (SB22).
  */
 
-import { memo } from "react";
+import { memo, useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { pagedLoadingLine, type PagedLoading } from "../shared/loading.js";
 import { useSheetWords } from "./words.js";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Sheet } from "@elaraai/e3-ui/internal";
-import { SheetRetry } from "./Rows.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
 /** One decoded footer item. */
 export type SheetFooterItemValue = ValueTypeOf<typeof Sheet.Types.FooterItem>;
 
-/** The paged transport facts the footer states. */
-export interface SheetTransport {
-    loaded: number;
-    total: number | undefined;
-    loading: boolean;
-    /** Why the source could not be read — its `total()` or `revision()` threw — while its rows show (#853). */
-    error?: string | undefined;
-}
+/**
+ * What a paged sheet reads now, or could not read (#1398, CL3): its source's
+ * elements in flight, a narrowing's rows read while the last narrowing's
+ * stand in, or a read that failed — a window's or a stretch's elements, or
+ * the source's own count or revision — the shared paged source's line.
+ */
+export type SheetLoadingLine = PagedLoading;
 
 export interface SheetFooterProps {
     styles: Styles;
@@ -40,8 +45,11 @@ export interface SheetFooterProps {
     summary?: string | undefined;
     hint: string;
     message: string;
-    transport: SheetTransport | undefined;
-    /** Ask the source again, when the transport line says it could not be read (#853). */
+    /** What a paged source reads now, or could not read; `undefined` while nothing is in flight or failed, and inline (#1398). */
+    loading: SheetLoadingLine | undefined;
+    /** What the rail counts the rows in — `work orders`, a grouped sheet's groups: what the loading line names them by. */
+    noun: string;
+    /** Ask the source again, when the loading line says it could not be read (#853). */
     onRetry?: (() => void) | undefined;
     /** The record's last save, from its commits — `saved 14:02` (a builder's, SB22). */
     saved?: string | undefined;
@@ -49,14 +57,23 @@ export interface SheetFooterProps {
     recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
 }
 
+/** The separator the key hint's words run its hints on with — each of them a hint the fit keeps or cuts whole. */
+const HINT_SEPARATOR = " · ";
+
+/** Nothing to ask again: a sheet whose host gives no Retry. */
+const NO_RETRY = () => undefined;
+
 /** Renders the footer. */
-export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, transport, onRetry, saved, recordSlice }: SheetFooterProps) {
-    // The transport line, in the sheet's words and the app's locale (#850, #861).
+export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, loading, noun, onRetry, saved, recordSlice }: SheetFooterProps) {
+    // The loading line, in the sheet's words and the app's locale (#850, #861), on the shared reveal's clock (CL4).
     const words = useSheetWords();
-    const line = transport === undefined ? ""
-        : words.m.transport({ loaded: words.number(transport.loaded), total: transport.total !== undefined ? words.number(transport.total) : undefined });
+    const line = useMemo(() => pagedLoadingLine(loading, noun, words.m, words.number, onRetry ?? NO_RETRY), [loading, noun, words, onRetry]);
+    const shown = useLoadingReveal(loading !== undefined && loading.kind !== "failed");
+    const rail = useRef<HTMLDivElement>(null);
+    const fit = useFooterFit(rail);
+    const hints = hint === "" ? [] : hint.split(HINT_SEPARATOR);
     return (
-        <Box css={styles.footer} data-slot="footer">
+        <Box ref={rail} css={styles.footer} data-slot="footer" data-footer-hints="">
             {(items.length > 0 || summary !== undefined || saved !== undefined) && (
                 <Box as="span" css={styles.footerCounts} data-slot="footerCounts">
                     {summary !== undefined && <Box as="span" data-slot="footerSummary">{summary}</Box>}
@@ -71,19 +88,17 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
                 </Box>
             )}
             {recordSlice !== undefined && <RecordSliceSaveNotice slice={recordSlice} />}
-            {transport !== undefined && (
-                <Box as="span" css={styles.footerTransport} data-slot="footerTransport">
-                    {transport.loading ? words.m.transportLoading({ line }) : line}
-                    {transport.error !== undefined && (
-                        <Box as="span" data-slot="transportError" role="alert">
-                            {words.m.transportFailed({ reason: transport.error })}
-                            {onRetry !== undefined && <SheetRetry styles={styles} onRetry={() => onRetry()} />}
-                        </Box>
-                    )}
-                </Box>
-            )}
-            <Box as="span" css={styles.footerHint} data-slot="footerHint">{hint}</Box>
+            {/* The key hint: its hints run on, each whole — a rail too narrow ends them at a whole hint, then "…". */}
+            <Box as="span" css={styles.footerHint} data-slot="footerHint" data-footer-units="">
+                {hints.map((part, i) => (
+                    <Box key={i} as="span" data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
+                        {i > 0 && <Box as="span" css={styles.footerHintSep}>{HINT_SEPARATOR}</Box>}{part}
+                    </Box>
+                ))}
+            </Box>
+            <FooterMore shown={fit.kept < hints.length} />
             <Box as="span" css={styles.footerMessage} data-slot="footerMessage" aria-live="polite">{message}</Box>
+            <LoadingLine value={line} shown={shown} form={fit.form} />
         </Box>
     );
 });

@@ -129,7 +129,9 @@ describe("<Plan> through its carrier (#1177, #1191)", () => {
         initializeStore(new UIStore());
         const { container } = mount(East.compile(PAGED_VIEW, getRegisteredPlatformImplementations())(), "plan-carrier-paged");
         await waitFor(() => expect(rowKeys(container)).toEqual(["u00", "u01", "u02"]));
-        await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')?.textContent).toBe("3 loaded of 3"));
+        // `total` said three: every row is in, so the body marks no prefix of its numbers, and the grid counts them all.
+        await waitFor(() => expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull());
+        expect(container.querySelector("[role='treegrid']")!.getAttribute("aria-rowcount")).toBe("3");
     });
 });
 

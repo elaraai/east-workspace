@@ -10,18 +10,19 @@ type Paint = { width: number; height: number; main: number; busy: boolean; visib
 type Probe = { active: boolean; paints: Paint[] };
 
 /**
- * Each builder by its example: what its main's content is, and whether that
+ * Each builder by its example: what its main's content is, whether that
  * content turns to agenda cards below 480px of main — the Roster's and the
  * Calendar's do; the Schematic's canvas (#1387, SC32) is one canvas at every
- * width.
+ * width — and whether its footer stays live under the cover, its loading line
+ * carrying the wait (#1398): the Roster's and the Calendar's do.
  */
 const BUILDERS = [
-    { scope: "roster", name: "rosterWarehouse", main: "[data-roster-main]", narrows: true },
-    { scope: "calendar", name: "calendarOperations", main: "[data-calendar-main]", narrows: true },
-    { scope: "schematic", name: "schematicDataCentre", main: "[data-schematic-canvas]", narrows: false },
+    { scope: "roster", name: "rosterWarehouse", main: "[data-roster-main]", narrows: true, liveFooter: true },
+    { scope: "calendar", name: "calendarOperations", main: "[data-calendar-main]", narrows: true, liveFooter: true },
+    { scope: "schematic", name: "schematicDataCentre", main: "[data-schematic-canvas]", narrows: false, liveFooter: false },
 ] as const;
 
-for (const { scope, name, main: mainSelector, narrows } of BUILDERS) {
+for (const { scope, name, main: mainSelector, narrows, liveFooter } of BUILDERS) {
     for (const theme of ["light", "dark"] as const) {
         test(`${scope} cold load uses a stable Chakra skeleton before the complete layout (${theme}) @narrow`, async ({ page }, info) => {
             if (info.project.name === "desktop") await page.setViewportSize({ width: 1440, height: 1080 });
@@ -60,30 +61,44 @@ for (const { scope, name, main: mainSelector, narrows } of BUILDERS) {
                     const box = el.getBoundingClientRect();
                     return box.width > 0 && box.height > 0;
                 }))).toBe(true);
-                // A tall host must not stretch sparse text lines into giant rows.
+                // A tall host must not stretch sparse text lines into giant rows: the body's rows stand at one pitch, the
+                // component's (#1398), each value a 12px bar across the middle of its row.
                 const density = await loading.locator('[data-builder-loading-row]').evaluateAll(rows => rows.map(row => {
                     const box = row.getBoundingClientRect();
                     const cells = Array.from(row.querySelectorAll('.elara-skeleton'), cell => cell.getBoundingClientRect());
-                    return { height: box.height, cells: cells.map(cell => ({ height: cell.height, ratio: cell.height / box.height })) };
+                    return { height: box.height, cells: cells.map(cell => ({ height: cell.height, offset: (cell.top + cell.height / 2) - (box.top + box.height / 2) })) };
                 }));
                 expect(density.length).toBeGreaterThan(0);
                 for (const row of density) {
                     expect(row.height).toBeLessThanOrEqual(44);
+                    expect(row.height).toBeCloseTo(density[0]!.height, 0);
+                    expect(row.cells.length).toBeGreaterThan(0);
                     for (const cell of row.cells) {
-                        expect(cell.height).toBeGreaterThanOrEqual(24);
-                        expect(cell.ratio).toBeGreaterThanOrEqual(0.5);
+                        expect(cell.height).toBeCloseTo(12, 0);
+                        expect(Math.abs(cell.offset)).toBeLessThanOrEqual(1);
                     }
                 }
                 const before = await frame.boundingBox();
                 expect(before).not.toBeNull();
                 const cover = await loading.boundingBox();
                 expect(cover!.width).toBeCloseTo(before!.width, 0);
-                expect(cover!.height).toBeCloseTo(before!.height, 0);
-                const regions = frame.locator(':scope > [data-frame-slot]');
+                // A live footer stays out from under the cover: the cover ends where the footer begins.
+                const footer = frame.locator(':scope > [data-frame-slot="footer"]');
+                const footerBox = liveFooter ? await footer.boundingBox() : null;
+                expect(cover!.height).toBeCloseTo(before!.height - (footerBox?.height ?? 0), 0);
+                const regions = frame.locator(liveFooter ? ':scope > [data-frame-slot]:not([data-frame-live])' : ':scope > [data-frame-slot]');
                 for (const region of await regions.all()) {
                     await expect(region).toHaveAttribute('inert', '');
                     await expect(region).toHaveCSS('opacity', '0');
                     await expect(region).toHaveAttribute('aria-hidden', 'true');
+                }
+                if (liveFooter) {
+                    // The footer is the one live region: seen, reachable, heard — its loading line the frame's only motion.
+                    await expect(footer).toHaveAttribute('data-frame-live', '');
+                    await expect(footer).not.toHaveAttribute('inert', '');
+                    await expect(footer).toHaveCSS('opacity', '1');
+                    await expect(footer).not.toHaveAttribute('aria-hidden', 'true');
+                    await expect(footer.locator('[data-footer-line]')).toHaveAttribute('role', 'status');
                 }
                 release();
                 await expect(frame).toHaveAttribute('aria-busy', 'false');

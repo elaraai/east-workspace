@@ -185,6 +185,8 @@ const item = (c: HTMLElement, key: string) =>
     c.querySelector(key.startsWith("r:") ? itemSel(key.slice(2)) : `[data-plan-item="${key}"]`) as HTMLElement;
 const gridOf = (c: HTMLElement) => c.querySelector('[role="treegrid"]') as HTMLElement;
 const announced = (c: HTMLElement) => c.querySelector("[data-plan-announce]")!.textContent;
+/** The footer's loading line: the one live region a load is said in (#1398, CL12). */
+const footerLine = (c: HTMLElement) => c.querySelector('[data-frame-slot="footer"] [data-footer-line]') as HTMLElement;
 /** The focused item's key, in the test's words. */
 const focusedItem = () => {
     const key = (document.activeElement as HTMLElement | null)?.getAttribute("data-plan-item");
@@ -350,10 +352,13 @@ describe("paged canvases (#819)", () => {
     // Sixteen rows a window: window 0 fills the jsdom viewport, so the demand
     // rests on its ring [0, 2] — windows 1 and 2 in flight, 3 and 4 not asked
     // for, and all four the band (#876).
-    test("an unloaded run is ONE row — the band — and the rows that land before it take their numbers", async () => {
+    test("an unloaded run is ONE row — the band — and the rows that land before it take their numbers; the load is said once, in the footer's line", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-819-paged");
         await waitFor(() => expect(item(container, "r:w0r15")).toBeTruthy());
+        // The windows on the wire are the footer's to say, in its polite live region, once the wait passes its reveal (#1398, CL12).
+        await waitFor(() => expect(footerLine(container).querySelector("[data-line-text]")?.textContent).toBe("Loading rows 201–600"));
+        expect([footerLine(container).getAttribute("role"), footerLine(container).getAttribute("aria-live")]).toEqual(["status", "polite"]);
         const grid = gridOf(container);
         // Window 0's rows, then the band for elements 201–1,000: the windows
         // in flight are the band's until they land. It says which of its
@@ -372,10 +377,13 @@ describe("paged canvases (#819)", () => {
         expect(grid.getAttribute("aria-rowcount")).toBe("49");
         expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("49");
-        expect(announced(container)).toBe("Loaded elements 201–600 of 1,000");
+        // The canvas's own region says nothing of a window landing: a page is no announcement.
+        expect(announced(container)).not.toMatch(/load/i);
         // Nothing the band covers is in flight now: it says how many elements it holds.
         expect(item(container, "b:0:tail").textContent).toBe("400 more elements — scroll to load");
         expect(item(container, "b:0:tail").hasAttribute("aria-busy")).toBe(false);
+        // The footer's line goes once its hold is over.
+        await waitFor(() => expect(footerLine(container).hasAttribute("data-idle")).toBe(true));
     });
 });
 
@@ -535,7 +543,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(row.getAttribute("aria-selected")).toBe("true");
     });
 
-    test("↓ past the loaded rows asks the source for more, and focus goes on to the first row that lands — announced", async () => {
+    test("↓ past the loaded rows asks the source for more, and focus goes on to the first row that lands", async () => {
         // A hundred windows: the band's run is long, and the demand for its
         // first windows leaves the rest of it a band.
         const held = heldSource(100, 16, 2);
@@ -554,7 +562,8 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         // The rows landed where the band's top was — focus moved on to the first.
         await waitFor(() => expect(focusedItem()).toBe("r:w3r00"));
         expect(item(container, "r:w3r00").getAttribute("aria-rowindex")).toBe("49");
-        expect(announced(container)).toMatch(/^Loaded elements 601–/);
+        // A load is the footer's line's to say, once a load (#1398, CL12): the canvas's region announces no page.
+        expect(announced(container)).not.toMatch(/load/i);
     });
 
     test("past the last loaded row, the band stands for the windows still in flight (#876) — focus waits on it, then moves on to the first row that lands", async () => {
