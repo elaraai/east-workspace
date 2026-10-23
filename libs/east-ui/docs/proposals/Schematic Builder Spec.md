@@ -180,6 +180,7 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D49 | **The density switch counts the view.** The rows in view are counted from the counts a window's searches answer, each cell's rows held evenly over its part of the drawing's extent, the view's share of them; past 5,000, by the density's own count of the view, finer, which the footer says, so the footer never says a count the rows would draw at. A window whose searches hold more than 20,000 rows — four views' worth, where a window reads a median 2.48 times its view's rows (§11.3) — draws its density whatever its view holds. A window drawn as its density holds only at the zoom it was made for, while it counts more than 5,000 rows in view, so a view draws one raster by any route to it: Fit's button, or the wheel out to Fit (§10.4). | my call (#1393), on the hand test of 23 Oct 2026 |
 | D50 | **A rail's editor keeps to its frame.** A field's editor — a chip's, or the Filters' — opens inside the frame's sides while it fits between them, sliding along its trigger rather than hanging past the frame's side; in a frame narrower than it, a phone's, inside the page. Down the page it keeps to the page, flipping above its trigger where there is no room below. In every builder's rail (`SliceEditPopover`, over `frameBounds`). | my call (#1393), on the hand test of 23 Oct 2026 |
 | D51 | **Beside a kind read by area, the Backlog is one paged list.** The rows in hand first — those of the kinds read whole or complete, and the drafted rows with no position — then each kind read by area's, a page of 32 at a time through the area index its window reads through, by its unplaced clause (§11.4): the narrowing's choices that index leads read with it, so the tab counts `N of M` while they narrow it. A choice no area index leads is asked of each page's rows in one `within` (D28), and a row it leaves out draws as context, faded and never dragged, as does a stored row a draft has placed or deleted. A drop or a card's ⏎ places a row at once, the row its page read the gesture's original, and the row draws where it lands while its draft waits, though its window doesn't hold it. The list has no search box: no index answers a search beside the unplaced clause. | my call (#1393), building §8 |
+| D52 | **The Index reads a kind read by area itself.** An open zone's items are read by its box through the area index its window would read through — the box's cells counted, then their entries read while they hold no more than a window reads (20,000), each cell's kept while an open zone wants it — the rows whose centre the zone holds its items, the narrowing's choices the index doesn't lead asked of them (D28). A zone counts such items only once its box, or an enclosing zone's, is read, and opens to read it; one holding more says so under the tree. The search reads each such kind through its source's `search` fields, a prefix as a paged tab's search reads it, its first 50 matches listed under their zones and how many more said. Its items in no zone, and those with no position, are listed only by the search and the Backlog. | my call (#1393), building §8 |
 
 ## 4. The kinds
 
@@ -487,9 +488,11 @@ window stays drawn until the next lands (§10.4), main `aria-busy` meanwhile
   has `x` and `y` Options is refused, naming the change (D33).
 - `Schematic.library.index()`: the zones, nested by containment. The zone the
   viewport is in is marked, a click flies to a zone and selects it, and an
-  opened zone lists its items, read through each item kind's source by the
-  zone's box (§10.4). Its search finds items by the sources' `search` fields
-  (ruling 11). Hatched zones hold no items.
+  opened zone lists its items. A kind read by area's are read by the tab
+  itself (D52): an opened zone's through the kind's area index by the zone's
+  box (§10.4), counted once read, and the search's through the sources'
+  `search` fields (ruling 11), its first matches listed and how many more
+  said. Hatched zones hold no items.
 - `Schematic.library.layers()`: each layer `Schematic.layers` reads from the
   app's record (D36), its swatch, label and count, with Isolate, Lock and Show
   or Hide, and Show all. The viewer's choices persist under
@@ -985,6 +988,7 @@ records in the file, and each Schematic named by its `id`:
 | SC38 | `templates()` lists every kind's templates and `backlog()` every item kind's rows with no position; each is refused when no kind has any, naming the change. | `schematic/library.ts` | spec |
 | SC39 | `canConnect` hears the gesture's `Candidate`: `none` lets it snap and record, and words refuse it; a veto that throws allows the pair and logs it. | renderer | DOM |
 | SC40 | A rail's chip counts its value's own rows under the other fields' choices, the chosen marked (D46); a field's editor opens inside the frame's sides while it fits between them, else inside the page, and flips above its trigger down the page as before (D50). Every builder's rail. | east-ui `runtime/record-slice.ts` (`values`), east-ui-components `overlays/popover/frame-bounds.ts` | spec; pure; responsive (`schematic-narrowing.spec.ts`, `allocation-narrowing.spec.ts`) |
+| SC41 | Beside a kind read by area, the Backlog pages its rows with no position through the area index's unplaced clause, counted `N of M`, a choice no area index leads drawn as context, and a drop places a row at once (D51); the Index reads an open zone's items by its box, counted once read, and finds through the sources' `search` fields (D52) — never the record read whole. | renderer `backlog-pages.ts`, `index-area.ts` | DOM on e3-web: request log (`schematic-area-library.dom.test.tsx`); pure (`index-tree.test.ts`) |
 
 The area index's rules are §11.5's tests; the rows form's are §12's.
 

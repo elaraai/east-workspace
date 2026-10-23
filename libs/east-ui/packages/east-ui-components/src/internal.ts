@@ -104,6 +104,10 @@ export { Chooser, type ChooserOption, type ChooserOptionState, type ChooserProps
 // Schematic's Index (#1389) — its search box and its empty state.
 export { LibraryCard, LibraryEmptyState, LibrarySearchBox } from "./collections/library/index.js";
 export { PagedLibrary, type LibraryPageSource, type PagedLibrarySearch } from "./collections/library/paged.js";
+// What a search of a record through its source's part reads, the rail's choices kept: a paged tab's, and the
+// Schematic's Index's over a kind read by area (#1393).
+export { pagedSearchFields, pagedSearchTarget, pagedSearchWhere, type PagedSearchTarget } from "./collections/library/paged-search.js";
+export { SEARCH_DELAY_MS } from "./slice/record/index.js";
 // A tab's count while a builder's rail narrows it: over resident cards, and over a paged record (#1339, #1341).
 export { narrowedCount, pagedCount, type CountWords, type PagedCountSource } from "./collections/library/count.js";
 

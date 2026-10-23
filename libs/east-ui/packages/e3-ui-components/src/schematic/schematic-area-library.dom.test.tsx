@@ -15,6 +15,10 @@
  * where it draws while its draft waits, the Backlog drawing it as context; and
  * Save writes it, the Backlog then listing it no more.
  *
+ * The Index (D52) reads the racks itself: an open zone's by its box through
+ * the area index, counted once read, and its search's through the racks'
+ * source's `search` fields, each under the zone it is in.
+ *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin.
  */
@@ -73,7 +77,7 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
             }),
         },
         zones: { areas: Schematic.zones(areas, { name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name" }) },
-        library: [Schematic.library.backlog()],
+        library: [Schematic.library.backlog(), Schematic.library.index()],
     });
 }))) };
 
@@ -90,6 +94,14 @@ const pane = (container: HTMLElement) => slot(container, "start");
 
 /** The Backlog's tab, as its row draws it: its name and its count. */
 const tab = (container: HTMLElement) => pane(container).querySelector('[role="tab"]')?.textContent;
+
+/** Opens a tab of the library, by its name. */
+async function openTab(container: HTMLElement, name: string) {
+    const found = [...pane(container).querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name || t.textContent?.startsWith(`${name} `));
+    if (found === undefined) throw new Error(`no library tab ${name}`);
+    await act(async () => { fireEvent.click(found); });
+    await settle();
+}
 
 /** The open panel. */
 const panel = (container: HTMLElement) => pane(container).querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
@@ -168,3 +180,47 @@ test("⏎ on a row places it at the view's centre, where it draws while its draf
     expect(card(container, "racks", "A06")).not.toBeNull();
 });
 
+
+// ── The Index (§8, D52) ─────────────────────────────────────────────────────
+
+/** The Index's rows as a reader meets them: each indented by its level, its name, its open mark and its count. */
+const indexRows = (container: HTMLElement) => [...panel(container).querySelectorAll<HTMLElement>('[role="treeitem"]')].map((row) => {
+    const pad = "  ".repeat(Number(row.getAttribute("aria-level")) - 1);
+    const expanded = row.getAttribute("aria-expanded");
+    const count = row.querySelector("[data-index-count]")?.textContent;
+    return `${pad}${row.querySelector("[data-index-name]")!.textContent}${expanded === "true" ? " ▾" : expanded === "false" ? " ▸" : ""}${count === undefined ? "" : ` ${count}`}`;
+});
+
+/** An Index row, by its name. */
+const indexRow = (container: HTMLElement, name: string) => [...panel(container).querySelectorAll<HTMLElement>('[role="treeitem"]')]
+    .find((row) => row.querySelector("[data-index-name]")!.textContent === name)!;
+
+/** The area index the racks' window reads through, as a request names it. */
+const byArea = (request: { readonly query: URLSearchParams }) => request.query.get("index") === ex.schematicRacksByArea.name;
+
+test("an open zone lists the racks its box holds, read through the area index — no read of the record whole — counted once read (#1393, D52)", async () => {
+    const { container } = await open();
+    await openTab(container, "Index");
+    // No window holds every rack: a zone counts none before its box is read, and opens to read it.
+    expect(indexRows(container)).toEqual(["Cage A ▸", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▸"]);
+    const before = h.requests(undefined, RACKS_DATASET).filter(byArea).length;
+    await act(async () => { fireEvent.click(indexRow(container, "Cage A").querySelector("button")!); });
+    await waitFor(() => expect(indexRows(container)).toEqual([
+        "Cage A ▾ 5", "  A01", "  A02", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▸",
+    ]));
+    expect(h.requests(undefined, RACKS_DATASET).filter(byArea).length).toBeGreaterThan(before);
+    expect(h.requests("read", RACKS_DATASET)).toEqual([]);
+    // A zone whose box holds no rack, opened, says so: no count, nothing to open.
+    await act(async () => { fireEvent.click(indexRow(container, "Meet-me room").querySelector("button")!); });
+    await waitFor(() => expect(indexRows(container)).toContain("Meet-me room"));
+});
+
+test("the Index's search finds the racks through their source's search fields, each under the zone it is in; one with no position is the Backlog's (#1393, D52)", async () => {
+    const { container } = await open();
+    await openTab(container, "Index");
+    await act(async () => { fireEvent.change(within(panel(container)).getByRole("textbox", { name: "Search items" }), { target: { value: "A0" } }); });
+    await waitFor(() => expect(indexRows(container)).toEqual(["Cage A ▾", "  A01", "  A02", "  A03", "  A04", "  A05"]));
+    await act(async () => { fireEvent.change(within(panel(container)).getByRole("textbox", { name: "Search items" }), { target: { value: "A03" } }); });
+    await waitFor(() => expect(indexRows(container)).toEqual(["Cage A ▾", "  A03"]));
+    expect(h.requests("read", RACKS_DATASET)).toEqual([]);
+});
