@@ -57,12 +57,21 @@
  *   `agenda`, each of its rows `agendaItem`; a card, `agendaCard`, its head `agendaCardHead`, title `agendaCardTitle` and lines
  *   `agendaLine` (`data-tone`), its actions `agendaActions`; a bin on a resource's card, `agendaBin`, its head `agendaBinHead`;
  *   a row's card's status, `agendaStatus`, its dot the Table's `tableStatusDot`.
+ * - A day's read (#1398): the toolbar's held slots, `heldSlot` (the shared part, CL1); what the first row in view says once
+ *   across the Timeline's lane cells — a failure, or a started day's emptiness — `readLine` (CL11, CL13), and across a Table
+ *   row's columns, `tableReadLine`; a Table placeholder row's cells, `tableUnreadCell`. A day not read yet washes its lane-hour
+ *   cells, its lane heads' figures (`laneMeta`, `data-pending`) and today's loads (`bar`, `data-kind=pending`) placeholders,
+ *   each unseen until the frame's reveal says so (`data-unrevealed`); a day whose read failed keeps a narrow card's
+ *   placeholders' place, blank (`data-blank`). While a narrowing is
+ *   read, the day it filters stands in, retained (`data-allocation-stale` on main, CL5): the lane cells' and the bands'
+ *   rules dashed, the Table's rows the shared retained row, the bins' and the cards' words in the third ink.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
+import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
 import { linkRibbons } from "./links/ribbons.js";
 import { planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
@@ -118,6 +127,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         "tableResourceSpan", "tableUnits", "tableValue", "tableLoad", "tableStatus", "tableStatusDot", "tableChip", "tableChipIcon", "tableChipCode",
         "tableChipMeta", "tableChipButton", "tablePlaceholder", "tablePlaceholderText", "tableParts", "tablePart", "tablePartFace", "tableChipQty",
         "cards", "agenda", "agendaItem", "agendaCard", "agendaCardHead", "agendaCardTitle", "agendaLine", "agendaActions", "agendaBin", "agendaBinHead", "agendaStatus",
+        "heldSlot", "readLine", "tableReadLine", "tableUnreadCell",
     ],
     base: {
         ...nowBase,
@@ -194,12 +204,16 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         laneMeta: {
             ...headLower, display: "block", minWidth: 0, padding: "0 4px", lineHeight: "23px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             fontFamily: "mono", fontSize: "label.xs", fontWeight: "medium", fontVariantNumeric: "tabular-nums", color: "fg.subtle",
+            // A day not read yet: its figures' placeholder, an 8 bar on the line's middle (#1398).
+            "&[data-pending]": { display: "flex", alignItems: "center" },
         },
         laneGrid: { position: "relative", height: "calc(var(--allocation-rows) * 36px)" },
         // A slot index's band across the lanes: 36px a bin of its largest batch, its hour at the left.
         laneBand: {
             position: "absolute", left: 0, right: 0, top: "calc(var(--band-row) * 36px)", height: "calc(var(--band-span) * 36px)",
             boxSizing: "border-box", borderBottomWidth: "1px", borderColor: "border.subtle", pointerEvents: "none", scrollSnapAlign: "start",
+            // Retained while a narrowing is read (#1398, CL5): its rule dashed.
+            "[data-allocation-stale] &": { borderBottomStyle: "dashed", borderBottomColor: "border.strong" },
         },
         laneHour: {
             position: "absolute", left: 0, top: "12px", width: "48px", boxSizing: "border-box", paddingRight: "12px", textAlign: "right", lineHeight: "12px",
@@ -209,6 +223,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             position: "absolute", left: "calc(48px + var(--cell-lane) * 96px)", top: "calc(var(--cell-row) * 36px)", width: "96px",
             height: "calc(var(--cell-span) * 36px)", boxSizing: "border-box", borderLeftWidth: "1px", borderColor: "border.subtle",
             ...ownStages, "&[data-drag-cell][data-drop-active]": { background: "transparent" },
+            // Retained while a narrowing is read (#1398, CL5): the shared retained column's rules.
+            "[data-allocation-stale] &": retainedColumn,
         },
         // During a body's, a Library card's or a resource card's drag every free lane hour is a dashed target, 4px in; the one under the
         // pointer brand-tint (A24, A32); a picked arrival's in the brand (A11); a resource that would not take a reservation's in warn (A32).
@@ -254,6 +270,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             // A resource card's drag: every bin that refuses it in warn on the warn wash (A32); the one under the pointer as a drop's.
             "&[data-refuses]": { borderStyle: "solid", borderColor: "status.warn", background: warnWash },
             "&[data-dim][data-refuses]": { borderColor: "status.warn", background: warnWash },
+            // Retained while a narrowing is read (#1398, CL5): its words in the third ink, its own edge kept.
+            "[data-allocation-stale] &": { color: "fg.muted", "& *": { color: "inherit" } },
         },
         cardTop: { display: "flex", alignItems: "baseline", gap: "4px", minWidth: 0, lineHeight: "12px" },
         cardCode: {
@@ -393,6 +411,9 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-kind=load][data-link-lit]": { outline: "1px solid", outlineColor: "fg.strong", outlineOffset: "4px" },
             // A ranked fit's preview of the hold: brand-tint, dashed (A28).
             "&[data-kind=preview]": { zIndex: 3, background: "brandTint", borderWidth: "1px", borderStyle: "dashed", borderColor: "brand.solid" },
+            // Today's load, a day not read yet: the placeholder's fill, where the load starts, unseen at its footprint until
+            // the frame's reveal says so (#1398, CL4).
+            "&[data-kind=pending]": { zIndex: 2, background: "bg.subtle", "&[data-unrevealed]": { visibility: "hidden" } },
             // Receded (A27): the load on paper-3, the jobs on paper-2 and the rules.
             [receded]: {
                 "&[data-kind=load]": { background: "bg.subtle", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong" },
@@ -521,6 +542,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             background: "bg.surface", cursor: "default",
             "&:hover": { background: "bg.canvas" },
             "&[data-selected]": { background: "bg.subtle" },
+            // Retained while a narrowing is read (#1398, CL5): the shared retained row.
+            "[data-allocation-stale] &": retainedRow,
         },
         tableTime: { ...tableText, padding: "0 12px 0 20px", fontSize: "label.lg", fontWeight: "medium", color: "fg.muted", "&[data-holds]": { color: "fg" } },
         tableLane: { ...tableText, padding: "0 12px", fontSize: "label.md", fontWeight: "medium", color: "fg.muted" },
@@ -627,11 +650,17 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "[data-allocation-cell-side][data-drop-invalid] > *:has([data-say=reason]) > &": { "&[data-say=refused]": { display: "none" }, "&[data-say=reason]": { display: "block" } },
         },
         // ── The narrow layout (A78) ── main as a list of cards on the panel: a resource's (the Timeline's) or a row's (the Table's).
-        cards: { position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "bg.panel" },
+        // A day whose read failed: a card's placeholders keep their place, blank (#1398); not read yet, each is unseen until
+        // the frame's reveal says so by itself (`data-unrevealed`).
+        cards: {
+            position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "bg.panel",
+            "& [data-blank] [data-shape]": { visibility: "hidden" },
+        },
         agenda: scheduleAgenda,
         // Each of the list's rows: a card, or a band's head, 8px over the next, as the shared agenda's groups are.
         agendaItem: { paddingBottom: "8px" },
-        agendaCard: scheduleCard,
+        // Retained while a narrowing is read (#1398, CL5): its words in the third ink, its own edge kept.
+        agendaCard: { ...scheduleCard, "[data-allocation-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         agendaCardHead: scheduleCardHead,
         agendaCardTitle: scheduleCardTitle,
         agendaActions: scheduleCardActions,
@@ -653,6 +682,25 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         focusClear: {
             width: "16px", height: "16px", display: "grid", placeItems: "center", padding: 0, borderRadius: "sm", color: "inherit", cursor: "pointer",
             "&:hover": { background: "bg.surface" }, "& svg": fontAwesomeSize("10px"), ...planElementFocus,
+        },
+        // ── A day's read (#1398) ── the toolbar's status, issues and Publish held from cold load (CL1).
+        heldSlot: heldToolbarSlot,
+        // Said once across the lane cells of the first row in view (CL11, CL13): from the hour column's rule over every lane,
+        // a row high but its rule; the paper over the lanes' rules, so they never cross its words. It takes no pointer but its
+        // Retry, and steps aside while a drag or a pick marks the cells under it.
+        readLine: {
+            position: "absolute", zIndex: 1, left: "48px", top: "calc(var(--band-row) * 36px)", width: "calc(var(--allocation-lanes) * 96px)", height: "35px",
+            boxSizing: "border-box", display: "flex", alignItems: "center", minWidth: 0, padding: "0 12px", overflow: "hidden",
+            borderLeftWidth: "1px", borderColor: "border.subtle", background: "bg.surface", pointerEvents: "none",
+            "& button": { pointerEvents: "auto" },
+            "[data-allocation-drag] &, [data-allocation-pick] &": { visibility: "hidden" },
+        },
+        // A Table row's line, said once across its columns (CL11).
+        tableReadLine: { gridColumn: "1 / -1", display: "flex", alignItems: "center", minWidth: 0, padding: "0 20px", overflow: "hidden" },
+        // A Table placeholder row's cell: its column's shape, at the real cells' insets (CL2).
+        tableUnreadCell: {
+            display: "flex", alignItems: "center", minWidth: 0, height: "100%", padding: "0 12px", overflow: "hidden",
+            "&:first-of-type": { paddingLeft: "20px" }, "&:last-of-type": { paddingRight: "20px" }, "&[data-align=end]": { justifyContent: "flex-end" },
         },
     },
 });

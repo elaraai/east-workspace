@@ -3,12 +3,19 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Calendar geometry uses the builders' text, state, time and inspector styles. */
+/**
+ * Calendar geometry uses the builders' text, state, time and inspector styles. A period's read (#1398): a period not
+ * read yet washes its regions (`monthWash` below a month cell's date) and its counts are placeholders (`unreadMeta`); a
+ * failed one says so in its timeline's first row (`readLine`), its agenda's other cards blank (`data-blank`); and a newer read of the period shown keeps its events,
+ * retained (`data-calendar-stale` on main, CL5): its columns', rows' and cells' rules dashed, its events' and cards' words
+ * in the third ink — the shared retained parts.
+ */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
+import { retainedColumn, retainedRow } from "./loading.js";
 import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
 import { scheduleAgenda, scheduleAgendaGroup, scheduleAgendaHead, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
@@ -29,7 +36,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         "ruler", "rulerRow", "rulerTick", "rulerLabel", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
         "timelineRow", "rowHead", "rowPlot", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle",
         "actions", ...schedulePaneSlots, "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
-        "form", "error", "empty", ...nowSlots,
+        "form", "error", "empty", ...nowSlots, "unreadMeta", "monthWash", "readLine",
     ],
     base: {
         ...moveGhostBase,
@@ -38,7 +45,10 @@ export const calendarSlotRecipe = defineSlotRecipe({
         ...schedulePaneBase,
         root: { ...shellBase.root, height: "100%", minHeight: 0 },
         main: { position: "relative", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden" },
-        scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain", "&[data-calendar-month-grid]": { display: "flex", flexDirection: "column", "--calendar-month-min-width": "calc(var(--calendar-month-columns) * 104px)" } },
+        scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain", "&[data-calendar-month-grid]": { display: "flex", flexDirection: "column", "--calendar-month-min-width": "calc(var(--calendar-month-columns) * 104px)" },
+            // A card's placeholders keep their place where a failure blanks them (#1398); unread, each is unseen until the
+            // frame's reveal says so by itself (`data-unrevealed`).
+            "& [data-blank] [data-shape]": { visibility: "hidden" } },
         head: { display: "flex", position: "sticky", top: 0, zIndex: 5, height: "28px", flexShrink: 0, background: "bg.surface", borderBottomWidth: "1px", borderColor: "border.subtle", "&[data-resources]": { height: "44px" }, "&[data-timeline]": { height: "auto" }, "&[data-month]": { minWidth: "var(--calendar-month-min-width)" } },
         headerCaption: { ...shellBase.brushCaption, position: "sticky", left: 0, width: "184px", flexShrink: 0, zIndex: 4, background: "bg.surface" },
         columnHead: {
@@ -60,7 +70,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
         columns: { display: "flex", flex: 1, minWidth: 0, position: "relative" },
         // A stacking context of its own: what a day column draws over itself — the now line, a drop's ghost, a dragged event —
         // stays under the sticky head as the grid scrolls down, and under the hour column as it scrolls sideways.
-        column: { position: "relative", flex: 1, minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", touchAction: "pan-y", isolation: "isolate" },
+        column: { position: "relative", flex: 1, minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", touchAction: "pan-y", isolation: "isolate",
+            // Retained while a newer read of its period is in flight (#1398, CL5): the shared retained column.
+            "[data-calendar-stale] &": retainedColumn },
         hour: { position: "absolute", left: 0, right: 0, borderTopWidth: "1px", borderColor: "border.subtle", pointerEvents: "none", "&[data-half]": { opacity: 0.45 } },
         shade: { position: "absolute", background: "bg.muted", opacity: 0.45, pointerEvents: "none", "&[data-along=y]": { left: 0, right: 0 }, "&[data-along=x]": { top: 0, bottom: 0 } },
         event: {
@@ -73,6 +85,8 @@ export const calendarSlotRecipe = defineSlotRecipe({
             "&[data-chip]": { height: "21px", flexShrink: 0 },
             "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
             "&[data-dragging]": { zIndex: 10 },
+            // Retained while a newer read of its period is in flight (#1398, CL5): its words in the third ink, its own edge kept.
+            "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } },
         },
         ghost: {
             textStyle: "mono.xs", position: "absolute", borderWidth: "1.5px", borderStyle: "dashed", borderColor: "brand.solid",
@@ -107,18 +121,23 @@ export const calendarSlotRecipe = defineSlotRecipe({
         },
         // Its own stacking context too: a drop's ghost and a dragged chip stay under the sticky weekdays as a drag scrolls it.
         month: { isolation: "isolate", display: "grid", flex: 1, minHeight: 0, minWidth: "var(--calendar-month-min-width)", gridTemplateColumns: "repeat(var(--calendar-month-columns), minmax(104px, 1fr))", gridTemplateRows: "repeat(var(--calendar-month-rows), minmax(128px, 1fr))" },
-        monthDay: { position: "relative", minWidth: 0, minHeight: "128px", padding: "6px", borderRightWidth: "1px", borderBottomWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "&[data-outside]": { background: "bg.muted" }, "& [data-calendar-event]": { position: "relative", width: "100%" } },
+        monthDay: { position: "relative", minWidth: 0, minHeight: "128px", padding: "6px", borderRightWidth: "1px", borderBottomWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "&[data-outside]": { background: "bg.muted" }, "& [data-calendar-event]": { position: "relative", width: "100%" },
+            // Retained while a newer read of its period is in flight (#1398, CL5): its rules dashed.
+            "[data-calendar-stale] &": { borderStyle: "dashed", borderColor: "border.strong" } },
         dayNumber: { ...timeHeaderText, textAlign: "left", minHeight: "24px", "&[data-today]": { color: "brand.fg" } },
         more: { textStyle: "mono.xs", color: "brand.fg", textAlign: "left", minHeight: "28px" },
         timeline: { minWidth: 0 },
-        timelineRow: { display: "flex", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        timelineRow: { display: "flex", borderBottomWidth: "1px", borderColor: "border.subtle",
+            // Retained while a newer read of its period is in flight (#1398, CL5): the shared retained row.
+            "[data-calendar-stale] &": retainedRow },
         rowHead: { ...rowsBase.gutterCell, position: "sticky", left: 0, width: "184px", flexShrink: 0, padding: "4px 12px", zIndex: 4, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", overflowWrap: "anywhere" },
         // A stacking context of its own: its now line, a drop's ghost and a dragged event stay under the sticky resource column
         // as the timeline scrolls right, and under the head as it scrolls down.
         rowPlot: { position: "relative", flex: 1, isolation: "isolate" },
         // The narrow agenda: the shared part the Roster and the Allocation take too, a card in an overlap pair ringed in warn.
         agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, agendaHead: scheduleAgendaHead,
-        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING } }, cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
+        card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
+        cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,
         footer: builderFooter,
@@ -129,5 +148,15 @@ export const calendarSlotRecipe = defineSlotRecipe({
         form: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         empty: { textStyle: "body.sm", padding: "16px", color: "fg.muted" },
+        // ── A period's read (#1398) ── what a head knows without the read — a resource's meta — then the figure's placeholder.
+        unreadMeta: { display: "inline-flex", alignItems: "center", gap: "6px", minWidth: 0, maxWidth: "100%" },
+        // A month cell not read yet: washed below its date, its padding and its date's line (CL2).
+        monthWash: { position: "absolute", top: "30px", left: 0, right: 0, bottom: 0, pointerEvents: "none" },
+        // A failed period said once in the timeline's first row in view (CL11): at the plot's start in view, beside the sticky
+        // resource column, its row's height.
+        readLine: {
+            position: "sticky", left: "184px", zIndex: 3, display: "flex", alignItems: "center", width: "max-content", height: "100%",
+            padding: "0 12px", background: "bg.surface",
+        },
     },
 });

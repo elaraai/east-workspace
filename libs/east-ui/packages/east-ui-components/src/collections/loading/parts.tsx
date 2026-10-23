@@ -10,10 +10,14 @@
  * items have no known position yet ({@link LoadingWash}); a failure said once
  * — a line in a row grid's first row in view ({@link LoadingFailedLine}), or
  * the message box at the top-left of a region with no row to hold one
- * ({@link LoadingFailedBox}); and the narrow layouts' placeholder card
- * ({@link PlaceholderCard}). Every placeholder is `aria-hidden` (CL12) and
- * states no value; the `loading` slot recipe owns every style, and these set
- * data attributes and geometry only.
+ * ({@link LoadingFailedBox}); a region its read found empty, said once in the
+ * failed line's slot and shape ({@link LoadingEmptyLine}); and the narrow
+ * layouts' placeholder card ({@link PlaceholderCard}). Every placeholder is
+ * `aria-hidden` (CL12) and states no value; the `loading` slot recipe owns
+ * every style, and these set data attributes and geometry only. Inside a
+ * builder's `LoadingReveal` a shape and a wash keep their footprint
+ * unseen until the reveal says so (`data-unrevealed`, CL4), each reading the
+ * clock itself, so its flip renders them again and never their builder.
  *
  * @packageDocumentation
  */
@@ -21,9 +25,10 @@
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCircleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faCircleExclamation, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
 import { barShare } from "./run-rows.js";
 import { loadingMessages } from "./messages.js";
+import { useRevealed } from "./reveal.js";
 
 type Styles = Record<string, SystemStyleObject>;
 
@@ -87,7 +92,10 @@ export interface PlaceholderShapeProps {
 
 /**
  * One value's placeholder, in the slot it will fill (see {@link PlaceholderKind}).
- * Its shapes are `aria-hidden`; a real row number is drawn as text.
+ * Its shapes are `aria-hidden`; a real row number is drawn as text. Inside a
+ * builder's `LoadingReveal` a shape keeps its footprint unseen until the reveal
+ * says so (`data-unrevealed`, CL4); a real row number is geometry, and shows at
+ * once.
  *
  * @param props - The kind, the row, and a real number or an overlay where the kind takes one
  * @returns The shape
@@ -95,35 +103,36 @@ export interface PlaceholderShapeProps {
 export function PlaceholderShape({ kind, index, number, overlay, styles: given }: PlaceholderShapeProps) {
     const own = useLoadingStyles();
     const styles = given ?? own;
+    const hidden = useRevealed() === false ? "" : undefined;
     switch (kind) {
         case "text":
-            return <Box as="span" css={styles.bar} style={share(index)} aria-hidden="true" data-shape={kind} data-length="text" />;
+            return <Box as="span" css={styles.bar} style={share(index)} aria-hidden="true" data-shape={kind} data-length="text" data-unrevealed={hidden} />;
         case "label":
-            return <Box as="span" css={styles.bar} style={share(index)} aria-hidden="true" data-shape={kind} data-length="label" />;
+            return <Box as="span" css={styles.bar} style={share(index)} aria-hidden="true" data-shape={kind} data-length="label" data-unrevealed={hidden} />;
         case "label2":
             return (
-                <Box as="span" css={styles.stack} aria-hidden="true" data-shape={kind}>
+                <Box as="span" css={styles.stack} aria-hidden="true" data-shape={kind} data-unrevealed={hidden}>
                     <Box as="span" css={styles.bar} style={share(index)} data-length="label" />
                     <Box as="span" css={styles.bar} data-size="label" style={share(index + 2)} data-length="sub" />
                 </Box>
             );
         case "number":
-            return <Box as="span" css={styles.bar} aria-hidden="true" data-shape={kind} data-length="number" />;
+            return <Box as="span" css={styles.bar} aria-hidden="true" data-shape={kind} data-length="number" data-unrevealed={hidden} />;
         case "date":
-            return <Box as="span" css={styles.bar} aria-hidden="true" data-shape={kind} data-length="date" />;
+            return <Box as="span" css={styles.bar} aria-hidden="true" data-shape={kind} data-length="date" data-unrevealed={hidden} />;
         case "aggregate":
-            return <Box as="span" css={styles.bar} data-size="label" aria-hidden="true" data-shape={kind} data-length="aggregate" />;
+            return <Box as="span" css={styles.bar} data-size="label" aria-hidden="true" data-shape={kind} data-length="aggregate" data-unrevealed={hidden} />;
         case "boolean":
-            return <Box as="span" css={styles.box} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.box} aria-hidden="true" data-shape={kind} data-unrevealed={hidden} />;
         case "check":
             return <Box as="span" css={styles.check} aria-hidden="true" data-shape={kind} />;
         case "count":
-            return <Box as="span" css={styles.count} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.count} aria-hidden="true" data-shape={kind} data-unrevealed={hidden} />;
         case "chip":
-            return <Box as="span" css={styles.chip} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.chip} aria-hidden="true" data-shape={kind} data-unrevealed={hidden} />;
         case "link":
             return (
-                <Box as="span" css={styles.pair} aria-hidden="true" data-shape={kind}>
+                <Box as="span" css={styles.pair} aria-hidden="true" data-shape={kind} data-unrevealed={hidden}>
                     <Box as="span" css={styles.chip} data-length="link" />
                     <Box as="span" css={styles.arrow}>→</Box>
                     <Box as="span" css={styles.chip} data-length="link" />
@@ -131,7 +140,7 @@ export function PlaceholderShape({ kind, index, number, overlay, styles: given }
             );
         case "enum":
             return (
-                <Box as="span" css={styles.pair} aria-hidden="true" data-shape={kind}>
+                <Box as="span" css={styles.pair} aria-hidden="true" data-shape={kind} data-unrevealed={hidden}>
                     <Box as="span" css={styles.dot} />
                     <Box as="span" css={styles.bar} data-length="enum" />
                 </Box>
@@ -139,10 +148,10 @@ export function PlaceholderShape({ kind, index, number, overlay, styles: given }
         case "rowNumber":
             return number !== undefined
                 ? <Box as="span" css={styles.number} aria-hidden="true" data-shape={kind}>{number}</Box>
-                : <Box as="span" css={styles.bar} data-size="label" aria-hidden="true" data-shape={kind} data-length="rowNumber" />;
+                : <Box as="span" css={styles.bar} data-size="label" aria-hidden="true" data-shape={kind} data-length="rowNumber" data-unrevealed={hidden} />;
         case "wash":
             return <>
-                <Box as="span" css={styles.wash} aria-hidden="true" data-shape={kind} data-loading-wash="" />
+                <Box as="span" css={styles.wash} aria-hidden="true" data-shape={kind} data-loading-wash="" data-unrevealed={hidden} />
                 {overlay}
             </>;
         case "blank":
@@ -166,15 +175,17 @@ export interface LoadingWashProps {
  * with nothing drawn in it: no item's shape implies a time or a place. It
  * paints under whatever its region draws after it — the rules, the off-hours
  * shading's copy over it, the now line — so place it before them.
- * `aria-hidden`; the region it washes is `aria-busy`.
+ * `aria-hidden`; the region it washes is `aria-busy`. Inside a builder's
+ * `LoadingReveal` it is unseen until the reveal says so (`data-unrevealed`).
  *
  * @param props - Whether it shows, and the part of the region it covers
  * @returns The wash, or nothing
  */
 export function LoadingWash({ shown = true, geometry }: LoadingWashProps) {
     const styles = useLoadingStyles();
+    const hidden = useRevealed() === false ? "" : undefined;
     if (!shown) return null;
-    return <Box as="span" css={styles.wash} style={geometry} aria-hidden="true" data-loading-wash="" />;
+    return <Box as="span" css={styles.wash} style={geometry} aria-hidden="true" data-loading-wash="" data-unrevealed={hidden} />;
 }
 
 /** What a failure in place offers: its Retry. */
@@ -187,6 +198,11 @@ export interface LoadingRetry {
     readonly name?: string | undefined;
     /** Whether the retry is under way: the button says so, and takes no second press. */
     readonly busy?: boolean | undefined;
+    /**
+     * Whether it is a tab stop of its own — it is unless `false`: a grid that is one tab stop and walks its rows'
+     * widgets itself (the Plan's treegrid) takes it out of the tab order.
+     */
+    readonly tabStop?: boolean | undefined;
 }
 
 /** Props of {@link LoadingFailedLine}. */
@@ -218,10 +234,46 @@ export function LoadingFailedLine({ message, retry }: LoadingFailedLineProps) {
     );
 }
 
+/** Props of {@link LoadingEmptyLine}. */
+export interface LoadingEmptyLineProps {
+    /** Its glyph, the Empty state's at the line's size: a Font Awesome solid icon. */
+    readonly icon: IconDefinition;
+    /** What the read found empty, in the builder's words: `No bins on Wed 12 May`. */
+    readonly message: string;
+    /** How to fill it — `Drag an arrival onto a lane hour` — after its words where the whole line fits; else dropped whole, kept for screen readers. */
+    readonly hint?: string | undefined;
+}
+
+/**
+ * A region its read found empty, said once (#1398, CL13): one line in the
+ * failed line's slot and shape — a row grid's first row in view, the
+ * Allocation's day with no bins — the Empty state's glyph, the builder's words
+ * and how to fill it, only after the read has landed. One line, never a cut
+ * word: the hint follows the words only where the whole line fits, and drops
+ * whole where it does not — its words still heard. The host places it in its
+ * row, as it places a failed line.
+ *
+ * @param props - Its glyph, its words and its hint
+ * @returns The line
+ */
+export function LoadingEmptyLine({ icon, message, hint }: LoadingEmptyLineProps) {
+    const styles = useLoadingStyles();
+    return (
+        <Box as="span" css={styles.emptyLine} data-loading-empty="">
+            <Box as="span" css={styles.emptyLead}>
+                <Box as="span" css={styles.emptyIcon} aria-hidden="true"><FontAwesomeIcon icon={icon} /></Box>
+                <Box as="span" css={styles.failedMessage} data-loading-empty-message="">{message}</Box>
+            </Box>
+            {hint !== undefined && <Box as="span" css={styles.emptyHint} data-loading-empty-hint="">{`· ${hint}`}</Box>}
+        </Box>
+    );
+}
+
 /** A failure's Retry: the shared Button, Default. */
 function RetryButton({ retry, size }: { retry: LoadingRetry; size: "xs" | "md" }) {
     return (
         <Button size={size} variant="outline" data-loading-retry="" aria-label={retry.name} loading={retry.busy === true}
+            tabIndex={retry.tabStop === false ? -1 : undefined}
             onMouseDown={(event) => { event.stopPropagation(); }}
             onClick={(event) => { event.stopPropagation(); retry.onRetry(); }}>
             {retry.label ?? loadingMessages.retry()}
@@ -265,8 +317,8 @@ export interface PlaceholderCardProps {
     readonly title?: ReactNode;
     /** The card's index in its list: what keys its bars' widths. */
     readonly index: number;
-    /** Whether its placeholders show yet: past the reveal's delay (CL4). */
-    readonly filled: boolean;
+    /** Whether its placeholders are drawn; absent, they are, unseen inside a builder's `LoadingReveal` until it says so (CL4). */
+    readonly filled?: boolean | undefined;
 }
 
 /**
@@ -278,7 +330,7 @@ export interface PlaceholderCardProps {
  * @param props - Its height, its title when known, its index and whether it is filled
  * @returns The card
  */
-export function PlaceholderCard({ height, title, index, filled }: PlaceholderCardProps) {
+export function PlaceholderCard({ height, title, index, filled = true }: PlaceholderCardProps) {
     const styles = useLoadingStyles();
     return (
         <Box css={styles.card} style={{ minHeight: `${height}px` }} data-placeholder-card="" aria-hidden={title === undefined ? "true" : undefined}>

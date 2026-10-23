@@ -190,9 +190,12 @@ component, nothing in east-ui.
 - **The footer's loading line** (#1398, CL3, `./internal`). One line in a slot
   of its own at the footer rail's trailing end — `LoadingLine` over a
   `LoadingLineValue` (what is read, or what failed with its reason and Retry,
-  in the builder's words), shown on one reveal clock (`useLoadingReveal`: after
-  150 ms, held at least 300 ms; a failure at once), a polite live region that
-  speaks once a load. The rail fits it on one line with no word cut
+  in the builder's words), shown on the builder's one reveal clock (after
+  150 ms, held at least 300 ms; a failure at once): `LoadingReveal` around the
+  builder's frame, which the line and every placeholder read where they show
+  (`useRevealed`), so the clock's flips render them and never the frame. It is
+  a polite live region that speaks once a load. The rail fits it on one line
+  with no word cut
   (`useFooterFit` over `fitFooter`, pure): the legend's items
   (`data-footer-unit`, cut whole by `footerCut`, `FooterMore` ending a cut
   legend), or a footer's hints running on in one item (`data-footer-units`),
@@ -316,7 +319,10 @@ component, nothing in east-ui.
   rail's summary (`12 of 69 people`) folds after every step of the rail and
   before a host's own items (`SUMMARY_RANK`, ruled 18 Oct 2026, #1340). Over
   several records it names only the sources a narrowing hides rows of
-  (`2 of 30 print job events`), nothing while none does; the Filters editor
+  (`2 of 30 print job events`), nothing while none does — a source a
+  narrowing is in force over keeps its place while its count is read, the
+  count pending, so the toolbar never folds again as it lands (#1398, CL1);
+  the Filters editor
   heads each source's fields with its count, as a Library tab counts (`6`,
   `2 of 30`), and keeps a line under them only for the sources no heading
   counts (ruled 19 Oct 2026, #1358). Controls
@@ -670,11 +676,25 @@ Row virtualization via `@tanstack/react-virtual`:
 - The Plan's and the Sheet's rows not yet read are the shared unloaded run
   (#1398, CL2: `UnloadedRun` over `runRows`, `collections/loading/`, through
   `./internal`): rows at the collection's real pitch, drawn only where the run
-  meets the viewport, the virtualizer counting the run as one item; a region
-  whose items have no known position yet takes the shared wash
-  (`LoadingWash`). When a placeholder's fill and the footer's loading line
-  show is the shared reveal (CL4, `useLoadingReveal`): after 150 ms, held at
-  least 300 ms; geometry draws at once.
+  meets the viewport, the virtualizer counting the run as one item. `VirtualRows`
+  draws again only as its mounted range moves, so a run follows the view itself
+  through what scrolls the frame's rows (`useRowsScroll`, `rows-scroll.ts`): a
+  run the frame positions reads its part in view as it renders, from the
+  frame's scroll offset and where it placed the run (`useRowTop`,
+  `RowsScroll.viewAt`), so a window landing above it draws it there in that
+  one commit; one in flow is placed before paint. Either is drawn again only
+  as a row comes into the view or leaves it. A region whose items have no known position yet takes
+  the shared wash (`LoadingWash`). When a placeholder's fill and the footer's
+  loading line show is the builder's one reveal clock (CL4, `LoadingReveal`
+  around its frame, read where it shows with `useRevealed`): after 150 ms, held
+  at least 300 ms; geometry draws at once, and a shape keeps its footprint,
+  unseen, until then (`data-unrevealed`). A failure is said once in place
+  (`LoadingFailedLine` in a row, `LoadingFailedBox` where no row can hold
+  one, CL11), and a region its read found empty once, only after the read, in
+  the failed line's slot and shape (`LoadingEmptyLine`, CL13: one line, its
+  hint dropped whole where it does not fit). A builder's toolbar slots held
+  from cold load — its status, issues and Publish — take the loading recipe's
+  `heldToolbarSlot` (CL1).
 - A count that lands before its rows sizes the ledger at the rows' declared
   pitch (`createLedger`'s pitch), never at its starting 32px an element (CL1).
 

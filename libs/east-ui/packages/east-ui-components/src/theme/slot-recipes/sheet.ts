@@ -63,13 +63,20 @@
  *     caret.
  *   - Context switch: 28 px, r-md, options mono 10 filling it, active
  *     brandTint; a focused option a 2 px brand ring (#860).
- *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
- *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
- *     pill opens on hover with brand controls (no shadow). A failed
- *     window's band (#853) is the same band with its reason in `fg.danger`
- *     and a brand Retry, the pill kept in view while the band scrolls past;
- *     a row that could not be drawn is one row of `fg.danger` mono on the
- *     invalid row's wash.
+ *   - Bands: the lens's gap, 22 px; 1 px dashed `border.strong` at 50 %;
+ *     pill mono 9 `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; it
+ *     opens on hover with brand controls (no shadow). A row that could not be
+ *     drawn is one row of `fg.danger` mono on the invalid row's wash.
+ *   - Runs (#1398, CL2): rows not drawn yet — a paged source's unloaded run,
+ *     a stretch the lens is reading, a window whose read failed — are the
+ *     shared `UnloadedRun` on the rows' own geometry: rows at the density's
+ *     pitch on the surface, each with its 1 px rule (`runRow`); the gutter
+ *     as a row's — rail · number · actions, sticky, the gutter edge
+ *     `border.strong`, the real row number in the number column
+ *     (`runGutter`); each column's cell with its right rule and the cells'
+ *     padding (`runCell`); a grouped run's band on the band's panel, past the
+ *     gutter as a group band's chevron is (`runBand`). A failed run's line
+ *     stays beside the gutter as the columns scroll sideways.
  *   - A group's band (#740, G1): 40 px `bg.panel`, no extra top rule,
  *     `border.subtle` below (`border.strong` when folded); Font Awesome's
  *     chevron-right in a 10 px square (#1263), ink-3; count mono 10; title
@@ -172,6 +179,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "editorTime",
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
         "band", "bandRule", "bandPill", "bandControl", "bandCount", "retry", "rowError",
+        "run", "runRow", "runGutter", "runCell", "runBand",
         "gutterAction", "groupSummary",
         "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
@@ -1374,10 +1382,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // Where nothing can hover they stay open.
             _hoverNone: { "&[data-lens] [data-slot=bandControl]": { display: "inline-flex" } },
             _coarse: { paddingY: "4px", gap: "10px" },
-            // A failed window's pill (#853): the reason in the danger ink, kept in view while its band scrolls past, the Retry beside it.
-            "&[data-failed]": { position: "sticky", top: "60px", alignSelf: "flex-start", color: "fg.danger", cursor: "default" },
         },
-        // The one Retry (#853) — a failed window's band, the whole-sheet message: the band controls' brand, a button.
+        // The whole-sheet message's Retry (#853): the band controls' brand, a button.
         retry: {
             display: "inline-flex",
             alignItems: "center",
@@ -1408,6 +1414,52 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+        },
+        // ── A run of rows not drawn yet (#1398, CL2): the shared `UnloadedRun`, its rows the sheet's own ──
+        // The run's box, the virtual row it is.
+        run: {
+            position: "relative",
+        },
+        // A run's row: a row's surface and its 1 px rule — the pitch includes it, as a row's does — and a grouped run's
+        // band on the band's panel.
+        runRow: {
+            background: "bg.surface",
+            borderBottomWidth: "1px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "border.subtle",
+            "&[data-run-band]": { background: "bg.panel" },
+        },
+        // Its gutter, as a row's: rail · number · actions, sticky while the columns scroll sideways, the gutter edge;
+        // the number in the number column, right-aligned.
+        runGutter: {
+            display: "grid",
+            gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr",
+            alignItems: "center",
+            gap: "0",
+            position: "sticky",
+            left: "0",
+            zIndex: "5",
+            background: "bg.surface",
+            borderRightWidth: "1px",
+            borderRightStyle: "solid",
+            borderRightColor: "border.strong",
+            "& > [data-shape]": { gridColumn: "2", justifySelf: "end", marginRight: "10px" },
+            // A row number set as the gutter sets it.
+            "& > [data-shape=rowNumber]": { fontSize: "11px" },
+        },
+        // A column's cell: the cells' padding and their right rule. A failed run's line stays beside the gutter as the
+        // columns scroll sideways: its cell lets it out, and it sticks there.
+        runCell: {
+            paddingX: "10px",
+            borderRightWidth: "1px",
+            borderRightStyle: "solid",
+            borderRightColor: "border.subtle",
+            "&[data-run-failed]": { overflow: "visible", borderRightWidth: "0" },
+            "&[data-run-failed] > [data-loading-failed]": { position: "sticky", left: "calc(var(--sheet-gutter, 128px) + 10px)" },
+        },
+        // A grouped run's band: its chevron past the gutter, where a group band's sits.
+        runBand: {
+            paddingLeft: "calc(var(--sheet-gutter, 128px) + 12px)",
         },
         bandControl: {
             display: "inline-flex",
@@ -1915,9 +1967,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
+            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px" }, runCell: { paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
             md: {},
-            lg: { cell: { minHeight: "calc({sizes.density.row.lg} - 1px)", paddingY: "9px", paddingX: "12px" }, headerCell: { paddingY: "9px", paddingX: "12px" }, strip: { minHeight: "{sizes.density.row.lg}" } },
+            lg: { cell: { minHeight: "calc({sizes.density.row.lg} - 1px)", paddingY: "9px", paddingX: "12px" }, runCell: { paddingX: "12px" }, headerCell: { paddingY: "9px", paddingX: "12px" }, strip: { minHeight: "{sizes.density.row.lg}" } },
         },
     },
     defaultVariants: { size: "md" },
