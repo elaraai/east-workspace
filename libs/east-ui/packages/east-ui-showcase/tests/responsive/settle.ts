@@ -22,21 +22,33 @@ const STARTING_MS = 45_000;
 /** How long the page may take to hold still once nothing is starting. */
 const LAYOUT_MS = 20_000;
 
+/** How a spec reads the page at rest. */
+export interface SettleOptions {
+    /**
+     * A read the spec holds in flight on purpose (`e3-faults.ts`, #1398): a
+     * builder's main stays busy over it, which the page waits on otherwise, so
+     * the page is at rest once all else is — its cold loads over among them.
+     */
+    readonly holding?: boolean;
+}
+
 /**
  * Samples the page three times, two frames apart: how many of its parts are
  * still starting at most, and whether every virtualized row (the doc list's
  * entries and any example's own) and the document's width held still.
  */
-function sample(page: Page): Promise<{ starting: number; still: boolean }> {
-    return page.evaluate(async () => {
+function sample(page: Page, holding: boolean): Promise<{ starting: number; still: boolean }> {
+    return page.evaluate(async (holding) => {
         const frames = () => new Promise<void>((resolve) =>
             requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         const layout = () => {
             const doc = document.scrollingElement ?? document.documentElement;
             // An example draws once its East has compiled, or failed to; an e3
             // example once e3 has started, or failed to; a builder once its
-            // cold load is over and no read keeps its main busy (#1398).
-            const waiting = document.querySelectorAll('[data-east-compiling], [data-e3-start="starting"], [data-builder-loading], [data-builder-frame] [data-frame-slot="main"][aria-busy="true"]').length
+            // cold load is over and no read keeps its main busy (#1398) —
+            // unless the spec holds that read on purpose.
+            const busy = holding ? "" : ', [data-builder-frame] [data-frame-slot="main"][aria-busy="true"]';
+            const waiting = document.querySelectorAll(`[data-east-compiling], [data-e3-start="starting"], [data-builder-loading]${busy}`).length
                 + [...document.querySelectorAll("[data-example-deferred]")].filter(el => {
                     const box = el.getBoundingClientRect();
                     const view = el.closest("[data-doc-scroll]")?.getBoundingClientRect()
@@ -58,7 +70,7 @@ function sample(page: Page): Promise<{ starting: number; still: boolean }> {
             starting: Math.max(first.waiting, second.waiting, third.waiting),
             still: first.at === second.at && second.at === third.at,
         };
-    });
+    }, holding);
 }
 
 /**
@@ -86,7 +98,8 @@ function panesStill(page: Page): Promise<boolean> {
  * Resolves once the page has stopped laying itself out: the webfonts are
  * loaded, no example is still compiling its East behind its skeleton, no e3
  * example is waiting for the e3 the page runs to start (#849), no builder is
- * still loading or busy reading what it shows (its main `aria-busy`), visible deferred
+ * still loading or busy reading what it shows (its main `aria-busy`, unless
+ * the spec holds that read: {@link SettleOptions}), visible deferred
  * previews have started, every virtualized row and the document's width
  * hold still across two frames, and then two more, and no builder's pane is
  * still sliding.
@@ -98,18 +111,19 @@ function panesStill(page: Page): Promise<boolean> {
  * budget ({@link STARTING_MS}), apart from the layout's: a cold start is the
  * runner's speed, and holding still is what the spec waits for.
  */
-export async function settled(page: Page): Promise<void> {
+export async function settled(page: Page, options: SettleOptions = {}): Promise<void> {
+    const holding = options.holding === true;
     await page.evaluate(() => document.fonts.ready.then(() => undefined));
     let last = { starting: 0, still: false };
-    await expect.poll(async () => (last = await sample(page)).starting, {
+    await expect.poll(async () => (last = await sample(page, holding)).starting, {
         message: "an example kept compiling, or its e3 or builder loading",
         timeout: STARTING_MS,
     }).toBe(0);
     // A pane still sliding is waited for, and the page read again once it has stopped: main takes its last width as it does.
-    if (await panesStill(page)) last = await sample(page);
+    if (await panesStill(page)) last = await sample(page, holding);
     if (last.still && last.starting === 0) return;
     await expect.poll(async () => {
-        const { starting, still } = await sample(page);
+        const { starting, still } = await sample(page, holding);
         return starting === 0 && still;
     }, {
         message: "the page kept laying itself out, or an example kept compiling or its e3 or builder loading",
