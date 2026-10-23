@@ -118,6 +118,17 @@ import { virtualScrollbarCss } from "../style/scrollbar.js";
  */
 export const VIRTUALIZE_UNBOUNDED_AT = 400;
 
+/**
+ * Where the view is among a frame's rows, as a row is rendered (#1398): the
+ * row showing at the top of the view, just under a pinned header — where a
+ * collection says a failure once, in the first row in view (CL11). `top` is
+ * `undefined` where the frame lays every row out in flow and watches nothing.
+ */
+export interface RowsInView {
+    /** The index of the row at the top of the view; `undefined` with no view to place it in. */
+    readonly top: number | undefined;
+}
+
 /** What moves a frame's rows on screen (#856) — see `onViewport`. */
 export interface RowsViewport {
     /**
@@ -221,8 +232,13 @@ interface VirtualRowsBaseProps {
      * vertically clipped row text (#533).
      */
     measureRows?: boolean | undefined;
-    /** Renders body row `index` — a full-width, self-contained row element. */
-    renderRow: (index: number) => ReactNode;
+    /**
+     * Renders body row `index` — a full-width, self-contained row element —
+     * given where the view is among the rows ({@link RowsInView}): which row
+     * shows at the top of the view, for what a collection says once, in the
+     * first row in view.
+     */
+    renderRow: (index: number, view: RowsInView) => ReactNode;
     /** Rows above/below the viewport to keep mounted (default 4). */
     overscan?: number | undefined;
     /**
@@ -996,9 +1012,15 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         return () => ro.disconnect();
     }, [headerEl, bounded]);
 
+    // Where the view is among the rows, as each is rendered: the row at the top of the view, just under a pinned
+    // header (item starts carry the header's height as the scroll margin, so the view's top in their terms is the
+    // offset plus it) — none where the frame watches nothing.
+    const top = virtualized ? virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + margin)?.index : undefined;
+    const inView: RowsInView = { top };
+
     // Every row, in flow — an unbounded frame below scale mounts them all.
     const everyRow = () => Array.from({ length: count }, (_unused, i) => (
-        <Fragment key={getItemKey !== undefined ? getItemKey(i) : i}>{renderRow(i)}</Fragment>
+        <Fragment key={getItemKey !== undefined ? getItemKey(i) : i}>{renderRow(i, inView)}</Fragment>
     ));
 
     // Unbounded below scale with nothing to watch: preserve the exact
@@ -1051,7 +1073,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                         width="100%"
                         style={{ transform: `translateY(${item.start - margin}px)` }}
                     >
-                        {renderRow(item.index)}
+                        {renderRow(item.index, inView)}
                     </Box>
                 ))
             ) : items.length > 0 && (
@@ -1071,7 +1093,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 >
                     {items.map((item) => (
                         <Box key={item.key} data-index={item.index}>
-                            {renderRow(item.index)}
+                            {renderRow(item.index, inView)}
                         </Box>
                     ))}
                     {overlay !== undefined && overlay !== null && (
@@ -1119,12 +1141,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     }
 
     // The row at the top of the view, just under the header — what the sticky
-    // strip is drawn from (item starts carry the header's height as the scroll
-    // margin, so the view's top in their terms is the offset plus it).
-    const topItem = sticky !== undefined && virtualized
-        ? virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + itemsOffset)
-        : undefined;
-    const stickyNode = sticky !== undefined && topItem !== undefined ? sticky(topItem.index) : null;
+    // strip is drawn from.
+    const stickyNode = sticky !== undefined && top !== undefined ? sticky(top) : null;
 
     return (
         <Box
