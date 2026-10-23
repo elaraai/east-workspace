@@ -21,7 +21,7 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { some, none, variant } from "@elaraai/east";
+import { some, none, variant, type option } from "@elaraai/east";
 import {
     GROUP_H, ROW_H, indexRows, restUi, rowHeight, skeletonHeight, visibleRows, windowSkeleton,
     type PlanRowValue, type PlanWireBlock, type PlanWireRow, type WindowSkeleton,
@@ -102,6 +102,10 @@ function drive(src: PlanPagedSourceValue, heights: Pick<PagingDriverOptions, "sk
         report: (at: PlanViewport, scrolling = false) => d.reportViewport(at, scrolling),
     };
 }
+
+/** A Retry reads again a microtask on, once the source's refresh has rearmed what failed (#1398): what a test
+ *  awaits before it looks. */
+const afterRearm = () => new Promise<void>((resolve) => { queueMicrotask(resolve); });
 
 const residentText = (s: PlanPagingSnapshot) => (s.resident ? `${s.resident.from}-${s.resident.to}` : "-");
 const bandText = (b: { from: number; to: number } | undefined) => (b ? `${b.from}-${b.to}` : "-");
@@ -524,7 +528,7 @@ describe("paging driver — a window loading beside the run never moves it (#876
         expect(bandText(head(snap()))).toBe("0-599");
     });
 
-    test("a row report anchors the run where its row is, after a band report anchored it further down", () => {
+    test("a row report anchors the run where its row is, after a band report anchored it further down", async () => {
         const failing = new Set([1]);
         const inFlight = new Set<number>();
         const { value } = onTheWire(50, inFlight, 25, failing);
@@ -546,6 +550,7 @@ describe("paging driver — a window loading beside the run never moves it (#876
             failing.delete(1);
             inFlight.add(1);
             d.retry(1);
+            await afterRearm();
             expect(snap().loading).toBe(true);
             expect(residentText(snap())).toBe("0-200");
             expect(bandText(head(snap()))).toBe("-");
@@ -642,7 +647,7 @@ describe("paging driver — a failed window (#811)", () => {
         }
     });
 
-    test("the failed window is not re-asked on its own; Retry asks it again and lands its rows", () => {
+    test("the failed window is not re-asked on its own; Retry asks it again and lands its rows", async () => {
         const { value, asked, state } = flaky(50);
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
@@ -656,9 +661,54 @@ describe("paging driver — a failed window (#811)", () => {
 
             state.failing = false;
             d.retry(1);
+            await afterRearm();
             expect(rowKeys(snap())).toContain("w0001r000");
             expect(snap().failures).toEqual([]);
             expect(asked.filter((w) => w === 1).length).toBe(askedBefore + 1);
+        } finally {
+            err.mockRestore();
+        }
+    });
+
+    test("Retry has the source rearm what failed before it reads again (#1398): a source that still holds the failure — the gap a read alone waits — gives the rows once rearmed", async () => {
+        // A source whose failed window keeps failing from what it holds until it is refreshed, as the paging runtime's
+        // does inside its retry gap; its refresh rearms it as the runtime's does, a microtask on.
+        const asked: number[] = [];
+        const refreshed: string[] = [];
+        let held = true;
+        const value = {
+            id: "rearmed-driver",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                asked.push(w);
+                if (w === 1 && held) throw new Error("fetch failed: 503");
+                const pad = String(w).padStart(4, "0");
+                return some([paged([wire(`w${pad}r000`), wire(`w${pad}r001`)])]);
+            },
+            total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => none,
+            refresh: (target: option<string>) => {
+                refreshed.push(target.type);
+                queueMicrotask(() => { held = false; });
+                return null;
+            },
+        } as unknown as PlanPagedSourceValue;
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const { d, snap, notified } = drive(value);
+            expect(snap().failures.map((f) => f.w)).toEqual([1]);
+            const before = notified();
+            const askedBefore = asked.filter((w) => w === 1).length;
+            // The footer's Retry names no window: every failure, and the source's own reads.
+            d.retry();
+            expect(refreshed).toEqual(["none"]);
+            await afterRearm();
+            expect(snap().failures).toEqual([]);
+            expect(rowKeys(snap())).toContain("w0001r000");
+            // Asked again once, after the rearm, in one notification.
+            expect(asked.filter((w) => w === 1)).toHaveLength(askedBefore + 1);
+            expect(notified()).toBe(before + 1);
         } finally {
             err.mockRestore();
         }

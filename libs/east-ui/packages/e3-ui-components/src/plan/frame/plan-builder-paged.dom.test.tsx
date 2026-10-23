@@ -27,6 +27,9 @@
  * - The presses are paged: a window of them at a time, the next as the page
  *   scrolls to it, the key search seeking one; the presses are never read
  *   whole. The Plan's own rows after them are read again with their dataset.
+ *   A window that cannot be read is a band where its rows would be, asked
+ *   once; one refused for a reason a retry can fix is said on the footer's
+ *   loading line too, whose Retry asks e3 again at once (#1398).
  * - A kind with no rail reads the jobs through their day index and their
  *   backlog index, and is edited without its record read whole: every
  *   gesture's event read where the canvas holds it, or by its key; a template
@@ -436,6 +439,37 @@ describe("a window of presses that cannot be read (PB55)", () => {
         expect(failed).toContain("[Plan] paged source page 0 failed:");
         expect(failed.every((line) => line.includes("page 0") || line.includes(`${PRESSES}@`))).toBe(true);
         errors.mockClear();
+    });
+
+    test("for a reason a retry can fix: the footer's loading line says so with Retry, which asks e3 again at once — inside the gap a read alone waits after a failure — and the rows land (#1398)", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { container } = await h.mount(windowsPlan);
+            await settle();
+            const line = () => slot(container, "footer")!.querySelector<HTMLElement>("[data-footer-line]")!;
+            // The window past those read so far refused, as a server that fell over refuses: a reason a retry can fix.
+            const refused = (request: E3Request) => servedOf(request) === "presses" && askedOf(request) === "page 600+200";
+            const stop = h.e3.fail(refused, { status: 500, type: "internal", message: "the store is down" });
+            act(() => { window.scrollTo({ top: 600 * ROW_PX }); });
+            await waitFor(() => expect(line().hasAttribute("data-failed")).toBe(true), { timeout: 10_000 });
+            expect(draws(container, "P-1601")).toBe(false);
+            // What failed is said, by the paged runtime and the Plan, and only that.
+            const failed = errors.mock.calls.map((call) => String(call[0]))
+                .filter((said) => said.startsWith("[Plan]") || said.startsWith("Data.bindPaged"));
+            expect(failed).toContain("[Plan] paged source page 3 failed:");
+            expect(failed.every((said) => said.includes("page 3") || said.includes(`${PRESSES}@`))).toBe(true);
+            errors.mockClear();
+            // The store is back, and Retry is pressed at once: the window is asked again, and its rows draw.
+            stop();
+            const asked = h.requests().filter(refused).length;
+            await act(async () => { fireEvent.click(line().querySelector("[data-line-retry]")!); });
+            await settle();
+            await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
+            expect(h.requests().filter(refused).length).toBeGreaterThan(asked);
+            await waitFor(() => expect(draws(container, "P-1601")).toBe(true), { timeout: 10_000 });
+        } finally {
+            restore();
+        }
     });
 });
 

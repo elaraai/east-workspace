@@ -15,7 +15,7 @@
 
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
-import { some, none, variant } from "@elaraai/east";
+import { some, none, variant, type option } from "@elaraai/east";
 import { useSheetPaging, SHEET_PAGE_SIZE, type SheetViewport } from "./paging.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
@@ -477,6 +477,38 @@ describe("sheet paging — a failure belongs to its window (#853)", () => {
             expect(asked.filter((w) => w === 1)).toHaveLength(asks + 1);
             expect(latest!.rows).toHaveLength(600);
             expect(latest!.positions[200]).toBe(200);
+            expect(latest!.rows[200]!.id).toBe("r00200");
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("a Retry has a source that refreshes rearm what failed before it reads again (#1398): one still holding the failure — the gap a read alone waits — gives the rows once rearmed", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            // Window 1 keeps failing from what the source holds until it is refreshed, as the paging runtime's does
+            // inside its retry gap; its refresh rearms it as the runtime's does, a microtask on.
+            const faults: Faults = { windows: new Map([[1, "gateway timeout"]]) };
+            const { value, asked } = source(1_000, { faults });
+            const refreshed: string[] = [];
+            const refreshing = {
+                ...value,
+                refresh: (target: option<string>) => {
+                    refreshed.push(target.type);
+                    queueMicrotask(() => { faults.windows.clear(); });
+                    return null;
+                },
+            } as SheetPagedSourceValue;
+            render(<Harness src={refreshing} />);
+            await waitFor(() => expect(latest!.failures).toHaveLength(1));
+            const asks = asked.filter((w) => w === 1).length;
+            // The footer's Retry names no window: the source, and every failed window.
+            act(() => { latest!.retry(); });
+            expect(refreshed).toEqual(["none"]);
+            await waitFor(() => expect(latest!.failures).toHaveLength(0));
+            // Asked once more, after the rearm, and it lands in place.
+            expect(asked.filter((w) => w === 1)).toHaveLength(asks + 1);
+            expect(latest!.rows).toHaveLength(600);
             expect(latest!.rows[200]!.id).toBe("r00200");
         } finally {
             logged.mockRestore();

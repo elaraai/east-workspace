@@ -117,7 +117,7 @@
  * @packageDocumentation
  */
 
-import { StringType, equalFor, equivalentFor } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, none } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
     createTrackedRead, createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, elementsIn,
@@ -303,8 +303,13 @@ export interface PagingDriver {
      * or before that snapshot hands the viewport back (#812).
      */
     committed(rendered: PlanPagingSnapshot): void;
-    /** Ask a failed window again — drops its failure record and re-reads (#811). */
-    retry(w: number): void;
+    /**
+     * Ask a failed window again — or, with none named, every failed window and
+     * the source's own reads: has the source rearm what failed (its `refresh`),
+     * then drops the failure records and reads again, a microtask on, once it
+     * has (#811, #1398). A source with no `refresh` is read again at once.
+     */
+    retry(w?: number): void;
     /** Settle again with the current inputs. */
     refresh(): void;
     /** What the rows draw at changed (a collapse, the grain, a chart toggle,
@@ -1193,8 +1198,19 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             settle();
         },
         retry(w) {
-            failures.delete(w);
-            settle();
+            const ask = () => {
+                if (w === undefined) failures.clear();
+                else failures.delete(w);
+                settle();
+            };
+            // A Retry asks again now (#1398): the source rearms what failed for a reason a retry can fix — a read alone
+            // waits out the runtime's retry gap after the last failure, so a Retry pressed within it asked nothing and
+            // the window failed again from what the runtime held. The rearm is deferred, so the failure records go and
+            // the windows are read again after it: a read between the two would only record the failure again.
+            const src = source;
+            if (src?.refresh === undefined) { ask(); return; }
+            src.refresh(none);
+            queueMicrotask(ask);
         },
         refresh() {
             settle();

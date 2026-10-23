@@ -427,18 +427,24 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     const clearJump = useCallback(() => setJumpTarget(undefined), []);
 
     const retry = useCallback((w?: number) => {
-        const cache = cacheRef.current;
-        // What is asked again is read again whole: a segment, by its first row — a read that failed, or rows that
-        // disagreed with its placement — or the page of a run the planner opened that holds the row.
-        for (const p of valueRef.current?.pieces ?? []) {
-            if (w === undefined || (p.segment !== undefined ? p.segment !== w : w < p.from || w >= p.from + p.count)) continue;
-            cache.failures.delete(p.key);
-            cache.rows.delete(p.key);
-            cache.hits.delete(p.key);
-        }
-        if (w === undefined) cache.failures.clear();
-        source?.refresh?.(none);
-        setRetries((n) => n + 1);
+        const ask = () => {
+            const cache = cacheRef.current;
+            // What is asked again is read again whole: a segment, by its first row — a read that failed, or rows that
+            // disagreed with its placement — or the page of a run the planner opened that holds the row.
+            for (const p of valueRef.current?.pieces ?? []) {
+                if (w === undefined || (p.segment !== undefined ? p.segment !== w : w < p.from || w >= p.from + p.count)) continue;
+                cache.failures.delete(p.key);
+                cache.rows.delete(p.key);
+                cache.hits.delete(p.key);
+            }
+            if (w === undefined) cache.failures.clear();
+            setRetries((n) => n + 1);
+        };
+        // The source rearms what failed first (#1398), a microtask on: the records go and the lens reads again after
+        // it, so a read between the two never records the failure again from what the runtime held.
+        if (source?.refresh === undefined) { ask(); return; }
+        source.refresh(none);
+        queueMicrotask(ask);
     }, [source]);
 
     // A jump settles once its row is drawn — or the band of the read that failed where it is.

@@ -71,7 +71,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StringType, equalFor, equivalentFor } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, none } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { pagedSnapshot, pagedSourceEqual } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -125,7 +125,7 @@ export interface SheetPaging {
     jumpToElement: (element: number) => void;
     /** Drop any pending jump — the search was cleared, or the sheet has shown the jump's target and hands the viewport back (#854). */
     clearJump: () => void;
-    /** Ask again (#853): the failed window `w`, or — with none — the source and every failed window. The source's own rate limit applies. */
+    /** Ask again (#853): the failed window `w`, or — with none — the source and every failed window. At once (#1398): a source that can refresh rearms what failed first, and the windows are read again a microtask on, so the gap a read alone waits after a failure never holds a Retry back. */
     retry: (w?: number) => void;
 }
 
@@ -348,11 +348,19 @@ export function useSheetPaging(
     const readError = result.ok ? undefined : readFailure(result.error);
 
     const retry = useCallback((w?: number) => {
-        const held = cacheRef.current;
-        if (w === undefined) held.failures.clear();
-        else held.failures.delete(w);
-        setRetries((n) => n + 1);
-    }, []);
+        const ask = () => {
+            const held = cacheRef.current;
+            if (w === undefined) held.failures.clear();
+            else held.failures.delete(w);
+            setRetries((n) => n + 1);
+        };
+        // A Retry asks again now (#1398): the source rearms what failed for a reason a retry can fix — a read alone
+        // waits out the runtime's retry gap after the last failure. The rearm is deferred, so the failure records go
+        // and the windows are read again after it: a read between the two would only record the failure again.
+        if (source?.refresh === undefined) { ask(); return; }
+        source.refresh(none);
+        queueMicrotask(ask);
+    }, [source]);
 
     // The source's own total — the ledger is built from it, never from the
     // stand-in below.

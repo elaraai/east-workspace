@@ -85,7 +85,8 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     const complete = held.current;
     const completeRange = heldRange.current;
     const loading = result.ok && result.value.loading;
-    const error = result.ok ? undefined : String(result.error);
+    // Why it failed, in the read's own words: an Error's message, never its `Error: ` prefix.
+    const error = result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error);
     // Intermediate page arrivals advance the tracked read, but do not change
     // the displayed window. Keep its identity until there is something to show.
     return useMemo(() => ({ ...complete, range: completeRange, ready: complete !== EMPTY, loading, error }),

@@ -259,8 +259,10 @@ export interface PlanController {
      *  `committed`). Call it after every commit: a jump hands the viewport back
      *  only once the canvas has shown — and scrolled to — its target (#812). */
     committed(paging: PlanPagingSnapshot): void;
-    /** Ask a failed window again (#811). */
-    retry(w: number): void;
+    /** Ask a failed window again (#811) — or, with none named, every failed
+     *  window and the source's own failed reads, at once (#1398: the footer
+     *  line's Retry). */
+    retry(w?: number): void;
     /** Where a paged row the body does not hold sits — its block's band, and
      *  how far down it (#823: a link into an evicted window). */
     placeOf(key: RowKey): PlanRowPlace | undefined;
