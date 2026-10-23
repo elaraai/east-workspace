@@ -15,15 +15,19 @@
  * @packageDocumentation
  */
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { coarseHitArea } from "../../style/hit-area.js";
 
 /**
  * What a rail's item the fit cut takes: out of the flow and unseen, but still
  * laid out at its own width, so the fit measures it whole — a legend item, the
- * "…" while nothing is cut, a form of the line not shown.
+ * "…" while nothing is cut, a form of the line not shown. It hangs from the
+ * inline end of what holds it, so one wider than the rail runs back over the
+ * rail's start, never past its end: an unseen copy takes no room a page could
+ * scroll to.
  */
 export const FOOTER_CUT = {
     position: "absolute",
-    insetInlineStart: "0",
+    insetInlineEnd: "0",
     top: "0",
     visibility: "hidden",
     pointerEvents: "none",
@@ -100,6 +104,17 @@ const LINE_FORM = {
 } satisfies SystemStyleObject;
 
 /**
+ * How far the rail's foot is below Retry's (#1398): Retry stands on the 28px
+ * rail's centre line, its 16px line (28 − 1 − 16) / 2 = 5.5px above the foot,
+ * the 1px its top rule takes aside. The rail sits at its frame's foot, and the
+ * frame clips what passes its edge, so Retry's 44px tap target on a touch
+ * screen — `coarseHitArea`'s halo, the touch-target rule's (#346) — rises from
+ * there, all of it inside the frame: Retry keeps its size, and the rail its
+ * height.
+ */
+const RETRY_FOOT = 5.5;
+
+/**
  * The footer's voice (the design's `.ff`): mono 10.5 `--ink-3`, tabular, on a
  * 16px line. The loading line speaks in it, and so does the "…" that ends a
  * cut legend — a rail sets no voice of its own, each of its items its own.
@@ -122,9 +137,10 @@ const FOOTER_VOICE = {
  * line's words in the footer's voice — mono 10.5 `--ink-3`, tabular — the
  * range or the period 600 `--ink`. A failed read's dot is `--neg` and still,
  * its words `--neg-text`, then `·` and Retry, the footer's link (`--brand-d`
- * 500). Its form (`data-form`) shows its full text, its short form, or its dot
- * alone — a failure's dot and Retry — its full text kept for screen readers
- * while it does not show. Idle (`data-idle`), it is an empty live region out
+ * 500) — on a touch screen a 44px tap target by its halo, risen from the
+ * rail's foot, the rail as tall as ever. Its form (`data-form`) shows its full
+ * text, its short form, or its dot alone — a failure's dot and Retry — its
+ * full text kept for screen readers while it does not show. Idle (`data-idle`), it is an empty live region out
  * of the flow, so it takes no width and no gap.
  *
  *   - root: the slot, and the polite live region.
@@ -190,7 +206,9 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
             flex: "none",
             "[data-form=dot] > &": { display: "none" },
         },
+        // On a touch screen Retry keeps its size, and its 44px tap target is its halo — never a taller rail.
         retry: {
+            ...coarseHitArea({ position: true, foot: RETRY_FOOT }),
             flex: "none",
             padding: "0",
             borderWidth: "0",

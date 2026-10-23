@@ -48,9 +48,11 @@
  *     brandTint + inset ring); the chips page rather than
  *     scroll or clip: `‹ 1/3 ›` ghost chevrons at the row's end, the count
  *     mono 10.5 tabular; meta mono 11 (ellipsis past a third of the band).
- *   - Footer: 8/20; counts mono 11; key hint mono 10, each of its hints
- *     whole — a rail too narrow ends them at a whole hint, then "…" (#1398);
- *     message mono 10.5 right-aligned, the shared loading line after it.
+ *   - Footer: the shared rail's 28 px, 12 px side padding, as every builder's
+ *     (ruled 23 Oct 2026, #1398), so the loading line, coming and going, never
+ *     moves it; counts mono 11; key hint mono 10, each of its hints whole — a
+ *     rail too narrow ends them at a whole hint, then "…"; message mono 10.5
+ *     right-aligned, the shared loading line after it.
  *   - Tabs: 28 px — as tall as every control in the toolbar's row
  *     (`toolbar-row.ts`, ruled 23 Oct 2026) — mono 10.5/600/.12em uppercase;
  *     active `inset 0 -2px 0` ink; counts `fg.subtle`; dirty dot 5 px brand;
@@ -1671,14 +1673,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
             width: "max-content",
         },
         // The footer fits its hints and the shared loading line on one line, cutting a hint whole (#1398, CL3); the
-        // line follows the message, which takes the rail's slack.
+        // line follows the message, which takes the rail's slack. It is the shared rail's 28 px, 12 px side padding
+        // (ruled 23 Oct 2026): taller than anything it holds, the line among them, so nothing it shows moves it.
         footer: {
             ...FOOTER_FIT,
             display: "flex",
             alignItems: "center",
             gap: "18px",
-            paddingX: "20px",
-            paddingY: "8px",
+            minHeight: "28px",
+            paddingX: "12px",
+            paddingY: "0",
             background: "bg.surface",
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",

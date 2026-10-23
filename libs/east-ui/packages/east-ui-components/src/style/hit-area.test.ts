@@ -6,15 +6,17 @@
 /**
  * `coarseHitArea` (#346, #1221) — a transparent halo under `_coarse`, both
  * ways for a control that stands alone, its height alone for a segment whose
- * neighbours sit edge to edge. The responsive suite measures what a tap on it
- * hits; this holds the fragment the recipes spread, and the recipes whose
- * controls sit edge to edge to its block axis — the segment strip's segments,
- * which the Plan's 49–55px segments never let a measure tell apart, and the
- * context switch's options.
+ * neighbours sit edge to edge, risen from a clipping box's foot for a control
+ * near it (#1398). The responsive suite measures what a tap on it hits; this
+ * holds the fragment the recipes spread, the recipes whose controls sit edge
+ * to edge to its block axis — the segment strip's segments, which the Plan's
+ * 49–55px segments never let a measure tell apart, and the context switch's
+ * options — and the footer line's Retry to its foot.
  */
 
 import { describe, test, expect } from "vitest";
 import { coarseHitArea } from "./hit-area.js";
+import { builderFooterLineSlotRecipe } from "../theme/slot-recipes/builder-footer.js";
 import { segSlotRecipe } from "../theme/slot-recipes/seg.js";
 import { sheetSlotRecipe } from "../theme/slot-recipes/sheet.js";
 
@@ -48,5 +50,18 @@ describe("coarseHitArea", () => {
         const block = halo(coarseHitArea({ position: true, axis: "block" }));
         expect(halo(segSlotRecipe.base!.item!)).toEqual(block);
         expect(halo(sheetSlotRecipe.base!.contextOption!)).toEqual(block);
+    });
+
+    test("near the foot of a box that clips, the halo rises from that foot, centred across the control, rather than standing centred on it", () => {
+        expect(halo(coarseHitArea({ foot: 5.5 }))).toEqual({
+            content: '""', position: "absolute", bottom: "-5.5px", left: "50%", transform: "translateX(-50%)",
+            width: "max(100%, 44px)", height: "max(100%, 44px)",
+        });
+    });
+
+    test("the footer's loading line's Retry takes it, rising from the rail's foot — the frame's, which clips (#1398)", () => {
+        const retry = builderFooterLineSlotRecipe.base!.retry!;
+        expect((retry as { position?: string }).position).toBe("relative");
+        expect(halo(retry)).toEqual(halo(coarseHitArea({ foot: 5.5 })));
     });
 });
