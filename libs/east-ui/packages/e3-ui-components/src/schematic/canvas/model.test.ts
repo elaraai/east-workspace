@@ -3,14 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * Pure derived-model tests (#183 WS3/WS5): the navigator tree's
- * containment nesting + item hosting rules, and the symmetric
- * neighbour-fit declutter that drives semantic zoom.
+ * containment nesting + item hosting rules, the symmetric
+ * neighbour-fit declutter that drives semantic zoom, and the box the
+ * narrowing's matches span (#1392).
  */
 
 import { describe, test, expect } from "vitest";
 import { defaultValue, variant, some, none } from "@elaraai/east";
-import { SchematicDrawnItemType, SchematicDrawnZoneType, type DrawnItem, type DrawnZone } from "./drawn";
-import { buildCenterTree, buildNavTree, declutterTiers, tierSize } from "./model";
+import { SchematicDrawnItemType, SchematicDrawnLinkType, SchematicDrawnZoneType, type DrawnItem, type DrawnZone } from "./drawn";
+import { buildCenterTree, buildNavTree, declutterTiers, matchesExtent, tierSize } from "./model";
 
 type ItemValue = DrawnItem;
 type ZoneValue = DrawnZone;
@@ -89,5 +90,35 @@ describe("tierSize", () => {
             .toBeLessThan(tierSize(item("Y", 0, 0, "A MUCH LONGER LABEL"), "label", 30).w);
         const wide: ItemValue = { ...item("W", 0, 0), width: some(4) };
         expect(tierSize(wide, "card", 30).w).toBe(120);   // 4 world units × 30 ppu
+    });
+});
+
+describe("matchesExtent (#1392)", () => {
+    const a = item("A", 2, 2);
+    const b: ItemValue = { ...item("B", 10, 4), footprint: some(variant("circle", { radius: 3 })) };
+    const c = item("C", 40, 40);
+    const cage = zone("cage", 20, 0, 4, 4);
+    const run = (key: string, from: string, to: string, via: { x: number; y: number }[] = []) => ({
+        ...defaultValue<typeof SchematicDrawnLinkType>(SchematicDrawnLinkType), key, from, to, via,
+    });
+    const drawn = { items: [a, b, c], zones: [cage], links: [run("u1", "A", "B", [{ x: 6, y: 9 }]), run("u9", "A", "GONE")], nets: [] };
+    const centers = new Map([a, b, c].map((i) => [i.key, { x: i.x, y: i.y }] as const));
+    const reach = () => ({ w: 1, h: 0.5 });
+
+    test("spans each matched item's centre grown by its reach and its footprint about it, and counts them", () => {
+        expect(matchesExtent(drawn, new Set(["A", "B"]), new Set(), centers, reach)).toEqual({ box: { minX: 1, minY: 1, maxX: 13, maxY: 7 }, count: 2 });
+    });
+
+    test("a matched zone spans its box, and a matched link its ends and its bends — but only while both its ends are drawn", () => {
+        expect(matchesExtent(drawn, new Set(["cage"]), new Set(), centers, reach)).toEqual({ box: { minX: 20, minY: 0, maxX: 24, maxY: 4 }, count: 1 });
+        expect(matchesExtent(drawn, new Set(["u1"]), new Set(), centers, reach)).toEqual({ box: { minX: 2, minY: 2, maxX: 10, maxY: 9 }, count: 1 });
+        expect(matchesExtent(drawn, new Set(["u9"]), new Set(), centers, reach)).toBeUndefined();
+    });
+
+    test("what is unmatched, on a hidden layer or drawn nowhere spans nothing; no match spans no box", () => {
+        expect(matchesExtent(drawn, new Set(), new Set(), centers, reach)).toBeUndefined();
+        expect(matchesExtent(drawn, new Set(["cage"]), new Set(["cage"]), centers, reach)).toBeUndefined();
+        // An item off the working set — its layer hidden — has no centre.
+        expect(matchesExtent(drawn, new Set(["A", "C"]), new Set(), new Map([["A", { x: 2, y: 2 }]]), reach)?.count).toBe(1);
     });
 });

@@ -68,7 +68,15 @@ the fields no role writes, or its kind's own `inspector` in its place, its
 details record's beside it, an item's position, a link's ends as Choosers, a
 net's sides as tags, several by kind and, with nothing selected, the
 drawing's counts and saves — and Issues (`issues.ts`, pure), each selecting
-what it names; every edit there is one step of the history. The
+what it names; every edit there is one step of the history. Its narrowing
+(#1392) is pure in `narrowing.ts`: each kind's source of the rail, its shown
+keys read through `FollowSources` while the narrowing dims or looks at its
+matches. Hidden, a kind reads only its narrowing, and a link or a net whose
+ends it hides leaves the lists; dimmed, what it leaves out draws as context —
+faded, greyed or a bare marker, by the recipe and the painter — and is selected
+by no path. Find, the Index, the Backlog, the inspector's Choosers, what an
+item is joined to and the footer's counts show only what it leaves in, and the
+matches take the emphasis, the frame and the fit. The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it

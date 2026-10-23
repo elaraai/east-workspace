@@ -214,10 +214,11 @@ function boundOf(record: unknown, where: string): Bound {
  * @param slot - Its slot
  * @param part - Its source of the slice, when the slice names one after its slot
  * @param where - The kind, as a refusal names it
+ * @param every - Whether, read through its source, it reads every row: under `narrowed="dim"` (§10.3)
  * @returns `()` → its rows, by key, and the paged read its rows are read by key through, if any
  * @throws {Error} Naming the form to use, for each binding its read does not take
  */
-function readsOf(bound: Bound, entries: ExprType<EastType> | undefined, slot: string, part: SchematicKindPart | undefined, where: string) {
+function readsOf(bound: Bound, entries: ExprType<EastType> | undefined, slot: string, part: SchematicKindPart | undefined, where: string, every: boolean) {
     if (part === undefined) {
         if (bound.form === "paged") {
             throw new Error(`${where}: a paged binding has no whole read — read it through its source of the slice, slot "${slot}": ` +
@@ -237,7 +238,7 @@ function readsOf(bound: Bound, entries: ExprType<EastType> | undefined, slot: st
         throw new Error(`${where}: the slice's source "${slot}" reads only its narrowing — and a row is read by its key, the inspector's, a gesture's ` +
             "original and Save's confirmation: give `entries: Data.bindPaged(record)` beside it, the record's own entries");
     }
-    return { rows: schematicSourceRows(part, slot, bound.rowType, where), byKey: bound.form === "paged" ? bound.handle : entries };
+    return { rows: schematicSourceRows(part, slot, bound.rowType, where, every), byKey: bound.form === "paged" ? bound.handle : entries };
 }
 
 /**
@@ -743,11 +744,13 @@ interface KindDeclaration<D extends string, W extends EastType> {
      *
      * @param slot - The Schematic's slot name for it
      * @param part - Its source of the slice, the one named after its slot, when the slice has one
+     * @param every - Whether, read through its source, it reads every row — under `narrowed="dim"`, which draws what the
+     *   narrowing leaves out as context (§10.3) — rather than what its narrowing holds
      * @returns The kind, closed
      * @throws {Error} When it is bound in a form its read does not take (SC33), naming the form to use, or its own
      *   Details are of another type than its row's
      */
-    build(slot: string, part?: SchematicKindPart): ExprType<W>;
+    build(slot: string, part?: SchematicKindPart, every?: boolean): ExprType<W>;
 }
 
 /** An item kind, declared. */
@@ -903,8 +906,8 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
         backlog,
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
-        build(slot, part) {
-            const { rows, byKey } = readsOf(bound, entries, slot, part, where);
+        build(slot, part, every = false) {
+            const { rows, byKey } = readsOf(bound, entries, slot, part, where, every);
             const side = recordSide(bound, entries, byKey, config,
                 [config.x, config.y, labelField, widthField, heightField, layerField, status?.field], where);
             return East.value({
@@ -1036,8 +1039,8 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
         name: config.name,
         hasTemplates: false,
         templatesSource: undefined,
-        build(slot, part) {
-            const { rows, byKey } = readsOf(bound, entries, slot, part, where);
+        build(slot, part, every = false) {
+            const { rows, byKey } = readsOf(bound, entries, slot, part, where, every);
             const side = recordSide(bound, entries, byKey, config,
                 [xField, yField, widthField, heightField, labelField, layerField], where);
             return East.value({
@@ -1245,8 +1248,8 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         ends: { from: keyFieldSlots(from), to: keyFieldSlots(to) },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
-        build(slot, part) {
-            const { rows, byKey } = readsOf(bound, entries, slot, part, where);
+        build(slot, part, every = false) {
+            const { rows, byKey } = readsOf(bound, entries, slot, part, where, every);
             const side = recordSide(bound, entries, byKey, config,
                 [from.field, to.field, edge.viaField, edge.layerField], where);
             return East.value({
@@ -1431,8 +1434,8 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
         sides: { sources: sources.of, destinations: destinations.of },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
-        build(slot, part) {
-            const { rows, byKey } = readsOf(bound, entries, slot, part, where);
+        build(slot, part, every = false) {
+            const { rows, byKey } = readsOf(bound, entries, slot, part, where, every);
             const sideOf = recordSide(bound, entries, byKey, config,
                 [sources.field, destinations.field, edge.viaField, edge.layerField], where);
             return East.value({

@@ -26,7 +26,7 @@ import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import {
     ArrayType, East, StringType, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { Reactive, RecordSliceStateType, State, UIComponentType } from "@elaraai/east-ui/internal";
+import { Reactive, RecordSliceStateType, Slice, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime, editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
@@ -384,8 +384,23 @@ test("a drawing bound read only — or a Schematic read only — takes no gestur
 
 // ── Drafts the rail hides (SC23) ────────────────────────────────────────────
 
-/** The data centre's racks' narrowing, as the rail keeps it. */
-const RACKS_SLICE = "ex.schematicDataCentre.racks";
+/** The data centre's racks read through their source of the rail, a narrowed-out rack hidden — as it is by default (§10.3). */
+const narrowedRacks = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
+    const slice = $.let(Slice.bindRecords("schematic.editing.narrowed", {
+        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }), fields: { owner: { label: "Owner" } } },
+    }));
+    return Schematic({
+        id: "narrowed",
+        extent: { width: 28, height: 14 },
+        slice: { slice },
+        items: { racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", entries: rackEntries }) },
+    });
+}))) };
+
+/** Its racks' narrowing, as the rail keeps it. */
+const RACKS_SLICE = "schematic.editing.narrowed.racks";
 type Where = ValueTypeOf<typeof RecordSliceStateType>["where"];
 
 /** Writes the racks' narrowing, as the rail does. */
@@ -397,7 +412,7 @@ async function narrow(where: Where) {
 }
 
 test("a draft the rail narrows out waits in its session and Save sends it; let back in, it shows where its draft has it (SC23)", async () => {
-    const { container } = await open(ex.schematicDataCentre);
+    const { container } = await open(narrowedRacks);
     const stored = await h.read(ex.schematicRacks);
     await tool(container, "Move");
     // A03, Northwind Media's, moved down into the clear floor below its row, where its card draws whole.

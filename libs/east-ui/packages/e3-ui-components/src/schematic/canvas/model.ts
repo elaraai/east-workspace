@@ -6,13 +6,14 @@
 /**
  * Pure derived-model helpers for the Schematic renderer (#183 WS3): the
  * navigator tree (zones nest by containment, items live in their smallest
- * outline host) and the semantic-zoom LOD machinery (per-item tier sizing,
- * the centre R-tree, and the symmetric neighbour-fit declutter). React-free
- * data-in / data-out — unit-tested in `model.test.ts`.
+ * outline host), the semantic-zoom LOD machinery (per-item tier sizing,
+ * the centre R-tree, and the symmetric neighbour-fit declutter) and the box
+ * the narrowing's matches span (#1392). React-free data-in / data-out —
+ * unit-tested in `model.test.ts`.
  */
 
 import RBush from "rbush";
-import { type DrawnItem as SchematicItemValue, type DrawnZone as SchematicZoneValue } from "./drawn";
+import { type DrawnItem as SchematicItemValue, type DrawnZone as SchematicZoneValue, type SchematicDrawn } from "./drawn";
 
 export interface NavZone {
     zone: SchematicZoneValue;
@@ -161,4 +162,72 @@ export function declutterTiers(items: readonly SchematicItemValue[], tree: RBush
     // the zoom band's richest form.
     for (const key of selected) if (tiers.has(key)) tiers.set(key, baseLod);
     return tiers;
+}
+
+/** A world box: its least and its greatest corner. */
+export interface WorldBox { minX: number; minY: number; maxX: number; maxY: number }
+
+/**
+ * The world box the narrowing's matches span (#1392, §10.3): each matched
+ * item drawn — by its centre grown by `reach`, and by its footprint about it
+ * (D22) — each matched zone's box and its shape about the box's centre, and
+ * each matched link's or net's members drawn and its bends. What the frame
+ * boxes, and what fit flies to.
+ *
+ * @param drawn - What the canvas draws: its items where a Move's preview has them, a hidden layer's left out
+ * @param matches - The matches, by id
+ * @param hidden - What a hidden layer holds, by id: never drawn, so spanning nothing
+ * @param centers - Each item drawn's centre, by id
+ * @param reach - An item's half-extent about its centre, in world units
+ * @returns The box, and how many matches it spans; `undefined` while none is drawn
+ */
+export function matchesExtent(
+    drawn: SchematicDrawn, matches: ReadonlySet<string>, hidden: ReadonlySet<string>, centers: ReadonlyMap<string, { x: number; y: number }>,
+    reach: (item: SchematicItemValue) => { readonly w: number; readonly h: number },
+): { box: WorldBox; count: number } | undefined {
+    if (matches.size === 0) return undefined;
+    const box: WorldBox = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    const take = (x: number, y: number) => {
+        box.minX = Math.min(box.minX, x); box.minY = Math.min(box.minY, y);
+        box.maxX = Math.max(box.maxX, x); box.maxY = Math.max(box.maxY, y);
+    };
+    /** A shape about an anchor: a circle's radius every way, a polygon's or a polyline's vertices. */
+    const shape = (anchor: { x: number; y: number }, geometry: SchematicItemValue["footprint"]) => {
+        if (geometry.type !== "some") return;
+        const g = geometry.value;
+        if (g.type === "circle") {
+            take(anchor.x - g.value.radius, anchor.y - g.value.radius);
+            take(anchor.x + g.value.radius, anchor.y + g.value.radius);
+        } else if (g.type !== "rect") {
+            for (const v of g.value.vertices) take(anchor.x + v.x, anchor.y + v.y);
+        }
+    };
+    let count = 0;
+    for (const item of drawn.items) {
+        const c = matches.has(item.key) ? centers.get(item.key) : undefined;
+        if (c === undefined) continue;
+        count++;
+        const r = reach(item);
+        take(c.x - r.w, c.y - r.h);
+        take(c.x + r.w, c.y + r.h);
+        shape(c, item.footprint);
+    }
+    for (const zone of drawn.zones) {
+        if (!matches.has(zone.key) || hidden.has(zone.key)) continue;
+        count++;
+        take(zone.x, zone.y);
+        take(zone.x + zone.width, zone.y + zone.height);
+        shape({ x: zone.x + zone.width / 2, y: zone.y + zone.height / 2 }, zone.geometry);
+    }
+    // A link or a net spans its members drawn and its bends: one drawn nowhere spans nothing.
+    const edge = (key: string, members: readonly string[], via: readonly { x: number; y: number }[], whole: boolean) => {
+        if (!matches.has(key) || hidden.has(key)) return;
+        const at = members.flatMap((member) => { const c = centers.get(member); return c === undefined ? [] : [c]; });
+        if (at.length === 0 || (whole && at.length < members.length)) return;
+        count++;
+        for (const p of [...at, ...via]) take(p.x, p.y);
+    };
+    for (const link of drawn.links) edge(link.key, [link.from, link.to], link.via, true);
+    for (const net of drawn.nets) edge(net.key, [...net.sources, ...net.destinations], net.via, false);
+    return count === 0 ? undefined : { box, count };
 }
