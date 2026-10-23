@@ -339,9 +339,18 @@ test("Find finds an item by its key, and a pick flies to it and selects it", asy
         await waitFor(() => expect(input.value).toBe(typed));
     }
     await waitFor(() => expect(search.textContent).toMatch(/1 match/), { timeout: 5_000 });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A03" }])));
-    await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-selected")).toBe(true));
+    // The pick's fly moves the camera over animation frames: the test runs them on a clock of its own, so it lands however
+    // busy the machine running it is.
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A03" }])));
+        // Flown to it: its card wears the selection.
+        expect(card(container, "racks", "A03")?.hasAttribute("data-selected")).toBe(true);
+    } finally {
+        vi.useRealTimers();
+    }
 });
 
 // ── The footer (§6.3) ───────────────────────────────────────────────────────
