@@ -25,7 +25,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters,
-    usePersistedState, useTrackedEvaluation, type HistoryAction,
+    usePersistedState, useSliceReactivity, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { StatusDisplay } from "../components/StatusDisplay.js";
@@ -36,7 +36,7 @@ import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { allocationCommands, publishChange, remainderOf } from "./actions.js";
 import { AllocationCards } from "./cards.js";
-import { AllocationDataReader, initialAllocationData, type AllocationData } from "./data.js";
+import { AllocationDataReader, binChoicesOf, initialAllocationData, type AllocationData } from "./data.js";
 import { bookOnto, placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
 import { PERIODS, useAllocationEditing, type AllocationEditing } from "./editing.js";
 import { useAllocationFit } from "./fit.js";
@@ -60,6 +60,8 @@ export type { AllocationValue } from "./model.js";
 /** Props of the record-backed Allocation extension. */
 export interface EastChakraAllocationProps { value: AllocationValue; storageKey: string }
 const NO_DATES: readonly Date[] = [];
+/** The board's word for its bins in the footer's line: `Filtering bins…` (the coordinator's call, 23 Oct 2026, #1398). */
+const BINS = "bins";
 const NO_STORED: ReadonlyMap<string, StoredBin> = new Map();
 const NO_BIN_DRAFTS: ReadonlyMap<string, DraftedBin | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
@@ -97,6 +99,11 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const picker = useMemo(() => pickerDays(pickerWeeks), [pickerWeeks]);
     const [data, setData] = useState<AllocationData>(() => initialAllocationData(day));
     const current = data.ready && compareDate(data.day, day) === 0;
+    // The bins' own source of the slice: its narrowing, apart from the day the board writes into it, is what a read of
+    // the day it holds is filtered by (#1398).
+    const binsPart = sourcePart(value.slice.type === "some" ? value.slice.value : undefined, value.bin.kind.key);
+    useSliceReactivity(binsPart?.key);
+    const binChoices = binChoicesOf(binsPart);
     // The day assembled from the records' rows (§9): the bins its window read, every day's drafts in place, and its own row.
     const stored = current ? data.bins : NO_STORED;
     const heldBins = useMemo(() => placeStored(domain, stored, day), [domain, stored, day]);
@@ -336,19 +343,21 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     };
     const sessionName = (kind: string) => kind === PERIODS ? "Days" : value.bin.kind.name;
     const loading = (!current && data.error === undefined) || narrowing.some(n => !n.ready && n.loading);
-    // What the footer's loading line says (#1398, CL3): the day being read, the lanes', the resources' or the arrivals'
-    // new narrowing, or why one could not be read, with Retry — the day's asking again each record the day reads.
+    // What the footer's loading line says (#1398, CL3): the day being read, the bins' own new narrowing — `Filtering
+    // bins…`, the coordinator's word for them (23 Oct 2026) — the lanes', the resources' or the arrivals', or why one
+    // could not be read, with Retry — the day's asking again each record the day reads.
     const retryDay = useCallback(() => retryPeriod([
-        { entries: value.bin.kind.entries, part: sourcePart(value.slice.type === "some" ? value.slice.value : undefined, value.bin.kind.key) },
-        ...(value.periods.type === "some" ? [{ entries: value.periods.value.entries }] : [])]), [value]);
+        { entries: value.bin.kind.entries, part: binsPart },
+        ...(value.periods.type === "some" ? [{ entries: value.periods.value.entries }] : [])]), [value, binsPart]);
     const dayWords = format.weekdayDate(day);
-    const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading, error: data.error, retry: retryDay }, [
+    const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading && !data.filtering, error: data.error, retry: retryDay }, [
+        { noun: BINS, ready: true, loading: data.filtering, error: undefined, retry: retryDay },
         { noun: other(nouns.lane), ...lanesShown }, { noun: other(nouns.resource), ...resourcesShown }, { noun: other(nouns.arrival), ...arrivalsShown },
-    ]), dayWords), [data.loading, data.error, retryDay, nouns, lanesShown, resourcesShown, arrivalsShown, dayWords]);
+    ]), dayWords), [data.loading, data.filtering, data.error, retryDay, nouns, lanesShown, resourcesShown, arrivalsShown, dayWords]);
     // After cold load a read in flight — the day, a narrowing — leaves the frame live, main busy.
     const busy = data.loading || narrowingLoading;
     return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={readOnly ? "" : undefined}>
-        <AllocationDataReader value={value} day={day} pickerDays={picker} onData={setData} />
+        <AllocationDataReader value={value} day={day} pickerDays={picker} choices={binChoices} onData={setData} />
         <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={loading} busy={busy} liveFooter toolbar={toolbar}
             start={start} end={end} onKeyDown={event => {
             // The keys, never while typing (A6).
