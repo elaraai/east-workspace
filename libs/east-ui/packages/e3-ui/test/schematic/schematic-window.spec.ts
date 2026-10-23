@@ -12,17 +12,18 @@
  * roles, and a kind read by area with no area index led by no field, each
  * refused naming what to declare (SC34); the density's raster, a combination
  * of the leading values at a time, within its budget, and the cells of it that
- * hold rows (D25); and the floor of 20,000 racks read a window at a time, its
- * example run.
+ * hold rows (D25); how a kind read by area reads its rows with no position,
+ * its Backlog's (D51); and the floor of 20,000 racks read a window at a time,
+ * its example run.
  */
 
 import { test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { ArrayType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { AREA_FIELD, MAX_AREA_RASTER, MAX_LANDED_SEARCHES, RecordSliceIndexType, RecordSliceWhereType, areaQueries } from "@elaraai/east-ui/internal";
+import { AREA_FIELD, AREA_UNPLACED, MAX_AREA_RASTER, MAX_LANDED_SEARCHES, RecordSliceIndexType, RecordSliceWhereType, areaQueries } from "@elaraai/east-ui/internal";
 import {
-    SCHEMATIC_WINDOW_READ_ROWS, SCHEMATIC_WINDOW_ROWS, schematicAreaIndexes, schematicDensityCells, schematicRaster, schematicWindowPlan,
+    SCHEMATIC_WINDOW_READ_ROWS, SCHEMATIC_WINDOW_ROWS, schematicAreaIndexes, schematicDensityCells, schematicRaster, schematicUnplacedPlan, schematicWindowPlan,
 } from "@elaraai/e3-ui/internal";
 import * as rec from "./schematic-records.examples.js";
 
@@ -147,4 +148,23 @@ hostTest("the density's cells add every combination's counts cell by cell, and s
     // Counts that are not one a cell are refused.
     assert.throws(() => schematicDensityCells(raster, counts.slice(1)), /was counted/);
     assert.throws(() => schematicDensityCells(raster, counts, [1n]), /was counted/);
+});
+
+hostTest("a kind read by area reads its rows with no position through the area index its window would: the choices it leads beside the unplaced clause, the rest left to `within` (D51)", () => {
+    const unplaced = (narrowing: Where) => {
+        const plan = schematicUnplacedPlan(areas, narrowing);
+        return { index: plan.index.name, where: [...plan.where].map(([field, choice]) => [field, choice.type, choice.value]), residual: plan.residual };
+    };
+    assert.deepEqual(unplaced(where()), { index: "racks_by_area", where: [[AREA_FIELD, "values", [AREA_UNPLACED]]], residual: [] }, "no narrowing: the clause alone");
+    assert.deepEqual(unplaced(where([["hall", values('"Hall 1"', '"Hall 2"')]])),
+        { index: "racks_by_hall_area", where: [[AREA_FIELD, "values", [AREA_UNPLACED]], ["hall", "values", ['"Hall 1"', '"Hall 2"']]], residual: [] },
+        "the halls led, read with the clause");
+    assert.deepEqual(unplaced(where([["hall", values('"Hall 1"')], ["model", values('"42U"')]])),
+        { index: "racks_by_hall_area", where: [[AREA_FIELD, "values", [AREA_UNPLACED]], ["hall", "values", ['"Hall 1"']]], residual: ["model"] },
+        "the hall led, the model left to `within`");
+    assert.deepEqual(unplaced(where([["model", values('"42U"')]])),
+        { index: "racks_by_area", where: [[AREA_FIELD, "values", [AREA_UNPLACED]]], residual: ["model"] }, "a choice no area index leads, left to `within`");
+    // One search a combination: many more halls than a window could take stay led.
+    const halls = Array.from({ length: 40 }, (_, i) => `"Hall ${i + 1}"`);
+    assert.equal(schematicUnplacedPlan(areas, where([["hall", values(...halls)]])).index.name, "racks_by_hall_area");
 });
