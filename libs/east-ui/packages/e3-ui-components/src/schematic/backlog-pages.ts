@@ -23,8 +23,8 @@
  *   with no position the kinds hold.
  * - **What a card drops** ({@link SchematicBacklogPages.card}): each row it has
  *   listed and not as context, placed where it lands — its row, as its page
- *   read it at its revision, the original a gesture rewrites
- *   ({@link SchematicBacklogPages.rowOf}), so a drop records at once.
+ *   read it at its revision, the original a gesture rewrites (the frame's
+ *   `KindRows`, which the lists share), so a drop records at once.
  *
  * Nothing it reads is the record whole: the counts are two index counts a kind,
  * and each page one read of the index's entries, which carry their rows (D29).
@@ -32,10 +32,7 @@
  * @packageDocumentation
  */
 
-import {
-    ArrayType, SortedMap, StringType, StructType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, variant,
-    type StructType as StructTypeOf, type ValueTypeOf, type option,
-} from "@elaraai/east";
+import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { AREA_FIELD, AREA_UNPLACED, RecordSliceWhereType, type RecordSliceBindType, type RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { schematicUnplacedPlan, type SchematicAreaIndexes, type SchematicUnplacedPlan } from "@elaraai/e3-ui/internal";
 import { recordSlicePage, recordSliceRevision, recordSliceWithin, type LibraryPageSource } from "@elaraai/east-ui-components/internal";
@@ -44,6 +41,7 @@ import { entityId, type ItemRoles } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
 import type { SortDrafts } from "./drafted.js";
 import type { SchematicDropCard } from "./drop.js";
+import { entryRow, type KindRows } from "./kind-rows.js";
 
 /** A kind's source of the slice. */
 type Part = ValueTypeOf<RecordSliceBindType>;
@@ -61,9 +59,6 @@ const UNPLACED: Where = new SortedMap([[AREA_FIELD, variant("values", [AREA_UNPL
 
 /** The most cards the list keeps for what a drop finds them by, past which the oldest go: the pages around the view hold far fewer. */
 const MAX_SERVED = 4_096;
-
-/** The most rows' roles a kind keeps at a revision, past which they are made again as their pages are read again. */
-const MAX_DECODED = 8_192;
 
 /** An item kind read by area that has a backlog: the kind, its source of the slice and its area indexes. */
 export interface BacklogAreaKind {
@@ -93,16 +88,6 @@ export interface BacklogPageCount {
     readonly narrowing: boolean;
 }
 
-/** Each kind's encoder of the rows a page holds, as its `rowsOf` takes them: an Array of `{ key, row }`. */
-type RowsEncoder = (rows: { key: string; row: unknown }[]) => Uint8Array;
-
-/** An entry's row: its joined row, or the whole row its index carries (D29). */
-function rowOf(entry: RecordSliceEntry): unknown {
-    if (entry.row?.type === "some") return entry.row.value;
-    if (entry.value?.type === "some") return entry.value.value;
-    return undefined;
-}
-
 /**
  * The paged Backlog's rows and counts — see the module docs. Every read is a
  * tracked read of the kinds' sources, so the list's reader runs again as a
@@ -111,10 +96,6 @@ function rowOf(entry: RecordSliceEntry): unknown {
 export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> {
     /** Each kind's plan, for the narrowing it was made for. */
     private readonly plans = new WeakMap<object, SchematicUnplacedPlan>();
-    /** Each kind's rows its pages held — each one's roles and its bytes — by key, at the revision they were read at. */
-    private readonly decoded = new Map<string, { readonly revision: string; readonly rows: Map<string, { readonly roles: ItemRoles; readonly row: Uint8Array }> }>();
-    /** Each kind's encoder, made once. */
-    private readonly encoders = new WeakMap<object, RowsEncoder>();
     /** What each row listed and not as context drops, by its id: kept for the narrowing it was listed under. */
     private served = new Map<string, SchematicDropCard>();
     private servedFor = "";
@@ -124,9 +105,10 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
      * @param fresh - The rows in hand: the kinds read whole or complete, and the drafted rows with no position, each kind's in its order
      * @param kinds - The item kinds read by area that have a backlog, in the Schematic's order
      * @param drafts - The item kinds' drafts
+     * @param rows - The kinds' rows as their `rowsOf` makes them, kept across lists: what a gesture on a row a page read rewrites
      */
     constructor(readonly id: string, private readonly fresh: readonly BacklogEntry[], private readonly kinds: readonly BacklogAreaKind[],
-        private readonly drafts: SortDrafts<ItemRoles>) {}
+        private readonly drafts: SortDrafts<ItemRoles>, private readonly rows: KindRows<ItemRoles>) {}
 
     /** A kind's plan for its narrowing as it stands, made once a narrowing. */
     private planOf({ part, areas }: BacklogAreaKind): SchematicUnplacedPlan {
@@ -265,7 +247,7 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
         const got = recordSlicePage(kind.part, plan.where, offset, limit);
         if (got.type !== "some") return none;
         const entries = got.value as RecordSliceEntry[];
-        const read = entries.map((entry) => ({ key: entry.key as string, row: rowOf(entry) }));
+        const read = entries.map((entry) => ({ key: entry.key as string, row: entryRow(entry) }));
         // The narrowing's choices the index doesn't lead, asked of the page's rows in one request (D28).
         let held: readonly boolean[] | undefined;
         if (plan.residual.length > 0) {
@@ -273,8 +255,9 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
             if (answer.type !== "some") return none;
             held = answer.value;
         }
-        const stored = this.rowsOf(kind, read);
-        if (stored === undefined) return none;
+        const revision = recordSliceRevision(kind.part);
+        if (revision.type !== "some") return none;
+        const stored = this.rows.rowsOf(kind.kind, revision.value, read);
         const drafted = this.drafts.get(kind.kind.key);
         return some(read.map(({ key }, i) => {
             const ref = { kind: kind.kind.key, key };
@@ -287,49 +270,6 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
             if (draft === undefined) return { entry: { ref, id, roles }, context: true };
             return { entry: { ref, id, roles: draft.roles }, context: outside || draft.roles.position.type === "some" };
         }));
-    }
-
-    /** Some rows of a kind as its `rowsOf` makes them — each one's roles beside its bytes — those not yet made at its revision made in one call. */
-    private rowsOf(kind: BacklogAreaKind, rows: readonly { key: string; row: unknown }[]): ReadonlyMap<string, { readonly roles: ItemRoles; readonly row: Uint8Array }> | undefined {
-        const revision = recordSliceRevision(kind.part);
-        if (revision.type !== "some") return undefined;
-        let kept = this.decoded.get(kind.kind.key);
-        if (kept === undefined || !stringEqual(kept.revision, revision.value) || kept.rows.size > MAX_DECODED) {
-            kept = { revision: revision.value, rows: new Map() };
-            this.decoded.set(kind.kind.key, kept);
-        }
-        const missing = rows.filter(({ key }) => !kept!.rows.has(key));
-        if (missing.length > 0) {
-            const made = (kind.kind.rowsOf as (bytes: Uint8Array) => ReadonlyMap<string, { readonly roles: ItemRoles; readonly row: Uint8Array }>)(
-                this.encoderOf(kind.kind)([...missing]));
-            for (const [key, row] of made) kept.rows.set(key, row);
-        }
-        return kept.rows;
-    }
-
-    /**
-     * A row of a kind its pages have read, as the record held it at the revision they read it at: what a gesture on a
-     * row it lists — a drop placing it — rewrites, so it records at once, never waiting on a read by key.
-     *
-     * @param slot - The kind's slot
-     * @param key - The row's key
-     * @returns Its bytes and the revision they were read at; `undefined` for a row no page has read
-     */
-    rowOf(slot: string, key: string): { readonly revision: string; readonly row: Uint8Array } | undefined {
-        const kept = this.decoded.get(slot);
-        const row = kept?.rows.get(key);
-        return kept === undefined || row === undefined ? undefined : { revision: kept.revision, row: row.row };
-    }
-
-    /** A kind's encoder of the rows it reads, made once per kind. */
-    private encoderOf(kind: ItemKind): RowsEncoder {
-        let encode = this.encoders.get(kind);
-        if (encode === undefined) {
-            const row = fromEastTypeValue(kind.rowType) as StructTypeOf;
-            encode = encodeBeast2For(ArrayType(StructType({ key: StringType, row }))) as RowsEncoder;
-            this.encoders.set(kind, encode);
-        }
-        return encode;
     }
 
     /**

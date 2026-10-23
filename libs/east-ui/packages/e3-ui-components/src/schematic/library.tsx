@@ -27,7 +27,9 @@
  *   its narrowing leaves out, or a draft placed or deleted, drawn as context;
  *   it counts `N of M` while an index the narrowing leads narrows it.
  * - **Index** (`Schematic.library.index()`) — the zones nested by containment
- *   and the items inside them (`index-tab.tsx`).
+ *   and the items inside them (`index-tab.tsx`); a kind read by area's read by
+ *   the tab itself, an open zone's by its box and the search's through the
+ *   kind's source (#1393, D52).
  * - **Layers** (`Schematic.library.layers()`) — each layer, with Isolate, Lock
  *   and Show or Hide, and Show all (`layers-tab.tsx`).
  * - **An author's tab** (`Schematic.library.tab(rows, …)`) — its cards, each
@@ -76,7 +78,7 @@ import type { BacklogPageCount, BacklogPageRow, SchematicBacklogPages } from "./
 import { entityId, type DrawnItem, type DrawnZone } from "./canvas/drawn.js";
 import type { SchematicLayerValue } from "./canvas/layers.js";
 import type { SchematicValue } from "./data.js";
-import { SchematicIndexTab } from "./index-tab.js";
+import { SchematicIndexTab, type SchematicIndexAreaProps } from "./index-tab.js";
 import type { SchematicLayerView } from "./layers-view.js";
 import { SchematicLayersTab } from "./layers-tab.js";
 import type { SchematicLibraryTabWord, SchematicWords } from "./messages.js";
@@ -159,6 +161,8 @@ export interface SchematicLibraryProps {
      * while the Backlog lists only rows in hand.
      */
     readonly backlogPages?: { readonly source: SchematicBacklogPages; readonly count: BacklogPageCount | undefined } | undefined;
+    /** The item kinds read by area, which the Index reads itself (#1393, D52); `undefined` with none. */
+    readonly indexArea?: SchematicIndexAreaProps | undefined;
     /** The layers, with their author defaults. */
     readonly layers: readonly SchematicLayerValue[];
     /** How many entities each layer holds in the drawing, by its key. */
@@ -226,8 +230,8 @@ function templatesTab(value: SchematicValue, followed: FollowedSources, words: S
  */
 export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameDock | undefined {
     const {
-        value, zones, items, backlog, backlogNarrowing, backlogPages, layers, layerCounts, layerView, onLayerView, inView, selected, onReveal, keys, words,
-        followed, picked, onPick, enter,
+        value, zones, items, backlog, backlogNarrowing, backlogPages, indexArea, layers, layerCounts, layerView, onLayerView, inView, selected, onReveal, keys,
+        words, followed, picked, onPick, enter,
     } = props;
     const m = words.m;
     const styles = useSlotRecipe({ key: "schematic" })() as Styles;
@@ -388,7 +392,8 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
                     return {
                         key: "index", label: m.libraryTab({ tab: "index" }), count: zones.length, shown: zones.length,
                         body: body("index", {}, (
-                            <SchematicIndexTab zones={zones} items={items} kindName={kindName} inView={inView} selected={selected} onReveal={onReveal} words={words} />
+                            <SchematicIndexTab zones={zones} items={items} kindName={kindName} inView={inView} selected={selected} onReveal={onReveal} words={words}
+                                area={indexArea} />
                         )),
                     };
                 case "layers":
@@ -422,7 +427,8 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
             tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
     }, [library, m, words, styles.libraryPane, templates, templatesFollow, backlogLibrary, backlogNarrowed, backlogPages, pagedCard, onPagedCard, zones, items,
-        kindName, inView, selected, onReveal, layers, layerView, onLayerView, layerCounts, authorLibraries, authorFollows, keys, empty, listsBacklog, enters]);
+        indexArea, kindName, inView, selected, onReveal, layers, layerView, onLayerView, layerCounts, authorLibraries, authorFollows, keys, empty, listsBacklog,
+        enters]);
 }
 
 /**

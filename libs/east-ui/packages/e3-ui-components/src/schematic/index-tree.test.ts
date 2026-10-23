@@ -91,6 +91,25 @@ describe("indexRows", () => {
         ]);
         expect(places([], "a1")).toEqual(["Hall 1/1", "Cage 2 1/1", "A10 1/1"]);
     });
+
+    test("a kind read by area (#1393, D52): each item of it listed is a match of the search its source answered, and a zone counts only once its count is whole — openable until then", () => {
+        const text = (open: readonly string[], query: string, options: Parameters<typeof indexRows>[5]) => indexRows(TREE, new Set(open), query,
+            (slot) => KIND_NAMES[slot] ?? slot, "en", options).map((r: IndexRow) => {
+            const pad = "  ".repeat(r.depth);
+            return r.kind === "zone" ? `${pad}${r.zone.label}${r.open ? " ▾" : r.branch ? " ▸" : ""}${r.count === undefined ? "" : ` ${r.count}`}` : `${pad}${r.item.ref.key}`;
+        });
+        // The racks were searched through their source: every rack listed matches "Z", though neither label nor key holds it.
+        expect(text([], "zz", { searched: new Set(["racks"]) })).toEqual(["Hall ▾ 4", "  H1", "  Cage 2 ▾ 2", "    A2", "    A10", "  Cage 10 ▾ 1", "    B1", "Z1"]);
+        // Only the hall's box read: it and the zones it holds count; the frame room, not read, counts none and still opens.
+        const whole = (key: string) => key !== ROOM.key;
+        expect(text([], "", { whole })).toEqual(["Frame room ▸", "Hall ▸ 4", "Z1"]);
+        // An empty zone not yet read opens, to be read; read, it has nothing to open.
+        const empty = zone("empty", "Empty room", 30, 0, 4, 4);
+        const tree = buildNavTree([...ZONES, empty], ITEMS);
+        const rowOf = (counted: boolean) => indexRows(tree, new Set(), "", (slot) => slot, "en", { whole: () => counted }).find((r) => r.kind === "zone" && r.zone.key === empty.key);
+        expect(rowOf(false)).toMatchObject({ branch: true, count: undefined });
+        expect(rowOf(true)).toMatchObject({ branch: false, count: 0 });
+    });
 });
 
 describe("zoneInView", () => {

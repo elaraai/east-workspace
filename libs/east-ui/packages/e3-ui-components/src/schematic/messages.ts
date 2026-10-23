@@ -146,6 +146,13 @@ export interface SchematicMessages {
     indexToggle: (p: { zone: string; open: boolean }) => string;
     /** A zone's count of the items it holds — `4 items` — as a reader hears it. */
     indexCount: (p: SchematicCount) => string;
+    /**
+     * What the Index says of an open zone holding more items of a kind read by area than a window reads (#1393, D52) —
+     * `Hall 3 holds more than 20,000 racks: search to find one`; `name` is the kind's, as running text writes it.
+     */
+    indexCrowded: (p: SchematicCount & { zone: string; name: string }) => string;
+    /** What the Index says of the matches its search holds past those it lists (#1393, D52) — `12 more match: type more to find them`. */
+    indexMore: (p: SchematicCount) => string;
     /** The Layers tab's Show all: every layer shown, the isolation ended. */
     layersShowAll: () => string;
     /** A layer's Show or Hide. */
@@ -384,6 +391,8 @@ export const schematicMessages: SchematicMessages = {
     indexNoMatch: ({ query }) => `No items match "${query}"`,
     indexToggle: ({ zone, open }) => `${open ? "Close" : "Open"} ${zone}`,
     indexCount: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
+    indexCrowded: ({ n, count, zone, name }) => `${zone} holds more than ${count} ${plural(n, name, `${name}s`)}: search to find one`,
+    indexMore: ({ n, count }) => `${count} more ${plural(n, "matches", "match")}: type more to find ${plural(n, "it", "them")}`,
     layersShowAll: () => "Show all",
     layerShow: ({ layer, shown }) => `${shown ? "Hide" : "Show"} ${layer}`,
     layerIsolate: ({ layer, isolated }) => (isolated ? `Show every layer, not ${layer} alone` : `Isolate ${layer}`),

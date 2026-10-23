@@ -56,7 +56,8 @@ as Libraries — beside a kind read by area one paged list (`backlog-pages.ts`,
 D51), each such kind's rows paged through its area index's unplaced clause, a
 row its page read the original a drop rewrites; the zones' Index (`index-tab.tsx` over `index-tree.ts`), one
 focusable tree around the shared virtual rows, marking the zone the viewport
-is in; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
+is in — a kind read by area's items read by the tab itself (`index-area.ts`,
+D52), an open zone's by its box and the search's through the kind's source; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
 the UI store under the `id` (`layers-view.ts`), which the canvas obeys — a
 locked layer's entities select by no path; and an author's tabs, each
 following its source. Its cards drop on the canvas (#1390): `drop.ts` plans
