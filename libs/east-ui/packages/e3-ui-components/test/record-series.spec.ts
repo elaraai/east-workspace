@@ -212,8 +212,8 @@ test("a summary index's cells are each press's totals in its month — how many 
     const binding = East.compile(East.function([], Expr.type(source), $ => $.return(source)),
         [...runtime.indexed.platform(null), ...runtime.buildPrimitives()])();
     assert.throws(() => binding.page("jobs_by_press_month", 0n, 1n), /'jobs_by_press_month' is a summary index, whose entries name no row/);
-    // A cell is of a series or a summary index the binding lists.
-    assert.throws(() => recordSliceCellRuns(handle, "jobs_by_time", [cell]), /lists no series or summary index 'jobs_by_time'/);
+    // A cell is of a series, a summary or an area index the binding lists (#1393).
+    assert.throws(() => recordSliceCellRuns(handle, "jobs_by_time", [cell]), /lists no series, summary or area index 'jobs_by_time'/);
     runtime.clear();
 });
 
