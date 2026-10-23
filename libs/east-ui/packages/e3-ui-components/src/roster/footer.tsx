@@ -6,7 +6,7 @@ import { useRef } from "react";
 import { Box } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { RosterStyles } from "./model.js";
 
 /** The coverage marks the legend explains: who fills a slot's hours, and what it needs. Overtime is the app's pay's to say (§5.6). */
@@ -22,7 +22,7 @@ const LEGEND = [
  * the legend stays whole and in place, ending at a whole mark, then "…", only
  * where it cannot fit. Details stay in the inspector.
  */
-export function RosterFooter({ styles, duties, noun, line }: {
+export function RosterFooter({ styles, duties, noun, line, shown }: {
     styles: RosterStyles;
     /** The slice's part over the duties, whose Save notice counts what leaves the week's window. */
     duties: ValueTypeOf<RecordSliceBindType> | undefined;
@@ -30,11 +30,11 @@ export function RosterFooter({ styles, duties, noun, line }: {
     noun: { singular: string; plural: string };
     /** What the week's read says: the week being read, or why it could not be; `undefined` while it has landed. */
     line: LoadingLineValue | undefined;
+    /** Whether a read in flight shows yet: the frame's one reveal clock (CL4), which its placeholders keep too. */
+    shown: boolean;
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(ref);
-    // The shared reveal's clock (CL4): a read shows after 150 ms, and stays 300 ms once shown.
-    const shown = useLoadingReveal(line?.kind === "loading");
     return <Box ref={ref} css={styles.footer} data-roster-footer="">
         {LEGEND.map((item, i) => <Box as="span" key={item.key} css={[styles.footerItem, styles.legendItem]} data-roster-legend={item.key}
             data-footer-unit="" data-footer-cut={footerCut(i, fit)}>

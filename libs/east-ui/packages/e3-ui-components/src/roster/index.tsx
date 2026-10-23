@@ -16,7 +16,6 @@
  * @packageDocumentation
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StatusDisplay } from "../components/StatusDisplay.js";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
@@ -24,7 +23,8 @@ import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useDataStable, useFormatters,
     usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { periodLoading, periodLoadingLine, retryPeriod } from "../shared/loading.js";
+import { loadingLineText, useLoadingReveal } from "@elaraai/east-ui-components/internal";
+import { periodLoading, periodLoadingLine, retryPeriod, scheduleLoadingMessages } from "../shared/loading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { DAY } from "../shared/schedule/window.js";
@@ -42,7 +42,7 @@ import {
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget,
 } from "./model.js";
 import { useRosterToolbar } from "./toolbar.js";
-import { RosterViews, assignmentName } from "./views.js";
+import { HELD, RosterViews, assignmentName, type RosterRead } from "./views.js";
 import { useRosterWindow, type RosterWindow } from "./window.js";
 import { rosterPart, useRosterVisibility } from "./visibility.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -56,6 +56,7 @@ const NO_DATES: readonly Date[] = [];
 const NO_DUTY_DRAFTS: ReadonlyMap<string, DraftedDuty | undefined> = new Map();
 const NO_TARGET_DRAFTS: ReadonlyMap<string, StoredTarget | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
+const NO_ISSUES: readonly Issue[] = [];
 const sameContext = equalFor(RosterContextType);
 
 /** What the frame takes from the Roster around it: the payload as read, the week, the narrowing, and the editing. */
@@ -147,7 +148,8 @@ function RosterFrame(props: FrameProps) {
     const custom = useTrackedEvaluation(readCheck);
     const allIssues: Issue[] = [...builtIn, ...draftedDuties.unplaced, ...(custom.result.ok ? custom.result.value : []), ...proposals.map(p => ({ kind: variant("proposal", null), tone: variant("info", null),
         title: `${value.people.find(person => person.key === p.person)?.name ?? p.person} · proposed`, detail: p.reason, slot: some(p.slot), assignment: none, flag: none, fix: some(variant("accept", p.key)) }))];
-    const issues = allIssues.filter(i => window.view.layout === "people" || window.view.period === "week" || i.slot.type === "none" || Number(i.slot.value.day) === window.day);
+    // A week not read gives no issue: a gap of a week whose duties are not read yet is no gap (#1398, CL13).
+    const issues = current ? allIssues.filter(i => window.view.layout === "people" || window.view.period === "week" || i.slot.type === "none" || Number(i.slot.value.day) === window.day) : NO_ISSUES;
     // The app's fit (#1334): a Find fix asks it who fits over the complete staff, and the People tab shows its answer.
     const fit = useRosterFit(value, start, week, context, coverage, find);
     const { error: fitError, retry: retryFit, pending: finding } = fit;
@@ -176,30 +178,6 @@ function RosterFrame(props: FrameProps) {
         ready: current && !publishing && !visibility.loading && visibility.error === undefined,
     }, setSelection, findFix, publish);
     const drag = useRosterDrag({ value, commands, week, duties: draftedDuties, context, storageKey: key, narrow, start, onError: setError });
-    const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView,
-        styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError };
-    const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
-        find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
-    const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
-        duties: draftedDuties, heldDuties: storedDuties, targets });
-    const onIssues = () => { setTab("issues"); revealPane("Inspector"); };
-    const history = editing?.history;
-    const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); history?.act(action); }, [history]);
-    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerDates: setPickerDates,
-        status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, publishing, picker: data.picker,
-        onDisplay: next => props.setDisplay({ ...props.display, ...next }) });
-    const readOnly = value.settings.readOnly || (current && !editableStatus(heldPeriod.status));
-    const notStarted = current && week.assignments.size === 0 && (source.periods.type === "none" || !started(period));
-    const dutyName = source.duty.kind.name.toLocaleLowerCase(format.locale);
-    /** A session's issue's place: a duty by whose it is, a week's or a target's row as it stands. */
-    const where = (kind: string) => (issue: { entry: string }) => {
-        if (kind !== source.duty.kind.key) return issue.entry;
-        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
-        return a === undefined ? issue.entry : assignmentName(value, a);
-    };
-    const sessionName = (kind: string) => kind === PERIODS ? (source.periods.type === "some" && source.periods.value.every.type === "day" ? "Days" : "Weeks")
-        : kind === TARGETS ? "Targets" : source.duty.kind.name;
-    const loading = (!current && data.error === undefined) || (!visibility.ready && visibility.loading) || (!activities.ready && activities.loading);
     const dutyPart = sourcePart(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key);
     // What the footer's loading line says (#1398, CL3): the week being read, the people's or the activities' new
     // narrowing, or why one could not be read, with Retry — the week's asking again each record the week reads.
@@ -212,11 +190,45 @@ function RosterFrame(props: FrameProps) {
     const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading, error: data.error, retry: retryWeek },
         [{ noun: "people", ...visibility }, { noun: "activities", ...activities }]), weekWords),
         [data.loading, data.error, retryWeek, visibility, activities, weekWords]);
+    // One reveal clock (CL4): the footer's line and a week's placeholders show on it alike — after 150 ms, at least 300.
+    const shown = useLoadingReveal(line?.kind === "loading");
+    // What the views draw of the week (#1398): the week as read; a week not read yet, its geometry at once and its
+    // placeholders once the reveal says so (CL5, CL2); or one whose read failed, its geometry and the failure said once
+    // in its first row in view (CL11) — never "Roster unavailable" over the grid.
+    const read: RosterRead = current ? HELD : data.error !== undefined
+        ? { state: "failed", message: loadingLineText(scheduleLoadingMessages.periodFailed({ period: weekWords })), retry: retryWeek }
+        : { state: "pending", filled: shown };
+    const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView,
+        styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read };
+    const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
+        find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
+    const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
+        duties: draftedDuties, heldDuties: storedDuties, targets });
+    const onIssues = () => { setTab("issues"); revealPane("Inspector"); };
+    const history = editing?.history;
+    const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); history?.act(action); }, [history]);
+    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerDates: setPickerDates,
+        status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: current ? undefined : { filled: shown }, publishing, picker: data.picker,
+        onDisplay: next => props.setDisplay({ ...props.display, ...next }) });
+    const readOnly = value.settings.readOnly || (current && !editableStatus(heldPeriod.status));
+    const notStarted = current && week.assignments.size === 0 && (source.periods.type === "none" || !started(period));
+    const dutyName = source.duty.kind.name.toLocaleLowerCase(format.locale);
+    /** A session's issue's place: a duty by whose it is, a week's or a target's row as it stands. */
+    const where = (kind: string) => (issue: { entry: string }) => {
+        if (kind !== source.duty.kind.key) return issue.entry;
+        const a = week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
+        return a === undefined ? issue.entry : assignmentName(value, a);
+    };
+    const sessionName = (kind: string) => kind === PERIODS ? (source.periods.type === "some" && source.periods.value.every.type === "day" ? "Days" : "Weeks")
+        : kind === TARGETS ? "Targets" : source.duty.kind.name;
+    // Cold load (#1398, CL5): no week read yet, nor the people's or the activities' first narrowing — the frame's
+    // skeleton covers it. After it nothing covers: a week step, a narrowing or a new revision leave the frame live.
+    const cold = (!data.landed && data.error === undefined) || (!visibility.ready && visibility.loading) || (!activities.ready && activities.loading);
     // After cold load a read in flight — the week, the people's or the activities' narrowing — leaves the frame live, main busy.
     const busy = data.loading || visibility.loading || activities.loading;
     return <Box ref={root} css={styles.root} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined}>
         <RosterDataReader value={source} start={start} pickerDates={pickerDates} holds={holds} onData={setData} />
-        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={loading} busy={busy} liveFooter start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} busy={busy} liveFooter start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
             if (action !== undefined && history !== undefined && !value.settings.readOnly && (commands.available || history.pending > 0)) { event.preventDefault(); onAction(action); }
@@ -239,10 +251,11 @@ function RosterFrame(props: FrameProps) {
             {/* A find the app's fit failed to answer (R4): its message, and Retry, while the find stands. */}
             {find !== undefined && fitError !== undefined && <BannerView status="warning" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={retryFit}>Retry</Button>} />}
             {props.rangeError !== undefined && <BannerView status="error" title="Week unavailable" description={props.rangeError} />}
-            {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
-        </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line} />}>
+            {/* A gesture's error; a read's is said once, in the grid and on the footer's line (#1398, CL11). */}
+            {error !== undefined && <Box css={styles.error} role="alert">{error}</Box>}
+        </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line} shown={shown} />}>
             <Box ref={main} css={styles.main} data-roster-main="" inert={visibility.loading || visibility.error !== undefined ? true : undefined} data-roster-narrow={narrow ? "" : undefined}>
-                {!current && data.error !== undefined ? <StatusDisplay variant="error" title="Roster unavailable" message={data.error} /> : <RosterViews {...viewProps} />}
+                <RosterViews {...viewProps} />
             </Box>
         </BuilderFrame>
     </Box>;

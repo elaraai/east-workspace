@@ -8,7 +8,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation, faSliders } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap } from "@elaraai/east";
 import { ChipMenu, historyToolbarItem, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
-import { HOST_RANK, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -23,6 +23,11 @@ interface ToolbarArgs extends RosterWindow {
     value: RosterValue; styles: RosterStyles; commands: RosterCommands; editing: RosterEditing | undefined; words: EditingWords;
     /** The week's status chip's words; `undefined` without periods. */
     status: string | undefined;
+    /**
+     * Whether the week is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
+     * placeholder — never "Not started" before its row is read — and the issues one too; filled once the reveal says so.
+     */
+    unread: { readonly filled: boolean } | undefined;
     /** Whether Publish is under way. */
     publishing: boolean;
     /** The open picker's weeks' statuses, by their start. */
@@ -49,8 +54,10 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const unit = view.layout === "people" ? "week" : view.period;
     const navigate = (step: number) => setView({ ...view, date: shiftCalendar(new Date(view.date), unit, step).getTime() });
     const status = args.publishing ? "Publishing" : args.status;
-    // Publish: only over periods, on a week that takes edits.
+    const unread = args.unread;
+    // Publish: only over periods, on a week that takes edits; its slot held wherever the Roster publishes and edits at all.
     const publishable = value.periods.type === "some" && commands.available && !args.publishing;
+    const heldPublish = value.periods.type === "some" && !value.settings.readOnly;
     // The history: wherever the week takes edits, and wherever a draft of another week waits to be saved.
     const history = editing?.history;
     const showHistory = history !== undefined && !value.settings.readOnly && (commands.available || history.pending > 0 || history.status !== "idle");
@@ -97,10 +104,17 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         { key: "roster.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["roster.view", "roster.controls"], forms: [null, menu, null] },
         { key: "roster.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "roster.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
         view.layout === "shifts" && view.period === "day" && { key: "roster.days", side: "start", rank: HOST_RANK + 2, forms: [daySelect, null] },
-        status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [<Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
-        count > 0 && value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [<chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>, null] },
+        // The status, the issues and Publish keep their slots from cold load, whatever the week's read (#1398, CL1): a read
+        // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
+        status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [unread !== undefined
+            ? <Box css={[styles.status, styles.heldSlot]} data-roster-status="" data-pending="" data-unfilled={unread.filled ? undefined : ""}><PlaceholderShape kind="enum" index={0} /></Box>
+            : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
+        value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [unread !== undefined
+            ? <Box css={styles.heldSlot} data-roster-issues="" data-pending="" data-unfilled={unread.filled ? undefined : ""}><PlaceholderShape kind="count" index={0} /></Box>
+            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
+                : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
-        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026).
-        publishable && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" onClick={() => commands.publish()}>Publish</Button>, null] },
+        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish.
+        heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];
 }

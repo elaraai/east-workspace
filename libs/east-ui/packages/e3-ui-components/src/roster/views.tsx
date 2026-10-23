@@ -7,7 +7,7 @@ import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faRotateLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, variant } from "@elaraai/east";
-import { VirtualRows } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedLine, PlaceholderShape, VirtualRows, type RowsInView } from "@elaraai/east-ui-components/internal";
 import { tickFormatOf, useDragEventChip, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
@@ -21,6 +21,25 @@ import {
     type RosterDomain, type RosterStyles, type RosterValue, type RosterView, type Selection, type Slot, type Week,
 } from "./model.js";
 
+/**
+ * What the views draw of the week's read (#1398):
+ *
+ * - `held`: the week as read.
+ * - `pending`: a week not read yet — its geometry and what is known without it
+ *   (its dates, its people, groups and shifts) at once, and placeholders where
+ *   its content goes once the reveal says so (CL2, CL4); never a value it has
+ *   not read — no "Off · assign", no "0 / 2 positions" (CL13).
+ * - `failed`: a week whose read failed — its geometry, its cells blank, the
+ *   failure said once, in its first row in view, with Retry (CL11).
+ */
+export type RosterRead =
+    | { readonly state: "held" }
+    | { readonly state: "pending"; readonly filled: boolean }
+    | { readonly state: "failed"; readonly message: string; readonly retry: () => void };
+
+/** The week as read. */
+export const HELD: RosterRead = { state: "held" };
+
 export interface RosterViewsProps {
     value: RosterValue; week: Week; held: Week; start: Date; day: number; view: RosterView; setView: (view: RosterView) => void;
     styles: RosterStyles; format: Formatters; narrow: boolean; coverage: ReadonlyMap<Slot, Coverage>; hours: ReadonlyMap<string, number>;
@@ -30,6 +49,23 @@ export interface RosterViewsProps {
     domain: RosterDomain;
     issues: readonly Issue[]; proposals: readonly PlacedProposal[]; selection: Selection | undefined; select: (next: Selection | undefined) => void;
     commands: RosterCommands; drag: RosterDrag; onError: (error: string | undefined) => void;
+    /** What the views draw of the week's read: the week as read, or its geometry while it is unread or failed. */
+    read: RosterRead;
+}
+
+/** Whether placeholders show where the week's content goes: a week not read yet, past the reveal's delay. */
+function filled(read: RosterRead): boolean {
+    return read.state === "pending" && read.filled;
+}
+
+/** A placeholder in a slot of the week's content, shown once the reveal says so (#1398). */
+function Unread({ props, kind, index }: { props: RosterViewsProps; kind: "chip" | "aggregate" | "number" | "label"; index: number }) {
+    return filled(props.read) ? <PlaceholderShape kind={kind} index={index} /> : null;
+}
+
+/** The failure said once, in place: the week's words and its Retry (#1398, CL11). */
+function ReadFailure({ read }: { read: Extract<RosterRead, { state: "failed" }> }) {
+    return <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} />;
 }
 export function assignmentName(value: RosterValue, a: Assignment): string {
     return a.who.type === "person" ? value.people.find(p => p.key === a.who.value)?.name ?? a.who.value
@@ -179,30 +215,65 @@ function DayAssignments({ props, slot }: { props: RosterViewsProps; slot: Slot }
         <Box css={props.styles.dropStrip}><SlotActions props={props} slot={slot} />{!props.value.inspector && <RequirementAction slot={slot} week={props.week} held={props.held} value={props.value} commands={props.commands} styles={props.styles} />}</Box>
     </DropSlot>;
 }
+/**
+ * A shifts row of a week not read, or whose read failed (#1398): its head as drawn, and in each slot a placeholder where
+ * its figures or its duties go, never a count it has not read — or, in the row the failure is said in, one line across
+ * every slot.
+ */
+function UnreadSlots({ props, head, columns, group, kind, failure, cell }: {
+    props: RosterViewsProps; head: ReactNode; columns: readonly { day: number; shift: RosterValue["shifts"][number] }[]; group: string;
+    kind: "chip" | "number" | "aggregate"; failure: Extract<RosterRead, { state: "failed" }> | undefined; cell: Record<string, unknown> | undefined;
+}) {
+    return <Box css={props.styles.row} data-roster-unread="">{head}
+        {failure !== undefined ? <Box css={props.styles.readLine} data-roster-read-line=""><ReadFailure read={failure} /></Box>
+            : columns.map(({ day, shift }, c) => {
+                const slot = { day: BigInt(day), group, shift: shift.key };
+                return <Box key={slotKey(slot)} css={cell} data-roster-slot={slotKey(slot)}><Unread props={props} kind={kind} index={c} /></Box>;
+            })}
+    </Box>;
+}
 function Shifts(props: RosterViewsProps) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
     const days = props.view.period === "week" ? Array.from({ length: 7 }, (_, d) => d) : [props.day];
     const columns = days.flatMap(day => props.value.shifts.map(shift => ({ day, shift })));
     const style = { "--roster-columns": columns.length } as CSSProperties;
+    // A week not read, or whose read failed (#1398): the days, shifts and groups, known without it, at once, and a
+    // placeholder where each figure or duty goes; the failure said once, in the first open group's first row.
+    const unread = props.read.state !== "held";
+    const failedIn = props.read.state === "failed" ? props.value.groups.find(group => !collapsed.includes(group.key))?.key : undefined;
+    const failure = props.read.state === "failed" ? props.read : undefined;
     return <Box css={props.styles.scroll} data-roster-grid="shifts"><Box css={props.styles.grid} data-period={props.view.period} style={style}>
         <Box css={props.styles.head}>
             {props.view.period === "week" && <Box css={props.styles.row}><Box css={props.styles.gutter} />{days.map(day => <chakra.button type="button" key={day} css={props.styles.shiftHead} data-roster-column-header="" style={{ gridColumn: `span ${props.value.shifts.length}` }} data-week="" data-selected={props.day === day ? "" : undefined}
                 onClick={() => props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY })}><Box css={props.styles.shiftLabel}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))} {new Date(props.start.getTime() + day * DAY).getUTCDate()}</Box></chakra.button>)}</Box>}
             <Box css={props.styles.row}><Box css={[props.styles.gutter, props.styles.headerGutter]} data-week={days.length > 1 ? "" : undefined}><Box css={props.styles.shiftLabel}>Groups</Box><Box css={props.styles.detail}>{props.value.shifts.length} shifts</Box></Box>
                 {columns.map(({ day, shift }) => { const at = props.start.getTime() + day * DAY + (Number(shift.start.hour) * 60 + Number(shift.start.minute)) * 60_000; const rows = [...props.coverage].filter(([slot]) => Number(slot.day) === day && slot.shift === shift.key).map(([, c]) => c); return <chakra.button type="button" key={`${day}.${shift.key}`} css={props.styles.shiftHead} data-roster-column-header="" data-week={days.length > 1 ? "" : undefined} onClick={() => props.select({ type: "shift", key: shift.key })}>
-                    <Box css={props.styles.shiftHeading}><Box css={props.styles.shiftLabel}>{days.length > 1 ? shift.code : shift.label}</Box>{days.length === 1 && <Box css={props.styles.time}>{props.format.time(new Date(at))}–{props.format.time(new Date(at + shift.hours * 3_600_000))}</Box>}</Box>{days.length === 1 && <Box css={props.styles.shiftMeta}>{props.format.number(rows.reduce((n, c) => n + c.filled, 0n))} / {props.format.number(rows.reduce((n, c) => n + c.positions, 0n))} positions · {props.format.number(rows.reduce((n, c) => n + c.hours.needed, 0))} h needed{costed(props.value) && ` · ${money(props.format, props.value, rows.reduce((n, c) => n + c.cost, 0))}`}</Box>}
+                    <Box css={props.styles.shiftHeading}><Box css={props.styles.shiftLabel}>{days.length > 1 ? shift.code : shift.label}</Box>{days.length === 1 && <Box css={props.styles.time}>{props.format.time(new Date(at))}–{props.format.time(new Date(at + shift.hours * 3_600_000))}</Box>}</Box>{days.length === 1 && <Box css={props.styles.shiftMeta}>{unread ? <Unread props={props} kind="aggregate" index={0} /> : <>{props.format.number(rows.reduce((n, c) => n + c.filled, 0n))} / {props.format.number(rows.reduce((n, c) => n + c.positions, 0n))} positions · {props.format.number(rows.reduce((n, c) => n + c.hours.needed, 0))} h needed{costed(props.value) && ` · ${money(props.format, props.value, rows.reduce((n, c) => n + c.cost, 0))}`}</>}</Box>}
                 </chakra.button>; })}</Box>
         </Box>
         {props.value.groups.map(group => { const coverage = [...props.coverage].filter(([slot]) => slot.group === group.key && days.includes(Number(slot.day))).map(([, c]) => c);
             const issues = props.issues.filter(i => i.slot.type === "some" && i.slot.value.group === group.key && days.includes(Number(i.slot.value.day)) && (i.kind.type === "breach" || i.kind.type === "gap"));
             const needed = coverage.reduce((n, c) => n + c.hours.needed, 0), rostered = coverage.reduce((n, c) => n + c.hours.rostered, 0);
+            const requirementHead = <chakra.button type="button" css={[props.styles.gutter, props.styles.rowHead]} onClick={() => props.select({ type: "group", key: group.key })}><Box css={props.styles.eyebrow}>Requirement</Box><Box css={props.styles.title}>Work</Box><Box css={props.styles.detail}>hours by skill</Box><Box css={props.styles.detail}>{unread ? <Unread props={props} kind="aggregate" index={0} /> : `${props.format.number(needed)} h needed`}</Box></chakra.button>;
+            const assignmentHead = <chakra.button type="button" css={[props.styles.gutter, props.styles.rowHead]} onClick={() => props.select({ type: "group", key: group.key })}><Box css={props.styles.eyebrow}>Assignment</Box><Box css={props.styles.title}>Roster</Box><Box css={props.styles.detail}>{unread ? <Unread props={props} kind="aggregate" index={1} /> : `${props.format.number(coverage.reduce((n, c) => n + c.people, 0n))} people`}</Box><Box css={props.styles.detail}>{unread ? null : `${props.format.number(rostered)} h`}</Box></chakra.button>;
+            if (unread) {
+                // The group's band and its rows' heads as drawn; a placeholder where each figure goes, and in each slot.
+                const failing = failedIn === group.key ? failure : undefined;
+                return <Fragment key={group.key}><GroupHeading scope="roster" group={group} styles={props.styles} collapsed={collapsed.includes(group.key)} toggle={toggle}><Box as="span" css={props.styles.groupMeta}><Unread props={props} kind="aggregate" index={2} /></Box></GroupHeading>
+                    {!collapsed.includes(group.key) && <>
+                        {props.value.settings.requirements && <UnreadSlots props={props} head={requirementHead} columns={columns} group={group.key} kind={days.length > 1 ? "number" : "aggregate"} failure={failing}
+                            cell={days.length > 1 ? props.styles.weekCell : props.styles.requirement} />}
+                        <UnreadSlots props={props} head={assignmentHead} columns={columns} group={group.key} kind={days.length > 1 ? "number" : "chip"}
+                            failure={props.value.settings.requirements ? undefined : failing} cell={days.length > 1 ? props.styles.weekCell : props.styles.cell} />
+                    </>}</Fragment>;
+            }
             return <Fragment key={group.key}><GroupHeading scope="roster" group={group} styles={props.styles} collapsed={collapsed.includes(group.key)} toggle={toggle}><Box as="span" css={props.styles.groupMeta}>{props.format.number(needed)} h needed · {props.format.number(rostered)} h rostered · {rostered >= needed ? "+" : ""}{props.format.number(rostered - needed)} h{costed(props.value) && ` · ${money(props.format, props.value, coverage.reduce((n, c) => n + c.cost, 0))}`}</Box>{issues.length > 0 && <Box as="span" css={props.styles.flag} data-tone={issues.some(i => i.tone.type === "danger") ? "danger" : "warning"}>{issues.length} issues</Box>}
             </GroupHeading>{!collapsed.includes(group.key) && <>
-                {props.value.settings.requirements && <Box css={props.styles.row}><chakra.button type="button" css={[props.styles.gutter, props.styles.rowHead]} onClick={() => props.select({ type: "group", key: group.key })}><Box css={props.styles.eyebrow}>Requirement</Box><Box css={props.styles.title}>Work</Box><Box css={props.styles.detail}>hours by skill</Box><Box css={props.styles.detail}>{props.format.number(needed)} h needed</Box></chakra.button>
+                {props.value.settings.requirements && <Box css={props.styles.row}>{requirementHead}
                     {columns.map(({ day, shift }) => { const slot = { day: BigInt(day), group: group.key, shift: shift.key }, c = props.coverage.get(slot)!; return <chakra.button type="button" key={slotKey(slot)} css={days.length > 1 ? props.styles.weekCell : props.styles.requirement} data-roster-requirement={slotKey(slot)} onClick={() => { props.select({ type: "requirement", slot }); if (days.length > 1) props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY }); }}>
                         {days.length > 1 ? <><Box css={props.styles.weekValue}>{props.format.number(c.hours.needed)}</Box><Box css={props.styles.weekFill}><Box css={props.styles.weekFillValue} style={{ width: `${Math.min(c.hours.rostered / Math.max(c.hours.needed, 1), 1) * 100}%` }} /></Box><Box css={props.styles.weekValue} data-tone={c.hours.rostered < c.hours.needed ? "warning" : undefined}>{props.format.number(c.hours.rostered - c.hours.needed)}</Box></> : <CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} compact={props.value.settings.density.type === "compact"} />}
                     </chakra.button>; })}</Box>}
-                <Box css={props.styles.row}><chakra.button type="button" css={[props.styles.gutter, props.styles.rowHead]} onClick={() => props.select({ type: "group", key: group.key })}><Box css={props.styles.eyebrow}>Assignment</Box><Box css={props.styles.title}>Roster</Box><Box css={props.styles.detail}>{props.format.number(coverage.reduce((n, c) => n + c.people, 0n))} people</Box><Box css={props.styles.detail}>{props.format.number(rostered)} h</Box></chakra.button>
+                <Box css={props.styles.row}>{assignmentHead}
                     {columns.map(({ day, shift }) => { const slot = { day: BigInt(day), group: group.key, shift: shift.key }, c = props.coverage.get(slot)!; return days.length === 1 ? <DayAssignments key={slotKey(slot)} props={props} slot={slot} />
                         : <DropSlot key={slotKey(slot)} props={props} slot={slot} compact><chakra.button type="button" css={props.styles.weekValue} data-tone={c.open > 0n ? "warning" : undefined} aria-label={`${group.label} ${props.format.weekday(new Date(props.start.getTime() + day * DAY))} ${shift.label}, ${c.filled} of ${c.positions} positions`} onClick={() => { props.select({ type: "slot", slot }); props.setView({ ...props.view, period: "day", date: props.start.getTime() + day * DAY }); }}>{String(c.filled)}/{String(c.positions)}</chakra.button><Box css={props.styles.weekFill}><Box css={props.styles.weekFillValue} style={{ width: `${Math.min(Number(c.filled) / Math.max(Number(c.positions), 1), 1) * 100}%` }} /></Box>{props.issues.some(i => i.slot.type === "some" && sameSlot(i.slot.value, slot)) && <Box css={props.styles.issueDot} aria-label="Shift has issues" />}</DropSlot>; })}
                 </Box>
@@ -243,6 +314,20 @@ function usePeopleRows(value: RosterValue, collapsed: readonly string[]): People
         ]);
     }, [value.people, value.visiblePeople, value.positions, value.groups, collapsed]);
 }
+/**
+ * The row a failed week says so in (#1398, CL11): the first person's — or a group's Agency requests' — at or below the
+ * row at the top of the view, else the last such above it.
+ *
+ * @param rows - The People rows
+ * @param view - Where the view is among them
+ * @returns The row's index; `undefined` with no person row at all
+ */
+function firstPersonInView(rows: readonly PeopleRow[], view: RowsInView): number | undefined {
+    const from = Math.max(0, view.top ?? 0);
+    for (let i = from; i < rows.length; i++) if (rows[i]!.kind === "person") return i;
+    for (let i = Math.min(from, rows.length) - 1; i >= 0; i--) if (rows[i]!.kind === "person") return i;
+    return undefined;
+}
 /** Bring an explicitly selected person into either virtual People layout. */
 function selectedPeopleRow(props: RosterViewsProps, rows: readonly PeopleRow[]): number | undefined {
     const selected = props.selection;
@@ -260,16 +345,30 @@ function People(props: RosterViewsProps) {
     return <Box css={props.styles.main} data-roster-grid="people">
         <VirtualRows fillParent height={undefined} maxHeight={undefined} minWidth="var(--roster-people-width)" rootCss={props.styles.scroll}
             header={header} count={rows.length} getItemKey={getItemKey} estimateSize={index => rows[index]!.kind === "group" ? 38 : 62}
-            scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={index => {
+            scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={(index, inView) => {
                 const row = rows[index]!, { group } = row;
                 if (row.kind === "group") return <GroupHeading scope="roster" group={group} styles={props.styles} collapsed={collapsed.includes(group.key)} toggle={toggle} />;
                 const person = row.person, key = person?.key ?? row.key;
+                const head = <chakra.button type="button" css={[props.styles.gutter, props.styles.peopleHead]} onClick={() => person !== undefined && props.select({ type: "person", key })}><Box css={props.styles.title}>{person?.name ?? "Agency requests"}</Box></chakra.button>;
+                // A week not read, or whose read failed (#1398): the people and their contracts, known without it, at once;
+                // a placeholder where each day's duties go, never "Off · assign"; the failure said once, in the first
+                // person's row in view, across their days.
+                if (props.read.state !== "held") {
+                    const failure = props.read.state === "failed" && index === firstPersonInView(rows, inView) ? props.read : undefined;
+                    return <Box css={props.styles.row} data-roster-person-row={key} data-roster-unread="">{head}
+                        {failure !== undefined
+                            ? <Box css={props.styles.readLine} data-days="" data-roster-read-line=""><ReadFailure read={failure} /></Box>
+                            : days.map(day => <Box key={day} css={props.styles.peopleCell} data-roster-person-day={`${key}.${day}`}><Unread props={props} kind="chip" index={index + day} /></Box>)}
+                        <Box css={props.styles.peopleHead}>{person !== undefined && <Box css={props.styles.unreadValue} data-roster-week-hours="">
+                            <Unread props={props} kind="number" index={index} />{`/ ${props.format.number(person.contract)} h`}</Box>}</Box>
+                    </Box>;
+                }
                 const assignments = matchingAssignments(props, a => person === undefined ? a.who.type === "request" && a.slot.group === group.key : a.who.type === "person" && a.who.value === key);
                 const total = props.hours.get(key) ?? 0;
                 // A person's week's cost, every code summed: theirs alone, from the app's pay.
                 const cost = person === undefined || !costed(props.value) ? undefined
                     : costsOf(props.pay, [...props.week.assignments].flatMap(([id, a]) => a.who.type === "person" && a.who.value === person.key ? [id] : [])).total;
-                return <Box css={props.styles.row} data-roster-person-row={key}><chakra.button type="button" css={[props.styles.gutter, props.styles.peopleHead]} onClick={() => person !== undefined && props.select({ type: "person", key })}><Box css={props.styles.title}>{person?.name ?? "Agency requests"}</Box></chakra.button>
+                return <Box css={props.styles.row} data-roster-person-row={key}>{head}
                     {days.map(day => <PersonDay key={day} props={props} person={person} group={group.key} day={day}>
                         {assignments.filter(({ a }) => a.slot.day === BigInt(day)).map(({ id, a, removed }) => <AssignmentChip key={id} props={props} id={id} assignment={a} removed={removed} short />)}
                         {person !== undefined && !assignments.some(({ a, removed }) => !removed && a.slot.day === BigInt(day)) && (props.commands.available
@@ -296,10 +395,25 @@ function PeopleAgenda(props: RosterViewsProps) {
     return <Box css={props.styles.main} data-roster-agenda="people">
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={props.styles.agenda} count={rows.length}
             getItemKey={getItemKey} estimateSize={index => rows[index]!.kind === "group" ? 38 : 900} overscan={1}
-            scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={index => {
+            scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={(index, inView) => {
                 const row = rows[index]!;
                 if (row.kind === "group") return <GroupHeading scope="roster" group={row.group} styles={props.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} />;
                 const person = row.person;
+                // A week not read, or whose read failed (#1398): each person's card, their name and contract known without
+                // it, a placeholder where each day's duties go, never "Off · assign"; the failure said once, in the first
+                // card in view.
+                if (props.read.state !== "held") {
+                    const failure = props.read.state === "failed" && index === firstPersonInView(rows, inView) ? props.read : undefined;
+                    return <Box css={props.styles.card} data-roster-person-card={person?.key ?? row.key} data-roster-unread="">
+                        <Box css={props.styles.cardHead}><Box css={props.styles.cardTitle}>{person?.name ?? "Agency requests"}</Box>
+                            {person !== undefined && <Box css={props.styles.unreadValue}><Unread props={props} kind="number" index={index} />{`/ ${props.format.number(person.contract)} h`}</Box>}</Box>
+                        {failure !== undefined ? <ReadFailure read={failure} />
+                            : person === undefined ? <Unread props={props} kind="chip" index={index} />
+                                : Array.from({ length: 7 }, (_, day) => <Box key={day} css={props.styles.agendaGroup}>
+                                    <Box css={props.styles.detail}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))}</Box>
+                                    <Unread props={props} kind="chip" index={index + day} /></Box>)}
+                    </Box>;
+                }
                 return <Box css={props.styles.card} data-roster-person-card={person?.key ?? row.key}>
                     {person === undefined ? <><Box css={props.styles.cardHead}><Box css={props.styles.cardTitle}>Agency requests</Box></Box>{matchingAssignments(props, a => a.who.type === "request" && a.slot.group === row.group.key).map(({ id, a, removed }) => <AssignmentCard key={id} props={props} id={id} assignment={a} removed={removed} />)}</> : <>
                         <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "person", key: person.key })}><Box css={props.styles.cardTitle}>{person.name} · {props.format.number(props.hours.get(person.key) ?? 0)} / {props.format.number(person.contract)} h</Box></chakra.button>
@@ -321,7 +435,16 @@ function Agenda(props: RosterViewsProps) {
     return <Box css={props.styles.scroll} data-roster-agenda=""><Box css={props.styles.agenda}>
         {props.view.period === "day" && props.view.layout === "shifts" && <Seg fullWidth label="Day of week" scope="roster" name="agenda-days" active={String(props.day)} items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: props.format.weekday(new Date(props.start.getTime() + day * DAY)) }))} onPick={day => props.setView({ ...props.view, date: props.start.getTime() + Number(day) * DAY })} />}
         {days.map(day => <Box key={day} css={props.styles.agendaGroup}><Box css={props.styles.groupLabel}>{props.format.weekdayDate(new Date(props.start.getTime() + day * DAY))}</Box>
-            {props.value.groups.flatMap(group => props.value.shifts.map(shift => { const slot = { day: BigInt(day), group: group.key, shift: shift.key }, c = props.coverage.get(slot)!; return <Box key={slotKey(slot)} css={props.styles.card} data-roster-agenda-slot={slotKey(slot)}>
+            {props.value.groups.flatMap(group => props.value.shifts.map(shift => { const slot = { day: BigInt(day), group: group.key, shift: shift.key }; if (props.read.state !== "held") {
+                // A week not read, or whose read failed (#1398): each slot's card and title at once, a placeholder where its
+                // figures and duties go; the failure said once, in the first card.
+                const first = day === days[0] && group.key === props.value.groups[0]?.key && shift.key === props.value.shifts[0]?.key;
+                return <Box key={slotKey(slot)} css={props.styles.card} data-roster-agenda-slot={slotKey(slot)} data-roster-unread="">
+                    <Box css={props.styles.cardHead}><Box css={props.styles.cardTitle}>{group.label} · {shift.label}</Box></Box>
+                    {props.read.state === "failed" ? first && <ReadFailure read={props.read} />
+                        : <><Box css={props.styles.detail}><Unread props={props} kind="aggregate" index={day} /></Box><Unread props={props} kind="chip" index={day + 1} /></>}
+                </Box>;
+            } const c = props.coverage.get(slot)!; return <Box key={slotKey(slot)} css={props.styles.card} data-roster-agenda-slot={slotKey(slot)}>
                 <chakra.button type="button" css={props.styles.cardHead} onClick={() => props.select({ type: "slot", slot })}><Box css={props.styles.cardTitle}>{group.label} · {shift.label}</Box></chakra.button>
                 <Box css={props.styles.detail}>{String(c.filled)} / {String(c.positions)} positions · {String(c.open)} open</Box>
                 {props.value.settings.requirements && <CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} compact />}
