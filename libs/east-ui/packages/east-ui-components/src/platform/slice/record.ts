@@ -389,6 +389,24 @@ export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
 }
 
 /**
+ * A window of a record Slice's narrowing of its record — with no narrowing, of
+ * the record's own rows in their order (#1404): the entries `[offset, offset +
+ * limit)`, each as its binding reads it, its key and its row joined. What a key
+ * search over a whole record lists the matches {@link recordSliceSeek} placed
+ * by: the Schematic's Find. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing; empty, the record's own rows
+ * @param offset - The window's first row, in the narrowing's order
+ * @param limit - How many rows it holds at most
+ * @returns The window's entries, in order; none while pending
+ */
+export function recordSlicePage(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, offset: bigint, limit: bigint): option<unknown[]> {
+    const controller = controllerOf(slice);
+    return controller.windows.page(controller.plan(where), offset, limit);
+}
+
+/**
  * The revision a record Slice's record is read at now (#1039): what a reader
  * keeps what it read under, so a commit — a Save's, another session's — reads
  * it again. A tracked read, as {@link recordSlicePlace} is.

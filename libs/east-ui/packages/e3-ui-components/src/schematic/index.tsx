@@ -20,10 +20,12 @@
  * - **the toolbar** — the Schematic's items (`useSchematicToolbarItems`,
  *   `toolbar.tsx`) on the frame's one folding row, in §6.1's order: the rail
  *   over its `Slice.bindRecords` and its summary, the tools, Zoom − / + and
- *   Fit, Find over the items, and the steps through them while something is
- *   selected. The tool held and the link kind Connect draws are the viewer's,
- *   kept under the Schematic's `id` (`tools.ts`). ⌘F, or Ctrl+F, anywhere in
- *   the frame focuses Find;
+ *   Fit, Find over every item kind's record by key (`find.ts`, #1404) — a pick
+ *   the canvas doesn't show as itself flown to where it stands, the footer
+ *   saying why — and the steps through the items while something is selected.
+ *   The tool held and the link kind Connect draws are the viewer's, kept under
+ *   the Schematic's `id` (`tools.ts`). ⌘F, or Ctrl+F, anywhere in the frame
+ *   focuses Find;
  * - **main** — the canvas (`canvas/view.tsx`), filling main, the minimap and
  *   the scale bar on it and no control of its own; the toolbar drives its
  *   camera and its steps through its handle;
@@ -59,10 +61,10 @@
  *   a double-click on an entity, opens Details, its open tab kept per viewer;
  * - **the narrowing** (#1392, `narrowing.ts`): each kind's source of the rail,
  *   its shown keys followed while the narrowing dims or looks at its matches,
- *   hiding what it leaves out or drawing it as context; every list — Find, the
+ *   hiding what it leaves out or drawing it as context; every list — the
  *   Index, the Backlog, the Choosers, what an item is joined to — and every
- *   count shows what it leaves in, and the canvas rings, frames and flies to
- *   its matches;
+ *   count shows what it leaves in, Find marks what it leaves out, and the
+ *   canvas rings, frames and flies to its matches;
  * - **the skeleton** — `BuilderFrame.loading` covers the frame until every
  *   kind has been read once (or its read failed); later reads keep the canvas
  *   and what it draws until they land (§6.5, §10.4).
@@ -94,6 +96,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { schematicColorTokens } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
+import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle, type SchematicCanvasNarrowing } from "./canvas/view.js";
@@ -106,8 +109,8 @@ import { draftedDrawing, type DraftedCache } from "./drafted.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
 import type { NetLeg, SchematicEdit } from "./edits.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
-import { useFindItem, type FindableItem } from "./find.js";
-import { SchematicFooter, savedRecords, type SchematicNotice } from "./footer.js";
+import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
+import { SchematicFooter, savedRecords, type SchematicFoundNotice, type SchematicNotice } from "./footer.js";
 import { drawnEntities, inspectedEqual, inspectedOf } from "./inspect.js";
 import { schematicInspectorPane } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
@@ -329,9 +332,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: 
     // the inspector shows it — a net's leg with it (#1391).
     const [selection, setSelection] = useState<ReadonlySet<string>>(NOTHING_SELECTED);
     const [leg, setLeg] = useState<NetLeg | null>(null);
+    // Why the item Find's last pick landed on doesn't show as itself — the filters, its layer, no position — until the
+    // next pick, Clear filters or a selection (#1404).
+    const [found, setFound] = useState<SchematicFoundNotice | undefined>(undefined);
     const onSelection = useCallback((ids: ReadonlySet<string>, next: NetLeg | null) => {
         setSelection(ids);
         setLeg(next);
+        // A selection says no more where Find's last pick landed (#1404).
+        if (ids.size > 0) setFound(undefined);
     }, []);
     const selected = selection.size > 0;
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
@@ -363,15 +371,35 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: 
     const connectValues = useCallback((slot: string): option<Uint8Array> =>
         (pickedTemplate !== undefined && stringEqual(pickedTemplate.slot, slot) ? some(pickedTemplate.values) : none), [pickedTemplate]);
 
-    // ── Find (§6.1): the items the drawing shows, by their keys — what the narrowing leaves out left out ─────────
-    const kindsBySlot = useMemo(() => new Map(value.items.map((kind, order) => [kind.key, { name: kind.name, order }] as const)), [value.items]);
-    const findable = useMemo((): FindableItem[] => listed.items.flatMap((item) => {
-        const kind = kindsBySlot.get(item.ref.kind);
-        return layers.hidden.has(item.key) || kind === undefined ? []
-            : [{ id: item.key, key: item.ref.key, label: item.label, kind: kind.name, order: kind.order }];
-    }), [listed.items, layers.hidden, kindsBySlot]);
+    // ── Find (§6.1, #1404): every item kind's record, by key — one read through its source sought through e3 ─────
+    const findKinds = useMemo((): FindKind[] => value.items.map((kind) => ({
+        slot: kind.key, name: kind.name, part: sourcePart(chrome, kind.key), rows: kind.rows, read: kind.read, codec: rowCodec(kind.rowType),
+    })), [value.items, chrome]);
     const reveal = useCallback((entity: string) => canvasRef.current?.reveal(entity), []);
-    const find = useFindItem(findable, words.m.findNoMatches(), reveal);
+    const hiddenLayers = useMemo(() => new Set(layersNow.flatMap((layer) => (getSomeorUndefined(layer.visible) === false ? [layer.key] : []))), [layersNow]);
+    const drawnItems = useMemo(() => new Set(drawing.items.map((item) => item.key)), [drawing.items]);
+    const onFound = useCallback((item: FoundItem) => {
+        const canvas = canvasRef.current;
+        const mark = foundMark(item, look.dim, hiddenLayers);
+        if (mark === undefined) {
+            setFound(undefined);
+            // The narrowing holds it: drawn, it is flown to and selected; not drawn yet — off a window (#1393) — flown to,
+            // and selected once it draws.
+            if (drawnItems.has(item.id) || item.position === undefined) canvas?.reveal(item.id);
+            else { canvas?.look(item.position.x, item.position.y); canvas?.select(item.id); }
+            return;
+        }
+        // Drawn as context, it is flown to as any is, selecting nothing; else the camera flies to where it stands.
+        if (mark === "dimmed" && drawnItems.has(item.id)) canvas?.reveal(item.id);
+        else if (item.position !== undefined) canvas?.look(item.position.x, item.position.y);
+        // Its kind's source's filters leave it out: their Clear clears them, and selects it once it draws.
+        const part = mark === "hidden" || mark === "dimmed" ? sourcePart(chrome, item.ref.kind) : undefined;
+        setFound({
+            words: words.m.foundOff({ item: item.label, mark }),
+            clear: part === undefined ? undefined : () => { part.clearAll(); setFound(undefined); canvasRef.current?.select(item.id); },
+        });
+    }, [look.dim, hiddenLayers, drawnItems, chrome, words]);
+    const find = useSchematicFind({ kinds: findKinds, words, dim: look.dim, hiddenLayers, version: data.drawn, onPick: onFound });
 
     // ── The toolbar (§6.1) ──────────────────────────────────────────────
     // What the rail counts a source in: a templates list's, its kind's templates; a kind's own, its rows (#1392).
@@ -619,7 +647,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: 
                 start={library}
                 end={end}
                 footer={<SchematicFooter styles={styles} words={words} counts={counts} rows={data.rows} sources={sources} records={records}
-                    pending={pending} notices={notices} refusal={refusal} />}
+                    pending={pending} notices={notices} refusal={refusal} found={found} />}
                 onKeyDown={onKeyDown}
             >
                 <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}

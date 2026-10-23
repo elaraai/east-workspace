@@ -35,11 +35,12 @@ Schematic's renderer (`src/schematic/`, #1384) registers against its
 renders in its `BuilderFrame` (#1387): its frame (`index.tsx`) over its reads
 of the app's records, in a component of their own (`data.ts`, #1386) — its
 toolbar's items (`toolbar.tsx`: the rail, the tools, held under its `id` in
-`tools.ts`, the zoom and Fit, Find over its items in `find.ts`, and the
-steps), its footer (`footer.tsx` over `counts.ts`) and its words
-(`messages.ts`) — and its canvas (`canvas/`: the canvas itself, `view.tsx`,
-and what it draws, the camera, the painter, the selection, the model, the
-layers, the colours and the theme bridge), whose invariants are
+`tools.ts`, the zoom and Fit, Find in `find.ts` — every item kind's record
+sought by key, one read through its source through e3, never what the canvas
+draws (#1404) — and the steps), its footer (`footer.tsx` over `counts.ts`)
+and its words (`messages.ts`) — and its canvas (`canvas/`: the canvas itself,
+`view.tsx`, and what it draws, the camera, the painter, the selection, the
+model, the layers, the colours and the theme bridge), whose invariants are
 `canvas/CLAUDE.md`'s. Every gesture that writes is one step of one history
 over a session per record it writes (`editing.ts`, #1388), as the Roster's
 and the Allocation's are: what each gesture writes is pure in `edits.ts`,
@@ -74,9 +75,11 @@ keys read through `FollowSources` while the narrowing dims or looks at its
 matches. Hidden, a kind reads only its narrowing, and a link or a net whose
 ends it hides leaves the lists; dimmed, what it leaves out draws as context —
 faded, greyed or a bare marker, by the recipe and the painter — and is selected
-by no path. Find, the Index, the Backlog, the inspector's Choosers, what an
-item is joined to and the footer's counts show only what it leaves in, and the
-matches take the emphasis, the frame and the fit. The
+by no path. The Index, the Backlog, the inspector's Choosers, what an item is
+joined to and the footer's counts show only what it leaves in, and the matches
+take the emphasis, the frame and the fit. Find lists what it leaves out too,
+marked: a pick on it flies to where it stands, selects nothing, and the footer
+says why, with Clear filters (#1404). The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it

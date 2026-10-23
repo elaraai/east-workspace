@@ -204,7 +204,7 @@ function hasDot(item: DrawnItem): boolean {
 }
 
 /** The world box a fly to an item frames: 8 × 6 units about its centre. */
-function itemFrame(item: DrawnItem): { x: number; y: number; w: number; h: number } {
+function itemFrame(item: { x: number; y: number }): { x: number; y: number; w: number; h: number } {
     return { x: item.x - 4, y: item.y - 3, w: 8, h: 6 };
 }
 
@@ -250,6 +250,11 @@ export interface SchematicCanvasHandle {
     select(id: string): void;
     /** The view's centre, at the screen's resolution: where a card's ⏎ adds or places an item (#1390); `undefined` while the canvas has no size. */
     centre(): SchematicDropPoint | undefined;
+    /**
+     * Flies to a world point, framing the 8 × 6 units a fly to an item frames about it, and selects nothing: where Find's
+     * pick lands on an item the canvas doesn't draw as itself — the rail's filters hide it, or its layer does (#1404).
+     */
+    look(x: number, y: number): void;
 }
 
 /** Props of {@link SchematicCanvas}. */
@@ -2040,6 +2045,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             const ppuLive = snap.fit * cam.zoom;
             return dropPoint({ x: (snap.size.w / 2 - cam.tx) / ppuLive, y: (snap.size.h / 2 - cam.ty) / ppuLive }, ppuLive);
         },
+        look: (x, y) => flyTo(itemFrame({ x, y })),
     }), [zoomBy, resetView, stepSelection, items, inertKeys, flyToItem, shownZones, flyTo, commitSelection, commitLinkSelection, commitZoneSelection,
         clearZoneSelection, data.links, data.nets, centers, layerHiddenKeys]);
 
