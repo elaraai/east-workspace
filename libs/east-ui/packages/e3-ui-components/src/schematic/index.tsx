@@ -98,12 +98,13 @@ import { schematicColorTokens } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
+import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle, type SchematicCanvasNarrowing } from "./canvas/view.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
 import { hostZones, zoneHolding } from "./canvas/model.js";
-import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, type SchematicData, type SchematicValue } from "./data.js";
+import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
 import { schematicCounts } from "./counts.js";
 import { draftedDrawing, type DraftedCache } from "./drafted.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
@@ -172,10 +173,12 @@ export const EastChakraSchematic = memo(function EastChakraSchematic({ value, st
     // A Retry of a kind read whole reads every kind again: the read's attempt moves.
     const [attempt, setAttempt] = useState(0);
     const readAgain = useCallback(() => setAttempt((n) => n + 1), []);
+    // Where the canvas's viewport rests (#1393): the canvas writes it, the reader reads its windows around it.
+    const [viewport] = useState(createViewportStore);
     return (
         <>
-            <SchematicDataReader value={value} attempt={attempt} onData={setData} />
-            <SchematicFollows value={value} data={data} readAgain={readAgain} storageKey={storageKey} />
+            <SchematicDataReader value={value} attempt={attempt} viewport={viewport} onData={setData} />
+            <SchematicFollows value={value} data={data} readAgain={readAgain} storageKey={storageKey} viewport={viewport} />
         </>
     );
 }, (prev, next) => schematicEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
@@ -190,6 +193,8 @@ interface SchematicFrameProps {
     readonly readAgain: () => void;
     /** The structural storage key: the editing's sessions are kept under it and the Schematic's `id`. */
     readonly storageKey: string;
+    /** Where the canvas's viewport rests, which the canvas writes as its camera comes to rest (#1393). */
+    readonly viewport: SchematicViewportStore;
 }
 
 /**
@@ -218,9 +223,11 @@ function followedSources(value: SchematicValue, words: SchematicWords, chrome: S
         if (tab.type === "tab" && source !== undefined && !nouns.has(source)) nouns.set(source, tab.value.name.toLocaleLowerCase(words.locale));
     }
     // A kind's own source: its shown keys say what is context, dimmed, and what matches — read only while either draws.
+    // A kind read by area asks its window's rows of its narrowing instead, never the narrowing's keys whole (D28).
     if (look.dim || looksAtMatches(look)) {
+        const areas = areaSlots(value);
         for (const kind of [...value.items, ...value.zones, ...value.links, ...value.nets]) {
-            if (sourcePart(chrome, kind.key) !== undefined && !nouns.has(kind.key)) {
+            if (sourcePart(chrome, kind.key) !== undefined && !areas.has(kind.key) && !nouns.has(kind.key)) {
                 nouns.set(kind.key, words.m.kindNoun({ name: kind.name.toLocaleLowerCase(words.locale), plural: true }));
             }
         }
@@ -261,7 +268,7 @@ const NO_PICKS: ReadonlyMap<string, string> = new Map();
 const THEME_COLOURS: ReadonlySet<string> = new Set(schematicColorTokens);
 
 /** The frame, its regions holding the Schematic's parts over one shared state — see the module docs. */
-function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: SchematicFrameProps & {
+function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed, look }: SchematicFrameProps & {
     readonly followed: FollowedSources;
     readonly look: SchematicNarrowedLook;
 }) {
@@ -280,7 +287,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: 
         const part = kind.editable ? sourcePart(chrome, kind.key) : undefined;
         return part === undefined ? [] : [part];
     }), [value.items, value.zones, value.links, value.nets, chrome]);
-    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held);
+    // The kinds read by area (#1393): never read whole, nor their narrowing complete.
+    const areas = useMemo(() => areaSlots(value), [value]);
+    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows);
     const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
     // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
     const draftedCache = useRef<DraftedCache>(new WeakMap());
@@ -294,9 +303,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: 
     const sourced = useMemo(() => new Set([...value.items, ...value.zones, ...value.links, ...value.nets]
         .flatMap((kind) => (sourcePart(chrome, kind.key) === undefined ? [] : [kind.key]))), [value.items, value.zones, value.links, value.nets, chrome]);
     const kindKeys = useCallback((slot: string): option<ReadonlySet<string>> | undefined => {
+        // A kind read by area: which of its window's rows its narrowing holds, as `within` answered (D28).
+        if (areas.has(slot)) {
+            const matched = data.matched.get(slot);
+            return matched === undefined ? none : some(matched);
+        }
         const shown = sourced.has(slot) ? followed.get(slot)?.shown : undefined;
         return shown === undefined || (shown.keys.type === "some" && !shown.ready) ? undefined : shown.keys;
-    }, [sourced, followed]);
+    }, [areas, data.matched, sourced, followed]);
     const narrowing = useMemo(() => schematicNarrowing({ drawn: drawing, held: data.held, sourced, keys: kindKeys, dim: look.dim }),
         [drawing, data.held, sourced, kindKeys, look.dim]);
     // The drawing as every list shows it — Find, the Index, the Choosers, what an item is joined to, the counts.
@@ -635,7 +649,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: 
 
     return (
         <Box css={styles.root} data-schematic="" {...(data.loading || narrowingBusy ? { "aria-busy": "true" } : {})}>
-            {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} onRows={setInspectedRows} />}
+            {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
             <BuilderFrame
                 ref={frameRef}
                 storageKey={keys.frame}
@@ -652,7 +666,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: 
             >
                 <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
                     words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
-                    onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues} />
+                    onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
+                    viewport={areas.size > 0 ? viewport : undefined} density={data.density} reading={areas.size > 0 && data.loading} />
             </BuilderFrame>
         </Box>
     );

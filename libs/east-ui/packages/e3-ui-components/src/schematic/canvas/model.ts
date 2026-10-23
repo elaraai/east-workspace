@@ -6,9 +6,10 @@
 /**
  * Pure derived-model helpers for the Schematic renderer (#183 WS3): the
  * navigator tree (zones nest by containment, items live in their smallest
- * outline host), the semantic-zoom LOD machinery (per-item tier sizing,
- * the centre R-tree, and the symmetric neighbour-fit declutter) and the box
- * the narrowing's matches span (#1392). React-free data-in / data-out —
+ * outline host), the semantic-zoom LOD machinery (per-item tier sizing —
+ * no card or pin wider than {@link SCHEMATIC_CARD_MAX_PX} — the centre
+ * R-tree, and the symmetric neighbour-fit declutter) and the box the
+ * narrowing's matches span (#1392). React-free data-in / data-out —
  * unit-tested in `model.test.ts`.
  */
 
@@ -85,17 +86,28 @@ export function buildNavTree(zones: readonly SchematicZoneValue[], items: readon
 
 export type LodTier = "card" | "label" | "dot";
 
+/**
+ * The widest an item's card or labelled pin draws, in screen px, whatever its
+ * words (#1393): a longer label, sublabel or figure ends in an ellipsis. A card
+ * drawn at its item's own width — its `width` role, a box in the world — is
+ * held to that instead. Past the viewport a card reaches no more than half of
+ * it, which is what a kind read by area pads its window by (`area.ts`).
+ */
+export const SCHEMATIC_CARD_MAX_PX = 200;
+
 /** Screen-px footprint of an item rendered at `tier`, centred on the
- * item. Translation-invariant, so collisions depend on ppu alone. */
+ * item — a card or a pin at most {@link SCHEMATIC_CARD_MAX_PX} wide, but a
+ * card at its item's own width. Translation-invariant, so collisions depend
+ * on ppu alone. */
 export function tierSize(item: SchematicItemValue, tier: LodTier, ppu: number): { w: number; h: number } {
-    if (tier === "label") return { w: item.label.length * 6 + 28, h: 22 };
+    if (tier === "label") return { w: Math.min(SCHEMATIC_CARD_MAX_PX, item.label.length * 6 + 28), h: 22 };
     const sublabel = item.sublabel.type === "some" ? item.sublabel.value : undefined;
     const explicit = item.width.type === "some" ? item.width.value * ppu : undefined;
-    const w = explicit ?? Math.max(
+    const w = explicit ?? Math.min(SCHEMATIC_CARD_MAX_PX, Math.max(
         88,
         item.label.length * 6.6 + (item.icon.type === "some" ? 16 : 0) + (item.status.type === "some" ? 13 : 0) + 20,
         (sublabel?.length ?? 0) * 5.4 + 20,
-    );
+    ));
     const h = 24
         + (sublabel !== undefined ? 13 : 0)
         + (item.meter.type === "some" ? 8 : 0)

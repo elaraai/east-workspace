@@ -40,9 +40,10 @@ import { Schematic } from "@elaraai/e3-ui/internal";
 import { arrive, paintLinks, traceHead, traceRoute, type CanvasEnd, type CanvasHead, type CanvasLink, type CanvasLinkLook } from "../../shared/links/canvas.js";
 import { placeCaptions, type RibbonCaption } from "../../shared/links/captions.js";
 import { LINK_CAPTION_DROP, LINK_CORNER } from "../../shared/links/look.js";
+import type { SchematicDensity } from "../area.js";
 import { type Bbox, type ScreenCamera, bboxOverlaps, pointsBbox, project, viewportWorldBbox } from "./camera";
 import { type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn } from "./drawn";
-import { tierSize } from "./model";
+import { SCHEMATIC_CARD_MAX_PX, tierSize } from "./model";
 
 /** An Option's value, or `undefined` — East's `match`, as east-ui-components'
  *  `getSomeorUndefined` reads one, without loading that package's renderers:
@@ -228,6 +229,25 @@ export interface PaintInput {
     lit?: string;
     /** The link whose end a retarget drags, by its id (#1403): drawn as its `was` line until the drag lets go. */
     was?: string;
+    /**
+     * Each kind read by area drawing its density in place of its items (#1393, D25), by its slot: its raster's cells,
+     * shaded in the brand's mark by how many rows each holds, over the zones and under every link and item.
+     */
+    density?: ReadonlyMap<string, SchematicDensity>;
+}
+
+/**
+ * How strongly a density raster's cell shades (D25): by the square root of its
+ * share of the fullest cell, so a sparse cell still shows, from a faint wash to
+ * most of the mark's ink.
+ *
+ * @param count - The rows the cell holds
+ * @param most - The rows the fullest cell holds
+ * @returns Its fill's alpha, `0` for an empty cell
+ */
+export function densityAlpha(count: number, most: number): number {
+    if (count <= 0 || most <= 0) return 0;
+    return 0.12 + 0.6 * Math.sqrt(Math.min(1, count / most));
 }
 
 const css = (c: RGB, a = 1): string =>
@@ -363,11 +383,46 @@ export const MARKER_DOT_RADIUS = 5;
 export const MARKER_DOT_HIT_RADIUS = 10;
 const MARKER_PIN_PAD_X = 6, MARKER_PIN_DOT_W = 7, MARKER_PIN_GAP = 4, MARKER_PIN_H = 16;
 
+/** The widest a labelled pin's words draw, in screen px: the pin at its widest ({@link SCHEMATIC_CARD_MAX_PX}), less its padding, its dot and the gap after it. */
+const MARKER_PIN_TEXT_MAX = SCHEMATIC_CARD_MAX_PX - (MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP + MARKER_PIN_PAD_X);
+
+/** What a label is cut between: its graphemes, where the page segments them. */
+const GRAPHEMES = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
+
+/** A label's graphemes — so a cut never splits an accented letter or a flag — or its code points where the page has no segmenter. */
+const graphemesOf = (text: string): string[] => (GRAPHEMES === undefined ? Array.from(text) : Array.from(GRAPHEMES.segment(text), (part) => part.segment));
+
+/**
+ * The words a labelled pin draws, and their width (#1393): its item's whole
+ * label, or — one wider than a pin's words draw at its widest — as much of it
+ * as fits before an ellipsis, cut between graphemes, a space before the cut
+ * dropped. A longer cut is never narrower, so the longest that fits is found
+ * by halving.
+ *
+ * @param label - The item's label
+ * @param measure - A string's width in px, in the pins' font
+ * @returns The words, and their width in px
+ */
+function pinWords(label: string, measure: (text: string) => number): { readonly text: string; readonly width: number } {
+    const whole = measure(label);
+    if (whole <= MARKER_PIN_TEXT_MAX) return { text: label, width: whole };
+    const parts = graphemesOf(label);
+    const cut = (n: number): string => `${parts.slice(0, n).join("").trimEnd()}…`;
+    let lo = 0, hi = parts.length - 1;
+    while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2);
+        if (measure(cut(mid)) <= MARKER_PIN_TEXT_MAX) lo = mid;
+        else hi = mid - 1;
+    }
+    const text = cut(lo);
+    return { text, width: measure(text) };
+}
+
 /** The screen-space hitbox of a non-card LOD marker — a circle for a `dot`, the
- * rounded-pill rect for a `label`. */
+ * rounded-pill rect for a `label`, with the words it draws. */
 export type MarkerHitbox =
     | { kind: "circle"; cx: number; cy: number; r: number }
-    | { kind: "rect"; left: number; top: number; w: number; h: number };
+    | { kind: "rect"; left: number; top: number; w: number; h: number; text: string };
 
 /**
  * The screen-space hitbox of an item's LOD marker at `tier`. The single source
@@ -375,14 +430,16 @@ export type MarkerHitbox =
  * React layer's pick (to hit-test), so the clickable area always equals the
  * drawn area and the two cannot silently drift (issue #57, P11). A `dot` is a
  * circle of {@link MARKER_DOT_HIT_RADIUS}; a `label` is the rounded pill whose
- * width is `pad + dot + gap + textWidth + pad` — the text measured by `measure`
- * (the caller sets the context font to the palette's `labelFont` first).
+ * width is `pad + dot + gap + textWidth + pad`, no wider than
+ * {@link SCHEMATIC_CARD_MAX_PX} — its words the label, or as much of it as fits
+ * before an ellipsis (#1393), each measured by `measure` (the caller sets the
+ * context font to the palette's `labelFont` first).
  *
  * @param item - the item's world anchor and label
  * @param tier - the LOD tier (`dot` or `label`; `card` markers are DOM)
  * @param cam - the screen camera
  * @param measure - measures a string's width in px under the pin font
- * @returns the marker's screen-space hitbox
+ * @returns the marker's screen-space hitbox, and a pill's words
  */
 export function markerHitbox(
     item: { x: number; y: number; label: string },
@@ -392,9 +449,9 @@ export function markerHitbox(
 ): MarkerHitbox {
     const { sx, sy } = project(item.x, item.y, cam);
     if (tier === "dot") return { kind: "circle", cx: sx, cy: sy, r: MARKER_DOT_HIT_RADIUS };
-    const tw = measure(item.label);
-    const w = MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP + tw + MARKER_PIN_PAD_X;
-    return { kind: "rect", left: sx - w / 2, top: sy - MARKER_PIN_H / 2, w, h: MARKER_PIN_H };
+    const words = pinWords(item.label, measure);
+    const w = MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP + words.width + MARKER_PIN_PAD_X;
+    return { kind: "rect", left: sx - w / 2, top: sy - MARKER_PIN_H / 2, w, h: MARKER_PIN_H, text: words.text };
 }
 
 /**
@@ -1181,6 +1238,21 @@ export function paintSchematic(input: PaintInput): void {
         ctx.restore();
     }
 
+    // ---- the density at overview (#1393, D25): each kind's raster, over the zones -------
+    // Each cell holding rows a square of the brand's mark, shaded by how many it holds; a cell off screen is culled.
+    for (const raster of input.density?.values() ?? []) {
+        const side = raster.side * ppu;
+        ctx.save();
+        ctx.fillStyle = css(p.brandMark);
+        for (const cell of raster.cells) {
+            const x = wx(cell.minX), y = wy(cell.minY);
+            if (x > width || y > height || x + side < 0 || y + side < 0) continue;
+            ctx.globalAlpha = densityAlpha(cell.count, raster.most);
+            ctx.fillRect(x, y, side, side);
+        }
+        ctx.restore();
+    }
+
     // ---- links and nets, in the shared links look (#1403) ------------------------
     // Each routed between the items it joins, its ends on their edges where they
     // draw at the zoom; culled by the box over every item it joins and its bends,
@@ -1534,12 +1606,13 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.stroke();
             }
         } else {
-            // labelled pin — bounds come from the SHARED markerHitbox so the drawn
-            // pill and the click target are identical (issue #57, P11).
+            // labelled pin — bounds and words come from the SHARED markerHitbox so the
+            // drawn pill and the click target are identical (issue #57, P11), a long
+            // label cut before an ellipsis (#1393).
             ctx.font = p.labelFont;
             const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
             if (box.kind === "rect") {
-                const { left, top, w, h } = box;
+                const { left, top, w, h, text } = box;
                 ctx.beginPath();
                 ctx.roundRect?.(left, top, w, h, h / 2);
                 if (!ctx.roundRect) ctx.rect(left, top, w, h);
@@ -1560,7 +1633,7 @@ export function paintSchematic(input: PaintInput): void {
                 }
                 ctx.fillStyle = css(p.fg);
                 ctx.textBaseline = "middle";
-                ctx.fillText(item.label, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
+                ctx.fillText(text, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
             }
         }
         ctx.restore();

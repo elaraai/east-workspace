@@ -17,8 +17,10 @@
  *   snapshot. A kind read through its source of the slice is read by key
  *   through its `entries`: what its source's read holds, kept at the revision
  *   it was read at, serves a gesture's original and a Save's confirmation, and
- *   a row it does not hold is read by its key. Drafts of rows the narrowing
- *   hides stay in their sessions, and Save sends them (SC23).
+ *   a row it does not hold is read by its key. A kind read by area (#1393) is
+ *   the same, its window's rows serving while they are at the record's
+ *   revision. Drafts of rows the narrowing hides, or the window does not hold,
+ *   stay in their sessions, and Save sends them (SC23).
  * - **Its writes.** A gesture's edits (`edits.ts`) go through the kinds' own
  *   functions: an existing row is rewritten from the row as its session finds
  *   it — drafted, else as the record holds it — through its kind's `write`, so
@@ -43,7 +45,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { StringType, equalFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditHistory, EntryVersion, Origin } from "@elaraai/east-ui-components";
@@ -52,7 +54,7 @@ import {
     type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead,
 } from "../shared/schedule/editing.js";
 import { draftedRow, heldInWindow, keptAtRevision, mintKey, rowCodec } from "../shared/schedule/records.js";
-import type { SchematicHeldRows, SchematicValue } from "./data.js";
+import type { SchematicHeldRows, SchematicValue, SchematicWindowRows } from "./data.js";
 import type { DraftedRow, SchematicDrafts, SortDrafts } from "./drafted.js";
 import type { SchematicEdit } from "./edits.js";
 import { detailsKey } from "./record-keys.js";
@@ -120,10 +122,12 @@ function kindsOf(value: Pick<SchematicValue, "items" | "zones" | "links" | "nets
  * @param storageKey - The Schematic's key: its sessions and their history are kept under it
  * @param recordSlices - The slice's parts over the kinds read through their sources: each Save notice counts what leaves its own
  * @param held - Each kind's rows its read holds: the keys a new row's key is minted unique among
+ * @param areas - The kinds read by area, by slot: never read whole, nor their narrowing complete
+ * @param windows - The rows each kind read by area holds in its window, at the revision they were read at
  * @returns The editing
  */
 export function useSchematicEditing(value: SchematicValue, storageKey: string, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[],
-    held: SchematicHeldRows): SchematicEditing {
+    held: SchematicHeldRows, areas: ReadonlySet<string>, windows: SchematicWindowRows): SchematicEditing {
     const kinds = useMemo((): readonly AnyKind[] => kindsOf({ items: value.items, zones: value.zones, links: value.links, nets: value.nets }),
         [value.items, value.zones, value.links, value.nets]);
     // Each kind bound with its patch door, and each one's details so bound, in the Schematic's order of its sorts — none
@@ -142,17 +146,31 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
         }
         return out;
     }, [kinds, value.readOnly]);
+    // The windows of the kinds read by area as they stand when a gesture or a Save reads them.
+    const windowsNow = useRef(windows);
+    useLayoutEffect(() => { windowsNow.current = windows; }, [windows]);
     // A kind read through its source: the rows its source's read holds, kept at the revision they were read at — a
-    // gesture's original, and what a Save confirms its entries by.
+    // gesture's original, and what a Save confirms its entries by. A kind read by area: the rows its window holds,
+    // while they are at the record's revision; any other row is read by its key (#1393).
     const reads = useMemo((): Record<string, ScheduleRowRead> => {
         const out: Record<string, ScheduleRowRead> = {};
         for (const kind of kinds) {
             if (!kind.editable || kind.entries.type !== "some") continue;
+            const entries = kind.entries.value;
+            if (areas.has(kind.key)) {
+                out[kind.key] = (key) => {
+                    const window = windowsNow.current.get(kind.key);
+                    const at = entries.revision();
+                    if (window === undefined || at.type !== "some" || !stringEqual(window.revision, at.value)) return undefined;
+                    return heldInWindow(some(window.rows), key);
+                };
+                continue;
+            }
             const rows = keptAtRevision<ReadonlyMap<string, { readonly row: Uint8Array }>>(kind.entries, () => kind.rows());
             out[kind.key] = (key) => heldInWindow(rows(), key);
         }
         return out;
-    }, [kinds]);
+    }, [kinds, areas]);
     const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, recordSlices });
 
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.

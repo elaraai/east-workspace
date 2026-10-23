@@ -567,6 +567,21 @@ export const SchematicNetEntryType = SchematicEntryType(SchematicNetType);
 export const SchematicDetailsEntryType = SchematicEntryType(SchematicDetailsRolesType);
 
 /**
+ * The fields a kind's box is, as its roles name them (§11.4): what an area
+ * index its source lists must name too, for the kind to be read by area — an
+ * item's placed by its centre, a zone's by its corner.
+ *
+ * @property x - The field its box's `x` is
+ * @property y - The field its box's `y` is
+ * @property width - The field its box's width is; `none` for an item kind with no box, whose items are points
+ * @property height - The field its box's height is; `none` as `width` is
+ */
+export const SchematicBoxFieldsType = StructType({ x: StringType, y: StringType, width: OptionType(StringType), height: OptionType(StringType) });
+
+/** Type representing the fields a kind's box is. */
+export type SchematicBoxFieldsType = typeof SchematicBoxFieldsType;
+
+/**
  * A link's ends, as Connect and Retarget write them.
  *
  * @property from - The item it runs from
@@ -646,15 +661,27 @@ const RecordSideFields = {
 } as const;
 
 /**
+ * What a reader read of a record by key or by area, made its stored rows
+ * (#1393): the rows as beast2 bytes of an `Array` of `{ key: String, row: R }`
+ * at the record's row type `R`, each row's roles read in one pass beside its
+ * bytes.
+ */
+const RowsRead = <E extends StructType>(entry: E) => FunctionType([BlobType], DictType(StringType, entry));
+
+/**
  * A kind's details (§4.5), closed: a record of the app's, keyed as its kind
  * is, which the inspector shows beside the row and the cards on screen draw.
  *
  * @property rows - The details read whole, by key, each its roles and its row; `none` while the read is in flight. `none` on the wire for details read by key, whose `entries` read them
+ * @property rowsOf - The details rows a reader read by key, as bytes, made their roles beside their bytes: a window's cards' details, one request a window (#1393)
+ * @property paged - The `id` of the paged read the details are read by key through, beside a kind read through its source: what a reader asks the rows of a window's cards from, all in one request (#1393); `none` for details read whole
  * @property read - A details row's roles, from its bytes and its key
  */
 export const SchematicKindDetailsType = StructType({
     ...RecordSideFields,
     rows: OptionType(FunctionType([], OptionType(DictType(StringType, SchematicDetailsEntryType)))),
+    rowsOf: RowsRead(SchematicDetailsEntryType),
+    paged: OptionType(StringType),
     read: FunctionType([BlobType, StringType], SchematicDetailsRolesType),
 });
 
@@ -686,7 +713,12 @@ const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(D
  *
  * @property backlog - Whether its `x` and `y` are Options: its rows with no position are its backlog
  * @property status - How each case of its status shows
- * @property rows - Its stored items a read holds, by key, each its roles and its row
+ * @property rows - Its stored items a read holds, by key, each its roles and its row: its record read whole, or its narrowing read complete through its source
+ * @property rowsOf - Its rows a reader read by area, or by key, as bytes, made its stored items: a window's (#1393)
+ * @property paged - The `id` of the paged read its rows are read by key through, for a kind read through its source: what
+ *   a reader asks the far ends of the links and nets touching its window of, all of a window's in one request (#1393);
+ *   `none` for a kind read whole
+ * @property box - The fields its box is, at its centre: what an area index it is read by names (§11.4)
  * @property read - A drafted row's roles, from its bytes and its key
  * @property write - The row with its position written — `none`, unplaced — and every other field as it was; `none` where it can't be: no position for a kind with no backlog
  * @property create - A new row at a position, every other field from a template's values or its type's default; `none` as `write` refuses
@@ -698,6 +730,9 @@ export const SchematicItemKindType = StructType({
     backlog: BooleanType,
     status: ArrayType(StructType({ case: StringType, status: SchematicStatusType })),
     rows: RowsOf(SchematicItemEntryType),
+    rowsOf: RowsRead(SchematicItemEntryType),
+    paged: OptionType(StringType),
+    box: SchematicBoxFieldsType,
     read: FunctionType([BlobType, StringType], SchematicItemType),
     write: FunctionType([BlobType, OptionType(SchematicPointType)], OptionType(BlobType)),
     create: FunctionType([OptionType(SchematicPointType), OptionType(BlobType)], OptionType(BlobType)),
@@ -712,12 +747,16 @@ export type SchematicItemKindType = typeof SchematicItemKindType;
  * One zone kind, closed (§4.2, §4.8). Zones take no gesture on the canvas:
  * their fields are edited through the inspector.
  *
- * @property rows - Its stored zones a read holds, by key, each its roles and its row
+ * @property rows - Its stored zones a read holds, by key, each its roles and its row: its record read whole, or its narrowing read complete through its source
+ * @property rowsOf - Its rows a reader read by area, as bytes, made its stored zones: a window's (#1393)
+ * @property box - The fields its box is, at its corner: what an area index it is read by names (§11.4)
  * @property read - A drafted row's roles, from its bytes and its key
  */
 export const SchematicZoneKindType = StructType({
     ...KindFields,
     rows: RowsOf(SchematicZoneEntryType),
+    rowsOf: RowsRead(SchematicZoneEntryType),
+    box: SchematicBoxFieldsType,
     read: FunctionType([BlobType, StringType], SchematicZoneType),
 });
 

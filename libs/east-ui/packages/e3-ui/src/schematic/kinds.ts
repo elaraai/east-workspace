@@ -369,6 +369,32 @@ function storedRows(
     });
 }
 
+/**
+ * The rows a reader read of a record by area or by key, made its stored rows
+ * (#1393): each row's roles, read in the pass that reads it, beside its bytes,
+ * as `rows` gives them — from the rows as beast2 bytes of an `Array` of
+ * `{ key, row }` at the record's row type, which the reader encodes from what
+ * it read.
+ *
+ * @param rowType - The record's row type
+ * @param rolesOf - A row's roles, from it and its key
+ * @param EntryType - A stored row's type: its roles beside its bytes
+ * @returns `(bytes)` → the rows, by key
+ */
+function rowsReadOf(rowType: StructType, rolesOf: ExprType<FunctionType<[EastType, StringType], EastType>>, EntryType: StructType) {
+    const Read = ArrayType(StructType({ key: StringType, row: rowType }));
+    const Rows = DictType(StringType, EntryType);
+    return East.function([BlobType], Rows, ($, bytes) => {
+        const roles = $.const(rolesOf);
+        const read = $.const(bytes.decodeBeast(Read, "v2"));
+        const out = $.let(new Map(), Rows);
+        $.for(read, ($2, entry) => {
+            $2(out.insert(entry.key, East.value({ roles: roles(entry.row as never, entry.key), row: East.Blob.encodeBeast(entry.row as ExprType<EastType>, "v2") } as never, EntryType)));
+        });
+        return out;
+    });
+}
+
 /** A drafted row's roles, from its bytes and its key: what `rows` gives a stored one. */
 function readOf(rowType: StructType, rolesOf: ExprType<FunctionType<[EastType, StringType], EastType>>, RolesType: StructType) {
     return East.function([BlobType, StringType], RolesType, ($, bytes, key) => {
@@ -634,6 +660,9 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
             return East.value({
                 ...side,
                 rows: throughSource ? none : some(storedRows(schematicWholeRows(bound.handle, rowType), rolesOf, SchematicDetailsEntryType)),
+                rowsOf: rowsReadOf(rowType, rolesOf, SchematicDetailsEntryType),
+                // The paged read the details are read by key through: a reader asks a window's cards' rows of it, in one request (#1393).
+                paged: byKey === undefined ? none : some(fieldOf(byKey, "id")),
                 read: readOf(rowType, rolesOf, SchematicDetailsRolesType),
             } as never, SchematicKindDetailsType) as ExprType<typeof SchematicKindDetailsType>;
         },
@@ -919,6 +948,14 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
                 backlog,
                 status: status === undefined ? [] : status.cases.map((c) => ({ case: c, status: fieldOf(status.table, c) })),
                 rows: storedRows(rows, rolesOf, SchematicItemEntryType),
+                rowsOf: rowsReadOf(rowType, rolesOf, SchematicItemEntryType),
+                // The paged read the kind's rows are read by key through: a reader asks the far ends of the links and nets
+                // touching its window of it, all of a window's in one request, whether or not its source joins its rows (#1393).
+                paged: byKey === undefined ? none : some(fieldOf(byKey, "id")),
+                box: {
+                    x: config.x, y: config.y,
+                    width: widthField === undefined ? none : some(widthField), height: heightField === undefined ? none : some(heightField),
+                },
                 read: readOf(rowType, rolesOf, SchematicItemType),
                 write,
                 create,
@@ -1050,6 +1087,8 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
                 icon: config.icon,
                 details: details === undefined ? none : some(details.build(slot, part !== undefined)),
                 rows: storedRows(rows, rolesOf, SchematicZoneEntryType),
+                rowsOf: rowsReadOf(rowType, rolesOf, SchematicZoneEntryType),
+                box: { x: xField, y: yField, width: some(widthField), height: some(heightField) },
                 read: readOf(rowType, rolesOf, SchematicZoneType),
             } as never, SchematicZoneKindType) as ExprType<typeof SchematicZoneKindType>;
         },

@@ -18,10 +18,11 @@ const TESTS = ['**/*.test.ts', '**/*.test.tsx', '**/*.test-utils.ts', '**/*.test
 // selectors are its drift guard: a direct Intl formatter, a toLocale* call, a
 // local-time Date getter or setter, or a local-time Date constructor fails
 // lint. (ESLint's AST selector syntax; the UTC methods — getUTCHours,
-// setUTCDate — and toLocaleUpperCase stay allowed.)
+// setUTCDate — toLocaleUpperCase and an Intl.Segmenter, which splits text into
+// its graphemes and formats nothing, stay allowed.)
 const ONE_FORMATTER = [
   {
-    selector: "NewExpression[callee.object.name='Intl']",
+    selector: "NewExpression[callee.object.name='Intl'][callee.property.name!='Segmenter']",
     message: 'Format numbers and dates through the shared formatters (#850) — useFormatters() in a component, a Formatters parameter elsewhere — never a direct Intl formatter.'
   },
   {

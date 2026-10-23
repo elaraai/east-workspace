@@ -52,7 +52,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { findIconDefinition, library, type IconName } from "@fortawesome/fontawesome-svg-core";
@@ -68,7 +68,7 @@ import {
     zoneAnchor, type EdgeGeometry, type RGB, type SchematicPaintEffect, type SchematicPalette,
 } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, linkAt, linkIndex, marqueeHits } from "./selection";
-import { type LodTier, type NavZone, buildCenterTree, buildNavTree, declutterTiers, matchesExtent, tierSize } from "./model";
+import { type LodTier, type NavZone, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, declutterTiers, matchesExtent, tierSize } from "./model";
 import { entityId, refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
@@ -77,6 +77,7 @@ import {
 import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
 import { entityTints, itemTint, tintAttributes, tintsOf } from "./tints";
 import type { SchematicLayerState } from "./layers";
+import type { SchematicDensity, SchematicViewportStore } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import {
     NOWHERE, dropPoint, markEqual, markOf, printDropAt, readDropAt, restsAt, type SchematicCanvasDrop, type SchematicDropMark, type SchematicDropPoint,
@@ -181,8 +182,16 @@ const LOD_LABEL_PPU = 16;
 const MINIMAP_AUTO = 25;
 /** No entity's colour resolved: what the canvas paints by before the probe is first read. */
 const NO_TINTS: ReadonlyMap<string, RGB> = new Map();
+/** No kind drawing its density. */
+const NO_DENSITY: ReadonlyMap<string, SchematicDensity> = new Map();
+/** How long the camera rests before the canvas tells the reader where its viewport is (#1393, CL6), in ms. */
+const REST_READ_MS = 100;
+/** Moving slower than a viewport each this many ms, the canvas tells the reader as it moves (CL6). */
+const SLOW_READ_MS = 200;
 /** Where a drag rests over the canvas before it says otherwise: on nothing of its card's kind (#1390). */
 const NOWHERE_AT = printDropAt(NOWHERE);
+/** The card layer's widest card (#1393): what the recipe holds a card to, but one at its item's own width — the figure `tierSize` and the area read reckon with. */
+const CARD_LAYER_STYLE = { "--schematic-card-max": `${SCHEMATIC_CARD_MAX_PX}px` } as CSSProperties;
 
 /** Runs an author's East callback off the event turn (queueMicrotask, per
  *  the interactive-state pattern) with error isolation — a throwing callback
@@ -300,6 +309,15 @@ export interface SchematicCanvasProps {
      * template of that kind the library has selected; `none`, their types' defaults.
      */
     readonly connectValues: (slot: string) => option<Uint8Array>;
+    /**
+     * Where the canvas writes its viewport as its camera comes to rest (#1393): what a kind read by area reads its window
+     * around; `undefined`, it writes nowhere.
+     */
+    readonly viewport?: SchematicViewportStore | undefined;
+    /** Each kind read by area drawing its density in place of its items (D25), by its slot: the raster painted under them. */
+    readonly density?: ReadonlyMap<string, SchematicDensity> | undefined;
+    /** Whether a read the drawing needs is in flight: an item a drop or a pick asks to select is waited for until it lands. */
+    readonly reading?: boolean | undefined;
     /** The canvas's handle, the frame's. */
     readonly ref?: Ref<SchematicCanvasHandle> | undefined;
 }
@@ -312,7 +330,8 @@ export interface SchematicCanvasProps {
  * the editing's history.
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
-    value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues, ref,
+    value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
+    viewport, density = NO_DENSITY, reading = false, ref,
 }: SchematicCanvasProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
@@ -346,7 +365,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     const [lit, setLit] = useState<string | undefined>(undefined);
     const scaleUnit = getSomeorUndefined(value.scaleUnit);
     const showGrid = getSomeorUndefined(value.grid) ?? true;
-    const showMinimap = getSomeorUndefined(value.minimap) ?? data.items.length >= MINIMAP_AUTO;
+    // Shown by default from 25 items — and while a kind draws its density, whose rows are past any count of items (D25).
+    const showMinimap = getSomeorUndefined(value.minimap) ?? (data.items.length >= MINIMAP_AUTO || density.size > 0);
 
     // Each entity's reference by its id on the canvas: what the host hears an
     // entity named by — the links and nets drafted among them, each under its
@@ -964,6 +984,34 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     }, [nav, inertKeys]);
 
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
+
+    // --- Where the viewport rests (#1393): what a kind read by area reads its window around. ---
+    // Told to the reader's store as the camera comes to rest — 100 ms without a move, or while it moves slower than a
+    // viewport each 200 ms, a fly never, as it lands where it flies (CL6) — rendering nothing for it; the first at once,
+    // so the first window is read as the canvas opens.
+    const toldRef = useRef<{ at: number; x: number; y: number } | undefined>(undefined);
+    useEffect(() => {
+        if (viewport === undefined || size === null || ppu === 0) return undefined;
+        const box = {
+            minX: -cameraSnapshot.tx / ppu, minY: -cameraSnapshot.ty / ppu,
+            maxX: (size.w - cameraSnapshot.tx) / ppu, maxY: (size.h - cameraSnapshot.ty) / ppu,
+        };
+        const centre = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
+        const tell = () => {
+            viewport.set({ box, ppu, lod });
+            toldRef.current = { at: performance.now(), ...centre };
+        };
+        const told = toldRef.current;
+        if (told === undefined || viewport.get() === undefined) { tell(); return undefined; }
+        const span = Math.max(box.maxX - box.minX, box.maxY - box.minY);
+        if (modeRef.current !== "flying" && performance.now() - told.at >= SLOW_READ_MS && Math.hypot(centre.x - told.x, centre.y - told.y) < span) {
+            tell();
+            return undefined;
+        }
+        const timer = setTimeout(tell, REST_READ_MS);
+        return () => clearTimeout(timer);
+    }, [viewport, size, ppu, cameraSnapshot, lod]);
+
     const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
     const tiers = useMemo(() => {
         const base = declutterTiers(visibleItems, centerTree, lod, ppu, selected);
@@ -1027,6 +1075,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         dropMark,
         paintEffect, fitBox,
         lit: litShown, wasLink,
+        density,
         palette: null as SchematicPalette | null,
         tints: NO_TINTS,
     };
@@ -1044,7 +1093,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; tints: unknown; w: number; h: number; dpr: number; val: unknown;
         lay: unknown; alp: unknown;
         dl: unknown; cf: number; slk: unknown; sle: boolean; dm: unknown; eff: unknown; phase: number;
-        lit: string | undefined; was: string | undefined; cs: unknown;
+        lit: string | undefined; was: string | undefined; cs: unknown; den: unknown;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -1094,7 +1143,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             && last.dl === snap.connectDraftWorld && last.cf === cfPhase
             && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable && last.dm === snap.dropMark
             && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current
-            && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizes) return;
+            && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizes && last.den === snap.density) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
             sel: snap.renderSelected, zsel: snap.zoneSelection, pal, tints: snap.tints, w: sz.w, h: sz.h, dpr: dprLive, val: snap.value,
@@ -1102,7 +1151,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             dl: snap.connectDraftWorld, cf: cfPhase,
             slk: snap.selectedLink, sle: snap.selectedLinkEditable, dm: snap.dropMark,
             eff: snap.paintEffect, phase: pulsePhaseRef.current,
-            lit: snap.lit, was: snap.wasLink, cs: cardSizes,
+            lit: snap.lit, was: snap.wasLink, cs: cardSizes, den: snap.density,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -1137,6 +1186,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 cardSizes,
                 ...(snap.lit !== undefined ? { lit: snap.lit } : {}),
                 ...(snap.wasLink !== undefined ? { was: snap.wasLink } : {}),
+                // The density at overview, each kind read by area past the rows a window draws (#1393, D25).
+                ...(snap.density.size > 0 ? { density: snap.density } : {}),
             });
         } catch (err) {
             console.error("[Schematic] paint failed (frame skipped):", err);
@@ -1537,16 +1588,38 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         }
         return true;
     }, [itemKeyAt, commitSelection, clearZoneSelection, commitLinkSelection]);
+    // A tap on a density raster's cell that holds rows (#1393, D25): where it lands, and the cell's side — what a tap
+    // there zooms into. A raster's cells are few thousand at most; a tap asks once.
+    const densityAt = useCallback((host: HTMLElement, clientX: number, clientY: number): { x: number; y: number; side: number } | undefined => {
+        const snap = renderSnapRef.current;
+        if (snap.density.size === 0 || snap.size === null) return undefined;
+        const cam = cameraRef.current;
+        const ppuLive = snap.fit * cam.zoom;
+        if (ppuLive === 0) return undefined;
+        const rect = host.getBoundingClientRect();
+        const x = (clientX - rect.left - cam.tx) / ppuLive, y = (clientY - rect.top - cam.ty) / ppuLive;
+        for (const raster of snap.density.values()) {
+            const hit = raster.cells.some((cell) => cell.count > 0 && x >= cell.minX && x < cell.minX + raster.side && y >= cell.minY && y < cell.minY + raster.side);
+            if (hit) return { x, y, side: raster.side };
+        }
+        return undefined;
+    }, []);
     // A tap selects what is under it (D16): an item, else a link's or a net's line (#176), else an outline zone's body
-    // (#177); a tap on nothing lets go of everything. Shift extends, and keeps what is selected on nothing.
+    // (#177); a tap on nothing lets go of everything. Shift extends, and keeps what is selected on nothing. A tap on the
+    // density zooms into it, eight of its cells across about the tap (D25).
     const tapAt = useCallback((host: HTMLElement, clientX: number, clientY: number, additive: boolean) => {
         if (pickAt(host, clientX, clientY, additive)) return;
+        const dense = densityAt(host, clientX, clientY);
+        if (dense !== undefined) {
+            flyTo({ x: dense.x - 4 * dense.side, y: dense.y - 4 * dense.side, w: 8 * dense.side, h: 8 * dense.side });
+            return;
+        }
         const lk = linkKeyAt(host, clientX, clientY);
         if (lk !== undefined) { selectLink(lk.key, lk.leg, additive); return; }
         const zk = zoneKeyAt(host, clientX, clientY);
         if (zk !== undefined) zoneTap(zk, additive);
         else if (!additive) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
-    }, [pickAt, linkKeyAt, selectLink, zoneKeyAt, zoneTap, clearSelection, clearZoneSelection, commitLinkSelection]);
+    }, [pickAt, densityAt, flyTo, linkKeyAt, selectLink, zoneKeyAt, zoneTap, clearSelection, clearZoneSelection, commitLinkSelection]);
 
     // Collect the items a marquee region encloses — the pure rule lives in
     // `selection.ts` (`marqueeHits`: R-tree sweep + CENTER-in-region test,
@@ -1636,9 +1709,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             commitLinkSelection(null);
             return;
         }
-        // A new drawing that doesn't draw it — its layer hidden, the rail narrowing it out — selects nothing.
-        if (!Object.is(data, pending.seen)) pendingSelectRef.current = undefined;
-    }, [items, data, selectAsked, inertKeys, commitSelection, clearZoneSelection, commitLinkSelection]);
+        // A new drawing that doesn't draw it — its layer hidden, the rail narrowing it out — selects nothing; while a read
+        // is in flight, a window that will hold it among them (#1393), it is waited for.
+        if (!Object.is(data, pending.seen) && !reading) pendingSelectRef.current = undefined;
+    }, [items, data, selectAsked, inertKeys, commitSelection, clearZoneSelection, commitLinkSelection, reading]);
 
     const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
         if (e.button !== 0) return;
@@ -2242,8 +2316,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                     {/* Card layer holds the live `--cam-*` vars (set by
                         applyCamera); each card translates off them, so a
                         camera change is 3 var writes on this parent, never a
-                        per-card React re-layout (issue #57, invariant 6). */}
-                    <Box ref={cardLayerRef} css={styles.cardLayer}>
+                        per-card React re-layout (issue #57, invariant 6). It
+                        holds the widest card too, which the recipe reads. */}
+                    <Box ref={cardLayerRef} css={styles.cardLayer} style={CARD_LAYER_STYLE}>
                         {visibleItems.map(item => {
                             // Rich cards are DOM; dots / pins / footprints / zones /
                             // links are painted on the canvas above.
@@ -2271,6 +2346,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                                     ref={observeCard}
                                     css={styles.item}
                                     data-card-key={item.key}
+                                    // At its item's own width, a box in the world: the recipe holds it to no widest card (#1393).
+                                    {...(width !== undefined ? { "data-boxed": "" } : {})}
                                     {...(isSelected ? { "data-selected": "" } : {})}
                                     {...(isLockedCard ? { "data-locked": "" } : {})}
                                     {...(isContextCard ? { "data-context": "", ...(look.desaturate ? { "data-desaturate": "" } : {}) } : {})}
@@ -2290,7 +2367,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                                         {iconDef !== undefined && (
                                             <Box as="span" css={styles.itemIcon}><FontAwesomeIcon icon={iconDef} /></Box>
                                         )}
-                                        <Box as="span" css={styles.itemLabel}>{item.label}</Box>
+                                        <Box as="span" css={styles.itemLabel} data-card-label="">{item.label}</Box>
                                         {/* Its colour: its colour token, else its tone, else its status's — its markers' on the canvas (D14, SC26). */}
                                         {hasDot(item) && <Box as="span" css={styles.statusDot} {...tintAttributes(itemTint(item))} {...(statusRing(item.status) ? { "data-ring": "" } : {})} />}
                                     </Box>

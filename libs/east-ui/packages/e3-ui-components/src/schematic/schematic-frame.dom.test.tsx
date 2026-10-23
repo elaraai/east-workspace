@@ -450,11 +450,36 @@ test("an item's colour token draws its card's dot and its marks alike; one that 
     expect(probed.has("data-surface=item data-color= data-tone= data-status= data-pattern=")).toBe(true);
 });
 
-/** What the canvas may set inline: geometry — positions, sizes, the grid's pattern, its position as one property or its two longhands — and the camera's and a layer's custom properties. */
+/**
+ * What the canvas may set inline: geometry — positions, sizes, the grid's pattern, its position as one property or its
+ * two longhands — and the camera's, a layer's and the widest card's custom properties.
+ */
 const GEOMETRY = new Set([
     "left", "top", "width", "height", "transform", "background-size", "background-position", "background-position-x", "background-position-y",
-    "--cam-ppu", "--cam-tx", "--cam-ty", "--schematic-layer-opacity",
+    "--cam-ppu", "--cam-tx", "--cam-ty", "--schematic-layer-opacity", "--schematic-card-max",
 ]);
+
+/** The floor's racks, drawn at a card's own width, beside the network frames at their items' widths. */
+const unboxed = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Data.bind(ex.schematicFloorRacks));
+    const frames = $.let(Data.bind(ex.schematicFrames));
+    return Schematic({
+        id: "unboxed",
+        extent: { width: 28, height: 14 },
+        items: {
+            racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", label: "name" }),
+            network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+        },
+    });
+})));
+
+test("the card layer holds the widest card, which the recipe holds a card to; a card at its item's own width is boxed, held to that (#1393)", async () => {
+    const { container } = await h.mount({ fn: unboxed });
+    await waitFor(() => expect(card(container, "racks", "A01")).not.toBeNull());
+    await waitFor(() => expect(card(container, "network", "MMR-1")).not.toBeNull());
+    expect(card(container, "racks", "A01")!.parentElement!.style.getPropertyValue("--schematic-card-max")).toBe("200px");
+    expect([card(container, "racks", "A01")!.hasAttribute("data-boxed"), card(container, "network", "MMR-1")!.hasAttribute("data-boxed")]).toEqual([false, true]);
+});
 
 test("the canvas, its cards, its minimap and the footer set nothing inline but geometry: the recipe owns every style (SC31)", async () => {
     const { container } = await dataCentre();

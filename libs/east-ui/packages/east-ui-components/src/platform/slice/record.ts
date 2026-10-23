@@ -419,33 +419,34 @@ export function recordSliceRevision(slice: Pick<ValueTypeOf<RecordSliceBindType>
 }
 
 /**
- * A record Slice's controller, refusing a series or summary index its binding does not list (#1039).
+ * A record Slice's controller, refusing a series, a summary or an area index its binding does not list (#1039, #1393).
  *
  * @param slice - The record Slice
  * @param index - The index a reader reads cells of
  * @returns The controller
- * @throws {Error} When the binding lists no series or summary index of that name
+ * @throws {Error} When the binding lists no series, summary or area index of that name
  */
 function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordSliceController {
     const controller = controllerOf(slice);
     const listed = controller.config.indexes.find(candidate => candidate.name === index);
-    if (listed === undefined || tilingOf(listed) === undefined) {
-        throw new Error(`The record Slice '${slice.key}' lists no series or summary index '${index}' to read cells of: list it in Data.bindPaged's indexes`);
+    if (listed === undefined || (tilingOf(listed) === undefined && listed.area.type !== "some")) {
+        throw new Error(`The record Slice '${slice.key}' lists no series, summary or area index '${index}' to read cells of: list it in Data.bindPaged's indexes`);
     }
     return controller;
 }
 
 /**
- * Find some cells of a series or a summary index a record Slice's binding
- * lists (#1039): each cell's searches' bounds, and how many entries they hold,
- * exact before one is read — every cell not yet found asked in one request,
- * and one found kept for its revision. What a reader of cells, the Plan's
- * events, decides by whether to read them. A tracked read, as
+ * Find some cells of a series, a summary or an area index a record Slice's
+ * binding lists (#1039, #1393): each cell's searches' bounds, and how many
+ * entries they hold, exact before one is read — every cell not yet found asked
+ * in one request, and one found kept for its revision. What a reader of cells
+ * decides by whether to read them: the Plan's events, and the Schematic's
+ * window, a cell a search of `areaQueries`. A tracked read, as
  * {@link recordSlicePlace} is.
  *
  * @param slice - The record Slice
- * @param index - The series or summary index
- * @param cells - The cells, each its searches (`tileCellQueries`) under the reader's name for it
+ * @param index - The series, summary or area index
+ * @param cells - The cells, each its searches (`tileCellQueries`, `areaQueries`) under the reader's name for it
  * @returns Each cell's runs, by its name; none while any is pending
  * @throws {Error} When the binding lists no such index, or two cells share a name
  */
@@ -454,19 +455,73 @@ export function recordSliceCellRuns(slice: Pick<ValueTypeOf<RecordSliceBindType>
 }
 
 /**
- * Read some cells' entries of a series or a summary index a record Slice's
- * binding lists (#1039): every cell's runs in one request, each run once,
- * handed back cell by cell — a series index's entries carrying their rows, a
- * summary index's their totals. A tracked read, as {@link recordSlicePlace} is.
+ * Read some cells' entries of a series, a summary or an area index a record
+ * Slice's binding lists (#1039, #1393): every cell's runs in one request, each
+ * run once, handed back cell by cell — a series or an area index's entries
+ * carrying their rows, a summary index's their totals. A tracked read, as
+ * {@link recordSlicePlace} is.
  *
  * @param slice - The record Slice
- * @param index - The series or summary index
+ * @param index - The series, summary or area index
  * @param cells - The cells, as {@link recordSliceCellRuns} takes them
  * @returns Each cell's entries, by its name, in its searches' order; none while pending
  * @throws {Error} As {@link recordSliceCellRuns} does, and when the entries read disagree with their bounds
  */
 export function recordSliceCellEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceEntry[]>> {
     return cellsOf(slice, index).windows.cellEntries(index, cells);
+}
+
+/**
+ * A record Slice's controller, refusing an index its binding does not list (#1393).
+ *
+ * @param slice - The record Slice
+ * @param index - The index a reader searches or reads
+ * @returns The controller
+ * @throws {Error} When the binding lists no index of that name
+ */
+function listing(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordSliceController {
+    const controller = controllerOf(slice);
+    if (!controller.config.indexes.some(candidate => candidate.name === index)) {
+        throw new Error(`The record Slice '${slice.key}' lists no index '${index}' to read: list it in Data.bindPaged's indexes`);
+    }
+    return controller;
+}
+
+/**
+ * Find the bounds of some searches of an index a record Slice's binding lists
+ * (#1393): where each one's entries sit and how many it holds, every search in
+ * one request when the binding's runtime batches its reads, no entry read and
+ * nothing kept — the Schematic's density raster, the counted ranges of an area
+ * index's cells and the coarser levels' keys (`areaRaster`). A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The index searched
+ * @param queries - The searches
+ * @returns Each search's bounds, in order; none while any is pending
+ * @throws {Error} When the binding lists no index of that name, or the source answers a search with bounds no search has
+ */
+export function recordSliceBounds(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, queries: readonly ValueTypeOf<typeof SeekQueryType>[]): option<ValueTypeOf<typeof SeekRangeType>[]> {
+    return listing(slice, index).windows.bounds(index, queries);
+}
+
+/**
+ * Read the entries of some runs of an index a record Slice's binding lists
+ * (#1393): the runs as {@link recordSliceBounds} found them at the record's
+ * revision now — ascending, disjoint and none empty — in one read however many
+ * there are, nothing kept: the rows of the coarser levels of the Schematic's
+ * density raster, while they are few. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The index read
+ * @param runs - The runs
+ * @returns Their entries, run after run; none while the read is pending
+ * @throws {Error} When the binding lists no index of that name, the runs are not ascending, disjoint and each non-empty, or
+ *   the entries read disagree with them
+ */
+export function recordSliceRunEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[]): option<RecordSliceEntry[]> {
+    return listing(slice, index).windows.runEntries(index, runs);
 }
 
 /** Persist through the same store-key mechanism as local Slice, validating
