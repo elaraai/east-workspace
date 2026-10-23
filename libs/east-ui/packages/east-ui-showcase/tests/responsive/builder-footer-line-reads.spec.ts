@@ -6,7 +6,8 @@
 /**
  * The footer's one loading line in flight and failed (#1398, CL3, CL11), in
  * the builders that read what they show a part at a time — the Sheet and the
- * Plan as they scroll, the Calendar as it steps — on the real in-page e3, its
+ * Plan as they scroll, the Calendar, the Roster and the Allocation as they
+ * step — on the real in-page e3, its
  * reads held and failed through the showcase's e3 fault hook (`e3-faults.ts`),
  * with the frame 1440, 768, 390 and 360px wide, in both themes, as
  * `builder-footer-line.spec.ts` measures the rail at rest:
@@ -69,10 +70,22 @@ const stepped: Read = async (_page, entry) => {
     await next.click();
 };
 
+/**
+ * The Roster stepped on to the same day two weeks on, past the week it read ahead, to one it has not read: what it reads
+ * is the week, whichever view steps it — fourteen steps of its Day view, two of its Week view.
+ */
+const steppedTwoWeeks: Read = async (_page, entry) => {
+    const next = entry.locator("[data-frame-slot='toolbar']").getByRole("button", { name: /^Next (day|week)$/ }).first();
+    const name = (await next.getAttribute("aria-label")) ?? (await next.textContent()) ?? "";
+    for (let step = 0, steps = name.endsWith("day") ? 14 : 2; step < steps; step++) await next.click();
+};
+
 const READERS: readonly Reader[] = [
     { builder: "Sheet", route: "e3/sheet/sheet-records/sheetRecordIndexes", root: "[data-builder-frame]", rail: "[data-frame-slot='footer'] [data-slot='footer']", read: scrolled },
     { builder: "Plan", route: "e3/plan/plan-windows/planWindows", root: "[data-plan-frame]", rail: "[data-frame-slot='footer'] [data-slot='footer']", read: scrolled },
     { builder: "Calendar", route: "e3/calendar/calendar/calendarOperations", root: "[data-calendar-frame]", rail: "[data-calendar-footer]", read: stepped },
+    { builder: "Roster", route: "e3/roster/roster/rosterWindowed", root: "[data-roster-frame]", rail: "[data-roster-footer]", read: steppedTwoWeeks },
+    { builder: "Allocation", route: "e3/allocation/allocation/allocationKilnYard", root: "[data-allocation-frame]", rail: "[data-allocation-footer]", read: stepped },
 ];
 
 /** The frame's widths, widest first. */
@@ -240,9 +253,9 @@ function missedTaps(retry: Locator): Promise<string[]> {
 
 for (const theme of ["light", "dark"] as const) {
     test(`each builder's loading line, held in flight and then failed, says what it reads in one line that fits whole at every width — full, short or the dot alone — then "Couldn't read · Retry", Retry asking again (#1398, CL3, CL11) (${theme}) @desktop`, async ({ page }) => {
-        // Three builders, each held and failed at four widths, on one e3 the page starts once. The page is wide enough
+        // Five builders, each held and failed at four widths, on one e3 the page starts once. The page is wide enough
         // that a 1440px frame keeps clear of its "On this page" column.
-        test.setTimeout(300_000);
+        test.setTimeout(480_000);
         await installE3Faults(page);
         await page.setViewportSize(PAGE);
         const seen = new Set<string>();
@@ -285,7 +298,7 @@ for (const theme of ["light", "dark"] as const) {
     });
 
     test(`on a touch screen, a failed read's Retry in each builder's footer is a 44px tap target by its halo, the rail as tall as at rest (#1398, CL11) (${theme}) @mobile`, async ({ page }) => {
-        test.setTimeout(300_000);
+        test.setTimeout(480_000);
         await installE3Faults(page);
         await page.setViewportSize(PAGE);
         for (const [i, reader] of READERS.entries()) {
@@ -302,7 +315,10 @@ for (const theme of ["light", "dark"] as const) {
                     await sizeBuilder(page, entry, reader.root, width, { holding: true });
                     const where = `${reader.builder} at ${width}px`;
                     expect(await railHeight(rail), `${where}: the rail's height`).toBeCloseTo(rest, 0);
-                    expect(await missedTaps(line.locator("[data-line-retry]")), where).toEqual([]);
+                    // A tall builder's footer sits below the page's fold: brought into view, as a finger would scroll to it.
+                    const retry = line.locator("[data-line-retry]");
+                    await retry.scrollIntoViewIfNeeded();
+                    expect(await missedTaps(retry), where).toEqual([]);
                 }
                 await releaseE3(page, fault);
                 await line.locator("[data-line-retry]").tap();

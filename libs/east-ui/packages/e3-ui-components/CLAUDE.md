@@ -571,8 +571,10 @@ Use the same footer rail recipe as Plan, not just its text style. The shared
 `builder-footer.ts` owns the panel background, top rule, 28px desktop rail,
 spacing, status typography and the one loading line (#1398, CL3):
 east-ui-components' `LoadingLine` in a slot of its own at the rail's trailing
-end, on the shared reveal's clock (`useLoadingReveal`: shown after 150 ms, held
-at least 300 ms; a failure at once), its words the builder's — over a paged
+end, on the builder's one reveal clock (`LoadingReveal` around its frame, read
+where it shows with `useRevealed`, so its flips render the line and the
+placeholders and never the frame: shown after 150 ms, held at least 300 ms; a
+failure at once), its words the builder's — over a paged
 source `pagedLoadingLine`, over a period `periodLoading` and
 `periodLoadingLine` (`shared/loading.ts`), in the record's noun
 (`recordSliceNoun`) and the builder's message table. A rail carrying the line
@@ -897,8 +899,49 @@ loading keeps the frame, canvas, sessions and drafts mounted. Errors leave the
 loading state and show the existing error treatment.
 Keep the loading surface dense: body placeholders sit at the component's own
 row pitch (`BuilderFrame.loadingPitch` — the Sheet's density's, the Plan's row
-geometry), each a 12px bar, all in the shared recipe, so the skeleton matches
-what it covers. Never stretch a few thin text bars
+geometry, the Allocation's 36px rows, the Calendar's hour), each a 12px bar,
+all in the shared recipe, so the skeleton matches what it covers.
+
+The Sheet and the Plan draw the rows they have not read as the shared
+unloaded run (east-ui-components' `UnloadedRun`, #1398, CL2; `SheetRunRow`,
+`PlanRunRow`): rows at the rows' own pitch where the run meets the view — the
+Sheet's with its gutter, its columns' rules and a flat sheet's real row
+numbers, each cell its column kind's shape; the Plan's with its label bars and
+its plot washed under its grid and now line — one item of the virtualizer
+however long the run, and to the grid one row, its one cell across it, busy
+while its windows are read. A failed window is said once, in its run's first
+row in view, with Retry (CL11). No caption sits in a gap. They read on intent
+(CL6): the window under the view once the view has dwelt 100 ms over a run or
+slowed below a viewport per 200 ms (`VirtualRows` reports such a scroll at
+rest), two windows ahead the way it travels and one behind (`travelOf`). The
+footer's line and the frame's `busy` follow the windows the view shows, never
+those read ahead of it. An empty message, a zero count, `No rows`, `Backlog
+clear` or the Sheet's insert strip shows only once a completed read says so
+(CL13): until then its slot holds a placeholder — the Plan's narrow tail its
+placeholder cards, its Backlog `…` over placeholder cards.
+
+A period builder — the Roster, the Calendar, the Allocation — draws its
+period through one read state (`shared/loading.ts`' `periodRead`, #1398):
+the period as read; a period not read yet — its geometry and what is known
+without its read at once (the Roster's people and dates, the Allocation's
+lanes, slots and resources, the Calendar's own grid, never the old period's
+events under its labels), a placeholder where its content goes, unseen at its
+footprint until the frame's one reveal clock says so (`LoadingReveal`), which
+the footer's line keeps too, and a region whose items have no known place
+washed (`LoadingWash`); or one whose
+read failed — its geometry, its cells blank, the failure said once, as a line
+in its first row in view (`LoadingFailedLine`: the Roster's first person's
+days, the Allocation's lane cells or Table row, the Calendar's timeline row
+and agenda) or, where no row can hold one, a box at the grid's top-left in
+view (`LoadingFailedBox`: the Calendar's time and month grids), and on the
+footer's line — never a "… unavailable" status over the grid. A period not
+read gives no issue and counts nothing (`…`); a true empty is said once, only
+after its read (the Allocation's `No bins on …`, `LoadingEmptyLine`). The
+toolbar's status, issues, history and Publish hold their slots from cold load
+(`heldToolbarSlot`): unread, the status and the issues are placeholders, the
+history as the last period read had it, and Publish in its slot, off,
+wherever it cannot publish; the rail's summary keeps a narrowed source's place
+while its count is read. Never stretch a few thin text bars
 through a tall host with `flex: 1` on each row. Spare body height stays empty;
 short hosts clip the placeholder list. Assert row height and placeholder-to-row
 height ratio at desktop and phone widths, not merely skeleton presence.

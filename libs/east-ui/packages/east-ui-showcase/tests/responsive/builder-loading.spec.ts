@@ -11,18 +11,22 @@ type Probe = { active: boolean; paints: Paint[] };
 
 /**
  * Each builder by its example: what its main's content is, whether that
- * content turns to agenda cards below 480px of main — the Roster's and the
- * Calendar's do; the Schematic's canvas (#1387, SC32) is one canvas at every
- * width — and whether its footer stays live under the cover, its loading line
- * carrying the wait (#1398): the Roster's and the Calendar's do.
+ * content turns to cards below 480px of main and what they are — the
+ * Roster's, the Calendar's and the Allocation's do; the Schematic's canvas
+ * (#1387, SC32) is one canvas at every width — whether its footer stays live
+ * under the cover, its loading line carrying the wait (#1398): the Roster's,
+ * the Calendar's and the Allocation's do — and the pitch its cover's rows
+ * stand at, its own rows' where the cover is held to it (CL1): the
+ * Allocation's 36, the Calendar's hour at its regular density, 48.
  */
-const BUILDERS = [
-    { scope: "roster", name: "rosterWarehouse", main: "[data-roster-main]", narrows: true, liveFooter: true },
-    { scope: "calendar", name: "calendarOperations", main: "[data-calendar-main]", narrows: true, liveFooter: true },
-    { scope: "schematic", name: "schematicDataCentre", main: "[data-schematic-canvas]", narrows: false, liveFooter: false },
-] as const;
+const BUILDERS: readonly { scope: string; name: string; main: string; narrows: boolean; cards: string; liveFooter: boolean; pitch?: number }[] = [
+    { scope: "roster", name: "rosterWarehouse", main: "[data-roster-main]", narrows: true, cards: "[data-roster-agenda]", liveFooter: true },
+    { scope: "calendar", name: "calendarOperations", main: "[data-calendar-main]", narrows: true, cards: "[data-calendar-agenda]", liveFooter: true, pitch: 48 },
+    { scope: "allocation", name: "allocationKilnYard", main: "[data-allocation-main]", narrows: true, cards: "[data-allocation-cards]", liveFooter: true, pitch: 36 },
+    { scope: "schematic", name: "schematicDataCentre", main: "[data-schematic-canvas]", narrows: false, cards: "[data-schematic-agenda]", liveFooter: false },
+];
 
-for (const { scope, name, main: mainSelector, narrows, liveFooter } of BUILDERS) {
+for (const { scope, name, main: mainSelector, narrows, cards, liveFooter, pitch } of BUILDERS) {
     for (const theme of ["light", "dark"] as const) {
         test(`${scope} cold load uses a stable Chakra skeleton before the complete layout (${theme}) @narrow`, async ({ page }, info) => {
             if (info.project.name === "desktop") await page.setViewportSize({ width: 1440, height: 1080 });
@@ -30,7 +34,7 @@ for (const { scope, name, main: mainSelector, narrows, liveFooter } of BUILDERS)
             const fonts = new Promise<void>(resolve => { release = resolve; });
             await page.route(/\.woff2(?:\?.*)?$/, async route => { await fonts; await route.continue(); });
             const route = `e3/${scope}/${scope}/${name}`;
-            await page.addInitScript(({ scope, route, mainSelector }) => {
+            await page.addInitScript(({ scope, route, mainSelector, cards }) => {
                 const probe: Probe = { active: true, paints: [] };
                 (window as unknown as { builderLoad: Probe }).builderLoad = probe;
                 const next = () => requestAnimationFrame(() => setTimeout(() => {
@@ -41,13 +45,13 @@ for (const { scope, name, main: mainSelector, narrows, liveFooter } of BUILDERS)
                         const rect = frame.getBoundingClientRect();
                         probe.paints.push({ width: rect.width, height: rect.height, main: main.getBoundingClientRect().width,
                             busy: frame.getAttribute("aria-busy") === "true", visible: getComputedStyle(main.closest('[data-frame-slot="body"]')!).opacity !== "0",
-                            narrow: main.hasAttribute(`data-${scope}-narrow`), agenda: main.querySelector(`[data-${scope}-agenda]`) !== null,
+                            narrow: main.hasAttribute(`data-${scope}-narrow`), agenda: main.querySelector(cards) !== null,
                             content: main.children.length > 0 });
                     }
                     if (probe.active) next();
                 }, 0));
                 next();
-            }, { scope, route, mainSelector });
+            }, { scope, route, mainSelector, cards });
             try {
                 await page.goto(`/?theme=${theme}#${route}`, { waitUntil: "domcontentloaded" });
                 const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
@@ -62,7 +66,7 @@ for (const { scope, name, main: mainSelector, narrows, liveFooter } of BUILDERS)
                     return box.width > 0 && box.height > 0;
                 }))).toBe(true);
                 // A tall host must not stretch sparse text lines into giant rows: the body's rows stand at one pitch, the
-                // component's (#1398), each value a 12px bar across the middle of its row.
+                // component's (#1398) — 44px at most where it declares none — each value a 12px bar across the middle of its row.
                 const density = await loading.locator('[data-builder-loading-row]').evaluateAll(rows => rows.map(row => {
                     const box = row.getBoundingClientRect();
                     const cells = Array.from(row.querySelectorAll('.elara-skeleton'), cell => cell.getBoundingClientRect());
@@ -70,8 +74,8 @@ for (const { scope, name, main: mainSelector, narrows, liveFooter } of BUILDERS)
                 }));
                 expect(density.length).toBeGreaterThan(0);
                 for (const row of density) {
-                    expect(row.height).toBeLessThanOrEqual(44);
-                    expect(row.height).toBeCloseTo(density[0]!.height, 0);
+                    expect(row.height).toBeLessThanOrEqual(pitch ?? 44);
+                    expect(row.height).toBeCloseTo(pitch ?? density[0]!.height, 0);
                     expect(row.cells.length).toBeGreaterThan(0);
                     for (const cell of row.cells) {
                         expect(cell.height).toBeCloseTo(12, 0);
