@@ -49,8 +49,10 @@ type SchematicKeys = ReturnType<typeof schematicKeys>;
 export interface SchematicDropProps {
     /** The payload: its library's tabs, and its item, link and net kinds' templates. */
     readonly value: SchematicValue;
-    /** The Backlog's rows: what its cards place. */
+    /** The Backlog's rows in hand: what its cards place. */
     readonly backlog: readonly BacklogEntry[];
+    /** What a card of the paged Backlog places, by its id (#1393); `undefined` while the Backlog lists only rows in hand. */
+    readonly pagedBacklog?: ((key: string) => SchematicDropCard | undefined) | undefined;
     /** The names the Schematic keeps its state under: its library's id, and its drop target. */
     readonly keys: SchematicKeys;
     /** The Schematic as it stands now — never a render's copy: what a drop plans over. */
@@ -89,13 +91,14 @@ export interface SchematicDropState {
  * @returns The canvas's drop cell, and a card's ⏎
  */
 export function useSchematicDrop(props: SchematicDropProps): SchematicDropState {
-    const { value, backlog, keys } = props;
+    const { value, backlog, pagedBacklog, keys } = props;
     // The latest props, which every function of the parts reads: the parts stay put.
     const latest = useRef(props);
     latest.current = props;
     // Each tab of the library that drops, under the library its cards drag from.
     const host = useMemo(() => dropHostOf(keys.surface, (tabKey) => schematicLibraryId(keys, tabKey), value.library,
-        { items: value.items, links: value.links, nets: value.nets }, backlog), [keys, value.library, value.items, value.links, value.nets, backlog]);
+        { items: value.items, links: value.links, nets: value.nets }, backlog, pagedBacklog),
+    [keys, value.library, value.items, value.links, value.nets, backlog, pagedBacklog]);
     const drops = host.libraries.size > 0;
 
     /** What a card's drop where a drag rests does, over the Schematic as it stands now. */

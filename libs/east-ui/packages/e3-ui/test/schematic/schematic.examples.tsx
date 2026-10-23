@@ -225,6 +225,17 @@ export const schematicRacksPatch = e3.mutation.patch(schematicRacks);
 export const schematicRacksByName = e3.recordIndex("schematic_racks_by_name", schematicRacks, { on: ["name"] });
 export const schematicRacksByHall = e3.recordIndex("schematic_racks_by_hall", schematicRacks, { on: ["hall"] });
 export const schematicRacksByOwner = e3.recordIndex("schematic_racks_by_owner", schematicRacks, { on: ["owner"] });
+/**
+ * The racks filed by their boxes at a 1 cm cell, for a floor read a window at a time (#1393): what a window reads whatever
+ * the rail chooses, and the racks with no position, under its unplaced clause, which the Backlog pages.
+ */
+export const schematicRacksByArea = e3.recordIndex.area("schematic_racks_by_area", schematicRacks, {
+    x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01,
+});
+/** Beside it, a choice of owners and the window — or the racks with no position — in one read. */
+export const schematicRacksByOwnerArea = e3.recordIndex.area("schematic_racks_by_owner_area", schematicRacks, {
+    on: ["owner"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01,
+});
 export const schematicRackLoads = e3.record("schematic_rack_loads", DictType(StringType, DcLoad), new Map([
     ["A01", { kw: 5.2, capacity: 8.0, alarm: variant("ok", null) }],
     ["A02", { kw: 7.4, capacity: 8.0, alarm: variant("warm", null) }],

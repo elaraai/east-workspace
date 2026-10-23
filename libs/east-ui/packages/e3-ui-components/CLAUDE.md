@@ -52,7 +52,9 @@ rewritten from the row as its session finds it (`ScheduleChange`'s
 `rewrite`) — and the drafts are drawn over the stored rows (`drafted.ts`). Its
 library (`library.tsx`, #1389) is the start pane: every kind's templates,
 following their records' sources, and the item kinds' backlog (`backlog.ts`)
-as Libraries; the zones' Index (`index-tab.tsx` over `index-tree.ts`), one
+as Libraries — beside a kind read by area one paged list (`backlog-pages.ts`,
+D51), each such kind's rows paged through its area index's unplaced clause, a
+row its page read the original a drop rewrites; the zones' Index (`index-tab.tsx` over `index-tree.ts`), one
 focusable tree around the shared virtual rows, marking the zone the viewport
 is in; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
 the UI store under the `id` (`layers-view.ts`), which the canvas obeys — a

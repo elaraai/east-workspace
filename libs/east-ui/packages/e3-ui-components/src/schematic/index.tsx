@@ -90,10 +90,10 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { ArrayType, StringType, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
-import { Schematic, schematicKeys } from "@elaraai/e3-ui/internal";
+import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
     implementUIComponent, typedInto, useDataStable, useFormatters, usePersistedState, useSlicesReactivity, type EditIssue, type EditingWords, type HistoryAction,
@@ -104,6 +104,7 @@ import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
+import { SchematicBacklogPages, type BacklogAreaKind, type BacklogPageCount } from "./backlog-pages.js";
 import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle, type SchematicCanvasNarrowing, type SchematicZoomRange } from "./canvas/view.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
@@ -121,7 +122,7 @@ import { schematicInspectorPane } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
 import { drawingIssues, sessionIssues } from "./issues.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
-import { useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
+import { SchematicBacklogCountReader, schematicLibraryId, useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
 import { looksAtMatches, narrowedDrawing, narrowedLook, schematicNarrowing, type SchematicNarrowedLook } from "./narrowing.js";
 import { useSchematicToolbarItems } from "./toolbar.js";
@@ -296,11 +297,15 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }), [value.items, value.zones, value.links, value.nets, chrome]);
     // The kinds read by area (#1393): never read whole, nor their narrowing complete.
     const areas = useMemo(() => areaSlots(value), [value]);
-    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows);
+    // The paged Backlog (#1393), made below from the drafts: what a gesture on a row it lists rewrites, asked as it reads.
+    const backlogPagesNow = useRef<SchematicBacklogPages | undefined>(undefined);
+    const pagedRow = useCallback((slot: string, key: string) => backlogPagesNow.current?.rowOf(slot, key), []);
+    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, pagedRow);
     const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
     // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
     const draftedCache = useRef<DraftedCache>(new WeakMap());
-    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current), [data.drawn, data.held, editing.drafts]);
+    // A kind read by area holds only its window: a drafted row of it off the window draws where its draft places it (#1393).
+    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current, areas), [data.drawn, data.held, editing.drafts, areas]);
     const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: editing.record, mint: editing.mint } : undefined),
         [editing.edits, editing.record, editing.mint]);
 
@@ -492,6 +497,29 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         // `backlogVersion` moves with each source's choices.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [backlogParts, backlogVersion]);
+    // The item kinds read by area that have a backlog (#1393, D51): their rows with no position paged through their area
+    // index's unplaced clause, the Backlog one paged list. A kind whose area indexes are refused the reader says so of,
+    // with Retry, and reads no further: it pages nothing.
+    const backlogAreaKinds = useMemo(() => value.items.flatMap((kind): BacklogAreaKind[] => {
+        const part = kind.backlog && areas.has(kind.key) ? sourcePart(chrome, kind.key) : undefined;
+        if (part === undefined) return [];
+        try {
+            const indexes = schematicAreaIndexes(part.config.indexes, kind.box, "items", `Schematic.items: "${kind.name}"`);
+            return indexes === undefined ? [] : [{ kind, part, areas: indexes }];
+        } catch {
+            return [];
+        }
+    }), [value.items, areas, chrome]);
+    const pagesBacklog = backlogAreaKinds.length > 0 && value.library.some((tab) => tab.type === "backlog");
+    const backlogPages = useMemo(() => (!pagesBacklog ? undefined
+        : new SchematicBacklogPages(schematicLibraryId(keys, "backlog"), backlog, backlogAreaKinds, editing.drafts.items)),
+    [pagesBacklog, keys, backlog, backlogAreaKinds, editing.drafts.items]);
+    const backlogPartKeys = useMemo(() => backlogAreaKinds.map(({ part }) => part.key), [backlogAreaKinds]);
+    useLayoutEffect(() => { backlogPagesNow.current = backlogPages; }, [backlogPages]);
+    // Its count, read in a component of its own; and what a card of it drops.
+    const [backlogCount, setBacklogCount] = useState<BacklogPageCount | undefined>(undefined);
+    const backlogPaged = useMemo(() => (backlogPages === undefined ? undefined : { source: backlogPages, count: backlogCount }), [backlogPages, backlogCount]);
+    const pagedBacklog = useMemo(() => (backlogPages === undefined ? undefined : (id: string) => backlogPages.card(id)), [backlogPages]);
     // The Index's zones and items: what the canvas draws, a hidden layer's and what the narrowing leaves out left out.
     const shownZones = useMemo(() => (layers.hidden.size === 0 ? listed.zones : listed.zones.filter((zone) => !layers.hidden.has(zone.key))), [listed.zones, layers.hidden]);
     const shownItems = useMemo(() => (layers.hidden.size === 0 ? listed.items : listed.items.filter((item) => !layers.hidden.has(item.key))), [listed.items, layers.hidden]);
@@ -540,12 +568,13 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const viewCentre = useCallback(() => canvasRef.current?.centre(), []);
     const selectDropped = useCallback((id: string) => canvasRef.current?.select(id), []);
     const drop = useSchematicDrop({
-        value, backlog, keys, context: dropContext, record: recordDrop, mint: editing.mint, selection: selectedRefs, centre: viewCentre,
+        value, backlog, pagedBacklog, keys, context: dropContext, record: recordDrop, mint: editing.mint, selection: selectedRefs, centre: viewCentre,
         select: selectDropped, notice: setRefusal, words, unit: getSomeorUndefined(value.scaleUnit),
     });
 
     const library = useSchematicLibrary({
-        value, zones: shownZones, items: shownItems, backlog, backlogNarrowing, layers: layerValues, layerCounts, layerView, onLayerView: setLayerView,
+        value, zones: shownZones, items: shownItems, backlog, backlogNarrowing, backlogPages: backlogPaged, layers: layerValues, layerCounts, layerView,
+        onLayerView: setLayerView,
         inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter,
     });
 
@@ -655,6 +684,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     return (
         <Box css={styles.root} data-schematic="">
             {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
+            {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
             <BuilderFrame
                 ref={frameRef}
                 storageKey={keys.frame}
