@@ -72,13 +72,17 @@ declare module "virtual:example-sources" {
     export const codeExamples: CodeExample[];
 }
 
-declare module "virtual:e3-showcase-package" {
+declare module "virtual:e3-showcase-packages" {
     /**
-     * Where the showcase's e3 package is served (#849): the zip the build
-     * emitted, named by its content, or the dev server's `/e3-showcase.zip`
-     * (`scripts/vite-plugin-e3-showcase.ts`). The e3 the page runs imports it
-     * as it starts.
+     * Where an area's e3 package is served (#849, #1397): the zip the build
+     * emitted for it, named by its content, or the dev server's
+     * `/e3-showcase-<area>.zip` (`scripts/vite-plugin-e3-showcase.ts`). The e3
+     * the page runs deploys it into the area's workspace the first time one of
+     * the area's examples shows.
+     *
+     * @param area - The area, e.g. `schematic`
+     * @returns Its zip's URL, or `undefined` when the build made none for it
      */
-    const url: string;
-    export default url;
+    const packageUrl: (area: string) => string | undefined;
+    export default packageUrl;
 }

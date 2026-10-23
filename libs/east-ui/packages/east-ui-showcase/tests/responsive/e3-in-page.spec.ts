@@ -6,8 +6,9 @@
 /**
  * The e3 the showcase runs in its page (#849), measured in a real browser.
  * The e3 examples read, write, page and call through e3-web — e3's storage,
- * runner and API on the page's own workers, the showcase's package deployed
- * and its dataflow run once — and nothing stands in for it:
+ * runner and API on the page's own workers, each area's package deployed in a
+ * workspace of its own and its dataflow run once, as the area's first example
+ * shows (#1397) — and nothing stands in for it:
  *
  * - a bound paged Plan lands its first units in key order, stands the units
  *   it has not read in one tail run, and lands the next windows where the
@@ -19,8 +20,10 @@
  * - a doc row the list mounts again shows its example at once, on every e3
  *   category's page;
  * - the isolated-file route starts the same e3;
- * - the page fetches its package at the URL the bundle carries, named by its
- *   content;
+ * - the page fetches an area's package at the URL the bundle carries, named by
+ *   its content, as the area's first example shows, and another area's only
+ *   once one of its examples shows; an area shown again runs against the
+ *   workspace it kept;
  * - an e3 that cannot start says why in the e3 examples' place, and the rest
  *   of the showcase is untouched; a Retry starts it again.
  *
@@ -297,17 +300,37 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         });
     }
 
-    test("the page fetches its package at the URL the bundle carries — the zip named by its content", async ({ page }) => {
+    test("the page fetches an area's package as its first example shows — the zip named by its content — another area's only as one of its examples shows, and an area shown again runs against the workspace it kept", async ({ page }) => {
         const fetched: { path: string; status: number }[] = [];
         page.on("response", (response) => {
             const url = new URL(response.url());
             if (url.pathname.includes("e3-showcase")) fetched.push({ path: url.pathname, status: response.status() });
         });
-        const status = await openEntry(page, "e3/bind/func/func", "funcBindStatus");
+        const file = "e3/bind/func/func";
+        const status = await openEntry(page, file, "funcBindStatus");
         await expect(status.getByText("IDLE", { exact: true })).toBeVisible();
-        expect(fetched).toHaveLength(1);
-        expect(fetched[0]!.path).toMatch(/^\/assets\/e3-showcase-[\w-]{8,}\.zip$/);
-        expect(fetched[0]!.status).toBe(200);
+        expect(fetched).toEqual([{ path: expect.stringMatching(/^\/assets\/e3-showcase-bind-[\w-]{8,}\.zip$/), status: 200 }]);
+
+        // Another area's example: its own package, deployed as it shows, and its example runs.
+        const ontology = "e3/ontology/ontology";
+        await page.evaluate(hash => { location.hash = hash; }, `#${ontology}/supplyChainOntology`);
+        const supply = entryOf(page, ontology, "supplyChainOntology");
+        await supply.scrollIntoViewIfNeeded();
+        await settled(page);
+        await expect(supply.locator("[data-e3-start]")).toHaveCount(0);
+        expect(fetched).toEqual([
+            { path: expect.stringMatching(/^\/assets\/e3-showcase-bind-[\w-]{8,}\.zip$/), status: 200 },
+            { path: expect.stringMatching(/^\/assets\/e3-showcase-ontology-[\w-]{8,}\.zip$/), status: 200 },
+        ]);
+
+        // The first area again: nothing fetched, and its function runs against the workspace it kept.
+        await page.evaluate(hash => { location.hash = hash; }, `#${file}/funcBindStatus`);
+        const again = entryOf(page, file, "funcBindStatus");
+        await again.scrollIntoViewIfNeeded();
+        await settled(page);
+        await again.getByRole("button", { name: "Run forecast" }).click();
+        await expect(again.getByText(".some 1.05", { exact: true })).toBeVisible();
+        expect(fetched).toHaveLength(2);
     });
 
     test("an e3 that cannot start says why in the e3 examples' place, and the rest of the showcase is untouched", async ({ page }) => {

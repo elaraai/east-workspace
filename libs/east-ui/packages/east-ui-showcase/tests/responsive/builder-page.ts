@@ -36,6 +36,19 @@ export async function visitBuilder(page: Page, route: string, root: string, them
 }
 
 /**
+ * Lets the page's builder example go, as a viewer leaving it does: the page
+ * shows another category's example — an East one, which starts no e3 area
+ * (#1397) — so the doc list unmounts the builder's. A spec that remounts a
+ * builder to read what it saved back from e3 comes back to it by its hash.
+ *
+ * @param page - The page
+ */
+export async function leaveBuilder(page: Page): Promise<void> {
+    await page.evaluate(() => { location.hash = "#buttons/button/buttonBasic"; });
+    await expect(page.getByRole("button", { name: "Click me" }).first()).toBeVisible();
+}
+
+/**
  * Sets the builder's frame to a width, through the box its example gives it,
  * and waits for the page at rest.
  *

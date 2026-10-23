@@ -22,17 +22,19 @@ export default defineConfig(({ command }) => {
         e3TestDir: path.resolve(__dirname, '../e3-ui/test'),
         rootDir: __dirname,
       }),
-      /* The showcase's e3 package (#849): every e3-ui example module's e3
-       * definitions, exported with the real SDK by e3-ui's examples' package
-       * step (`@elaraai/e3-ui/examples-package`, #1375) — served at
-       * `/e3-showcase.zip` by the dev server, and emitted by the build named
-       * by its content (`assets/e3-showcase-<hash>.zip`), the bundle carrying
-       * its URL (`virtual:e3-showcase-package`) — which the e3 the page runs
-       * (`showcase-e3.ts`) imports as it starts. The page imports it once, so
-       * an e3-ui change reaches it through the zip built again and a reload:
-       * the plugin reloads the page when e3-ui's `dist/` or `test/` changes
-       * (an example module reloads rather than updating in place). The React
-       * renderer (`e3-ui-components`) keeps Fast Refresh. */
+      /* The showcase's e3 packages (#849, #1397): an area's — the e3 examples
+       * of one category — holding what its examples read, exported with the
+       * real SDK by e3-ui's examples' package step
+       * (`@elaraai/e3-ui/examples-package`, #1375) — each served at
+       * `/e3-showcase-<area>.zip` by the dev server, and emitted by the build
+       * named by its content (`assets/e3-showcase-<area>-<hash>.zip`), the
+       * bundle carrying their URLs (`virtual:e3-showcase-packages`) — which
+       * the e3 the page runs (`showcase-e3.ts`) deploys into the area's
+       * workspace the first time one of its examples shows. The page deploys
+       * each once, so an e3-ui change reaches it through the zips built again
+       * and a reload: the plugin reloads the page when e3-ui's `dist/` or
+       * `test/` changes (an example module reloads rather than updating in
+       * place). The React renderer (`e3-ui-components`) keeps Fast Refresh. */
       e3ShowcasePlugin({
         e3UiDir: path.resolve(__dirname, '../e3-ui'),
       }),

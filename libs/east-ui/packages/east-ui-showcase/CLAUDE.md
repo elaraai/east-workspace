@@ -9,18 +9,25 @@ The app also showcases the **e3-ui** examples ("e3 Components" nav
 section) against e3 itself, running in the page (#849, e3-web):
 `showcase-e3.ts` starts it the first time an e3 example renders — the e3
 worker (`e3.worker.ts`, repositories in memory) and its unit workers
-(`unit.worker.ts`) — imports the showcase's e3 package (the zip at the URL
-`virtual:e3-showcase-package` gives, below), deploys it to the workspace
-`showcase` and runs its dataflow once. Edits staged against it are kept in
-memory too, so a reload drops them with the e3.
+(`unit.worker.ts`). Each area — a category's e3 examples, one directory of
+e3-ui's `test/` — has a workspace of its own (#1397), started the first time
+one of its examples shows: its package (the zip at the URL
+`virtual:e3-showcase-packages` gives for it, below) imported, deployed to the
+workspace and its dataflow run once, so a page waits for its own area's work
+and no other's. Every page shows one category — there is no "All" page — so
+its e3 examples are one area's. Edits staged against it are kept in memory
+too, so a reload drops them with the e3.
 `components/ShowcaseE3.tsx` mounts e3-ui-components' `E3Provider` and
-`ReactiveDatasetProvider` over it, beside the app (their runtimes are
-process-global), and gates each e3 example (`E3Gate`): it loads what the
+`ReactiveDatasetProvider` beside the app, over the workspace of the area
+whose example showed last (their runtimes are process-global, so they serve
+one workspace), and gates each e3 example (`E3Gate`): it loads what the
 example reads (its manifest's paths, as a UI task's preview does), polls
-them while it shows, and renders the example — or the start's error, naming
-its cause, in the example's place (`data-e3-start="failed"`), with a Retry
-that starts e3 again. What loaded before renders at once, so a row the doc
-list mounts again keeps its size. A page with no e3 example starts nothing.
+them while it shows, and renders the example — or its area's start's error,
+naming its cause, in the example's place (`data-e3-start="failed"`), with a
+Retry that starts the area again from the step that failed. What loaded
+before renders at once, so a row the doc list mounts again keeps its size;
+an area shown again after another loads what its examples read again. A
+page with no e3 example starts nothing.
 The showcase's own error overlay says what it is (`data-showcase-error`).
 `DocList` starts at a deep link before mounting the first window, and keeps
 the linked entry mounted wherever the list scrolls: what a link opened is
@@ -159,22 +166,28 @@ and establish a stable hit target; a previous drop or tab change can scroll it.
   showcase's own chrome, for a quick look at `App.tsx`.
 - `scripts/vite-plugin-example-sources.ts` — exposes example source
   files to the dev server via a virtual module.
-- The showcase's e3 package (#849) is made by e3-ui's examples' package
-  step (`@elaraai/e3-ui/examples-package`, e3-ui's `test/examples-package.ts`,
-  #1375): every e3 definition the e3-ui example modules export (inputs,
-  records with their mutations and indexes, tasks, functions), packaged with
-  the real SDK and written as a zip (`node ../e3-ui/dist/test/examples-package.js
-  <zip>`). Two modules declaring one dataset, task or function fail it. The
-  renderer's tests on e3-web take the same step's package of the modules a
-  test file mounts, so the SDK packages the examples in e3-ui alone.
+- The showcase's e3 packages (#849, #1397) are made by e3-ui's examples'
+  package step (`@elaraai/e3-ui/examples-package`, e3-ui's
+  `test/examples-package.ts`, #1375): a package an area, of every e3
+  definition the area's example modules export (inputs, records with their
+  mutations and indexes, tasks, functions) and what its examples bind of
+  another area's (found as a UI task's preview finds what it reads), packaged
+  with the real SDK and written as a zip an area
+  (`node ../e3-ui/dist/test/examples-package.js <dir>`). Two modules
+  declaring one dataset, task or function fail it, and so does an example
+  binding what no module declares. The renderer's tests on e3-web take the
+  same step's package of the modules a test file mounts, so the SDK packages
+  the examples in e3-ui alone.
 - `scripts/vite-plugin-e3-showcase.ts` — runs that step in a node process
-  of its own: the dev server serves the zip at `/e3-showcase.zip` (built
-  again, and the page reloaded to start its e3 over it, after e3-ui's
-  `dist/` or `test/` changes — rebuild e3-ui for an edit to reach the
-  package), and `vite build` emits it named by its content
-  (`dist/assets/e3-showcase-<hash>.zip`); the page imports its URL from
-  `virtual:e3-showcase-package`, either way.
-  `tests/e3-package/` imports it into an in-memory e3 (`pnpm run test`).
+  of its own: the dev server serves each area's zip at
+  `/e3-showcase-<area>.zip` (built again, and the page reloaded to start its
+  e3 over them, after e3-ui's `dist/` or `test/` changes — rebuild e3-ui for
+  an edit to reach the packages), and `vite build` emits each named by its
+  content (`dist/assets/e3-showcase-<area>-<hash>.zip`); the page imports
+  their URLs from `virtual:e3-showcase-packages`, either way.
+  `tests/e3-package/` imports them into an in-memory e3 (`pnpm run test`):
+  each module's definitions in its area's package, each example's bindings
+  found there, and no record its area's modules and examples do not reach.
 - `scripts/example-renderings.ts` — joins every Code Reference example
   with the plugins' example index (`libs/east-plugin/index.json`)
   by id, for its python rendering (#655): the index stores each program

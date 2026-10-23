@@ -484,7 +484,8 @@ a stand-in that answers at once and says what the test wrote (#1375). Each test
 file starts e3-web in its own process (`src/e3-web.test-utils.ts`). It deploys
 the package of the e3-ui example modules the file names, made by e3-ui's
 examples' package step (`@elaraai/e3-ui/examples-package`, as the showcase's
-package is), and each test gets a workspace copied from it.
+packages are, one a showcase area), and each test gets a workspace copied
+from it.
 `src/e3-web-mount.test-utils.tsx` mounts an example as the showcase does:
 `E3Provider` over the test's workspace, `ReactiveDatasetProvider`, and the
 example's reads loaded first and polled while it shows.
