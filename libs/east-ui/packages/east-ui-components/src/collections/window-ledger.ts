@@ -26,6 +26,11 @@
  * the first window to land and then FROZEN for the life of the source, so the
  * extent is revised only when a window is visited for the first time — never
  * re-estimated globally, never mid-gesture (demand is idle-gated by the caller).
+ * A collection whose rows have a DECLARED pitch (#1398, CL1: the Sheet's 36px
+ * at md, `planRecordIndexes`' 42px) gives it to {@link createLedger}: a count
+ * that lands before any window then sizes the extent at that pitch, never at
+ * the starting {@link DEFAULT_SLOT_PX}, and the first window to land seeds
+ * nothing — so a flat collection's extent does not move when window 0 lands.
  * The one other revision is the caller's: when what a visited window's rows
  * draw at changes (the Plan's collapse, grain or chart toggles, #823) it
  * observes the window again at its new height, exactly as the rows would move
@@ -87,8 +92,10 @@ export interface WindowLedger {
     readonly total: number;
     /** Number of windows (`ceil(total / pageSize)`). */
     readonly windows: number;
-    /** Pixels per element for a window never visited — seeded once, then frozen. */
+    /** Pixels per element for a window never visited — the declared pitch, or seeded once from the first window to land; then frozen. */
     readonly slotPx: number;
+    /** Whether `slotPx` is the collection's declared pitch, which no window's measure seeds again (#1398, CL1). */
+    readonly declared: boolean;
     /** Measured windows by index; absent ⇒ never visited. */
     readonly measured: ReadonlyMap<number, WindowMeasure>;
     /** Running offset of each window, `windows + 1` entries (the last is the
@@ -124,19 +131,38 @@ function prefixOf(ledger: Omit<WindowLedger, "prefix">): number[] {
 }
 
 /**
+ * The slot rate a source of `total` elements may describe: `perElement`,
+ * bounded below by a pixel and above by the extent the browser can describe
+ * (`MAX_DOC_PX`).
+ *
+ * @param perElement - The pixels an element draws at
+ * @param total - The source's element count
+ * @returns The rate
+ */
+function slotRate(perElement: number, total: number): number {
+    return Math.max(MIN_SLOT_PX, total > 0 ? Math.min(MAX_DOC_PX / total, perElement) : perElement);
+}
+
+/**
  * Build a ledger for a source of `total` elements.
  *
  * @param total - The source's element count (from `total()`)
  * @param pageSize - Elements per window
+ * @param pitch - The pixels each element's row is declared to draw at (#1398, CL1): an unvisited window is described at
+ *   it from the start, and no window's measure seeds the rate again. Absent, the rate starts at 32px and the first
+ *   window to land seeds it — a collection whose element draws a height its data decides (a grouped sheet's band and
+ *   lines).
  * @returns A ledger with nothing measured yet
  */
-export function createLedger(total: number, pageSize: number): WindowLedger {
+export function createLedger(total: number, pageSize: number, pitch?: number): WindowLedger {
     const windows = pageSize > 0 ? Math.ceil(Math.max(0, total) / pageSize) : 0;
+    const declared = pitch !== undefined && pitch > 0;
     const base: Omit<WindowLedger, "prefix"> = {
         pageSize,
         total: Math.max(0, total),
         windows,
-        slotPx: DEFAULT_SLOT_PX,
+        slotPx: declared ? slotRate(pitch, Math.max(0, total)) : DEFAULT_SLOT_PX,
+        declared,
         measured: new Map(),
     };
     return { ...base, prefix: prefixOf(base) };
@@ -172,10 +198,11 @@ export function observeWindow(ledger: WindowLedger, w: number, measure: WindowMe
     // sheet's unloaded windows at a third of their rows, and the extent grew
     // under the scrollbar as each one landed.
     let slotPx = ledger.slotPx;
-    if (ledger.measured.size === 0) {
+    // A declared pitch is the rate already: no window seeds it again (#1398, CL1).
+    if (ledger.measured.size === 0 && !ledger.declared) {
         const elements = elementsIn(ledger, w);
         const perElement = elements > 0 ? (measure.restPx ?? measure.px) / elements : DEFAULT_SLOT_PX;
-        slotPx = Math.max(MIN_SLOT_PX, Math.min(MAX_DOC_PX / ledger.total, perElement));
+        slotPx = slotRate(perElement, ledger.total);
     }
 
     const base: Omit<WindowLedger, "prefix"> = { ...ledger, measured, slotPx };

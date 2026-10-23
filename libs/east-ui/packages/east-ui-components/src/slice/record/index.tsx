@@ -71,9 +71,15 @@ function sourceHeading(part: Part, nouns: Readonly<Record<string, string>> | und
 /**
  * The noun a source is counted in: the host's, else its label as running text
  * writes it — in lower case unless it is written in capitals (`SKU`) — else
- * its name.
+ * its name. The rail's summary counts in it, and a builder's footer says what
+ * it reads of the source in it (#1398: `Loading work orders 8,301–8,500`).
+ *
+ * @param part - The source's part of the slice
+ * @param nouns - The host's noun for each source, by its name
+ * @param locale - The locale the label is written in
+ * @returns The noun
  */
-function sourceNoun(part: Part, nouns: Readonly<Record<string, string>> | undefined, locale: string): string {
+export function recordSliceNoun(part: Part, nouns: Readonly<Record<string, string>> | undefined, locale: string): string {
     const noun = nouns?.[part.source];
     if (noun !== undefined) return noun;
     if (part.label.type === "none") return part.source;
@@ -130,7 +136,7 @@ export function RecordSlicesSummary({ slices, nouns, except }: {
             {i > 0 && <Box as="span" css={styles.choiceCountsGap} aria-hidden="true">·</Box>}
             <span data-record-slice-source={shown.part.source}>{shown.failed
                 ? <RecordSliceFailure slice={shown.part.slice} message="Could not load count" />
-                : <SliceCountSummary count={shown.count} total={shown.total} noun={sourceNoun(shown.part, nouns, locale)} />}</span>
+                : <SliceCountSummary count={shown.count} total={shown.total} noun={recordSliceNoun(shown.part, nouns, locale)} />}</span>
         </Fragment>)}
     </Box>;
 }

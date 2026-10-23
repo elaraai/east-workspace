@@ -89,6 +89,38 @@ describe("window ledger — the frozen slot rate", () => {
     });
 });
 
+describe("window ledger — a declared pitch (#1398, CL1)", () => {
+    test("a count that lands before any window sizes the extent at the declared pitch, never at the starting 32px", () => {
+        const l = createLedger(16_667, PAGE, 36);
+        expect([l.declared, l.slotPx]).toEqual([true, 36]);
+        expect(documentHeight(l)).toBe(16_667 * 36);
+        // Undeclared, the same count is sized at the starting rate.
+        expect(documentHeight(createLedger(16_667, PAGE))).toBe(16_667 * 32);
+    });
+
+    test("window 0 landing at the pitch changes nothing: the extent and every offset hold", () => {
+        let l = createLedger(16_667, PAGE, 36);
+        const before = [documentHeight(l), offsetOfWindow(l, 1), offsetOfWindow(l, 80)];
+        l = observeWindow(l, 0, { px: PAGE * 36, rows: PAGE });
+        expect([documentHeight(l), offsetOfWindow(l, 1), offsetOfWindow(l, 80)]).toEqual(before);
+    });
+
+    test("no window seeds the rate again: one that draws otherwise moves only what is below it", () => {
+        let l = createLedger(2_000, PAGE, 42);
+        l = observeWindow(l, 0, { px: PAGE * 50, rows: PAGE });
+        expect(l.slotPx).toBe(42);
+        // Window 0 is as tall as it drew; every unvisited window stays at the pitch.
+        expect([slotHeight(l, 0), slotHeight(l, 7)]).toEqual([PAGE * 50, PAGE * 42]);
+        expect(documentHeight(l)).toBe(PAGE * 50 + 9 * PAGE * 42);
+    });
+
+    test("a declared pitch is still bounded by the extent the browser can describe", () => {
+        const l = createLedger(4_000_000, PAGE, 36);
+        expect(l.slotPx * l.total).toBeLessThanOrEqual(8e6);
+        expect(l.slotPx).toBeGreaterThanOrEqual(1);
+    });
+});
+
 describe("window ledger — geometry", () => {
     test("offsets are the running sum, and lookup inverts it", () => {
         let l = createLedger(2_000, PAGE);                 // 10 windows

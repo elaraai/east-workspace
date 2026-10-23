@@ -34,8 +34,8 @@ export {
     offsetOfWindow, rowsIn, slotHeight, windowAtOffset, type WindowLedger, type WindowMeasure,
 } from "./collections/window-ledger.js";
 export {
-    DEFAULT_RESIDENCY, NO_RESIDENCY, advance, demandRange, isEmpty, pin, residentWindows, step, trim, unpinAll,
-    type Residency, type ResidencyOptions,
+    DEFAULT_RESIDENCY, NO_RESIDENCY, advance, demandRange, isEmpty, leftRun, pin, residentWindows, step, travelOf, trim, unpinAll,
+    type Residency, type ResidencyOptions, type Travel,
 } from "./collections/window-residency.js";
 export { toSeekQuery, type SeekQueryValue } from "./collections/key-search/seek-query.js";
 // Density, the drag grammar's IR veto, and its slot codecs.
@@ -62,7 +62,9 @@ export { SliceRangeContent } from "./slice/range/index.js";
 // The rail's field chip, for a result a host shows as one: a Find fix's, which its × clears (#1342); and its
 // choice chips and quiet reset, for choices a host offers as the rail does: a Sheet's views, folded with its key search (#1345).
 export { SliceChoiceGroup, SliceClearButton, SliceFieldChip, type SliceChoice } from "./slice/choice.js";
-export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, useRecordSliceToolbarItems, useRecordSlicesToolbarItems } from "./slice/record/index.js";
+export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, recordSliceNoun, useRecordSliceToolbarItems, useRecordSlicesToolbarItems } from "./slice/record/index.js";
+// A record source's count, handed to its builder as soon as it lands, before its pages (#1398, problem 23).
+export { useRecordSliceCount, type RecordSliceCount } from "./slice/record/count.js";
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";
 export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordSliceWindow, clearRecordSliceWindow } from "./slice/record/range.js";
 // Whether a record Slice still holds its seed — its `initial`, written over by nothing — which a builder's restored view replaces;
@@ -77,7 +79,7 @@ export {
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";
 export { createTrackedRead, awaitTracked } from "./reactive/tracked.js";
-export { PagedScan } from "./collections/paged-scan.js";
+export { PagedScan, SCAN_CONCURRENCY } from "./collections/paged-scan.js";
 export { EastErrorBoundary } from "./reactive/error-display.js";
 // Keyboard and sizing primitives, and a control's touch target on a coarse
 // pointer — its halo, the row's widths kept (#346, #1221).
@@ -99,3 +101,23 @@ export { LibraryCard, LibraryEmptyState, LibrarySearchBox } from "./collections/
 export { PagedLibrary, type LibraryPageSource, type PagedLibrarySearch } from "./collections/library/paged.js";
 // A tab's count while a builder's rail narrows it: over resident cards, and over a paged record (#1339, #1341).
 export { narrowedCount, pagedCount, type CountWords, type PagedCountSource } from "./collections/library/count.js";
+
+// One way to show a read in flight or failed (#1398): the unloaded run and its placeholder shapes, the narrow
+// layouts' placeholder card, the region wash, a failure said once — a row grid's line, a region's box — the
+// reveal's one clock (CL4), their words, and the retained treatment's recipe parts; and the footer's one
+// loading line with the rail's fit (CL3).
+export {
+    REVEAL_DELAY_MS, REVEAL_HOLD_MS, revealStep, useLoadingReveal, type RevealState, type RevealStep, type RevealTimings,
+    barShare, runRows, runView, type RunGeometry, type RunGroup, type RunSlot, type RunView,
+    LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderCard, PlaceholderShape, placeholderAlign,
+    type LoadingFailedBoxProps, type LoadingFailedLineProps, type LoadingRetry, type LoadingWashProps, type PlaceholderCardProps,
+    type PlaceholderKind, type PlaceholderShapeProps,
+    UnloadedRun, type RunCell, type RunFailure, type UnloadedRunProps,
+    loadingMessages, type LoadingMessages,
+} from "./collections/loading/index.js";
+export { retainedColumn, retainedRow } from "./theme/slot-recipes/loading.js";
+export {
+    FooterMore, LoadingLine, footerCut, loadingLineText, measureFooter, useFooterFit,
+    type FooterMoreProps, type LoadingLineProps, type LoadingLineText, type LoadingLineValue,
+} from "./layout/builder-frame/loading-line.js";
+export { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type LoadingLineForm } from "./layout/builder-frame/footer-fit.js";

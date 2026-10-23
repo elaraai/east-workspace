@@ -159,6 +159,8 @@ import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { fieldFormSlotRecipe } from "./slot-recipes/fieldForm.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
+import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
+import { loadingSlotRecipe } from "./slot-recipes/loading.js";
 import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js";
 import { logViewerSlotRecipe } from "./slot-recipes/logViewer.js";
 import { nativeSelectSlotRecipe } from "./slot-recipes/nativeSelect.js";
@@ -303,6 +305,8 @@ const config = defineConfig({
             fieldForm:       fieldFormSlotRecipe,
             toolbar:         toolbarSlotRecipe,
             builderFrame:    builderFrameSlotRecipe,
+            builderFooterLine: builderFooterLineSlotRecipe,
+            loading:         loadingSlotRecipe,
             queryAutocomplete: queryAutocompleteSlotRecipe,
             logViewer:       logViewerSlotRecipe,
             nativeSelect:    nativeSelectSlotRecipe,
