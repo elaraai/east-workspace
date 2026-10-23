@@ -5,6 +5,7 @@
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { frameAt, toolbarFaults } from "./builder-frame";
+import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 const FILE = "e3/roster/roster";
 async function open(page: Page, name = "rosterWarehouse", theme: "light" | "dark" = "light") {
@@ -48,9 +49,9 @@ const railFields = (frame: Locator) => frame.locator(RAIL).first().evaluate(rail
     const trigger = rail.querySelector("button[aria-label^='Filters:']")?.getAttribute('aria-label') ?? '';
     return { fields: [...live, ...folded].sort(), named: ['Group', 'Position', 'Trainer', 'Agency', 'Skill', 'Name'].every(label => trigger.includes(label)) };
 });
+/** The Roster's example unmounted and mounted again, what it shows read back from e3. */
 async function remount(page: Page, name: string) {
-    await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
-    await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
+    await leaveBuilder(page);
     await page.evaluate(({ file, name }) => { location.hash = `#${file}/${name}`; }, { file: FILE, name });
     const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${FILE}/${name}"]`) });
     await entry.scrollIntoViewIfNeeded(); await expect(entry.locator('[data-roster-frame]').first()).toBeVisible();

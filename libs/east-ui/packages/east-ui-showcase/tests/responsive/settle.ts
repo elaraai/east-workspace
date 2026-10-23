@@ -14,9 +14,10 @@ import { expect, type Page } from "playwright/test";
 /**
  * How long the page may take to start what it shows: an example's East
  * compiling, the e3 the page runs starting (#849), and the builders loading
- * over it. A cold e3 deploys a fresh workspace in the page: some 20 s on a
- * hosted runner, where a calendar entry's first settle once ran out of its
- * 20 s with e3 just started and its builders still loading.
+ * over it. A cold e3 deploys the workspace of the area the page shows (#1397)
+ * — the largest areas' seconds of work on a hosted runner, where a page once
+ * deployed every area's at once and a calendar entry's first settle ran out
+ * of its 20 s with e3 just started and its builders still loading.
  */
 const STARTING_MS = 45_000;
 /** How long the page may take to hold still once nothing is starting. */
