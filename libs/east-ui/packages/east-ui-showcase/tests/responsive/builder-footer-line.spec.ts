@@ -15,6 +15,11 @@
  * region that says nothing and takes no room once what the builder shows has
  * landed. The line and the "…" speak in the footer's voice — mono,
  * `label.md`, tabular, `fg.muted` — whatever voice the rail's own items take.
+ * No item the fit weighs at a width of its own can shrink in the flex layout
+ * but one marked as taking the rail's slack (`data-footer-slack`): an item
+ * that shrinks as the fit chooses would measure differently at each choice,
+ * and the fit would never settle (the Sheet's message, which looped it on a
+ * phone, #1398).
  *
  * Nothing on a rail at rest is a control, so it is measured with a mouse
  * alone. The line's forms in flight — its words, its short form, its dot
@@ -65,6 +70,11 @@ interface RailAt {
     readonly clipped: readonly string[];
     /** Each item its fit cut, by its words, that still shows or still takes room in the flow. */
     readonly seen: readonly string[];
+    /**
+     * Each item the fit weighs at a width of its own — not a unit, the units, the "…" or the line — that the flex layout
+     * could shrink below its words, by its tag and words, unless it takes the rail's slack.
+     */
+    readonly shrinking: readonly string[];
     /** How many loading lines it holds. */
     readonly lines: number;
     /** Its loading line as it stands. */
@@ -153,6 +163,14 @@ function railAt(rail: Locator): Promise<RailAt> {
             offCentre: shown.filter((item) => { const b = item.getBoundingClientRect(); return Math.abs(b.top + b.height / 2 - centre) > 1; }).map(words),
             clipped: shown.filter((item) => item.scrollWidth > item.clientWidth + 1).map(words),
             seen: cut.filter((item) => { const s = getComputedStyle(item); return s.visibility !== "hidden" || s.position !== "absolute"; }).map(words),
+            // A flex item shrinks below its words when it may shrink and its floor is not its content: an explicit
+            // min-width, or `auto` over an overflow it clips.
+            shrinking: [...el.children].filter((item) => {
+                if (item.matches("[data-footer-unit], [data-footer-units], [data-footer-more], [data-footer-line], [data-footer-cut], [data-footer-slack]")) return false;
+                const s = getComputedStyle(item);
+                if (s.display === "none" || s.position === "absolute" || s.position === "fixed") return false;
+                return Number.parseFloat(s.flexShrink) > 0 && (s.minWidth !== "auto" || s.overflowX !== "visible");
+            }).map((item) => `${item.getAttribute("data-slot") ?? item.tagName.toLowerCase()} '${words(item)}'`),
             lines: el.querySelectorAll(":scope > [data-footer-line]").length,
             line: line === null || lineBox === undefined || lineStyle === undefined ? null : {
                 idle: line.hasAttribute("data-idle"),
@@ -195,6 +213,8 @@ for (const theme of ["light", "dark"] as const) {
                     expect(at.outside, `${where}: past the rail's content box`).toEqual([]);
                     expect(at.offCentre, `${where}: off the rail's centre line`).toEqual([]);
                     expect(at.clipped, `${where}: cut inside its words`).toEqual([]);
+                    // What the fit weighs never moves with the fit: no item it measures can shrink, but one taking the slack.
+                    expect(at.shrinking, `${where}: weighed by the fit, yet shrunk by the layout`).toEqual([]);
                     // The units its fit cut are the last ones, each hidden whole, and the "…" ends them.
                     const kept = at.units.filter((unit) => !unit.cut).length;
                     expect(at.units.map((unit) => unit.cut), `${where}: the units cut`).toEqual(at.units.map((_, n) => n >= kept));

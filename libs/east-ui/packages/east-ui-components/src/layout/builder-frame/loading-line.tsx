@@ -28,7 +28,10 @@
  *
  * A builder's footer marks its legend's items `data-footer-unit` — its hints
  * also `data-footer-hints` on the rail — and the fit cuts them whole
- * (`data-footer-cut`), {@link FooterMore} ending a cut legend.
+ * (`data-footer-cut`), {@link FooterMore} ending a cut legend. An item that
+ * takes the rail's slack, shrinking as the room left it shrinks — the Sheet's
+ * message — is marked `data-footer-slack`: the fit fits it at no width, as
+ * the room it takes is what the fit leaves.
  *
  * @packageDocumentation
  */
@@ -191,14 +194,31 @@ function px(value: string): number {
 }
 
 /**
+ * An item's width at its natural size: as it is laid out, and what it clips
+ * past that — so an item the flex layout shrinks, its words cut by its
+ * `overflow`, measures the same whatever room the rest of the rail leaves it.
+ *
+ * @param item - The item
+ * @returns Its natural width, in px
+ */
+function naturalWidth(item: Element): number {
+    return item.getBoundingClientRect().width + Math.max(0, item.scrollWidth - item.clientWidth);
+}
+
+/**
  * The rail as the fit reads it: its content width and gap from its computed
  * style, and each of its items' own width — each legend unit, cut or not, at
- * its natural size, the "…", and each of the line's forms as its measure lays
- * it out. An item out of the flow, or not displayed, takes no room.
+ * its natural size, the "…", each of the line's forms as its measure lays it
+ * out, and every other item at its natural size too. An item out of the flow,
+ * or not displayed, takes no room. So nothing the fit measures moves with the
+ * fit, and a measure never loops.
  *
  * Units are the rail's own items (`data-footer-unit`, a legend's), or run on
  * inside one item of it (`data-footer-units`, the Sheet's hints, each
  * carrying its own separator), with no gap between them but that item's.
+ * An item that takes the rail's slack (`data-footer-slack`, the Sheet's
+ * message) shrinks to what the fit leaves it: it is fitted at no width, its
+ * gap counted.
  *
  * @param rail - The rail
  * @returns What it is made of
@@ -234,7 +254,8 @@ export function measureFooter(rail: HTMLElement): FooterFitInput {
         }
         const own = style(child);
         if (own.display === "none" || own.position === "absolute" || own.position === "fixed") continue;
-        fixed.push(width);
+        // An item taking the rail's slack is fitted at no width; any other at its natural width, however the layout shrank it.
+        fixed.push(child.hasAttribute("data-footer-slack") ? 0 : naturalWidth(child));
     }
     return { available, gap, fixed, units, unitGap, more, hints: rail.hasAttribute("data-footer-hints"), line, lineCap };
 }

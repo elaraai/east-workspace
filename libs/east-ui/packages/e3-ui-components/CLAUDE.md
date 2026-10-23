@@ -577,6 +577,10 @@ never wraps and never cuts a word: each legend item is a unit of its fit
 (`data-footer-unit`, `data-footer-cut` from `useFooterFit`), `FooterMore` ends
 a cut legend, and the fit keeps the legend whole and in place as the line
 comes and goes, the line in its full text, its short form or its dot alone.
+An item the flex layout shrinks — the Sheet's message, which ellipsizes —
+takes the rail's slack and is marked so (`data-footer-slack`): the fit weighs
+it at no width, never at a width that moves with its own choice, which looped
+it on a phone.
 Pass it through BuilderFrame's footer region with `liveFooter`, so the line
 and its Retry stay live under the cold-load cover; keep the footer visually
 distinct from the body. Plan, Sheet, Roster, Calendar and Allocation all
