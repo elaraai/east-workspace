@@ -70,6 +70,7 @@ import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
+import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import { sourcePart, type KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
@@ -279,27 +280,32 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
             )}
         </>
     );
+    // The sheet's one reveal clock (#1398, CL4): the footer's line and the runs' placeholders show once a read the view
+    // waits for has passed the delay, and are held once shown — a flip renders them, never the frame.
+    const waiting = footer.loading !== undefined && footer.loading.kind !== "failed";
     return (
-        <BuilderFrame
-            storageKey={keys.frame}
-            toolbar={toolbar}
-            toolbarRef={toolbarRef}
-            banners={banners}
-            start={library}
-            end={inspector}
-            footer={<SheetFooter {...footer} saved={saved} recordSlice={rowsPart} />}
-            // A paged source's cold load is the frame's skeleton at the rows' pitch, its footer live and saying what is
-            // read; after it, a read in flight leaves everything live and the grid busy (#1398).
-            loading={loading.cold}
-            busy={loading.busy}
-            loadingPitch={loading.pitch}
-            liveFooter
-            onKeyDown={onKeyDown}
-        >
-            <SheetRoot>
-                <SheetGrid />
-            </SheetRoot>
-        </BuilderFrame>
+        <LoadingReveal waiting={waiting}>
+            <BuilderFrame
+                storageKey={keys.frame}
+                toolbar={toolbar}
+                toolbarRef={toolbarRef}
+                banners={banners}
+                start={library}
+                end={inspector}
+                footer={<SheetFooter {...footer} saved={saved} recordSlice={rowsPart} />}
+                // A paged source's cold load is the frame's skeleton at the rows' pitch, its footer live and saying what
+                // is read; after it, a read the view waits for leaves everything live and the grid busy (#1398).
+                loading={loading.cold}
+                busy={loading.busy}
+                loadingPitch={loading.pitch}
+                liveFooter
+                onKeyDown={onKeyDown}
+            >
+                <SheetRoot>
+                    <SheetGrid />
+                </SheetRoot>
+            </BuilderFrame>
+        </LoadingReveal>
     );
 }
 

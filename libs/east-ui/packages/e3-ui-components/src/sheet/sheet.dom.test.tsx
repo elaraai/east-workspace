@@ -1154,7 +1154,7 @@ describe("an editor whose row leaves the sheet (#877)", () => {
 });
 
 describe("failure is local (#853)", () => {
-    test("a window that cannot be read is its own band with the reason and a Retry; the rows around it, the ring, the open editor and the drafts stay; Retry lands it once the source is back", async () => {
+    test("a window that cannot be read is said once, in its run's first row in view, with a Retry; the rows around it, the ring, the open editor and the drafts stay; Retry lands it once the source is back", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             frameAt(EVERY_ROW_PX);
@@ -1182,8 +1182,15 @@ describe("failure is local (#853)", () => {
             await waitFor(() => expect(container.querySelector('[data-band="failed"]')).toBeTruthy());
             const band = container.querySelector('[data-band="failed"]')!;
             expect(band.getAttribute("data-elements")).toBe("200");
-            expect(band.querySelector('[role="alert"]')!.textContent).toBe("Elements 201–400 could not be read — gateway timeout");
-            expect(band.querySelector('[data-slot="retry"]')!.textContent).toBe("Retry");
+            // Said once, in the run's first row in view, in the rows' noun — the grid's one cell there — with its Retry (#1398, CL11).
+            expect([...band.querySelectorAll("[data-loading-failed-message]")].map((said) => said.textContent)).toEqual(["Couldn't read rows 201–400"]);
+            const retry = band.querySelector("[data-loading-retry]")!;
+            expect([retry.textContent, retry.getAttribute("aria-label")]).toEqual(["Retry", "Retry rows 201–400"]);
+            expect([...band.querySelectorAll('[role="gridcell"]')].map((cell) => cell.getAttribute("aria-colspan"))).toEqual(["3"]);
+            // Its row keeps its number; the run's other rows keep theirs and say nothing else.
+            const runRows = [...band.querySelectorAll("[data-run-row]")];
+            expect(runRows[0]!.querySelector('[data-shape="rowNumber"]')!.textContent).toBe("201");
+            expect(runRows.slice(1, 3).map((row) => row.textContent)).toEqual(["202", "203"]);
             // The footer's loading line says the same at once, the reason heard with it, and offers Retry (#1398, CL3).
             const failedLine = footerLine(container);
             expect(failedLine.line.hasAttribute("data-failed")).toBe(true);
@@ -1207,7 +1214,7 @@ describe("failure is local (#853)", () => {
             expect(held.state.asked.filter((w) => w === 1)).toHaveLength(asks);
             expect(container.querySelector('[data-band="failed"]')).toBeTruthy();
             // Retry does, and the rows land in place: the open editor and the draft are as they were…
-            fireEvent.click(band.querySelector('[data-slot="retry"]')!);
+            fireEvent.click(container.querySelector('[data-band="failed"] [data-loading-retry]')!);
             // Every row is in: the grid's count takes the blank padding too, and the footer's line is gone.
             await waitFor(() => expect(card.getAttribute("aria-rowcount")).toBe("413"));
             expect(footerLine(container).idle).toBe(true);
@@ -1338,7 +1345,7 @@ describe("failure is local (#853)", () => {
         }
     });
 
-    test("a jump whose window cannot be read shows its band at the target and hands the viewport back (#854)", async () => {
+    test("a jump whose window cannot be read shows its failed run at the target and hands the viewport back (#854)", async () => {
         const logged = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             const held = heldSheet(8_000);
@@ -1346,12 +1353,18 @@ describe("failure is local (#853)", () => {
             const { container, scroller, scrollFrame } = mount(held.value);
             await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
             await seekKey(container, "r6000");
-            // Element 6,000's window fails: its band shows where its rows would be, and the view goes to it.
+            // Element 6,000's window fails: its run shows where its rows would be, saying so, and the view goes to it.
             await waitFor(() => expect(container.querySelector('[data-band="failed"][data-failed="30"]')).toBeTruthy(), { timeout: 10_000 });
             const band = container.querySelector('[data-band="failed"][data-failed="30"]') as HTMLElement;
+            expect(band.querySelector("[data-loading-failed-message]")!.textContent).toBe("Couldn't read rows 6,001–6,200");
+            // Its rows keep the numbers of the rows they stand for, as the gutter draws a row's: 6001, never 6,001 (#1398).
+            const numbers = [...band.querySelectorAll<HTMLElement>("[data-run-row]")]
+                .map((row) => [row.querySelector('[data-shape="rowNumber"]')?.textContent, String(Number(row.getAttribute("data-run-index")) + 1)]);
+            expect(numbers.length).toBeGreaterThan(0);
+            for (const [shown, place] of numbers) expect(shown).toBe(place);
             await waitFor(() => expect(scroller().scrollTop).toBeGreaterThan(0));
             const top = offsetOf(band);
-            expect(scroller().scrollTop).toBeLessThan(top + parseFloat(band.style.height));
+            expect(scroller().scrollTop).toBeLessThan(top + parseFloat(band.querySelector<HTMLElement>("[data-unloaded-run]")!.style.height));
             expect(scroller().scrollTop + FRAME_PX).toBeGreaterThan(top);
             // The jump handed the viewport back: at the top again, the sheet pages there.
             scrollFrame(0);
@@ -1415,11 +1428,14 @@ describe("the accessible grid (#860)", () => {
         expect(r5.getAttribute("aria-rowindex")).toBe("7");
         expect(r5.querySelector('[role="rowheader"]')!.getAttribute("aria-label")).toBe("Row 6");
         expect([...r5.querySelectorAll('[role="gridcell"]')].map((c) => c.getAttribute("aria-colindex"))).toEqual(["2", "3", "4"]);
-        // The rows not loaded are one row, where the first of them would be, its one cell across the grid.
+        // The rows not loaded are one row, where the first of them would be, its one cell across the grid — busy while
+        // they are read, its placeholders hidden, saying nothing (#1398, CL12).
         const tail = container.querySelector('[data-band="tail"]')!;
         expect(tail.getAttribute("role")).toBe("row");
         expect(tail.getAttribute("aria-rowindex")).toBe("202");
-        expect(tail.querySelector('[role="gridcell"]')!.getAttribute("aria-colspan")).toBe("4");
+        expect(tail.getAttribute("aria-busy")).toBe("true");
+        expect([...tail.querySelectorAll('[role="gridcell"]')].map((cell) => [cell.getAttribute("aria-colindex"), cell.getAttribute("aria-colspan")])).toEqual([["1", "4"]]);
+        expect(tail.querySelectorAll("[data-run-row]:not([aria-hidden='true'])")).toHaveLength(0);
         // The ring is the active cell and a selected one; the keys move it.
         fireEvent.mouseDown(cell(5, "task"), { button: 0 });
         expect(active(card)).toBe(cell(5, "task"));

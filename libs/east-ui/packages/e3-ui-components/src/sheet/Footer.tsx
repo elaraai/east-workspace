@@ -18,7 +18,7 @@
 import { memo, useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { pagedLoadingLine, type PagedLoading } from "../shared/loading.js";
 import { useSheetWords } from "./words.js";
@@ -65,10 +65,13 @@ const NO_RETRY = () => undefined;
 
 /** Renders the footer. */
 export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, loading, noun, onRetry, saved, recordSlice }: SheetFooterProps) {
-    // The loading line, in the sheet's words and the app's locale (#850, #861), on the shared reveal's clock (CL4).
+    // The loading line, in the sheet's words and the app's locale (#850, #861), on the sheet's one reveal clock (CL4):
+    // its frame's `LoadingReveal`, which the runs' placeholders read too — else, alone, a clock of its own.
     const words = useSheetWords();
     const line = useMemo(() => pagedLoadingLine(loading, noun, words.m, words.number, onRetry ?? NO_RETRY), [loading, noun, words, onRetry]);
-    const shown = useLoadingReveal(loading !== undefined && loading.kind !== "failed");
+    const revealed = useRevealed();
+    const alone = useLoadingReveal(revealed === undefined && loading !== undefined && loading.kind !== "failed");
+    const shown = revealed ?? alone;
     const rail = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(rail);
     const hints = hint === "" ? [] : hint.split(HINT_SEPARATOR);

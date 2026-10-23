@@ -75,17 +75,30 @@ import { StringType, equalFor, equivalentFor, none } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { pagedSnapshot, pagedSourceEqual } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, slotHeight, type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY, advance, isEmpty, residentWindows, pin, unpinAll, type Residency, type ResidencyOptions } from "@elaraai/east-ui-components/internal";
+import {
+    createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, slotHeight, type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY,
+    advance, isEmpty, residentWindows, pin, travelOf, unpinAll, type Residency, type ResidencyOptions, type Travel,
+} from "@elaraai/east-ui-components/internal";
 import { BAND_MIN_PX, type SheetBand, type SheetWindowFailure } from "./model.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 /** Source elements per window. */
 export const SHEET_PAGE_SIZE = 200;
 
-/** Where the viewport is, in the caller's terms. */
+/**
+ * Where the viewport is, in the caller's terms — and, where the caller can
+ * say, the source elements it shows (`shows`): what the footer's loading line
+ * and the grid's busy follow (#1398), never the windows read ahead of it.
+ */
 export type SheetViewport =
-    | { kind: "row"; offset: number }
-    | { kind: "band"; at: "head" | "tail"; px?: number | undefined };
+    | { kind: "row"; offset: number; shows?: ElementSpan | undefined }
+    | { kind: "band"; at: "head" | "tail"; px?: number | undefined; shows?: ElementSpan | undefined };
+
+/** A stretch of source elements, first and last (inclusive). */
+export interface ElementSpan {
+    readonly from: number;
+    readonly to: number;
+}
 
 /** What the driver returns. */
 export interface SheetPaging {
@@ -105,9 +118,16 @@ export interface SheetPaging {
     total: number | undefined;
     /** Whether every source element is resident. */
     exhausted: boolean;
-    /** Whether a requested window is still in flight. */
+    /** Whether a requested window is still in flight — one the view shows, or one read ahead of it. */
     loading: boolean;
-    /** The source elements being read (#1398, CL3): the stretch of windows in flight nearest the viewport, first and last element; `undefined` while none is. */
+    /** The windows in flight, ascending: a run is busy while one of its own is (#1398). */
+    pending: readonly number[];
+    /**
+     * Whether a window the view shows is in flight (#1398): what the footer's loading line and the grid's busy follow
+     * — never a window read ahead of the view, which nothing on screen waits for.
+     */
+    viewLoading: boolean;
+    /** The source elements the view waits for (#1398, CL3): the stretch of windows in flight among those it shows, first and last element; `undefined` while none is. */
     reading: { from: number; to: number } | undefined;
     /** The last query is still displayed while its replacement loads. */
     replacing: boolean;
@@ -115,6 +135,11 @@ export interface SheetPaging {
     sourceError: string | undefined;
     /** Why the source could not be read before anything landed: there is nothing else to show, so this is the whole sheet (#853). */
     error: string | undefined;
+    /**
+     * Whether a window of this source has landed (#1398, CL5): the cold load is over. A scroll far from the rows,
+     * every window it shows still on its way, draws the runs where they meet the view — never the cover again.
+     */
+    landedOnce: boolean;
     /** Bump for `VirtualRows`' `sizeVersion` — heights change at constant count. */
     sizeVersion: number;
     /** A pending jump (#854): its target window, and whether it has SETTLED — the run around it has stopped moving and the target's window is in the run (#876), so the sheet can show it. While one is pending it owns the viewport. */
@@ -129,11 +154,32 @@ export interface SheetPaging {
     retry: (w?: number) => void;
 }
 
+/** No window in flight. */
+const NONE_PENDING: readonly number[] = [];
+
 const IDLE: SheetPaging = {
     rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined,
-    exhausted: true, loading: false, reading: undefined, replacing: false, sourceError: undefined, error: undefined, sizeVersion: 0, jump: undefined,
+    exhausted: true, loading: false, pending: NONE_PENDING, viewLoading: false, reading: undefined, replacing: false,
+    sourceError: undefined, error: undefined, landedOnce: false, sizeVersion: 0, jump: undefined,
     reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
 };
+
+/**
+ * The windows in flight that the view shows (#1398): those its stretch of
+ * elements meets — or, where the caller has not said what it shows, the
+ * window the viewport is centred in.
+ *
+ * @param pending - The windows in flight, ascending
+ * @param shows - The source elements the view shows, if known
+ * @param at - The viewport's window
+ * @returns The windows in flight among those it shows, ascending
+ */
+export function pendingInView(pending: readonly number[], shows: ElementSpan | undefined, at: number): readonly number[] {
+    const lo = shows === undefined ? at : Math.floor(Math.max(0, shows.from) / SHEET_PAGE_SIZE);
+    const hi = shows === undefined ? at : Math.floor(Math.max(0, shows.to) / SHEET_PAGE_SIZE);
+    const out = pending.filter((w) => w >= lo && w <= hi);
+    return out.length === pending.length ? pending : out;
+}
 
 /** One line naming why a source read failed. */
 function readFailure(err: unknown): string {
@@ -222,6 +268,10 @@ export function useSheetPaging(
     // and the run is the stretch nearest it (#876).
     const [storedViewportAt, setViewportAt] = useState(0);
     const [isScrolling, setIsScrolling] = useState(false);
+    // The source elements the view shows, as the caller last said (#1398): what the line and busy follow.
+    const [storedShows, setShows] = useState<ElementSpan | undefined>(undefined);
+    // Which way the viewport travels through the windows (CL6): the demand reads ahead that way.
+    const travel = useRef<{ at: number; way: Travel }>({ at: 0, way: 1 });
     const [sizeVersion, setSizeVersion] = useState(0);
     // A Retry reads again (#853): the read depends on it.
     const [retries, setRetries] = useState(0);
@@ -241,6 +291,7 @@ export function useSheetPaging(
     const residency = sourceChanged ? FIRST_WINDOW : storedResidency;
     const viewportAt = sourceChanged ? 0 : storedViewportAt;
     const viewportWindow = Math.floor(viewportAt / SHEET_PAGE_SIZE);
+    const shows = sourceChanged ? undefined : storedShows;
     const displayed = useRef<{ family: string; source: string; result: SheetPaging } | undefined>(undefined);
     const replacingRef = useRef(false);
 
@@ -384,7 +435,9 @@ export function useSheetPaging(
         if (sourceChanged) {
             setResidency(FIRST_WINDOW);
             setViewportAt(0);
+            setShows(undefined);
             setIsScrolling(false);
+            travel.current = { at: 0, way: 1 };
         }
         if (next === ledger) return;
         setLedger(next);
@@ -396,7 +449,8 @@ export function useSheetPaging(
     // collapse under the reader (#851).
     const total = sourceTotal ?? (value?.standingIn === true && ledger.total > 0 ? ledger.total : undefined);
 
-    // Demand follows the viewport, at idle only.
+    // Demand follows the viewport once it shows intent (CL6): at rest, or while the frame reports the scroll slowed
+    // — the frame's `isScrolling` says which — reading ahead the way it travels.
     useEffect(() => {
         if (source === undefined) return;
         if (ledger.windows === 0) {
@@ -404,7 +458,9 @@ export function useSheetPaging(
             return;
         }
         if (isScrolling) return;
-        const next = advance(residency, ledger, viewportWindow, policy);
+        const way = travelOf(travel.current.at, viewportWindow, travel.current.way);
+        travel.current = { at: viewportWindow, way };
+        const next = advance(residency, ledger, viewportWindow, policy, way);
         if (next === residency) return;
         setResidency(next);
         // Whatever left the run leaves the cache with it, a stand-in too; a
@@ -494,6 +550,10 @@ export function useSheetPaging(
     jumpingRef.current = residency.pins.size > 0;
     const reportViewport = useCallback((at: SheetViewport, scrolling: boolean) => {
         setIsScrolling(scrolling);
+        // What the view shows is the view's, a jump pending or not: the line follows it.
+        const span = at.shows;
+        setShows((was) => (span === undefined ? undefined
+            : was !== undefined && was.from === span.from && was.to === span.to ? was : { from: span.from, to: span.to }));
         // A pending jump owns the viewport (#854): until the sheet has shown its
         // target, a report is taken from where the sheet still IS, and moving
         // the demand there would move the run back and undo the jump.
@@ -534,14 +594,22 @@ export function useSheetPaging(
     const target = pinned[0];
     let settled = false;
     if (target !== undefined && value !== undefined && !isEmpty(residency) && ledger.windows > 0) {
-        const met = advance(residency, ledger, viewportWindow, policy) === residency;
+        const met = advance(residency, ledger, viewportWindow, policy, travelOf(travel.current.at, viewportWindow, travel.current.way)) === residency;
         settled = met && run.from <= target && target <= run.to;
     }
     const jump = target === undefined ? undefined : { window: target, settled };
 
+    // What the view waits for (#1398): the windows in flight among those it shows — and a jump's target, which it is
+    // about to show — never one read ahead of it. One array while they hold.
+    const allPending = value?.pending ?? NONE_PENDING;
+    const viewPending = useMemo(() => {
+        const shown = pendingInView(allPending, shows, viewportWindow);
+        const extra = allPending.filter((w) => residency.pins.has(w) && !shown.includes(w));
+        return extra.length === 0 ? shown : [...shown, ...extra].sort((a, b) => a - b);
+    }, [allPending, shows, viewportWindow, residency.pins]);
     // What the footer's loading line names (#1398): one object while the stretch holds, so the line it feeds — and
     // the footer that measures itself as it renders — renders again only when the stretch moves.
-    const stretch = value === undefined ? undefined : readingStretch(value.pending, viewportWindow, total);
+    const stretch = readingStretch(viewPending, viewportWindow, total);
     const readingFrom = stretch?.from;
     const readingTo = stretch?.to;
     const reading = useMemo(
@@ -566,10 +634,13 @@ export function useSheetPaging(
         total,
         exhausted,
         loading: value?.loading ?? false,
+        pending: allPending,
+        viewLoading: viewPending.length > 0,
         reading,
         replacing: false,
         sourceError: nothingShown ? undefined : value?.sourceError,
         error: readError ?? (nothingShown ? failure : undefined),
+        landedOnce: !nothingShown,
         sizeVersion,
         jump,
         reportViewport,
@@ -588,7 +659,7 @@ export function useSheetPaging(
             rowsOffset: previous.result.rowsOffset, failures: previous.result.failures,
             head: previous.result.head, tail: previous.result.tail, total: previous.result.total,
             exhausted: previous.result.exhausted, sizeVersion: previous.result.sizeVersion,
-            jump: undefined, replacing: true, loading: reason === undefined, reading: undefined,
+            jump: undefined, replacing: true, loading: reason === undefined, viewLoading: reason === undefined, reading: undefined,
             error: undefined, sourceError: reason };
     }
     if (family !== undefined && (current.rows.length > 0 || current.exhausted)) {

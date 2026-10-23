@@ -6,7 +6,7 @@
 /**
  * Every word the Sheet says itself (#861) — ONE typed message table, the
  * Plan's #820 table's twin. The toolbar and the view tabs, the header, the
- * rows, bands and gap pills, the strip, the editor and the link cells, the
+ * rows, a failed run's line and the gap pills, the strip, the editor and the link cells, the
  * footer and the history bar, the insertion chips, the message each gesture
  * leaves, and the words it gives a reader for what it shows only by look all
  * come from here. What the AUTHOR wrote — a column's header, a group's noun,
@@ -233,13 +233,11 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     /** The footer's line for an issue the history bar went to. */
     issueAt: (p: { where: string; message: string }) => string;
 
-    // ── Bands, gaps, failures ──────────────────────────────────────────────
-    /** An unloaded run's pill. */
-    bandUnloaded: (p: { n: number; count: string; loading: boolean }) => string;
+    // ── Gaps and failures ──────────────────────────────────────────────────
+    // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
+    // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed read's retry. */
     retry: () => string;
-    /** A window whose read failed (#853). */
-    windowFailed: (p: { from: string; to: string; reason: string }) => string;
     /** Why the lens draws a record's rows as a failed band (#1349): which of them the narrowing holds disagrees with where e3 placed its rows — the record changed between the two reads. */
     lensChanged: () => string;
     /** A row that threw as it drew. */
@@ -678,9 +676,7 @@ export const sheetMessages: SheetMessages = {
     issueGroupCheck: ({ reason }) => `Group readiness failed: ${reason}`,
     issueAt: ({ where, message }) => `${where}: ${message}`,
 
-    bandUnloaded: ({ count, loading }) => `${count} ${loading ? "loading" : "not loaded"}`,
     retry: () => "Retry",
-    windowFailed: ({ from, to, reason }) => `Elements ${from}–${to} could not be read — ${reason}`,
     lensChanged: () => "the record changed while they were read",
     rowFailed: ({ number, reason }) => `Row ${number} could not be drawn — ${reason}`,
     noSource: ({ reason }) => `NO ROWS — the paged source could not be read. ${reason} `,

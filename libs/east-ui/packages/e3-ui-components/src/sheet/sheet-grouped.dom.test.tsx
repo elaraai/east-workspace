@@ -459,20 +459,26 @@ const PAGED_PLANS = {
 
 /**
  * A paged sheet whose windows' reads are logged, each by its window as it is
- * asked. The fixtures' sources answer at once, so an asked window has landed.
+ * asked. The fixtures' sources answer at once, so an asked window has landed —
+ * but a window the test puts in `held`, which stays in flight: its read
+ * answers none while it is held.
  */
-function withAsked(sheet: SheetValue): { value: SheetValue; asked: number[] } {
+function withAsked(sheet: SheetValue, held: ReadonlySet<number> = new Set()): { value: SheetValue; asked: number[] } {
     const asked: number[] = [];
     const root = sheet.sheet;
-    const ask = (offset: bigint) => { asked.push(Math.floor(Number(offset) / SHEET_PAGE_SIZE)); };
+    const ask = (offset: bigint): number => {
+        const w = Math.floor(Number(offset) / SHEET_PAGE_SIZE);
+        asked.push(w);
+        return w;
+    };
     if (root.rows.type === "paged") {
         const served = root.rows.value;
-        const page = (offset: bigint, limit: bigint) => { ask(offset); return served.page(offset, limit); };
+        const page = (offset: bigint, limit: bigint) => (held.has(ask(offset)) ? none : served.page(offset, limit));
         return { value: { ...sheet, sheet: { ...root, rows: variant("paged", { ...served, page }) } } as SheetValue, asked };
     }
     if (root.rows.type === "pinned") {
         const served = root.rows.value;
-        const page = (offset: bigint, limit: bigint) => { ask(offset); return served.page(offset, limit); };
+        const page = (offset: bigint, limit: bigint) => (held.has(ask(offset)) ? none : served.page(offset, limit));
         return { value: { ...sheet, sheet: { ...root, rows: variant("pinned", { ...served, page }) } } as SheetValue, asked };
     }
     throw new Error("Expected a paged Sheet");
@@ -853,7 +859,8 @@ describe("what the viewer arranged survives a remount (#857)", () => {
     });
 
     test("paged: a view resting over an unloaded band persists the element the band draws there, and comes back to it", async () => {
-        const paged = withAsked(buildFramedPlans());
+        const held = new Set<number>();
+        const paged = withAsked(buildFramedPlans(), held);
         const ui = mount(paged.value);
         const f = framed(ui);
         await landed(paged.asked, ui, 0, 1, 2);
@@ -861,9 +868,16 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         f.scrollTo(1_500 * PLAN_PX);
         await landed(paged.asked, ui, 6, 7, 8, 9);
         expect(ui.band("P10000")).toBeNull();
+        // The windows up there stay in flight: the scroll settles over an unloaded band before any row lands under it,
+        // however soon the view asks for them (#1398, CL6) — the run rebased around the view, which is far from it.
+        for (let w = 0; w < 6; w++) held.add(w);
+        const before = paged.asked.length;
         f.scrollTo(250 * PLAN_PX + 10);
-        // The scroll settles over the band, before any row lands under it.
-        await waitFor(() => expect(localStorage.getItem("sheet-grouped-test")).toContain('"key":"band:head"'));
+        const anchor = () => (JSON.parse(localStorage.getItem("sheet-grouped-test") ?? "{}") as { anchor?: { key: string; element: number | null } }).anchor;
+        await waitFor(() => expect(anchor()?.key).toMatch(/^band:/));
+        // What it keeps is the element the band draws there; the window under the view was asked for, and is on its way.
+        expect(anchor()?.element).toBe(250);
+        expect(paged.asked.slice(before)).toContain(1);
         ui.unmount();
         // The remount's run starts at the top — it draws no head band — and the element brings the view back.
         const again = mount(buildFramedPlans());

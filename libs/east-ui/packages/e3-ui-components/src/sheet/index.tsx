@@ -136,7 +136,7 @@ import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertS
 import { anchorAt, insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetBandRow, SheetFailedBandRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
+import { SheetRow, SheetRunRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
 import { NUMBER_PX, gutterFolds, gutterWidths } from "./gutter.js";
 import { SheetCellContent } from "./cells/Cell.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
@@ -2208,13 +2208,16 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             const reading = body.find((it) => it.kind === "band" && it.band.at === "reading");
             return reading?.kind === "band" ? { kind: "loading", from: reading.band.from, to: reading.band.to } : { kind: "loading", from: undefined, to: undefined };
         }
-        if (!paging.loading) return undefined;
+        // A window the view shows, never one read ahead of it: nothing on screen waits for that.
+        if (!paging.viewLoading) return undefined;
         return { kind: "loading", from: paging.reading?.from, to: paging.reading?.to };
-    }, [pagedSource, body, sourceFailure, lensDrawn, lensSourceError, pagesStandIn, lensError, paging.sourceError, standingIn, lensLoading, paging.loading, paging.reading]);
+    }, [pagedSource, body, sourceFailure, lensDrawn, lensSourceError, pagesStandIn, lensError, paging.sourceError, standingIn, lensLoading, paging.viewLoading, paging.reading]);
     // Cold load (#1398, CL5): a paged source with nothing drawn yet and no failure to say — the frame's skeleton
-    // covers it at the rows' pitch. After it, a read in flight leaves everything live and the grid busy.
-    const cold = pagedSource === undefined ? undefined : decodedRows === undefined && !lensDrawn && !pagesReady && !pagesStandIn && sourceFailure === undefined;
-    const busy = cold === false && (standingIn || (lensDrawn ? lensLoading : paging.loading));
+    // covers it at the rows' pitch. After it, a read the view waits for leaves everything live and the grid busy: a
+    // scroll far from the rows, every window it shows still on its way, draws the runs there and is never covered.
+    const cold = pagedSource === undefined ? undefined
+        : decodedRows === undefined && !lensDrawn && !pagesReady && !paging.landedOnce && !pagesStandIn && sourceFailure === undefined;
+    const busy = cold === false && (standingIn || (lensDrawn ? lensLoading : paging.viewLoading));
     const loadingFacts = useMemo<SheetLoadingFacts>(() => ({ cold, busy, pitch: rowPx }), [cold, busy, rowPx]);
 
     // ── The key search over a keyed paged source (§3.13) ──────────────────
@@ -2602,11 +2605,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // What the grid tells assistive tech (#860): its rows, counted the way
     // their indices run — on a flat sheet by source position, so the whole
     // source's (-1 until a paged source has counted itself) and the blank
-    // padding; on a grouped sheet in body order — the header first; and the
-    // ring's cell, which a band's title stands for across its span and under
-    // the columns it has no cell in.
+    // padding; on a grouped sheet in body order — the header first — once
+    // no run of it is unread, and -1 until then: groups not read yet draw
+    // lines no count knows (#1398, CL12); and the ring's cell, which a band's
+    // title stands for across its span and under the columns it has no cell
+    // in.
     const blankRows = useMemo(() => body.reduce((n, it) => (it.kind === "blank" && it.group === undefined ? n + 1 : n), 0), [body]);
-    const ariaRowCount = group !== undefined ? body.length + 1
+    const unreadRuns = useMemo(() => body.some((it) => it.kind === "band" || it.kind === "failed"), [body]);
+    const ariaRowCount = group !== undefined ? (unreadRuns ? -1 : body.length + 1)
         : pagedSource !== undefined && total === undefined ? -1
             : Math.max(total ?? 0, endPosition) + blankRows + 1;
     const ringItem = rowAt(ui.sel.r);
@@ -2655,11 +2661,26 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const mid = Math.floor((range.startIndex + range.endIndex) / 2);
         const item = body[center?.index ?? mid] ?? body[range.startIndex];
         if (item === undefined) return;
+        // The source elements the view shows (#1398): the rows' own, a band's edge where it meets the view — its
+        // bottom above the rows, its top below them — and, under the view's centre, the band's element there.
+        let from: number | undefined;
+        let to: number | undefined;
+        const take = (p: number) => { from = from === undefined || p < from ? p : from; to = to === undefined || p > to ? p : to; };
+        for (let i = range.startIndex; i <= range.endIndex; i++) {
+            const it = body[i];
+            if (it === undefined || it.kind === "gap" || it.kind === "proposal") continue;
+            if (it.kind === "band") {
+                if (i === center?.index) take(elementUnder(it, center.withinPx) ?? it.band.from);
+                else take(it.band.at === "head" ? it.band.to : it.band.from);
+            } else if (it.kind === "failed") take(it.failure.from);
+            else take(it.position);
+        }
+        const shows = from !== undefined && to !== undefined ? { from, to } : undefined;
         let at: SheetViewport;
-        if (item.kind === "band") at = item.band.at === "reading" ? { kind: "row", offset: item.band.from } : { kind: "band", at: item.band.at, px: center?.withinPx };
-        else if (item.kind === "gap") at = { kind: "row", offset: item.gap.from };
-        else if (item.kind === "failed") at = { kind: "row", offset: item.failure.from };
-        else at = { kind: "row", offset: item.position };
+        if (item.kind === "band") at = item.band.at === "reading" ? { kind: "row", offset: item.band.from, shows } : { kind: "band", at: item.band.at, px: center?.withinPx, shows };
+        else if (item.kind === "gap") at = { kind: "row", offset: item.gap.from, shows };
+        else if (item.kind === "failed") at = { kind: "row", offset: item.failure.from, shows };
+        else at = { kind: "row", offset: item.position, shows };
         reportViewport(at, isScrolling);
     }, [body, reportViewport, lensDrawn, lensReport]);
 
@@ -3024,16 +3045,35 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const g = ctx.groupAt?.(r);
         return g?.lines !== undefined && !(g.lines.r1 < wr.r0 || g.lines.r0 > wr.r1);
     }, [wr, ctx]);
+    // What the rail counts each source in where it has no label of its own (#1345): the rows in the sheet's word for
+    // them — a grouped sheet's groups' — and each other source in the word the frame gives it.
+    const hostNouns = host.nouns;
+    const railNouns = useMemo(() => (chrome === undefined ? undefined : Object.fromEntries(chrome.slice.parts.flatMap((part) => (part.label.type === "some" ? []
+        : [[part.source, part.source === "rows" ? (group !== undefined ? noun.plural : words.m.railRows()) : hostNouns?.get(part.source) ?? part.source] as const])))),
+    [chrome, group, noun, words.m, hostNouns]);
+    // What the loading line and a failed run name the rows by: what the rail counts them in (#1398).
+    const rowsSource = chrome?.slice.parts.find((part) => part.source === "rows");
+    const rowsNoun = rowsSource === undefined ? (group !== undefined ? noun.plural : words.m.railRows()) : recordSliceNoun(rowsSource, railNouns, words.locale);
     // A failed read's Retry: the lens's segment, or the paged window (#853, #1349).
     const retryRead = lensDrawn ? lens.retry : paging.retry;
+    // Whether a run's own windows are in flight (#1398): a stretch the lens is reading always is (#1349); a paged run
+    // while one of the windows it stands for is — never because another, read ahead elsewhere, is.
+    const pendingWindows = paging.pending;
+    const runLoading = useCallback((band: { at: string; from: number; to: number }): boolean => band.at === "reading"
+        || pendingWindows.some((w) => w * SHEET_PAGE_SIZE <= band.to && (w + 1) * SHEET_PAGE_SIZE - 1 >= band.from), [pendingWindows]);
     const renderRow = useCallback((i: number): ReactNode => {
         const item = body[i];
         if (item === undefined) return null;
         // Its place among the grid's rows (#860).
         const ariaRowIndex = ariaRowIndexOf(item, i, group !== undefined);
-        // A stretch the lens is reading is always on its way (#1349); a paged band, while a window is.
-        if (item.kind === "band") return <SheetBandRow styles={styles} band={item.band} loading={item.band.at === "reading" || paging.loading} ariaRowIndex={ariaRowIndex} colCount={colCount} />;
-        if (item.kind === "failed") return <SheetFailedBandRow styles={styles} failure={item.failure} onRetry={retryRead} ariaRowIndex={ariaRowIndex} colCount={colCount} />;
+        // A run of rows not drawn yet (#1398, CL2): an unloaded run, a stretch the lens reads, or a failed window.
+        if (item.kind === "band" || item.kind === "failed") {
+            return (
+                <SheetRunRow styles={styles} band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
+                    loading={item.kind === "band" && runLoading(item.band)} gridTemplate={gridTemplate} columns={columns} rowPx={rowPx}
+                    bandPx={group !== undefined ? bandPx : undefined} dense={size === "sm"} noun={rowsNoun} onRetry={retryRead} ariaRowIndex={ariaRowIndex} />
+            );
+        }
         if (item.kind === "subRow") {
             return (
                 <SheetSubRow
@@ -3195,7 +3235,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, paging.loading, retryRead, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until the inspector pane asks for a
@@ -3737,12 +3777,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const enter = useCallback((library: string, key: string) => enterRef.current(library, key), []);
 
     // ── The parts' facts: the toolbar's items (§7), the root, the footer ──
-    // What the rail counts each source in where it has no label of its own (#1345): the rows in the sheet's word for
-    // them — a grouped sheet's groups' — and each other source in the word the frame gives it.
-    const hostNouns = host.nouns;
-    const railNouns = useMemo(() => (chrome === undefined ? undefined : Object.fromEntries(chrome.slice.parts.flatMap((part) => (part.label.type === "some" ? []
-        : [[part.source, part.source === "rows" ? (group !== undefined ? noun.plural : words.m.railRows()) : hostNouns?.get(part.source) ?? part.source] as const])))),
-    [chrome, group, noun, words.m, hostNouns]);
     const toolbarItems = useSheetToolbarItemsFor({
         styles,
         chrome,
@@ -3769,9 +3803,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const lensRetry = lens.retry;
     const pagesRetry = paging.retry;
     const retrySource = useCallback(() => { if (lensWanted) lensRetry(); else pagesRetry(); }, [lensWanted, lensRetry, pagesRetry]);
-    // What the loading line names the rows by: what the rail counts them in (#1398).
-    const rowsSource = chrome?.slice.parts.find((part) => part.source === "rows");
-    const rowsNoun = rowsSource === undefined ? (group !== undefined ? noun.plural : words.m.railRows()) : recordSliceNoun(rowsSource, railNouns, words.locale);
     const footer: SheetFooterProps = {
         styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), loading: line, noun: rowsNoun, onRetry: retrySource,
     };
@@ -3938,7 +3969,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     {widest.chevron > 0 && <Box as="span" css={styles.gutterNumber} data-hit="" data-chevron="">{widest.chevron}</Box>}
                 </Box>
             </Box>
-            {(wr !== null && edit === null || rows.length === 0) && editingState.available && <SheetInsertStrip styles={styles}
+            {/* With rows picked; or, with none, only once a completed read says there are none (#1398, CL13) — never while a paged source is still read. */}
+            {(wr !== null && edit === null || (rows.length === 0 && exhausted)) && editingState.available && <SheetInsertStrip styles={styles}
                 ordered={!keyed || anchorFor(ui.sel.r, "before").child !== undefined}
                 above={canInsertRows ? () => onInsert("row", wr?.r0 ?? ui.sel.r, "before") : undefined}
                 below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}

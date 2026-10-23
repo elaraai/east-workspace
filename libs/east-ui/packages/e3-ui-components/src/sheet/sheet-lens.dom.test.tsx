@@ -11,7 +11,8 @@
  * the count line — read from where e3 places the narrowing's rows and the
  * segments near the view alone: never the record whole, never a row by its
  * key. A segment whose rows disagree with where e3 placed the narrowing's is
- * one failed band that says so, never a match the index does not hold. A key
+ * one failed run that says so, the footer's line why, never a match the index
+ * does not hold. A key
  * search lands on a row the lens hides and opens it, and starts afresh with
  * each narrowing of the rows; the runs the planner opened are kept by their
  * rows' keys, across a revision that moves them and in a saved view. Over the
@@ -124,7 +125,7 @@ test("it opens on its narrowing: each match at its row number, the rows between 
     expect([h.requests("runs", ORDERS), h.requests("rows", ORDERS)]).toEqual([[], []]);
 });
 
-test("the hit check: a segment whose rows disagree with where e3 placed the narrowing's is one failed band that says so, with a Retry — never a match the index does not hold — until the record moves and it is read again", async () => {
+test("the hit check: a segment whose rows disagree with where e3 placed the narrowing's is one failed run that says so, with a Retry — never a match the index does not hold — until the record moves and it is read again", async () => {
     // e3's answer of which of the first segment's rows are Ready, altered once on its way back: JOB-10001, Scheduled, said Ready.
     const said = 'k="JOB-10001")';
     let altered = false;
@@ -141,11 +142,14 @@ test("the hit check: a segment whose rows disagree with where e3 placed the narr
     await waitFor(() => expect(failed()).not.toBeNull(), { timeout: 10_000 });
     await settle();
     expect(altered).toBe(true);
-    // The first segment, from the first row: one band saying the record changed, with a Retry. None of its rows is
-    // drawn — the one said Ready least of all — and the count line is e3's count.
+    // The first segment, from the first row: one failed run, said once in its first row in view with a Retry, and the
+    // footer's line with why — the record changed (#1398, CL11). None of its rows is drawn — the one said Ready least
+    // of all — and the count line is e3's count.
     expect(failed()!.dataset["failed"]).toBe("0");
-    expect(failed()!.textContent).toContain("the record changed while they were read");
-    expect(failed()!.querySelector('[data-slot="retry"]')).not.toBeNull();
+    expect([...failed()!.querySelectorAll("[data-loading-failed-message]")].map((said) => said.textContent)).toEqual(["Couldn't read rows 1–1,144"]);
+    expect(failed()!.querySelector("[data-loading-retry]")).not.toBeNull();
+    const line = ui.container.querySelector('[data-frame-slot="footer"] [data-footer-line]')!;
+    expect([line.hasAttribute("data-failed"), line.getAttribute("title")]).toEqual([true, "the record changed while they were read"]);
     expect([ui.row("JOB-10000"), ui.row("JOB-10001")]).toEqual([null, null]);
     expect(ui.count()).toBe("16,667 matches");
     // Another session changes an order at the record's end: at the new revision the segment is placed and read again,
