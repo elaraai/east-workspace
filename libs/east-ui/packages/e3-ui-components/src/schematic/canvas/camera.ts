@@ -22,8 +22,31 @@ export interface Viewport {
     ty: number;
 }
 
-/** The identity camera — fully zoomed out, no pan. */
+/** The identity camera — fully zoomed out, no pan: the camera before the canvas has a size to fit to. */
 export const IDENTITY: Viewport = { zoom: 1, tx: 0, ty: 0 };
+
+/** The room Fit leaves round the drawing, in CSS px each side — a zone's eyebrow, standing above its box, within it. */
+export const FIT_MARGIN_PX = 24;
+
+/**
+ * The fit, and the camera Fit takes (#1393): the drawing's extent fitted
+ * inside the canvas less a margin each side ({@link FIT_MARGIN_PX}, no more
+ * than an eighth of the canvas), so nothing drawn at its edge meets the
+ * canvas's — and centred on both axes, so the canvas's middle, which the
+ * toolbar's zoom zooms about, is the drawing's.
+ *
+ * @param width - The canvas's width, in CSS px
+ * @param height - Its height, in CSS px
+ * @param worldW - The extent's width, in world units
+ * @param worldH - Its height, in world units
+ * @returns The fit — px per world unit at zoom 1 — and the camera at it; `0` and {@link IDENTITY} while there is nothing to fit
+ */
+export function fitView(width: number, height: number, worldW: number, worldH: number): { fit: number; home: Viewport } {
+    if (!(width > 0 && height > 0 && worldW > 0 && worldH > 0)) return { fit: 0, home: IDENTITY };
+    const margin = Math.min(FIT_MARGIN_PX, width / 8, height / 8);
+    const fit = Math.min((width - 2 * margin) / worldW, (height - 2 * margin) / worldH);
+    return { fit, home: { zoom: 1, tx: (width - worldW * fit) / 2, ty: (height - worldH * fit) / 2 } };
+}
 
 /**
  * The transform in CSS pixels with `ppu` (pixels-per-world-unit) already
@@ -142,8 +165,8 @@ export function pointsBbox(pts: readonly { x: number; y: number }[]): Bbox | nul
 /**
  * Apply a multiplicative zoom about a screen-space focal point, keeping that
  * point fixed on screen (cursor-anchored wheel zoom, centre-anchored button
- * zoom). Clamps to `[min, max]`; snapping to `min === 1` returns
- * {@link IDENTITY} so a full zoom-out also recentres.
+ * zoom). Clamps to `[min, max]`; one clamped to `min` returns `home` — the
+ * camera Fit takes ({@link fitView}) — so a full zoom-out also recentres.
  *
  * @param prev - the current camera
  * @param factor - multiply `zoom` by this
@@ -151,13 +174,35 @@ export function pointsBbox(pts: readonly { x: number; y: number }[]): Bbox | nul
  * @param py - screen-y to keep fixed
  * @param min - minimum zoom
  * @param max - maximum zoom
+ * @param home - the camera at `min`: Fit's
  * @returns the next camera
  */
-export function zoomAbout(prev: Viewport, factor: number, px: number, py: number, min: number, max: number): Viewport {
+export function zoomAbout(prev: Viewport, factor: number, px: number, py: number, min: number, max: number, home: Viewport = IDENTITY): Viewport {
     const zoom = Math.max(min, Math.min(max, prev.zoom * factor));
-    if (zoom === 1) return IDENTITY;
+    if (zoom <= min) return home;
     const k = zoom / prev.zoom;
     return { zoom, tx: px - k * (px - prev.tx), ty: py - k * (py - prev.ty) };
+}
+
+/** How long a fly takes, in ms. */
+export const FLY_DURATION_MS = 350;
+
+/**
+ * Where a fly stands a time into it (#1393): eased out of the camera it began
+ * at towards the one it lands at. A time before its start stands where it
+ * began — a frame the page stamped before the gesture that started it, or one
+ * stamped on another clock — never thrown back past it, as an ease of a
+ * negative time would; a time past its end stands where it lands.
+ *
+ * @param from - The camera it began at
+ * @param to - The camera it lands at
+ * @param elapsed - How long it has flown, in ms
+ * @returns The camera
+ */
+export function flyStep(from: Viewport, to: Viewport, elapsed: number): Viewport {
+    const t = Math.min(1, Math.max(0, elapsed / FLY_DURATION_MS));
+    const e = 1 - Math.pow(1 - t, 3);
+    return { zoom: from.zoom + (to.zoom - from.zoom) * e, tx: from.tx + (to.tx - from.tx) * e, ty: from.ty + (to.ty - from.ty) * e };
 }
 
 /** The interaction modes the camera can be in at any instant. */

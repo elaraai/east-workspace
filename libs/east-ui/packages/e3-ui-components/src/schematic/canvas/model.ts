@@ -95,19 +95,61 @@ export type LodTier = "card" | "label" | "dot";
  */
 export const SCHEMATIC_CARD_MAX_PX = 200;
 
-/** Screen-px footprint of an item rendered at `tier`, centred on the
- * item — a card or a pin at most {@link SCHEMATIC_CARD_MAX_PX} wide, but a
- * card at its item's own width. Translation-invariant, so collisions depend
- * on ppu alone. */
-export function tierSize(item: SchematicItemValue, tier: LodTier, ppu: number): { w: number; h: number } {
-    if (tier === "label") return { w: Math.min(SCHEMATIC_CARD_MAX_PX, item.label.length * 6 + 28), h: 22 };
+/** A labelled pin's parts, in screen px (#1393): its inline padding, its dot's width, the gap after the dot, and its height. */
+export const PIN_PAD_X = 6, PIN_DOT_W = 7, PIN_GAP = 4, PIN_H = 16;
+
+/** How far a labelled pin starts before its item's point, in screen px: its dot stands on the point, the words after it (#1393). */
+export const PIN_LEAD_PX = PIN_PAD_X + PIN_DOT_W / 2;
+
+/** A dot's radius as the declutter keeps clear of it, in screen px: the painter's dot (5) and its rule. */
+const DOT_CLEAR_PX = 6;
+
+/** The room kept between two items' marks, in screen px. */
+const MARK_GAP_PX = 6;
+
+/** How far short of its words a card may fall and still draw whole, in screen px: the float error of a zoom worked out to draw it whole. */
+const WHOLE_SLACK_PX = 1e-6;
+
+/**
+ * The width a card takes for its words, in screen px (#1393): its label with
+ * its icon and its dot beside it, or its sublabel, whichever is wider — no
+ * narrower than a card's least and no wider than
+ * {@link SCHEMATIC_CARD_MAX_PX}.
+ *
+ * @param item - The item
+ * @returns Its card's width for its words
+ */
+export function cardContentWidth(item: SchematicItemValue): number {
     const sublabel = item.sublabel.type === "some" ? item.sublabel.value : undefined;
-    const explicit = item.width.type === "some" ? item.width.value * ppu : undefined;
-    const w = explicit ?? Math.min(SCHEMATIC_CARD_MAX_PX, Math.max(
+    return Math.min(SCHEMATIC_CARD_MAX_PX, Math.max(
         88,
         item.label.length * 6.6 + (item.icon.type === "some" ? 16 : 0) + (item.status.type === "some" ? 13 : 0) + 20,
         (sublabel?.length ?? 0) * 5.4 + 20,
     ));
+}
+
+/**
+ * Whether an item's card draws whole at a zoom (#1393): a card held to its
+ * item's own width — a box in the world — draws whole once that width holds
+ * its words; any other card is as wide as its words. A zoom worked out to draw
+ * it whole — the zoom's limit, a fly to it — draws it whole, its float error
+ * among it.
+ *
+ * @param item - The item
+ * @param ppu - The zoom, in px per world unit
+ * @returns Whether its card draws whole
+ */
+export function cardWhole(item: SchematicItemValue, ppu: number): boolean {
+    return item.width.type !== "some" || item.width.value * ppu + WHOLE_SLACK_PX >= cardContentWidth(item);
+}
+
+/** Screen-px footprint of an item rendered at `tier` — a card or a labelled pin, no wider than
+ * {@link SCHEMATIC_CARD_MAX_PX}, but a card at its item's own width. A card is centred on its item; a pin's dot stands
+ * on it, its words after ({@link PIN_LEAD_PX}). Translation-invariant, so collisions depend on ppu alone. */
+export function tierSize(item: SchematicItemValue, tier: LodTier, ppu: number): { w: number; h: number } {
+    if (tier === "label") return { w: Math.min(SCHEMATIC_CARD_MAX_PX, item.label.length * 6.6 + 2 * PIN_PAD_X + PIN_DOT_W + PIN_GAP), h: PIN_H };
+    const sublabel = item.sublabel.type === "some" ? item.sublabel.value : undefined;
+    const w = item.width.type === "some" ? item.width.value * ppu : cardContentWidth(item);
     const h = 24
         + (sublabel !== undefined ? 13 : 0)
         + (item.meter.type === "some" ? 8 : 0)
@@ -115,64 +157,113 @@ export function tierSize(item: SchematicItemValue, tier: LodTier, ppu: number): 
     return { w, h };
 }
 
-/** Per-item semantic-zoom tier. The global ppu band picks the richest
- * candidate form; a symmetric nearest-neighbour test then demotes items
- * (card ⇢ labelled dot ⇢ dot). Symmetry is the point: an item only
- * keeps a form if it AND its neighbours would fit at that form, so a
- * uniformly dense row degrades as one block instead of checkerboarding
- * into random survivors, while isolated items keep full cards at the
- * same zoom. Neighbourhoods come from per-item R-tree queries. */
+/** An item by its centre in the world: what the declutter searches an item's neighbours in. */
 export type CenterBox = { minX: number; minY: number; maxX: number; maxY: number; item: SchematicItemValue };
 
-/** World-coordinate R-tree over item centres — built once per visible
- * set; zooming only changes the (1/ppu-scaled) query boxes. */
+/** World-coordinate R-tree over item centres — built over every item drawn, so an item's neighbours past the viewport
+ * count too; zooming only changes the (1/ppu-scaled) query boxes. */
 export function buildCenterTree(items: readonly SchematicItemValue[]): RBush<CenterBox> {
     const tree = new RBush<CenterBox>();
     tree.load(items.map(item => ({ minX: item.x, minY: item.y, maxX: item.x, maxY: item.y, item })));
     return tree;
 }
 
+/** A box in screen px about an item's point: how far it reaches each way. */
+interface Reach { readonly left: number; readonly right: number; readonly up: number; readonly down: number }
+
+/** Whether two items' boxes, each about its own point, overlap with `gap` between them. */
+function boxesMeet(a: SchematicItemValue, ra: Reach, b: SchematicItemValue, rb: Reach, ppu: number, gap: number): boolean {
+    const ax = a.x * ppu, ay = a.y * ppu, bx = b.x * ppu, by = b.y * ppu;
+    return ax - ra.left < bx + rb.right + gap && bx - rb.left < ax + ra.right + gap
+        && ay - ra.up < by + rb.down + gap && by - rb.up < ay + ra.down + gap;
+}
+
+/**
+ * Each visible item's tier at the zoom (#1393): a card, a labelled pin or a
+ * dot. The zoom's band picks the richest form an item may take, and it takes
+ * it only where it draws whole and clear of the items about it — decided from
+ * where every item drawn stands, never from the order they come in nor which
+ * of them the viewport holds, so a pan never changes what an item draws as,
+ * and a uniformly dense row draws as one block rather than checkerboarding:
+ *
+ * - **a card** where the band is the card's and it draws whole
+ *   ({@link cardWhole}), clear of every other item's dot and of every other
+ *   card that could draw;
+ * - **else a pin** where the band reaches the pin's, clear of every other
+ *   item's mark — the card it draws as, or its dot — and of every other pin
+ *   that could draw: no pin covers another item's status;
+ * - **else a dot.**
+ *
+ * A selected item is an explicit pointer: it takes the richest form the band
+ * gives that draws whole, whatever it covers.
+ *
+ * @param items - The items to decide: the viewport's
+ * @param tree - Every item drawn, by its centre ({@link buildCenterTree}): what an item keeps clear of
+ * @param baseLod - The zoom's band
+ * @param ppu - The zoom, in px per world unit
+ * @param selected - What is selected, by id
+ * @returns Each item's tier, by its id
+ */
 export function declutterTiers(items: readonly SchematicItemValue[], tree: RBush<CenterBox>, baseLod: LodTier, ppu: number, selected: ReadonlySet<string>): Map<string, LodTier> {
     const tiers = new Map<string, LodTier>();
-    if (baseLod === "dot") {
+    if (baseLod === "dot" || !(ppu > 0)) {
         for (const item of items) tiers.set(item.key, "dot");
         return tiers;
     }
-    const GAP = 6;
-    let maxW = 0, maxH = 0;
-    const sizes = new Map<string, { card: { w: number; h: number }; label: { w: number; h: number } }>();
-    for (const item of items) {
+    // How far any card or pin reaches, in world units: what an item's neighbours are searched within.
+    let widest = SCHEMATIC_CARD_MAX_PX, tallest = PIN_H;
+    for (const { item } of tree.all()) {
         const card = tierSize(item, "card", ppu);
-        const label = tierSize(item, "label", ppu);
-        sizes.set(item.key, { card, label });
-        maxW = Math.max(maxW, card.w);
-        maxH = Math.max(maxH, card.h);
+        widest = Math.max(widest, card.w);
+        tallest = Math.max(tallest, card.h);
     }
-    // Clear of every neighbour when self renders at `tier` and each
-    // neighbour at its own already-decided tier (or `tier` while undecided).
-    const clear = (item: SchematicItemValue, tier: "card" | "label"): boolean => {
-        const self = sizes.get(item.key)![tier];
-        const reachX = ((self.w + maxW) / 2 + GAP) / ppu, reachY = ((self.h + maxH) / 2 + GAP) / ppu;
-        for (const hit of tree.search({ minX: item.x - reachX, minY: item.y - reachY, maxX: item.x + reachX, maxY: item.y + reachY })) {
-            if (hit.item.key === item.key) continue;
-            const neighbourTier = tiers.get(hit.item.key);
-            if (neighbourTier === "dot") continue;
-            const other = sizes.get(hit.item.key) ?? { card: tierSize(hit.item, "card", ppu), label: tierSize(hit.item, "label", ppu) };
-            const otherSize = other[neighbourTier === "label" ? "label" : tier];
-            if (Math.abs(hit.item.x - item.x) * ppu < (self.w + otherSize.w) / 2 + GAP
-                && Math.abs(hit.item.y - item.y) * ppu < (self.h + otherSize.h) / 2 + GAP) return false;
+    const dotReach: Reach = { left: DOT_CLEAR_PX, right: DOT_CLEAR_PX, up: DOT_CLEAR_PX, down: DOT_CLEAR_PX };
+    const cardReach = (item: SchematicItemValue): Reach => {
+        const { w, h } = tierSize(item, "card", ppu);
+        return { left: w / 2, right: w / 2, up: h / 2, down: h / 2 };
+    };
+    const pinReach = (item: SchematicItemValue): Reach => {
+        const { w, h } = tierSize(item, "label", ppu);
+        return { left: PIN_LEAD_PX, right: w - PIN_LEAD_PX, up: h / 2, down: h / 2 };
+    };
+    const near = (item: SchematicItemValue): SchematicItemValue[] => {
+        const rx = (widest + MARK_GAP_PX + DOT_CLEAR_PX) / ppu, ry = (tallest + MARK_GAP_PX + DOT_CLEAR_PX) / ppu;
+        return tree.search({ minX: item.x - rx, minY: item.y - ry, maxX: item.x + rx, maxY: item.y + ry })
+            .map((hit) => hit.item).filter((other) => other.key !== item.key);
+    };
+    const mayCard = (item: SchematicItemValue): boolean => baseLod === "card" && cardWhole(item, ppu);
+    // Cards: each one that could draw, clear of every other's dot and every other card that could draw.
+    const cards = new Map<string, boolean>();
+    const isCard = (item: SchematicItemValue): boolean => {
+        const known = cards.get(item.key);
+        if (known !== undefined) return known;
+        let card = mayCard(item);
+        if (card) {
+            const reach = cardReach(item);
+            for (const other of near(item)) {
+                if (boxesMeet(item, reach, other, dotReach, ppu, MARK_GAP_PX) || (mayCard(other) && boxesMeet(item, reach, other, cardReach(other), ppu, MARK_GAP_PX))) {
+                    card = false;
+                    break;
+                }
+            }
+        }
+        cards.set(item.key, card);
+        return card;
+    };
+    // Pins: each one clear of every other's mark, and of every other pin that could draw.
+    const isPin = (item: SchematicItemValue): boolean => {
+        const reach = pinReach(item);
+        for (const other of near(item)) {
+            const card = isCard(other);
+            if (boxesMeet(item, reach, other, card ? cardReach(other) : dotReach, ppu, MARK_GAP_PX)) return false;
+            if (!card && boxesMeet(item, reach, other, pinReach(other), ppu, MARK_GAP_PX)) return false;
         }
         return true;
     };
-    if (baseLod === "card") {
-        for (const item of items) if (clear(item, "card")) tiers.set(item.key, "card");
-    }
     for (const item of items) {
-        if (!tiers.has(item.key)) tiers.set(item.key, clear(item, "label") ? "label" : "dot");
+        if (selected.has(item.key)) tiers.set(item.key, mayCard(item) ? "card" : "label");
+        else tiers.set(item.key, isCard(item) ? "card" : isPin(item) ? "label" : "dot");
     }
-    // A selected item is an explicit pointer — it never demotes below
-    // the zoom band's richest form.
-    for (const key of selected) if (tiers.has(key)) tiers.set(key, baseLod);
     return tiers;
 }
 

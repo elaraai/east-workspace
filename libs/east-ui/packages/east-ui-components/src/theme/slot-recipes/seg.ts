@@ -79,6 +79,9 @@ export const segSlotRecipe = defineSlotRecipe({
                 background: "bg.brand.subtle",
                 color: "fg",
             },
+            // A segment that can do nothing now — the Schematic's Zoom out at Fit, its Zoom in at the zoom's limit — in
+            // the faint ink, taking no press.
+            _disabled: { color: "fg.faint", cursor: "not-allowed" },
             // A segment is a radio of its strip (#632), reached by the
             // keyboard. The segments sit edge to edge inside the strip's
             // border, so the ring is drawn INSIDE the segment, where it

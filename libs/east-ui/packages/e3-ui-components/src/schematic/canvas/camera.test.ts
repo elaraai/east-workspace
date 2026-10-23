@@ -14,8 +14,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
-    IDENTITY,
-    bboxOverlaps, cancelsFly, cardTranslateCss, makeRafCoalescer, nextMode,
+    FIT_MARGIN_PX, FLY_DURATION_MS, IDENTITY,
+    bboxOverlaps, cancelsFly, cardTranslateCss, fitView, flyStep, makeRafCoalescer, nextMode,
     pointsBbox, project, viewportWorldBbox, zoomAbout,
 } from "./camera";
 
@@ -153,5 +153,49 @@ describe("zoomAbout", () => {
     it("snaps to IDENTITY at minimum zoom and clamps at maximum", () => {
         expect(zoomAbout({ zoom: 2, tx: 50, ty: 50 }, 0.1, 0, 0, 1, 40)).toEqual(IDENTITY);
         expect(zoomAbout({ zoom: 40, tx: 0, ty: 0 }, 2, 0, 0, 1, 40).zoom).toBe(40);
+    });
+
+    it("snaps to the camera Fit takes at minimum zoom, so a full zoom-out recentres (#1393)", () => {
+        const home = { zoom: 1, tx: 24, ty: 71 };
+        expect(zoomAbout({ zoom: 3, tx: -400, ty: -90 }, 0.2, 10, 10, 1, 40, home)).toBe(home);
+    });
+});
+
+describe("fitView (#1393)", () => {
+    it("fits the drawing inside the canvas less its margin, and centres it on both axes", () => {
+        // A floor 382 × 254 in a canvas 980 × 568: the height binds.
+        const { fit, home } = fitView(980, 568, 382, 254);
+        expect(fit).toBeCloseTo((568 - 2 * FIT_MARGIN_PX) / 254);
+        expect(home.zoom).toBe(1);
+        // Centred: as much room left of the floor as right of it, and above as below.
+        expect(home.tx).toBeCloseTo(980 - (home.tx + 382 * fit));
+        expect(home.ty).toBeCloseTo(FIT_MARGIN_PX);
+        // On a phone's canvas the width binds, and the floor sits in the middle of the height.
+        const phone = fitView(386, 553, 382, 254);
+        expect(phone.fit).toBeCloseTo((386 - 2 * FIT_MARGIN_PX) / 382);
+        expect(phone.home.ty).toBeCloseTo((553 - 254 * phone.fit) / 2);
+    });
+
+    it("a canvas too small for the margin keeps an eighth of itself each side; nothing to fit fits nothing", () => {
+        expect(fitView(80, 80, 10, 10).fit).toBeCloseTo((80 - 2 * 10) / 10);
+        expect(fitView(0, 300, 10, 10)).toEqual({ fit: 0, home: IDENTITY });
+    });
+});
+
+describe("flyStep (#1393)", () => {
+    const from = { zoom: 1, tx: 24, ty: 71 }, to = { zoom: 4, tx: -300, ty: -120 };
+
+    it("stands where it began at its start, and at a time stamped before it — never thrown back past it", () => {
+        expect(flyStep(from, to, 0)).toEqual(from);
+        // A frame stamped 363 ms before the fly began, as jsdom's frame clock stands behind its `performance`.
+        expect(flyStep(from, to, -363)).toEqual(from);
+    });
+
+    it("eases out towards where it lands — past halfway at half its time — and lands there, never past it", () => {
+        const half = flyStep(from, to, FLY_DURATION_MS / 2);
+        expect(half.zoom).toBeGreaterThan((from.zoom + to.zoom) / 2);
+        expect(half.zoom).toBeLessThan(to.zoom);
+        expect(flyStep(from, to, FLY_DURATION_MS)).toEqual(to);
+        expect(flyStep(from, to, 10 * FLY_DURATION_MS)).toEqual(to);
     });
 });

@@ -8,8 +8,8 @@
  * §4.3): the run under the pointer lights — the canvas names it in
  * `data-lit-link`, and paints it last, in the strong ink, its ends ringed — and
  * nothing opens on dwell (invariant 12). The pointer over nothing lights
- * nothing, nor over a card that lies over a run — a tap there selects the card
- * — leaving the canvas lets the lit run go, and while a press's gesture is
+ * nothing, nor over an item drawn over a run — a tap there selects the item —
+ * leaving the canvas lets the lit run go, and while a press's gesture is
  * under way nothing lights. Which run is under the pointer is read from the
  * links' R-tree, never every link (`selection.test.ts`).
  *
@@ -22,16 +22,16 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
-import { at, card, layOutCanvas } from "./schematic.test-utils.js";
+import { at, card, fitted, layOutCanvas } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
 
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
-const canvasLayout = layOutCanvas();
+layOutCanvas();
 
-/** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
-const PPU = 1080 / 28;
+/** The camera the canvas fits the data centre's 28 × 14 m drawing with. */
+const CAM = fitted(28, 14);
 
 /** u1, A01's uplink: it runs down from A01's foot to ODF-1's top, along x = 2.4 m. */
 const U1 = entityId({ kind: "fibre", key: "u1" });
@@ -59,7 +59,7 @@ async function open() {
 
 /** A pointer event on the canvas at a world point: no button held, unless one is pressed. */
 function pointer(canvas: Element, type: "pointerDown" | "pointerMove" | "pointerUp", x: number, y: number, held = false) {
-    fireEvent[type](canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: held ? 1 : 0, ...at(PPU, x, y) });
+    fireEvent[type](canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: held ? 1 : 0, ...at(CAM, x, y) });
 }
 
 test("the run under the pointer lights — the canvas names it — over nothing nothing is lit, and leaving the canvas lets it go (#1403)", async () => {
@@ -92,15 +92,14 @@ test("while a press's gesture is under way nothing lights — a pan held over a 
     expect(litOf(container)).toBe(U1);
 });
 
-test("a card that lies over a run keeps it unlit, as a tap there selects the card: u1 passes beside PDU-A, under its card (#1403)", async () => {
+test("an item drawn over a run keeps it unlit, as a tap there selects the item: u1 passes beside PDU-A, under its pin (#1403)", async () => {
     const { container } = await open();
     const canvas = canvasOf(container);
-    const pdu = card(container, "pdus", "PDU-A")!;
-    // PDU-A's card, 84px wide at the least, covers u1 where it passes beside PDU-A: the page hits the card there.
-    canvasLayout.hits((x, y) => (Math.abs(x - 2.4 * PPU) < 4 && Math.abs(y - 4.2 * PPU) < 4 ? pdu : null));
+    // At Fit PDU-A's 1.2 m holds no card's words: it draws as its pin, its dot on PDU-A and its words east of it, over u1.
+    expect(card(container, "pdus", "PDU-A")).toBeNull();
     await act(async () => { pointer(canvas, "pointerMove", 2.4, 4.2); });
     expect(litOf(container)).toBeNull();
-    // Further down u1, clear of every card: lit.
+    // Further down u1, clear of every item: lit.
     await act(async () => { pointer(canvas, "pointerMove", ...ON_U1); });
     expect(litOf(container)).toBe(U1);
 });

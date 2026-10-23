@@ -24,13 +24,13 @@ import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-component
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness } from "../e3-web-mount.test-utils.js";
-import { at as atPx, card, layOutCanvas, tap as tapAt } from "./schematic.test-utils.js";
+import { at as atPx, card, fitted, layOutCanvas, near, tap as tapAt } from "./schematic.test-utils.js";
 // The Schematic is an extension: its renderer registers as it loads.
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
 
-/** The canvas laid out as a page would: 1080 × 540 px, so the 28 × 14 m drawing is 38.57 px a metre. */
+/** The canvas laid out as a page would: 1080 × 540 px, the 28 × 14 m drawing fitted inside it. */
 const canvasLayout = layOutCanvas();
 
 const SELECTED_KEY = "schematic.carrier.selected";
@@ -128,12 +128,12 @@ async function newRun(): Promise<string> {
 /** A candidate printed, as East prints one. */
 const printCandidate = printFor(Schematic.Types.Candidate);
 
-/** The canvas's px a metre: the 28 × 14 m drawing fitted to the canvas's 1080 × 540 px, the camera at rest. */
-const PPU = 1080 / 28;
+/** The camera the canvas fits the 28 × 14 m drawing with, at rest. */
+const CAM = fitted(28, 14);
 /** A world point on the canvas, in px from its corner. */
-const at = (x: number, y: number) => atPx(PPU, x, y);
+const at = (x: number, y: number) => atPx(CAM, x, y);
 /** A tap on the canvas at a world point. */
-const tap = (canvas: Element, x: number, y: number) => tapAt(canvas, PPU, x, y);
+const tap = (canvas: Element, x: number, y: number) => tapAt(canvas, CAM, x, y);
 /** A Shift-tap on the canvas at a world point: what adds to the selection (D16). */
 async function shiftTap(canvas: Element, x: number, y: number) {
     await act(async () => {
@@ -145,7 +145,7 @@ async function shiftTap(canvas: Element, x: number, y: number) {
 /** Lets B01's card answer a tap at its centre, as a page would hit it, and gives the card. */
 function hitB01(container: HTMLElement): HTMLElement {
     const b01 = card(container, "racks", "B01")!;
-    canvasLayout.hits((x, y) => (Math.hypot(x - 2.4 * PPU, y - 8.6 * PPU) < 4 ? b01 : null));
+    canvasLayout.hits((x, y) => (near(CAM, x, y, 2.4, 8.6) ? b01 : null));
     return b01;
 }
 
@@ -237,7 +237,7 @@ describe("<Schematic> through its carrier", () => {
         };
         // Each card answers at its centre, as a page would hit it.
         const centres: readonly (readonly [Element, number, number])[] = [[cards.A01, 2.4, 2.9], [cards.A02, 6.0, 2.9], [cards.ODF1, 8.4, 9.6], [cards.MMR1, 24.2, 2.9]];
-        canvasLayout.hits((x, y) => centres.find(([, cx, cy]) => Math.hypot(x - cx * PPU, y - cy * PPU) < 4)?.[0] ?? null);
+        canvasLayout.hits((x, y) => centres.find(([, cx, cy]) => near(CAM, x, y, cx, cy))?.[0] ?? null);
         fireEvent.click(getByRole("radio", { name: "Connect" }));
         const canvas = container.querySelector("[data-schematic-canvas]")!;
         // From a frame to a frame: refused, its words kept, and the target rings danger.
@@ -282,7 +282,7 @@ describe("<Schematic> through its carrier", () => {
         await waitFor(() => expect(card(container, "racks", "B01")).not.toBeNull());
         const cards = { B01: card(container, "racks", "B01")!, MMR1: card(container, "network", "MMR-1")! };
         const centres: readonly (readonly [Element, number, number])[] = [[cards.B01, 2.4, 8.6], [cards.MMR1, 24.2, 2.9]];
-        canvasLayout.hits((x, y) => centres.find(([, cx, cy]) => Math.hypot(x - cx * PPU, y - cy * PPU) < 4)?.[0] ?? null);
+        canvasLayout.hits((x, y) => centres.find(([, cx, cy]) => near(CAM, x, y, cx, cy))?.[0] ?? null);
         fireEvent.click(getByRole("radio", { name: "Connect" }));
         const canvas = container.querySelector("[data-schematic-canvas]")!;
         // The host's veto has no rule for B01, and throws: the frame is no refusal's target, and the console says why.

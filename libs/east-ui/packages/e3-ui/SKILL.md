@@ -2236,10 +2236,18 @@ Data.bindPaged(record)` beside a kind read through its source — the inspector
 edits them beside their kind's row; `Data.bind` or `Data.bindPaged` alone
 reads them only.
 
-The canvas draws each kind's rows: an item at its centre, as a card or a
-marker by the zoom, its footprint about its centre; a zone in its box,
-outlined or hatched, its shape about the box's centre; a link routed between
-its ends, two of one pair fanning into lanes; a net as a bus. Its links and
+The canvas draws each kind's rows: an item at its centre, as a card, a
+labelled pin or a dot by the zoom, its footprint about its centre; a zone in
+its box, outlined or hatched, its shape about the box's centre; a link routed
+between its ends, two of one pair fanning into lanes; a net as a bus. An item
+draws as its card only where the card draws whole — one held to the item's
+`width` once that width holds its words — and clear of its neighbours, else as
+a pin, its dot on the item and its words after it, clear of every other
+item's mark, else as a dot (ruled 23 Oct 2026): what an item draws as follows
+where the items stand, never a pan. Fit frames the drawing inside a margin,
+centred, and the zoom reaches in until its smallest item held to its own
+width draws as its card. A kind drawn as its density shades it in the theme's
+five heat steps. Its links and
 nets draw in the Plan's and the Allocation's links look (#1403): cased in the
 paper, in the muted ink or their style's tone, each ending on the edges of the
 items it joins where they draw at the zoom — a card's side, a labelled pin's

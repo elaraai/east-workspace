@@ -7,19 +7,21 @@
  * The Schematic's drag and drop in a real browser (#1390, `Schematic Builder
  * Spec.md` §7, §8, SC4, SC11–SC13), on the data centre floor in a page 1600px
  * wide, its library pinned beside main and its inspector (#1391) collapsed to
- * its rail, in a box wide enough for every rack to draw as its card. By the
- * mouse:
+ * its rail, in a box wide enough for every rack to draw as its card — a power
+ * unit, 1.2 m wide, draws as its labelled pin there (D44). By the mouse:
  *
  * - **A rack template** carried over Cage A's clear floor: the ghost says
  *   where it lands — the zone and the point, at the screen's resolution — and
  *   the canvas, the drop's one cell, keeps its own ground, with no frame and
  *   no badge of the shared stage; below the drawing the drop is refused, the
- *   caption red and the cursor not allowed. Dropped, a rack's card is drawn at
- *   the point the caption named, selected, one change waiting on Save (SC12).
- *   In both themes.
+ *   caption red and the cursor not allowed. Dropped, a rack stands at the
+ *   point the caption named, selected, one change waiting on Save (SC12): its
+ *   name longer than the floor's racks', it draws as its pin at the floor's
+ *   zoom, and as its card, centred there, once zoomed in to where the card
+ *   holds its words. In both themes.
  * - **An owner's card** over a rack's card gives the card the brand — its
  *   paper the brand's tint, its edge the brand's solid, 2px — and the ghost
- *   names the rack; over a power unit the drop is refused and no card is
+ *   names the rack; over a power unit's pin the drop is refused and no card is
  *   marked; dropped on the rack, one change waits on Save and nothing stays
  *   marked. In both themes.
  * - **A fibre template** over a rack's card is refused — a card covers the run
@@ -44,17 +46,20 @@
 import { test, expect, type Locator, type Page } from "playwright/test";
 import {
     DATA_CENTRE, captionOf, card, carryTo, centred, collapseInspector, discard, libraryCard, named, openSchematic, openTab, pane, pickUp, printedRef, save,
-    screenPoint, sizeTo, type Point,
+    screenPoint, sizeTo, zoomInto, type Point,
 } from "./schematic-page";
 import { settled } from "./settle";
 import { token } from "./tokens";
 
 /**
  * The Schematic's box on a desktop: the library pinned at 272px beside main and the inspector collapsed to its 44px
- * rail leave it 938px, the data centre's 28 m floor 33.5px a metre, where every rack draws as its card (from 30px a
- * metre).
+ * rail leave it 938px, the data centre's 28 m floor fitted inside Fit's 24px margins at 31.8px a metre, where every
+ * rack of the floor draws as its card — its 3.2 m holding its words from 27.5px a metre (D44).
  */
 const WIDE = 1254;
+
+/** A rack under a key minted new, as East prints its reference. */
+const MINTED_RACK = /^\(kind="racks", key="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"\)$/u;
 
 /**
  * Opens the data centre at rest in a page 1600px wide, in a box wide enough for every rack's card, centred in the
@@ -107,10 +112,9 @@ test.describe("The Schematic's drag and drop (#1390)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "carried by the mouse at the desktop width; the phone's tap below");
 
     for (const theme of ["light", "dark"] as const) {
-        test(`a rack template over Cage A's floor: the ghost says where it lands, at the screen's resolution, and the canvas keeps its own ground, no frame and no badge; below the drawing it is refused, the caption red and the cursor not allowed; dropped, a rack's card is drawn where the caption said, selected, one change waiting on Save (SC12, ${theme})`, async ({ page }) => {
+        test(`a rack template over Cage A's floor: the ghost says where it lands, at the screen's resolution, and the canvas keeps its own ground, no frame and no badge; below the drawing it is refused, the caption red and the cursor not allowed; dropped, a rack stands where the caption said, selected, one change waiting on Save — its card drawn there once zoomed in to hold its words (SC12, ${theme})`, async ({ page }) => {
             const root = await openWide(page, theme);
             const ground = await token(page, "bg-canvas");
-            const before = new Set(await cardKeys(root));
             await pickUp(page, libraryCard(root, printedRef("racks", "r42")));
             // Cage A's clear floor, above its racks' row.
             const floor = await screenPoint(root, 12.0, 1.0);
@@ -131,22 +135,25 @@ test.describe("The Schematic's drag and drop (#1390)", () => {
             await carryTo(page, root, below, 6);
             await expect.poll(() => captionOf(page)).toEqual({ text: "Outside the drawing", refused: true });
             expect(await stageOf(root)).toEqual({ stage: "refused", ground, frame: "none", badge: "none", cursor: "not-allowed" });
-            // Back over the floor, and dropped: a rack under a key minted new, its card drawn where the caption said, selected.
+            // Back over the floor, and dropped: a rack under a key minted new, where the caption said.
             await carryTo(page, root, floor, 6);
             await expect.poll(async () => (await captionOf(page))?.text).toBe(`Cage A · ${x}, ${y} m`);
             await page.mouse.up();
             await expect(discard(root)).toBeEnabled();
-            await expect.poll(async () => (await cardKeys(root)).filter((key) => !before.has(key))).toHaveLength(1);
-            const [added] = (await cardKeys(root)).filter((key) => !before.has(key));
-            expect(added).toMatch(/^\(kind="racks", key="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"\)$/u);
-            const drawn = root.locator(`[data-card-key=${JSON.stringify(added)}]`);
-            await expect(drawn).toHaveAttribute("data-selected", "");
-            const at = await centreOf(drawn);
-            expect(Math.abs(at.x - landing.x), "the card's centre x").toBeLessThanOrEqual(0.5);
-            expect(Math.abs(at.y - landing.y), "the card's centre y").toBeLessThanOrEqual(0.5);
             // The drag over, the ghost has gone and the canvas is no drop's cell.
             await expect.poll(() => captionOf(page)).toBeNull();
             await expect.poll(async () => (await stageOf(root)).stage).toBe("none");
+            // "New 42U rack" needs its 3.2 m at 40px a metre to hold its words: at the floor's zoom it is its pin, and no card.
+            expect((await cardKeys(root)).filter((key) => MINTED_RACK.test(key))).toEqual([]);
+            // Zoomed in about where it landed, it draws as its card, selected, centred where the caption said.
+            await zoomInto(page, root, { minX: Number(x) - 3, minY: Number(y) - 1.5, maxX: Number(x) + 3, maxY: Number(y) + 1.5 });
+            await expect.poll(async () => (await cardKeys(root)).filter((key) => MINTED_RACK.test(key))).toHaveLength(1);
+            const [added] = (await cardKeys(root)).filter((key) => MINTED_RACK.test(key));
+            const drawn = root.locator(`[data-card-key=${JSON.stringify(added)}]`);
+            await expect(drawn).toHaveAttribute("data-selected", "");
+            const [at, there] = [await centreOf(drawn), await screenPoint(root, Number(x), Number(y))];
+            expect(Math.abs(at.x - there.x), "the card's centre x").toBeLessThanOrEqual(0.5);
+            expect(Math.abs(at.y - there.y), "the card's centre y").toBeLessThanOrEqual(0.5);
         });
 
         test(`an owner's card over a rack's card gives the card the brand — its paper the brand's tint, its edge the brand's solid, 2px — the ghost naming the rack; over a power unit it is refused and no card is marked; dropped on the rack, one change waits on Save and nothing stays marked (${theme})`, async ({ page }) => {
@@ -162,8 +169,9 @@ test.describe("The Schematic's drag and drop (#1390)", () => {
             await expect(a03).toHaveAttribute("data-drop-target", "");
             // A 1px edge and a 1px ring outside it: 2px of the brand's solid round the brand's tint.
             expect(await looks(a03)).toEqual({ paper: tint, edge: solid, ring: `${solid} 0px 0px 0px 1px` });
-            // Over a power unit, a kind the owner's card sets nothing of: refused, and no card marked.
-            await carryTo(page, root, await centreOf(card(root, "pdus", "PDU-B")), 6);
+            // Over a power unit — its pin at this zoom, its dot on PDU-B's centre — a kind the owner's card sets nothing of:
+            // refused, and no card marked.
+            await carryTo(page, root, await screenPoint(root, 18.6, 4.2), 6);
             await expect.poll(() => captionOf(page)).toEqual({ text: "Drop onto a rack", refused: true });
             await expect(root.locator("[data-drop-target]")).toHaveCount(0);
             expect(await looks(a03)).toEqual(plain);

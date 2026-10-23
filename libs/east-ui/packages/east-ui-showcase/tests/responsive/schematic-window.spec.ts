@@ -13,7 +13,9 @@
  * the rail's one item, and on a phone, at 390 and 360px and in a 294px parent,
  * its words wrapping inside the rail, nothing past its edge. A tap on the
  * density zooms in about it, and once the racks there are read the footer
- * says nothing: they draw as themselves.
+ * says nothing: they draw as themselves. Zoomed in until they draw as their
+ * cards, no two overlap, and a pan leaves which of them draw as cards as it
+ * was (ruled 23 Oct 2026).
  *
  * Every wait is a poll on the page's state, never a fixed pause.
  *
@@ -22,7 +24,7 @@
  */
 
 import { test, expect, type Locator } from "playwright/test";
-import { RECORD_INDEXES, openSchematic, screenPoint, sizeTo } from "./schematic-page";
+import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The density's words. */
@@ -76,5 +78,37 @@ test.describe("A tap on the density (#1393)", () => {
         await settled(page);
         await expect(notice(root)).toHaveCount(0);
         await expect(root.locator("[data-schematic-footer] > *")).toHaveCount(0);
+    });
+
+    test("zoomed in until the racks draw as their cards — each 0.6 m holding its words — no two overlap, and a pan leaves which of them draw as cards as it was (ruled 23 Oct 2026)", async ({ page }) => {
+        const root = await openSchematic(page, RECORD_INDEXES);
+        const front = await screenPoint(root, 20.0, 10.0);
+        await page.mouse.click(front.x, front.y);
+        await settled(page);
+        await expect(notice(root)).toHaveCount(0);
+        // In about the canvas's middle, a press at a time, until the racks there draw as their cards.
+        const zoomIn = root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Zoom in" });
+        const cards = root.locator("[data-card-key]");
+        for (let presses = 0; await cards.count() === 0; presses++) {
+            expect(presses, "presses of Zoom in before the racks draw as their cards").toBeLessThan(12);
+            await zoomIn.click();
+            await settled(page);
+        }
+        expect(await cardOverlaps(root)).toEqual([]);
+        // A pan of 60 × 40px: the cards whose centres stood in the canvas's middle, 150px in from each edge, stand there
+        // moved with the floor, and nothing else draws as a card there.
+        const canvas = (await root.locator("[data-schematic-canvas]").boundingBox())!;
+        const inner = { left: canvas.x + 150, top: canvas.y + 150, right: canvas.x + canvas.width - 150, bottom: canvas.y + canvas.height - 150 };
+        const before = await cardsIn(root, inner);
+        expect(before.length).toBeGreaterThan(0);
+        const middle = { x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height / 2 };
+        await page.mouse.move(middle.x, middle.y);
+        await page.mouse.down();
+        await page.mouse.move(middle.x + 60, middle.y + 40, { steps: 6 });
+        await page.mouse.up();
+        await settled(page);
+        const after = await cardsIn(root, { left: inner.left + 60, top: inner.top + 40, right: inner.right + 60, bottom: inner.bottom + 40 });
+        expect(new Set(after)).toEqual(new Set(before));
+        expect(await cardOverlaps(root)).toEqual([]);
     });
 });

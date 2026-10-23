@@ -43,7 +43,7 @@ import { LINK_CAPTION_DROP, LINK_CORNER } from "../../shared/links/look.js";
 import type { SchematicDensity } from "../area.js";
 import { type Bbox, type ScreenCamera, bboxOverlaps, pointsBbox, project, viewportWorldBbox } from "./camera";
 import { type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn } from "./drawn";
-import { SCHEMATIC_CARD_MAX_PX, tierSize } from "./model";
+import { PIN_DOT_W, PIN_GAP, PIN_H, PIN_LEAD_PX, PIN_PAD_X, SCHEMATIC_CARD_MAX_PX, tierSize } from "./model";
 
 /** An Option's value, or `undefined` — East's `match`, as east-ui-components'
  *  `getSomeorUndefined` reads one, without loading that package's renderers:
@@ -101,6 +101,12 @@ export interface SchematicPalette {
     statusWarn: RGB;
     /** `status.info`. */
     statusInfo: RGB;
+    /** `heat.1` … `heat.5`, lightest first: a density cell's steps (#1393). */
+    heat1: RGB;
+    heat2: RGB;
+    heat3: RGB;
+    heat4: RGB;
+    heat5: RGB;
     /** The labels' font — a labelled pin's and a link's pill — in the design system's mono face, as `ctx.font` takes it. */
     labelFont: string;
     /** A zone's eyebrow's font, in the mono face. */
@@ -231,23 +237,27 @@ export interface PaintInput {
     was?: string;
     /**
      * Each kind read by area drawing its density in place of its items (#1393, D25), by its slot: its raster's cells,
-     * shaded in the brand's mark by how many rows each holds, over the zones and under every link and item.
+     * each in its heat step by how many rows it holds, under the zones and every link and item.
      */
     density?: ReadonlyMap<string, SchematicDensity>;
 }
 
 /**
- * How strongly a density raster's cell shades (D25): by the square root of its
- * share of the fullest cell, so a sparse cell still shows, from a faint wash to
- * most of the mark's ink.
+ * A density raster's cell's heat step (#1393, ruled 23 Oct 2026): one of the
+ * theme's five, by its share of the fullest cell on halving steps — over half
+ * the fullest the fifth, over a quarter the fourth, over an eighth the third,
+ * over a sixteenth the second, the first below — so cells that differ by a
+ * row or two of a uniform block read alike, and a cell the rows fill in part
+ * reads a step or two lighter.
  *
  * @param count - The rows the cell holds
  * @param most - The rows the fullest cell holds
- * @returns Its fill's alpha, `0` for an empty cell
+ * @returns Its step, 1 to 5; `0` for an empty cell
  */
-export function densityAlpha(count: number, most: number): number {
+export function densityStep(count: number, most: number): 0 | 1 | 2 | 3 | 4 | 5 {
     if (count <= 0 || most <= 0) return 0;
-    return 0.12 + 0.6 * Math.sqrt(Math.min(1, count / most));
+    const halvings = Math.floor(Math.log2(most / Math.min(count, most)));
+    return Math.max(1, 5 - halvings) as 1 | 2 | 3 | 4 | 5;
 }
 
 const css = (c: RGB, a = 1): string =>
@@ -381,10 +391,9 @@ export const MARKER_DOT_RADIUS = 5;
 /** Hit radius of a `dot`-tier marker, in screen px — comfortably over the
  * drawn dot (5) and its selected ring (7.5) for touch slop (issue #57, P11). */
 export const MARKER_DOT_HIT_RADIUS = 10;
-const MARKER_PIN_PAD_X = 6, MARKER_PIN_DOT_W = 7, MARKER_PIN_GAP = 4, MARKER_PIN_H = 16;
 
 /** The widest a labelled pin's words draw, in screen px: the pin at its widest ({@link SCHEMATIC_CARD_MAX_PX}), less its padding, its dot and the gap after it. */
-const MARKER_PIN_TEXT_MAX = SCHEMATIC_CARD_MAX_PX - (MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP + MARKER_PIN_PAD_X);
+const MARKER_PIN_TEXT_MAX = SCHEMATIC_CARD_MAX_PX - (PIN_PAD_X + PIN_DOT_W + PIN_GAP + PIN_PAD_X);
 
 /** What a label is cut between: its graphemes, where the page segments them. */
 const GRAPHEMES = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
@@ -433,7 +442,9 @@ export type MarkerHitbox =
  * width is `pad + dot + gap + textWidth + pad`, no wider than
  * {@link SCHEMATIC_CARD_MAX_PX} — its words the label, or as much of it as fits
  * before an ellipsis (#1393), each measured by `measure` (the caller sets the
- * context font to the palette's `labelFont` first).
+ * context font to the palette's `labelFont` first) — its dot on its item's
+ * point and its words after it ({@link PIN_LEAD_PX}), so the status it shows
+ * stands where its item does, never on a neighbour's.
  *
  * @param item - the item's world anchor and label
  * @param tier - the LOD tier (`dot` or `label`; `card` markers are DOM)
@@ -450,8 +461,8 @@ export function markerHitbox(
     const { sx, sy } = project(item.x, item.y, cam);
     if (tier === "dot") return { kind: "circle", cx: sx, cy: sy, r: MARKER_DOT_HIT_RADIUS };
     const words = pinWords(item.label, measure);
-    const w = MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP + words.width + MARKER_PIN_PAD_X;
-    return { kind: "rect", left: sx - w / 2, top: sy - MARKER_PIN_H / 2, w, h: MARKER_PIN_H, text: words.text };
+    const w = PIN_PAD_X + PIN_DOT_W + PIN_GAP + words.width + PIN_PAD_X;
+    return { kind: "rect", left: sx - PIN_LEAD_PX, top: sy - PIN_H / 2, w, h: PIN_H, text: words.text };
 }
 
 /**
@@ -1059,6 +1070,26 @@ export function paintSchematic(input: PaintInput): void {
     ctx.restore();
     ctx.lineJoin = "round";
 
+    // ---- the density at overview (#1393, D25): each kind's raster, under the zones -------
+    // Each cell holding rows a square in its heat step (`densityStep`); a cell off screen is culled. The zones draw over
+    // it, so a hall's outline and its eyebrow stand over the racks' shading.
+    if (input.density !== undefined && input.density.size > 0) {
+        const steps = [p.heat1, p.heat2, p.heat3, p.heat4, p.heat5].map((c) => css(c));
+        ctx.save();
+        for (const raster of input.density.values()) {
+            const side = raster.side * ppu;
+            for (const cell of raster.cells) {
+                const step = densityStep(cell.count, raster.most);
+                if (step === 0) continue;
+                const x = wx(cell.minX), y = wy(cell.minY);
+                if (x > width || y > height || x + side < 0 || y + side < 0) continue;
+                ctx.fillStyle = steps[step - 1]!;
+                ctx.fillRect(x, y, side, side);
+            }
+        }
+        ctx.restore();
+    }
+
     // ---- zones: rect outline / hatch + polyline / polygon geometry ----------
     for (const zone of value.zones) {
         if (layerHidden(zone.key)) continue;   // zone in a hidden layer
@@ -1234,21 +1265,6 @@ export function paintSchematic(input: PaintInput): void {
             ctx.fillStyle = css(p.fgMuted);
             ctx.textBaseline = "middle";
             ctx.fillText(label, x + 9, y);
-        }
-        ctx.restore();
-    }
-
-    // ---- the density at overview (#1393, D25): each kind's raster, over the zones -------
-    // Each cell holding rows a square of the brand's mark, shaded by how many it holds; a cell off screen is culled.
-    for (const raster of input.density?.values() ?? []) {
-        const side = raster.side * ppu;
-        ctx.save();
-        ctx.fillStyle = css(p.brandMark);
-        for (const cell of raster.cells) {
-            const x = wx(cell.minX), y = wy(cell.minY);
-            if (x > width || y > height || x + side < 0 || y + side < 0) continue;
-            ctx.globalAlpha = densityAlpha(cell.count, raster.most);
-            ctx.fillRect(x, y, side, side);
         }
         ctx.restore();
     }
@@ -1577,8 +1593,11 @@ export function paintSchematic(input: PaintInput): void {
 
     // ---- item LOD markers: dots + labelled pins (cards are DOM) --------------
     // Save/restore per item so a marker drawn as context fades / desaturates
-    // without leaking alpha or font state into the next marker.
-    for (const item of visibleItems) {
+    // without leaking alpha or font state into the next marker. What is selected draws last, over its neighbours: the
+    // declutter keeps every other pin clear of every mark, but a selected item takes its form whatever it covers.
+    const marked = selected.size === 0 ? visibleItems
+        : [...visibleItems.filter((item) => !selected.has(item.key)), ...visibleItems.filter((item) => selected.has(item.key))];
+    for (const item of marked) {
         const tier = tiers.get(item.key) ?? "dot";
         if (tier === "card") continue; // rich card rendered by the React layer
         let tint = tintOf(item.key, p.fgMuted);
@@ -1621,8 +1640,9 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.lineWidth = 1;
                 ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
                 ctx.stroke();
+                // Its dot on its item's point.
                 ctx.beginPath();
-                ctx.arc(left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W / 2, y, ring ? MARKER_PIN_DOT_W / 2 - 0.75 : MARKER_PIN_DOT_W / 2, 0, Math.PI * 2);
+                ctx.arc(x, y, ring ? PIN_DOT_W / 2 - 0.75 : PIN_DOT_W / 2, 0, Math.PI * 2);
                 if (ring) {
                     ctx.lineWidth = 1.5;
                     ctx.strokeStyle = tint;
@@ -1633,7 +1653,7 @@ export function paintSchematic(input: PaintInput): void {
                 }
                 ctx.fillStyle = css(p.fg);
                 ctx.textBaseline = "middle";
-                ctx.fillText(text, left + MARKER_PIN_PAD_X + MARKER_PIN_DOT_W + MARKER_PIN_GAP, y);
+                ctx.fillText(text, left + PIN_PAD_X + PIN_DOT_W + PIN_GAP, y);
             }
         }
         ctx.restore();

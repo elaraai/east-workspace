@@ -46,6 +46,7 @@ import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { HOST_RANK, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { useKeySearchToolbarItem, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
 import { Seg, SegMenu } from "../shared/schedule/segments.js";
+import type { SchematicZoomRange } from "./canvas/view.js";
 import type { SchematicWords } from "./messages.js";
 import type { SchematicTool, SchematicToolsState } from "./tools.js";
 
@@ -102,6 +103,8 @@ export interface SchematicToolbarProps {
     readonly find: KeySearchSource;
     /** Zooms about the canvas's middle by a factor. */
     readonly onZoom: (factor: number) => void;
+    /** Where the zoom stands: at Fit Zoom out takes no press, and at the zoom's limit Zoom in takes none (#1393). */
+    readonly zoom: SchematicZoomRange;
     /** Fits the drawing in view. */
     readonly onFit: () => void;
     /** Whether something is selected: the steps show. */
@@ -167,16 +170,18 @@ function ToolChip({ props }: { props: SchematicToolbarProps }) {
     );
 }
 
-/** Zoom − / + and Fit: icon buttons, one strip. */
+/** Zoom − / + and Fit: icon buttons, one strip — Zoom out taking no press at Fit, Zoom in none at the zoom's limit (#1393). */
 function ZoomGroup({ props, fullWidth = false }: { props: SchematicToolbarProps; fullWidth?: boolean }) {
     const seg = useSlotRecipe({ key: "seg" })({ fullWidth }) as Styles;
-    const { words, onZoom, onFit } = props;
+    const { words, onZoom, onFit, zoom } = props;
     return (
         <Box css={seg.root} role="group" aria-label={words.m.zoomLabel()} data-schematic-zoom="">
-            <chakra.button type="button" css={seg.item} aria-label={words.m.zoomOut()} title={words.m.zoomOut()} onClick={() => onZoom(1 / ZOOM_STEP)}>
+            <chakra.button type="button" css={seg.item} aria-label={words.m.zoomOut()} title={words.m.zoomOut()} disabled={zoom.atFit}
+                onClick={() => onZoom(1 / ZOOM_STEP)}>
                 <FontAwesomeIcon icon={faMinus} aria-hidden="true" />
             </chakra.button>
-            <chakra.button type="button" css={seg.item} aria-label={words.m.zoomIn()} title={words.m.zoomIn()} onClick={() => onZoom(ZOOM_STEP)}>
+            <chakra.button type="button" css={seg.item} aria-label={words.m.zoomIn()} title={words.m.zoomIn()} disabled={zoom.atLimit}
+                onClick={() => onZoom(ZOOM_STEP)}>
                 <FontAwesomeIcon icon={faPlus} aria-hidden="true" />
             </chakra.button>
             <chakra.button type="button" css={seg.item} aria-label={words.m.fit()} title={words.m.fit()} onClick={onFit}>

@@ -31,7 +31,7 @@ import { StateRuntime, editingMessages, getRegisteredPlatformImplementations } f
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { at, card, drawingCounts, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, fitted, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -39,8 +39,8 @@ const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canva
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
 
-/** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
-const PPU = 1080 / 28;
+/** The camera the canvas fits the data centre's 28 × 14 m drawing with. */
+const CAM = fitted(28, 14);
 
 const rackEqual = equalFor(ex.DcRack);
 const fibreEqual = equalFor(ex.DcFibre);
@@ -49,23 +49,25 @@ const printRefs = printFor(ArrayType(Schematic.Types.Ref));
 
 /**
  * Where each card the tests press sits — by kind, key and centre in metres — and its box, as the canvas reckons it with no
- * page to lay it out (`tierSize`): its own width, a rack 60px tall (its model, its load's meter and figure), a frame or a
- * unit 37px (its kind) — the box a run's end meets it at (#1403).
+ * page to lay it out (`tierSize`): its own width, a rack 60px tall (its model, its load's meter and figure), a frame 37px
+ * (its kind) — the box a run's end meets it at (#1403). The power distribution units, whose 1.2 m holds no card's words at
+ * Fit, draw as their pins, which the canvas hits itself (#1393).
  */
 const CARDS: readonly (readonly [kind: string, key: string, x: number, y: number, w: number, h: number])[] = [
     ["racks", "A01", 2.4, 2.9, 3.2, 60], ["racks", "A02", 6.0, 2.9, 3.2, 60], ["racks", "A03", 9.6, 2.9, 3.2, 60], ["racks", "A04", 13.2, 2.9, 3.2, 60],
     ["racks", "A05", 16.8, 2.9, 3.2, 60], ["network", "MMR-1", 24.2, 2.9, 4.0, 37], ["network", "ODF-1", 8.4, 9.6, 12.8, 37],
-    ["pdus", "PDU-A", 1.6, 4.2, 1.2, 37], ["pdus", "PDU-B", 18.6, 4.2, 1.2, 37],
 ];
 
 /** ODF-1's top edge, in metres: where u1, down from A01, meets it — its handle there once it is selected (#1403). */
-const ODF1_TOP = 9.6 - 37 / 2 / PPU;
+const ODF1_TOP = 9.6 - 37 / 2 / CAM.ppu;
 
 /** Lets each card answer anywhere in its box, as a page would hit it: where a drag presses and lets go. */
 function hits(container: HTMLElement) {
     const found = CARDS.flatMap(([kind, key, x, y, w, h]) => {
         const el = card(container, kind, key);
-        return el === null ? [] : [[el, x * PPU, y * PPU, (w * PPU) / 2, h / 2] as const];
+        if (el === null) return [];
+        const { clientX, clientY } = at(CAM, x, y);
+        return [[el, clientX, clientY, (w * CAM.ppu) / 2, h / 2] as const];
     });
     canvasLayout.hits((px, py) => found.find(([, x, y, hw, hh]) => Math.abs(px - x) <= hw && Math.abs(py - y) <= hh)?.[0] ?? null);
 }
@@ -85,7 +87,7 @@ async function open(example: { fn: { toIR(): unknown } }) {
 
 /** A pointer event on the canvas at a world point. */
 function pointer(canvas: Element, type: "pointerDown" | "pointerMove" | "pointerUp", x: number, y: number, shiftKey = false) {
-    fireEvent[type](canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: type === "pointerUp" ? 0 : 1, shiftKey, ...at(PPU, x, y) });
+    fireEvent[type](canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: type === "pointerUp" ? 0 : 1, shiftKey, ...at(CAM, x, y) });
 }
 
 /** A drag on the canvas from one world point to another, let go there. */
@@ -158,7 +160,7 @@ test("Move moves the selection rigidly, clamped to the extent, as one step on re
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
     // A01, and A02 beside it: a tap selects, Shift extends.
-    await tap(canvas, PPU, 2.4, 2.9);
+    await tap(canvas, CAM, 2.4, 2.9);
     await act(async () => { pointer(canvas, "pointerDown", 6.0, 2.9, true); pointer(canvas, "pointerUp", 6.0, 2.9, true); });
     await tool(container, "Move");
     const stored = await h.read(ex.schematicRacks);
@@ -207,9 +209,10 @@ test("Connect records a fibre run under a key minted new; an end its field holds
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
     await tool(container, "Connect");
-    // A rack to a power distribution unit: a fibre run ends at none — the target rings danger, the draft says why, and letting go records nothing.
+    // A rack to a power distribution unit, drawn as its pin: a fibre run ends at none — the draft goes danger, saying why
+    // under PDU-B, and letting go records nothing.
     await act(async () => { pointer(canvas, "pointerDown", 16.8, 2.9); pointer(canvas, "pointerMove", 18.6, 4.2); });
-    expect(card(container, "pdus", "PDU-B")!.hasAttribute("data-forbidden")).toBe(true);
+    expect(canvas.hasAttribute("data-forbidden")).toBe(true);
     expect(container.querySelector("[data-schematic-refusal] [data-drag-caption][data-refused]")?.textContent).toBe("Fibre run can't end at PDU-B");
     await act(async () => { pointer(canvas, "pointerUp", 18.6, 4.2); });
     expect(container.querySelector("[data-schematic-refusal]")).toBeNull();
@@ -266,7 +269,7 @@ test("Retarget writes the end of the run it moves, and every other field of it s
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
     // u1 runs down from A01's foot to ODF-1's top (#1403): a tap on its path selects it.
-    await tap(canvas, PPU, 2.4, 6.0);
+    await tap(canvas, CAM, 2.4, 6.0);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
     // Its end on ODF-1's top edge is a handle: pressed, the run's end follows the pointer — over PDU-A, refused; on to MMR-1, let go.
     await act(async () => { pointer(canvas, "pointerDown", 2.4, ODF1_TOP); pointer(canvas, "pointerMove", 1.6, 4.2); });
@@ -282,10 +285,10 @@ test("Retarget writes the end of the run it moves, and every other field of it s
 test("a tap on a selected run's end selects the item there and records nothing: only a press that moves retargets it (SC10)", async () => {
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
-    await tap(canvas, PPU, 2.4, 6.0);
+    await tap(canvas, CAM, 2.4, 6.0);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
     // u1's end on ODF-1's top edge is a handle, and ODF-1 is under it: let go where it was pressed, the press is a tap.
-    await tap(canvas, PPU, 2.4, ODF1_TOP + 1 / PPU);
+    await tap(canvas, CAM, 2.4, ODF1_TOP + 1 / CAM.ppu);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "network", key: "ODF-1" }])));
     expect(unsaved(container)).toBe(false);
 });
@@ -295,20 +298,21 @@ test("Extend adds a rack to a selected feed; Del on a leg takes its rack off the
     const canvas = canvasOf(container);
     const kept = keptSelection;
     // Feed A's bar runs under A01 to A03: a tap on it selects the feed.
-    await tap(canvas, PPU, 4.2, 3.8);
+    await tap(canvas, CAM, 4.2, 3.8);
     await waitFor(() => expect(kept()).toBe(printRefs([{ kind: "feeds", key: "feed-a" }])));
     // Shift-drag from one of its racks to A04: A04 joins its fed side.
     await tool(container, "Connect");
     await drag(canvas, [6.0, 2.9], [13.2, 2.9], true);
     expect(unsaved(container)).toBe(true);
-    // Feed B's leg to A05, tapped where it shows — between the bar and A05's foot, its head (#1403): Del takes A05 off it.
+    // Feed B's leg to A05, tapped where it shows — between the bar, 3.8 m down, and A05's card, its head (#1403): Del takes
+    // A05 off it.
     await tool(container, "Select");
-    await tap(canvas, PPU, 16.8, 3.74);
+    await tap(canvas, CAM, 16.8, 3.775);
     await waitFor(() => expect(kept()).toBe(printRefs([{ kind: "feeds", key: "feed-b" }])));
     await del();
     expect(unsaved(container)).toBe(true);
     // Feed A, tapped on its bar: Del deletes it.
-    await tap(canvas, PPU, 4.2, 3.8);
+    await tap(canvas, CAM, 4.2, 3.8);
     await waitFor(() => expect(kept()).toBe(printRefs([{ kind: "feeds", key: "feed-a" }])));
     await del();
     await seeDrawing(container);
@@ -324,7 +328,7 @@ test("Extend adds a rack to a selected feed; Del on a leg takes its rack off the
 test("Del on a rack deletes it with every run and feed leg naming it, one step Undo restores; Save sends each record as its own request (SC5, SC6)", async () => {
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
-    await tap(canvas, PPU, 2.4, 2.9);
+    await tap(canvas, CAM, 2.4, 2.9);
     await del();
     // A01 goes, with u1, its run to ODF-1, and its leg of feed A: three records' rows, one step.
     expect(card(container, "racks", "A01")).toBeNull();
@@ -405,7 +409,7 @@ test("a drawing bound read only — or a Schematic read only — takes no gestur
         const tools = [...slot(container, "toolbar").querySelectorAll("[data-schematic-seg='tools'] [role=radio]")].map((radio) => radio.textContent);
         expect(tools).toEqual(["Select", "Zoom box", "Marquee"]);
         expect(slot(container, "toolbar").querySelector("[data-toolbar-item='history']")).toBeNull();
-        await tap(canvasOf(container), PPU, 2.4, 2.9);
+        await tap(canvasOf(container), CAM, 2.4, 2.9);
         await waitFor(() => expect(card(container, "racks", "A01")!.hasAttribute("data-selected")).toBe(true));
         await del();
         expect(card(container, "racks", "A01")).not.toBeNull();

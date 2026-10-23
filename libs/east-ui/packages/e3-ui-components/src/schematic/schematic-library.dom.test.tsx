@@ -33,7 +33,7 @@ import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
 import { SchematicLayerViewType } from "./layers-view.js";
 import { schematicMessages as m } from "./messages.js";
-import { card, layOutCanvas, tap } from "./schematic.test-utils.js";
+import { card, fitted, layOutCanvas, near, tap, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -41,8 +41,8 @@ const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canva
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
 
-/** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
-const PPU = 1080 / 28;
+/** The camera the canvas fits a 28 × 14 m drawing with — the data centre's. */
+const CAM = fitted(28, 14);
 
 /** Longer than a fly takes (350 ms): run on the test's clock, it lands. */
 const FLY_MS = 400;
@@ -517,14 +517,14 @@ test("a locked layer's entities never select — by a tap, the steps or the Inde
     await waitFor(() => expect(card(container, "racks", "A01")!.hasAttribute("data-locked")).toBe(true));
     // A tap on A01's card, clear of the run leaving its centre, falls through it to the floor and selects nothing;
     // a tap on MMR-1, a network frame, selects it.
-    const at = (x: number, y: number) => (px: number, py: number) => Math.hypot(px - x * PPU, py - y * PPU) < 4;
+    const at = (x: number, y: number) => (px: number, py: number) => near(CAM, px, py, x, y);
     canvasLayout.hits((px, py) => (at(1.2, 2.9)(px, py) ? card(container, "racks", "A01") : at(24.2, 2.9)(px, py) ? card(container, "network", "MMR-1") : null));
     fireEvent.pointerEnter(canvasOf());
-    await tap(canvasOf(), PPU, 1.2, 2.9);
+    await tap(canvasOf(), CAM, 1.2, 2.9);
     await settle();
     expect(keptSelection()).toBe(printRefs([]));
     expect(card(container, "racks", "A01")!.hasAttribute("data-selected")).toBe(false);
-    await tap(canvasOf(), PPU, 24.2, 2.9);
+    await tap(canvasOf(), CAM, 24.2, 2.9);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "network", key: "MMR-1" }])));
     // The Index flies to A01 and leaves the selection as it was.
     await openTab(container, "Index");
@@ -546,9 +546,9 @@ test("a locked layer's entities never select — by a tap, the steps or the Inde
     // Locking a layer lets go of what is selected on it: unlock Power, select A01 by a tap, lock it again.
     await layerToggle(again.container, "power", "lock");
     const canvas = again.container.querySelector<HTMLElement>("[data-schematic-canvas]")!;
-    canvasLayout.hits((px, py) => (Math.hypot(px - 2.4 * PPU, py - 2.9 * PPU) < 4 ? card(again.container, "racks", "A01") : null));
+    canvasLayout.hits((px, py) => (near(CAM, px, py, 2.4, 2.9) ? card(again.container, "racks", "A01") : null));
     fireEvent.pointerEnter(canvas);
-    await tap(canvas, PPU, 2.4, 2.9);
+    await tap(canvas, CAM, 2.4, 2.9);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A01" }])));
     await layerToggle(again.container, "power", "lock");
     await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
@@ -576,6 +576,8 @@ test("a layer its author hides at first starts hidden; Show all shows it, writin
     await settle();
     await waitFor(() => expect(card(container, "network", "MMR-1")).not.toBeNull());
     expect(layerRows(container)).toEqual(["Structure 0", "Power 0", "Cooling 3 hidden", "Network 3"]);
+    // Zoomed in on CRAH-1, until its 1.4 m holds its card's words: hidden, it draws nothing there.
+    await zoomInto(container.querySelector("[data-schematic-canvas]")!, CAM, { minX: 1.0, minY: 10.5, maxX: 5.0, maxY: 13.5 });
     expect(card(container, "cooling", "CRAH-1")).toBeNull();
     await act(async () => { fireEvent.click(panel(container).querySelector("[data-layers-show-all]")!); });
     await settle();
