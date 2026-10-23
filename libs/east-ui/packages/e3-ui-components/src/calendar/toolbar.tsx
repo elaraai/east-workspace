@@ -21,7 +21,9 @@ import { dayStart, navigate, type CalendarItem, type CalendarRange, type Calenda
 const LAYOUTS = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }] as const;
 const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
 interface ToolbarArgs {
-    view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; now: Date; count: number;
+    view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; now: Date;
+    /** The window's events; `undefined` while its period is read: "…", never a count of another period's (#1398, CL13). */
+    count: number | undefined;
     styles: CalendarStyles; commands: CalendarCommands | undefined;
     words: EditingWords; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
     onAction: (action: HistoryAction) => void; paged: boolean;
@@ -88,7 +90,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         { key: "calendar.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["calendar.view", "calendar.controls"], forms: [null, viewMenu, null] },
         { key: "calendar.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "calendar.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
         // With no slice, the window's own count; a slice's summary counts each source instead.
-        chrome === undefined && { key: "calendar.count", side: "start", rank: HOST_RANK, forms: [<Box css={styles.toolbarText} data-calendar-count="">{words.number(count)} events</Box>, null] },
+        chrome === undefined && { key: "calendar.count", side: "start", rank: HOST_RANK, forms: [<Box css={styles.toolbarText} data-calendar-count="">{count === undefined ? "…" : words.number(count)} events</Box>, null] },
         paged && chrome === undefined && { key: "calendar.scope", side: "start", forms: [<Box css={styles.toolbarText}>Loaded window</Box>, null], rank: HOST_RANK + 4 },
         firstPair !== undefined && { key: "calendar.overlaps", side: "end", rank: [HOST_RANK, HOST_RANK + 6], forms: [warning(false), warning(true), null] },
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction,

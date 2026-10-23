@@ -11,7 +11,13 @@
  * families, a link drag's new line to the pointer, an arrival's lines into
  * its best rows (A65, A69, A30). Every figure and word is e3-ui's (the slots, the
  * loads, each resource's line); the layout's indices are `timeline-layout.ts`'s,
- * and every size is the `allocationBuilder` recipe's.
+ * and every size is the `allocationBuilder` recipe's. A day not read yet
+ * draws its lanes, slot times, hours, the link channel and its resources at
+ * once — each lane-hour cell washed, each lane head's figures and today's load
+ * placeholders (#1398, CL2) — a day whose read failed says so once, across the
+ * lane cells of the first row in view (CL11), and a started day with no bins
+ * says so there too (CL13). The hour in view holds as the day's bands grow or
+ * the day changes (CL8).
  *
  * @packageDocumentation
  */
@@ -22,10 +28,13 @@ import {
 } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowDown, faArrowRight, faArrowUp, faCircleExclamation, faFilter, faLink, faLinkSlash, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
+import {
+    faArrowDown, faArrowRight, faArrowUp, faCircleExclamation, faFilter, faInbox, faLink, faLinkSlash, faTriangleExclamation, faXmark,
+} from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap, option } from "@elaraai/east";
 import { useContainerBelow, useDragEventChip, useDropCell, type Formatters } from "@elaraai/east-ui-components";
-import { VirtualRows, formatDatePattern } from "@elaraai/east-ui-components/internal";
+import { LoadingEmptyLine, LoadingFailedLine, LoadingWash, PlaceholderShape, VirtualRows, formatDatePattern, useRevealed } from "@elaraai/east-ui-components/internal";
+import type { PeriodRead } from "../shared/loading.js";
 import { LinksLayer, type LinkGripProps, type LinkLine, type LinkRibbon } from "../shared/links/layer.js";
 import { useScrollTop } from "../shared/links/scroll.js";
 import { NowLine } from "../shared/time/now-line.js";
@@ -38,10 +47,12 @@ import { currentOf, dropTarget, gripCoord, laneCoord, movedLinkOf, rowCoord, typ
 import { cardEnd, dragFamilies, dragLine, familyOf, guideLines, layoutLinks, linkIds, type DragTarget, type FamilyLink, type LinkIds, type LinkView } from "./links.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
-import { CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneCard, type ResourceAxis } from "./timeline-layout.js";
 import {
-    allocationWords, compareDate, compareFloat, partsOf, sameParts, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day,
-    type Fit, type Issue, type Load, type ResourceLine, type ResourceRow, type Selection, type Slot,
+    CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneBand, type LaneCard, type ResourceAxis,
+} from "./timeline-layout.js";
+import {
+    DAY, allocationWords, compareDate, compareFloat, partsOf, sameParts, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context,
+    type Day, type Fit, type Issue, type Load, type ResourceLine, type ResourceRow, type Selection, type Slot,
 } from "./model.js";
 
 /** The panes' head, the recipe's: the rows sit under it. */
@@ -105,6 +116,14 @@ export interface TimelineProps {
     drag: AllocationDrag;
     /** A question's candidates: what a ranked fit's preview bar shows (A28), e3-ui's own arithmetic. */
     candidates: AllocationDomain["candidates"];
+    /**
+     * What it draws of the day's read (#1398): the day as read; a day not read yet — the day without its bins handed in
+     * as `plan`, its lane-hour cells washed and its figures placeholders once the reveal says so; or one whose read
+     * failed — its geometry, the failure said once across the lane cells of the first row in view.
+     */
+    read: PeriodRead;
+    /** A started day with no bins, once read (CL13): what the first row in view says — `No bins on Wed 12 May` — and how to book one. */
+    empty: { message: string; hint: string | undefined } | undefined;
 }
 
 /** A refusing run's label (A27): `✕ Over max · 3 resources · by 4–13 m³`, over the rows it gathers. */
@@ -166,15 +185,31 @@ function fitsMarker(ranks: readonly string[], rowIndex: ReadonlyMap<string, numb
     return { side: below ? "below" : "above", label: `${plural(n, "fit")} ${below ? "below" : "above"} · #1 ${name} · drop here`, resource: best };
 }
 
-/** A lane hour: a drop target for a bin's body (A14, A37). */
-function LaneCellView({ props, lane, at, free, style }: { props: TimelineProps; lane: string; at: Date; free: boolean; style: CSSProperties }) {
+/**
+ * A lane hour: a drop target for a bin's body (A14, A37). A day not read yet washes it (#1398): where its bins go is
+ * not known, so no shape of one implies a time or a place.
+ */
+function LaneCellView({ props, lane, at, free, wash, style }: { props: TimelineProps; lane: string; at: Date; free: boolean; wash: boolean; style: CSSProperties }) {
     const { drag, styles } = props;
     const { veto, options } = dropTarget(drag, { kind: "lane", lane, at, card: undefined });
     const ref = useDropCell(drag.enabled ? laneCoord(drag.surface, lane, at) : null, false, veto, undefined, options);
     return <Box ref={ref} css={styles.laneCell} data-allocation-cell={`${lane}|${at.getTime()}`} data-free={free ? "" : undefined} style={style}
         onClick={() => { if (props.picked && free && props.editable) props.book({ kind: "lane", lane, at, card: undefined }); else props.select(undefined); }}>
+        {wash && <LoadingWash />}
         {free && <Box as="span" css={styles.lanePlaceholder} data-allocation-placeholder="" />}
     </Box>;
+}
+
+/**
+ * The band at the top of the lane pane's view: under its sticky head, the first band whose rows reach below the scroll
+ * — the row a failure or an empty day is said in (#1398, CL11, CL13), and the one that holds as the bands change (CL8).
+ *
+ * @param bands - The lane grid's bands
+ * @param top - The lane pane's scroll
+ * @returns The band; `undefined` with none
+ */
+function bandAt(bands: readonly LaneBand[], top: number): LaneBand | undefined {
+    return bands.find(band => (band.row + band.span) * ROW_H > top) ?? bands[bands.length - 1];
 }
 
 /** The fits marker over the rows (A31): a drop on it goes to the #1. */
@@ -214,6 +249,14 @@ const onActivate = (act: () => void) => (event: KeyboardEvent) => {
  */
 export function AllocationTimeline(props: TimelineProps) {
     const { value, context, styles, plan, day, loads, slots } = props;
+    // A day not read yet, or whose read failed (#1398): `plan` is the day without its bins, so its grid has a band one
+    // row each and no card; not read yet, its lane-hour cells are washed and its figures placeholders, each unseen until
+    // the frame's reveal says so, which each reads itself (CL2, CL4).
+    const { read, empty } = props;
+    const unread = read.state !== "held";
+    const pending = read.state === "pending";
+    // What the first row in view says, once: why the day could not be read (CL11), or that a started day has no bins (CL13).
+    const saying = read.state === "failed" || empty !== undefined;
     const words = allocationWords();
     const nouns = useNouns();
     const unit = context.unit;
@@ -282,7 +325,7 @@ export function AllocationTimeline(props: TimelineProps) {
     const ids = useMemo(() => linkIds(plan), [plan]);
     const family = useMemo(() => props.focus === undefined ? [] : familyOf(plan, held, props.focus, ids), [plan, held, props.focus, ids]);
     const linking = family.length > 0 || grip !== undefined;
-    const laneTop = useScrollTop(lanePane, linking), rowsTop = useScrollTop(rscPane, linking || marking);
+    const laneTop = useScrollTop(lanePane, linking || saying), rowsTop = useScrollTop(rscPane, linking || marking);
     // The fits out of view, marked at the pane's edge over the rows; a drop on it goes to the #1 (A31).
     const [rowsView, setRowsView] = useState(0);
     useLayoutEffect(() => { if (marking && rscPane.current !== null) setRowsView(rscPane.current.clientHeight - HEAD); }, [marking]);
@@ -351,6 +394,19 @@ export function AllocationTimeline(props: TimelineProps) {
         return { ...units, buckets: units.buckets.map(b => ({ ...b, label: `${time.m.rulerWeek({ week: time.number(isoWeekUTC(b.start)) })}${b.start.getTime() >= axis.from.getTime() ? ` · ${props.format.monthDay(b.start)}` : ""}` })) };
     }, [ticks, time, axis, props.format]);
 
+    // The hour at the top of the lane pane's view holds as the bands change (#1398, CL8): a day's bins landing grow its
+    // bands below the row in view, and a step to another day keeps the hour in view. A selection's follow, after it, wins.
+    const bandsWere = useRef<readonly LaneBand[] | undefined>(undefined);
+    useLayoutEffect(() => {
+        const pane = lanePane.current, was = bandsWere.current;
+        bandsWere.current = grid.bands;
+        if (pane === null || was === undefined) return;
+        const top = pane.scrollTop;
+        const anchor = bandAt(was, top), now = anchor === undefined ? undefined : grid.bands[anchor.slot];
+        if (anchor === undefined || now === undefined || now.row === anchor.row) return;
+        pane.scrollTop = now.row * ROW_H + Math.min(Math.max(0, top - anchor.row * ROW_H), (now.span - 1) * ROW_H);
+    }, [grid.bands]);
+
     // Selecting follows the selection (A12): a bin scrolls the lane grid to it, a third from the top, and the resource
     // pane so its row sits level with it, snapped to rows; a resource scrolls its row into view.
     const selectionRef = useRef(props.selection);
@@ -381,10 +437,15 @@ export function AllocationTimeline(props: TimelineProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.follow.nonce]);
 
-    // A narrowing that leaves no lane or no resource leaves nothing to plan on.
-    if (lanes.length === 0 || rows.length === 0) return <NarrowedEmpty styles={styles} clear={props.clearFilters} />;
+    // A narrowing that leaves no lane or no resource leaves nothing to plan on; a board with no resources and no narrowing
+    // is no narrowing's empty state (#1398, CL13): it draws its lanes, and no resource row.
+    if ((lanes.length === 0 && props.visibleLanes.type === "some") || (rows.length === 0 && props.visible.type === "some")) {
+        return <NarrowedEmpty styles={styles} clear={props.clearFilters} />;
+    }
     const vars = { "--allocation-lanes": lanes.length, "--allocation-rows": grid.rows, "--allocation-days": axis.days.length } as CSSProperties;
     const flags = props.issues.length === 0 ? NO_ISSUES : props.issues;
+    // The first row in view, where the day's failure or its emptiness is said once.
+    const lineBand = saying ? bandAt(grid.bands, laneTop) : undefined;
     return <Box ref={root} css={styles.timeline} style={vars} data-allocation-timeline="" data-allocation-drag={grip?.kind}
         data-allocation-pick={props.picked && grip === undefined ? "" : undefined} data-reserve={reserveRefused ? "refused" : undefined}>
         <Box ref={lanePane} css={styles.lanePane} data-allocation-lanes="" data-edge-scroll-row={ROW_H}>
@@ -398,20 +459,29 @@ export function AllocationTimeline(props: TimelineProps) {
                             <Box as="span" css={styles.laneName} title={`${lane.label} takes one bin at :${minute} past each ${value.every.type === "hours" ? "hour" : "slot"}`}>
                                 {lane.label}<Box as="span" css={styles.laneOffset}>at :{minute}</Box>
                             </Box>
-                            <Box as="span" css={styles.laneMeta} title={`Bins booked in this ${one(nouns.lane)} today${unit === "" ? "" : ` · ${unit}`}`}>
-                                {plural(head.bins, "bin")} · {words.quantity(head.quantity, unit)}
+                            {/* A day not read yet: its figures a placeholder; failed, blank (#1398). */}
+                            <Box as="span" css={styles.laneMeta} title={`Bins booked in this ${one(nouns.lane)} today${unit === "" ? "" : ` · ${unit}`}`}
+                                data-pending={unread ? "" : undefined}>
+                                {unread ? pending && <PlaceholderShape kind="aggregate" index={i} /> : <>{plural(head.bins, "bin")} · {words.quantity(head.quantity, unit)}</>}
                             </Box>
                         </Box>;
                     })}
                 </Box>
-                <Box ref={gridBox} css={styles.laneGrid} data-allocation-grid="">
+                <Box ref={gridBox} css={styles.laneGrid} data-allocation-grid="" data-allocation-unread={unread ? read.state : undefined}>
+                    {/* The cells first, so the bands' rules draw over a cell's wash. */}
+                    {grid.cells.map(cell => <LaneCellView key={`${cell.lane}:${cell.slot}`} props={props} lane={lanes[cell.lane]!.key} at={cell.at} free={cell.free && !unread}
+                        wash={pending} style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties} />)}
                     {grid.bands.map(band => <Box key={band.slot} css={styles.laneBand} style={{ "--band-row": band.row, "--band-span": band.span } as CSSProperties} data-allocation-band={band.slot}>
                         <Box as="span" css={styles.laneHour}>{formatDatePattern(value.every.type === "hours" ? "HH" : "HH:mm", band.at)}</Box>
                     </Box>)}
-                    {grid.cells.map(cell => <LaneCellView key={`${cell.lane}:${cell.slot}`} props={props} lane={lanes[cell.lane]!.key} at={cell.at} free={cell.free}
-                        style={{ "--cell-lane": cell.lane, "--cell-row": grid.bands[cell.slot]!.row, "--cell-span": grid.bands[cell.slot]!.span } as CSSProperties} />)}
                     {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={lit?.bin === card.id}
                         refuses={taking !== undefined && !card.bin.parts.has(taking) && takes?.bins.get(card.id)?.type === "refused"} />)}
+                    {/* Said once, across the lane cells of the first row in view (#1398): why the day could not be read, with
+                        Retry (CL11), or that a started day has no bins, and how to book one (CL13). */}
+                    {lineBand !== undefined && <Box css={styles.readLine} style={{ "--band-row": lineBand.row } as CSSProperties} data-allocation-read-line={read.state === "failed" ? "failed" : "empty"}>
+                        {read.state === "failed" ? <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} />
+                            : empty !== undefined && <LoadingEmptyLine icon={faInbox} message={empty.message} hint={empty.hint} />}
+                    </Box>}
                 </Box>
             </Box>
         </Box>
@@ -441,7 +511,7 @@ export function AllocationTimeline(props: TimelineProps) {
                 return <ResourceRowView resource={resource} line={lines.get(resource.key)!} load={loads.get(resource.key)!} axis={axis} props={props}
                     focusHold={focusHold} draft={drafted.has(resource.key)} lit={lit?.resource === resource.key}
                     verdict={verdicts?.get(resource.key)} rank={ranking && rank >= 0 ? rank + 1 : undefined} preview={previews.get(resource.key)}
-                    quantity={dragged?.quantity} />;
+                    quantity={dragged?.quantity} today={pending} />;
             }} />
         {view !== undefined && linking && <TimelineLinks props={props} family={family} ids={ids} cards={cardOf} rows={rowIndex}
             view={{ ...view, laneTop, rowsTop }} words={wordsOf} onLit={setLit} />}
@@ -737,6 +807,21 @@ interface ResourceRowProps {
     resource: ResourceRow; line: ResourceLine; load: Load; axis: ResourceAxis; props: TimelineProps; focusHold: { from: Date; to: Date } | undefined; draft: boolean; lit: boolean;
     /** During a connector's or a link's drag: the fit's verdict here, its rank among the three best, the load it would leave for the hold, and the quantity it carries. */
     verdict: Fit | undefined; rank: number | undefined; preview: { after: number; to: Date } | undefined; quantity: number | undefined;
+    /**
+     * Whether today's load is a placeholder (#1398): a day not read yet — a rect where the load starts, the plan day's,
+     * unseen until the frame's reveal says so; its line meanwhile says what is known without the day's read, its min and
+     * its max.
+     */
+    today: boolean;
+}
+
+/**
+ * Today's load on a day not read yet (#1398): a placeholder rect where the load starts, the plan day's — unseen at its
+ * footprint until the frame's one reveal clock says so, which it reads itself, so the clock's flip renders it alone (CL4).
+ */
+function PendingLoad({ styles, at }: { styles: AllocationStyles; at: CSSProperties }) {
+    const hidden = useRevealed() === false ? "" : undefined;
+    return <Box css={styles.bar} style={at} data-kind="pending" data-allocation-load-pending="" data-unrevealed={hidden} aria-hidden="true" />;
 }
 
 /** A resource's row (A18–A20): a drop target for a connector or a link (A39), and a body's refusal (§10) — its hook outside the row's body (A35). */
@@ -748,7 +833,7 @@ function ResourceRowView(args: ResourceRowProps) {
 }
 
 /** A resource's row: its label cell and its plot. */
-const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, axis, props, focusHold, draft, lit, verdict, rank, preview, quantity, drop }: ResourceRowProps & { drop: (el: HTMLElement | null) => void }) {
+const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, axis, props, focusHold, draft, lit, verdict, rank, preview, quantity, today, drop }: ResourceRowProps & { drop: (el: HTMLElement | null) => void }) {
     const { styles, context, day } = props;
     const words = allocationWords();
     const focus = props.focus === resource.key;
@@ -768,6 +853,7 @@ const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, ax
     const overlap = line.overlap && line.next.type === "some" && hold !== undefined ? axisSpan(axis, line.next.value.start, hold.to) : undefined;
     const focusSpan = focusHold === undefined ? undefined : axisSpan(axis, day, focusHold.to);
     const previewSpan = rank === undefined || preview === undefined ? undefined : axisSpan(axis, day, preview.to);
+    const todaySpan = today ? axisSpan(axis, day, new Date(day.getTime() + DAY)) : undefined;
     return <Box ref={drop} css={styles.resourceRow} role="button" tabIndex={0} aria-label={`${resource.label}, ${line.text}`} aria-pressed={focus}
         data-allocation-resource={resource.key} data-selected={focus ? "" : undefined} data-refused={verdict?.type === "refused" ? "" : undefined}
         data-ranked={rank !== undefined ? "" : undefined} onClick={select} onKeyDown={onActivate(select)}>
@@ -789,6 +875,8 @@ const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, ax
                 data-refusal={measure?.type === "amount" ? "" : undefined}>
                 <Box as="span" css={styles.barLabel}>{load.fill > 0 ? words.quantity(load.fill, context.unit) : "reserved"}</Box>
             </Box>}
+            {/* Today's load, a day not read yet: a placeholder rect where it starts (#1398). */}
+            {todaySpan !== undefined && <PendingLoad styles={styles} at={todaySpan} />}
             {overlap !== undefined && <Box css={styles.overlap} style={overlap} data-allocation-overlap="" />}
             {/* A ranked fit's preview: what it would hold, for the hold (A28). */}
             {previewSpan !== undefined && quantity !== undefined && <Box css={styles.bar} style={previewSpan} data-kind="preview" data-allocation-preview="">

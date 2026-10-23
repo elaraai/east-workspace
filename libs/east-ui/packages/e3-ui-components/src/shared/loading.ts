@@ -27,7 +27,7 @@
  */
 
 import { none, type option } from "@elaraai/east";
-import { loadingMessages, type LoadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { loadingLineText, loadingMessages, type LoadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 
 /**
  * What a paged source reads now, or could not read: its elements in flight
@@ -53,6 +53,8 @@ export interface PagedLoadingMessages {
     lineShort: (p: { kind: "loading" | "filtering" | "failed" }) => string;
     /** The failed line's Retry. */
     retry: () => string;
+    /** A failed run's Retry, by what it asks again — its accessible name, `Retry work orders 8,301–8,500` (#1398, CL11). */
+    retryRange: (p: { noun: string; from: string; to: string }) => string;
 }
 
 /** The short forms, in the shared parts' words. */
@@ -67,6 +69,7 @@ export const pagedLoadingMessages: PagedLoadingMessages = {
     lineFailed: ({ noun, from, to }) => (from === undefined || to === undefined ? [`Couldn't read ${noun}`] : [`Couldn't read ${noun} `, { strong: `${from}–${to}` }]),
     lineShort: ({ kind }) => shortOf(kind),
     retry: () => loadingMessages.retry(),
+    retryRange: ({ noun, from, to }) => `Retry ${noun} ${from}–${to}`,
 };
 
 /**
@@ -183,6 +186,47 @@ export function periodLoadingLine(state: PeriodLoading | undefined, period: stri
             short: m.periodShort({ kind: "failed" }), reason: state.reason, onRetry: state.onRetry, retry: m.retry(),
         };
     }
+}
+
+/**
+ * What a period builder's views draw of the period they show (#1398):
+ *
+ * - `held`: the period as read;
+ * - `pending`: a period not read yet — its geometry and what is known without
+ *   its read at once, and a placeholder where its content goes (CL2), never a
+ *   value it has not read (CL13); each placeholder unseen at its footprint
+ *   until the builder's one reveal clock says so (CL4: its `LoadingReveal`,
+ *   which each placeholder reads itself, so the clock's flip renders the
+ *   placeholders and never the frame);
+ * - `failed`: a period whose read failed — its geometry, its cells blank, and
+ *   the failure said once, in its first row in view, with Retry (CL11).
+ */
+export type PeriodRead =
+    | { readonly state: "held" }
+    | { readonly state: "pending" }
+    | { readonly state: "failed"; readonly message: string; readonly retry: () => void };
+
+/** The period as read. */
+export const HELD_PERIOD: PeriodRead = { state: "held" };
+
+/** A period not read yet. */
+const PENDING_PERIOD: PeriodRead = { state: "pending" };
+
+/**
+ * What a period builder's views draw of its period ({@link PeriodRead}): the
+ * period as read once it has landed; else, its read failed, the failure in the
+ * builder's words — `Couldn't read Wed 12 May` — and what asks it again; else
+ * pending.
+ *
+ * @param period - Whether the period shown has landed, why its read failed, what it is called — `Wed 12 May` — and what asks it again
+ * @param m - The words: the shared schedule table unless given
+ * @returns What the views draw
+ */
+export function periodRead(period: { readonly current: boolean; readonly error: string | undefined; readonly name: string; readonly retry: () => void },
+    m: ScheduleLoadingMessages = scheduleLoadingMessages): PeriodRead {
+    if (period.current) return HELD_PERIOD;
+    if (period.error !== undefined) return { state: "failed", message: loadingLineText(m.periodFailed({ period: period.name })), retry: period.retry };
+    return PENDING_PERIOD;
 }
 
 /** A record a period's read reads: its `entries` where it is read a window at a time, and its source of the slice, if any. */

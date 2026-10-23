@@ -63,3 +63,63 @@ test("a period whose read fails once the window has shown says so in the footer'
     await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(true), { timeout: 15_000 });
     expect(h.requests().filter(jobRead).length).toBeGreaterThan(before);
 });
+
+/** The toolbar's Next, a period on. */
+const next = (container: HTMLElement) => act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: /^Next (day|week|month)$/ })); });
+
+test("a step to a period not read yet draws that period's grid at once — never the old period's events under its labels — its counts placeholders, the toolbar's count and the Backlog's `…`, never `No backlog events`; past the reveal's delay each column washed; its read lands in place (#1398, CL2, CL5, CL13)", async () => {
+    const { container } = await h.mount(ex.calendarWindowed);
+    await settle();
+    const main = () => slot(container, "main");
+    const grid = () => main().querySelector<HTMLElement>("[data-calendar-time-grid]")!;
+    // The day it opens on holds its jobs.
+    expect(main().querySelectorAll("[data-calendar-event]").length).toBeGreaterThan(0);
+    const held = h.e3.hold(jobRead);
+    // Past the day read ahead, to one not read: two days on.
+    await next(container); await settle();
+    await next(container); await settle();
+    expect(container.querySelector("[data-builder-loading]")).toBeNull();
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    expect(grid().getAttribute("data-calendar-unread")).toBe("pending");
+    // The new day's own column, under its own heading — and none of the old day's jobs under it.
+    expect(main().querySelector("[data-calendar-day-heading]")!.textContent).toMatch(/3$/);
+    expect(main().querySelector("[data-calendar-event]")).toBeNull();
+    expect(slot(container, "toolbar").querySelector("[data-calendar-count]")!.textContent).toBe("… events");
+    // The Backlog counts "…" and draws pending cards: never empty before its read.
+    const start = slot(container, "start");
+    expect(start.querySelector("[data-library-pending]")).not.toBeNull();
+    expect(start.textContent).not.toContain("No backlog events");
+    expect(within(start).getByRole("tab", { name: /Backlog/ }).textContent).toContain("…");
+    // Past the reveal's delay, each column washed and the day's count a placeholder.
+    await waitFor(() => expect(grid().querySelector("[data-calendar-cell] [data-loading-wash]")).not.toBeNull());
+    expect(main().querySelector("[data-calendar-day-count] [data-shape]")).not.toBeNull();
+    expect(main().textContent).not.toMatch(/\d events/);
+    await act(async () => { held.release(); });
+    await settle();
+    await waitFor(() => expect(grid().hasAttribute("data-calendar-unread")).toBe(false));
+    expect(main().querySelector("[data-loading-wash]")).toBeNull();
+    expect(slot(container, "toolbar").querySelector("[data-calendar-count]")!.textContent).toMatch(/^\d+ events$/);
+    expect(start.querySelector("[data-library-pending]")).toBeNull();
+});
+
+test("a period whose read fails once the window has shown keeps its grid, its cells blank, and says so once, in a box at the grid's top-left — never `Calendar unavailable`; Retry, the fault gone, lands the period (#1398, CL11)", async () => {
+    const { container } = await h.mount(ex.calendarWindowed);
+    await settle();
+    const main = () => slot(container, "main");
+    const stop = h.e3.fail(jobRead, { status: 500, type: "internal", message: "the store is down" });
+    await next(container); await settle();
+    await next(container); await settle();
+    const boxes = () => [...main().querySelectorAll<HTMLElement>("[data-loading-failed-box]")];
+    await waitFor(() => expect(boxes()).toHaveLength(1), { timeout: 15_000 });
+    expect(boxes()[0]!.textContent).toMatch(/^Couldn't read .+Retry$/);
+    expect(container.textContent).not.toContain("Calendar unavailable");
+    expect(main().querySelector("[data-calendar-time-grid]")!.getAttribute("data-calendar-unread")).toBe("failed");
+    expect(main().querySelector("[data-calendar-event], [data-loading-wash]")).toBeNull();
+    // The box is live: its Retry is a control the viewer reaches.
+    expect(boxes()[0]!.closest("[inert]")).toBeNull();
+    stop();
+    await act(async () => { fireEvent.click(within(boxes()[0]!).getByRole("button", { name: "Retry" })); });
+    await settle();
+    await waitFor(() => expect(boxes()).toHaveLength(0), { timeout: 15_000 });
+    expect(main().querySelector("[data-calendar-time-grid]")!.hasAttribute("data-calendar-unread")).toBe(false);
+});

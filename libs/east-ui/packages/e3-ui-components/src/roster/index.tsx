@@ -23,8 +23,8 @@ import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useDataStable, useFormatters,
     usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { loadingLineText, useLoadingReveal } from "@elaraai/east-ui-components/internal";
-import { periodLoading, periodLoadingLine, retryPeriod, scheduleLoadingMessages } from "../shared/loading.js";
+import { LoadingReveal } from "@elaraai/east-ui-components/internal";
+import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { DAY } from "../shared/schedule/window.js";
@@ -42,7 +42,7 @@ import {
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget,
 } from "./model.js";
 import { useRosterToolbar } from "./toolbar.js";
-import { HELD, RosterViews, assignmentName, type RosterRead } from "./views.js";
+import { RosterViews, assignmentName } from "./views.js";
 import { useRosterWindow, type RosterWindow } from "./window.js";
 import { rosterPart, useRosterVisibility } from "./visibility.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -190,14 +190,12 @@ function RosterFrame(props: FrameProps) {
     const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading, error: data.error, retry: retryWeek },
         [{ noun: "people", ...visibility }, { noun: "activities", ...activities }]), weekWords),
         [data.loading, data.error, retryWeek, visibility, activities, weekWords]);
-    // One reveal clock (CL4): the footer's line and a week's placeholders show on it alike — after 150 ms, at least 300.
-    const shown = useLoadingReveal(line?.kind === "loading");
     // What the views draw of the week (#1398): the week as read; a week not read yet, its geometry at once and its
-    // placeholders once the reveal says so (CL5, CL2); or one whose read failed, its geometry and the failure said once
-    // in its first row in view (CL11) — never "Roster unavailable" over the grid.
-    const read: RosterRead = current ? HELD : data.error !== undefined
-        ? { state: "failed", message: loadingLineText(scheduleLoadingMessages.periodFailed({ period: weekWords })), retry: retryWeek }
-        : { state: "pending", filled: shown };
+    // placeholders, unseen until the frame's one reveal clock says so (CL5, CL2, CL4: `LoadingReveal` below, which the
+    // footer's line and each placeholder read where they show, so its flip renders them and never this frame); or one
+    // whose read failed, its geometry and the failure said once in its first row in view (CL11) — never "Roster
+    // unavailable" over the grid.
+    const read = useMemo(() => periodRead({ current, error: data.error, name: weekWords, retry: retryWeek }), [current, data.error, weekWords, retryWeek]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView,
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read };
     const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
@@ -208,7 +206,7 @@ function RosterFrame(props: FrameProps) {
     const history = editing?.history;
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); history?.act(action); }, [history]);
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerDates: setPickerDates,
-        status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: current ? undefined : { filled: shown }, publishing, picker: data.picker,
+        status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
         onDisplay: next => props.setDisplay({ ...props.display, ...next }) });
     const readOnly = value.settings.readOnly || (current && !editableStatus(heldPeriod.status));
     const notStarted = current && week.assignments.size === 0 && (source.periods.type === "none" || !started(period));
@@ -226,8 +224,12 @@ function RosterFrame(props: FrameProps) {
     const cold = (!data.landed && data.error === undefined) || (!visibility.ready && visibility.loading) || (!activities.ready && activities.loading);
     // After cold load a read in flight — the week, the people's or the activities' narrowing — leaves the frame live, main busy.
     const busy = data.loading || visibility.loading || activities.loading;
+    // A narrowing read while the week it filters stands in keeps the week's rows, stale (#1398, CL5): their words in the
+    // third ink, their rules dashed, and nothing dragged or dropped until it lands.
+    const stale = current && (visibility.loading || activities.loading);
     return <Box ref={root} css={styles.root} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined}>
         <RosterDataReader value={source} start={start} pickerDates={pickerDates} holds={holds} onData={setData} />
+        <LoadingReveal waiting={line?.kind === "loading"}>
         <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} busy={busy} liveFooter start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
@@ -253,11 +255,13 @@ function RosterFrame(props: FrameProps) {
             {props.rangeError !== undefined && <BannerView status="error" title="Week unavailable" description={props.rangeError} />}
             {/* A gesture's error; a read's is said once, in the grid and on the footer's line (#1398, CL11). */}
             {error !== undefined && <Box css={styles.error} role="alert">{error}</Box>}
-        </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line} shown={shown} />}>
-            <Box ref={main} css={styles.main} data-roster-main="" inert={visibility.loading || visibility.error !== undefined ? true : undefined} data-roster-narrow={narrow ? "" : undefined}>
+        </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line} />}>
+            <Box ref={main} css={styles.main} data-roster-main="" inert={stale || visibility.loading || visibility.error !== undefined ? true : undefined}
+                data-roster-stale={stale ? "" : undefined} data-roster-narrow={narrow ? "" : undefined}>
                 <RosterViews {...viewProps} />
             </Box>
         </BuilderFrame>
+        </LoadingReveal>
     </Box>;
 }
 

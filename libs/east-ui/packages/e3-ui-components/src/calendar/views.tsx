@@ -3,7 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** The mock's desktop views and the non-draggable narrow agenda. */
+/**
+ * The mock's desktop views and the non-draggable narrow agenda. A period not
+ * read yet draws its own grid at once — never the period before's events under
+ * its labels — each region whose events have no known place yet washed, each
+ * count a placeholder (#1398, CL2, CL5, CL13); a period whose read failed keeps
+ * its grid, its cells blank, and says so once: the time and month grids in a
+ * box at their top-left in view, the timeline and the agenda in a line in their
+ * first row (CL11).
+ */
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -11,6 +19,9 @@ import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape } from "@elaraai/east-ui-components/internal";
+import type { PeriodRead } from "../shared/loading.js";
+import { useScrollTop } from "../shared/links/scroll.js";
 import { NowChip, NowLine } from "../shared/time/now-line.js";
 import { drawSpan } from "../shared/time/drag.js";
 import { timeScale, timeWords } from "../shared/time/scale.js";
@@ -38,8 +49,92 @@ export interface CalendarViewsProps {
     now: Date; narrow: boolean; styles: CalendarStyles;
     selected: ReadonlySet<string>; select: (item: CalendarItem, additive?: boolean) => void; clear: () => void;
     overlaps: ScheduleOverlaps<CalendarItem>; commands: CalendarCommands | undefined; drag: CalendarDrag;
+    /**
+     * What the views draw of the period's read (#1398): the period as read; a period not read yet — `items` none, its
+     * regions washed and its counts placeholders, unseen until the frame's reveal says so; or one whose read failed — the
+     * failure said once, its cells blank.
+     */
+    read: PeriodRead;
 }
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+
+/**
+ * An hour's height in the time grid, by the Calendar's density: the pitch its cold load's cover stands at too (#1398, CL1).
+ *
+ * @param density - The Calendar's density
+ * @returns The hour's height, in px
+ */
+export function calendarHour(density: CalendarValue["settings"]["density"]): number {
+    return density.type === "compact" ? 36 : density.type === "spacious" ? 64 : 48;
+}
+
+/**
+ * Whether placeholders go where the period's content goes: a period not read yet. Each is unseen at its footprint until
+ * the frame's one reveal clock says so (CL4), reading it itself.
+ */
+function pendingOf(read: PeriodRead): boolean {
+    return read.state === "pending";
+}
+
+/** A count or a figure the period's read gives: the words once read, its placeholder while it is read, nothing where it failed. */
+function Counted({ props, index, children }: { props: CalendarViewsProps; index: number; children: ReactNode }) {
+    if (props.read.state === "held") return <>{children}</>;
+    return pendingOf(props.read) ? <PlaceholderShape kind="aggregate" index={index} /> : null;
+}
+
+/**
+ * Where a grid says its failure, read off its laid-out grid (#1398, CL11): just inside the corner its sticky head and
+ * its sticky hour column leave of the scroll's view — in the scroll's own box, so it stays in view however the grid
+ * scrolls — or, in a month, under the first week's dates.
+ *
+ * @param scroll - The grid's scroll box
+ * @param failed - Whether the period's read failed
+ * @returns Where the box sits, from the scroll box's top-left; `undefined` while nothing failed or before layout
+ */
+function useFailureCorner(scroll: RefObject<HTMLElement | null>, failed: boolean): { top: number; left: number } | undefined {
+    const [at, setAt] = useState<{ top: number; left: number }>();
+    useLayoutEffect(() => {
+        const el = scroll.current;
+        if (!failed || el === null) { setAt(undefined); return; }
+        const box = el.getBoundingClientRect();
+        const below = el.querySelector("[data-calendar-day-number]") ?? el.querySelector("[data-calendar-header]");
+        const beside = el.querySelector("[data-calendar-gutter]");
+        const next = {
+            top: Math.round((below === null ? 0 : below.getBoundingClientRect().bottom - box.top) + 8),
+            left: Math.round((beside === null ? 0 : beside.getBoundingClientRect().right - box.left) + 8),
+        };
+        setAt(before => before?.top === next.top && before.left === next.left ? before : next);
+    }, [failed, scroll]);
+    return at;
+}
+
+/**
+ * The first resource row in a timeline's view, under its sticky head (#1398, CL11): where a failed period says so
+ * once, followed as the timeline scrolls.
+ *
+ * @param scroll - The timeline's scroll box
+ * @param active - Whether the period's read failed
+ * @returns The row's key; `undefined` while nothing failed, or with no row
+ */
+function useFirstRowInView(scroll: RefObject<HTMLElement | null>, active: boolean): string | undefined {
+    const top = useScrollTop(scroll, active);
+    const [row, setRow] = useState<string>();
+    useLayoutEffect(() => {
+        const el = scroll.current;
+        if (!active || el === null) { setRow(undefined); return; }
+        const head = el.querySelector("[data-calendar-header]")?.getBoundingClientRect().bottom ?? el.getBoundingClientRect().top;
+        const first = [...el.querySelectorAll<HTMLElement>("[data-calendar-resource-row]")].find(r => r.getBoundingClientRect().bottom > head + 1);
+        const key = first?.getAttribute("data-calendar-resource-row") ?? undefined;
+        setRow(before => before === key ? before : key);
+    }, [active, scroll, top]);
+    return row;
+}
+
+/** A failed period's box at its grid's top-left in view (#1398, CL11): its words and its Retry. */
+function FailureBox({ props, at }: { props: CalendarViewsProps; at: { top: number; left: number } | undefined }) {
+    if (props.read.state !== "failed" || at === undefined) return null;
+    return <LoadingFailedBox message={props.read.message} retry={{ onRetry: props.read.retry }} at={at} />;
+}
 function resourceLabel(item: CalendarItem, rows: readonly CalendarRow[]): string { return rows.find(row => onResource(item, row))?.label ?? "Unassigned"; }
 
 /** Booked time is measured within the labelled view, including overnight events only once. */
@@ -203,33 +298,40 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
 }
 
 function TimeGrid(props: CalendarViewsProps) {
-    const hour = props.value.settings.density.type === "compact" ? 36 : props.value.settings.density.type === "spacious" ? 64 : 48;
+    const hour = calendarHour(props.value.settings.density);
     const height = hour * 24;
     const scroll = useRef<HTMLDivElement>(null);
     useEffect(() => { if (scroll.current !== null) scroll.current.scrollTop = hour * 5.5; }, [hour, props.view.layout, props.view.period, props.view.date]);
     const resources = props.view.layout === "resources";
     const columns = resources ? props.shownRows.map(row => ({ row, day: dayStart(props.view.date), label: row.label }))
         : props.range.days.map(day => ({ day, label: props.format.weekdayDate(day), row: undefined }));
-    return <Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="">
+    const failure = useFailureCorner(scroll, props.read.state === "failed");
+    return <><Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}>
         <Box css={props.styles.timeGridContent} data-resources={resources ? "" : undefined} data-single={!resources && columns.length === 1 ? "" : undefined} style={{ "--calendar-columns": columns.length } as CSSProperties}>
             <Box css={props.styles.head} data-calendar-header="" data-resources={resources ? "" : undefined}><Box css={props.styles.timeGutter} />{columns.map((column, i) => <chakra.button type="button" key={i} css={props.styles.columnHead}
                 data-today={dateText(column.day) === dateText(props.now) ? "" : undefined} onClick={() => !resources && props.setView({ ...props.view, period: "day", date: column.day.getTime() })}>
                 {column.row === undefined ? <>
                     <Box css={props.styles.dayHeading} data-calendar-day-heading=""><Box as="span" css={props.styles.weekday}>{props.format.weekday(column.day)}</Box><Box as="span" css={props.styles.dayDate}>{column.day.getUTCDate()}</Box></Box>
-                    <Box css={props.styles.columnMeta} data-calendar-day-count="">{props.items.filter(item => inWindow(item, column.day, new Date(column.day.getTime() + DAY))).length} events</Box>
+                    <Box css={props.styles.columnMeta} data-calendar-day-count="">
+                        <Counted props={props} index={i}>{props.items.filter(item => inWindow(item, column.day, new Date(column.day.getTime() + DAY))).length} events</Counted>
+                    </Box>
                 </> : <>
                     <Box css={props.styles.resourceHeading} data-calendar-resource-title="">{column.row.icon !== undefined && <FontAwesomeIcon icon={["fas", column.row.icon as IconName]} />} {column.label}</Box>
-                    <Box css={props.styles.columnMeta}>{column.row.meta} · {props.format.number(booked(props.items, column.row, column.day, new Date(column.day.getTime() + DAY)))} h booked</Box>
+                    <Box css={props.styles.columnMeta} data-calendar-booked="">{props.read.state === "held"
+                        ? `${column.row.meta} · ${props.format.number(booked(props.items, column.row, column.day, new Date(column.day.getTime() + DAY)))} h booked`
+                        : <Box as="span" css={props.styles.unreadMeta}>{column.row.meta}<Counted props={props} index={i}>{null}</Counted></Box>}</Box>
                 </>}
             </chakra.button>)}</Box>
             <Box css={props.styles.columns} style={{ height }}>
-                <Box css={props.styles.timeGutter}>{columns.some(column => dateText(column.day) === dateText(props.now)) && <NowChip styles={props.styles} at={(props.now.getUTCHours() + props.now.getUTCMinutes() / 60) / 24} along="y">{props.format.time(props.now)}</NowChip>}{HOURS.slice(1).map(h => <Box key={h} css={props.styles.timeLabel} style={{ top: h * hour }}>{String(h).padStart(2, "0")}:00</Box>)}</Box>
+                <Box css={props.styles.timeGutter} data-calendar-gutter="">{columns.some(column => dateText(column.day) === dateText(props.now)) && <NowChip styles={props.styles} at={(props.now.getUTCHours() + props.now.getUTCMinutes() / 60) / 24} along="y">{props.format.time(props.now)}</NowChip>}{HOURS.slice(1).map(h => <Box key={h} css={props.styles.timeLabel} style={{ top: h * hour }}>{String(h).padStart(2, "0")}:00</Box>)}</Box>
                 {columns.map((column, i) => {
                     const from = column.day; const to = new Date(from.getTime() + DAY);
                     const items = props.items.filter(item => inWindow(item, from, to) && (column.row === undefined || onResource(item, column.row)));
                     const spans = items.map(item => ({ start: Math.max(from.getTime(), item.start.type === "some" ? item.start.value.getTime() : 0), end: Math.min(to.getTime(), item.end.type === "some" ? item.end.value.getTime() : 0) }));
                     const lanes = packLanes(spans);
                     return <DropLane key={column.row?.key ?? i} props={props} from={from} to={to} resource={column.row?.resource ?? none} unassigned={column.row?.resource.type === "none"} css={props.styles.column} style={{ height }}>
+                        {/* A period not read yet: the column washed, under its hour rules, shading and now line (#1398). */}
+                        {pendingOf(props.read) && <LoadingWash />}
                         {shadeBands({ min: from, max: to }, { hours: { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } }).map((band, i) => <Box key={i} css={props.styles.shade} data-along="y" style={{ top: `${band.start * 100}%`, height: `${band.width * 100}%` }} />)}
                         {HOURS.map(h => <Fragment key={h}><Box css={props.styles.hour} style={{ top: h * hour }} />{hour >= 48 && <Box css={props.styles.hour} data-half="" style={{ top: (h + 0.5) * hour }} />}</Fragment>)}
                         {items.map((item, i) => <EventBlock key={eventKey(item)} item={item} props={props} window={{ from, to }} geometry={{ top: (spans[i]!.start - from.getTime()) / DAY * height, height: (spans[i]!.end - spans[i]!.start) / DAY * height,
@@ -239,7 +341,7 @@ function TimeGrid(props: CalendarViewsProps) {
                 })}
             </Box>
         </Box>
-    </Box>;
+    </Box><FailureBox props={props} at={failure} /></>;
 }
 
 function MonthDay({ props, day }: { props: CalendarViewsProps; day: Date }) {
@@ -258,18 +360,23 @@ function MonthDay({ props, day }: { props: CalendarViewsProps; day: Date }) {
     }, [items.length]);
     return <DropLane props={props} from={day} to={next} resource={none} wholeDay css={props.styles.monthDay} elementRef={ref} outside={day.getUTCMonth() !== new Date(props.view.date).getUTCMonth()}>
         <chakra.button type="button" css={props.styles.dayNumber} data-calendar-day-number="" data-today={dateText(day) === dateText(props.now) ? "" : undefined} onClick={() => props.setView({ ...props.view, period: "day", date: day.getTime() })}>{day.getUTCDate() === 1 ? props.format.monthDay(day) : day.getUTCDate()}{dateText(day) === dateText(props.now) && " · TODAY"}</chakra.button>
+        {/* A period not read yet: the cell washed below its date, and no "+N more" (#1398). */}
+        {pendingOf(props.read) && <Box css={props.styles.monthWash}><LoadingWash /></Box>}
         {items.slice(0, limit).map(item => <EventBlock key={eventKey(item)} item={item} props={props} chip />)}
         {items.length > limit && <chakra.button type="button" css={props.styles.more} onClick={() => props.setView({ ...props.view, period: "day", date: day.getTime() })}>+{items.length - limit} more</chakra.button>}
     </DropLane>;
 }
 function MonthGrid(props: CalendarViewsProps) {
     const columns = props.value.settings.weekends ? 7 : 5;
-    return <Box css={props.styles.scroll} data-calendar-month-grid="" style={{ "--calendar-month-columns": columns, "--calendar-month-rows": props.range.days.length / columns } as CSSProperties}>
+    const scroll = useRef<HTMLDivElement>(null);
+    const failure = useFailureCorner(scroll, props.read.state === "failed");
+    return <><Box ref={scroll} css={props.styles.scroll} data-calendar-month-grid="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}
+        style={{ "--calendar-month-columns": columns, "--calendar-month-rows": props.range.days.length / columns } as CSSProperties}>
         <Box css={props.styles.head} data-calendar-header="" data-month="">{props.range.days.slice(0, columns).map(day => <Box key={day.getTime()} css={props.styles.columnHead}><Box css={props.styles.weekday}>{props.format.weekday(day)}</Box></Box>)}</Box>
         <Box css={props.styles.month}>
             {props.range.days.map(day => <MonthDay key={day.getTime()} props={props} day={day} />)}
         </Box>
-    </Box>;
+    </Box><FailureBox props={props} at={failure} /></>;
 }
 
 function Timeline(props: CalendarViewsProps) {
@@ -312,7 +419,9 @@ function Timeline(props: CalendarViewsProps) {
     const words = timeWords(props.format.locale);
     const ticks = timeScale({ window: { min: props.range.from, max: props.range.to }, resolution: props.view.period === "day" ? "hour" : "day", words })!;
     const units = timeRulerUnits(ticks, words, props.view.period === "day" ? "day" : props.view.period === "week" ? "week" : "month")!;
-    return <Box ref={scroll} onScroll={onScroll} css={props.styles.scroll} data-calendar-timeline=""><Box css={props.styles.timeline} style={{ minWidth: width + 184 }}>
+    // A period whose read failed says so once, in the first row in view, across its plot (#1398, CL11).
+    const failedRow = useFirstRowInView(scroll, props.read.state === "failed");
+    return <Box ref={scroll} onScroll={onScroll} css={props.styles.scroll} data-calendar-timeline="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}><Box css={props.styles.timeline} style={{ minWidth: width + 184 }}>
         <Box css={props.styles.head} data-calendar-header="" data-timeline=""><Box css={props.styles.headerCaption} data-calendar-header-caption="">Resources</Box><Box css={props.styles.ruler}>
             <TimeRulerRow scale={units} styles={props.styles} band="units" owner="calendar" sticky />
             <TimeRulerRow scale={ticks} styles={props.styles} band="ticks" owner="calendar" sticky />
@@ -321,17 +430,24 @@ function Timeline(props: CalendarViewsProps) {
             const rows = props.shownRows.filter(row => row.group === group);
             return <Fragment key={group}><GroupHeading scope="calendar" group={{ key: group, label: group || "Unassigned" }} styles={props.styles} collapsed={collapsed.includes(group)} toggle={toggle}>
                 <Box as="span" css={props.styles.groupMeta}>{rows.length} resources</Box>
-            </GroupHeading>{!collapsed.includes(group) && rows.map(row => {
+            </GroupHeading>{!collapsed.includes(group) && rows.map((row, r) => {
             const items = props.items.filter(item => onResource(item, row));
             const spans = items.map(item => {
                 const start = item.start.type === "some" ? item.start.value.getTime() : 0;
                 const end = item.end.type === "some" ? item.end.value.getTime() : 0;
                 return props.view.period === "month" ? { start: Math.floor(start / DAY) * DAY, end: Math.ceil(end / DAY) * DAY } : { start, end };
             });
+            // A period not read yet: one lane a row, which grows below the row in view as its events land.
             const lanes = packLanes(spans); const height = lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9;
             return <Box key={row.key} css={props.styles.timelineRow} data-calendar-resource-row={row.key}>
-                <Box css={props.styles.rowHead}><Box css={props.styles.rowTitle} data-calendar-resource-title="">{row.label}</Box><Box css={props.styles.columnMeta}>{row.meta} · {props.format.number(booked(items, row, props.visibleRange.from, props.visibleRange.to))} h booked</Box></Box>
+                <Box css={props.styles.rowHead}><Box css={props.styles.rowTitle} data-calendar-resource-title="">{row.label}</Box><Box css={props.styles.columnMeta} data-calendar-booked="">{props.read.state === "held"
+                    ? `${row.meta} · ${props.format.number(booked(items, row, props.visibleRange.from, props.visibleRange.to))} h booked`
+                    : <Box as="span" css={props.styles.unreadMeta}>{row.meta}<Counted props={props} index={r}>{null}</Counted></Box>}</Box></Box>
                 <DropLane props={props} from={props.range.from} to={props.range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={props.styles.rowPlot} style={{ height }} draw={props.view.period !== "month"}>
+                    {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398). */}
+                    {pendingOf(props.read) && <LoadingWash />}
+                    {props.read.state === "failed" && failedRow === row.key && <Box css={props.styles.readLine} data-calendar-read-line="">
+                        <LoadingFailedLine message={props.read.message} retry={{ onRetry: props.read.retry }} /></Box>}
                     {shadeBands({ min: props.range.from, max: props.range.to }, { hours: props.view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }).map((band, i) => <Box key={i} css={props.styles.shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
                     {items.map((item, i) => <EventBlock key={eventKey(item)} item={item} props={props} window={props.range} along="x" geometry={{ top: 4 + lanes[i]!.lane * laneHeight, height: laneHeight - 4,
                         left: `${Math.max(0, spans[i]!.start - props.range.from.getTime()) / duration * 100}%`, width: `${(Math.min(props.range.to.getTime(), spans[i]!.end) - Math.max(props.range.from.getTime(), spans[i]!.start)) / duration * 100}%` }} />)}
@@ -342,12 +458,25 @@ function Timeline(props: CalendarViewsProps) {
     </Box></Box>;
 }
 
-/** The narrow layout mounts no drag sources, edges, cells or pointer gestures. */
+/**
+ * The narrow layout mounts no drag sources, edges, cells or pointer gestures. A period not read yet: each day's group,
+ * real, and one placeholder card in it; a period whose read failed says so once, in the first day's card (#1398).
+ */
 function Agenda(props: CalendarViewsProps) {
-    return <Box css={props.styles.scroll} data-calendar-agenda=""><Box css={props.styles.agenda}>
-        {props.range.days.map(day => {
+    const { read } = props;
+    return <Box css={props.styles.scroll} data-calendar-agenda="" data-calendar-unread={read.state === "held" ? undefined : read.state}><Box css={props.styles.agenda}>
+        {props.range.days.map((day, d) => {
             const next = new Date(day.getTime() + DAY);
             const items = chronological(props.items.filter(item => inWindow(item, day, next)));
+            if (read.state !== "held") return <Box key={day.getTime()} css={props.styles.agendaGroup} data-calendar-day={dateText(day)}>
+                <Box css={props.styles.agendaHead} data-calendar-agenda-heading="">{props.format.weekdayDate(day)}</Box>
+                <Box css={props.styles.card} data-calendar-unread-card="" data-blank={read.state === "failed" ? "" : undefined} aria-hidden={read.state === "failed" && d === 0 ? undefined : true}>
+                    {read.state === "failed" && d === 0 ? <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} /> : <Box css={props.styles.cardHead}>
+                        <Box css={props.styles.cardTitle}><PlaceholderShape kind="label" index={d} /></Box>
+                        <Box css={props.styles.detail}><PlaceholderShape kind="text" index={d + 1} /></Box>
+                    </Box>}
+                </Box>
+            </Box>;
             return <Box key={day.getTime()} css={props.styles.agendaGroup} data-calendar-day={dateText(day)}>
                 <Box css={props.styles.agendaHead} data-calendar-agenda-heading="">{props.format.weekdayDate(day)}</Box>
                 {items.length === 0 && <Box css={props.styles.empty}>Nothing scheduled</Box>}

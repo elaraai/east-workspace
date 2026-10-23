@@ -118,6 +118,24 @@ describe("each source narrows every place its records appear (#1343)", () => {
         expect(card(container, "job", "job2")).toBeNull();
     });
 
+    test("an event kind's narrowing read while the week stands in keeps its events, retained — stale, taking no gesture — until it lands (#1398, CL5)", async () => {
+        const { container, store } = await open(ex.calendarOperations);
+        const main = () => slot(container, "main").querySelector<HTMLElement>("[data-calendar-main]")!;
+        expect(main().hasAttribute("data-calendar-stale")).toBe(false);
+        const start = narrowing(store, EX, "job").get("start")!;
+        // The jobs' reads held on their way to e3: the kind's new narrowing is in flight.
+        const held = h.e3.hold(request => request.dataset === JOBS);
+        await narrow(store, EX, "job", new Map([["status", variant("values", [status(variant("active", null))])], ["start", start]]));
+        expect([main().hasAttribute("data-calendar-stale"), main().hasAttribute("inert")]).toEqual([true, true]);
+        // The week stands in, whole: its jobs as they were, never a cover.
+        expect([event(container, "job", "job1") !== null, event(container, "job", "job2") !== null]).toEqual([true, true]);
+        expect(container.querySelector("[data-builder-loading]")).toBeNull();
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(event(container, "job", "job2")).toBeNull());
+        expect([main().hasAttribute("data-calendar-stale"), main().hasAttribute("inert")]).toEqual([false, false]);
+    });
+
     test("a resource kind's source narrows its columns and rows, never an event; a placement's Chooser offers the rows it shows and the event's own", async () => {
         const { container, store } = await open(ex.calendarOperations);
         await narrow(store, EX, "machines", values("area", [text("Press shop")]));

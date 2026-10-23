@@ -4,7 +4,7 @@
  */
 import { useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { FooterMore, LoadingLine, footerCut, useFooterFit, useLoadingReveal, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { FooterMore, LoadingLine, footerCut, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { AllocationStyles } from "./model.js";
 import { one, useNouns, type Nouns } from "./nouns.js";
 
@@ -33,6 +33,8 @@ export const legends = (nouns: Nouns) => ({
  * day being read — `Loading Tue, May 11, 2027` — or why it could not be, with
  * Retry. The rail never wraps and never cuts a word: the legend stays whole
  * and in place, ending at a whole item, then "…", only where it cannot fit.
+ * The line shows on the frame's one reveal clock (CL4, its `LoadingReveal`),
+ * which the day's placeholders keep too.
  */
 export function AllocationFooter({ styles, layout, line }: {
     styles: AllocationStyles; layout: "timeline" | "table";
@@ -41,8 +43,7 @@ export function AllocationFooter({ styles, layout, line }: {
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(ref);
-    // The shared reveal's clock (CL4): a read shows after 150 ms, and stays 300 ms once shown.
-    const shown = useLoadingReveal(line?.kind === "loading");
+    const shown = useRevealed() === true;
     const items = legends(useNouns())[layout];
     return <Box ref={ref} css={styles.footer} data-allocation-footer={layout}>
         {items.map((item, i) => <Box as="span" key={item.kind} css={[styles.footerItem, styles.legendItem]} data-allocation-legend={item.kind}

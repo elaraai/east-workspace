@@ -9,6 +9,7 @@ import { faCheck, faGripVertical, faRotateLeft, faXmark } from "@fortawesome/fre
 import { none, variant } from "@elaraai/east";
 import { LoadingFailedLine, PlaceholderShape, VirtualRows, type RowsInView } from "@elaraai/east-ui-components/internal";
 import { tickFormatOf, useDragEventChip, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import type { PeriodRead } from "../shared/loading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { Seg } from "../shared/schedule/segments.js";
@@ -21,25 +22,6 @@ import {
     type RosterDomain, type RosterStyles, type RosterValue, type RosterView, type Selection, type Slot, type Week,
 } from "./model.js";
 
-/**
- * What the views draw of the week's read (#1398):
- *
- * - `held`: the week as read.
- * - `pending`: a week not read yet — its geometry and what is known without it
- *   (its dates, its people, groups and shifts) at once, and placeholders where
- *   its content goes once the reveal says so (CL2, CL4); never a value it has
- *   not read — no "Off · assign", no "0 / 2 positions" (CL13).
- * - `failed`: a week whose read failed — its geometry, its cells blank, the
- *   failure said once, in its first row in view, with Retry (CL11).
- */
-export type RosterRead =
-    | { readonly state: "held" }
-    | { readonly state: "pending"; readonly filled: boolean }
-    | { readonly state: "failed"; readonly message: string; readonly retry: () => void };
-
-/** The week as read. */
-export const HELD: RosterRead = { state: "held" };
-
 export interface RosterViewsProps {
     value: RosterValue; week: Week; held: Week; start: Date; day: number; view: RosterView; setView: (view: RosterView) => void;
     styles: RosterStyles; format: Formatters; narrow: boolean; coverage: ReadonlyMap<Slot, Coverage>; hours: ReadonlyMap<string, number>;
@@ -49,22 +31,25 @@ export interface RosterViewsProps {
     domain: RosterDomain;
     issues: readonly Issue[]; proposals: readonly PlacedProposal[]; selection: Selection | undefined; select: (next: Selection | undefined) => void;
     commands: RosterCommands; drag: RosterDrag; onError: (error: string | undefined) => void;
-    /** What the views draw of the week's read: the week as read, or its geometry while it is unread or failed. */
-    read: RosterRead;
+    /**
+     * What the views draw of the week's read (#1398): the week as read; a week not read yet — its dates, people, groups
+     * and shifts at once, a placeholder where its content goes, unseen until the frame's reveal says so, never "Off ·
+     * assign" nor "0 / 2 positions" (CL2, CL13); or one whose read failed — its geometry, the failure said once in its
+     * first row in view (CL11).
+     */
+    read: PeriodRead;
 }
 
-/** Whether placeholders show where the week's content goes: a week not read yet, past the reveal's delay. */
-function filled(read: RosterRead): boolean {
-    return read.state === "pending" && read.filled;
-}
-
-/** A placeholder in a slot of the week's content, shown once the reveal says so (#1398). */
+/**
+ * A placeholder in a slot of the week's content, while the week is not read yet (#1398) — unseen at its footprint until
+ * the frame's one reveal clock says so, which it reads itself (CL4); nothing where the week's read failed.
+ */
 function Unread({ props, kind, index }: { props: RosterViewsProps; kind: "chip" | "aggregate" | "number" | "label"; index: number }) {
-    return filled(props.read) ? <PlaceholderShape kind={kind} index={index} /> : null;
+    return props.read.state === "pending" ? <PlaceholderShape kind={kind} index={index} /> : null;
 }
 
 /** The failure said once, in place: the week's words and its Retry (#1398, CL11). */
-function ReadFailure({ read }: { read: Extract<RosterRead, { state: "failed" }> }) {
+function ReadFailure({ read }: { read: Extract<PeriodRead, { state: "failed" }> }) {
     return <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} />;
 }
 export function assignmentName(value: RosterValue, a: Assignment): string {
@@ -222,7 +207,7 @@ function DayAssignments({ props, slot }: { props: RosterViewsProps; slot: Slot }
  */
 function UnreadSlots({ props, head, columns, group, kind, failure, cell }: {
     props: RosterViewsProps; head: ReactNode; columns: readonly { day: number; shift: RosterValue["shifts"][number] }[]; group: string;
-    kind: "chip" | "number" | "aggregate"; failure: Extract<RosterRead, { state: "failed" }> | undefined; cell: Record<string, unknown> | undefined;
+    kind: "chip" | "number" | "aggregate"; failure: Extract<PeriodRead, { state: "failed" }> | undefined; cell: Record<string, unknown> | undefined;
 }) {
     return <Box css={props.styles.row} data-roster-unread="">{head}
         {failure !== undefined ? <Box css={props.styles.readLine} data-roster-read-line=""><ReadFailure read={failure} /></Box>
