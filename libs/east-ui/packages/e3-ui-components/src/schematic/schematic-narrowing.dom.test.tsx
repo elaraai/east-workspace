@@ -32,7 +32,7 @@ import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { countBuilds, type UIProgram } from "../shared/builds.test-utils.js";
-import { at, card, drawingCounts, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -40,8 +40,8 @@ const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canva
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
 
-/** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
-const PPU = 1080 / 28;
+/** The camera the canvas fits a 28 × 14 m drawing with — the data centre's. */
+const CAM = fitted(28, 14);
 
 /** Longer than a fly takes (350 ms): run on the test's clock, it lands. */
 const FLY_MS = 400;
@@ -50,10 +50,13 @@ const printText = printFor(StringType);
 const printRefs = printFor(ArrayType(Schematic.Types.Ref));
 const compareString = compareFor(StringType);
 
-/** Where each card the tests press sits, by kind, key and centre in metres. */
+/**
+ * Where each card the tests press sits, by kind, key and centre in metres. The power distribution units, whose 1.2 m holds
+ * no card's words at Fit, draw as their pins, which the canvas hits itself (#1393).
+ */
 const CENTRES: readonly (readonly [kind: string, key: string, x: number, y: number])[] = [
     ["racks", "A01", 2.4, 2.9], ["racks", "A02", 6.0, 2.9], ["racks", "A03", 9.6, 2.9], ["racks", "A04", 13.2, 2.9], ["racks", "A05", 16.8, 2.9],
-    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6], ["pdus", "PDU-A", 1.6, 4.2], ["pdus", "PDU-B", 18.6, 4.2],
+    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6],
 ];
 
 /** The canvas. */
@@ -66,7 +69,7 @@ function hits(c: HTMLElement) {
         const el = card(c, kind, key);
         return el === null ? [] : [[el, x, y] as const];
     });
-    canvasLayout.hits((px, py) => found.find(([, x, y]) => Math.hypot(px - x * PPU, py - y * PPU) < 4)?.[0]
+    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0]
         ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvas : null));
 }
 
@@ -253,14 +256,14 @@ test("hidden, the Index and the Backlog list only what the narrowing holds, and 
     await waitFor(() => expect(libraryCards(container)).toEqual([]));
     expect(emptyState(container)).toEqual(["No items match the filters", "Clear filters"]);
     // u3 runs from A03, Northwind Media's: its ends' Choosers offer Northwind Media's racks and the frames, nothing the narrowing hides.
-    await tap(canvasOf(container), PPU, 9.6, 6.0);
+    await tap(canvasOf(container), CAM, 9.6, 6.0);
     await waitFor(() => expect(showing(container)).toBe("link"));
     expect(await offered(container, "ends", "from")).toEqual(["A03 · Rack", "A04 · Rack", "CORE-1 · Network frame", "MMR-1 · Network frame", "ODF-1 · Network frame"]);
     // The Esc that closed the Chooser's list was the list's: the run stays selected.
     expect(showing(container)).toBe("link");
     // ODF-1, where u3 ends, tapped: it is selected, though the run's end is a handle there. It is joined to the runs of
     // the racks the narrowing holds: u3 and u4; u1, u2 and u2m go with Harbour Labs' racks.
-    await tap(canvasOf(container), PPU, 8.4, 9.6);
+    await tap(canvasOf(container), CAM, 8.4, 9.6);
     await waitFor(() => expect(showing(container)).toBe("item"));
     expect(joins(container)).toEqual([id("fibre", "u3"), id("fibre", "u4")]);
 });
@@ -292,10 +295,10 @@ test("dimmed, the racks a choice leaves out draw as context — faded, greyed, t
     await waitFor(() => expect(rackReads().some((index) => index === ex.schematicRacksByOwner.name)).toBe(true));
     expect(rackReads().filter((index) => index !== ex.schematicRacksByOwner.name)).toEqual(read);
     // A tap on A03's card selects nothing: it is context. A01's selects it.
-    await tap(canvas, PPU, 9.6, 2.9);
+    await tap(canvas, CAM, 9.6, 2.9);
     await settle();
     expect(keptSelection()).toBe(printRefs([]));
-    await tap(canvas, PPU, 2.4, 2.9);
+    await tap(canvas, CAM, 2.4, 2.9);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A01" }])));
     // The Index lists Harbour Labs' racks and the units in Cage A.
     await openLibraryTab(container, "Index");
@@ -304,7 +307,7 @@ test("dimmed, the racks a choice leaves out draw as context — faded, greyed, t
     // The Backlog: no rack of Harbour Labs' is unplaced.
     expect(libraryTabs(container)[1]).toBe("Backlog 0");
     // ODF-1 is joined to Harbour Labs' racks' runs alone.
-    await tap(canvas, PPU, 8.4, 9.6);
+    await tap(canvas, CAM, 8.4, 9.6);
     await waitFor(() => expect(showing(container)).toBe("item"));
     expect(joins(container)).toEqual([id("fibre", "u1"), id("fibre", "u2"), id("fibre", "u2m")]);
     // Let back in: no context, every count as it was.
@@ -321,9 +324,9 @@ test("dimmed, a draft the narrowing leaves out draws where its draft has it, as 
     await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("radio", { name: "Move" })); });
     // A03 moved down into the clear floor below its row.
     await act(async () => {
-        fireEvent.pointerDown(canvasOf(container), { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(PPU, 9.6, 2.9) });
-        fireEvent.pointerMove(canvasOf(container), { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(PPU, 9.6, 5.0) });
-        fireEvent.pointerUp(canvasOf(container), { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(PPU, 9.6, 5.0) });
+        fireEvent.pointerDown(canvasOf(container), { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 9.6, 2.9) });
+        fireEvent.pointerMove(canvasOf(container), { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 9.6, 5.0) });
+        fireEvent.pointerUp(canvasOf(container), { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, 9.6, 5.0) });
     });
     await settle();
     const moved = card(container, "racks", "A03")!.style.transform;
@@ -362,7 +365,7 @@ test("a match's emphasis rings its card, and fit flies the camera to the matches
     const { container } = await open(ringedFloor);
     const layer = () => container.querySelector<HTMLElement>("[data-card-key]")!.parentElement!;
     const zoom = () => Number(layer().style.getPropertyValue("--cam-ppu"));
-    const fitted = zoom();
+    const atFit = zoom();
     expect(card(container, "racks", "A01")!.hasAttribute("data-emphasis")).toBe(false);
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     try {
@@ -373,7 +376,7 @@ test("a match's emphasis rings its card, and fit flies the camera to the matches
         // The camera flies in to A01 and A02, the floor's left end: some twice as close as the floor fitted whole.
         await act(async () => { vi.advanceTimersByTime(FLY_MS); });
         await settle();
-        expect(zoom()).toBeGreaterThan(fitted * 1.5);
+        expect(zoom()).toBeGreaterThan(atFit * 1.5);
         // Cleared: no ring, and the camera stays where it was.
         const flown = zoom();
         await narrow(`${RINGED}.racks`, NOTHING);

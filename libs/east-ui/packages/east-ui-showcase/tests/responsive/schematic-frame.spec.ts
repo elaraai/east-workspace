@@ -33,7 +33,7 @@
 
 import { test, expect, type Locator } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
-import { DATA_CENTRE, SHAPES, collapseInspector, openSchematic, sizeTo } from "./schematic-page";
+import { DATA_CENTRE, RECORD_INDEXES, SHAPES, cardOverlaps, collapseInspector, openSchematic, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The Schematic's own fold steps, after every step of its rail and its summary's, in order — the history's, which the data centre edits, last (#1388). */
@@ -79,6 +79,44 @@ async function expectPhoneRow(root: Locator, at: string): Promise<void> {
     await expect(root.locator("[data-toolbar-item='record-slices'] [data-rail-rung='icon']"), at).toBeVisible();
     await expect(root.locator("[data-toolbar-item='seek'] [data-key-search='icon']"), at).toHaveAttribute("aria-label", "View");
     await expect(root.locator("[data-frame-slot='toolbar'] [data-schematic-tools], [data-frame-slot='toolbar'] [data-schematic-zoom]"), at).toHaveCount(0);
+}
+
+/** A drawing's extent, in its units. */
+interface Extent {
+    readonly width: number;
+    readonly height: number;
+}
+
+/** The data centre's extent. */
+const DATA_CENTRE_EXTENT: Extent = { width: 28, height: 14 };
+/** The floor of 20,000 racks' extent. */
+const RECORD_INDEXES_EXTENT: Extent = { width: 382, height: 254 };
+
+/**
+ * What is wrong with how Fit frames a drawing (#1393): its extent, through the camera the card layer holds, inside the
+ * canvas less Fit's margin — 24px, or an eighth of the canvas where that is less — its nearest edges at the margin, and
+ * centred on both axes.
+ */
+async function framingFaults(root: Locator, extent: Extent): Promise<string[]> {
+    const f = await root.evaluate((el, ext) => {
+        const canvas = el.querySelector("[data-schematic-canvas]")!.getBoundingClientRect();
+        const layer = el.querySelector<HTMLElement>("[data-schematic-cards]")!;
+        const origin = layer.getBoundingClientRect();
+        const ppu = Number(layer.style.getPropertyValue("--cam-ppu"));
+        const left = origin.left + parseFloat(layer.style.getPropertyValue("--cam-tx")) - canvas.left;
+        const top = origin.top + parseFloat(layer.style.getPropertyValue("--cam-ty")) - canvas.top;
+        return {
+            left, right: canvas.width - left - ext.width * ppu, top, bottom: canvas.height - top - ext.height * ppu,
+            margin: Math.min(24, canvas.width / 8, canvas.height / 8),
+        };
+    }, extent);
+    const px = (n: number) => `${n.toFixed(1)}px`;
+    const bad: string[] = [];
+    if (Math.abs(f.left - f.right) > 0.5) bad.push(`${px(f.left)} left of it and ${px(f.right)} right`);
+    if (Math.abs(f.top - f.bottom) > 0.5) bad.push(`${px(f.top)} above it and ${px(f.bottom)} below`);
+    const nearest = Math.min(f.left, f.right, f.top, f.bottom);
+    if (Math.abs(nearest - f.margin) > 0.5) bad.push(`its nearest edge ${px(nearest)} from the canvas's, the margin ${px(f.margin)}`);
+    return bad;
 }
 
 test.describe("The Schematic's frame (#1387)", () => {
@@ -314,6 +352,54 @@ test.describe("The Schematic's frame (#1387)", () => {
             }
         });
     }
+
+    test("Fit frames the drawing — its extent inside the canvas less Fit's margin, centred on both axes, and so as its box changes while the camera stands at Fit — and no two cards overlap (#1393)", async ({ page }) => {
+        for (const [hash, extent] of [[DATA_CENTRE, DATA_CENTRE_EXTENT], [RECORD_INDEXES, RECORD_INDEXES_EXTENT]] as const) {
+            const root = await openSchematic(page, hash);
+            await expect.poll(() => framingFaults(root, extent), { message: hash }).toEqual([]);
+            for (const [width, height] of [[1200, 700], [900, 900], [1400, 520]] as const) {
+                await sizeTo(page, root, width, height);
+                const at = `${hash} in a ${width} × ${height}px box`;
+                await expect.poll(() => framingFaults(root, extent), { message: at }).toEqual([]);
+                expect(await cardOverlaps(root), at).toEqual([]);
+            }
+        }
+    });
+
+    test("Zoom out takes no press at Fit, nor Zoom in at the zoom's limit, each drawn in the faint ink and not-allowed cursor of a control that takes none; off them, each takes one again (#1393)", async ({ page }) => {
+        const root = await openSchematic(page, DATA_CENTRE);
+        await sizeTo(page, root, 1440);
+        const bar = root.locator("[data-frame-slot='toolbar']");
+        const zoomOut = bar.getByRole("button", { name: "Zoom out" }), zoomIn = bar.getByRole("button", { name: "Zoom in" });
+        /** A control's ink, and the faint ink of one that takes no press, as the page computes them. */
+        const inks = (button: Locator) => button.evaluate((el) => {
+            const probe = document.createElement("span");
+            probe.style.color = "var(--chakra-colors-fg-faint)";
+            el.appendChild(probe);
+            const faint = getComputedStyle(probe).color;
+            probe.remove();
+            return { ink: getComputedStyle(el).color, faint };
+        });
+        await expect(zoomOut).toBeDisabled();
+        await expect(zoomOut).toHaveCSS("cursor", "not-allowed");
+        const atFit = await inks(zoomOut);
+        expect(atFit.ink).toBe(atFit.faint);
+        await expect(zoomIn).toBeEnabled();
+        await zoomIn.click();
+        await expect(zoomOut).toBeEnabled();
+        expect((await inks(zoomOut)).ink).not.toBe(atFit.faint);
+        // In to the limit, a press at a time: there Zoom in takes no press.
+        for (let presses = 0; await zoomIn.isEnabled(); presses++) {
+            expect(presses, "presses of Zoom in before its limit").toBeLessThan(40);
+            await zoomIn.click();
+            await settled(page);
+        }
+        await expect(zoomIn).toHaveCSS("cursor", "not-allowed");
+        expect((await inks(zoomIn)).ink).toBe(atFit.faint);
+        // Fit: Zoom out takes none again.
+        await bar.getByRole("button", { name: "Fit" }).click();
+        await expect(zoomOut).toBeDisabled();
+    });
 });
 
 test.describe("The Schematic's frame on a phone (#1387)", () => {
@@ -344,4 +430,14 @@ test.describe("The Schematic's frame on a phone (#1387)", () => {
             await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-tool", "marquee");
         });
     }
+
+    test("on a phone 390px and 360px wide, Fit frames the drawing inside the canvas less its margin, centred (#1393)", async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        const root = await openSchematic(page, DATA_CENTRE);
+        await expect.poll(() => framingFaults(root, DATA_CENTRE_EXTENT), { message: "at 390px" }).toEqual([]);
+        await page.setViewportSize({ width: 360, height: 740 });
+        await settled(page);
+        await expect.poll(() => framingFaults(root, DATA_CENTRE_EXTENT), { message: "at 360px" }).toEqual([]);
+        expect(await cardOverlaps(root)).toEqual([]);
+    });
 });

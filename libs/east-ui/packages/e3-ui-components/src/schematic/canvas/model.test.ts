@@ -11,7 +11,9 @@
 import { describe, test, expect } from "vitest";
 import { defaultValue, variant, some, none } from "@elaraai/east";
 import { SchematicDrawnItemType, SchematicDrawnLinkType, SchematicDrawnZoneType, type DrawnItem, type DrawnZone } from "./drawn";
-import { SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, declutterTiers, matchesExtent, tierSize } from "./model";
+import {
+    PIN_DOT_W, PIN_GAP, PIN_PAD_X, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, cardContentWidth, cardWhole, declutterTiers, matchesExtent, tierSize,
+} from "./model";
 
 type ItemValue = DrawnItem;
 type ZoneValue = DrawnZone;
@@ -82,6 +84,53 @@ describe("declutterTiers", () => {
         const tiers = declutterTiers(items, buildCenterTree(items), "card", 30, new Set(["A"]));
         expect(tiers.get("A")).toBe("card");
     });
+
+    /** Two rows of racks: a dense one, 0.7 apart, and a sparse one, 6 apart — as a floor's are. */
+    const floor = [
+        ...Array.from({ length: 12 }, (_, i) => item(`D${String(i).padStart(2, "0")}`, i * 0.7, 0, `R1000${String(i).padStart(2, "0")}`)),
+        ...Array.from({ length: 6 }, (_, i) => item(`S${i}`, i * 6, 10, `R2000${i}`)),
+    ];
+
+    test("what an item draws as follows where the items stand: never the order they come in, nor which of them the viewport holds (#1393)", () => {
+        const tree = buildCenterTree(floor);
+        for (const [band, ppu] of [["label", 20], ["label", 60], ["card", 120]] as const) {
+            const all = declutterTiers(floor, tree, band, ppu, new Set());
+            // Shuffled, the same.
+            const shuffled = [...floor].reverse();
+            expect(declutterTiers(shuffled, tree, band, ppu, new Set()), `${band} at ${ppu}`).toEqual(all);
+            // The viewport holding only some of them — each decided as when all are held, its neighbours past the viewport counted.
+            const view = floor.filter((it) => it.x >= 2 && it.x <= 18);
+            const viewed = declutterTiers(view, tree, band, ppu, new Set());
+            for (const it of view) expect(viewed.get(it.key), `${it.key}, ${band} at ${ppu}`).toBe(all.get(it.key));
+        }
+    });
+
+    test("no pin covers another item's mark: a row closer than a pin's words draws its dots, a row spaced wider its pins (#1393)", () => {
+        const tree = buildCenterTree(floor);
+        // At 20 px a unit the dense row's racks stand 14 px apart: no pin there; the sparse row's, 120 apart, each a pin.
+        const near = declutterTiers(floor, tree, "label", 20, new Set());
+        expect(floor.filter((it) => it.key.startsWith("D")).map((it) => near.get(it.key))).toEqual(Array(12).fill("dot"));
+        expect(floor.filter((it) => it.key.startsWith("S")).map((it) => near.get(it.key))).toEqual(Array(6).fill("label"));
+        // At 120 the dense row's racks stand 84 px apart, room for each one's pin before the next one's dot.
+        const far = declutterTiers(floor, tree, "label", 120, new Set());
+        expect(floor.filter((it) => it.key.startsWith("D")).map((it) => far.get(it.key))).toEqual(Array(12).fill("label"));
+    });
+
+    test("a card held to its item's own width draws only once that width holds its words, and then clear of its neighbours (#1393)", () => {
+        const rack = (key: string, x: number): ItemValue => ({ ...item(key, x, 0, "R109432"), width: some(0.6), sublabel: some("48U · 12 kW") });
+        const row = Array.from({ length: 8 }, (_, i) => rack(`K${i}`, i * 0.7));
+        const tree = buildCenterTree(row);
+        // The least whole zoom at which 0.6 units hold the card's words.
+        const needed = Math.ceil(cardContentWidth(row[0]!) / 0.6);
+        expect(cardWhole(row[0]!, needed - 1)).toBe(false);
+        expect(cardWhole(row[0]!, needed)).toBe(true);
+        // In the card's band but too narrow for its words: a pin, or its dot.
+        expect([...declutterTiers(row, tree, "card", needed - 1, new Set()).values()].includes("card")).toBe(false);
+        // Wide enough: every rack a card, the 0.1 units between each two wider than the gap a card keeps.
+        expect([...declutterTiers(row, tree, "card", needed, new Set()).values()]).toEqual(Array(8).fill("card"));
+        // Selected, too narrow for its words: its pin, never a card that cuts its name.
+        expect(declutterTiers(row, tree, "card", needed - 1, new Set(["K3"])).get("K3")).toBe("label");
+    });
 });
 
 describe("tierSize", () => {
@@ -97,8 +146,8 @@ describe("tierSize", () => {
         expect(tierSize(item("L", 0, 0, long), "label", 30).w).toBe(SCHEMATIC_CARD_MAX_PX);
         expect(tierSize(item("L", 0, 0, long), "card", 30).w).toBe(SCHEMATIC_CARD_MAX_PX);
         expect(tierSize({ ...item("S", 0, 0), sublabel: some("B".repeat(80)) }, "card", 30).w).toBe(SCHEMATIC_CARD_MAX_PX);
-        // Short words keep their own width.
-        expect(tierSize(item("X", 0, 0, "AB"), "label", 30).w).toBe(2 * 6 + 28);
+        // Short words keep their own width: the pin's padding, its dot and the gap after it about them.
+        expect(tierSize(item("X", 0, 0, "AB"), "label", 30).w).toBeCloseTo(2 * 6.6 + 2 * PIN_PAD_X + PIN_DOT_W + PIN_GAP);
         // 10 world units × 30 ppu: wider than the widest card, and drawn so.
         expect(tierSize({ ...item("W", 0, 0, long), width: some(10) }, "card", 30).w).toBe(300);
     });

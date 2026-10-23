@@ -11,8 +11,9 @@
  *
  * - **its own marks' colours**, a role each (`data-role`), each a design-system
  *   token: `brandMark`, `brand.solid`, `brandTint`, `fg` … `fg.faint`,
- *   `bg.surface`, `bg.canvas`, `border.subtle`, `border.strong` and
- *   `status.*` — never a raw palette step, never a Chakra default;
+ *   `bg.surface`, `bg.canvas`, `border.subtle`, `border.strong`, `status.*`
+ *   and the heat ramp a density's steps draw in, `heat.1` … `heat.5` — never a
+ *   raw palette step, never a Chakra default;
  * - **its fonts** (`data-font`): its labels' and its eyebrows', the design
  *   system's mono face (`fonts.mono`);
  * - **each entity's colour** (`data-tint`), through the chain an item's card
@@ -46,6 +47,7 @@ export const PALETTE_ROLES = [
     "fg", "fgStrong", "fgMuted", "fgSubtle", "fgFaint",
     "bgSurface", "bgCanvas", "borderSubtle", "borderStrong",
     "statusPos", "statusNeg", "statusWarn", "statusInfo",
+    "heat1", "heat2", "heat3", "heat4", "heat5",
 ] as const satisfies readonly (keyof SchematicPalette)[];
 
 /** A palette role. */

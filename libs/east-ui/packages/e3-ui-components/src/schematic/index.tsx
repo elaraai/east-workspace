@@ -104,7 +104,7 @@ import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
-import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle, type SchematicCanvasNarrowing } from "./canvas/view.js";
+import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle, type SchematicCanvasNarrowing, type SchematicZoomRange } from "./canvas/view.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
 import { hostZones, zoneHolding } from "./canvas/model.js";
@@ -268,6 +268,9 @@ const NOTHING_SELECTED: ReadonlySet<string> = new Set();
 /** No card of the library selected. */
 const NO_PICKS: ReadonlyMap<string, string> = new Map();
 
+/** The zoom as the canvas opens: at Fit. */
+const AT_FIT: SchematicZoomRange = { atFit: true, atLimit: false };
+
 /** The theme colour tokens a colour may name (D14): what the Issues tab holds each colour to (#1391). */
 const THEME_COLOURS: ReadonlySet<string> = new Set(schematicColorTokens);
 
@@ -360,6 +363,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         if (ids.size > 0) setFound(undefined);
     }, []);
     const selected = selection.size > 0;
+    // Where the zoom stands, as the canvas tells it: the toolbar's Zoom out and Zoom in take no press past either end (#1393).
+    const [zoomRange, setZoomRange] = useState<SchematicZoomRange>(AT_FIT);
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
     const fit = useCallback(() => canvasRef.current?.fit(), []);
     const step = useCallback((delta: 1 | -1) => canvasRef.current?.step(delta), []);
@@ -454,7 +459,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         : undefined;
     const items = useSchematicToolbarItems({
         styles, words, chrome, nouns, tools, held, links: linkChoices, onTools: pickTools, find,
-        onZoom: zoomBy, onFit: fit, selected, onStep: step, history: historyItem,
+        onZoom: zoomBy, zoom: zoomRange, onFit: fit, selected, onStep: step, history: historyItem,
     });
     // ⌘F, or Ctrl+F, anywhere in the frame: Find, in whichever form the row holds it; ⌘Z, ⇧⌘Z and ⌘Y the history's,
     // but in a field typed into, whose own they are.
@@ -668,7 +673,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                 <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
                     words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                     onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
-                    viewport={areas.size > 0 ? viewport : undefined} density={data.density} reading={areas.size > 0 && data.loading} />
+                    viewport={areas.size > 0 ? viewport : undefined} density={data.density} reading={areas.size > 0 && data.loading}
+                    onZoomRange={setZoomRange} />
             </BuilderFrame>
         </Box>
     );

@@ -18,12 +18,13 @@
 import { describe, it, expect } from "vitest";
 import { defaultValue, none, some, variant } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
+import type { SchematicDensity } from "../area.js";
 import { drawnItem, drawnLink, drawnNet, drawnZone, type DrawnItem, type SchematicDrawn } from "./drawn";
-import { SCHEMATIC_CARD_MAX_PX } from "./model";
+import { PIN_LEAD_PX, SCHEMATIC_CARD_MAX_PX } from "./model";
 import {
     netGeometry,
     MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS,
-    arcFromBulge, hatchLineCount, hatchSpacing, hatchSweepBounds, markerHit, markerHitbox, type BulgeArc,
+    arcFromBulge, densityStep, hatchLineCount, hatchSpacing, hatchSweepBounds, markerHit, markerHitbox, type BulgeArc,
     linkRoutes, netRoutes, paintSchematic, parallelLanes, polylineMidpoint, routeEnv, type LodTier, type PaintInput, type RGB, type SchematicPalette,
 } from "./paint";
 
@@ -199,7 +200,7 @@ describe("markerHitbox / markerHit (P11)", () => {
         expect(markerHit(box, 50 + MARKER_DOT_HIT_RADIUS + 1, 50)).toBe(false); // just outside the hit radius
     });
 
-    it("a label is clickable anywhere on its rendered pill, not just near its centre", () => {
+    it("a label is clickable anywhere on its rendered pill: its dot on its item's point, its words after it (#1393)", () => {
         const measure = (t: string) => t.length * 6;          // stub the painter's measureText
         const box = markerHitbox(item, "label", cam, measure);
         expect(box.kind).toBe("rect");
@@ -207,15 +208,17 @@ describe("markerHitbox / markerHit (P11)", () => {
         const tw = measure(item.label);
         const w = 6 + 7 + 4 + tw + 6;                         // pad + dot + gap + text + pad
         expect(box.w).toBeCloseTo(w);
-        expect(box.left).toBeCloseTo(50 - w / 2);
-        expect(markerHit(box, 50, 50)).toBe(true);            // centre
-        // A point 25px right of centre — beyond the old 18px center-radius reach
-        // — now correctly hits the wide pill (regression fix).
-        expect(w / 2).toBeGreaterThan(25);
+        // Its dot's centre stands on the item's point: the pad and half the dot before it.
+        expect(PIN_LEAD_PX).toBe(6 + 7 / 2);
+        expect(box.left).toBeCloseTo(50 - PIN_LEAD_PX);
+        expect(markerHit(box, 50, 50)).toBe(true);            // the dot
+        // A point 25px right of the item — beyond the old 18px center-radius reach — hits the wide pill (regression fix).
         expect(markerHit(box, 50 + 25, 50)).toBe(true);
-        // Just inside / just outside the right edge.
-        expect(markerHit(box, 50 + w / 2 - 1, 50)).toBe(true);
-        expect(markerHit(box, 50 + w / 2 + 1, 50)).toBe(false);
+        // Just inside / just outside each edge.
+        expect(markerHit(box, box.left + 1, 50)).toBe(true);
+        expect(markerHit(box, box.left - 1, 50)).toBe(false);
+        expect(markerHit(box, box.left + w - 1, 50)).toBe(true);
+        expect(markerHit(box, box.left + w + 1, 50)).toBe(false);
         expect(box.text).toBe(item.label);
     });
 
@@ -232,8 +235,8 @@ describe("markerHitbox / markerHit (P11)", () => {
         expect(long.w).toBeCloseTo(6 + 7 + 4 + 29 * 6 + 6);
         expect(long.w).toBeLessThanOrEqual(SCHEMATIC_CARD_MAX_PX);
         // Hit as it draws: across its whole width, and no further.
-        expect(markerHit(long, 50 + long.w / 2 - 1, 50)).toBe(true);
-        expect(markerHit(long, 50 + long.w / 2 + 1, 50)).toBe(false);
+        expect(markerHit(long, long.left + long.w - 1, 50)).toBe(true);
+        expect(markerHit(long, long.left + long.w + 1, 50)).toBe(false);
         // A flag where the cut falls goes whole — half of one would fit.
         expect(pill(`${"A".repeat(26)}🇦🇺${"B".repeat(10)}`).text).toBe(`${"A".repeat(26)}…`);
         // A space before the cut goes too.
@@ -256,6 +259,80 @@ describe("a labelled pin (#1393)", () => {
             centers: new Map([[short.key, { x: 2, y: 2 }], [long.key, { x: 20, y: 2 }]]), palette: PALETTE, tints: new Map(),
         });
         expect(texts.map((text) => text.text)).toEqual(["RACK-07", `${"A".repeat(28)}…`]);
+    });
+
+    it("stands its dot on its item's point and its words after it, so the status it shows stands where its item does", () => {
+        const pin = at("S", "RACK-07", 2);
+        const { ctx, drawn, texts } = recorder();
+        paintSchematic({
+            ctx, value: { items: [pin], zones: [], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: [pin], tiers: new Map([[pin.key, "label"]]), selected: new Set(), selectedZones: new Set(),
+            centers: new Map([[pin.key, { x: 2, y: 2 }]]), palette: PALETTE, tints: new Map(),
+        });
+        // Its dot about the rack's point (20, 20); its words after the pad, the dot and the gap, from 9.5 before the point.
+        expect(drawn.filter((d) => d.op === "fill" && d.arcs.length > 0).map((d) => d.arcs)).toEqual([[{ x: 20, y: 20, r: 3.5 }]]);
+        expect(texts.map((text) => text.x)).toEqual([20 - PIN_LEAD_PX + 6 + 7 + 4]);
+    });
+});
+
+describe("what is selected draws last (#1393)", () => {
+    const T = Schematic.Types;
+    const at = (key: string, x: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label: key,
+    }, undefined)!;
+    const a = at("A", 2), b = at("B", 2.5);
+
+    /** The points the pins' dots draw at, in the order they draw. */
+    function order(selected: ReadonlySet<string>): number[] {
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: { items: [a, b], zones: [], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: [a, b], tiers: new Map([[a.key, "label"], [b.key, "label"]]), selected, selectedZones: new Set(),
+            centers: new Map([[a.key, { x: 2, y: 2 }], [b.key, { x: 2.5, y: 2 }]]), palette: PALETTE, tints: new Map(),
+        });
+        return drawn.filter((d) => d.op === "fill" && d.arcs.length > 0).map((d) => d.arcs[0]!.x);
+    }
+
+    it("a selected item's marker draws over its neighbours': it takes its form whatever it covers", () => {
+        expect(order(new Set())).toEqual([20, 25]);
+        expect(order(new Set([a.key]))).toEqual([25, 20]);
+    });
+});
+
+describe("the density (#1393, ruled 23 Oct 2026)", () => {
+    const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
+    const HEAT = [PALETTE.heat1, PALETTE.heat2, PALETTE.heat3, PALETTE.heat4, PALETTE.heat5].map(rgb);
+
+    it("steps a cell by its share of the fullest, on halving steps: over half the fifth, a sixteenth or less the first", () => {
+        expect([100, 51, 50, 26, 25, 13, 12, 7, 6, 1].map((n) => densityStep(n, 100))).toEqual([5, 5, 4, 4, 3, 3, 2, 2, 1, 1]);
+        // A uniform block reads alike: cells a row or two apart.
+        expect([98, 99, 100].map((n) => densityStep(n, 100))).toEqual([5, 5, 5]);
+        // An empty cell, or a raster of none, draws nothing.
+        expect([densityStep(0, 100), densityStep(3, 0)]).toEqual([0, 0]);
+    });
+
+    it("draws each cell in its heat step under the zones, and none off the screen", () => {
+        const T = Schematic.Types;
+        const hall = drawnZone({ kind: "areas", key: "hall" }, {
+            ...defaultValue<typeof T.Zone>(T.Zone), x: 0, y: 0, width: 20, height: 10, label: "Hall", pattern: variant("outline", { tone: none }),
+        });
+        // Three 5 m cells along the hall, and one 100 m off, past the screen's 300 px.
+        const density: SchematicDensity = {
+            side: 5,
+            cells: [{ minX: 0, minY: 0, count: 100 }, { minX: 5, minY: 0, count: 40 }, { minX: 10, minY: 0, count: 3 }, { minX: 100, minY: 0, count: 100 }],
+            most: 100, box: { minX: 0, minY: 0, maxX: 105, maxY: 10 }, spread: false, unnarrowed: false,
+        };
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: { items: [], zones: [hall], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: [], tiers: new Map(), selected: new Set(), selectedZones: new Set(), centers: new Map(), palette: PALETTE, tints: new Map(),
+            density: new Map([["racks", density]]),
+        });
+        // The fifth step, the fourth and the first; the cell off the screen not drawn.
+        const cells = drawn.filter((d) => d.op === "fill" && HEAT.includes(d.style));
+        expect(cells.map((d) => d.style)).toEqual([HEAT[4], HEAT[3], HEAT[0]]);
+        // The hall's dashed edge over them.
+        expect(drawn.findIndex((d) => d.op === "stroke" && d.dash[0] === 5)).toBeGreaterThan(drawn.indexOf(cells.at(-1)!));
     });
 });
 
@@ -441,7 +518,7 @@ const LINKS: SchematicPalette["links"] = {
 /** A palette whose every role is its own colour: the brand's line `rgb(10,20,30)`, its wash `rgb(40,50,60)`; the links' look each part's own. */
 const PALETTE: SchematicPalette = (() => {
     const roles = ["brandMark", "brandSolid", "brandTint", "fg", "fgStrong", "fgMuted", "fgSubtle", "fgFaint", "bgSurface", "bgCanvas",
-        "borderSubtle", "borderStrong", "statusPos", "statusNeg", "statusWarn", "statusInfo"] as const;
+        "borderSubtle", "borderStrong", "statusPos", "statusNeg", "statusWarn", "statusInfo", "heat1", "heat2", "heat3", "heat4", "heat5"] as const;
     const palette = Object.fromEntries(roles.map((role, i): [string, RGB] => [role, [i, i, i]])) as unknown as SchematicPalette;
     return { ...palette, brandSolid: [10, 20, 30], brandTint: [40, 50, 60], labelFont: "10px mono", eyebrowFont: "9px mono", links: LINKS };
 })();
@@ -625,9 +702,9 @@ describe("the links' routes: each end on an item's edge where it draws at the zo
         expect(drawn.runs.map((r) => [r.line, r.head])).toEqual([[[{ x: 25, y: 20 }, { x: 67, y: 20 }], { tip: { x: 75, y: 20 }, base: { x: 67, y: 20 }, half: 4 }]]);
     });
 
-    it("between two labelled pins it leaves the one's edge and meets the other's: a pin 6 + 7 + 4 + its label + 6 wide", () => {
-        // "A" is 6px: each pin 29 wide, 14.5 either side of its centre.
-        expect(linkRoutes(run("u1", "A", "B"), envOf([a, b], "label", 10))!.handles).toEqual({ from: { x: 34.5, y: 20 }, to: { x: 65.5, y: 20 } });
+    it("between two labelled pins it leaves the one's edge and meets the other's: a pin 6 + 7 + 4 + its label + 6 wide, its dot on its rack", () => {
+        // "A" is 6px: each pin 29 wide, from 9.5 before its rack's point — its dot's centre there — to 19.5 after it.
+        expect(linkRoutes(run("u1", "A", "B"), envOf([a, b], "label", 10))!.handles).toEqual({ from: { x: 39.5, y: 20 }, to: { x: 70.5, y: 20 } });
     });
 
     it("between two cards it leaves the one's side and meets the other's — as the page lays the cards out, else as the declutter reckons them", () => {

@@ -23,18 +23,18 @@ import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-component
 import { Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { at, card, drawingCounts, layOutCanvas, tap } from "./schematic.test-utils.js";
+import { at, cameraOf, card, drawingCounts, fitted, layOutCanvas, near, tap, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
 
-// jsdom lays nothing out: the canvas is given the box a page would give it —
-// 45 px a world unit for the 18 × 12 floor, 38.6 for the 28 × 14 data centre,
-// the camera at rest — so each item is wide enough to draw as its card.
+// jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px, and fits each drawing
+// inside it — 41 px a metre for the 18 × 12 m floor, 35.1 for the 28 × 14 m data centre — so a rack is wide enough to
+// draw as its card.
 const canvasLayout = layOutCanvas();
 
-/** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
-const DATA_CENTRE_PPU = 1080 / 28;
+/** The camera the canvas fits the data centre's 28 × 14 m drawing with. */
+const DATA_CENTRE = fitted(28, 14);
 
 /** What the data centre's host keeps of the selection, as East prints it. */
 const keptSelection = () => printFor(ArrayType(Schematic.Types.Ref))(East.compile(East.function([], ArrayType(Schematic.Types.Ref), ($) => {
@@ -88,16 +88,22 @@ test("the data centre draws each kind's rows — the racks through their source 
 test("the data centre draws each cooling unit's footprint from the unit's own radius, about its centre (SC37)", async () => {
     const { container } = await h.mount(ex.schematicDataCentre);
     await settle();
+    await waitFor(() => expect(card(container, "racks", "A01")).not.toBeNull());
+    // A footprint draws with its item's card: at Fit CRAH-1's 1.4 m holds no card's words, so it draws as its pin;
+    // zoomed in on it, its card.
+    expect(card(container, "cooling", "CRAH-1")).toBeNull();
+    const canvas = container.querySelector("[data-schematic-canvas]")!;
+    await zoomInto(canvas, DATA_CENTRE, { minX: 1.0, minY: 10.5, maxX: 5.0, maxY: 13.5 });
     await waitFor(() => expect(card(container, "cooling", "CRAH-1")).not.toBeNull());
     // A cooling unit's footprint is a circle of its own `radius` about its centre: 0.9 m below CRAH-1's centre
     // (3.0, 11.9) is below its card, and past its 0.7 m, so a tap there selects nothing.
-    const canvas = container.querySelector("[data-schematic-canvas]")!;
-    await tap(canvas, DATA_CENTRE_PPU, 3.0, 12.8);
+    const zoomed = cameraOf(container);
+    await tap(canvas, zoomed, 3.0, 12.8);
     expect(card(container, "cooling", "CRAH-1")!.hasAttribute("data-selected")).toBe(false);
     // Another session gives the unit a 1.2 m radius: the same tap lands inside its footprint now.
     const units = await h.read(ex.schematicCooling);
     await h.patch(ex.schematicCooling, new Map([...units, ["CRAH-1", { ...units.get("CRAH-1")!, radius: 1.2 }]]));
-    await tap(canvas, DATA_CENTRE_PPU, 3.0, 12.8);
+    await tap(canvas, zoomed, 3.0, 12.8);
     await waitFor(() => expect(card(container, "cooling", "CRAH-1")!.hasAttribute("data-selected")).toBe(true));
 });
 
@@ -108,21 +114,21 @@ test("the data centre's host keeps the whole selection, and its veto refuses a r
     const cards = { A05: card(container, "racks", "A05")!, MMR1: card(container, "network", "MMR-1")!, CORE1: card(container, "network", "CORE-1")! };
     // Each card answers at its centre, as a page would hit it.
     const centres: readonly (readonly [Element, number, number])[] = [[cards.A05, 16.8, 2.9], [cards.MMR1, 24.2, 2.9], [cards.CORE1, 23.2, 9.7]];
-    canvasLayout.hits((x, y) => centres.find(([, cx, cy]) => Math.hypot(x - cx * DATA_CENTRE_PPU, y - cy * DATA_CENTRE_PPU) < 4)?.[0] ?? null);
+    canvasLayout.hits((x, y) => centres.find(([, cx, cy]) => near(DATA_CENTRE, x, y, cx, cy))?.[0] ?? null);
     const canvas = container.querySelector("[data-schematic-canvas]")!;
     // A tap on A05 selects it, and the host keeps the selection by the rack's kind and key.
-    await tap(canvas, DATA_CENTRE_PPU, 16.8, 2.9);
+    await tap(canvas, DATA_CENTRE, 16.8, 2.9);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A05" }])));
     // A run from the meet-me room's frame to the core: two frames, refused, the target ringed.
     fireEvent.click(getByRole("radio", { name: "Connect" }));
     await act(async () => {
-        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(DATA_CENTRE_PPU, 24.2, 2.9) });
-        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, ...at(DATA_CENTRE_PPU, 23.2, 9.7) });
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(DATA_CENTRE, 24.2, 2.9) });
+        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, ...at(DATA_CENTRE, 23.2, 9.7) });
     });
     await waitFor(() => expect(cards.CORE1.hasAttribute("data-forbidden")).toBe(true));
     // On to a rack: a frame and a rack, allowed.
-    await act(async () => { fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, ...at(DATA_CENTRE_PPU, 16.8, 2.9) }); });
+    await act(async () => { fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, ...at(DATA_CENTRE, 16.8, 2.9) }); });
     await waitFor(() => expect(cards.CORE1.hasAttribute("data-forbidden")).toBe(false));
     expect(cards.A05.hasAttribute("data-forbidden")).toBe(false);
-    await act(async () => { fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(DATA_CENTRE_PPU, 16.8, 2.9) }); });
+    await act(async () => { fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(DATA_CENTRE, 16.8, 2.9) }); });
 });

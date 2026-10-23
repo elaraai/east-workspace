@@ -31,7 +31,7 @@ import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-component
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { at, card, drawingCounts, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -39,8 +39,8 @@ const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canva
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
 
-/** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
-const PPU = 1080 / 28;
+/** The camera the canvas fits the data centre's 28 × 14 m drawing with: Fit's. */
+const CAM = fitted(28, 14);
 
 /** Longer than a fly takes (350 ms): run on the test's clock, it lands. */
 const FLY_MS = 400;
@@ -71,7 +71,7 @@ const ladderOf = (container: HTMLElement) => rowOf(container).getAttribute("data
 /** Lets each card answer a tap at its centre, as a page would hit it. */
 function hits(container: HTMLElement, centres: readonly (readonly [kind: string, key: string, x: number, y: number])[]) {
     const at = centres.map(([kind, key, x, y]) => [card(container, kind, key)!, x, y] as const);
-    canvasLayout.hits((px, py) => at.find(([, x, y]) => Math.hypot(px - x * PPU, py - y * PPU) < 4)?.[0] ?? null);
+    canvasLayout.hits((px, py) => at.find(([, x, y]) => near(CAM, px, py, x, y))?.[0] ?? null);
 }
 
 /** Mounts the data centre, and waits until its racks are drawn. */
@@ -98,7 +98,7 @@ test("the toolbar holds §6.1's items in order — the rail, the tools, the zoom
     expect(ladder.slice(0, ladder.length - own.length - 1).every((step) => step.startsWith("record-"))).toBe(true);
     // Something selected: the steps to the previous and the next item show, after Find, and fold into the View with it.
     hits(container, [["racks", "A05", 16.8, 2.9]]);
-    await tap(canvasOf(container), PPU, 16.8, 2.9);
+    await tap(canvasOf(container), CAM, 16.8, 2.9);
     await waitFor(() => expect(itemsOf(container)).toEqual([...rail, "tools", "zoom", "seek", "step", "history"]));
     expect(ladderOf(container).filter((step) => !step.startsWith("record-"))).toEqual([...own, "step>1", "history>1"]);
     // Nothing selected again: the steps go.
@@ -113,7 +113,7 @@ test("the steps walk the items in order, flying to each and selecting it; Zoom a
     const layer = card(container, "racks", "A05")!.parentElement!;
     const ppu = () => Number(layer.style.getPropertyValue("--cam-ppu"));
     hits(container, [["racks", "A05", 16.8, 2.9]]);
-    await tap(canvasOf(container), PPU, 16.8, 2.9);
+    await tap(canvasOf(container), CAM, 16.8, 2.9);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A05" }])));
     // The camera moves over animation frames — a step's fly, Zoom's and Fit's paint: the test runs them on a clock of its
     // own, so each lands however busy the machine running it is.
@@ -124,8 +124,8 @@ test("the steps walk the items in order, flying to each and selecting it; Zoom a
         await act(async () => { fireEvent.click(getByRole("button", { name: "Next item" })); });
         await frames(FLY_MS);
         await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "pdus", key: "PDU-A" }])));
-        // Landed on it, zoomed in: its card draws, selected.
-        expect(ppu()).toBeGreaterThan(PPU);
+        // Landed on it, zoomed in until its 1.2 m holds its card's words: its card draws, selected (#1393).
+        expect(ppu()).toBeGreaterThan(CAM.ppu);
         expect(card(container, "pdus", "PDU-A")?.hasAttribute("data-selected")).toBe(true);
         await act(async () => { fireEvent.click(getByRole("button", { name: "Previous item" })); });
         await frames(FLY_MS);
@@ -134,14 +134,48 @@ test("the steps walk the items in order, flying to each and selecting it; Zoom a
         // Fit puts the camera over the whole floor; Zoom in moves it; Fit puts it back.
         await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
         await frames(FRAME_MS);
-        expect(ppu()).toBeCloseTo(PPU, 6);
+        expect(ppu()).toBeCloseTo(CAM.ppu, 6);
         await act(async () => { fireEvent.click(getByRole("button", { name: "Zoom in" })); });
         await frames(FRAME_MS);
-        expect(ppu()).toBeGreaterThan(PPU);
+        expect(ppu()).toBeGreaterThan(CAM.ppu);
         await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
         await frames(FRAME_MS);
-        expect(ppu()).toBeCloseTo(PPU, 6);
+        expect(ppu()).toBeCloseTo(CAM.ppu, 6);
     } finally {
+        vi.useRealTimers();
+    }
+});
+
+test("a fly eases the camera from where it stands to where it lands on the clock it began on, whatever the page stamps its frames with: never thrown back past where it began, and landed as its time is up (#1393)", async () => {
+    const { container } = await dataCentre();
+    const canvas = canvasOf(container);
+    canvas.focus();
+    const layer = container.querySelector<HTMLElement>("[data-schematic-cards]")!;
+    const ppu = () => Number(layer.style.getPropertyValue("--cam-ppu"));
+    // The page's frames, run by hand, each stamped 400 ms behind its `performance` — as jsdom's frame clock stands behind
+    // it, and as a browser can stamp a frame before the gesture that began a fly — on a `performance` the test moves.
+    vi.useFakeTimers({ toFake: ["performance"] });
+    const queued: FrameRequestCallback[] = [];
+    const frames = vi.spyOn(window, "requestAnimationFrame").mockImplementation((run) => queued.push(run));
+    try {
+        // From nothing selected, → steps to the first item in order, Cage A's first rack, flying to it.
+        await act(async () => { fireEvent.keyDown(canvas, { key: "ArrowRight" }); });
+        // A frame each 16 ms, the fly's 350 ms and a frame over: the camera each one leaves.
+        const written: number[] = [];
+        for (let ms = 0; ms <= 368; ms += 16) {
+            await act(async () => {
+                vi.advanceTimersByTime(16);
+                for (const run of queued.splice(0)) run(performance.now() - 400);
+            });
+            written.push(ppu());
+        }
+        expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A01" }]));
+        // Every frame between Fit's and where it lands, zoomed in on A01 as its time is up.
+        expect(Math.min(...written)).toBeGreaterThanOrEqual(CAM.ppu * (1 - 1e-9));
+        expect(written.at(-1)!).toBeGreaterThan(CAM.ppu * 1.5);
+        expect(Math.max(...written)).toBeLessThanOrEqual(written.at(-1)! * (1 + 1e-9));
+    } finally {
+        frames.mockRestore();
         vi.useRealTimers();
     }
 });
@@ -222,11 +256,11 @@ test("over two editable link kinds, Connect's menu picks the kind it draws — t
     hits(container, [["racks", "A01", 2.4, 2.9], ["network", "MMR-1", 24.2, 2.9]]);
     const canvas = canvasOf(container);
     await act(async () => {
-        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(PPU, 2.4, 2.9) });
-        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, ...at(PPU, 24.2, 2.9) });
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(CAM, 2.4, 2.9) });
+        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, ...at(CAM, 24.2, 2.9) });
     });
     expect(heard()).toBe(printFor(Schematic.Types.Candidate)({ kind: "uplinks", from: { kind: "racks", key: "A01" }, to: { kind: "network", key: "MMR-1" } }));
-    await act(async () => { fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(PPU, 24.2, 2.9) }); });
+    await act(async () => { fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(CAM, 24.2, 2.9) }); });
 });
 
 // ── The keys (SC28) ─────────────────────────────────────────────────────────
@@ -264,11 +298,11 @@ test("arrows step the selection, flying to each item; Esc clears it; Del deletes
     }
     // A run tapped on its path — u1, from A01 straight down to ODF-1's top — is selected; Del deletes it, and a tap where it
     // ran finds nothing.
-    await tap(canvas, PPU, 2.4, 6.0);
+    await tap(canvas, CAM, 2.4, 6.0);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
     await act(async () => { fireEvent.keyDown(window, { key: "Delete" }); });
     await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
-    await tap(canvas, PPU, 2.4, 6.0);
+    await tap(canvas, CAM, 2.4, 6.0);
     await settle();
     expect(keptSelection()).toBe(printRefs([]));
 });
@@ -278,7 +312,7 @@ test("a press in the frame after Fit meets the floor Fit draws, never the view i
     const canvas = canvasOf(container);
     canvas.focus();
     // ODF-1's card answers a press at its centre in the fitted floor, as a page hits it — once it is drawn there.
-    canvasLayout.hits((px, py) => (Math.hypot(px - 8.4 * PPU, py - 9.6 * PPU) < 4 ? card(container, "network", "ODF-1") : null));
+    canvasLayout.hits((px, py) => (near(CAM, px, py, 8.4, 9.6) ? card(container, "network", "ODF-1") : null));
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     try {
         const frames = (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
@@ -290,7 +324,7 @@ test("a press in the frame after Fit meets the floor Fit draws, never the view i
         await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
         // Fit, its frame not yet drawn: a press now meets the floor Fit draws — ODF-1, where Fit draws it.
         await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
-        await tap(canvas, PPU, 8.4, 9.6);
+        await tap(canvas, CAM, 8.4, 9.6);
         await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "network", key: "ODF-1" }])));
     } finally {
         vi.useRealTimers();
@@ -367,7 +401,7 @@ test("the footer holds only what is live: idle, or with a change waiting on Save
     // u1, tapped on its path and deleted: the change waits on Save, as the history says, and the drawing counts a link fewer.
     const canvas = canvasOf(container);
     fireEvent.pointerEnter(canvas);
-    await tap(canvas, PPU, 2.4, 6.0);
+    await tap(canvas, CAM, 2.4, 6.0);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
     await act(async () => { fireEvent.keyDown(window, { key: "Delete" }); });
     await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
@@ -454,8 +488,8 @@ const tintOf = (el: Element) => ["data-surface", "data-color", "data-tone", "dat
 test("the canvas's probe resolves its own marks' colours and fonts, and each colour its drawing names, through the recipe (SC26)", async () => {
     const { container } = await dataCentre();
     const probe = container.querySelector("[data-schematic-probe]")!;
-    // The canvas's own marks: a role each, and its fonts.
-    expect(probe.querySelectorAll("[data-role]")).toHaveLength(16);
+    // The canvas's own marks: a role each — the density's five heat steps among them (#1393) — and its fonts.
+    expect(probe.querySelectorAll("[data-role]")).toHaveLength(21);
     expect([...probe.querySelectorAll("[data-font]")].map((el) => el.getAttribute("data-font"))).toEqual(["label", "eyebrow"]);
     // Each colour once: the items in their ground, naming none; the rooms outlined in their pattern's muted, the cold aisle hatched in the
     // brand's and the hot in warning's. The fibre runs and the feeds name no tone of their own: they draw in the links' look (#1403).
@@ -485,8 +519,11 @@ test("an item's colour token draws its card's dot and its marks alike; one that 
     expect(tintOf(crah)).toBe("data-surface=item data-color=status.info data-tone= data-status= data-pattern=");
     expect(probed.has(tintOf(crah))).toBe(true);
     expect(tintOf(card(container, "units", "CT-2")!.querySelector("[data-surface]")!)).toBe("data-surface=item data-color=heat.3 data-tone= data-status= data-pattern=");
-    expect(card(container, "units", "PDU-3")!.querySelector("[data-surface]")).toBeNull();
     expect(probed.has("data-surface=item data-color= data-tone= data-status= data-pattern=")).toBe(true);
+    // PDU-3's 1.2 m holds no card's words at Fit: zoomed in on it, its card draws, and names no colour, so no dot.
+    await zoomInto(canvasOf(container), fitted(26.5, 14), { minX: 20.5, minY: 3.6, maxX: 23.5, maxY: 5.6 });
+    await waitFor(() => expect(card(container, "units", "PDU-3")).not.toBeNull());
+    expect(card(container, "units", "PDU-3")!.querySelector("[data-surface]")).toBeNull();
 });
 
 /**

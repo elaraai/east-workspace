@@ -60,7 +60,7 @@ import { findIconDefinition, library, type IconName } from "@fortawesome/fontawe
 import { fas } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
 import { ArrayType, StringType, compareFor, equalFor, type ValueTypeOf, type option } from "@elaraai/east";
-import { Schematic } from "@elaraai/e3-ui/internal";
+import { SCHEMATIC_WINDOW_ROWS, Schematic } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload, type DropCellOptions, type Origin,
 } from "@elaraai/east-ui-components";
@@ -69,16 +69,16 @@ import {
     zoneAnchor, type EdgeGeometry, type RGB, type SchematicPaintEffect, type SchematicPalette,
 } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, linkAt, linkIndex, marqueeHits } from "./selection";
-import { type LodTier, type NavZone, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, declutterTiers, matchesExtent, tierSize } from "./model";
+import { type LodTier, type NavZone, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, cardContentWidth, declutterTiers, matchesExtent, tierSize } from "./model";
 import { entityId, refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
-    IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, makeRafCoalescer, nextMode, zoomAbout,
+    FLY_DURATION_MS, IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, fitView, flyStep, makeRafCoalescer, nextMode, zoomAbout,
 } from "./camera";
 import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
 import { entityTints, itemTint, tintAttributes, tintsOf } from "./tints";
 import type { SchematicLayerState } from "./layers";
-import type { SchematicDensity, SchematicViewportStore } from "../area.js";
+import { densityInView, type SchematicDensity, type SchematicViewportStore } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import {
     NOWHERE, dropPoint, markEqual, markOf, printDropAt, readDropAt, restsAt, type SchematicCanvasDrop, type SchematicDropMark, type SchematicDropPoint,
@@ -175,7 +175,16 @@ export interface SchematicCanvasEditing {
     readonly mint: (slot: string, minted: ReadonlySet<string>) => string;
 }
 
+/** The zoom's least limit, from Fit: further only where the drawing's smallest item needs it to draw as a whole card. */
 const MAX_ZOOM = 40;
+/** The most px per world unit any zoom reaches, whatever an item's size asks: a bound on a degenerate item's width. */
+const MAX_PPU = 4000;
+/**
+ * What a tap on the density zooms in to: a box whose rows, by the density's own count, draw once the fly frames it —
+ * its view the box grown by the fly's margin (1.18 a side, near 1.4 times its rows) still short of the rows a view
+ * draws.
+ */
+const DENSITY_TAP_ROWS = SCHEMATIC_WINDOW_ROWS * 0.6;
 /** LOD thresholds in px per world unit: card ⇢ labelled dot ⇢ dot. */
 const LOD_CARD_PPU = 30;
 const LOD_LABEL_PPU = 16;
@@ -210,6 +219,24 @@ function dispatchEast(name: string, run: () => unknown): void {
     });
 }
 
+/**
+ * Captures a pointer for a gesture where it can be (#1393): a pointer no longer active — one the browser cancelled
+ * before the handler ran, or one an automation made up — takes no capture, and its gesture runs uncaptured rather than
+ * throw out of the handler (`setPointerCapture`'s `NotFoundError`, or `InvalidStateError`).
+ */
+function capturePointer(el: Element, pointerId: number): void {
+    try {
+        el.setPointerCapture(pointerId);
+    } catch (err) {
+        if (!(err instanceof DOMException)) throw err;
+    }
+}
+
+/** Lets go of a pointer the element holds: one it never captured, or no longer active, it lets be. */
+function releasePointer(el: Element, pointerId: number): void {
+    if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId);
+}
+
 /** Whether an item's status shows as an open ring, as a tentative one does. */
 function statusRing(status: DrawnItem["status"]): boolean {
     return status.type === "some" && status.value.ring;
@@ -220,9 +247,29 @@ function hasDot(item: DrawnItem): boolean {
     return item.status.type === "some" || item.color.type === "some" || item.tone.type === "some";
 }
 
-/** The world box a fly to an item frames: 8 × 6 units about its centre. */
-function itemFrame(item: { x: number; y: number }): { x: number; y: number; w: number; h: number } {
-    return { x: item.x - 4, y: item.y - 3, w: 8, h: 6 };
+/** How much room a fly leaves about the box it frames: the box at 1 / 1.18 of the canvas's width or height, whichever binds. */
+const FLY_PAD = 1.18;
+
+/** The world box a fly to a point frames: 8 × 6 units about it. */
+function pointFrame(p: { x: number; y: number }): { x: number; y: number; w: number; h: number } {
+    return { x: p.x - 4, y: p.y - 3, w: 8, h: 6 };
+}
+
+/**
+ * The world box a fly to an item frames (#1393): 8 × 6 units about its centre — or, for an item held to its own width
+ * whose card that box shows too narrow for its words, the box about it at whose zoom its card draws whole
+ * (`cardWhole`), so a step, Find's pick or the Index's lands on its card, as far as the zoom's limit reaches.
+ *
+ * @param item - The item
+ * @param size - The canvas's size, in CSS px
+ * @returns The world box
+ */
+function itemFrame(item: DrawnItem, size: { readonly w: number; readonly h: number }): { x: number; y: number; w: number; h: number } {
+    const width = getSomeorUndefined(item.width);
+    if (width === undefined || !(width > 0)) return pointFrame(item);
+    const needed = cardContentWidth(item) / width;
+    const w = Math.min(8, size.w / (FLY_PAD * needed)), h = Math.min(6, size.h / (FLY_PAD * needed));
+    return { x: item.x - w / 2, y: item.y - h / 2, w, h };
 }
 
 /** A round scale-bar length (1/2/5 × 10^k) rendering near `targetPx`. */
@@ -319,8 +366,18 @@ export interface SchematicCanvasProps {
     readonly density?: ReadonlyMap<string, SchematicDensity> | undefined;
     /** Whether a read the drawing needs is in flight: an item a drop or a pick asks to select is waited for until it lands. */
     readonly reading?: boolean | undefined;
+    /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393): the toolbar's Zoom out and Zoom in take no press there. */
+    readonly onZoomRange?: ((range: SchematicZoomRange) => void) | undefined;
     /** The canvas's handle, the frame's. */
     readonly ref?: Ref<SchematicCanvasHandle> | undefined;
+}
+
+/** Where the zoom stands (#1393): at Fit, where Zoom out does nothing, and at its limit, where Zoom in does nothing. */
+export interface SchematicZoomRange {
+    /** Whether it stands at Fit. */
+    readonly atFit: boolean;
+    /** Whether it stands at its limit. */
+    readonly atLimit: boolean;
 }
 
 /**
@@ -332,7 +389,7 @@ export interface SchematicCanvasProps {
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
     value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
-    viewport, density = NO_DENSITY, reading = false, ref,
+    viewport, density = NO_DENSITY, reading = false, onZoomRange, ref,
 }: SchematicCanvasProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
@@ -758,8 +815,20 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         return boxDrag.additive ? new Set([...selected, ...boxDrag.hits]) : boxDrag.hits;
     }, [boxDrag, selected]);
 
-    const fit = size !== null ? Math.min(size.w / W, size.h / H) : 0;
+    // The fit, and the camera Fit takes (#1393): the drawing inside the canvas less its margin, centred on both axes.
+    const { fit, home } = useMemo(() => (size === null ? { fit: 0, home: IDENTITY } : fitView(size.w, size.h, W, H)), [size, W, H]);
     const ppu = fit * cameraSnapshot.zoom;
+    // The zoom's limit (#1393, ruled 23 Oct 2026): 40× Fit, or further — until the drawing's smallest item held to its own
+    // width draws as a whole card (`cardWhole`), however dense the floor.
+    const maxZoom = useMemo(() => {
+        if (fit === 0) return MAX_ZOOM;
+        let needed = 0;
+        for (const item of items) {
+            const width = getSomeorUndefined(item.width);
+            if (width !== undefined && width > 0) needed = Math.max(needed, cardContentWidth(item) / width);
+        }
+        return Math.max(MAX_ZOOM, Math.min(MAX_PPU, needed) / fit);
+    }, [items, fit]);
 
     const centers = useMemo(() => {
         const out = new Map<string, Pt>();
@@ -1013,7 +1082,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         return () => clearTimeout(timer);
     }, [viewport, size, ppu, cameraSnapshot, lod]);
 
-    const centerTree = useMemo(() => buildCenterTree(visibleItems), [visibleItems]);
+    // Every item drawn by its centre — never only the viewport's: what an item keeps clear of, so a pan never changes
+    // what it draws as (#1393).
+    const centerTree = useMemo(() => buildCenterTree(items), [items]);
     const tiers = useMemo(() => {
         const base = declutterTiers(visibleItems, centerTree, lod, ppu, selected);
         // `dot` (§10.3): what draws as context is a bare marker, so the matches stand out.
@@ -1067,7 +1138,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // dependency list) to drift. The palette and each entity's colour are read
     // there too, from the probe the commit just laid out.
     const renderSnap = {
-        value: paintValue, drawn: data, size, fit, dpr, camera: cameraSnapshot, visibleItems, tiers,
+        value: paintValue, drawn: data, size, fit, home, maxZoom, dpr, camera: cameraSnapshot, visibleItems, tiers,
         selection, zoneSelection, renderSelected, centers,
         layerHiddenKeys, layerAlpha,
         effectiveTool, isBoxTool,
@@ -1266,6 +1337,29 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         if (cz !== null) cz.request(run); else run();
     }, [applyCamera]);
 
+    // The camera at Fit once the canvas takes its size (#1393), and again as its size moves while it stands there — a
+    // pane opening beside it — so the drawing stays framed at Fit; a camera moved from Fit stays where it was moved.
+    const homeRef = useRef<Viewport>(IDENTITY);
+    useLayoutEffect(() => {
+        if (fit === 0) return;
+        const was = homeRef.current, cam = cameraRef.current;
+        homeRef.current = home;
+        if (cam.zoom !== was.zoom || cam.tx !== was.tx || cam.ty !== was.ty) return;
+        cameraRef.current = home;
+        requestRender();
+    }, [fit, home, requestRender]);
+
+    // The toolbar hears where the zoom stands (#1393): at Fit its Zoom out takes no press, at the limit its Zoom in.
+    const zoomRangeRef = useRef<SchematicZoomRange | undefined>(undefined);
+    useEffect(() => {
+        if (onZoomRange === undefined || fit === 0) return;
+        const range = { atFit: cameraSnapshot.zoom <= 1 + 1e-9, atLimit: cameraSnapshot.zoom >= maxZoom - 1e-9 };
+        const was = zoomRangeRef.current;
+        if (was !== undefined && was.atFit === range.atFit && was.atLimit === range.atLimit) return;
+        zoomRangeRef.current = range;
+        onZoomRange(range);
+    }, [onZoomRange, fit, cameraSnapshot.zoom, maxZoom]);
+
     // A press meets what the canvas has drawn (invariant 9): a camera move still waiting on its frame — Fit, a zoom, the
     // wheel, a fly's last step — is drawn and committed first, so the culling, the tiers and the routes a press, a tap or
     // a double-click hit-tests are those of the camera it lands on, never the frame's before. Asked only as a press
@@ -1291,14 +1385,13 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // each frame (cancellable by any user input via the mode machine).
     const flyTo = useCallback((rect: { x: number; y: number; w: number; h: number }) => {
         if (renderSnapRef.current.size === null || renderSnapRef.current.fit === 0) return;
-        const pad = 1.18;
         // Re-derive the destination from the LIVE viewport every frame, so a
         // resize mid-fly (a pane opening, a window resize) re-aims the landing
         // instead of framing against the stale start-time size/fit.
         const frame = (): Viewport | null => {
             const sz = renderSnapRef.current.size, ft = renderSnapRef.current.fit;
             if (sz === null || ft === 0) return null;
-            const zoom = Math.min(MAX_ZOOM, Math.min(sz.w / (rect.w * pad * ft), sz.h / (rect.h * pad * ft)));
+            const zoom = Math.min(renderSnapRef.current.maxZoom, Math.min(sz.w / (rect.w * FLY_PAD * ft), sz.h / (rect.h * FLY_PAD * ft)));
             return {
                 zoom,
                 tx: sz.w / 2 - (rect.x + rect.w / 2) * ft * zoom,
@@ -1309,21 +1402,18 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         const start = performance.now();
         if (animRef.current !== null) cancelAnimationFrame(animRef.current);
         transition("flyStart");
-        const step = (now: number) => {
-            const t = Math.min(1, (now - start) / 350);
-            const e = 1 - Math.pow(1 - t, 3);
+        // Each frame reads the clock the fly began on, never the frame's own stamp: a page stamps its frames on its frame
+        // clock, which can stand before the gesture that began the fly, or — off a browser — on another origin (#1393).
+        const step = () => {
+            const elapsed = performance.now() - start;
             const target = frame();
             if (target !== null) {
-                cameraRef.current = {
-                    zoom: from.zoom + (target.zoom - from.zoom) * e,
-                    tx: from.tx + (target.tx - from.tx) * e,
-                    ty: from.ty + (target.ty - from.ty) * e,
-                };
+                cameraRef.current = flyStep(from, target, elapsed);
                 applyCamera();
                 const cam = cameraRef.current;
                 setCameraSnapshot({ zoom: cam.zoom, tx: cam.tx, ty: cam.ty });
             }
-            if (t < 1) { animRef.current = requestAnimationFrame(step); }
+            if (elapsed < FLY_DURATION_MS) { animRef.current = requestAnimationFrame(step); }
             else { animRef.current = null; transition("flyEnd"); }
         };
         animRef.current = requestAnimationFrame(step);
@@ -1452,7 +1542,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     }, [editing, kinds, data, onRefused, refusalWords, recordStep, endLinkSession]);
 
     const flyToItem = useCallback((item: DrawnItem) => {
-        flyTo(itemFrame(item));
+        const size = renderSnapRef.current.size;
+        flyTo(size === null ? pointFrame(item) : itemFrame(item, size));
         // A fly-to focus (Find's pick, a step, the Index's) is always
         // single-focus REPLACE — the item alone, no zone or link beside it;
         // its purpose is the camera move; Shift-add is marquee-only.
@@ -1499,7 +1590,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             const rect = el.getBoundingClientRect();
             const px = e.clientX - rect.left, py = e.clientY - rect.top;
             transition("wheel");
-            cameraRef.current = zoomAbout(cameraRef.current, Math.exp(-e.deltaY * 0.0015), px, py, 1, MAX_ZOOM);
+            const snap = renderSnapRef.current;
+            cameraRef.current = zoomAbout(cameraRef.current, Math.exp(-e.deltaY * 0.0015), px, py, 1, snap.maxZoom, snap.home);
             requestRender();
         };
         el.addEventListener("wheel", onWheel, { passive: false });
@@ -1600,9 +1692,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         }
         return true;
     }, [itemKeyAt, commitSelection, clearZoneSelection, commitLinkSelection]);
-    // A tap on a density raster's cell that holds rows (#1393, D25): where it lands, and the cell's side — what a tap
-    // there zooms into. A raster's cells are few thousand at most; a tap asks once.
-    const densityAt = useCallback((host: HTMLElement, clientX: number, clientY: number): { x: number; y: number; side: number } | undefined => {
+    // A tap on a density raster's cell that holds rows (#1393, D25, SC36): the view it zooms into — about the tap, shaped
+    // as the canvas is, halved until the density counts no more rows in it than draw, with room for the fly's own margin
+    // — so the rows draw there, from whatever zoom the tap was made at; never past the zoom's limit. `undefined` off the
+    // density.
+    const densityTap = useCallback((host: HTMLElement, clientX: number, clientY: number): { x: number; y: number; w: number; h: number } | undefined => {
         const snap = renderSnapRef.current;
         if (snap.density.size === 0 || snap.size === null) return undefined;
         const cam = cameraRef.current;
@@ -1610,21 +1704,31 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         if (ppuLive === 0) return undefined;
         const rect = host.getBoundingClientRect();
         const x = (clientX - rect.left - cam.tx) / ppuLive, y = (clientY - rect.top - cam.ty) / ppuLive;
-        for (const raster of snap.density.values()) {
-            const hit = raster.cells.some((cell) => cell.count > 0 && x >= cell.minX && x < cell.minX + raster.side && y >= cell.minY && y < cell.minY + raster.side);
-            if (hit) return { x, y, side: raster.side };
+        const rasters = [...snap.density.values()];
+        const onCell = rasters.some((raster) => raster.cells.some((cell) =>
+            cell.count > 0 && x >= cell.minX && x < cell.minX + raster.side && y >= cell.minY && y < cell.minY + raster.side));
+        if (!onCell) return undefined;
+        const extent = { minX: 0, minY: 0, maxX: W, maxY: H };
+        // The narrowest view the zoom reaches, in world units.
+        const least = snap.size.w / (snap.fit * snap.maxZoom);
+        let w = snap.size.w / ppuLive, h = snap.size.h / ppuLive;
+        for (;;) {
+            w /= 2;
+            h /= 2;
+            const box = { minX: x - w / 2, minY: y - h / 2, maxX: x + w / 2, maxY: y + h / 2 };
+            const rows = rasters.reduce((n, raster) => n + densityInView(raster, box, extent).rows, 0);
+            if (rows <= DENSITY_TAP_ROWS || w <= least) return { x: box.minX, y: box.minY, w, h };
         }
-        return undefined;
-    }, []);
+    }, [W, H]);
     // A tap selects what is under it (D16): an item, else a link's or a net's line (#176), else an outline zone's body
     // (#177); a tap on nothing lets go of everything. Shift extends, and keeps what is selected on nothing. A tap on the
-    // density zooms into it, eight of its cells across about the tap (D25).
+    // density zooms in until its rows draw there (D25, SC36).
     const tapAt = useCallback((host: HTMLElement, clientX: number, clientY: number, additive: boolean) => {
         drawPending();
         if (pickAt(host, clientX, clientY, additive)) return;
-        const dense = densityAt(host, clientX, clientY);
+        const dense = densityTap(host, clientX, clientY);
         if (dense !== undefined) {
-            flyTo({ x: dense.x - 4 * dense.side, y: dense.y - 4 * dense.side, w: 8 * dense.side, h: 8 * dense.side });
+            flyTo(dense);
             return;
         }
         const lk = linkKeyAt(host, clientX, clientY);
@@ -1632,7 +1736,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         const zk = zoneKeyAt(host, clientX, clientY);
         if (zk !== undefined) zoneTap(zk, additive);
         else if (!additive) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
-    }, [drawPending, pickAt, densityAt, flyTo, linkKeyAt, selectLink, zoneKeyAt, zoneTap, clearSelection, clearZoneSelection, commitLinkSelection]);
+    }, [drawPending, pickAt, densityTap, flyTo, linkKeyAt, selectLink, zoneKeyAt, zoneTap, clearSelection, clearZoneSelection, commitLinkSelection]);
 
     // Collect the items a marquee region encloses — the pure rule lives in
     // `selection.ts` (`marqueeHits`: R-tree sweep + CENTER-in-region test,
@@ -1752,7 +1856,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         // excluded — a drag-pan can start anywhere, including over a card; a
         // tap (no drag) over the card is resolved by pickAt on pointerup.
         if ((e.target as HTMLElement).closest("button") !== null) return;
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        capturePointer(e.currentTarget as HTMLElement, e.pointerId);
         movedRef.current = false;
         // Move tool (#179): a press ON AN ITEM of a kind bound with its patch door
         // starts a reposition drag; when the pressed item is part of the selection
@@ -1878,7 +1982,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                     const mx = (a!.x + b!.x) / 2 - rect.left;
                     const my = (a!.y + b!.y) / 2 - rect.top;
                     transition("wheel");
-                    cameraRef.current = zoomAbout(cameraRef.current, dist / pinch.dist, mx, my, 1, MAX_ZOOM);
+                    const snap = renderSnapRef.current;
+                    cameraRef.current = zoomAbout(cameraRef.current, dist / pinch.dist, mx, my, 1, snap.maxZoom, snap.home);
                     requestRender();
                 }
                 pinch.dist = dist;
@@ -2099,7 +2204,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     }, [endPan]);
     const resetView = useCallback(() => {
         transition("cancel");           // cancels a running fly via the mode machine
-        cameraRef.current = IDENTITY;
+        cameraRef.current = renderSnapRef.current.home;
         requestRender();
     }, [transition, requestRender]);
     // Double-click: on an entity it opens the selection in the inspector's
@@ -2116,10 +2221,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         resetView();
     }, [drawPending, itemKeyAt, linkKeyAt, zoneKeyAt, resetView, onOpen]);
     const zoomBy = useCallback((factor: number) => {
-        const sz = renderSnapRef.current.size;
+        const snap = renderSnapRef.current;
+        const sz = snap.size;
         if (sz === null) return;
         transition("zoom");
-        cameraRef.current = zoomAbout(cameraRef.current, factor, sz.w / 2, sz.h / 2, 1, MAX_ZOOM);
+        cameraRef.current = zoomAbout(cameraRef.current, factor, sz.w / 2, sz.h / 2, 1, snap.maxZoom, snap.home);
         requestRender();
     }, [transition, requestRender]);
 
@@ -2140,7 +2246,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             // An entity on a locked layer, or the narrowing takes out, is flown to and never selected (SC27, #1392).
             const item = items.find(it => stringEqual(it.key, id));
             if (item !== undefined) {
-                if (inertKeys.has(item.key)) flyTo(itemFrame(item));
+                const size = renderSnapRef.current.size;
+                if (inertKeys.has(item.key)) flyTo(size === null ? pointFrame(item) : itemFrame(item, size));
                 else flyToItem(item);
                 return;
             }
@@ -2184,7 +2291,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             const ppuLive = snap.fit * cam.zoom;
             return dropPoint({ x: (snap.size.w / 2 - cam.tx) / ppuLive, y: (snap.size.h / 2 - cam.ty) / ppuLive }, ppuLive);
         },
-        look: (x, y) => flyTo(itemFrame({ x, y })),
+        look: (x, y) => flyTo(pointFrame({ x, y })),
     }), [zoomBy, resetView, stepSelection, items, inertKeys, flyToItem, shownZones, flyTo, commitSelection, commitLinkSelection, commitZoneSelection,
         clearZoneSelection, data.links, data.nets, centers, layerHiddenKeys]);
 
@@ -2267,8 +2374,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         // The card layer the cards breathe on: read at each frame, as it mounts only once the canvas is measured.
         let breathed: HTMLDivElement | null = null;
         const start = performance.now();
-        const tick = (now: number) => {
-            const phase = ((now - start) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
+        // The clock the breath began on, as a fly reads its own: never the frame's stamp, which can stand before it.
+        const tick = () => {
+            const phase = ((performance.now() - start) % PULSE_PERIOD_MS) / PULSE_PERIOD_MS;
             pulsePhaseRef.current = phase;
             breathed = cardLayerRef.current;
             breathed?.style.setProperty("--pulse", String(Math.sin(phase * Math.PI * 2) * 0.5 + 0.5));
@@ -2334,7 +2442,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                         camera change is 3 var writes on this parent, never a
                         per-card React re-layout (issue #57, invariant 6). It
                         holds the widest card too, which the recipe reads. */}
-                    <Box ref={cardLayerRef} css={styles.cardLayer} style={CARD_LAYER_STYLE}>
+                    <Box ref={cardLayerRef} css={styles.cardLayer} data-schematic-cards="" style={CARD_LAYER_STYLE}>
                         {visibleItems.map(item => {
                             // Rich cards are DOM; dots / pins / footprints / zones /
                             // links are painted on the canvas above.
@@ -2443,7 +2551,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                             onPointerDown={e => {
                                 e.stopPropagation();
                                 const el = e.currentTarget as HTMLElement;
-                                el.setPointerCapture(e.pointerId);
+                                capturePointer(el, e.pointerId);
                                 transition("cancel");   // cancels a running fly via the mode machine
                                 minimapDragRef.current = true;
                                 minimapJump(el, e.clientX, e.clientY);
@@ -2455,7 +2563,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                             }}
                             onPointerUp={e => {
                                 minimapDragRef.current = false;
-                                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+                                releasePointer(e.currentTarget as HTMLElement, e.pointerId);
                             }}
                         >
                             {shownZones.map(zone => (

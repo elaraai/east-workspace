@@ -35,7 +35,7 @@ import { Data, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
-import { at, card, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -44,8 +44,8 @@ const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canva
 const canvasLayout = layOutCanvas();
 stubScrollIntoView();
 
-/** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
-const PPU = 1080 / 28;
+/** The camera the canvas fits a 28 × 14 m drawing with — the data centre's. */
+const CAM = fitted(28, 14);
 
 const rackEqual = equalFor(ex.DcRack);
 const fibreEqual = equalFor(ex.DcFibre);
@@ -54,10 +54,13 @@ const printRefs = printFor(ArrayType(Schematic.Types.Ref));
 const SAVE = editingMessages.apply();
 const UNDO = editingMessages.undo();
 
-/** Where each card the tests press sits, by kind, key and centre in metres. */
+/**
+ * Where each card the tests press sits, by kind, key and centre in metres. The power distribution units, whose 1.2 m holds
+ * no card's words at Fit, draw as their pins, which the canvas hits itself (#1393).
+ */
 const CENTRES: readonly (readonly [kind: string, key: string, x: number, y: number])[] = [
     ["racks", "A01", 2.4, 2.9], ["racks", "A02", 6.0, 2.9], ["racks", "A03", 9.6, 2.9], ["racks", "A04", 13.2, 2.9], ["racks", "A05", 16.8, 2.9],
-    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6], ["pdus", "PDU-A", 1.6, 4.2], ["pdus", "PDU-B", 18.6, 4.2],
+    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6],
 ];
 
 /** The canvas. */
@@ -70,7 +73,7 @@ function hits(container: HTMLElement) {
         const el = card(container, kind, key);
         return el === null ? [] : [[el, x, y] as const];
     });
-    canvasLayout.hits((px, py) => found.find(([, x, y]) => Math.hypot(px - x * PPU, py - y * PPU) < 4)?.[0]
+    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0]
         ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvas : null));
 }
 
@@ -117,12 +120,12 @@ function pickUp(cardEl: HTMLElement): void {
 
 /** Rests the drag at a world point of the canvas. */
 function restOn(x: number, y: number): void {
-    act(() => { fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", ...at(PPU, x, y) }); });
+    act(() => { fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", ...at(CAM, x, y) }); });
 }
 
 /** Drops where the drag rests, and lets the Schematic settle. */
 async function release(x: number, y: number): Promise<void> {
-    act(() => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", ...at(PPU, x, y) }); });
+    act(() => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", ...at(CAM, x, y) }); });
     await settle();
 }
 
@@ -202,20 +205,21 @@ test("a rack template dropped on the floor adds a rack where it lands, its key m
     const stored = await savedRacks();
     await release(12.0, 1.0);
     expect(announced()).toBe("42U rack · 8 kW was dropped on Cage A · 12.00, 1.00 m.");
-    // A rack under a key minted new, drawn where it landed and selected — the host hears it.
+    // A rack under a key minted new, selected once the canvas draws it where it landed — the host hears it. At Fit its
+    // 3.2 m holds no card's words for its name, "New 42U rack": it draws as its pin (#1393).
     await waitFor(() => expect(keptSelection()).toHaveLength(1));
     const added = keptSelection()[0]!;
     expect(added.kind).toBe("racks");
     expect(added.key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
-    await waitFor(() => expect(card(container, "racks", added.key)?.hasAttribute("data-selected")).toBe(true));
     expect(unsaved(container)).toBe(true);
-    // One step: Undo takes it back whole.
+    // One step: Undo takes it back whole — the canvas lets go of it, and the drawing counts its five racks.
     await history(container, UNDO);
-    expect(card(container, "racks", added.key)).toBeNull();
+    await waitFor(() => expect(keptSelection()).toEqual([]));
     expect(unsaved(container)).toBe(false);
+    expect(drawingCounts(container).racks).toBe("5");
     await act(async () => { fireEvent.keyDown(canvasOf(container), { key: "z", metaKey: true, shiftKey: true }); });
     await settle();
-    await waitFor(() => expect(card(container, "racks", added.key)).not.toBeNull());
+    await waitFor(() => expect(drawingCounts(container).racks).toBe("6"));
     await history(container, SAVE);
     const saved = await savedRacks();
     expect([...saved.keys()].filter((key) => !stored.has(key))).toEqual([added.key]);
@@ -272,9 +276,10 @@ test("an owner's card dropped on a rack sets its owner, the rack marked while th
     const { container } = await open(ex.schematicDataCentre);
     await openTab(container, "Owners");
     pickUp(libraryCard(container, "elmway"));
+    // Over PDU-A, drawn as its pin: refused, and nothing marked.
     restOn(1.6, 4.2);
     expect(caption()).toEqual({ text: "Drop onto a rack", refused: true });
-    expect(card(container, "pdus", "PDU-A")!.hasAttribute("data-drop-target")).toBe(false);
+    expect(container.querySelector("[data-drop-target]")).toBeNull();
     restOn(9.6, 2.9);
     expect(caption()).toEqual({ text: "onto A03", refused: false });
     expect(card(container, "racks", "A03")!.hasAttribute("data-drop-target")).toBe(true);
@@ -310,7 +315,7 @@ test("racks bound read only refuse every drop of a card that lands on them, the 
     expect(caption()).toEqual({ text: "Racks are read only", refused: true });
     await release(9.6, 2.9);
     expect(announced()).toBe("Elmway College was not dropped.");
-    await tap(canvasOf(container), PPU, 9.6, 2.9);
+    await tap(canvasOf(container), CAM, 9.6, 2.9);
     await enter(libraryCard(container, "elmway"));
     expect(refused(container)).toBe("Racks are read only");
     expect(h.requests("mutate")).toEqual([]);
@@ -328,15 +333,15 @@ test("⏎ on an owner's card sets it on the selected rack — on every selected 
     expect(refused(container)).toBe("Drop onto a rack");
     expect(unsaved(container)).toBe(false);
     // A02, Harbour Labs', selected: ⏎ hands it to Northwind Media, the footer's line goes.
-    await tap(canvas, PPU, 6.0, 2.9);
+    await tap(canvas, CAM, 6.0, 2.9);
     await enter(libraryCard(container, "northwind"));
     expect(refused(container)).toBeUndefined();
     expect(unsaved(container)).toBe(true);
     // A04, Northwind Media's, and A05, Elmway College's, selected — a tap and a Shift-tap: ⏎ hands both to Harbour Labs, one step.
-    await tap(canvas, PPU, 13.2, 2.9);
+    await tap(canvas, CAM, 13.2, 2.9);
     await act(async () => {
-        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(PPU, 16.8, 2.9) });
-        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(PPU, 16.8, 2.9) });
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(CAM, 16.8, 2.9) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(CAM, 16.8, 2.9) });
     });
     await waitFor(() => expect(keptSelection()).toHaveLength(2));
     await enter(libraryCard(container, "harbour"));
@@ -363,9 +368,9 @@ test("⏎ on a rack template adds the rack at the view's centre, selected — ne
     const stored = await savedRacks();
     await enter(cardEl);
     expect(cardEl.hasAttribute("data-dragging")).toBe(false);
+    // Selected once the canvas draws it — as its pin: at Fit its 3.2 m holds no card's words for "New 48U rack" (#1393).
     await waitFor(() => expect(keptSelection()).toHaveLength(1));
     const added = keptSelection()[0]!;
-    await waitFor(() => expect(card(container, "racks", added.key)?.hasAttribute("data-selected")).toBe(true));
     await history(container, SAVE);
     // The view's centre: the fitted floor's middle, 14 × 7 m.
     expect(rackEqual((await savedRacks()).get(added.key)!, {
@@ -380,7 +385,7 @@ test("on a touch screen a tap on the selected card does what ⏎ does, and leave
         addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent() { return false; },
     })) as unknown as typeof window.matchMedia;
     const { container } = await open(ex.schematicDataCentre);
-    await tap(canvasOf(container), PPU, 6.0, 2.9);
+    await tap(canvasOf(container), CAM, 6.0, 2.9);
     await openTab(container, "Owners");
     const picked = () => ["elmway", "harbour", "northwind"].filter((key) => libraryCard(container, key).hasAttribute("data-placed"));
     const touch = async (key: string) => {
@@ -414,9 +419,9 @@ test("Connect records a run with the values of the fibre template the library ha
     await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("radio", { name: "Connect" })); });
     const drag = async (from: readonly [number, number], to: readonly [number, number]) => {
         await act(async () => {
-            fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(PPU, from[0], from[1]) });
-            fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(PPU, to[0], to[1]) });
-            fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(PPU, to[0], to[1]) });
+            fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, from[0], from[1]) });
+            fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, to[0], to[1]) });
+            fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, to[0], to[1]) });
         });
         await settle();
     };

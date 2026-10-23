@@ -119,6 +119,7 @@ const PALETTE_ROLES: Readonly<Record<string, string>> = {
     bgSurface: "bg.surface", bgCanvas: "bg.canvas",
     borderSubtle: "border.subtle", borderStrong: "border.strong",
     statusPos: "status.pos", statusNeg: "status.neg", statusWarn: "status.warn", statusInfo: "status.info",
+    heat1: "heat.1", heat2: "heat.2", heat3: "heat.3", heat4: "heat.4", heat5: "heat.5",
 };
 
 export const schematicSlotRecipe = defineSlotRecipe({
@@ -234,10 +235,13 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-locked]": { pointerEvents: "none" },
             "&[data-context]": { pointerEvents: "none" },
             "&[data-context][data-desaturate]": { filter: "grayscale(1)" },
+            /* Selected, a card draws over the cards beside it: a pick from Find, or a selected item the declutter lets
+             * take its card where its neighbours' stand (#1393). */
             "&[data-selected]": {
                 outline: "2px solid",
                 outlineColor: "fg",
                 outlineOffset: "-1px",
+                zIndex: "1",
             },
             /* Emphasis: a matched card gets a brand ring. `halo` is a static
              * ring; `pulse` breathes — its ring width tracks the `--pulse` var

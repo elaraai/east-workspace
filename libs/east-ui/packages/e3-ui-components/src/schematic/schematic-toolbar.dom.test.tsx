@@ -154,7 +154,7 @@ function everything(over: Partial<Parts> = {}): Parts {
         words: WORDS, chrome: chrome(), nouns: { racks: "racks" },
         tools: ["select", "zoom", "marquee", "connect", "move"], held: { tool: "select", link: "fibre" },
         links: [{ key: "fibre", name: "Fibre run" }], onTools: () => {}, find: FIND,
-        onZoom: () => {}, onFit: () => {}, selected: true, onStep: () => {},
+        onZoom: () => {}, zoom: { atFit: false, atLimit: false }, onFit: () => {}, selected: true, onStep: () => {},
         ...over,
     };
 }
@@ -235,6 +235,29 @@ describe("the Schematic's toolbar items (#1387)", () => {
         for (const svg of container.querySelectorAll("[data-toolbar-item='tools'] svg, [data-toolbar-item='zoom'] svg, [data-toolbar-item='step'] svg")) {
             expect(svg.getAttribute("data-prefix")).toBe("fas");
         }
+    });
+
+    test("Zoom out takes no press at Fit, and Zoom in none at the zoom's limit; between them both zoom (#1393)", () => {
+        row.px = 4000;
+        const onZoom = vi.fn();
+        const buttons = (zoom: Parts["zoom"]) => {
+            cleanup();
+            const { container } = render(<ChakraProvider value={system}><Harness parts={everything({ zoom, onZoom })} /></ChakraProvider>);
+            const [out, into] = [...container.querySelectorAll<HTMLButtonElement>("[data-toolbar-item='zoom'] [data-schematic-zoom] button")];
+            return { out: out!, into: into! };
+        };
+        const atFit = buttons({ atFit: true, atLimit: false });
+        expect([atFit.out.disabled, atFit.into.disabled]).toEqual([true, false]);
+        fireEvent.click(atFit.out);
+        expect(onZoom).not.toHaveBeenCalled();
+        const atLimit = buttons({ atFit: false, atLimit: true });
+        expect([atLimit.out.disabled, atLimit.into.disabled]).toEqual([false, true]);
+        fireEvent.click(atLimit.into);
+        expect(onZoom).not.toHaveBeenCalled();
+        const between = buttons({ atFit: false, atLimit: false });
+        fireEvent.click(between.out);
+        fireEvent.click(between.into);
+        expect(onZoom.mock.calls.map(([factor]) => factor > 1)).toEqual([false, true]);
     });
 
     test("a narrowing row folds the rail first, then its summary; then the tools' words, Find's box and the tools' strip; last the View, one move (SC24)", () => {

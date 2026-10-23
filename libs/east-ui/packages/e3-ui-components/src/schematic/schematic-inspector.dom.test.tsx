@@ -34,7 +34,7 @@ import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { at, card, drawingCounts, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -42,8 +42,8 @@ const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canva
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
 
-/** The data centre's px a metre: its 28 × 14 m drawing fitted to the canvas's 1080 × 540 px. */
-const PPU = 1080 / 28;
+/** The camera the canvas fits a 28 × 14 m drawing with — the data centre's. */
+const CAM = fitted(28, 14);
 
 const rackEqual = equalFor(ex.DcRack);
 const feedEqual = equalFor(ex.DcFeed);
@@ -52,11 +52,13 @@ const SAVE = editingMessages.apply();
 const UNDO = editingMessages.undo();
 const REDO = editingMessages.redo();
 
-/** Where each card the tests press sits, by kind, key and centre in metres. */
+/**
+ * Where each card the tests press sits, by kind, key and centre in metres. The power distribution units and the cooling
+ * units, whose boxes hold no card's words at Fit, draw as their pins, which the canvas hits itself (#1393).
+ */
 const CENTRES: readonly (readonly [kind: string, key: string, x: number, y: number])[] = [
     ["racks", "A01", 2.4, 2.9], ["racks", "A02", 6.0, 2.9], ["racks", "A03", 9.6, 2.9], ["racks", "A04", 13.2, 2.9], ["racks", "A05", 16.8, 2.9],
-    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6], ["pdus", "PDU-A", 1.6, 4.2], ["pdus", "PDU-B", 18.6, 4.2],
-    ["cooling", "CRAH-1", 3.0, 11.9], ["cooling", "CRAH-2", 9.0, 11.9], ["cooling", "CRAH-3", 15.0, 11.9],
+    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6],
 ];
 
 /** The canvas. */
@@ -69,7 +71,7 @@ function hits(container: HTMLElement) {
         const el = card(container, kind, key);
         return el === null ? [] : [[el, x, y] as const];
     });
-    canvasLayout.hits((px, py) => found.find(([, x, y]) => Math.hypot(px - x * PPU, py - y * PPU) < 4)?.[0]
+    canvasLayout.hits((px, py) => found.find(([, x, y]) => near(CAM, px, py, x, y))?.[0]
         ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvas : null));
 }
 
@@ -192,7 +194,7 @@ test("given `inspector`, the end pane holds Details and Issues; nothing selected
         ["zones", "5", "Zones"], ["links", "6", "Links"], ["nets", "2", "Nets"],
     ]);
     // A rack's owner changed and saved: the drawing says when its record was saved, and by whom.
-    await tap(canvasOf(container), PPU, 9.6, 2.9);
+    await tap(canvasOf(container), CAM, 9.6, 2.9);
     await retype(container, "row", "owner", "Harbour Labs");
     await history(container, SAVE);
     await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
@@ -207,7 +209,7 @@ test("given `inspector`, the end pane holds Details and Issues; nothing selected
 
 test("an item: its head, its kind's form over the fields no role writes, its details', its position and what it is joined to; a field edited is one step, tinted, Undo taking it back, Save writing it", async () => {
     const { container } = await open(ex.schematicDataCentre);
-    await tap(canvasOf(container), PPU, 9.6, 2.9);
+    await tap(canvasOf(container), CAM, 9.6, 2.9);
     expect(showing(container)).toBe("item");
     expect(head(container)).toEqual({ kind: "Rack", title: "A03", when: "Cage A · 9.60, 2.90 m", status: "OK", chip: null });
     // The rack's own fields — its name the label, its centre and box the position's, its system its layer: none of them here.
@@ -237,7 +239,7 @@ test("an item: its head, its kind's form over the fields no role writes, its det
 test("its details record's form writes the item's details row, and its position its centre, each one step; Unplace takes it off the drawing into the backlog", async () => {
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
-    await tap(canvas, PPU, 9.6, 2.9);
+    await tap(canvas, CAM, 9.6, 2.9);
     // A03's capacity, in its load: the details record's own session.
     await retypeNumber(container, "details", "capacity", "9.5");
     expect(unsaved(container)).toBe(true);
@@ -251,7 +253,7 @@ test("its details record's form writes the item's details row, and its position 
     expect(equalFor(ex.DcLoad)((await h.read(ex.schematicRackLoads)).get("A03")!, { ...loads.get("A03")!, capacity: 9.5 })).toBe(true);
     expect(rackEqual((await h.read(ex.schematicRacks)).get("A03")!, { ...racks.get("A03")!, x: some(10.6) })).toBe(true);
     // A04 unplaced: drawn nowhere, listed in the backlog, and Details shows the drawing again.
-    await tap(canvas, PPU, 13.2, 2.9);
+    await tap(canvas, CAM, 13.2, 2.9);
     expect(head(container).title).toBe("A04");
     await click(action(container, "unplace")!);
     expect(card(container, "racks", "A04")).toBeNull();
@@ -262,7 +264,7 @@ test("its details record's form writes the item's details row, and its position 
 
 test("a kind's own Details shows in place of its form, and its update is one step Save writes", async () => {
     const { container } = await open(ex.schematicDataCentre);
-    await tap(canvasOf(container), PPU, 9.0, 11.9);
+    await tap(canvasOf(container), CAM, 9.0, 11.9);
     expect(head(container).title).toBe("CRAH-2");
     const own = () => section(container, "row")!;
     expect(own().querySelector("[data-field]")).toBeNull();
@@ -314,14 +316,14 @@ const readOnlyFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.
 test("read only, every field shows and none edits: details bound read only beside a kind that writes, and every record of a Schematic read only", async () => {
     {
         const { container, unmount } = await open(readOnlyLoads);
-        await tap(canvasOf(container), PPU, 9.6, 2.9);
+        await tap(canvasOf(container), CAM, 9.6, 2.9);
         expect(editors(container, "row")).toEqual(["model:text", "hall:text", "owner:text"]);
         expect(editors(container, "details")).toEqual(["kw:readonly", "capacity:readonly", "alarm:readonly"]);
         expect(action(container, "delete")).not.toBeNull();
         unmount();
     }
     const { container } = await open(readOnlyFloor);
-    await tap(canvasOf(container), PPU, 9.6, 2.9);
+    await tap(canvasOf(container), CAM, 9.6, 2.9);
     expect(showing(container)).toBe("item");
     expect(editors(container, "row")).toEqual(["model:readonly", "hall:readonly", "owner:readonly"]);
     expect(editors(container, "details")).toEqual(["kw:readonly", "capacity:readonly", "alarm:readonly"]);
@@ -342,12 +344,12 @@ test("a zone shows its form; a link its ends as Choosers over the items of its s
     const layersTab = [...slot(container, "start").querySelectorAll("[role='tab']")].find((t) => t.textContent?.startsWith("Layers"))!;
     await click(layersTab);
     await click(slot(container, "start").querySelector("[data-schematic-layer='structure'] [data-layer-toggle='lock']")!);
-    await tap(canvas, PPU, 12.0, 1.0);
+    await tap(canvas, CAM, 12.0, 1.0);
     expect(showing(container)).toBe("zone");
     expect(head(container)).toEqual({ kind: "Area", title: "Cage A", when: "19.60 × 4.60 m", status: null, chip: null });
     expect(editors(container, "row")).toEqual(["kind:readonly"]);
     // u3, from A03 to ODF-1, tapped on its line: its ends, each a Chooser.
-    await tap(canvas, PPU, 9.6, 6.0);
+    await tap(canvas, CAM, 9.6, 6.0);
     expect(showing(container)).toBe("link");
     expect(head(container)).toEqual({ kind: "Fibre run", title: "u3", when: "A03 → ODF-1", status: null, chip: null });
     expect(editors(container, "ends")).toEqual(["from:reference", "to:reference"]);
@@ -367,7 +369,7 @@ test("a net shows its sides as tags, a member taken off one step and an emptied 
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
     // Feed A's bar, under A01 to A03.
-    await tap(canvas, PPU, 4.2, 3.8);
+    await tap(canvas, CAM, 4.2, 3.8);
     expect(showing(container)).toBe("net");
     expect(head(container)).toEqual({ kind: "Power feed", title: "PDU-A · A side", when: "1 source → 3 destinations", status: null, chip: null });
     const tags = (key: string) => [...field(container, "sides", key).querySelectorAll("[data-scope=tags-input][data-part=item-text]")].map((el) => el.textContent);
@@ -380,8 +382,8 @@ test("a net shows its sides as tags, a member taken off one step and an emptied 
     await click(field(container, "sides", "sources").querySelector("[data-part=item-delete-trigger]")!);
     expect(footer(container, "data-schematic-refused")).toBe("A net keeps one source at least: Delete takes the net");
     expect(tags("sources")).toEqual(["PDU-A"]);
-    // Feed B's leg to A05, tapped: its item, and Remove.
-    await tap(canvas, PPU, 16.8, 3.5);
+    // Feed B's leg to A05, tapped where it shows — between the bar, 3.8 m down, and A05's card: its item, and Remove.
+    await tap(canvas, CAM, 16.8, 3.775);
     expect(showing(container)).toBe("leg");
     expect(head(container).when).toBe("Destination leg");
     expect(panel(container).querySelector("[data-inspector-member] [data-inspector-join]")?.textContent).toBe("A05Destination leg");
@@ -399,18 +401,18 @@ test("several show how many of each kind, and Delete takes them all with what na
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
     // A rack, then a power unit, then a frame: each kind's Details in turn, each its own row.
-    await tap(canvas, PPU, 9.6, 2.9);
+    await tap(canvas, CAM, 9.6, 2.9);
     expect(head(container).title).toBe("A03");
-    await tap(canvas, PPU, 1.6, 4.2);
+    await tap(canvas, CAM, 1.6, 4.2);
     expect(head(container)).toMatchObject({ kind: "Power distribution unit", title: "PDU-A" });
     expect(editors(container, "row")).toEqual(["kind:readonly"]);
-    await tap(canvas, PPU, 8.4, 9.6);
+    await tap(canvas, CAM, 8.4, 9.6);
     expect(head(container)).toMatchObject({ kind: "Network frame", title: "ODF-1" });
     // A01, and A02 Shift-tapped beside it.
-    await tap(canvas, PPU, 2.4, 2.9);
+    await tap(canvas, CAM, 2.4, 2.9);
     await act(async () => {
-        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(PPU, 6.0, 2.9) });
-        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(PPU, 6.0, 2.9) });
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(CAM, 6.0, 2.9) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, shiftKey: true, ...at(CAM, 6.0, 2.9) });
     });
     await settle();
     expect(showing(container)).toBe("several");
@@ -438,7 +440,7 @@ test("Enter on the canvas, or a double-click on an entity, opens what is selecte
     await settle();
     expect(pane(container).hasAttribute("data-collapsed")).toBe(true);
     // A03 selected: Enter opens the pane on Details.
-    await tap(canvas, PPU, 9.6, 2.9);
+    await tap(canvas, CAM, 9.6, 2.9);
     await act(async () => { fireEvent.keyDown(canvas, { key: "Enter" }); });
     await settle();
     expect(pane(container).hasAttribute("data-collapsed")).toBe(false);
@@ -446,7 +448,7 @@ test("Enter on the canvas, or a double-click on an entity, opens what is selecte
     // On Issues, a double-click on a rack opens Details.
     await openTab(container, "Issues");
     expect(showing(container)).toBeNull();
-    await act(async () => { fireEvent.doubleClick(canvas, at(PPU, 13.2, 2.9)); });
+    await act(async () => { fireEvent.doubleClick(canvas, at(CAM, 13.2, 2.9)); });
     await settle();
     expect(pane(container).querySelector("[role='tab'][aria-selected='true']")?.textContent).toBe("Details");
     expect(showing(container)).toBe("item");
@@ -518,7 +520,7 @@ const checkedRacks = { fn: East.function([], UIComponentType, (_$) => Reactive.R
 
 test("the app's check refusing a drafted row blocks in Issues, naming its field, and selects the row's item", async () => {
     const { container } = await open(checkedRacks);
-    await tap(canvasOf(container), PPU, 9.6, 2.9);
+    await tap(canvasOf(container), CAM, 9.6, 2.9);
     await retype(container, "row", "owner", "");
     expect(unsaved(container)).toBe(true);
     await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
@@ -550,7 +552,7 @@ const frozenFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
 test("a Save its record's door refuses blocks in Issues, in the source's words, while it stands", async () => {
     const { container } = await open(frozenFloor);
     // u3, tapped on its line: its label edited — a change of the run the door refuses.
-    await tap(canvasOf(container), PPU, 9.6, 6.0);
+    await tap(canvasOf(container), CAM, 9.6, 6.0);
     expect(showing(container)).toBe("link");
     await retype(container, "row", "system", "power");
     expect(unsaved(container)).toBe(true);

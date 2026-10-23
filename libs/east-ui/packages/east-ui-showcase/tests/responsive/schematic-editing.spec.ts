@@ -7,19 +7,21 @@
  * The Schematic's drags in a real browser (#1388, `Schematic Builder Spec.md`
  * §7, SC8, SC9), on the data centre floor in a page 1600px wide, its box
  * 1100px wide and its library and its inspector (#1391) collapsed to their
- * rails, where every rack draws as its card — below 480px of main the canvas
- * takes no drag (#1394). By the mouse and by touch — Chromium's own
- * touch input, through its DevTools protocol, as a touchscreen delivers it:
+ * rails, where every rack and the meet-me room's frame draw as their cards and
+ * a power distribution unit, 1.2 m wide, as its labelled pin (D44) — below
+ * 480px of main the canvas takes no drag (#1394). By the mouse and by touch —
+ * Chromium's own touch input, through its DevTools protocol, as a touchscreen
+ * delivers it:
  *
  * - **Move**: a rack's card follows the pointer while the drag is under way;
  *   Esc mid-drag puts it back, nothing waiting on Save, and let go it stays
  *   where it is, its change waiting on Save — the history's Discard on.
  * - **Connect**: a drag from a rack onto the meet-me room's frame draws its
  *   draft and records a run, one more link drawn as the drawing's Details
- *   counts them; onto a power distribution
- *   unit, which a fibre run ends at none of, the unit rings danger and the
- *   draft says why in the shared drag caption, in the danger ink, and letting
- *   go there records nothing.
+ *   counts them; onto a power distribution unit's pin — a fibre run ends at
+ *   none — the canvas marks the end forbidden and the draft says why in the
+ *   shared drag caption, in the danger ink, and letting go there records
+ *   nothing.
  *
  * Every wait is a poll on the page's state, never a fixed pause.
  *
@@ -28,13 +30,14 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { DATA_CENTRE, card, collapseInspector, discard, drawingCounts, openSchematic, sizeTo } from "./schematic-page";
+import { DATA_CENTRE, card, collapseInspector, discard, drawingCounts, openSchematic, screenPoint, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /**
  * Open the data centre at rest and return its root: in a page 1600px wide, its box 1100px wide and its library and its
- * inspector collapsed to their rails, as a viewer leaves them — main then 1012px, the 28 m floor 36px a metre, where
- * every rack draws as its card and none hides another (#1389, #1391) — each where nothing of the page lies over it.
+ * inspector collapsed to their rails, as a viewer leaves them — main then 1012px, the 28 m floor fitted inside Fit's 24px
+ * margins at 34.4px a metre, where every rack and the meet-me room's frame draw as their cards and none hides another
+ * (#1389, #1391, D44) — each where nothing of the page lies over it.
  */
 async function openDataCentre(page: Page): Promise<Locator> {
     await page.setViewportSize({ width: 1600, height: 1000 });
@@ -44,7 +47,7 @@ async function openDataCentre(page: Page): Promise<Locator> {
     await sizeTo(page, root, 1100);
     await collapseInspector(page, root);
     // Each card a drag starts or ends on, the page's topmost element at its centre: a press there is the card's.
-    for (const [kind, key] of [["racks", "A03"], ["racks", "A05"], ["pdus", "PDU-B"], ["network", "MMR-1"]] as const) {
+    for (const [kind, key] of [["racks", "A03"], ["racks", "A05"], ["network", "MMR-1"]] as const) {
         await expect.poll(() => card(root, kind, key).evaluate((el) => {
             const r = el.getBoundingClientRect();
             return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
@@ -121,13 +124,13 @@ test.describe("The Schematic's drags (#1388)", () => {
         const root = await openDataCentre(page);
         await tool(root, "Connect");
         const from = await centre(card(root, "racks", "A05"));
-        // Onto PDU-B: a fibre run ends at none — the unit rings danger, and the draft says why in the shared caption.
-        const pdu = card(root, "pdus", "PDU-B");
-        const unit = await centre(pdu);
+        // Onto PDU-B — its pin at this zoom, its dot on the unit's centre: a fibre run ends at none — the canvas marks the
+        // end forbidden, and the draft says why in the shared caption.
+        const unit = await screenPoint(root, 18.6, 4.2);
         await page.mouse.move(from.x, from.y);
         await page.mouse.down();
         await page.mouse.move(unit.x, unit.y, { steps: 8 });
-        await expect(pdu).toHaveAttribute("data-forbidden", "");
+        await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-forbidden", "");
         const caption = root.locator("[data-schematic-refusal] [data-drag-caption][data-refused]");
         await expect(caption).toHaveText("Fibre run can't end at PDU-B");
         const ink = await caption.evaluate((el) => {

@@ -6,17 +6,19 @@
 /**
  * What the Schematic's jsdom tests give its canvas that jsdom leaves out (#1401):
  * the box a page lays the canvas out in, pointer capture and the element at a
- * point; and the gestures and lookups they share — a world point on the canvas,
- * a tap there, an item's card, whether changes wait on Save and the drawing's
- * counts.
+ * point; and the gestures and lookups they share — the camera the canvas fits
+ * a drawing with and the one it stands at, a world point on the canvas, a tap
+ * there, a zoom into a box, an item's card, whether changes wait on Save and
+ * the drawing's counts.
  *
  * @packageDocumentation
  */
 
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { act, fireEvent, within } from "@testing-library/react";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { slot } from "../e3-web-mount.test-utils.js";
+import { fitView, project, type ScreenCamera } from "./canvas/camera.js";
 import { entityId } from "./canvas/drawn.js";
 
 /** The box a page gives the canvas: 1080 × 540 px. */
@@ -58,32 +60,107 @@ export function layOutCanvas(): { hits: (elementAt: ElementAt) => void } {
 }
 
 /**
- * A world point on the canvas, in px from its corner — jsdom puts the canvas at
- * the page's — for a drawing of twice its height's width, which the canvas fits
- * exactly, the camera at rest.
+ * The camera the canvas stands at once it has fitted a drawing (#1393): the
+ * drawing's extent inside the canvas's 1080 × 540 px less Fit's margin, and
+ * centred — as the canvas fits it (`fitView`).
  *
- * @param ppu - The canvas's px a world unit: its 1080 px over the drawing's width
+ * @param width - The drawing's extent's width, in world units
+ * @param height - Its height
+ * @returns The camera: px a world unit, and where the world's origin stands on the canvas
+ */
+export function fitted(width: number, height: number): ScreenCamera {
+    const { fit, home } = fitView(CANVAS.clientWidth, CANVAS.clientHeight, width, height);
+    return { ppu: fit * home.zoom, tx: home.tx, ty: home.ty };
+}
+
+/**
+ * The camera the canvas stands at now, as its card layer carries it — what a
+ * test that zooms or flies taps through.
+ *
+ * @param container - What the Schematic is mounted in
+ * @returns The camera
+ * @throws {Error} While the canvas has no size to lay its cards out in
+ */
+export function cameraOf(container: HTMLElement): ScreenCamera {
+    const layer = container.querySelector<HTMLElement>("[data-schematic-cards]");
+    if (layer === null) throw new Error("the canvas lays out no cards: it has no size yet");
+    const read = (name: string) => Number.parseFloat(layer.style.getPropertyValue(name));
+    return { ppu: read("--cam-ppu"), tx: read("--cam-tx"), ty: read("--cam-ty") };
+}
+
+/**
+ * A world point on the canvas, in px from its corner — jsdom puts the canvas at
+ * the page's — under a camera.
+ *
+ * @param cam - The camera: the one the canvas fits the drawing with ({@link fitted}), or the one it stands at ({@link cameraOf})
  * @param x - The point's world x
  * @param y - The point's world y
  * @returns The pointer event's client coordinates
  */
-export function at(ppu: number, x: number, y: number): { clientX: number; clientY: number } {
-    return { clientX: x * ppu, clientY: y * ppu };
+export function at(cam: ScreenCamera, x: number, y: number): { clientX: number; clientY: number } {
+    const { sx, sy } = project(x, y, cam);
+    return { clientX: sx, clientY: sy };
+}
+
+/**
+ * Whether a point on the canvas lies within 4 px of a world point under a
+ * camera: where a page hits what is drawn there.
+ *
+ * @param cam - The camera
+ * @param px - The point's x, in px from the canvas's corner
+ * @param py - Its y
+ * @param x - The world point's x
+ * @param y - Its y
+ * @returns Whether it lies within 4 px
+ */
+export function near(cam: ScreenCamera, px: number, py: number, x: number, y: number): boolean {
+    const { sx, sy } = project(x, y, cam);
+    return Math.hypot(px - sx, py - sy) < 4;
 }
 
 /**
  * A tap on the canvas at a world point: a press and a release where nothing moved.
  *
  * @param canvas - The canvas, `[data-schematic-canvas]`
- * @param ppu - The canvas's px a world unit
+ * @param cam - The camera the canvas stands at
  * @param x - The point's world x
  * @param y - The point's world y
  */
-export async function tap(canvas: Element, ppu: number, x: number, y: number): Promise<void> {
+export async function tap(canvas: Element, cam: ScreenCamera, x: number, y: number): Promise<void> {
     await act(async () => {
-        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(ppu, x, y) });
-        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(ppu, x, y) });
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(cam, x, y) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(cam, x, y) });
     });
+}
+
+/** Longer than a fly takes (350 ms): run on the test's clock, it lands. */
+const FLY_MS = 400;
+
+/**
+ * Zooms into a world box as a viewer does: Ctrl held over the canvas holds the
+ * Zoom box tool, a drag from the box's one corner to the other flies the view
+ * to it, and the fly runs on the test's clock, so it lands however busy the
+ * machine running it is. The tool held stays the one it was.
+ *
+ * @param canvas - The canvas, `[data-schematic-canvas]`
+ * @param cam - The camera the canvas stands at
+ * @param box - The box, in world units
+ */
+export async function zoomInto(canvas: Element, cam: ScreenCamera, box: { minX: number; minY: number; maxX: number; maxY: number }): Promise<void> {
+    fireEvent.pointerEnter(canvas);
+    await act(async () => { fireEvent.keyDown(window, { key: "Control", ctrlKey: true }); });
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        await act(async () => {
+            fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(cam, box.minX, box.minY) });
+            fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, ...at(cam, box.maxX, box.maxY) });
+            fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, ...at(cam, box.maxX, box.maxY) });
+        });
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+    } finally {
+        vi.useRealTimers();
+    }
+    await act(async () => { fireEvent.keyUp(window, { key: "Control" }); });
 }
 
 /**

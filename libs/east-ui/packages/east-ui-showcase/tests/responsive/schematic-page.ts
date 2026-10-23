@@ -7,9 +7,10 @@
  * The Schematic's showcase entries, for its specs (#1387–#1393): one opened
  * on the real in-page e3 at rest, its box sized and centred in the window, its
  * inspector collapsed to its rail, an item's card, a world point of its drawing
- * on the screen, its library's tabs and cards, a card picked up from it and
- * carried onto the canvas, with what the drag's ghost says, the history's
- * Discard and Save, and the drawing's counts as the inspector says them.
+ * on the screen, the cards that overlap and those standing in a box, a box of
+ * the drawing zoomed into, its library's tabs and cards, a card picked up from it and carried onto the
+ * canvas, with what the drag's ghost says, the history's Discard and Save, and
+ * the drawing's counts as the inspector says them.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -138,6 +139,64 @@ export function screenPoint(root: Locator, x: number, y: number): Promise<Point>
             y: box.top + parseFloat(layer.style.getPropertyValue("--cam-ty")) + wy * ppu,
         };
     }, [x, y] as const);
+}
+
+/**
+ * Each two cards that overlap on the screen, by their keys: none while nothing is selected, the declutter keeping every
+ * card clear of every other (#1393) — a selected one draws over its neighbours.
+ *
+ * @param root - The Schematic's root
+ * @returns The pairs, each `key × key`
+ */
+export function cardOverlaps(root: Locator): Promise<string[]> {
+    return root.evaluate((el) => {
+        const cards = [...el.querySelectorAll<HTMLElement>("[data-card-key]")].map((card) => ({ key: card.getAttribute("data-card-key") ?? "", box: card.getBoundingClientRect() }));
+        const out: string[] = [];
+        for (const [i, a] of cards.entries()) {
+            for (const b of cards.slice(i + 1)) {
+                if (a.box.left < b.box.right - 0.5 && b.box.left < a.box.right - 0.5 && a.box.top < b.box.bottom - 0.5 && b.box.top < a.box.bottom - 0.5) out.push(`${a.key} × ${b.key}`);
+            }
+        }
+        return out;
+    });
+}
+
+/**
+ * The cards whose centres stand in a box on the screen, by their keys: which items draw as cards there.
+ *
+ * @param root - The Schematic's root
+ * @param box - The box, in client px
+ * @returns The cards' keys
+ */
+export function cardsIn(root: Locator, box: { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number }): Promise<string[]> {
+    return root.evaluate((el, b) => [...el.querySelectorAll<HTMLElement>("[data-card-key]")].flatMap((card) => {
+        const r = card.getBoundingClientRect();
+        const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+        return x >= b.left && x <= b.right && y >= b.top && y <= b.bottom ? [card.getAttribute("data-card-key") ?? ""] : [];
+    }), box);
+}
+
+/**
+ * Zooms the canvas into a box of the drawing as a viewer does: the pointer over the canvas, Ctrl held for the Zoom
+ * tool, a drag from one corner of the box to the other, and the camera's flight to it let land.
+ *
+ * @param page - The page
+ * @param root - The Schematic's root
+ * @param box - The box, in the drawing's units
+ */
+export async function zoomInto(page: Page, root: Locator, box: { readonly minX: number; readonly minY: number; readonly maxX: number; readonly maxY: number }): Promise<void> {
+    const canvas = root.locator("[data-schematic-canvas]");
+    const from = await screenPoint(root, box.minX, box.minY);
+    const to = await screenPoint(root, box.maxX, box.maxY);
+    await page.mouse.move(from.x, from.y);
+    await page.keyboard.down("Control");
+    await expect(canvas).toHaveAttribute("data-tool", "zoom");
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 6 });
+    await page.mouse.up();
+    await page.keyboard.up("Control");
+    await expect(canvas).not.toHaveAttribute("data-tool", "zoom");
+    await settled(page);
 }
 
 /** The library pane. */
