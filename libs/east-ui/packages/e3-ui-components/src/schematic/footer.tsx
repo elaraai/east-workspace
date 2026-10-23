@@ -8,7 +8,8 @@
  * shared builder rail (`builder-footer.ts`): only what is live (ruled 23 Oct
  * 2026) — each kind drawn as its density in place of items (#1393, D25): how
  * many rows it shades in the viewport where it rests (`densityInView`), and
- * that zooming in draws them; why the last gesture was refused, until one is
+ * that zooming in draws them, the side of its cells named on it
+ * (`data-density-cell`); why the last gesture was refused, until one is
  * recorded — a Delete a read-only link or net blocks, a drop, an inspector
  * edit (#1390, #1391); each Save's notice, the rows it took out of a source's
  * narrowing (`RecordSliceSaveNotice`); and where Find's last pick landed on
@@ -88,18 +89,22 @@ export function SchematicFooter({ styles, words, density, names, viewport, exten
     // Where the viewport rests: the footer alone renders again as it moves, and only while a kind draws its density.
     const rests = useSyncExternalStore(viewport.subscribe, viewport.get, viewport.get);
     const { width, height } = extent;
-    // Each kind drawn as its density, by its slot: how many rows it shades in the viewport — none while it shades none there.
+    // Each kind drawn as its density, by its slot: how many rows it shades in the viewport — none while it shades none there —
+    // and the side of the cells it shades them in, which one view draws alike by whatever route it was reached.
     const dense = useMemo(() => (rests === undefined ? [] : [...density].flatMap(([slot, raster]) => {
         const seen = densityInView(raster, rests.box, { minX: 0, minY: 0, maxX: width, maxY: height });
         if (seen.rows === 0) return [];
         const name = (names.get(slot) ?? slot).toLocaleLowerCase(words.locale);
-        return [{ slot, text: words.m.densityNotice({ n: seen.rows, count: words.number(seen.rows), name, about: !seen.exact, unfiltered: raster.unnarrowed }) }];
+        const text = words.m.densityNotice({ n: seen.rows, count: words.number(seen.rows), name, about: !seen.exact, unfiltered: raster.unnarrowed });
+        return [{ slot, text, side: raster.side }];
     })), [rests, density, width, height, names, words]);
     const ref = useRef<HTMLDivElement>(null);
     const wrap = useRailWrap(ref, [...dense.map((line) => line.text), refusal ?? "", found?.words ?? ""].join("\n"));
     return (
         <Box ref={ref} css={styles.footer} data-schematic-footer="" data-builder-narrow={wrap ? "" : undefined}>
-            {dense.map((line) => <Box as="span" key={line.slot} css={styles.footerItem} data-schematic-density={line.slot}>{line.text}</Box>)}
+            {dense.map((line) => (
+                <Box as="span" key={line.slot} css={styles.footerItem} data-schematic-density={line.slot} data-density-cell={line.side}>{line.text}</Box>
+            ))}
             {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" role="alert">{refusal}</Box>}
             {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
             {/* Where Find's last pick landed, the canvas not showing it as itself: why, and — the filters — their Clear, as the Save notice's Retry. */}

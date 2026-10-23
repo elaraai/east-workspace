@@ -27,7 +27,7 @@
  * A kind whose source of the slice lists an area index is read by area
  * (#1393, §10.4): its viewport's window, a cell at a time (`area.ts`), never
  * its record whole nor its narrowing complete — its rows, or past
- * `SCHEMATIC_WINDOW_ROWS` its density; its items' details by the runs its
+ * `SCHEMATIC_WINDOW_ROWS` in view its density; its items' details by the runs its
  * window was read by, at every zoom, so a dot draws its item's status (D45);
  * and the far ends of the links and nets that touch it, by key. One
  * that lists area indexes none of which reads it — none led by no field, or
@@ -291,6 +291,8 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         const nets: DrawnNet[] = [];
         const chrome = getSomeorUndefined(value.slice);
         const dim = value.narrowed.show.type === "dim";
+        // The drawing's extent, where a window's rows lie as the viewport's count of them weighs them — the footer's too.
+        const extent = { minX: 0, minY: 0, maxX: value.extent.width, maxY: value.extent.height };
 
         // The links and the nets, read complete (D17): first, as the far ends of those that touch a window are read by key.
         const linkReads = value.links.map((kind) => rowsRead(() => kind.rows()));
@@ -306,7 +308,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             if (part === undefined || areas === undefined) return undefined;
             // Nothing is read before the canvas says where its viewport rests.
             if (viewport === undefined) return READING;
-            const got = areaReader.window(kind, part, areas, viewport, dim);
+            const got = areaReader.window(kind, part, areas, viewport, dim, extent);
             if (got !== READING) byArea.set(kind.key, { kind, part, read: got });
             return got;
         };

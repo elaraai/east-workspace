@@ -169,7 +169,7 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D38 | **The key search is 28px in a toolbar's row**, in every builder, its input filling it; the strips beside it stay 25px — since D43, every control in the row is 28px. The box a folded row's popover opens stays the design system's 32px search field, and on a touch screen the 44px field (#1221). | ruled 23 Oct 2026 (#1404) |
 | D39 | **The links' look is the Plan's.** The Schematic's links and nets draw in the shared links look — the casing, the round corner, the head, the caption on its knockout, and the lit link with the rings round its ends — through a Canvas2D painter beside the SVG layer, in the colours and the caption's font its theme probe reads from the `linkRibbons` part, so a change to the part changes the Plan, the Allocation and the Schematic together. Their routes, and a net's bus, stay the Schematic's own (§4.3, §15). | ruled 23 Oct 2026 (#1403) |
 | D40 | **Heads at the far end; the muted ink, the author's tone kept.** A link points from its `from` item to its `to` item; a net's head sits on each of its destination legs, its trunk and its bars carrying none. Every link and net draws in the shared muted ink, and in the strong ink while lit or selected; a kind's `style` tone still recolours its links (D14). | ruled 23 Oct 2026 (#1403) |
-| D41 | **A window is read a cell at a time**, as the Plan's events are (#1039): each of its searches is a cell; the cells not yet found are counted in one request before an entry is read; while they hold at most 5,000 rows, the entries of the cells not held come in one read of their runs, each cell kept at the revision it was read at while the window wants it. A window into new cells searches and reads only those (§10.4). | my call (#1393), on the Plan's cell reader |
+| D41 | **A window is read a cell at a time**, as the Plan's events are (#1039): each of its searches is a cell; the cells not yet found are counted in one request before an entry is read; while the view holds at most 5,000 rows by those counts (D49), the entries of the cells not held come in one read of their runs, each cell kept at the revision it was read at while the window wants it. A window into new cells searches and reads only those (§10.4). | my call (#1393), on the Plan's cell reader |
 | D42 | **The footer holds only what is live** (§6.3): each kind drawn as its density — how many rows it shades in the view, and that zooming in draws them — the loading line, why a gesture was refused, each Save's notice, and where Find's last pick landed off the canvas. The counts and each record's last save are the inspector's Details', with nothing selected (§9), and the changes waiting on Save are the history's. | ruled 23 Oct 2026 ("Only what's live") |
 | D43 | **Every control in a toolbar's row is 28px**, in every builder, centred on the row (`theme/toolbar-row.ts`): the chips, the segment strips, the steppers, the tab strips, the key search's box (D38) and every button. | ruled 23 Oct 2026 ("All 28px"; "make sure the other builder frame components use the 28px as well") |
 | D44 | **Dense cards zoom further.** The zoom's limit follows the drawing's smallest item: 40× Fit, or in until every item held to its own `width` draws as its card. An item draws as its card only where the card draws whole — its box holding its words — and clear of every other item's dot and of every other card that could draw; else as a pin, its dot on its item and its words after it, clear of every other item's mark; else as a dot. Neither the order the items come in nor the viewport decides it, so a pan never changes what an item draws as; the selected item takes the richest whole form whatever it covers, and draws over its neighbours (§14). | ruled 23 Oct 2026 ("Zoom further") |
@@ -177,6 +177,7 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D46 | **A rail's chip counts each value's own rows** under the other fields' choices — faceted, the chosen chip marked — in every builder's rail, never what a click would show. | ruled 23 Oct 2026 ("Each value's own count") |
 | D47 | **The density in five heat steps.** Each cell of a kind's density draws in one of the theme's five heat steps (`heat.1`–`heat.5`), by its share of the fullest cell on halving steps, under the zones, whose outlines stand over it. | ruled 23 Oct 2026 ("Five heat steps") |
 | D48 | **Fit frames the drawing.** Fit fits the drawing's extent inside the canvas less a 24px margin each side — no more than an eighth of the canvas — centred on both axes; the camera stands there as the canvas takes its size and as the size moves while it stands at Fit, and a zoom out to Fit recentres. Zoom out takes no press at Fit, nor Zoom in at the zoom's limit. | my call (#1393), on the hand test of 23 Oct 2026 |
+| D49 | **The density switch counts the view.** The rows in view are counted from the counts a window's searches answer, each cell's rows held evenly over its part of the drawing's extent, the view's share of them; past 5,000, by the density's own count of the view, finer, which the footer says, so the footer never says a count the rows would draw at. A window whose searches hold more than 20,000 rows — four views' worth, where a window reads a median 2.48 times its view's rows (§11.3) — draws its density whatever its view holds. A window drawn as its density holds only at the zoom it was made for, while it counts more than 5,000 rows in view, so a view draws one raster by any route to it: Fit's button, or the wheel out to Fit (§10.4). | my call (#1393), on the hand test of 23 Oct 2026 |
 
 ## 4. The kinds
 
@@ -596,12 +597,19 @@ What each read brings, in the reader components:
   runs' entries in one runs read (#1351, D24). A pan or a zoom inside the
   margin reads nothing, and one into new cells searches only those.
 - **Density at overview** (D25). Past 5,000 rows in view, by the counts its
-  searches answer, the canvas draws a density raster in place of items: the
-  counts of the area index's cells at the level whose cells are about a
-  sixty-fourth of the view, one `findKeys` of at most 4,096 counted ranges,
-  and no rows read. Rows at a coarser level than the raster's, boxes larger
-  than half a raster cell, are read as rows: they are few. Through a led
-  index the counts split by its leading field, a raster per value. A
+  searches answer — each cell's rows held evenly over its part of the
+  drawing's extent, the view's share of them — the canvas draws a density
+  raster in place of items: the counts of the area index's cells at the level
+  whose cells are about a sixty-fourth of the view, one `findKeys` of at most
+  4,096 counted ranges, and no rows read. The density's own count of the
+  view, finer, decides at last, and is what the footer says: the rows draw
+  once it counts no more than 5,000 (D49). A window whose searches hold more
+  than 20,000 rows draws its density whatever its view holds, and a zoom in
+  plans one that holds fewer. Drawn as its density, a window holds only at
+  its zoom, while it counts more than 5,000 rows in view, so a view draws one
+  raster by any route to it. Rows at a coarser level than the raster's, boxes
+  larger than half a raster cell, are read as rows: they are few. Through a
+  led index the counts split by its leading field, a raster per value. A
   narrowing the index doesn't lead isn't drawn in the raster, and the footer
   says so. A tap on the raster zooms into it; Find, the Index tab and the
   minimap work as ever; the tools that need items wait for them.
@@ -758,7 +766,9 @@ Simulated over 4,000 viewports from 2 m to 4 km at a 1 cm cell, a window reads a
 median 2.48 times the rows its viewport shows (the margin's 1.56 among them;
 p95 3.09, at most 3.49), in a median 131 searches (p95 182, at most 221). All of
 a window's searches go in one `findKeys` request (#1351). The pure planner is
-`areaQueries(prefix, box, cell)`, in east-ui's `platform/slice/record-area.ts`,
+`areaCells(prefix, box, cell)` — each search a cell, its level, its place and
+its box beside it, which the Schematic weighs a cell's count by (D49) — and
+`areaQueries` its searches alone, in east-ui's `platform/slice/record-area.ts`,
 beside `record-interval.ts`.
 
 ### 11.4 Reading through the record slice
@@ -820,7 +830,7 @@ beside `record-interval.ts`.
 | Package | Changes |
 |---|---|
 | e3 | `src/record-area.ts`, new: the generated keys, beside `record-interval.ts`. `src/record-index.ts`: `recordIndex.area` and `recordIndex.interval`, their typed specs and refusals, `cell`, the whole-row projection, `IndexKeyOf` and `IndexOn`, and `recordIndex`'s refusal of `interval`. `SKILL.md`: the constructors |
-| east-ui | `platform/slice/record-types.ts`: the `window` choice and the `area` metadata. `platform/slice/record-area.ts`, new: `areaQueries`. `platform/slice/record-plan.ts`: the area path. `platform/slice/record.ts`: `Slice.bindRecord` reads the `__area` marker |
+| east-ui | `platform/slice/record-types.ts`: the `window` choice and the `area` metadata. `platform/slice/record-area.ts`, new: `areaCells` and `areaQueries`. `platform/slice/record-plan.ts`: the area path. `platform/slice/record.ts`: `Slice.bindRecord` reads the `__area` marker |
 | e3-ui | `bind/data-indexed.ts`: the `__area` marker, naming the box's fields and its cell, and the projection rule (D29). `schematic/window.ts`: which `where` a window reads (§10.4), the agreement check, and the density read |
 | e3-api-tests | the `records-area` suite, which every server runs |
 | the interval index's users | every declaration of one moves to `e3.recordIndex.interval`: the Calendar's, the Plan's, the Roster's, the Allocation's and the data binding's examples, e3's specs, and the skills and guides that show one (some 45 declarations in 13 files, and the guides) |
@@ -956,7 +966,7 @@ records in the file, and each Schematic named by its `id`:
 | SC33 | A kind or details record bound in a form its read doesn't take (§1, rule 4) is refused at build, naming the form to use. | `kinds.ts` | spec per form |
 | SC34 | A window is read through an area index whose `on` the rail's exact choices fill while its searches stay within 1,024, and otherwise through one with no `on`, the source's shown keys deciding what draws. A kind read by area with no area index without `on`, or through one whose box isn't the kind's roles, is refused as it reads, naming what to declare. | `schematic/window.ts` | spec: the index each `where` reads; the refusals |
 | SC35 | Geometry is drawn about its entity's anchor and moves with it; geometry outside its box draws and is listed in Issues; a `footprint` without `width` and `height` is refused at build. | `kinds.ts`, renderer `canvas/paint.ts` | spec; pure; DOM |
-| SC36 | Past 5,000 rows in view, the canvas draws a density raster from the area index's cell counts, in one request with no rows read, and draws items again below it; a tap on the raster zooms into it; the footer says how many rows it shades in the view and that zooming in draws them, and names a narrowing the index doesn't lead (§6.3). | renderer reader, `canvas/paint.ts`, `area.ts`' `densityInView` | DOM: request log; pure; responsive (`schematic-window.spec.ts`); `E3_UI_PERF=1` budget |
+| SC36 | Past 5,000 rows in view — by the window's searches' counts, and past them the density's (D49) — the canvas draws a density raster from the area index's cell counts, in one request with no rows read, and draws items again below it; a view draws one raster by any route to it; a tap on the raster zooms into it; the footer says how many rows it shades in the view and that zooming in draws them, and names a narrowing the index doesn't lead (§6.3). | renderer reader, `canvas/paint.ts`, `area.ts`' `cellsInView`, `densityInView` and `windowHolds` | DOM: request log; pure; responsive (`schematic-window.spec.ts`); `E3_UI_PERF=1` budget |
 | SC37 | `Schematic.layers` reads the app's rows in their `order`, then key order, each layer keyed by its row's key; an accessor of another type is refused, naming it. `footprint` and `geometry` draw what their accessors return, about the anchor. | `schematic/layers.ts`, `kinds.ts` | spec; DOM |
 | SC38 | `templates()` lists every kind's templates and `backlog()` every item kind's rows with no position; each is refused when no kind has any, naming the change. | `schematic/library.ts` | spec |
 | SC39 | `canConnect` hears the gesture's `Candidate`: `none` lets it snap and record, and words refuse it; a veto that throws allows the pair and logs it. | renderer | DOM |
@@ -988,7 +998,7 @@ The area index's rules are §11.5's tests; the rows form's are §12's.
 keys, as `record-interval.ts`'s, `cell`, the whole-row projection, and the two
 constructors (§11.1).
 
-**east-ui (`platform/slice/`).** `record-area.ts` (`areaQueries`), the
+**east-ui (`platform/slice/`).** `record-area.ts` (`areaCells`, `areaQueries`), the
 `area` choice and metadata, and `planRecordSlice`'s area path.
 
 **Reused as it is.**

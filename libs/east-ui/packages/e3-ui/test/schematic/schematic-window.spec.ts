@@ -21,7 +21,9 @@ import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { ArrayType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { AREA_FIELD, MAX_AREA_RASTER, MAX_LANDED_SEARCHES, RecordSliceIndexType, RecordSliceWhereType, areaQueries } from "@elaraai/east-ui/internal";
-import { SCHEMATIC_WINDOW_ROWS, schematicAreaIndexes, schematicDensityCells, schematicRaster, schematicWindowPlan } from "@elaraai/e3-ui/internal";
+import {
+    SCHEMATIC_WINDOW_READ_ROWS, SCHEMATIC_WINDOW_ROWS, schematicAreaIndexes, schematicDensityCells, schematicRaster, schematicWindowPlan,
+} from "@elaraai/e3-ui/internal";
 import * as rec from "./schematic-records.examples.js";
 
 describeEast("Schematic reading by area", (test) => {
@@ -104,7 +106,9 @@ hostTest("an area index whose box isn't the kind's roles is refused as it reads,
 });
 
 hostTest("the density's raster is each combination of the leading values', all at one level, within the counted ranges of one request (D25)", () => {
+    // Past 5,000 rows in view the density draws; a window reads its rows while its searches hold four views' worth at most.
     assert.equal(SCHEMATIC_WINDOW_ROWS, 5_000);
+    assert.equal(SCHEMATIC_WINDOW_READ_ROWS, 4 * SCHEMATIC_WINDOW_ROWS);
     const plan = schematicWindowPlan(areas, where([["hall", values('"Hall 1"', '"Hall 2"')]]), view);
     const raster = schematicRaster(plan, view);
     assert.equal(raster.cells.length, 2, "a raster per hall");

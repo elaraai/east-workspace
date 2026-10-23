@@ -90,6 +90,7 @@ export {
     type SchematicTemplatesConfig,
 } from "./templates.js";
 export {
+    SCHEMATIC_WINDOW_READ_ROWS,
     SCHEMATIC_WINDOW_ROWS,
     schematicAreaIndexes,
     schematicDensityCells,

@@ -18,7 +18,11 @@
  * was (ruled 23 Oct 2026). Zoomed into a hall's front rows, where the racks
  * draw as dots, each reads its load — what its dot's colour says — by the runs
  * the window's cells are of the area index, e3 reading their keys, so none is
- * sent; a pan inside the window reads none (D45).
+ * sent; a pan inside the window reads none (D45). The switch counts the view
+ * (D25): past 5,000 racks in it they are shaded, the footer saying more than
+ * 5,000, and a view of fewer draws them, though its window's cells, reaching
+ * the halls either side, hold more; wheeled back out to Fit, the floor is
+ * shaded in the cells it opened in, one view one raster by any route.
  *
  * Every wait is a poll on the page's state, never a fixed pause.
  *
@@ -28,7 +32,7 @@
 
 import { test, expect, type Locator } from "playwright/test";
 import { e3Requests, installE3Faults } from "./e3-faults";
-import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo, zoomInto } from "./schematic-page";
+import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo, viewOf, zoomInto, type WorldBox } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The racks' loads, as the page's reads name them. */
@@ -36,6 +40,29 @@ const LOADS = "records.schematic_stress_rack_loads";
 
 /** The density's words. */
 const notice = (root: Locator) => root.locator("[data-schematic-footer] [data-schematic-density='racks']");
+
+/** How many racks the density's words say it shades. */
+async function saidRows(root: Locator): Promise<number> {
+    const words = await notice(root).textContent() ?? "";
+    const count = /([\d,]+) racks/.exec(words);
+    expect(count, `a count of racks in "${words}"`).not.toBeNull();
+    return Number(count![1]!.replaceAll(",", ""));
+}
+
+/**
+ * How many of the floor's 20,000 racks stand in a box by their centres, placed as the example's generator places them:
+ * a row of 100 in each of the ten halls in turn, 0.7 m apart along a row and 2.4 m from row to row, five halls to a row
+ * of the floor, 76 m and 126 m apart.
+ */
+function racksIn(box: WorldBox): number {
+    let n = 0;
+    for (let i = 0; i < 20_000; i++) {
+        const hall = Math.floor(i / 100) % 10, row = Math.floor(i / 1000);
+        const x = (hall % 5) * 76 + (i % 100) * 0.7 + 3.3, y = Math.floor(hall / 5) * 126 + row * 2.4 + 3.6;
+        if (x >= box.minX && x <= box.maxX && y >= box.minY && y <= box.maxY) n++;
+    }
+    return n;
+}
 
 /** What passes an edge: the density's words past the rail's inner box, the rail past the frame's, or the page wider than the window. */
 function overflow(root: Locator): Promise<string[]> {
@@ -117,6 +144,40 @@ test.describe("A tap on the density (#1393)", () => {
         const after = await cardsIn(root, { left: inner.left + 60, top: inner.top + 40, right: inner.right + 60, bottom: inner.bottom + 40 });
         expect(new Set(after)).toEqual(new Set(before));
         expect(await cardOverlaps(root)).toEqual([]);
+    });
+
+    test("the switch counts the view: past 5,000 racks in it they are shaded, the footer saying more; a view of fewer draws them, though its window's cells hold more; wheeled back out to Fit, the floor shades in the cells it opened in (D25)", async ({ page }) => {
+        const root = await openSchematic(page, RECORD_INDEXES);
+        await expect(notice(root)).toHaveText("Density: 20,000 racks — zoom in to draw them");
+        const opened = await notice(root).getAttribute("data-density-cell");
+        expect(opened, "the side of the cells it shades in").not.toBeNull();
+        // Halls 2, 3 and 4's front rows, and a slip of halls 1 and 5's: past 5,000 racks in view, shaded, and the footer
+        // says about how many — more than a window draws.
+        await zoomInto(page, root, { minX: 79.0, minY: 3.0, maxX: 301.0, maxY: 50.0 });
+        const many = racksIn(await viewOf(root));
+        expect(many, "racks in view").toBeGreaterThan(5_000);
+        // The canvas tells its reader where its viewport rests once it has rested a moment: the footer counts the view then.
+        await expect.poll(async () => Math.abs(await saidRows(root) - many), `the footer's count of the ${many} racks in view`).toBeLessThan(many / 10);
+        expect(await saidRows(root), "the racks the footer says it shades").toBeGreaterThan(5_000);
+        // Halls 2 and 3's: fewer than 5,000 racks in view, drawn as themselves, though the cells of its window — the
+        // view, its margin and the cells' reach past them, into halls 1 and 4 — hold more than 5,000.
+        await zoomInto(page, root, { minX: 79.0, minY: 3.0, maxX: 225.0, maxY: 50.0 });
+        const fewer = racksIn(await viewOf(root));
+        expect(fewer, "racks in view").toBeGreaterThan(3_000);
+        expect(fewer).toBeLessThanOrEqual(5_000);
+        await expect(notice(root)).toHaveCount(0);
+        await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-lod", "dot");
+        // Out a notch of the wheel at a time, each let rest, until the zoom stops at Fit: the floor shaded as it opened.
+        const zoomOut = root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Zoom out" });
+        const canvas = (await root.locator("[data-schematic-canvas]").boundingBox())!;
+        await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2);
+        for (let notches = 0; await zoomOut.isEnabled(); notches++) {
+            expect(notches, "notches of the wheel out to Fit").toBeLessThan(30);
+            await page.mouse.wheel(0, 100);
+            await settled(page);
+        }
+        await expect(notice(root)).toHaveText("Density: 20,000 racks — zoom in to draw them");
+        await expect(notice(root)).toHaveAttribute("data-density-cell", opened!);
     });
 
     test("zoomed into a hall's front rows, its racks drawn as dots read their loads by the runs of the window's cells — no key sent — and a pan inside the window reads none (D45)", async ({ page }) => {

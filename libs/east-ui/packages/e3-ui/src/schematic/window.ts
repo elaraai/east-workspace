@@ -35,7 +35,7 @@ import {
 import {
     MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType,
     areaQueries, areaRaster, recordSliceReadPlatform,
-    type AreaRasterCell, type AreaRasterCoarse, type AreaWindow, type RecordSliceChoiceType, type RecordSliceIndexType,
+    type AreaCell, type AreaWindow, type RecordSliceChoiceType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
 import { optionOf } from "../schedule/window.js";
 import type { SchematicBoxFieldsType } from "./types.js";
@@ -162,8 +162,22 @@ type Where = ReadonlyMap<string, ValueTypeOf<typeof RecordSliceChoiceType>>;
 /** The fields a kind's box is, decoded. */
 type BoxFields = ValueTypeOf<typeof SchematicBoxFieldsType>;
 
-/** Past this many rows in a window, by its searches' counts, the canvas draws the density in place of items (D25). */
+/**
+ * Past this many rows in view, the canvas draws the density in place of items
+ * (D25): by the counts its window's searches answer — each cell's rows held
+ * evenly over it, the view's share of them — and, past those, by the
+ * density's own count of the view, which its footer says.
+ */
 export const SCHEMATIC_WINDOW_ROWS = 5_000;
+
+/**
+ * The most rows a window's searches hold for its rows to be read (D25): its
+ * view's, its margin's and its cells' reach past them, which hold some twice a
+ * view's rows over an even floor — four views' worth. Past this, the window
+ * draws its density whatever its view holds, and a zoom in plans one that
+ * holds fewer.
+ */
+export const SCHEMATIC_WINDOW_READ_ROWS = 20_000;
 
 const stringEqual = equalFor(StringType);
 const sideEqual = equalFor(OptionType(StringType));
@@ -277,12 +291,12 @@ export interface SchematicRaster {
     /** Its cells' side, in world units. */
     readonly side: number;
     /** Each combination's cells, in the plan's order of its prefixes: through a led index, a raster per value. */
-    readonly cells: readonly (readonly AreaRasterCell[])[];
+    readonly cells: readonly (readonly AreaCell[])[];
     /**
      * The coarser levels' cells, every combination's: their rows are boxes larger than half a raster cell, counted by their
      * keys, and read as rows while they are few.
      */
-    readonly coarse: readonly AreaRasterCoarse[];
+    readonly coarse: readonly AreaCell[];
 }
 
 /**
