@@ -123,7 +123,10 @@ goes in a pure module with unit tests, not in the component.
    hears what is selected, by id, and the leg of a net a tap selected (its
    steps show while anything is, the Index marks its rows, and the inspector
    shows it). A plain tap selects what it lands on alone — an item, a zone,
-   or a link or a net — clearing the other parts; Shift extends (D16).
+   or a link or a net — clearing the other parts; Shift extends (D16). Every
+   tap goes through `tapAt`. A press on a selected link's end handle is a tap
+   until it moves past `DRAG_THRESHOLD_PX`, and only then a Retarget (SC10):
+   let go where it began, it selects the item under it.
 7a. **A locked layer's entities never select (SC27).** Every path that
    selects passes them by — a tap (`itemKeyAt`, `zoneKeyAt`, `linkKeyAt`),
    the marquee (`marqueeHits`) and the steps (`itemOrder`) — and `reveal`
@@ -193,7 +196,11 @@ goes in a pure module with unit tests, not in the component.
     Details (`onOpen`), the pane expanded if it was collapsed (#1391), ring on
     `:focus-visible` only.
     Pointer-only gestures must keep a toolbar / key / callback equivalent:
-    the toolbar's controls are real `<button>`s and radios with names.
+    the toolbar's controls are real `<button>`s and radios with names. The
+    window hears Space, Ctrl, Del and Esc for the canvas while the pointer is
+    over it, never a key typed into a field nor one from a layer portaled out
+    of the frame — a popover, a menu, a Chooser's list — which is that layer's
+    (`keyIsCanvas`): Esc closing a Chooser keeps the selection.
 
 **Drops (#1390)**
 17. **The canvas is the drop's one cell**, registered on the Schematic's

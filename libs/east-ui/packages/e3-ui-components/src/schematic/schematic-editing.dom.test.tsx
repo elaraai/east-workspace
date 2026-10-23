@@ -12,8 +12,8 @@
  * minted new, and a draft whose end no field holds goes danger in its words
  * (SC7, SC9); a Shift session grows into a trunk, absorbing the run it grew
  * from, as one step Undo takes back (SC9); Retarget writes the end it moves,
- * Extend adds a destination, Del on a leg removes its rack and on a net
- * deletes it (SC10); Del on racks deletes them with every run and feed leg
+ * though a tap on that end selects the item there, Extend adds a destination,
+ * Del on a leg removes its rack and on a net deletes it (SC10); Del on racks deletes them with every run and feed leg
  * naming one (SC5, D7); Save sends each record's changes as its own request,
  * one refused keeping its drafts while the others commit (SC6); a drawing
  * bound read only takes no gesture (SC14); and a draft the rail narrows out
@@ -261,6 +261,17 @@ test("Retarget writes the end of the run it moves, and every other field of it s
     const stored = await h.read(ex.schematicFibre);
     await history(container, editingMessages.apply());
     expect(fibreEqual((await h.read(ex.schematicFibre)).get("u1")!, { ...stored.get("u1")!, to: variant("frame", "MMR-1") })).toBe(true);
+});
+
+test("a tap on a selected run's end selects the item there and records nothing: only a press that moves retargets it (SC10)", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    const canvas = canvasOf(container);
+    await tap(canvas, PPU, 5.2, 9.6);
+    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
+    // u1's end at ODF-1 is a handle, and ODF-1 is under it: let go where it was pressed, the press is a tap.
+    await tap(canvas, PPU, 8.4, 9.6);
+    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "network", key: "ODF-1" }])));
+    expect(pending(container)).toBeUndefined();
 });
 
 test("Extend adds a rack to a selected feed; Del on a leg takes its rack off the feed, and on a feed deletes it (SC10)", async () => {

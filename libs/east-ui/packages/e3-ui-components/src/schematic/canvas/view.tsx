@@ -121,6 +121,27 @@ type Pt = { x: number; y: number };
 /** No drag moves anything. */
 const NO_MOVES: ReadonlyMap<string, Pt> = new Map();
 
+/** How far a press moves, each way, before it is a drag: within it, its release is a tap (px). */
+const DRAG_THRESHOLD_PX = 4;
+
+/**
+ * Whether a key the window hears is the canvas's to take while the pointer is over it: one from nowhere in particular
+ * — the page, its body — or from inside the canvas's own frame. A key from a layer portaled out of the frame — a
+ * popover, a menu, a Chooser's list — is that layer's, as the frame leaves such a layer its Esc (`BuilderFrame`); so
+ * is one from another frame on the page.
+ *
+ * @param canvas - The canvas's element
+ * @param target - The key's target
+ * @returns Whether the key is the canvas's
+ */
+function keyIsCanvas(canvas: Element | null, target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return true;
+    const doc = target.ownerDocument;
+    if (target === doc.body || target === doc.documentElement) return true;
+    const frame = canvas?.closest("[data-builder-frame]") ?? canvas;
+    return frame !== null && frame !== undefined && frame.contains(target);
+}
+
 /**
  * How the canvas records its gestures (#1388): the Schematic's editing, which
  * writes each gesture's edits as one step of its history.
@@ -576,6 +597,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // the net they grew into (`edits.ts`' `ConnectSession`), each read from the
     // drawing as it stands when the next drag lands.
     const connectDragRef = useRef<ConnectDrag | null>(null);
+    // A press on an editable selected link's end handle (SC10): a tap until it moves past the drag threshold, when it
+    // becomes the re-target drag — so a tap there selects what is under it, as any tap does. Its link, the end it would
+    // move, the end that stays, and where it was pressed.
+    const handlePressRef = useRef<{ key: string; movingEnd: "from" | "to"; fixed: string; x: number; y: number } | null>(null);
     // Move-tool drag (#179): the pressed key, the items moving (a group move rides
     // the selection) where the drag found them, the world start point of the
     // gesture, and the delta it has them at, clamped to the extent (SC8).
@@ -1474,6 +1499,16 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         }
         return true;
     }, [itemKeyAt, commitSelection, clearZoneSelection, commitLinkSelection]);
+    // A tap selects what is under it (D16): an item, else a link's or a net's line (#176), else an outline zone's body
+    // (#177); a tap on nothing lets go of everything. Shift extends, and keeps what is selected on nothing.
+    const tapAt = useCallback((host: HTMLElement, clientX: number, clientY: number, additive: boolean) => {
+        if (pickAt(host, clientX, clientY, additive)) return;
+        const lk = linkKeyAt(host, clientX, clientY);
+        if (lk !== undefined) { selectLink(lk.key, lk.leg, additive); return; }
+        const zk = zoneKeyAt(host, clientX, clientY);
+        if (zk !== undefined) zoneTap(zk, additive);
+        else if (!additive) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
+    }, [pickAt, linkKeyAt, selectLink, zoneKeyAt, zoneTap, clearSelection, clearZoneSelection, commitLinkSelection]);
 
     // Collect the items a marquee region encloses — the pure rule lives in
     // `selection.ts` (`marqueeHits`: R-tree sweep + CENTER-in-region test,
@@ -1579,6 +1614,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 pinchRef.current = { dist: Math.hypot(a!.x - b!.x, a!.y - b!.y) };
                 panRef.current = null;
                 moveDragRef.current = null;
+                handlePressRef.current = null;
                 movedRef.current = true;
                 return;
             }
@@ -1614,11 +1650,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 return;
             }
         }
-        // Connector-handle grab (#176): with an editable selected link, pressing
-        // within a handle's reach starts a RE-TARGET drag (any tool) — the draft
-        // anchors at the FIXED end and follows the cursor. SHIFT skips the
-        // handle: Shift-drag from a selected link's endpoint SEEDS a net
-        // session instead (plain = retarget, Shift = extend).
+        // Connector-handle grab (#176): with an editable selected link, a press
+        // within a handle's reach that moves past the drag threshold is a
+        // RE-TARGET drag (any tool) — the draft anchors at the FIXED end and
+        // follows the cursor; let go where it began, it is a tap (SC10). SHIFT
+        // skips the handle: Shift-drag from a selected link's endpoint SEEDS a
+        // net session instead (plain = retarget, Shift = extend).
         if (!e.shiftKey && renderSnapRef.current.selectedLinkEditable && renderSnapRef.current.selectedLink !== null) {
             const snap = renderSnapRef.current;
             const lk2 = data.links.find(l => l.key === snap.selectedLink?.key);
@@ -1633,9 +1670,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 const movingEnd = near(fC) ? "from" as const : near(tC) ? "to" as const : undefined;
                 if (movingEnd !== undefined) {
                     transition("cancel");
-                    const fixed = movingEnd === "from" ? lk2.to : lk2.from;
-                    connectDragRef.current = { from: fixed, additive: false, retarget: { key: lk2.key, movingEnd } };
-                    setConnectDraft({ from: fixed, toWorld: { x: (sx2 - cam2.tx) / ppu2, y: (sy2 - cam2.ty) / ppu2 }, target: undefined });
+                    // A tap until it moves: its first move past the threshold starts the drag (onCanvasPointerMove).
+                    handlePressRef.current = { key: lk2.key, movingEnd, fixed: movingEnd === "from" ? lk2.to : lk2.from, x: e.clientX, y: e.clientY };
                     return;
                 }
             }
@@ -1737,6 +1773,14 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             }
             return;
         }
+        // A press on a handle that moves past the drag threshold is the re-target drag (SC10), its draft following the
+        // pointer from this move on.
+        const hp = handlePressRef.current;
+        if (hp !== null) {
+            if (Math.abs(e.clientX - hp.x) <= DRAG_THRESHOLD_PX && Math.abs(e.clientY - hp.y) <= DRAG_THRESHOLD_PX) return;
+            handlePressRef.current = null;
+            connectDragRef.current = { from: hp.fixed, additive: false, retarget: { key: hp.key, movingEnd: hp.movingEnd } };
+        }
         // Connect drag (#176): track the cursor in world coords and snap to a
         // valid target item (anything but the source; locked items never resolve).
         const cd = connectDragRef.current;
@@ -1767,7 +1811,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         if (sel !== null) {
             const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
             const cx = e.clientX - r.left, cy = e.clientY - r.top;
-            if (Math.abs(cx - sel.sx) > 4 || Math.abs(cy - sel.sy) > 4) movedRef.current = true;
+            if (Math.abs(cx - sel.sx) > DRAG_THRESHOLD_PX || Math.abs(cy - sel.sy) > DRAG_THRESHOLD_PX) movedRef.current = true;
             const x0 = Math.min(sel.sx, cx), y0 = Math.min(sel.sy, cy), sw = Math.abs(cx - sel.sx), sh = Math.abs(cy - sel.sy);
             // One state write per move keeps the overlay rect on the cursor;
             // the marquee HITS (badge + preview) coalesce to one r-tree pass
@@ -1798,7 +1842,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         }
         const pan = panRef.current;
         if (!pan) return;
-        if (Math.abs(e.clientX - pan.x) > 4 || Math.abs(e.clientY - pan.y) > 4) movedRef.current = true;
+        if (Math.abs(e.clientX - pan.x) > DRAG_THRESHOLD_PX || Math.abs(e.clientY - pan.y) > DRAG_THRESHOLD_PX) movedRef.current = true;
         cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
         requestRender();
     }, [requestRender, collectMarquee, itemKeyAt, W, H, candidateRefusal, transition]);
@@ -1816,6 +1860,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         if (e.pointerType === "touch") {
             touchesRef.current.delete(e.pointerId);
             if (touchesRef.current.size < 2) pinchRef.current = null;
+        }
+        // A press on a handle let go where it began (SC10): a tap, which selects what is under it.
+        if (handlePressRef.current !== null) {
+            handlePressRef.current = null;
+            tapAt(e.currentTarget as HTMLElement, e.clientX, e.clientY, e.shiftKey);
+            return;
         }
         // Move release (#179, SC8): the move recorded as one step, its preview
         // giving way to its drafts; a release where it began records nothing.
@@ -1873,37 +1923,19 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 // Plain box replaces the selection; Shift+box unions into it.
                 const next = sel.additive ? new Set([...renderSnapRef.current.selection.selected, ...hits]) : hits;
                 commitSelection(next, hits.size > 0 ? { anchor: [...hits][hits.size - 1]! } : {});
-            } else if (!pickAt(e.currentTarget as HTMLElement, e.clientX, e.clientY, sel.additive)) {
-                // A bare tap in marquee mode: link stroke selects the link, zone
-                // body selects the zone; true background clears all (unless Shift).
-                const lk = linkKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-                if (lk !== undefined) selectLink(lk.key, lk.leg, sel.additive);
-                else {
-                    const zk = zoneKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-                    if (zk !== undefined) zoneTap(zk, sel.additive);
-                    else if (!sel.additive) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
-                }
+            } else {
+                // A bare tap in marquee mode is a tap: an item, a link's line or a zone's body selects; the background
+                // clears all (unless Shift).
+                tapAt(e.currentTarget as HTMLElement, e.clientX, e.clientY, sel.additive);
             }
             return;
         }
         const wasPress = endPan();
         if (!wasPress || movedRef.current) return;   // not a canvas tap, or it was a drag
-        // Select-tool tap: select the item under it (Shift extends); a tap on empty
-        // background clears (unless Shift). The host hears the whole selection
-        // after each change, through the funnels' one report.
-        if (!pickAt(e.currentTarget as HTMLElement, e.clientX, e.clientY, e.shiftKey)) {
-            // No item under the tap: a LINK stroke selects the link (#176), an
-            // OUTLINE zone body selects the zone (#177), and a true-background
-            // tap clears ALL selections (unless Shift).
-            const lk = linkKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-            if (lk !== undefined) selectLink(lk.key, lk.leg, e.shiftKey);
-            else {
-                const zk = zoneKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-                if (zk !== undefined) zoneTap(zk, e.shiftKey);
-                else if (!e.shiftKey) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
-            }
-        }
-    }, [endPan, pickAt, flyTo, collectMarquee, commitSelection, clearSelection, zoneKeyAt, zoneTap, clearZoneSelection, itemKeyAt, commitConnect, commitRetarget, linkKeyAt, selectLink, candidateRefusal, commitNetExtend, commitLinkSelection, recordStep, endLinkSession]);
+        // Select-tool tap: what is under it selects (Shift extends); a tap on empty background clears (unless Shift).
+        // The host hears the whole selection after each change, through the funnels' one report.
+        tapAt(e.currentTarget as HTMLElement, e.clientX, e.clientY, e.shiftKey);
+    }, [endPan, pickAt, tapAt, flyTo, collectMarquee, commitSelection, clearSelection, itemKeyAt, commitConnect, commitRetarget, candidateRefusal, commitNetExtend, recordStep, endLinkSession]);
     // pointercancel / lost capture: a pan OR select-drag that loses its grip
     // mid-gesture must still end (issue #57, P10). After a normal release the
     // pan is already ended (panRef null) so this is a no-op then, and it never
@@ -1916,6 +1948,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             setDragMoves(NO_MOVES);
         }
         connectDragRef.current = null;
+        handlePressRef.current = null;
         setConnectDraft(null);
         selStartRef.current = null;
         setBoxDrag(null);
@@ -2025,11 +2058,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // that, clears the selection, and drops a refusal's words. Gated on hover so
     // the page's Space-scroll / Ctrl-modifier is untouched elsewhere — and never
     // on a key typed into a field, Find's box among them, which is the field's,
-    // nor one the canvas has heard itself; window blur and pointer-leave clear a
-    // stuck override.
+    // nor one the canvas has heard itself, nor one from a layer portaled out of
+    // the frame — a popover, a menu, a Chooser's list — which is the layer's
+    // (`keyIsCanvas`); window blur and pointer-leave clear a stuck override.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
-            if (!hoveredRef.current || e.defaultPrevented || typedInto(e.target)) return;
+            if (!hoveredRef.current || e.defaultPrevented || typedInto(e.target) || !keyIsCanvas(canvasRef.current, e.target)) return;
             // preventDefault on EVERY Space (incl. auto-repeat) so the page never
             // scrolls while panning; only the first sets the tool.
             if (e.code === "Space") { e.preventDefault(); if (!e.repeat) setTempTool("select"); }
@@ -2038,7 +2072,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             else if (e.key === "Escape") {
                 onRefused(undefined);
                 if (moveDragRef.current !== null) { moveDragRef.current = null; setDragMoves(NO_MOVES); }
-                else if (connectDragRef.current !== null) { connectDragRef.current = null; setConnectDraft(null); }
+                else if (connectDragRef.current !== null || handlePressRef.current !== null) { connectDragRef.current = null; handlePressRef.current = null; setConnectDraft(null); }
                 else if (selStartRef.current !== null) { selStartRef.current = null; setBoxDrag(null); }
                 else if (linkSessionRef.current !== undefined) endLinkSession();
                 else if (renderSnapRef.current.selection.selected.size > 0
