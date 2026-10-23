@@ -16,7 +16,7 @@
  * 1080 × 540 px at the client origin.
  */
 
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
@@ -38,6 +38,9 @@ const compareString = compareFor(StringType);
 
 /** The rail's key over the floor Find searches. */
 const FLOOR = "schematic.find.floor";
+
+/** Longer than a fly takes (350 ms): run on the test's clock, it lands. */
+const FLY_MS = 400;
 
 /**
  * The data centre's floor, its racks read through their source of the rail by owner, a narrowed-out rack hidden — the
@@ -127,10 +130,18 @@ test("a rack the rail hides is listed hidden; its pick flies where it stands and
     await typeIntoFind(container, "A03");
     await waitFor(() => expect(lines()).toEqual(["A03 · Rack · hidden"]), { timeout: 5_000 });
     const input = findBox(container).querySelector<HTMLInputElement>("input")!;
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(foundNotice(container)?.textContent).toBe("A03 is hidden by the filters Clear filters"));
-    // The camera flies in to where it stands, and nothing is drawn there selected.
-    await waitFor(() => expect(Number(layer()!.style.getPropertyValue("--cam-ppu"))).toBeGreaterThan(fitted * 1.5));
+    // The camera flies over animation frames: the test runs them on a clock of its own, so it lands however busy the
+    // machine running it is.
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(foundNotice(container)?.textContent).toBe("A03 is hidden by the filters Clear filters"));
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+    } finally {
+        vi.useRealTimers();
+    }
+    // The camera has flown in to where it stands, and nothing is drawn there selected.
+    expect(Number(layer()!.style.getPropertyValue("--cam-ppu"))).toBeGreaterThan(fitted * 1.5);
     expect(card(container, "racks", "A03")).toBeNull();
     expect(container.querySelector("[data-card-key][data-selected]")).toBeNull();
     // Clear filters: the racks all draw again, A03 selected, and the footer says nothing of it.
