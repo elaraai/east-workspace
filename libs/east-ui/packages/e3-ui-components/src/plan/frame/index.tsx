@@ -35,12 +35,14 @@
  *   now line, the pinned rows, the rows — or, below 480px of main, the
  *   narrow layout's tabs and cards — the links and the overlays;
  * - **the footer** — the event kinds' counts (the events in the window, the
- *   backlog, and when a kind's record was last saved), the changes waiting on
- *   Save, the author's items, and a paged canvas's shared loading line, which
- *   says what of its source is read (#1398) — live under the cold-load
- *   skeleton, which covers the rest of the frame at the rows' pitch until the
- *   source's first window lands; after it a read in flight covers nothing,
- *   and main is busy;
+ *   backlog, and when a kind's record was last saved; "…" until their first
+ *   read lands, never 0), the changes waiting on Save, the author's items, and
+ *   a paged canvas's shared loading line, which says what of its source the
+ *   view waits for (#1398) — live under the cold-load skeleton, which covers
+ *   the rest of the frame at the rows' pitch until the source's first window
+ *   lands; after it a read in flight covers nothing, and main is busy. The
+ *   line and the runs' placeholders show on the Plan's one reveal clock
+ *   (`LoadingReveal`, CL4);
  * - **the overlaps** (#1198, PB51–PB53) — read with the counts: two events of
  *   a kind that warns of them, on one resource at once. Each event in a pair
  *   wears the warn ring on the canvas, the toolbar's chip counts the pairs and
@@ -94,7 +96,7 @@ import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPaylo
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
-import { recordSliceNoun } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import type { KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import { usePlanCanvas } from "../canvas.js";
@@ -108,7 +110,7 @@ import { PlanFooter, type PlanSaveNotice } from "../shell/Footer.js";
 import type { PlanRootValue } from "../model.js";
 import { PlanOverlapsContext } from "../rows/element-overlap.js";
 import { usePlanWords, useResolvedPlanWords } from "../words.js";
-import { PlanKindsReader, type PlanKindsRead, type PlanOverlaps } from "./counts.js";
+import { PlanKindsReader, type PlanBacklogEntry, type PlanKindsRead, type PlanOverlaps } from "./counts.js";
 import { NONE_HIDDEN, hiddenOf, rowsHiddenOf } from "./hidden.js";
 import { NO_INSPECTED, PlanSelectionReader, usePlanInspector, usePlanInspectorSelection, type PlanInspectedEvent } from "./inspector.js";
 import { tabLibrary, usePlanLibrary, type PlanPickValue } from "./library.js";
@@ -190,6 +192,9 @@ const NO_NOTICES: readonly PlanSaveNotice[] = [];
 
 /** What the event kinds read before their first read answers: no counts, and the rail hides nothing of the backlog. */
 const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [], hidden: undefined, clear: undefined } };
+
+/** No unscheduled event: a Plan with no event kinds. */
+const NO_UNSCHEDULED: readonly PlanBacklogEntry[] = [];
 
 const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
@@ -372,7 +377,9 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const counts = kinds.length > 0 ? kindsRead.counts : undefined;
     const start = usePlanLibrary({
         library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
-        unscheduled: counts?.unscheduled, takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
+        // A Plan with no event kinds reads no backlog: there is nothing to wait for.
+        unscheduled: kinds.length === 0 ? NO_UNSCHEDULED : counts?.unscheduled,
+        takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
         followed, backlogNarrowing: kindsRead.backlog,
     });
     // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
@@ -456,13 +463,16 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         }
         return out.length === 0 ? NO_NOTICES : out;
     }, [rowsPart, eventParts, m, words.locale]);
-    // What the loading line names the rows by: what the rail counts them in (#1398).
-    const rowsSource = chrome?.slices?.slice.parts.find((part) => stringEqual(part.source, ROWS_SOURCE));
-    const rowsNoun = rowsSource !== undefined && chrome !== undefined ? recordSliceNoun(rowsSource, chrome.nouns, words.locale) : m.saveNoticeNoun({ kind: undefined, n: 2 });
+    // What the footer's counts say before the event kinds' first read lands (#1398, CL13): "…", never 0.
+    const kindsUnread = kinds.length > 0 && kindsRead.counts === undefined;
     const footer = chrome !== undefined
-        ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport} noun={rowsNoun}
-            counts={counts} pending={session?.pending} notices={notices} />
+        ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport} noun={chrome.rowsNoun}
+            counts={counts} unread={kindsUnread} pending={session?.pending} notices={notices} />
         : undefined;
+    // The Plan's one reveal clock (#1398, CL4): the footer's line and the runs' placeholders show once a read the view
+    // waits for has passed the delay, and are held once shown — a flip renders them, never the frame.
+    const loading = chrome?.transport?.loading;
+    const waiting = loading !== undefined && loading.kind !== "failed";
     return (
         <Box css={styles.frame} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}
             style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }}>
@@ -473,23 +483,25 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
             {inspector && (
                 <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events} onRead={setSelected} />
             )}
-            <BuilderFrame
-                storageKey={keys.frame}
-                toolbar={toolbar}
-                banners={banners}
-                start={start}
-                end={end}
-                footer={footer}
-                // A paged source's cold load is the frame's skeleton at the rows' pitch, its footer live and saying what
-                // is read; after it, a read in flight covers nothing, and main is busy (#1398).
-                loading={chrome?.cold}
-                busy={chrome?.busy}
-                loadingPitch={chrome?.pitch}
-                liveFooter
-                onKeyDown={onKeyDown}
-            >
-                <PlanOverlapsContext.Provider value={overlapKeys}>{main}</PlanOverlapsContext.Provider>
-            </BuilderFrame>
+            <LoadingReveal waiting={waiting}>
+                <BuilderFrame
+                    storageKey={keys.frame}
+                    toolbar={toolbar}
+                    banners={banners}
+                    start={start}
+                    end={end}
+                    footer={footer}
+                    // A paged source's cold load is the frame's skeleton at the rows' pitch, its footer live and saying
+                    // what is read; after it, a read the view waits for covers nothing, and main is busy (#1398).
+                    loading={chrome?.cold}
+                    busy={chrome?.busy}
+                    loadingPitch={chrome?.pitch}
+                    liveFooter
+                    onKeyDown={onKeyDown}
+                >
+                    <PlanOverlapsContext.Provider value={overlapKeys}>{main}</PlanOverlapsContext.Provider>
+                </BuilderFrame>
+            </LoadingReveal>
         </Box>
     );
 }

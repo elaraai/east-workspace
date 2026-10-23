@@ -368,7 +368,9 @@ describe("paged canvases (#819)", () => {
         expect(item(container, "b:0:tail").getAttribute("role")).toBe("row");
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("800");
-        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 201–600");
+        // No caption in the gap (#1398, CL3): the run's rows are placeholders, hidden from a reader; it is busy.
+        expect(item(container, "b:0:tail").textContent).toBe("");
+        expect(item(container, "b:0:tail").querySelectorAll("[data-run-row]:not([aria-hidden='true'])")).toHaveLength(0);
         expect(item(container, "b:0:tail").getAttribute("aria-busy")).toBe("true");
         act(() => {
             held.state.openUpTo = 2;
@@ -379,8 +381,8 @@ describe("paged canvases (#819)", () => {
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("49");
         // The canvas's own region says nothing of a window landing: a page is no announcement.
         expect(announced(container)).not.toMatch(/load/i);
-        // Nothing the band covers is in flight now: it says how many elements it holds.
-        expect(item(container, "b:0:tail").textContent).toBe("400 more elements — scroll to load");
+        // Nothing the band covers is in flight now: it is not busy, and still says nothing.
+        expect(item(container, "b:0:tail").textContent).toBe("");
         expect(item(container, "b:0:tail").hasAttribute("aria-busy")).toBe(false);
         // The footer's line goes once its hold is over.
         await waitFor(() => expect(footerLine(container).hasAttribute("data-idle")).toBe(true));
@@ -578,17 +580,18 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         press("ArrowDown");
         expect(focusedItem()).toBe("b:0:tail");
         expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("800");
-        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 201–800");
+        expect(item(container, "b:0:tail").getAttribute("aria-busy")).toBe("true");
         act(() => {
             held.state.openUpTo = 2;
             held.fire("w1");
         });
         // Windows 1 and 2 land where the band's top was; focus goes on to the
-        // first. The band is loading window 3 still — and says just that.
+        // first. The band is loading window 3 still: busy, saying nothing (#1398, CL3).
         await waitFor(() => expect(focusedItem()).toBe("r:w1r00"));
         expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("400");
-        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 601–800");
+        expect(item(container, "b:0:tail").getAttribute("aria-busy")).toBe("true");
+        expect(item(container, "b:0:tail").textContent).toBe("");
     });
 
     test("End reaches the source's last row and Home its first — across the unloaded run", async () => {

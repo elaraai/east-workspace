@@ -65,11 +65,22 @@
  * FROM the ledger): the window under the scrollbar thumb resolves through
  * {@link elementAtOffset}, and a far drag rebases instead of walking.
  *
- * # Demand is idle-gated
+ * # Demand follows intent
  *
- * Nothing is fetched or evicted while the user is mid-gesture. The extent is
- * therefore constant for the whole of a drag, so the thumb cannot move under
- * the cursor.
+ * Nothing is fetched or evicted while the view flies past: the frame reports
+ * a scroll at rest once it shows intent — held still 100 ms, a scrollbar
+ * drag's pause among them, or slowed below a viewport per 200 ms (#1398, CL6)
+ * — so a fling asks for the window it slows over before the gesture ends. Each
+ * block reads ahead the way its viewport travels, two windows ahead and one
+ * behind (`travelOf`).
+ *
+ * # What the view waits for
+ *
+ * The footer's loading line and the frame's busy follow the windows the view
+ * shows — each row's in the reported range, a run's nearest its rows, the
+ * window under the view and a jump's target (`viewLoading`) — never a window
+ * read ahead of it, which nothing on screen waits for (#1398). Settled with
+ * the rest, so a landing says it in the commit that draws it.
  *
  * # A jump owns the viewport (#812)
  *
@@ -122,7 +133,7 @@ import { Plan } from "@elaraai/e3-ui/internal";
 import {
     createTrackedRead, createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, elementsIn,
     slotHeight, type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY, advance, isEmpty, residentWindows, pin, unpinAll,
-    snapshotOf, type Residency, type ResidencyOptions,
+    snapshotOf, travelOf, type Residency, type ResidencyOptions, type Travel,
 } from "@elaraai/east-ui-components/internal";
 import { keyAcrossBlocks, type PlanBand, type PlanRowValue, type PlanWindowFailure, type WindowSkeleton } from "../model.js";
 import type { RowKey } from "../plan-state.js";
@@ -211,8 +222,13 @@ export interface PlanPagingSnapshot {
     /** Whether every paged block holds every element — the source's rows are
      *  all on the canvas, so no count on it is partial. */
     complete: boolean;
-    /** Whether a requested window is still in flight. */
+    /** Whether a requested window is still in flight — one the view shows, or one read ahead of it. */
     loading: boolean;
+    /**
+     * Whether a window the view shows is in flight (#1398): what the footer's loading line and the frame's busy
+     * follow — never a window read ahead of the view, which nothing on screen waits for.
+     */
+    viewLoading: boolean;
     /** The elements being read (#1398, CL3): of the bands of the block the
      *  viewport is in, the loading span nearest it — what the footer's loading
      *  line names; `undefined` while none is, or before the source's count. */
@@ -246,7 +262,7 @@ const NO_BLOCKS: readonly PlanPagedBlock[] = [];
 /** The snapshot of a driver with no source (an inline canvas). */
 export const IDLE_PAGING: PlanPagingSnapshot = {
     seq: 0, rows: NO_ROWS, origin: NO_ORIGIN, blocks: NO_BLOCKS,
-    total: undefined, resident: undefined, complete: true, loading: false, reading: undefined, replacing: false,
+    total: undefined, resident: undefined, complete: true, loading: false, viewLoading: false, reading: undefined, replacing: false,
     failures: NO_FAILURES, sourceError: undefined, revision: undefined, dataSnapshot: undefined,
 };
 
@@ -375,6 +391,10 @@ interface Lane {
     /** The element the viewport was last centred on, within this block — what
      *  its run is anchored nearest (#876). */
     viewportAt: number;
+    /** Which way the viewport travels through this block's windows, and the window it was in when the demand last
+     *  moved (#1398, CL6): the demand reads ahead that way. */
+    travel: Travel;
+    travelAt: number;
     /** The run the last settle drew (#876) — where its bands start and end. */
     run: Run;
     /** Every window this block has seen: which read its skeleton was taken
@@ -505,6 +525,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     // The block the viewport was last reported in — what the transport counts.
     let focusBlock = 0;
     let isScrolling = false;
+    // The windows the view last said it shows (#1398): what `viewLoading` follows; none said, any window in flight.
+    let viewShows: readonly number[] | undefined;
     let last: ReadOutcome = NOTHING_READ;
     let snapshot: PlanPagingSnapshot = IDLE_PAGING;
     // A different narrowing has different positions. Keep the previous view as
@@ -531,6 +553,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             residency: from?.residency ?? NO_RESIDENCY,
             viewportWindow: from?.viewportWindow ?? 0,
             viewportAt: from?.viewportAt ?? 0,
+            travel: from?.travel ?? 1,
+            travelAt: from?.travelAt ?? 0,
             run: from?.run ?? NO_RUN,
             skeletons: new Map(),
         };
@@ -626,6 +650,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         located.clear();
         focusBlock = 0;
         isScrolling = false;
+        viewShows = undefined;
         unpinEvery();
     }
 
@@ -814,7 +839,10 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                     demanded = true;
                 }
             } else if (!isScrolling) {
-                const next = advance(lane.residency, lane.ledger, lane.viewportWindow, policy);
+                // Read ahead the way the viewport travels (#1398, CL6).
+                lane.travel = travelOf(lane.travelAt, lane.viewportWindow, lane.travel);
+                lane.travelAt = lane.viewportWindow;
+                const next = advance(lane.residency, lane.ledger, lane.viewportWindow, policy, lane.travel);
                 if (next !== lane.residency) {
                     lane.residency = next;
                     demanded = true;
@@ -958,7 +986,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         if (transition !== undefined) {
             if (cache.size === 0 && last.total !== 0 && last.failed.length === 0 && last.sourceError === undefined) {
                 if (!snapshot.loading || snapshot.rows !== transition.rows) {
-                    snapshot = { ...transition, seq: ++published, loading: true, complete: false, reading: undefined, replacing: true };
+                    snapshot = { ...transition, seq: ++published, loading: true, viewLoading: true, complete: false, reading: undefined, replacing: true };
                     options.onChange();
                 }
                 return;
@@ -1010,6 +1038,12 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         }
         failures.sort((a, b) => a.w - b.w);
         const reading = readingOf(focus, (focus === undefined ? undefined : lanes.get(focus.index)?.viewportAt) ?? 0);
+        // What the view waits for (#1398): a window in flight it shows — one the range showed, the window under the
+        // view, a jump's target — never one read ahead of it; with nothing said of what it shows, any.
+        const under = focus === undefined ? undefined : lanes.get(focus.index)?.viewportWindow;
+        const pins = pinnedWindows();
+        const viewLoading = viewShows === undefined ? last.inFlight.length > 0
+            : last.inFlight.some((w) => viewShows!.includes(w) || w === under || pins.includes(w));
         const next: PlanPagingSnapshot = {
             seq: prev.seq,
             rows: assembled.rows,
@@ -1019,6 +1053,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             resident: sameResident(prev.resident, focus?.resident) ? prev.resident : focus?.resident,
             complete,
             loading: last.inFlight.length > 0,
+            viewLoading,
             reading: sameLoading(prev.reading, reading) ? prev.reading : reading,
             replacing: false,
             failures: failures.length === 0 ? NO_FAILURES
@@ -1029,7 +1064,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         };
         const changed = next.rows !== prev.rows || next.origin !== prev.origin || next.blocks !== prev.blocks
             || next.total !== prev.total || next.resident !== prev.resident || next.complete !== prev.complete
-            || next.loading !== prev.loading || next.reading !== prev.reading || next.replacing !== prev.replacing
+            || next.loading !== prev.loading || next.viewLoading !== prev.viewLoading || next.reading !== prev.reading
+            || next.replacing !== prev.replacing
             || next.failures !== prev.failures || next.sourceError !== prev.sourceError
             || next.revision !== prev.revision || next.dataSnapshot !== prev.dataSnapshot;
         if (!changed) return;
@@ -1136,6 +1172,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         reportViewport(at, scrolling) {
             if (transition !== undefined) return;
             isScrolling = scrolling;
+            // What the view shows is the view's, a jump pending or not: the line follows it (#1398).
+            viewShows = at.shows;
             // A jump owns the viewport until its window settles (#812). The
             // canvas cannot scroll to a row that has not landed, so every report
             // until then is taken from where the canvas still IS — and demanding

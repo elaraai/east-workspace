@@ -36,7 +36,9 @@
  *   selects a card, and a click on the selected card lets it go (PB62).
  * - An empty tab says so (PB30), in the shared empty state; collapsed, the
  *   pane is a rail with the backlog's count, or the first tab's when the
- *   library lists no Backlog tab (PB26).
+ *   library lists no Backlog tab (PB26). Until its kinds' first read lands the
+ *   Backlog tab — and the rail — counts "…", over placeholder cards: never
+ *   "Backlog clear", never 0 (#1398, CL13).
  *
  * Each tab follows its source of the Plan's slice (#1344), as the Calendar's
  * do: the Events tab each templates list's, by template key; the Backlog its
@@ -69,7 +71,7 @@ import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined,
     type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
 } from "@elaraai/east-ui-components";
-import { SliceDensityContext, narrowedCount } from "@elaraai/east-ui-components/internal";
+import { PlaceholderCard, SliceDensityContext, narrowedCount } from "@elaraai/east-ui-components/internal";
 import { scheduleLibraryCard as card, scheduleLibrary as libraryOf } from "../../shared/schedule/library.js";
 import { DUE_GROUPS, dueGroupOf, durationMinutes, type DueGroup } from "../../shared/schedule/due.js";
 import type { BacklogNarrowing } from "../../shared/schedule/backlog.js";
@@ -116,6 +118,10 @@ const LIBRARY_SIZE = "272px";
 
 /** No unscheduled event. */
 const NO_BACKLOG: readonly PlanBacklogEntry[] = [];
+
+/** The placeholder cards the Backlog tab holds until its kinds' first read lands (#1398, CL13), at a backlog card's height. */
+const PENDING_CARDS = [0, 1, 2] as const;
+const PENDING_CARD_PX = 64;
 
 /** The rail hides nothing of the backlog. */
 const NO_BACKLOG_NARROWING: BacklogNarrowing<PlanEventPart> = { narrowing: [], hidden: undefined, clear: undefined };
@@ -301,9 +307,12 @@ function tabBody(styles: Record<string, Record<string, unknown>>, tab: string, p
  */
 export function usePlanLibrary({
     library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards,
-    unscheduled = NO_BACKLOG, takesEvents = false, patchKinds = NO_PATCH_KINDS, followed = NONE_FOLLOWED, backlogNarrowing = NO_BACKLOG_NARROWING,
+    unscheduled: read, takesEvents = false, patchKinds = NO_PATCH_KINDS, followed = NONE_FOLLOWED, backlogNarrowing = NO_BACKLOG_NARROWING,
 }: PlanLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
+    // The kinds' unscheduled events once their first read lands (#1398, CL13): until then the tab knows nothing.
+    const backlogRead = read !== undefined;
+    const unscheduled = read ?? NO_BACKLOG;
     const styles = useSlotRecipe({ key: "plan" })() as Record<string, Record<string, unknown>>;
     const noun = useCallback((tab: PlanLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
     const empty = useCallback((tab: PlanLibraryTabWord, name: string): LibraryEmpty => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
@@ -494,6 +503,15 @@ export function usePlanLibrary({
                                 narrowing={narrowingOf(templatesFollow.narrowing, "events", "", words)} />
                         )) };
                 case "backlog":
+                    // Before its kinds' first read lands: "…" over placeholder cards — never "Backlog clear" or 0 (#1398, CL13).
+                    if (!backlogRead) {
+                        return { key: "backlog", label: m.libraryTab({ tab: "backlog" }), count: "…", shown: undefined,
+                            body: tabBody(styles, "backlog", { "aria-busy": true }, (
+                                <Box css={styles.libraryPending} data-plan-backlog="pending" aria-hidden="true">
+                                    {PENDING_CARDS.map((i) => <PlaceholderCard key={i} height={PENDING_CARD_PX} index={i} />)}
+                                </Box>
+                            )) };
+                    }
                     return { key: "backlog", label: m.libraryTab({ tab: "backlog" }), count: backlogFollow.count, shown: backlog.items.length,
                         body: tabBody(styles, "backlog", {}, (
                             <EastChakraLibrary value={backlog} storageKey={`${keys.library}.backlog`} empty={empty("backlog", "")} narrowing={backlogFollow.narrowing} />
@@ -524,14 +542,15 @@ export function usePlanLibrary({
                 }
             }
         });
-        // Collapsed, the rail counts the backlog — or, with no Backlog tab, the first tab's cards (PB26): what each shows.
+        // Collapsed, the rail counts the backlog — or, with no Backlog tab, the first tab's cards (PB26): what each shows;
+        // "…" until the backlog's first read lands.
         return {
             label: m.libraryPane(),
             icon: "layer-group",
-            badge: listsBacklog ? backlog.items.length : tabs[0]!.shown,
+            badge: listsBacklog ? (backlogRead ? backlog.items.length : "…") : tabs[0]!.shown,
             size: LIBRARY_SIZE,
             persist: "local",
             tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
-    }, [library, m, words, templates, templatesFollow, backlog, backlogFollow, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles]);
+    }, [library, m, words, templates, templatesFollow, backlog, backlogFollow, backlogRead, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles]);
 }
