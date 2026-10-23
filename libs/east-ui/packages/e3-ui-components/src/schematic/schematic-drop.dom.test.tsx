@@ -35,7 +35,7 @@ import { Data, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
-import { at, card, layOutCanvas, tap } from "./schematic.test-utils.js";
+import { at, card, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -144,9 +144,6 @@ async function enter(cardEl: HTMLElement): Promise<void> {
 /** A footer line, by its attribute; `undefined` while there is none. */
 const footer = (container: HTMLElement, attribute: string) => slot(container, "footer").querySelector(`[${attribute}]`)?.textContent ?? undefined;
 
-/** The changes waiting on Save, as the footer says them. */
-const pending = (container: HTMLElement) => footer(container, "data-schematic-pending");
-
 /** Why the last gesture was refused, as the footer says it. */
 const refused = (container: HTMLElement) => footer(container, "data-schematic-refused");
 
@@ -211,11 +208,11 @@ test("a rack template dropped on the floor adds a rack where it lands, its key m
     expect(added.kind).toBe("racks");
     expect(added.key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
     await waitFor(() => expect(card(container, "racks", added.key)?.hasAttribute("data-selected")).toBe(true));
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     // One step: Undo takes it back whole.
     await history(container, UNDO);
     expect(card(container, "racks", added.key)).toBeNull();
-    expect(pending(container)).toBeUndefined();
+    expect(unsaved(container)).toBe(false);
     await act(async () => { fireEvent.keyDown(canvasOf(container), { key: "z", metaKey: true, shiftKey: true }); });
     await settle();
     await waitFor(() => expect(card(container, "racks", added.key)).not.toBeNull());
@@ -261,7 +258,7 @@ test("a fibre template dropped on a run writes its values over it, never its end
     const stored = await h.read(ex.schematicFibre);
     await release(9.6, 6.0);
     expect(announced()).toBe("Out-of-band management was dropped on A03 → ODF-1.");
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     await history(container, SAVE);
     const saved = await h.read(ex.schematicFibre);
     expect([...saved.keys()]).toEqual([...stored.keys()]);
@@ -329,12 +326,12 @@ test("⏎ on an owner's card sets it on the selected rack — on every selected 
     await openTab(container, "Owners");
     await enter(libraryCard(container, "northwind"));
     expect(refused(container)).toBe("Drop onto a rack");
-    expect(pending(container)).toBeUndefined();
+    expect(unsaved(container)).toBe(false);
     // A02, Harbour Labs', selected: ⏎ hands it to Northwind Media, the footer's line goes.
     await tap(canvas, PPU, 6.0, 2.9);
     await enter(libraryCard(container, "northwind"));
     expect(refused(container)).toBeUndefined();
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     // A04, Northwind Media's, and A05, Elmway College's, selected — a tap and a Shift-tap: ⏎ hands both to Harbour Labs, one step.
     await tap(canvas, PPU, 13.2, 2.9);
     await act(async () => {
@@ -343,11 +340,15 @@ test("⏎ on an owner's card sets it on the selected rack — on every selected 
     });
     await waitFor(() => expect(keptSelection()).toHaveLength(2));
     await enter(libraryCard(container, "harbour"));
-    expect(pending(container)).toBe("3 pending");
+    // Two steps in all, A02's and the pair's: one Undo leaves A02's waiting, a second leaves nothing; Redo puts both back.
     await history(container, UNDO);
-    expect(pending(container)).toBe("1 pending");
-    await act(async () => { fireEvent.keyDown(canvas, { key: "z", metaKey: true, shiftKey: true }); });
-    await settle();
+    expect(unsaved(container)).toBe(true);
+    await history(container, UNDO);
+    expect(unsaved(container)).toBe(false);
+    for (let i = 0; i < 2; i++) {
+        await act(async () => { fireEvent.keyDown(canvas, { key: "z", metaKey: true, shiftKey: true }); });
+        await settle();
+    }
     const stored = await savedRacks();
     await history(container, SAVE);
     const saved = await savedRacks();
@@ -388,12 +389,12 @@ test("on a touch screen a tap on the selected card does what ⏎ does, and leave
     };
     // The first tap selects a card; a tap on another moves the selection: nothing dropped yet.
     await touch("elmway");
-    expect([picked(), pending(container)]).toEqual([["elmway"], undefined]);
+    expect([picked(), unsaved(container)]).toEqual([["elmway"], false]);
     await touch("northwind");
-    expect([picked(), pending(container)]).toEqual([["northwind"], undefined]);
+    expect([picked(), unsaved(container)]).toEqual([["northwind"], false]);
     // A tap on the selected card drops it on the selected rack, A02, and leaves it selected.
     await touch("northwind");
-    expect([picked(), pending(container)]).toEqual([["northwind"], "1 pending"]);
+    expect([picked(), unsaved(container)]).toEqual([["northwind"], true]);
     const stored = await savedRacks();
     await history(container, SAVE);
     expect(rackEqual((await savedRacks()).get("A02")!, { ...stored.get("A02")!, owner: "Northwind Media" })).toBe(true);

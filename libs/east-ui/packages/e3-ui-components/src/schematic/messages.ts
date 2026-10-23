@@ -7,12 +7,12 @@
  * The Schematic's words (#1387, `Schematic Builder Spec.md` §6) — its frame's:
  * the toolbar's tools, Connect's menu, the zoom, Fit, Find and the steps
  * through the items, the View popover a phone's row folds them into, and what
- * the rail counts a templates list's source in; the footer's counts and each
- * record's last save; the banner over a kind whose read failed, and its
- * Retry; what Find marks an item it found by and what the footer says of one
- * the canvas doesn't show as itself (#1404); the canvas's and the frame's
+ * the rail counts a templates list's source in; what the footer says of a kind
+ * drawn as its density (#1393); the banner over a kind whose read failed, and
+ * its Retry; what Find marks an item it found by and what the footer says of
+ * one the canvas doesn't show as itself (#1404); the canvas's and the frame's
  * accessible names; and its editing's
- * (#1388): the changes waiting on Save, what a Save's notice counts a kind's
+ * (#1388): what a Save's notice counts a kind's
  * rows in, a details record's banners, why a connection's draft doesn't snap
  * or a Delete is refused, and each gesture's step in the history; and its
  * library's (#1389): the pane and its tabs, their cards' lines and nouns, what
@@ -87,16 +87,13 @@ export interface SchematicMessages {
     previousItem: () => string;
     /** The step to the next item. */
     nextItem: () => string;
-    /** An item kind's count in the footer: the items drawn, of its rows — `Rack 5 of 7`; one number while every row draws. */
-    kindCount: (p: { name: string; drawn: SchematicCount; total: SchematicCount | undefined }) => string;
-    /** The zones drawn — `5 zones`. */
-    zoneCount: (p: SchematicCount) => string;
-    /** The links drawn — `6 links`. */
-    linkCount: (p: SchematicCount) => string;
-    /** The nets drawn — `2 nets`. */
-    netCount: (p: SchematicCount) => string;
-    /** When a kind's record was last saved — `Rack saved 14:02`: `when` is its time today, else its date and time. */
-    recordSaved: (p: { name: string; when: string }) => string;
+    /**
+     * What the footer says of a kind drawn as its density in place of items (#1393, D25) — `Density: 20,000 racks — zoom
+     * in to draw them`: how many rows it shades in the view, `about` that many where the count is an estimate, and
+     * `unfiltered` where the filters the index doesn't lead are not applied to it; `name` is the kind's, as running text
+     * writes it.
+     */
+    densityNotice: (p: SchematicCount & { name: string; about: boolean; unfiltered: boolean }) => string;
     /** What the rail counts a templates list's source in — `rack templates`: `name` is its kind's, as running text writes it. */
     templatesNoun: (p: { name: string }) => string;
     /** The banner over a kind whose read failed — `Rack rows could not be read`; `name` is the kind's. */
@@ -105,8 +102,6 @@ export interface SchematicMessages {
     drawingUnavailable: () => string;
     /** The banner's button, which reads again. */
     retry: () => string;
-    /** The changes waiting on Save, every record's — `3 pending` (#1388). */
-    pending: (p: SchematicCount) => string;
     /**
      * What a Save's notice counts a kind's rows in, a row or several (`RecordSliceSaveNotice`): `name` is the
      * kind's, as running text writes it — `rack`, `racks`.
@@ -349,16 +344,12 @@ export const schematicMessages: SchematicMessages = {
     stepLabel: () => "Step through items",
     previousItem: () => "Previous item",
     nextItem: () => "Next item",
-    kindCount: ({ name, drawn, total }) => (total === undefined || total.n === drawn.n ? `${name} ${drawn.count}` : `${name} ${drawn.count} of ${total.count}`),
-    zoneCount: ({ n, count }) => `${count} ${plural(n, "zone", "zones")}`,
-    linkCount: ({ n, count }) => `${count} ${plural(n, "link", "links")}`,
-    netCount: ({ n, count }) => `${count} ${plural(n, "net", "nets")}`,
-    recordSaved: ({ name, when }) => `${name} saved ${when}`,
+    densityNotice: ({ n, count, name, about, unfiltered }) =>
+        `Density: ${about ? "about " : ""}${count} ${plural(n, name, `${name}s`)}${unfiltered ? ", the filters not applied" : ""} — zoom in to draw ${plural(n, "it", "them")}`,
     templatesNoun: ({ name }) => `${name} templates`,
     kindUnavailable: ({ name }) => `${name} rows could not be read`,
     drawingUnavailable: () => "The drawing could not be read",
     retry: () => "Retry",
-    pending: ({ count }) => `${count} pending`,
     kindNoun: ({ name, plural }) => (plural ? `${name}s` : name),
     detailsName: ({ name }) => `${name} details`,
     endRefused: ({ kind, end, item }) => `${kind} can't ${end === "start" ? "start" : "end"} at ${item}`,

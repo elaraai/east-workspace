@@ -5,66 +5,33 @@
 
 /**
  * The Schematic's footer (#1387, `Schematic Builder Spec.md` §6.3), on the
- * shared builder rail (`builder-footer.ts`): the counts (`counts.ts`) — each
- * item kind's items drawn of its rows (`Rack 5 of 7`: two are unplaced,
- * narrowed out or on a hidden layer), the zones drawn, the links drawn and the
- * nets drawn, each where the Schematic has a kind of them — and each record's
- * last save, as its commits say it; the changes waiting on Save, every
- * record's (#1388); each Save's notice, the rows it took out of a source's
- * narrowing (`RecordSliceSaveNotice`); and why the last gesture was refused,
- * until one is recorded — a Delete a read-only link or net blocks, and later a
- * drop or an inspector edit (#1390, #1391); and where Find's last pick landed
- * on an item the canvas doesn't show as itself, why — the rail's filters, with
- * Clear filters; its layer; no position (#1404). Each item is its own on the rail,
- * so the rail wraps item by item where main is narrow (`useRailWrap`).
- *
- * A kind's rows are its record's: a kind read whole counts the rows its read
- * holds, and one read through its source of the slice counts its record's
- * total, which its source reads.
+ * shared builder rail (`builder-footer.ts`): only what is live (ruled 23 Oct
+ * 2026) — each kind drawn as its density in place of items (#1393, D25): how
+ * many rows it shades in the viewport where it rests (`densityInView`), and
+ * that zooming in draws them; why the last gesture was refused, until one is
+ * recorded — a Delete a read-only link or net blocks, a drop, an inspector
+ * edit (#1390, #1391); each Save's notice, the rows it took out of a source's
+ * narrowing (`RecordSliceSaveNotice`); and where Find's last pick landed on
+ * an item the canvas doesn't show as itself, why — the rail's filters, with
+ * Clear filters; its layer; no position (#1404). With nothing live the rail is
+ * empty. The drawing's counts and each record's last save are the
+ * inspector's, in its Details with nothing selected (`counts.ts`), and the
+ * changes waiting on Save the history's. Each item is its own on the rail, so
+ * the rail wraps item by item where main is narrow (`useRailWrap`).
  *
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useMemo, useRef, useSyncExternalStore } from "react";
 import { Box, Button, type SystemStyleObject } from "@chakra-ui/react";
-import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
+import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
 import { useRailWrap } from "../shared/schedule/footer.js";
-import type { SchematicCounts } from "./counts.js";
-import type { SchematicValue } from "./data.js";
+import { densityInView, type SchematicDensity, type SchematicViewportStore } from "./area.js";
 import type { SchematicWords } from "./messages.js";
 
 type Styles = Record<string, SystemStyleObject>;
-
-const stringEqual = equalFor(StringType);
-
-/** A record's commits, newest first, as a kind's `history` reads them. */
-type History = Extract<SchematicValue["items"][number]["history"], { type: "some" }>["value"];
-
-/** A kind's record whose commits say when it was last saved: one bound with its patch door. */
-export interface SchematicSavedRecord {
-    /** The kind's slot. */
-    readonly slot: string;
-    /** The kind's name (`Rack`). */
-    readonly name: string;
-    /** Its record's commits, newest first. */
-    readonly history: History;
-}
-
-/**
- * The kinds whose records say when they were last saved: each bound with its
- * patch door, whose commits it reads — in the Schematic's order of its sorts,
- * items, zones, links and nets.
- *
- * @param value - The payload
- * @returns Each such kind's record
- */
-export function savedRecords(value: SchematicValue): SchematicSavedRecord[] {
-    return [...value.items, ...value.zones, ...value.links, ...value.nets]
-        .flatMap((kind) => (kind.history.type === "some" ? [{ slot: kind.key, name: kind.name, history: kind.history.value }] : []));
-}
 
 /** A kind read through its source that writes: what its Save's notice counts the rows it took out of the narrowing in. */
 export interface SchematicNotice {
@@ -78,33 +45,6 @@ export interface SchematicNotice {
     readonly plural: string;
 }
 
-/** Props of {@link SchematicFooter}. */
-export interface SchematicFooterProps {
-    /** The `schematic` recipe's styles. */
-    readonly styles: Styles;
-    /** The Schematic's words. */
-    readonly words: SchematicWords;
-    /** What it counts. */
-    readonly counts: SchematicCounts;
-    /** How many rows each kind read whole holds, by its slot. */
-    readonly rows: ReadonlyMap<string, number>;
-    /** Each item kind's source of the slice, by its slot: whose record's total is the kind's rows. */
-    readonly sources: ReadonlyMap<string, ValueTypeOf<RecordSliceBindType>>;
-    /** The kinds' records whose commits say when each was last saved. */
-    readonly records: readonly SchematicSavedRecord[];
-    /** The changes waiting on Save, every record's; `undefined` where no record is edited. */
-    readonly pending: number | undefined;
-    /** Each kind read through its source that writes: its Save's notice. */
-    readonly notices: readonly SchematicNotice[];
-    /** Why the last gesture was refused; `undefined` once one is recorded, or for none. */
-    readonly refusal: string | undefined;
-    /**
-     * What keeps the item Find's last pick landed on from the canvas as itself (#1404) — the rail's filters, with their
-     * Clear filters; its layer; no position — or `undefined` while nothing does.
-     */
-    readonly found?: SchematicFoundNotice | undefined;
-}
-
 /** What the footer says of the item Find's last pick landed on, where the canvas doesn't show it as itself. */
 export interface SchematicFoundNotice {
     /** Its words: `A07 is hidden by the filters`. */
@@ -113,78 +53,54 @@ export interface SchematicFoundNotice {
     readonly clear: (() => void) | undefined;
 }
 
+/** Props of {@link SchematicFooter}. */
+export interface SchematicFooterProps {
+    /** The `schematic` recipe's styles. */
+    readonly styles: Styles;
+    /** The Schematic's words. */
+    readonly words: SchematicWords;
+    /** Each kind read by area drawing its density in place of items, by its slot (D25). */
+    readonly density: ReadonlyMap<string, SchematicDensity>;
+    /** Each kind's name, by its slot. */
+    readonly names: ReadonlyMap<string, string>;
+    /** Where the canvas's viewport rests, which the canvas writes as its camera comes to rest: what a density's count is of. */
+    readonly viewport: SchematicViewportStore;
+    /** The drawing's extent, in world units from its origin: where a density's rows lie. */
+    readonly extent: { readonly width: number; readonly height: number };
+    /** Why the last gesture was refused; `undefined` once one is recorded, or for none. */
+    readonly refusal: string | undefined;
+    /** Each kind read through its source that writes: its Save's notice. */
+    readonly notices: readonly SchematicNotice[];
+    /**
+     * What keeps the item Find's last pick landed on from the canvas as itself (#1404) — the rail's filters, with their
+     * Clear filters; its layer; no position — or `undefined` while nothing does.
+     */
+    readonly found?: SchematicFoundNotice | undefined;
+}
+
 /**
  * Renders the footer — see the module docs.
  *
- * @param props - What it counts, where each kind's rows are read from, and each record's commits
- * @returns The footer
+ * @param props - The densities and where the viewport rests, the refusal, the Saves' notices and where Find's last pick landed
+ * @returns The footer: its rail, empty while nothing is live
  */
-export function SchematicFooter({ styles, words, counts, rows, sources, records, pending, notices, refusal, found }: SchematicFooterProps) {
-    // A kind read through its source: its record's total, as its source reads it; and each record's newest commit.
-    // Each read on its own: one that fails leaves the others read.
-    const read = useCallback(() => ({
-        totals: new Map([...sources].map(([slot, part]) => {
-            try {
-                const total = part.total();
-                return [slot, total.type === "some" ? Number(total.value) : undefined] as const;
-            } catch {
-                return [slot, undefined] as const;
-            }
-        })),
-        saved: records.flatMap((record) => {
-            try {
-                const commits = record.history();
-                const newest = commits.type === "some" ? commits.value[0] : undefined;
-                return newest === undefined ? [] : [{ slot: record.slot, name: record.name, at: newest.at }];
-            } catch {
-                return [];
-            }
-        }),
-    }), [sources, records]);
-    const { result } = useTrackedEvaluation(read);
-    const totals = result.ok ? result.value.totals : undefined;
-    const saved = result.ok ? result.value.saved : undefined;
-    // Each line, and what it is: a count by its kind's slot or its sort, or a record's last save by its kind's slot.
-    const lines = useMemo((): { key: string; attribute: Record<string, string>; text: string }[] => {
-        const today = words.date(new Date());
-        return [
-            ...counts.kinds.map((kind) => {
-                const total = sources.has(kind.slot) ? totals?.get(kind.slot) : rows.get(kind.slot);
-                return {
-                    key: `count:${kind.slot}`,
-                    attribute: { "data-schematic-count": kind.slot },
-                    text: words.m.kindCount({
-                        name: kind.name, drawn: { n: kind.drawn, count: words.number(kind.drawn) },
-                        total: total === undefined ? undefined : { n: total, count: words.number(total) },
-                    }),
-                };
-            }),
-            ...(counts.zones === undefined ? [] : [{
-                key: "count:zones", attribute: { "data-schematic-count": "zones" }, text: words.m.zoneCount({ n: counts.zones, count: words.number(counts.zones) }),
-            }]),
-            ...(counts.links === undefined ? [] : [{
-                key: "count:links", attribute: { "data-schematic-count": "links" }, text: words.m.linkCount({ n: counts.links, count: words.number(counts.links) }),
-            }]),
-            ...(counts.nets === undefined ? [] : [{
-                key: "count:nets", attribute: { "data-schematic-count": "nets" }, text: words.m.netCount({ n: counts.nets, count: words.number(counts.nets) }),
-            }]),
-            // Its time when it was today, its date and time otherwise, as the Flowchart's and the Plan's footers say it.
-            ...(saved ?? []).map((save) => ({
-                key: `saved:${save.slot}`,
-                attribute: { "data-schematic-saved": save.slot },
-                text: words.m.recordSaved({ name: save.name, when: stringEqual(words.date(save.at), today) ? words.time(save.at) : words.dateTime(save.at) }),
-            })),
-            ...(pending === undefined || pending === 0 ? [] : [{
-                key: "pending", attribute: { "data-schematic-pending": "" }, text: words.m.pending({ n: pending, count: words.number(pending) }),
-            }]),
-            ...(refusal === undefined ? [] : [{ key: "refused", attribute: { "data-schematic-refused": "", role: "alert" }, text: refusal }]),
-        ];
-    }, [counts, rows, sources, totals, saved, pending, refusal, words]);
+export function SchematicFooter({ styles, words, density, names, viewport, extent, refusal, notices, found }: SchematicFooterProps) {
+    // Where the viewport rests: the footer alone renders again as it moves, and only while a kind draws its density.
+    const rests = useSyncExternalStore(viewport.subscribe, viewport.get, viewport.get);
+    const { width, height } = extent;
+    // Each kind drawn as its density, by its slot: how many rows it shades in the viewport — none while it shades none there.
+    const dense = useMemo(() => (rests === undefined ? [] : [...density].flatMap(([slot, raster]) => {
+        const seen = densityInView(raster, rests.box, { minX: 0, minY: 0, maxX: width, maxY: height });
+        if (seen.rows === 0) return [];
+        const name = (names.get(slot) ?? slot).toLocaleLowerCase(words.locale);
+        return [{ slot, text: words.m.densityNotice({ n: seen.rows, count: words.number(seen.rows), name, about: !seen.exact, unfiltered: raster.unnarrowed }) }];
+    })), [rests, density, width, height, names, words]);
     const ref = useRef<HTMLDivElement>(null);
-    const wrap = useRailWrap(ref, [...lines.map((line) => line.text), found?.words ?? ""].join("\n"));
+    const wrap = useRailWrap(ref, [...dense.map((line) => line.text), refusal ?? "", found?.words ?? ""].join("\n"));
     return (
         <Box ref={ref} css={styles.footer} data-schematic-footer="" data-builder-narrow={wrap ? "" : undefined}>
-            {lines.map((line) => <Box as="span" key={line.key} css={styles.footerItem} {...line.attribute}>{line.text}</Box>)}
+            {dense.map((line) => <Box as="span" key={line.slot} css={styles.footerItem} data-schematic-density={line.slot}>{line.text}</Box>)}
+            {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" role="alert">{refusal}</Box>}
             {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
             {/* Where Find's last pick landed, the canvas not showing it as itself: why, and — the filters — their Clear, as the Save notice's Retry. */}
             {found !== undefined && (

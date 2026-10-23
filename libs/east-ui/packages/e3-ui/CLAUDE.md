@@ -445,7 +445,11 @@ people…`) or a read that failed, with Retry, and nothing while nothing is in
 flight. Do not repeat status, pending edits, counts, costs or hours there:
 shared history/toolbar controls and the inspector already own them. The legend
 stays whole and in place as the line comes and goes; measure that it stays one
-line at narrow widths. The inspector retains complete coverage/cost totals and
+line at narrow widths. The Schematic's footer holds only what is live (ruled 23
+Oct 2026): a kind drawn as its density, how many rows it shades in the view, a
+refused gesture's words, each Save's notice and where Find's pick landed off
+the canvas — its counts and saves are the inspector's, its changes waiting the
+history's. The inspector retains complete coverage/cost totals and
 explains whole-staff scope when Slice narrows visible people. A collapsed
 Library badge reports availability for the day, while tab counts report the
 library's item count.

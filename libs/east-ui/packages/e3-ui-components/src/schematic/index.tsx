@@ -29,9 +29,11 @@
  * - **main** — the canvas (`canvas/view.tsx`), filling main, the minimap and
  *   the scale bar on it and no control of its own; the toolbar drives its
  *   camera and its steps through its handle;
- * - **the footer** — the counts (`counts.ts`), each record's last save, the
- *   changes waiting on Save, each Save's notice and why a gesture was refused
- *   (`footer.tsx`);
+ * - **the footer** — only what is live (`footer.tsx`): a kind drawn as its
+ *   density, how many rows it shades in the view; why a gesture was refused;
+ *   each Save's notice; and where Find's last pick landed off the canvas, why.
+ *   The drawing's counts and each record's last save are the inspector's
+ *   (`counts.ts`), the changes waiting on Save the history's;
  * - **the banners** — a kind whose read failed, each with Retry: a kind read
  *   through its source of the slice asks the source again, and one read whole
  *   is read again; and each record's session's (`SessionBanners`), titled by
@@ -67,7 +69,9 @@
  *   canvas rings, frames and flies to its matches;
  * - **the skeleton** — `BuilderFrame.loading` covers the frame until every
  *   kind has been read once (or its read failed); later reads keep the canvas
- *   and what it draws until they land (§6.5, §10.4).
+ *   and what it draws until they land, main `aria-busy` meanwhile
+ *   (`BuilderFrame.busy`, #1398 CL12), as it is while a narrowing resolves
+ *   (§6.5, §10.4).
  *
  * Every gesture is one step of one history over a session per record the
  * Schematic writes (`editing.ts`, #1388): the canvas records each gesture's
@@ -105,13 +109,13 @@ import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type 
 import { layerState } from "./canvas/layers.js";
 import { hostZones, zoneHolding } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
-import { schematicCounts } from "./counts.js";
+import { savedRecords, schematicCounts } from "./counts.js";
 import { draftedDrawing, type DraftedCache } from "./drafted.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
 import type { NetLeg, SchematicEdit } from "./edits.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
 import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
-import { SchematicFooter, savedRecords, type SchematicFoundNotice, type SchematicNotice } from "./footer.js";
+import { SchematicFooter, type SchematicFoundNotice, type SchematicNotice } from "./footer.js";
 import { drawnEntities, inspectedEqual, inspectedOf } from "./inspect.js";
 import { schematicInspectorPane } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
@@ -540,26 +544,22 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter,
     });
 
-    // ── The footer (§6.3) ───────────────────────────────────────────────
+    // ── The drawing's counts and saves: the inspector's Details, with nothing selected (#1391) ──
     const counted = useMemo(() => ({
         items: value.items.map((kind) => ({ key: kind.key, name: kind.name })),
         zones: value.zones.length > 0, links: value.links.length > 0, nets: value.nets.length > 0,
     }), [value.items, value.zones, value.links, value.nets]);
     // What the narrowing leaves out counts nowhere: dimmed context is no match.
     const counts = useMemo(() => schematicCounts(counted, listed, layers), [counted, listed, layers]);
-    // Each item kind read through its source of the slice: its record's total is its rows.
-    const sources = useMemo(() => new Map(value.items.flatMap((kind) => {
-        const part = sourcePart(chrome, kind.key);
-        return part === undefined ? [] : [[kind.key, part] as const];
-    })), [value.items, chrome]);
     const records = useMemo(() => savedRecords(value), [value]);
+
+    // ── The footer (§6.3): only what is live ────────────────────────────
     // Each kind read through its source that writes: a Save's notice counts the rows it took out of the source's narrowing.
     const notices = useMemo((): SchematicNotice[] => [...value.items, ...value.zones, ...value.links, ...value.nets].flatMap((kind) => {
         const part = kind.editable && !value.readOnly ? sourcePart(chrome, kind.key) : undefined;
         const name = kind.name.toLocaleLowerCase(words.locale);
         return part === undefined ? [] : [{ slot: kind.key, slice: part, singular: words.m.kindNoun({ name, plural: false }), plural: words.m.kindNoun({ name, plural: true }) }];
     }), [value.items, value.zones, value.links, value.nets, value.readOnly, chrome, words]);
-    const pending = edits ? history.pending : undefined;
 
     // ── The banners (§6.4, SC32): a kind whose read failed, with Retry ──
     const kindName = useMemo(() => new Map([...value.items, ...value.zones, ...value.links, ...value.nets].map((kind) => [kind.key, kind.name] as const)),
@@ -648,20 +648,21 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     });
 
     return (
-        <Box css={styles.root} data-schematic="" {...(data.loading || narrowingBusy ? { "aria-busy": "true" } : {})}>
+        <Box css={styles.root} data-schematic="">
             {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
             <BuilderFrame
                 ref={frameRef}
                 storageKey={keys.frame}
                 label={words.m.frameLabel()}
                 loading={!data.ready && data.error === undefined}
+                busy={data.loading || narrowingBusy}
                 toolbar={items}
                 toolbarRef={toolbarRef}
                 banners={banners}
                 start={library}
                 end={end}
-                footer={<SchematicFooter styles={styles} words={words} counts={counts} rows={data.rows} sources={sources} records={records}
-                    pending={pending} notices={notices} refusal={refusal} found={found} />}
+                footer={<SchematicFooter styles={styles} words={words} density={data.density} names={kindName} viewport={viewport} extent={value.extent}
+                    refusal={refusal} notices={notices} found={found} />}
                 onKeyDown={onKeyDown}
             >
                 <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}

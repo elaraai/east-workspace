@@ -22,8 +22,8 @@ import { State } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
-import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
-import { at, card, layOutCanvas, tap } from "./schematic.test-utils.js";
+import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { at, card, drawingCounts, layOutCanvas, tap } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -54,7 +54,8 @@ test("the floor draws each rack of its record as a card named by its kind and ke
     expect(a01.querySelector<HTMLElement>("[data-meter] > *")?.style.width).toBe("65%");
     // The record is read whole, as Data.bind reads it, and nothing is written.
     expect(h.requests("mutate")).toEqual([]);
-    expect(container.querySelector("[data-schematic]")?.hasAttribute("aria-busy")).toBe(false);
+    // Nothing in flight: main is not busy (#1398, CL12).
+    expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
 });
 
 test("a rack another session moves is drawn where its record now places it", async () => {
@@ -80,8 +81,8 @@ test("the data centre draws each kind's rows — the racks through their source 
     // The racks are read through their source — its key searches and pages — and never whole.
     expect(h.requests("read", "records.schematic_racks")).toEqual([]);
     expect(h.requests(undefined, "records.schematic_racks").length).toBeGreaterThan(0);
-    // The footer counts the five racks drawn of the seven the record holds, as their source counts it (#1387).
-    await waitFor(() => expect(container.querySelector('[data-schematic-count="racks"]')?.textContent).toBe("Rack 5 of 7"));
+    // The drawing's Details counts the five racks drawn (#1391).
+    await waitFor(() => expect(drawingCounts(container).racks).toBe("5"));
 });
 
 test("the data centre draws each cooling unit's footprint from the unit's own radius, about its centre (SC37)", async () => {

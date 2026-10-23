@@ -66,11 +66,10 @@ import {
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
-import type { SchematicCounts } from "./counts.js";
+import type { SchematicCounts, SchematicSavedRecord } from "./counts.js";
 import type { SchematicValue } from "./data.js";
 import { deleteEdits, editKinds, retargetEdits, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite } from "./edits.js";
 import { detailsKey, type SchematicEditing } from "./editing.js";
-import type { SchematicSavedRecord } from "./footer.js";
 import { joinsOf, type SchematicDrawnEntity, type SchematicInspected } from "./inspect.js";
 import type { SchematicInspectedRows, SchematicRowRead } from "./inspector-rows.js";
 import type { SchematicIssue } from "./issues.js";
@@ -115,7 +114,7 @@ export interface SchematicInspectorProps {
     readonly listed: SchematicDrawn;
     /** The editing: each record's session and drafts, and how an edit is recorded. */
     readonly editing: SchematicEditing;
-    /** What the footer counts: the drawing's Details says it too. */
+    /** What the drawing's Details counts, with nothing selected (`counts.ts`). */
     readonly counts: SchematicCounts;
     /** The kinds' records whose commits say when each was last saved, and by whom. */
     readonly records: readonly SchematicSavedRecord[];

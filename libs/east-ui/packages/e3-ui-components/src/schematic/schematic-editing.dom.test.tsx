@@ -31,7 +31,7 @@ import { StateRuntime, editingMessages, getRegisteredPlatformImplementations } f
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { at, card, layOutCanvas, tap } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -72,12 +72,6 @@ function hits(container: HTMLElement) {
 
 /** The canvas. */
 const canvasOf = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-schematic-canvas]")!;
-
-/** A footer line, by its attribute; `undefined` while there is none. */
-const footer = (container: HTMLElement, attribute: string) => slot(container, "footer").querySelector(`[${attribute}]`)?.textContent ?? undefined;
-
-/** The changes waiting on Save, as the footer says them. */
-const pending = (container: HTMLElement) => footer(container, "data-schematic-pending");
 
 /** Mounts an example, and waits until its racks are drawn and laid out for a press. */
 async function open(example: { fn: { toIR(): unknown } }) {
@@ -121,6 +115,16 @@ async function key(container: HTMLElement, init: { key: string; metaKey?: boolea
     await settle();
 }
 
+/**
+ * Shows the drawing in the inspector's Details, its counts with it: the Select tool held, which ends a Connect's
+ * session, and Esc, which clears the selection.
+ */
+async function seeDrawing(container: HTMLElement) {
+    await tool(container, "Select");
+    await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
+    await settle();
+}
+
 /** Del, with the pointer over the canvas. */
 async function del() {
     await act(async () => { fireEvent.keyDown(window, { key: "Delete" }); });
@@ -160,7 +164,7 @@ test("Move moves the selection rigidly, clamped to the extent, as one step on re
     const stored = await h.read(ex.schematicRacks);
     // Five metres left of A01: it stops at the floor's edge, and A02 keeps its 3.6 m from it.
     await drag(canvas, [2.4, 2.9], [-2.6, 2.9]);
-    expect(pending(container)).toBe("2 pending");
+    expect(unsaved(container)).toBe(true);
     // Esc mid-drag: A04 goes back where it was, and nothing is recorded.
     const a04 = card(container, "racks", "A04")!.style.transform;
     await act(async () => { pointer(canvas, "pointerDown", 13.2, 2.9); pointer(canvas, "pointerMove", 13.2, 6.0); });
@@ -174,15 +178,15 @@ test("Move moves the selection rigidly, clamped to the extent, as one step on re
     expect(card(container, "racks", "A05")!.style.transform).not.toBe(a05);
     await act(async () => { fireEvent.pointerCancel(canvas, { pointerId: 1, pointerType: "mouse" }); });
     expect(card(container, "racks", "A05")!.style.transform).toBe(a05);
-    expect(pending(container)).toBe("2 pending");
-    // Save: one request, the racks', each moved rack's centre written and every other field of it as it was.
+    // Save: one request, the racks', each moved rack's centre written and every other field of it as it was — A04 and
+    // A05, put back, among the racks it leaves as they were.
     await history(container, editingMessages.apply());
     expect(mutated()).toEqual(["schematic_racks"]);
     const saved = await h.read(ex.schematicRacks);
     movedTo(saved.get("A01"), stored.get("A01")!, 0, 2.9);
     movedTo(saved.get("A02"), stored.get("A02")!, 3.6, 2.9);
     for (const untouched of ["A03", "A04", "A05", "A06", "A07"]) expect(rackEqual(saved.get(untouched)!, stored.get(untouched)!)).toBe(true);
-    expect(pending(container)).toBeUndefined();
+    expect(unsaved(container)).toBe(false);
 });
 
 test("a Move over a rack another session changed rewrites the rack as the record now holds it: the other session's fields stand (SC2)", async () => {
@@ -209,11 +213,12 @@ test("Connect records a fibre run under a key minted new; an end its field holds
     expect(container.querySelector("[data-schematic-refusal] [data-drag-caption][data-refused]")?.textContent).toBe("Fibre run can't end at PDU-B");
     await act(async () => { pointer(canvas, "pointerUp", 18.6, 4.2); });
     expect(container.querySelector("[data-schematic-refusal]")).toBeNull();
-    expect(pending(container)).toBeUndefined();
-    // A rack to the meet-me room's frame: a run, recorded.
+    expect(unsaved(container)).toBe(false);
+    // A rack to the meet-me room's frame: a run, recorded and drawn.
     await drag(canvas, [16.8, 2.9], [24.2, 2.9]);
-    expect(footer(container, 'data-schematic-count="links"')).toBe("7 links");
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
+    await seeDrawing(container);
+    expect(drawingCounts(container).links).toBe("7");
     const stored = await h.read(ex.schematicFibre);
     await history(container, editingMessages.apply());
     const saved = await h.read(ex.schematicFibre);
@@ -229,19 +234,22 @@ test("Connect records a fibre run under a key minted new; an end its field holds
 test("a Shift-drag grows the session into a fibre trunk, absorbing the run it grew from, one step Undo takes back (SC9)", async () => {
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
-    const count = (sort: string) => footer(container, `data-schematic-count="${sort}"`);
+    // The links and the nets drawn, as the drawing's Details counts them: read once the session is over, nothing selected.
+    const count = async () => {
+        await seeDrawing(container);
+        const { links, nets } = drawingCounts(container);
+        return [links, nets];
+    };
     await tool(container, "Connect");
     await drag(canvas, [16.8, 2.9], [24.2, 2.9]);
-    expect([count("links"), count("nets")]).toEqual(["7 links", "2 nets"]);
     // A04 to the same frame, Shift held: two racks gathered into one frame — a trunk, the run gone into it.
     await drag(canvas, [13.2, 2.9], [24.2, 2.9], true);
-    expect([count("links"), count("nets")]).toEqual(["6 links", "3 nets"]);
-    expect(pending(container)).toBe("1 pending");
+    expect(await count()).toEqual(["6", "3"]);
     // One step: Undo puts the run back, the trunk gone; Redo grows it again.
     await key(container, { key: "z", metaKey: true });
-    expect([count("links"), count("nets")]).toEqual(["7 links", "2 nets"]);
+    expect(await count()).toEqual(["7", "2"]);
     await key(container, { key: "z", metaKey: true, shiftKey: true });
-    expect([count("links"), count("nets")]).toEqual(["6 links", "3 nets"]);
+    expect(await count()).toEqual(["6", "3"]);
     const runs = await h.read(ex.schematicFibre);
     await history(container, editingMessages.apply());
     // Save sends the trunk alone: the run it absorbed was never saved.
@@ -265,7 +273,7 @@ test("Retarget writes the end of the run it moves, and every other field of it s
     expect(container.querySelector("[data-schematic-refusal]")?.textContent).toBe("Fibre run can't end at PDU-A");
     await act(async () => { pointer(canvas, "pointerMove", 24.2, 2.9); pointer(canvas, "pointerUp", 24.2, 2.9); });
     await settle();
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     const stored = await h.read(ex.schematicFibre);
     await history(container, editingMessages.apply());
     expect(fibreEqual((await h.read(ex.schematicFibre)).get("u1")!, { ...stored.get("u1")!, to: variant("frame", "MMR-1") })).toBe(true);
@@ -279,7 +287,7 @@ test("a tap on a selected run's end selects the item there and records nothing: 
     // u1's end on ODF-1's top edge is a handle, and ODF-1 is under it: let go where it was pressed, the press is a tap.
     await tap(canvas, PPU, 2.4, ODF1_TOP + 1 / PPU);
     await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "network", key: "ODF-1" }])));
-    expect(pending(container)).toBeUndefined();
+    expect(unsaved(container)).toBe(false);
 });
 
 test("Extend adds a rack to a selected feed; Del on a leg takes its rack off the feed, and on a feed deletes it (SC10)", async () => {
@@ -292,18 +300,19 @@ test("Extend adds a rack to a selected feed; Del on a leg takes its rack off the
     // Shift-drag from one of its racks to A04: A04 joins its fed side.
     await tool(container, "Connect");
     await drag(canvas, [6.0, 2.9], [13.2, 2.9], true);
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     // Feed B's leg to A05, tapped where it shows — between the bar and A05's foot, its head (#1403): Del takes A05 off it.
     await tool(container, "Select");
     await tap(canvas, PPU, 16.8, 3.74);
     await waitFor(() => expect(kept()).toBe(printRefs([{ kind: "feeds", key: "feed-b" }])));
     await del();
-    expect(pending(container)).toBe("2 pending");
+    expect(unsaved(container)).toBe(true);
     // Feed A, tapped on its bar: Del deletes it.
     await tap(canvas, PPU, 4.2, 3.8);
     await waitFor(() => expect(kept()).toBe(printRefs([{ kind: "feeds", key: "feed-a" }])));
     await del();
-    expect(footer(container, 'data-schematic-count="nets"')).toBe("1 net");
+    await seeDrawing(container);
+    expect(drawingCounts(container).nets).toBe("1");
     await history(container, editingMessages.apply());
     const feeds = await h.read(ex.schematicFeeds);
     expect([...feeds.keys()]).toEqual(["feed-b"]);
@@ -319,12 +328,14 @@ test("Del on a rack deletes it with every run and feed leg naming it, one step U
     await del();
     // A01 goes, with u1, its run to ODF-1, and its leg of feed A: three records' rows, one step.
     expect(card(container, "racks", "A01")).toBeNull();
-    expect(footer(container, 'data-schematic-count="links"')).toBe("5 links");
-    expect(pending(container)).toBe("3 pending");
+    await seeDrawing(container);
+    expect(drawingCounts(container).links).toBe("5");
     await key(container, { key: "z", metaKey: true });
     expect(card(container, "racks", "A01")).not.toBeNull();
-    expect(footer(container, 'data-schematic-count="links"')).toBe("6 links");
-    expect(pending(container)).toBeUndefined();
+    // Undone whole: the run is back, and nothing waits on Save.
+    await seeDrawing(container);
+    expect(drawingCounts(container).links).toBe("6");
+    expect(unsaved(container)).toBe(false);
     await key(container, { key: "z", metaKey: true, shiftKey: true });
     expect(card(container, "racks", "A01")).toBeNull();
     await history(container, editingMessages.apply());
@@ -335,7 +346,7 @@ test("Del on a rack deletes it with every run and feed leg naming it, one step U
     expect((await h.read(ex.schematicFeeds)).get("feed-a")!.racks).toEqual(["A02", "A03"]);
 });
 
-/** The floor's racks beside fibre runs whose patch door refuses every change: what a Save over both is answered. */
+/** The floor's racks beside fibre runs whose patch door refuses every change, with the inspector: what a Save over both is answered. */
 const frozenFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
     const frames = $.let(Data.bind(ex.schematicFrames));
@@ -343,6 +354,7 @@ const frozenFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
     const ends = { field: "from", of: { rack: "racks", frame: "network" } } as const;
     return Schematic({
         id: "frozen",
+        inspector: true,
         extent: { width: 28, height: 14 },
         items: {
             racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name" }),
@@ -360,7 +372,7 @@ test("a record whose door refuses its Save keeps its drafts, in a banner saying 
     await drag(canvas, [9.6, 2.9], [9.6, 5.0]);
     await tool(container, "Connect");
     await drag(canvas, [16.8, 2.9], [24.2, 2.9]);
-    expect(pending(container)).toBe("2 pending");
+    expect(unsaved(container)).toBe(true);
     await history(container, editingMessages.apply());
     // The racks committed; the runs refused, their draft kept, the banner naming why.
     movedTo((await h.read(ex.schematicRacks)).get("A03"), stored.racks.get("A03")!, 9.6, 5.0);
@@ -368,8 +380,10 @@ test("a record whose door refuses its Save keeps its drafts, in a banner saying 
     const refused = slot(container, "banners").querySelector('[data-session-banner="rejected"]')?.textContent;
     expect(refused).toContain("Fibre run");
     expect(refused).toContain("the fibre runs are frozen");
-    expect(pending(container)).toBe("1 pending");
-    expect(footer(container, 'data-schematic-count="links"')).toBe("7 links");
+    // The run's draft waits on Save still, drawn.
+    expect(unsaved(container)).toBe(true);
+    await seeDrawing(container);
+    expect(drawingCounts(container).links).toBe("7");
 });
 
 // ── Read only (SC14) ────────────────────────────────────────────────────────
@@ -395,7 +409,6 @@ test("a drawing bound read only — or a Schematic read only — takes no gestur
         await waitFor(() => expect(card(container, "racks", "A01")!.hasAttribute("data-selected")).toBe(true));
         await del();
         expect(card(container, "racks", "A01")).not.toBeNull();
-        expect(pending(container)).toBeUndefined();
         expect(mutated()).toEqual([]);
         unmount();
     }
@@ -442,7 +455,7 @@ test("a draft the rail narrows out waits in its session and Save sends it; let b
     await narrow(harbour);
     await waitFor(() => expect(card(container, "racks", "A03")).toBeNull());
     expect(card(container, "racks", "A01")).not.toBeNull();
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     // Let back in, it shows where its draft has it.
     await narrow(new Map());
     await waitFor(() => expect(card(container, "racks", "A03")?.style.transform).toBe(moved));
@@ -451,6 +464,6 @@ test("a draft the rail narrows out waits in its session and Save sends it; let b
     await waitFor(() => expect(card(container, "racks", "A03")).toBeNull());
     await history(container, editingMessages.apply());
     movedTo((await h.read(ex.schematicRacks)).get("A03"), stored.get("A03")!, 9.6, 5.0);
-    expect(pending(container)).toBeUndefined();
+    expect(unsaved(container)).toBe(false);
 });
 

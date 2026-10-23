@@ -7,13 +7,16 @@
  * What the Schematic's jsdom tests give its canvas that jsdom leaves out (#1401):
  * the box a page lays the canvas out in, pointer capture and the element at a
  * point; and the gestures and lookups they share — a world point on the canvas,
- * a tap there, and an item's card.
+ * a tap there, an item's card, whether changes wait on Save and the drawing's
+ * counts.
  *
  * @packageDocumentation
  */
 
 import { afterEach, beforeEach } from "vitest";
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, within } from "@testing-library/react";
+import { editingMessages } from "@elaraai/east-ui-components";
+import { slot } from "../e3-web-mount.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
 
 /** The box a page gives the canvas: 1080 × 540 px. */
@@ -93,4 +96,30 @@ export async function tap(canvas: Element, ppu: number, x: number, y: number): P
  */
 export function card(container: HTMLElement, kind: string, key: string): HTMLElement | null {
     return container.querySelector<HTMLElement>(`[data-card-key=${JSON.stringify(entityId({ kind, key }))}]`);
+}
+
+/**
+ * Whether changes wait on Save, as the history says it (#1388): its Discard,
+ * which drops them, is on. The footer says nothing of them (ruled 23 Oct 2026).
+ *
+ * @param container - What the Schematic is mounted in: one that edits, its history in the toolbar
+ * @returns Whether the history holds changes not yet saved
+ */
+export function unsaved(container: HTMLElement): boolean {
+    return !within(slot(container, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.discard() }).disabled;
+}
+
+/**
+ * The drawing's counts, as the inspector's Details says them with nothing
+ * selected (#1391): each count, by what it counts — an item kind's slot,
+ * `zones`, `links` or `nets`.
+ *
+ * @param container - What the Schematic is mounted in: one given `inspector`, nothing selected
+ * @returns Each count, as Details prints it
+ * @throws {Error} When Details shows something else than the drawing
+ */
+export function drawingCounts(container: HTMLElement): Record<string, string> {
+    const counts = slot(container, "end").querySelector("[role='tabpanel']:not([hidden]) [data-schematic-inspector='drawing'] [data-inspector-counts]");
+    if (counts === null) throw new Error("the inspector's Details shows no drawing: something is selected, or it is on another tab");
+    return Object.fromEntries([...counts.querySelectorAll("[data-count]")].map((el) => [el.getAttribute("data-count") ?? "", el.children[0]?.textContent ?? ""]));
 }

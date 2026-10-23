@@ -31,7 +31,8 @@
  * from its rail: a tap selects an owner's card, and a tap on the selected card
  * with no rack selected is refused, the footer saying why; a rack tapped on
  * the canvas, a tap on the selected card sets the rack's owner, the card
- * staying selected, one more change waiting on Save at each width (SC13).
+ * staying selected, its change waiting on Save — the history's Discard on —
+ * which Save writes, at each width (SC13).
  *
  * Every wait is a poll on the page's state, never a fixed pause; nothing reads
  * a screenshot.
@@ -42,8 +43,8 @@
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import {
-    DATA_CENTRE, captionOf, card, carryTo, centred, collapseInspector, libraryCard, named, openSchematic, openTab, pane, pickUp, printedRef, screenPoint, sizeTo,
-    type Point,
+    DATA_CENTRE, captionOf, card, carryTo, centred, collapseInspector, discard, libraryCard, named, openSchematic, openTab, pane, pickUp, printedRef, save,
+    screenPoint, sizeTo, type Point,
 } from "./schematic-page";
 import { settled } from "./settle";
 import { token } from "./tokens";
@@ -134,7 +135,7 @@ test.describe("The Schematic's drag and drop (#1390)", () => {
             await carryTo(page, root, floor, 6);
             await expect.poll(async () => (await captionOf(page))?.text).toBe(`Cage A · ${x}, ${y} m`);
             await page.mouse.up();
-            await expect(footer(root, "data-schematic-pending")).toHaveText("1 pending");
+            await expect(discard(root)).toBeEnabled();
             await expect.poll(async () => (await cardKeys(root)).filter((key) => !before.has(key))).toHaveLength(1);
             const [added] = (await cardKeys(root)).filter((key) => !before.has(key));
             expect(added).toMatch(/^\(kind="racks", key="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"\)$/u);
@@ -170,7 +171,7 @@ test.describe("The Schematic's drag and drop (#1390)", () => {
             await carryTo(page, root, onRack, 6);
             await expect.poll(() => captionOf(page)).toEqual({ text: "onto A03", refused: false });
             await page.mouse.up();
-            await expect(footer(root, "data-schematic-pending")).toHaveText("1 pending");
+            await expect(discard(root)).toBeEnabled();
             await expect(root.locator("[data-drop-target]")).toHaveCount(0);
             expect(await looks(a03)).toEqual(plain);
         });
@@ -185,7 +186,7 @@ test.describe("The Schematic's drag and drop (#1390)", () => {
         await carryTo(page, root, await screenPoint(root, 9.6, 6.0), 6);
         await expect.poll(() => captionOf(page)).toEqual({ text: "onto A03 → ODF-1", refused: false });
         await page.mouse.up();
-        await expect(footer(root, "data-schematic-pending")).toHaveText("1 pending");
+        await expect(discard(root)).toBeEnabled();
         // A06, which has no place: carried onto Cage A's floor above A05, and placed there.
         await openTab(page, root, "Backlog");
         await pickUp(page, libraryCard(root, printedRef("racks", "A06")));
@@ -194,14 +195,13 @@ test.describe("The Schematic's drag and drop (#1390)", () => {
         await page.mouse.up();
         await expect(card(root, "racks", "A06")).toHaveAttribute("data-selected", "");
         await expect(pane(root).getByRole("tab", { name: named("Backlog") })).toHaveText("Backlog 1");
-        await expect(footer(root, "data-schematic-pending")).toHaveText("2 pending");
     });
 });
 
 test.describe("The Schematic's drops on a phone (#1390)", () => {
     test.skip(({ isMobile }) => !isMobile, "a coarse pointer: the phone projects");
 
-    test("on a phone 390px and 360px wide, and in a 294px parent: in the library opened from its rail a tap selects an owner's card, and a tap on the selected card with no rack selected is refused, the footer saying why; a rack tapped on the canvas, a tap on the selected card sets its owner, the card staying selected — one more change waiting on Save at each width (SC13)", async ({ page }) => {
+    test("on a phone 390px and 360px wide, and in a 294px parent: in the library opened from its rail a tap selects an owner's card, and a tap on the selected card with no rack selected is refused, the footer saying why; a rack tapped on the canvas, a tap on the selected card sets its owner, the card staying selected — its change waiting on Save, which Save writes, at each width (SC13)", async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 });
         const root = await openSchematic(page, DATA_CENTRE);
         const library = async (open: boolean) => {
@@ -216,13 +216,13 @@ test.describe("The Schematic's drops on a phone (#1390)", () => {
         await expect(libraryCard(root, "northwind")).toHaveAttribute("data-placed", "");
         await libraryCard(root, "northwind").tap();
         await expect(footer(root, "data-schematic-refused")).toHaveText("Drop onto a rack");
-        await expect(footer(root, "data-schematic-pending")).toHaveCount(0);
+        await expect(discard(root)).toBeDisabled();
         await library(false);
-        // At each width a rack, and an owner that is not its owner yet: each drop one more change.
+        // At each width a rack, and an owner that is not its owner yet: each drop a change of its own, which Save writes.
         const steps = [
-            { at: "at 390px", rack: 6.0, owner: "northwind", pending: "1 pending" },
-            { at: "at 360px", rack: 9.6, owner: "harbour", pending: "2 pending" },
-            { at: "in a 294px parent", rack: 13.2, owner: "elmway", pending: "3 pending" },
+            { at: "at 390px", rack: 6.0, owner: "northwind" },
+            { at: "at 360px", rack: 9.6, owner: "harbour" },
+            { at: "in a 294px parent", rack: 13.2, owner: "elmway" },
         ] as const;
         for (const step of steps) {
             if (step.at === "at 360px") {
@@ -242,10 +242,12 @@ test.describe("The Schematic's drops on a phone (#1390)", () => {
                 await expect(owner, step.at).toHaveAttribute("data-placed", "");
             }
             await owner.tap();
-            await expect(footer(root, "data-schematic-pending"), step.at).toHaveText(step.pending);
+            await expect(discard(root), step.at).toBeEnabled();
             await expect(footer(root, "data-schematic-refused"), step.at).toHaveCount(0);
             await expect(owner, step.at).toHaveAttribute("data-placed", "");
             await library(false);
+            await save(root).tap();
+            await expect(discard(root), step.at).toBeDisabled();
         }
     });
 });

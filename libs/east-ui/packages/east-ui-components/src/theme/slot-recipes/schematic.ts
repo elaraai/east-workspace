@@ -15,7 +15,7 @@
  * Index's search and its tree rows (the design system's tree row), and the
  * Layers tab's rows (its pick-panel row), each layer's swatch in the colour
  * chain, and its Show all; and the footer, on the shared `builder-footer`
- * rail. The canvas holds no control of its own: what was its control column
+ * rail, its items wrapping their words once it wraps. The canvas holds no control of its own: what was its control column
  * is the frame's toolbar, and its navigator and layer panel are the library's
  * Index and Layers tabs.
  *
@@ -667,8 +667,14 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderTopWidth: "1px",
             borderColor: "border.subtle",
         },
-        /* The footer, on the shared builder rail (§6.3); why the last gesture was refused in the danger ink (#1388). */
+        /* The footer, on the shared builder rail (§6.3), holding only what is live; why the last gesture was refused in the
+         * danger ink (#1388). Once the rail wraps, an item wider than it — a density's words on a phone (#1393) — wraps its
+         * own words, as `useRailWrap` lets it. */
         footer: builderFooter,
-        footerItem: { ...builderFooterItem, "&[data-schematic-refused]": { color: "fg.danger" } },
+        footerItem: {
+            ...builderFooterItem,
+            "[data-builder-narrow] > &": { flexShrink: 1, minWidth: 0, whiteSpace: "normal" },
+            "&[data-schematic-refused]": { color: "fg.danger" },
+        },
     },
 });

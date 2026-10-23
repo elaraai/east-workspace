@@ -14,8 +14,8 @@
  * Each source narrows its own places, and the rail counts each in its own words
  * (`expectSourceCounts`, #1358): the racks' owner leaves Harbour Labs' racks
  * drawn as themselves and the rest as context — `narrowed="dim"` — each faded
- * to 0.35, greyed and taking no pointer, in the recipe's styles, the footer
- * counting `Rack 2 of 7`; a rack templates group the Templates tab,
+ * to 0.35, greyed and taking no pointer, in the recipe's styles, the rail
+ * counting 2 of its 7 racks; a rack templates group the Templates tab,
  * `Templates 3 of 5`.
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -106,7 +106,6 @@ for (const theme of ["light", "dark"] as const) {
             expect([look.filter, look.pointer], key).toEqual(["grayscale(1)", "none"]);
         }
         for (const key of ["A01", "A02"]) expect(await lookOf(card(root, "racks", key)), key).toEqual({ opacity: 1, filter: "none", pointer: "auto" });
-        await expect(root.locator('[data-schematic-footer] [data-schematic-count="racks"]')).toHaveText("Rack 2 of 7");
         // A rack templates group: the Templates tab alone.
         await choose(page, root, "rackTemplates", "group", /^Half racks/);
         await expectCounts([counted("racks", 2, 7, true), counted("rackTemplates", 1, 3, true), counted("fibreTemplates", 2, 2, false)]);
