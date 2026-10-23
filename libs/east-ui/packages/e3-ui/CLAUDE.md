@@ -320,8 +320,8 @@ reads, in its record's noun, or why it could not, with Retry — never a count
 of what has landed. A rail carrying the line never wraps and never cuts a
 word: its legend's items are units of its fit, cut whole, "…" ending a cut
 legend. Pass it through BuilderFrame's footer region with `liveFooter`; keep
-the footer visually distinct from the body. Plan, Sheet, Roster, Calendar and
-Allocation all consume this part. Browser tests must compare the actual rail
+the footer visually distinct from the body. Plan, Sheet, Roster, Calendar,
+Allocation and the Schematic all consume this part. Browser tests must compare the actual rail
 and item styles in both themes and check that the rail stays one line at
 narrow widths, no word cut. The renderer guide has the parts' names.
 
@@ -449,7 +449,8 @@ line at narrow widths. The Schematic's footer holds only what is live (ruled 23
 Oct 2026): a kind drawn as its density, how many rows it shades in the view, a
 refused gesture's words, each Save's notice and where Find's pick landed off
 the canvas — its counts and saves are the inspector's, its changes waiting the
-history's. The inspector retains complete coverage/cost totals and
+history's — and the shared loading line beside them, in a kind's noun
+(`Loading racks…`). The inspector retains complete coverage/cost totals and
 explains whole-staff scope when Slice narrows visible people. A collapsed
 Library badge reports availability for the day, while tab counts report the
 library's item count.

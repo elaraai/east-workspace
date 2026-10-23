@@ -5,8 +5,8 @@
 
 /**
  * The footer's one loading line (#1398, CL3) in each builder that reads what
- * it shows a part at a time — the Sheet, the Plan, the Roster, the Calendar
- * and the Allocation — on the real in-page e3, at rest, with its frame 1440,
+ * it shows a part at a time — the Sheet, the Plan, the Roster, the Calendar,
+ * the Allocation and the Schematic — on the real in-page e3, at rest, with its frame 1440,
  * 768, 390 and 360px wide, in both themes: the rail is one line at every
  * width, never wrapped, its height its widest's and nothing past its edge;
  * the items it shows are whole and on its centre line; the units its fit cut
@@ -37,6 +37,8 @@ const BUILDERS = [
     { builder: "Roster", route: "e3/roster/roster/rosterWarehouse", root: "[data-roster-frame]", rail: "[data-roster-footer]" },
     { builder: "Calendar", route: "e3/calendar/calendar/calendarOperations", root: "[data-calendar-frame]", rail: "[data-calendar-footer]" },
     { builder: "Allocation", route: "e3/allocation/allocation/allocationKilnYard", root: "[data-allocation-frame]", rail: "[data-allocation-footer]" },
+    // The data centre, nothing live at rest: its notices one item of the rail, which takes the rail's slack.
+    { builder: "Schematic", route: "e3/schematic/schematic/schematicDataCentre", root: "[data-schematic]", rail: "[data-schematic-footer]" },
 ] as const;
 
 /** The frame's widths, widest first. */
@@ -163,7 +165,7 @@ function railAt(rail: Locator): Promise<RailAt> {
 
 for (const theme of ["light", "dark"] as const) {
     test(`each builder's footer stays one line at every width, its fit cutting units whole, and its loading line says nothing at rest, in the footer's voice (#1398, CL3) (${theme}) @desktop`, async ({ page }) => {
-        // Five builders at four widths, on one e3 the page starts once.
+        // Six builders at four widths, on the page's one e3, each area's workspace started as it is first shown.
         test.setTimeout(180_000);
         await page.setViewportSize({ width: 1920, height: 1200 });
         let voice: Voice | undefined;

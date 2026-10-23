@@ -10,10 +10,10 @@
  * shades their density and the footer says how many it shades and that
  * zooming in draws them — `Density: 20,000 racks — zoom in to draw them`, the
  * count exact while every cell it shades lies in view (ruled 23 Oct 2026) —
- * the rail's one item, and on a phone, at 390 and 360px and in a 294px parent,
+ * the one live notice, and on a phone, at 390 and 360px and in a 294px parent,
  * its words wrapping inside the rail, nothing past its edge. A tap on the
  * density zooms in about it, and once the racks there are read the footer
- * says nothing: they draw as themselves. Zoomed in until they draw as their
+ * says nothing, its loading line idle: they draw as themselves. Zoomed in until they draw as their
  * cards, no two overlap, and a pan leaves which of them draw as cards as it
  * was (ruled 23 Oct 2026). Zoomed into a hall's front rows, where the racks
  * draw as dots, each reads its load — what its dot's colour says — by the runs
@@ -100,10 +100,10 @@ function overflow(root: Locator): Promise<string[]> {
     });
 }
 
-test("fitted, the floor's density: the footer says how many racks it shades and that zooming in draws them, its rail's one item, nothing past the rail's edge; the minimap draws the floor's density, on a phone in its corner (#1393)", async ({ page, isMobile }) => {
+test("fitted, the floor's density: the footer says how many racks it shades and that zooming in draws them, its one live notice, nothing past the rail's edge; the minimap draws the floor's density, on a phone in its corner (#1393)", async ({ page, isMobile }) => {
     const root = await openSchematic(page, RECORD_INDEXES);
     await expect(notice(root)).toHaveText("Density: 20,000 racks — zoom in to draw them");
-    await expect(root.locator("[data-schematic-footer] > *")).toHaveCount(1);
+    await expect(root.locator("[data-schematic-notices] > *")).toHaveCount(1);
     expect(await overflow(root)).toEqual([]);
     // The minimap: the racks' whole drawing as its density, never a dot of theirs.
     expect(await minimapCells(root)).toBeGreaterThan(0);
@@ -136,7 +136,8 @@ test.describe("A tap on the density (#1393)", () => {
             "the window there read, or reading").toBe(true);
         await settled(page);
         await expect(notice(root)).toHaveCount(0);
-        await expect(root.locator("[data-schematic-footer] > *")).toHaveCount(0);
+        await expect(root.locator("[data-schematic-notices] > *")).toHaveCount(0);
+        await expect(root.locator("[data-schematic-footer] [data-footer-line]")).toHaveAttribute("data-idle", "");
     });
 
     test("zoomed in until the racks draw as their cards — each 0.6 m holding its words — no two overlap, and a pan leaves which of them draw as cards as it was (ruled 23 Oct 2026)", async ({ page }) => {

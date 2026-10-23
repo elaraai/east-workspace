@@ -98,7 +98,8 @@ import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
     implementUIComponent, typedInto, useDataStable, useFormatters, usePersistedState, useSlicesReactivity, type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { schematicColorTokens } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, schematicColorTokens, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { pagedLoadingLine } from "../shared/loading.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
@@ -615,6 +616,29 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         else readAgain();
     }, [chrome, readAgain]);
     const failures = [...data.failures];
+    // ── The footer's loading line (#1398, CL3): a read that failed first — the drawing's, a kind's, then a narrowing's the
+    // frame follows — then what is read, then a narrowing resolving ──
+    // A kind's rows, as the line names them — `racks`.
+    const nounOf = useCallback((slot: string) => words.m.kindNoun({ name: (kindName.get(slot) ?? slot).toLocaleLowerCase(words.locale), plural: true }),
+        [kindName, words]);
+    // A kind's source the frame follows whose narrowing resolves, its last standing in: `Filtering racks…`.
+    const resolving = [...sourced].find((slot) => { const one = followed.get(slot); return one !== undefined && one.shown.busy && one.error === undefined; });
+    const reading = data.reading;
+    const line = useMemo((): LoadingLineValue | undefined => {
+        const failed = (noun: string, reason: string, again: () => void) =>
+            pagedLoadingLine({ kind: "failed", from: undefined, to: undefined, reason }, noun, words.m, words.number, again);
+        if (data.error !== undefined) return failed(words.m.drawingNoun(), data.error, () => retry(undefined));
+        const [failure] = data.failures;
+        if (failure !== undefined) return failed(nounOf(failure[0]), failure[1], () => retry(failure[0]));
+        // A source the frame follows whose narrowing could not be read: in its own noun, its Retry its own.
+        const unread = [...followed.values()].find((source) => source.error !== undefined);
+        if (unread?.error !== undefined) return failed(unread.name, unread.error, unread.retry);
+        if (reading !== undefined) {
+            return pagedLoadingLine(reading.filtering ? { kind: "filtering" } : { kind: "loading", from: undefined, to: undefined }, nounOf(reading.slot),
+                words.m, words.number, () => retry(reading.slot));
+        }
+        return resolving === undefined ? undefined : pagedLoadingLine({ kind: "filtering" }, nounOf(resolving), words.m, words.number, () => retry(resolving));
+    }, [data.error, data.failures, followed, reading, resolving, nounOf, words, retry]);
     // Each source the library follows whose narrowing could not be read, with Retry (#1389).
     const followedFailures = [...followed.values()].filter((source) => source.error !== undefined);
     // Each record's session's banners, titled by its kind, an issue placed by the item it names.
@@ -695,27 +719,31 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         <Box css={styles.root} data-schematic="">
             {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
             {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
-            <BuilderFrame
-                ref={frameRef}
-                storageKey={keys.frame}
-                label={words.m.frameLabel()}
-                loading={!data.ready && data.error === undefined}
-                busy={data.loading || narrowingBusy}
-                toolbar={items}
-                toolbarRef={toolbarRef}
-                banners={banners}
-                start={library}
-                end={end}
-                footer={<SchematicFooter styles={styles} words={words} density={data.density} names={kindName} viewport={viewport} extent={value.extent}
-                    refusal={refusal} notices={notices} found={found} />}
-                onKeyDown={onKeyDown}
-            >
-                <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
-                    words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
-                    onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
-                    viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
-                    onZoomRange={setZoomRange} />
-            </BuilderFrame>
+            {/* The frame's one reveal clock (CL4): the footer's line shows a read in flight after 150 ms, held 300 ms once shown. */}
+            <LoadingReveal waiting={line?.kind === "loading"}>
+                <BuilderFrame
+                    ref={frameRef}
+                    storageKey={keys.frame}
+                    label={words.m.frameLabel()}
+                    loading={!data.ready && data.error === undefined}
+                    busy={data.loading || narrowingBusy}
+                    toolbar={items}
+                    toolbarRef={toolbarRef}
+                    banners={banners}
+                    start={library}
+                    end={end}
+                    footer={<SchematicFooter styles={styles} words={words} density={data.density} names={kindName} viewport={viewport} extent={value.extent}
+                        refusal={refusal} notices={notices} found={found} line={line} />}
+                    liveFooter
+                    onKeyDown={onKeyDown}
+                >
+                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
+                        words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
+                        onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
+                        viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
+                        onZoomRange={setZoomRange} />
+                </BuilderFrame>
+            </LoadingReveal>
         </Box>
     );
 }

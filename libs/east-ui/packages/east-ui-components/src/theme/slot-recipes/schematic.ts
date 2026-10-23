@@ -15,7 +15,9 @@
  * Index's search and its tree rows (the design system's tree row), and the
  * Layers tab's rows (its pick-panel row), each layer's swatch in the colour
  * chain, and its Show all; and the footer, on the shared `builder-footer`
- * rail, its items wrapping their words once it wraps. The canvas holds no control of its own: what was its control column
+ * rail, which never wraps: its live notices one item of it, wrapping within
+ * itself and its items their words where it is narrow, beside the shared
+ * loading line (#1398). The canvas holds no control of its own: what was its control column
  * is the frame's toolbar, and its navigator and layer panel are the library's
  * Index and Layers tabs.
  *
@@ -133,7 +135,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "probe", "tools", "viewControls",
         "libraryPane", "indexSearch", "indexTree", "indexRows", "indexRow", "indexChevron", "indexName", "indexCount", "indexDot", "indexMetric", "indexEmpty",
         "layerList", "layerRow", "layerSwatch", "layerName", "layerCount", "layerToggles", "layerToggle", "layerFoot",
-        "footer", "footerItem",
+        "footer", "footerNotices", "footerItem",
     ],
     base: {
         /* Fills the box it is given and draws no border: the frame inside it
@@ -675,9 +677,18 @@ export const schematicSlotRecipe = defineSlotRecipe({
             borderColor: "border.subtle",
         },
         /* The footer, on the shared builder rail (§6.3), holding only what is live; why the last gesture was refused in the
-         * danger ink (#1388). Once the rail wraps, an item wider than it — a density's words on a phone (#1393) — wraps its
-         * own words, as `useRailWrap` lets it. */
+         * danger ink (#1388). The rail carries the shared loading line (#1398), so it never wraps: its notices are one item
+         * of it, taking what the line leaves, which wraps within itself where it is narrow — and there an item wider than
+         * it, a density's words on a phone (#1393), wraps its own words, as `useRailWrap` lets it. */
         footer: builderFooter,
+        footerNotices: {
+            display: "flex",
+            alignItems: "center",
+            flex: "1 1 auto",
+            minWidth: "0",
+            gap: "var(--builder-footer-gap)",
+            "&[data-builder-narrow]": { flexWrap: "wrap", paddingY: "6px", rowGap: "2px", columnGap: "10px" },
+        },
         footerItem: {
             ...builderFooterItem,
             "[data-builder-narrow] > &": { flexShrink: 1, minWidth: 0, whiteSpace: "normal" },
