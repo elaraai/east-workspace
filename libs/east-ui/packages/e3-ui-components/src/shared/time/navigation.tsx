@@ -92,8 +92,10 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     const shortLabel = period === "hour" || period === "day" ? format.monthDay(current) : period === "week" ? `W${format.number(isoWeekUTC(new Date(start.getTime() + 3 * DAY)))}` : period === "year" ? format.year(current) : `${format.month(current)} ${format.year(current)}`;
     const browse = (step: number) => setMonth(shiftCalendar(new Date(month), panel === "year" || panel === "month" ? "year" : "month", step * (panel === "year" ? 12 : 1)).getTime());
     const heading = panel === "year" ? `${format.year(new Date(Date.UTC(yearBase, 0, 1)))}–${format.year(new Date(Date.UTC(yearBase + 11, 0, 1)))}` : panel === "month" ? format.year(new Date(month)) : format.monthYear(new Date(month));
+    // In the toolbar's row, the trigger and the arrows beside it stand as tall as every control there (`sm`, 28px, ruled
+    // 23 Oct 2026); the popover's own buttons keep its density.
     const picker = <SliceEditPopover open={open} onOpenChange={changeOpen} label={label}
-        trigger={<Button size="xs" variant="ghost" css={styles.trigger} aria-label={label} title={fullLabel} data-time-trigger="">
+        trigger={<Button size="sm" variant="ghost" css={styles.trigger} aria-label={label} title={fullLabel} data-time-trigger="">
             {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
         </Button>}
         footLeft={<Box css={styles.footer}>{arrows}</Box>}
@@ -135,8 +137,8 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
         </Box>
     </SliceEditPopover>;
     return <Box css={styles.root} data-time-navigation={scope} data-time-period={period} data-time-anchor={date}>
-        {!compact && <Button size="xs" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>}
+        {!compact && <Button size="sm" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>}
         {picker}
-        {!compact && <Button size="xs" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>}
+        {!compact && <Button size="sm" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>}
     </Box>;
 }

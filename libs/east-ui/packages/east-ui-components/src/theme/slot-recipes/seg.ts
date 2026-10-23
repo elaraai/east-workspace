@@ -20,10 +20,15 @@
  * target from its halo, its height alone, so it never takes a tap meant for
  * the segment beside it (#346, #1221). The strip clips nothing, which would
  * clip the halos: its end segments round their own corners inside its border.
+ *
+ * In a toolbar's row the strip stands as tall as every control there, 28px
+ * (`toolbar-row.ts`, ruled 23 Oct 2026), its segments filling it, each label
+ * centred; in a popover or an inspector it keeps the spec's 25px.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
 
 export const segSlotRecipe = defineSlotRecipe({
     className: "elara-seg",
@@ -37,6 +42,7 @@ export const segSlotRecipe = defineSlotRecipe({
             borderRadius: "6px",
             background: "bg.surface",
             flex: "none",
+            [IN_TOOLBAR_ROW]: { height: TOOLBAR_CONTROL_HEIGHT },
         },
         item: {
             fontFamily: "mono",
@@ -56,6 +62,8 @@ export const segSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             // A segment's icon (the Allocation's Table · Timeline), before its label.
             "& [data-seg-icon]": { marginInlineEnd: "6px" },
+            // In a row, the strip's height its own: the segment fills it, its label centred.
+            [IN_TOOLBAR_ROW]: { paddingBlock: "0" },
             ...coarseHitArea({ position: true, axis: "block" }),
             // The strip's 6px corner, less its border, on the end segments.
             "&:first-of-type": {

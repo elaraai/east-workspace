@@ -291,6 +291,12 @@ component, nothing in east-ui.
   `data-pane-mode`, `data-collapsed`, `data-scrim`) and geometry only, and a
   host's own recipe keeps what is the host's (the snap grid's canvas column,
   the query builder's status line).
+- **The row's height.** Every control in a builder's toolbar row is 28px
+  tall and centred on it (`theme/toolbar-row.ts`, ruled 23 Oct 2026): a chip,
+  a segment strip, a stepper, a tab strip, the key search's box and every
+  button (`size="sm"`), the history's and the date navigator's among them. The
+  showcase's `toolbar-row-heights.spec.ts` holds every builder to it, unfolded
+  and folded, in both themes.
 - **Shared toolbar items.** The items more than one builder's toolbar takes
   live here, each with a narrower form for a row short of room: the history
   item (`historyToolbarItem`, folding last, to its buttons; its commit reads
