@@ -100,6 +100,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [<Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
         count > 0 && value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [<chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>, null] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
-        publishable && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="xs" variant="solid" onClick={() => commands.publish()}>Publish</Button>, null] },
+        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026).
+        publishable && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" onClick={() => commands.publish()}>Publish</Button>, null] },
     ];
 }

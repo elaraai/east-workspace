@@ -174,7 +174,8 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
                 <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
             </chakra.button>, null] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
-        canPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="xs" variant="solid" onClick={() => commands.publish()}>Publish</Button>, null] },
+        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026).
+        canPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" onClick={() => commands.publish()}>Publish</Button>, null] },
     ];
 }
 

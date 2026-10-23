@@ -51,14 +51,16 @@
  *   - Footer: 8/20; counts mono 11; key hint mono 10, each of its hints
  *     whole — a rail too narrow ends them at a whole hint, then "…" (#1398);
  *     message mono 10.5 right-aligned, the shared loading line after it.
- *   - Tabs: 30 px mono 10.5/600/.12em uppercase; active `inset 0 -2px 0`
- *     ink; counts `fg.subtle`; dirty dot 5 px brand; × 14 px → neg;
- *     `+ TAB` 22 px r-sm 1 px `border.strong` mono 9.5/600. A tab, `+n` and
- *     `+ TAB` reached by the keyboard take a 2 px brand ring inside
- *     themselves — the strip clips its overflow sideways (#860). Folded into
- *     one chip (#1221), the strip is the open view's tab with a caret.
- *   - Context switch: r-md, options mono 10, active brandTint; a focused
- *     option a 2 px brand ring (#860).
+ *   - Tabs: 28 px — as tall as every control in the toolbar's row
+ *     (`toolbar-row.ts`, ruled 23 Oct 2026) — mono 10.5/600/.12em uppercase;
+ *     active `inset 0 -2px 0` ink; counts `fg.subtle`; dirty dot 5 px brand;
+ *     × 14 px → neg; `+ TAB` 28 px r-sm 1 px `border.strong` mono 9.5/600. A
+ *     tab, `+n` and `+ TAB` reached by the keyboard take a 2 px brand ring
+ *     inside themselves — the strip clips its overflow sideways (#860).
+ *     Folded into one chip (#1221), the strip is the open view's tab with a
+ *     caret.
+ *   - Context switch: 28 px, r-md, options mono 10 filling it, active
+ *     brandTint; a focused option a 2 px brand ring (#860).
  *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
  *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
  *     pill opens on hover with brand controls (no shadow). A failed
@@ -145,6 +147,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fieldInRingedControl } from "../field-chrome.js";
+import { TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
@@ -321,7 +324,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             lineHeight: "1",
             gap: "7px",
-            height: "30px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             flex: "none",
@@ -385,7 +388,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             lineHeight: "1",
             gap: "4px",
             alignSelf: "center",
-            height: "22px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             paddingX: "7px",
             paddingY: "0",
             borderWidth: "1px",
@@ -413,7 +416,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             lineHeight: "1",
             gap: "5px",
-            height: "30px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             paddingY: "0",
@@ -440,7 +443,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             lineHeight: "1",
             gap: "6px",
-            height: "30px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             paddingY: "0",
@@ -494,15 +497,17 @@ export const sheetSlotRecipe = defineSlotRecipe({
             gap: "1",
         },
         // the switch is the `+ TAB` button's size and idiom
-        // (22 px, r-sm, `border.strong`, mono 9.5/600 uppercase), not a taller
-        // box of its own — on a coarse pointer too, where its options take
-        // their touch target from their halos (#1221).
+        // (28 px, as tall as every control in the row; r-sm, `border.strong`,
+        // mono 9.5/600 uppercase), not a taller box of its own — on a coarse
+        // pointer too, where its options take their touch target from their
+        // halos (#1221). Its options fill it, 2 px inside its border.
         contextSwitch: {
             display: "flex",
             alignItems: "center",
             gap: "2px",
-            height: "22px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             paddingX: "3px",
+            paddingY: "2px",
             flex: "none",
             borderWidth: "1px",
             borderColor: "border.strong",
@@ -510,9 +515,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
         },
         // the label and the options share ONE line box (the
-        // same font size, a 20 px line, no vertical padding) so their
+        // same font size, a 16 px line, no vertical padding) so their
         // baselines coincide and every box lands on a whole pixel inside the
-        // 30 px switch; before, a 9 px label in a 13.5 px line sat beside
+        // 28 px switch; before, a 9 px label in a 13.5 px line sat beside
         // 10 px options in 19 px boxes, and the half-pixel offsets showed.
         contextLabel: {
             display: "inline-flex",
@@ -527,11 +532,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             textTransform: "uppercase",
         },
-        // An option sits two pixels from the next: its halo grows its height alone.
+        // An option sits two pixels from the next, and fills the switch's height inside its padding: its halo grows its height alone.
         contextOption: {
             display: "inline-flex",
             alignItems: "center",
-            height: "16px",
+            height: "100%",
             lineHeight: "16px",
             paddingX: "6px",
             paddingY: "0",
