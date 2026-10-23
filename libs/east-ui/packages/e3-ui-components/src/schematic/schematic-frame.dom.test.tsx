@@ -272,6 +272,30 @@ test("arrows step the selection, flying to each item; Esc clears it; Del deletes
     expect(keptSelection()).toBe(printRefs([]));
 });
 
+test("a press in the frame after Fit meets the floor Fit draws, never the view it left (invariant 9)", async () => {
+    const { container, getByRole } = await dataCentre();
+    const canvas = canvasOf(container);
+    canvas.focus();
+    // ODF-1's card answers a press at its centre in the fitted floor, as a page hits it — once it is drawn there.
+    canvasLayout.hits((px, py) => (Math.hypot(px - 8.4 * PPU, py - 9.6 * PPU) < 4 ? card(container, "network", "ODF-1") : null));
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        const frames = (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
+        // Flown in to A01, the floor's far corner from ODF-1, and nothing selected.
+        await act(async () => { fireEvent.keyDown(canvas, { key: "ArrowRight" }); });
+        await frames(FLY_MS);
+        fireEvent.pointerEnter(canvas);
+        await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
+        // Fit, its frame not yet drawn: a press now meets the floor Fit draws — ODF-1, where Fit draws it.
+        await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
+        await tap(canvas, PPU, 8.4, 9.6);
+        await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "network", key: "ODF-1" }])));
+    } finally {
+        vi.useRealTimers();
+    }
+});
+
 test("Space held over the canvas holds Select, and Ctrl Zoom box, until let go (SC28)", async () => {
     const { container, getByRole } = await dataCentre();
     await act(async () => { fireEvent.click(getByRole("radio", { name: "Marquee" })); });
