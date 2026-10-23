@@ -198,7 +198,12 @@ component, nothing in east-ui.
   legend), or a footer's hints running on in one item (`data-footer-units`),
   stay whole; the line shows its full text, its short form or its dot alone. A
   builder's own rail that carries the line takes `FOOTER_FIT`
-  (`builder-footer.ts`), as the Sheet's does.
+  (`builder-footer.ts`), as the Sheet's does. Nothing the fit measures may
+  move with the fit: every other item of the rail is weighed at its natural
+  width, and one the flex layout shrinks — the Sheet's message, which
+  ellipsizes — is marked `data-footer-slack`, fitted at no width, and takes
+  what the fit leaves it. An unmarked item that shrinks looped the fit on a
+  phone (the showcase's `builder-footer-line.spec.ts` holds every rail to it).
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
   `count`, when given, follows its name, the Calendar's and the Sheet

@@ -39,7 +39,10 @@ export interface FooterFitInput {
     readonly available: number;
     /** The gap between the rail's items, as its recipe sets it. */
     readonly gap: number;
-    /** Each item the rail keeps whole and never cuts — a count, a Save's notice, a message — in order. */
+    /**
+     * Each item the rail keeps whole and never cuts — a count, a Save's notice — in order, at its natural width; an item
+     * that takes the rail's slack (the Sheet's message) at none, as it shrinks to the room the fit leaves it.
+     */
     readonly fixed: readonly number[];
     /** The legend's items — or the hints, or the Plan's counts — each whole, in order. */
     readonly units: readonly number[];
