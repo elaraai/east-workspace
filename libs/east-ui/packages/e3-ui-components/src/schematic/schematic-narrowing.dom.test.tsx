@@ -259,7 +259,10 @@ test("hidden, the Index and the Backlog list only what the narrowing holds, and 
     await tap(canvasOf(container), PPU, 9.6, 6.0);
     await waitFor(() => expect(showing(container)).toBe("link"));
     expect(await offered(container, "ends", "from")).toEqual(["A03 · Rack", "A04 · Rack", "CORE-1 · Network frame", "MMR-1 · Network frame", "ODF-1 · Network frame"]);
-    // ODF-1 is joined to the runs of the racks the narrowing holds: u3 and u4; u1, u2 and u2m go with Harbour Labs' racks.
+    // The Esc that closed the Chooser's list was the list's: the run stays selected.
+    expect(showing(container)).toBe("link");
+    // ODF-1, where u3 ends, tapped: it is selected, though the run's end is a handle there. It is joined to the runs of
+    // the racks the narrowing holds: u3 and u4; u1, u2 and u2m go with Harbour Labs' racks.
     await tap(canvasOf(container), PPU, 8.4, 9.6);
     await waitFor(() => expect(showing(container)).toBe("item"));
     expect(joins(container)).toEqual([id("fibre", "u3"), id("fibre", "u4")]);
