@@ -19,7 +19,11 @@
  *     placeholder shapes — the Skeleton's static `--paper-3`, square-ended
  *     bars (12 for a body value, 8 for a label or meta line, 24 for a large
  *     number), the Chip's rect (22, 15 dense) at `--r-sm`, the Checkbox's 14
- *     at 3px, an 8px dot, the Count's 24 × 16 rect. Nothing in them moves.
+ *     at 3px, an 8px dot, the Count's 24 × 16 rect. Each bar's and chip's
+ *     length is its kind's (`data-length`), a share of its cell with a px
+ *     cap; a text bar's and a label's are keyed to their row by the part's
+ *     `--placeholder-share`, so the pattern never crawls. Nothing in them
+ *     moves.
  *   - band / chevron: a grouped run's band, its chevron real.
  *   - wash: the region wash, `--ink` at 6% over a region whose items have no
  *     known position yet — under the real rules, shading and the now line,
@@ -118,15 +122,25 @@ export const loadingSlotRecipe = defineSlotRecipe({
             maxWidth: "100%",
             "&[data-size=label]": { height: "8px" },
             "&[data-size=large]": { height: "24px" },
+            // Each kind's length: a share of its cell with a px cap — a text bar's and a label's keyed to its row.
+            "&[data-length=text], &[data-length=label]": { width: "calc(min(96px, 80%) * var(--placeholder-share, 1))" },
+            "&[data-length=sub]": { width: "calc(min(56px, 50%) * var(--placeholder-share, 1))" },
+            "&[data-length=number], &[data-length=enum]": { width: "min(40px, 60%)" },
+            "&[data-length=date]": { width: "min(64px, 80%)" },
+            "&[data-length=aggregate]": { width: "min(48px, 60%)" },
+            "&[data-length=rowNumber]": { width: "min(24px, 60%)" },
         },
         chip: {
             ...FILL,
             display: "block",
             flex: "none",
+            width: "min(48px, 90%)",
             height: "22px",
             maxWidth: "100%",
             borderRadius: "sm",
             "[data-dense] &": { height: "15px" },
+            // Either side of a link's arrow: each half's.
+            "&[data-length=link]": { width: "min(40px, 40%)" },
         },
         box: { ...FILL, display: "block", flex: "none", width: "14px", height: "14px", borderRadius: "xs" },
         dot: { ...FILL, display: "block", flex: "none", width: "8px", height: "8px", borderRadius: "full" },
@@ -174,6 +188,8 @@ export const loadingSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "{spacing.2}",
             minWidth: "0",
+            // Its Retry keeps its words whole, however little room the reason leaves.
+            "& > [data-loading-retry]": { flex: "none" },
         },
         failedIcon: {
             ...fontAwesomeSize("14px"),
@@ -205,6 +221,7 @@ export const loadingSlotRecipe = defineSlotRecipe({
             borderStyle: "solid",
             borderColor: "border.strong",
             borderRadius: "md",
+            "& > [data-loading-retry]": { flex: "none" },
         },
         card: {
             boxSizing: "border-box",

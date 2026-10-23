@@ -26,7 +26,7 @@
  * @packageDocumentation
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 /** How long a wait runs before its fill and the footer's loading line show (CL4). */
 export const REVEAL_DELAY_MS = 150;
@@ -93,22 +93,39 @@ function now(): number {
     return Date.now();
 }
 
+/** What the hook holds: where the reveal is, and whether it shows. */
+interface Revealed {
+    readonly state: RevealState;
+    readonly shown: boolean;
+}
+
+/** Nothing waited on, and nothing shown. */
+const HIDDEN: Revealed = { state: REVEAL_IDLE, shown: false };
+
 /**
  * Whether a read in flight shows its fill and the footer's loading line yet
  * (CL4) — after {@link REVEAL_DELAY_MS} of waiting, and for at least
  * {@link REVEAL_HOLD_MS} once shown. One clock per builder: hand the answer to
  * the placeholder fill and to the footer's loading line alike.
  *
+ * Where the reveal is is state, which a render adjusts as it renders — React's
+ * adjusting state while rendering, taken again before the render commits —
+ * never a ref written as it renders: a render React throws away keeps no step
+ * of its own, and a read landing is still one commit, the reveal's step in it.
+ * A wake time — the delay running out, the hold — is a timer's re-render.
+ *
  * @param waiting - Whether a read the view needs is in flight
  * @param timings - The delay and the hold; CL4's unless given
  * @returns Whether its fill and its line show
  */
 export function useLoadingReveal(waiting: boolean, timings: RevealTimings = TIMINGS): boolean {
-    const state = useRef<RevealState>(REVEAL_IDLE);
+    const [revealed, setRevealed] = useState<Revealed>(HIDDEN);
     // Bumped when the clock passes a wake time, so the step is taken again.
     const [tick, setTick] = useState(0);
-    const step = revealStep(state.current, waiting, now(), timings);
-    state.current = step.state;
+    const step = revealStep(revealed.state, waiting, now(), timings);
+    const moved = step.shown !== revealed.shown
+        || step.state.since !== revealed.state.since || step.state.shownAt !== revealed.state.shownAt;
+    if (moved) setRevealed({ state: step.state, shown: step.shown });
     const { wakeAt } = step;
     useEffect(() => {
         if (wakeAt === undefined) return undefined;

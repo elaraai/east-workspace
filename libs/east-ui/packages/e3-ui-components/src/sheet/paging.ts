@@ -531,6 +531,16 @@ export function useSheetPaging(
     }
     const jump = target === undefined ? undefined : { window: target, settled };
 
+    // What the footer's loading line names (#1398): one object while the stretch holds, so the line it feeds — and
+    // the footer that measures itself as it renders — renders again only when the stretch moves.
+    const stretch = value === undefined ? undefined : readingStretch(value.pending, viewportWindow, total);
+    const readingFrom = stretch?.from;
+    const readingTo = stretch?.to;
+    const reading = useMemo(
+        () => (readingFrom === undefined || readingTo === undefined ? undefined : { from: readingFrom, to: readingTo }),
+        [readingFrom, readingTo],
+    );
+
     if (source === undefined) { displayed.current = undefined; replacingRef.current = false; return IDLE; }
 
     // Until anything has landed there is nothing to show beside a failure:
@@ -548,7 +558,7 @@ export function useSheetPaging(
         total,
         exhausted,
         loading: value?.loading ?? false,
-        reading: value === undefined ? undefined : readingStretch(value.pending, viewportWindow, total),
+        reading,
         replacing: false,
         sourceError: nothingShown ? undefined : value?.sourceError,
         error: readError ?? (nothingShown ? failure : undefined),

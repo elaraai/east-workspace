@@ -1189,6 +1189,80 @@ describe("PagedRuntime — a read no reader waits on any longer is aborted (#139
         assert.deepEqual(runtime.seekAll(source, queries), some([{ found: true, row: 1, count: 3, hash: R1 }, { found: true, row: 4, count: 1, hash: R1 }]));
         assert.equal(h.requests().filter(finds("inputs.preview_counts")).length, 2);
     });
+
+    /** A runtime that says how many membership answers it holds, and how many it keeps for their readers. */
+    class HeldWithinRuntime extends PagedRuntime {
+        held(source: PagedSource) { return this.withinHeld(source); }
+    }
+    /** A late work order's entry key in the dispatch queue, printed: its status and due date, beside its key. */
+    const lateEntry = (k: string, day: number) =>
+        printFor(StructType({ ik: ex.WorkQueueKey, k: StringType }))({ ik: { status: "late", due: new Date(Date.UTC(2026, 8, day)) }, k });
+    /** A runtime whose work orders have looked their revision up, and the source of their dispatch queue. */
+    const queued = async <R extends PagedRuntime>(runtime: R) => {
+        const read = await known(runtime, (r) => handleOf(r, toEastTypeValue(orders.type), ordersPath).revision!());
+        const source = read.runtime.sourceOf(handleOf(read.runtime, QueueWindowType, ordersPath, "pinned", BY_STATUS).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        return { ...read, source };
+    };
+    /** One reader's run, as a view's: read under tracking, then subscribe to what the read tracked; `leave` lets it all go. */
+    const readOnce = <T>(runtime: PagedRuntime, read: () => T) => {
+        runtime.enableTracking();
+        const value = read();
+        const unsubs = runtime.disableTracking().map((key) => runtime.subscribe(key, () => {}));
+        return { value, leave: () => { for (const unsub of unsubs) unsub(); } };
+    };
+
+    test("a membership batch its reader lets go is aborted, and keeps nothing for it", async () => {
+        const { runtime, source } = await queued(new HeldWithinRuntime());
+        const LATE: readonly PagedRun[] = [[0, 5]];
+        const answered = [lateEntry("WO-1008", 11), lateEntry("WO-1017", 22)];
+        // Two answers land and are read: held, and kept for no batch.
+        runtime.withinAll(source, LATE, answered);
+        await h.settle();
+        assert.equal(runtime.withinAll(source, LATE, answered).type, "some");
+        assert.deepEqual(runtime.held(source), { answers: 2, kept: 0, batches: 0 });
+        // A reader asks of them and of one more: its batch keeps the two it holds while it asks of the third.
+        const asking = h.e3.hold((request) => request.kind === "within");
+        const reader = readOnce(runtime, () => runtime.withinAll(source, LATE, [...answered, lateEntry("WO-2000", 15)]));
+        assert.equal(reader.value.type, "none");
+        await asking.holding;
+        assert.deepEqual(runtime.held(source), { answers: 2, kept: 2, batches: 1 }, "its batch keeps what it holds for its reader");
+        reader.leave();
+        await h.settle();
+        assert.equal(h.requests("within", "records.work_orders").at(-1)!.signal.aborted, true, "no reader waits on it: its request is aborted");
+        assert.deepEqual(runtime.held(source), { answers: 2, kept: 0, batches: 0 }, "aborted, it keeps nothing for the reader that let it go");
+        asking.release();
+    });
+
+    test("a placement its reader lets go is aborted, and asked again it starts afresh: never with the half the aborted one placed", async () => {
+        // Twenty thousand late orders: the queue's run of them is placed a window of ten thousand entries at a time.
+        await h.patch(orders, new SortedMap(Array.from({ length: 20_000 }, (_, n) => [`WO-${String(n).padStart(5, "0")}`, {
+            site: "North", title: `Order ${n}`, crew: "Mech A", status: "late", due: new Date(Date.UTC(2026, 8, 1) + n * 60_000),
+        }] as const), keys));
+        const { runtime, source } = await queued(new PagedRuntime());
+        const RUN: readonly PagedRun[] = [[0, 20_000]];
+        /** Where in the runs a placement's window starts, from its body. */
+        const from = (request: E3Request) => (JSON.parse(new TextDecoder().decode(request.body)) as { offset?: number }).offset ?? 0;
+        // The first window lands; the second is held on its way to e3.
+        const later = h.e3.hold((request) => request.kind === "place" && from(request) > 0);
+        const reader = readOnce(runtime, () => runtime.placeAll(source, RUN));
+        assert.equal(reader.value.type, "none");
+        await later.holding;
+        const half = runtime.placeAll(source, RUN);
+        assert.ok(half.type === "some" && !half.value.complete && half.value.placed === 10_000, "the first window's half is placed");
+        reader.leave();
+        await h.settle();
+        assert.equal(h.requests("place", "records.work_orders").at(-1)!.signal.aborted, true, "no reader waits on it: its request is aborted");
+        later.release();
+        // Its reader comes back: the placement starts again from its first window, its readers shown nothing it did not place.
+        const again = readOnce(runtime, () => runtime.placeAll(source, RUN));
+        assert.equal(again.value.type, "none", "the aborted placement's half is not this one's");
+        await h.settle();
+        const whole = runtime.placeAll(source, RUN);
+        assert.ok(whole.type === "some" && whole.value.complete && whole.value.placed === 20_000);
+        assert.deepEqual(h.requests("place", "records.work_orders").map(from), [0, 10_000, 0, 10_000]);
+        again.leave();
+    });
 });
 
 describe("PagedRuntime — several reads in one request (#1351)", () => {

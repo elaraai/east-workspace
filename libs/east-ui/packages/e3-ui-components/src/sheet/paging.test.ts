@@ -8,13 +8,20 @@
  * which needs one as it loads.
  *
  * What the footer's loading line names of a paged sheet's reads (#1398,
- * CL3), pure: of the windows in flight, the stretch of adjacent ones nearest
- * the viewport's window, first and last element, the last ending at the
- * source's count. The Sheet's DOM tests carry it into the footer.
+ * CL3): of the windows in flight, the stretch of adjacent ones nearest the
+ * viewport's window, first and last element, the last ending at the source's
+ * count — pure — and the driver handing back one object for it while it
+ * holds, so the footer it feeds, which measures itself as it renders, renders
+ * again only as it moves. The Sheet's DOM tests carry it into the footer.
  */
 
 import { describe, expect, test } from "vitest";
-import { SHEET_PAGE_SIZE, readingStretch } from "./paging.js";
+import { act, renderHook } from "@testing-library/react";
+import { none, some } from "@elaraai/east";
+import { UIStore } from "@elaraai/east-ui-components";
+import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { SHEET_PAGE_SIZE, readingStretch, useSheetPaging } from "./paging.js";
+import type { SheetPagedSourceValue } from "./values.js";
 
 describe("readingStretch", () => {
     test("nothing in flight, nothing named", () => {
@@ -32,5 +39,24 @@ describe("readingStretch", () => {
         expect(readingStretch([1, 2, 7, 8], 7, 2_000)).toEqual({ from: 7 * SHEET_PAGE_SIZE, to: 9 * SHEET_PAGE_SIZE - 1 });
         expect(readingStretch([1, 2, 7, 8], 4, 2_000)).toEqual({ from: SHEET_PAGE_SIZE, to: 3 * SHEET_PAGE_SIZE - 1 });
         expect(readingStretch([1, 2, 7, 8], 5, 2_000)).toEqual({ from: 7 * SHEET_PAGE_SIZE, to: 9 * SHEET_PAGE_SIZE - 1 });
+    });
+});
+
+describe("useSheetPaging's reading", () => {
+    test("is one object while the stretch in flight holds, and a new one once it moves", () => {
+        initializeStore(new UIStore());
+        // A thousand rows, every window of them still on its way.
+        const source: SheetPagedSourceValue = { id: "sheet_reading", page: () => none, total: () => some(1_000n), seek: none };
+        const heightOf = () => 36;
+        const { result, rerender } = renderHook(() => useSheetPaging(source, heightOf));
+        const reading = result.current.reading;
+        expect(reading?.from).toBe(0);
+        // Rendered again with nothing moved: the same object, so a memo over it holds.
+        rerender();
+        expect(result.current.reading).toBe(reading);
+        // The viewport moves down to element 700: the windows around it are asked, and the stretch reaches the end.
+        act(() => { result.current.reportViewport({ kind: "row", offset: 700 }, false); });
+        expect(result.current.reading).not.toBe(reading);
+        expect(result.current.reading?.to).toBe(999);
     });
 });
