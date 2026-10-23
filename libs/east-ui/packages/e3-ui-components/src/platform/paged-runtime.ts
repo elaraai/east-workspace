@@ -52,6 +52,15 @@
  * over a binding the indexed runtime built reads a plan's searches, and a
  * window across several runs, through them.
  *
+ * A read no reader waits on any longer is aborted while still in flight
+ * (#1398, CL6, CL7): a window that left the demand ring, a period read a newer
+ * navigation superseded. Each fetch carries its channel's signal through the
+ * API seam; once the channel's last reader lets it go — and has not
+ * subscribed again by the next microtask — its requests are cancelled and the
+ * channel goes back to `idle`, so a read that asks for it again fetches it
+ * afresh. (A read of a revision the source moved past is not aborted: its
+ * answer lands nowhere, its pin no longer holding.)
+ *
  * The dataset store's CONTENT is deliberately not used: it holds whole values,
  * and a paged source is precisely the thing you cannot hold whole. A source
  * rides the store's status poll for hashes alone, through
@@ -218,32 +227,37 @@ function selectorKey(selector: PagedSelector): string {
  * Adapter for the dataset paging endpoints. The default wraps
  * `@elaraai/e3-api-client`'s `datasetGetPage`, `datasetFindKey` and
  * `datasetGetStatus`, and follows datasets through the dataset store.
+ *
+ * Each request takes the signal of the read that asked it (#1398, CL6): a
+ * read no reader waits on any longer — a window that left the demand ring, a
+ * period read a newer navigation superseded — is aborted while still in
+ * flight, and the request rejects as `fetch` does.
  */
 export interface PagedApi {
     /** Fetch one element window of a collection dataset — or of one of a
      *  record's indexes, when the window names one. */
-    getPage(workspace: string, path: TreePath, window: PagedWindow): Promise<DatasetPage>;
+    getPage(workspace: string, path: TreePath, window: PagedWindow, signal?: AbortSignal): Promise<DatasetPage>;
     /** Locate a key query in a Set/Dict dataset's canonical key order. The
      *  `row` it answers with indexes the SAME row space {@link getPage}'s
      *  element windows serve, which is what makes a hit addressable. */
-    findKey(workspace: string, path: TreePath, query: DatasetFindQuery): Promise<DatasetFindResult>;
+    findKey(workspace: string, path: TreePath, query: DatasetFindQuery, signal?: AbortSignal): Promise<DatasetFindResult>;
     /** Locate several key queries of one source in one request (#1351), each
      *  as {@link findKey} would, in order. */
-    findKeys(workspace: string, path: TreePath, query: DatasetFindKeysQuery): Promise<DatasetFindKeysResult>;
+    findKeys(workspace: string, path: TreePath, query: DatasetFindKeysQuery, signal?: AbortSignal): Promise<DatasetFindKeysResult>;
     /** Read the rows a Dict dataset holds under several keys in one request:
      *  each key's row or absence and its position, the first `count` of the
      *  keys the page byte budget reaches. */
-    getRows(workspace: string, path: TreePath, query: DatasetRowsQuery): Promise<DatasetRows>;
+    getRows(workspace: string, path: TreePath, query: DatasetRowsQuery, signal?: AbortSignal): Promise<DatasetRows>;
     /** Read the entries of several runs of a source's rows in one request, in
      *  order: the first `count` of them a page's bounds reach. */
-    getRuns(workspace: string, path: TreePath, query: DatasetRunsQuery): Promise<DatasetRuns>;
+    getRuns(workspace: string, path: TreePath, query: DatasetRunsQuery, signal?: AbortSignal): Promise<DatasetRuns>;
     /** Place a window of a narrowing's runs of one of a record's indexes in the
      *  record (#1349): how many of the window's entries each record segment
      *  holds, the first `placed` of them a page's bounds reach. */
-    place(workspace: string, path: TreePath, query: DatasetPlaceQuery): Promise<DatasetPlacement>;
+    place(workspace: string, path: TreePath, query: DatasetPlaceQuery, signal?: AbortSignal): Promise<DatasetPlacement>;
     /** Ask which of some index entries a narrowing's runs of one of a record's
      *  indexes hold, in one request (#1349). */
-    within(workspace: string, path: TreePath, query: DatasetWithinQuery): Promise<DatasetWithin>;
+    within(workspace: string, path: TreePath, query: DatasetWithinQuery, signal?: AbortSignal): Promise<DatasetWithin>;
     /**
      * The dataset's current content hash, or `null` while it has no value. For
      * a record it is the record's state hash, which reads through its indexes
@@ -260,6 +274,35 @@ export interface PagedApi {
      * @returns A function that stops following
      */
     watchRevision(workspace: string, path: TreePath, onChange: (hash: string | null) => void): () => void;
+}
+
+/**
+ * A request's options with its read's signal: the `fetch` every one of its
+ * requests goes through — its retries too — carries the signal, so aborting
+ * the read rejects the request in flight as `fetch` does, and a retry is
+ * never sent. The client's own options are otherwise as they were.
+ *
+ * @param options - The request's options
+ * @param signal - The read's signal; absent, the options as they are
+ * @returns The options
+ */
+function withSignal(options: RequestOptions, signal: AbortSignal | undefined): RequestOptions {
+    if (signal === undefined) return options;
+    const send = options.fetch ?? globalThis.fetch;
+    return {
+        ...options,
+        fetch: (input, init) => {
+            const own = init?.signal ?? undefined;
+            if (own === undefined) return send(input, { ...init, signal });
+            // A request with a signal of its own is aborted by either.
+            const both = new AbortController();
+            const abort = () => both.abort();
+            if (own.aborted || signal.aborted) both.abort();
+            own.addEventListener("abort", abort, { once: true });
+            signal.addEventListener("abort", abort, { once: true });
+            return send(input, { ...init, signal: both.signal });
+        },
+    };
 }
 
 /**
@@ -285,26 +328,26 @@ export function createDefaultPagedApi(
     datasets: Pick<ReactiveDatasetCacheInterface, "watchHash">,
 ): PagedApi {
     return {
-        async getPage(workspace, path, window) {
-            return datasetGetPage(apiUrl, repo, workspace, path, window, getOptions());
+        async getPage(workspace, path, window, signal) {
+            return datasetGetPage(apiUrl, repo, workspace, path, window, withSignal(getOptions(), signal));
         },
-        async findKey(workspace, path, query) {
-            return datasetFindKey(apiUrl, repo, workspace, path, query, getOptions());
+        async findKey(workspace, path, query, signal) {
+            return datasetFindKey(apiUrl, repo, workspace, path, query, withSignal(getOptions(), signal));
         },
-        async findKeys(workspace, path, query) {
-            return datasetFindKeys(apiUrl, repo, workspace, path, query, getOptions());
+        async findKeys(workspace, path, query, signal) {
+            return datasetFindKeys(apiUrl, repo, workspace, path, query, withSignal(getOptions(), signal));
         },
-        async getRows(workspace, path, query) {
-            return datasetGetRows(apiUrl, repo, workspace, path, query, getOptions());
+        async getRows(workspace, path, query, signal) {
+            return datasetGetRows(apiUrl, repo, workspace, path, query, withSignal(getOptions(), signal));
         },
-        async getRuns(workspace, path, query) {
-            return datasetGetRuns(apiUrl, repo, workspace, path, query, getOptions());
+        async getRuns(workspace, path, query, signal) {
+            return datasetGetRuns(apiUrl, repo, workspace, path, query, withSignal(getOptions(), signal));
         },
-        async place(workspace, path, query) {
-            return datasetPlace(apiUrl, repo, workspace, path, query, getOptions());
+        async place(workspace, path, query, signal) {
+            return datasetPlace(apiUrl, repo, workspace, path, query, withSignal(getOptions(), signal));
         },
-        async within(workspace, path, query) {
-            return datasetWithin(apiUrl, repo, workspace, path, query, getOptions());
+        async within(workspace, path, query, signal) {
+            return datasetWithin(apiUrl, repo, workspace, path, query, withSignal(getOptions(), signal));
         },
         async getRevision(workspace, path) {
             const status = await datasetGetStatus(apiUrl, repo, workspace, path, getOptions());
@@ -929,6 +972,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     /** Fetches launched so far — the source of every channel's `launchSeq`. */
     private launches = 0;
 
+    /** Each fetch in flight, by its channel: its launch, and what aborts it (#1398, CL6). */
+    private readonly fetching = new Map<string, { readonly seq: number; readonly controller: AbortController }>();
+
     /** Each key type's printer and parser, and each landed Dict window's keys
      *  in order — what reads by key look keys up by (#1351). */
     private readonly printers = new WeakMap<EastTypeValue, (key: unknown) => string>();
@@ -971,8 +1017,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         this.indexed.clear();
     }
 
-    /** Stop following every dataset, and drop what every snapshot delivered. */
+    /** Stop following every dataset, and drop what every snapshot delivered — aborting what is still in flight. */
     private reset(): void {
+        for (const key of [...this.fetching.keys()]) this.abortFetch(key);
         for (const snapshot of this.snapshots.values()) snapshot.unwatch?.();
         this.snapshots.clear();
         this.clearChannels();
@@ -1028,6 +1075,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * meanwhile.
      */
     protected override unsubscribed(key: string): void {
+        // A read no reader waits on any longer is aborted while still in flight (#1398, CL6): a window that left the
+        // demand ring, a period read a newer navigation superseded. A reader re-subscribing lets every channel go
+        // before it subscribes again, so the fetch goes only if nothing reads it once that is done.
+        if (this.fetching.has(key)) {
+            queueMicrotask(() => { if (!this.isSubscribed(key)) this.abortFetch(key); });
+        }
         const snapshot = this.snapshots.get(key);
         if (snapshot?.unwatch === undefined) return;
         // A reader re-subscribing lets every channel go before it subscribes
@@ -1113,6 +1166,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         delete snapshot.findError;
         delete snapshot.findFailedAtMs;
         for (const key of snapshot.channels) {
+            // A read of the old revision still in flight lands nowhere (its pin no longer holds): it is no longer the channel's.
+            this.fetching.delete(key);
             this.entries.delete(key);
             this.loadedWindows.delete(key);
         }
@@ -1177,12 +1232,57 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         return entry.launchSeq;
     }
 
-    /** Apply a fetch's outcome if the channel still waits on it. Returns
-     *  whether it applied. */
+    /**
+     * Mark a channel's fetch as started, as {@link launch} does, and hand it
+     * the signal that aborts its requests (#1398, CL6): aborted once no read
+     * waits on the channel any longer ({@link unsubscribed}), or once the
+     * revision it reads at moves. A fetch it replaces is aborted.
+     *
+     * @param key - The channel
+     * @param entry - Its entry
+     * @returns The fetch's sequence number, and its signal
+     */
+    private launchFetch(key: string, entry: PageEntry): { seq: number; signal: AbortSignal } {
+        const seq = this.launch(entry);
+        this.fetching.get(key)?.controller.abort();
+        const controller = new AbortController();
+        this.fetching.set(key, { seq, controller });
+        return { seq, signal: controller.signal };
+    }
+
+    /** A channel's fetch is over: what aborts it is let go. */
+    private forgetFetch(key: string, seq: number): void {
+        if (this.fetching.get(key)?.seq === seq) this.fetching.delete(key);
+    }
+
+    /**
+     * Abort a channel's fetch still in flight, which no read waits on any
+     * longer (#1398, CL6): its requests are cancelled — a request still to be
+     * sent, a retry among them, never is — and the channel goes back to
+     * `idle`, so a read that asks for it again fetches it afresh. Nothing is
+     * notified: no reader is waiting on it.
+     *
+     * @param key - The channel
+     */
+    private abortFetch(key: string): void {
+        const fetch = this.fetching.get(key);
+        if (fetch === undefined) return;
+        this.fetching.delete(key);
+        fetch.controller.abort();
+        const entry = this.entries.get(key);
+        if (entry !== undefined && entry.launchSeq === fetch.seq && entry.status === "running") {
+            entry.status = "idle";
+            entry.launchSeq = ++this.launches;
+        }
+    }
+
+    /** Apply a fetch's outcome if the channel still waits on it, letting
+     *  the fetch go once the channel has settled. Returns whether it applied. */
     private apply(key: string, seq: number, mutate: (entry: PageEntry) => void): boolean {
         const entry = this.entries.get(key);
         if (entry === undefined || entry.launchSeq !== seq) return false;
         mutate(entry);
+        if (entry.status !== "running") this.forgetFetch(key, seq);
         return true;
     }
 
@@ -1328,7 +1428,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     ): PageEntry {
         const entry = this.channel(snapshot, key);
         if (!this.due(entry)) return entry;
-        const seq = this.launch(entry);
+        const { seq, signal } = this.launchFetch(key, entry);
         const api = this.api;
 
         void (async () => {
@@ -1338,14 +1438,16 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 page = await api.getPage(workspace, path, {
                     offset, limit, hash: revision,
                     ...(selector.index !== null && { index: selector.index, join: selector.join }),
-                });
+                }, signal);
             } catch (err) {
+                // Aborted: no read waits on it any longer, and its channel is idle again (CL6).
+                if (signal.aborted) return;
                 if (this.followed(workspace, path, snapshot, revision, err)) return;
                 this.fail(key, seq, failureOf(path, err), isPermanentPageError(err));
                 console.error(`Data.bindPaged: fetch failed for ${key}:`, err);
                 return;
             }
-            if (!this.pinnedTo(snapshot, revision)) return;
+            if (signal.aborted || !this.pinnedTo(snapshot, revision)) return;
             let decoded: unknown;
             try {
                 decoded = decodeBeast2For(sourceType)(page.data);
@@ -1431,7 +1533,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     ): PageEntry {
         const entry = this.channel(snapshot, key);
         if (!this.due(entry)) return entry;
-        const seq = this.launch(entry);
+        const { seq, signal } = this.launchFetch(key, entry);
         const api = this.api;
         const burst = this.joinBurst(pagedWindowFamily(workspace, path, revision, selector));
 
@@ -1441,8 +1543,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 let range: DatasetFindResult;
                 try {
                     if (api === null) throw new Error("no PagedApi installed");
-                    range = await api.findKey(workspace, path, { ...query, hash: revision });
+                    range = await api.findKey(workspace, path, { ...query, hash: revision }, signal);
                 } catch (err) {
+                    if (signal.aborted) return;
                     if (this.followed(workspace, path, snapshot, revision, err)) return;
                     answered = this.apply(key, seq, this.failure(failureOf(path, err), isPermanentPageError(err)));
                     console.error(`Data.bindPaged: key search failed for ${key}:`, err);
@@ -1521,7 +1624,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         batchKey: string,
         asked: readonly { query: DatasetFindQuery; key: string }[],
     ): void {
-        const seq = this.launch(this.channel(snapshot, batchKey));
+        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
         const api = this.api;
         void (async () => {
             const answers: DatasetFindResult[] = [];
@@ -1532,10 +1635,11 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                         queries: asked.slice(at, at + DATASET_BATCH_MAX).map(({ query }) => searchOf(query)),
                         hash: revision,
                         ...(selector.index !== null && { index: selector.index }),
-                    });
+                    }, signal);
                     for (const result of results) answers.push({ ...result, hash });
                 }
             } catch (err) {
+                if (signal.aborted) return;
                 if (this.followed(workspace, path, snapshot, revision, err)) return;
                 this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
                 console.error(`Data.bindPaged: key searches failed for ${batchKey}:`, err);
@@ -1622,7 +1726,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         literals: readonly string[],
         known: readonly (PagedRow | undefined)[],
     ): void {
-        const seq = this.launch(this.channel(snapshot, batchKey));
+        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
         const api = this.api;
         const { key: keyType, value: rowType } = sourceType.value as { key: EastTypeValue; value: EastTypeValue };
         const decode = decodeBeast2For(datasetRowsType(fromEastTypeValue(keyType), fromEastTypeValue(rowType))) as
@@ -1634,7 +1738,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 if (api === null) throw new Error("no PagedApi installed");
                 for (let next = 0; next < asked.length;) {
                     const chunk = asked.slice(next, next + DATASET_BATCH_MAX);
-                    const answer = await api.getRows(workspace, path, { keys: chunk.map((i) => literals[i]!), hash: revision });
+                    const answer = await api.getRows(workspace, path, { keys: chunk.map((i) => literals[i]!), hash: revision }, signal);
                     const decoded = decode(answer.data);
                     if (answer.count < 1 || decoded.length !== answer.count) {
                         throw new Error(`a read of ${chunk.length} rows by key answered ${decoded.length}, and said ${answer.count}`);
@@ -1645,6 +1749,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     next += answer.count;
                 }
             } catch (err) {
+                if (signal.aborted) return;
                 if (this.followed(workspace, path, snapshot, revision, err)) return;
                 this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
                 console.error(`Data.bindPaged: read by key failed for ${batchKey}:`, err);
@@ -1705,7 +1810,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         batchKey: string,
         runs: readonly PagedRun[],
     ): void {
-        const seq = this.launch(this.channel(snapshot, batchKey));
+        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
         const api = this.api;
         const { selector } = source;
         const decode = decodeBeast2For(source.type);
@@ -1718,7 +1823,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     const answer = await api.getRuns(workspace, path, {
                         runs: chunk, hash: revision,
                         ...(selector.index !== null && { index: selector.index, join: selector.join }),
-                    });
+                    }, signal);
                     const part = decode(answer.data);
                     if (answer.count < 1 || elementCount(source.type, part) !== answer.count) {
                         throw new Error(`a read of runs answered ${elementCount(source.type, part)} entries, and said ${answer.count}`);
@@ -1727,6 +1832,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     rest = [...runsAfter(chunk, answer.count), ...rest.slice(DATASET_BATCH_MAX)];
                 }
             } catch (err) {
+                if (signal.aborted) return;
                 if (this.followed(workspace, path, snapshot, revision, err)) return;
                 this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
                 console.error(`Data.bindPaged: read of runs failed for ${batchKey}:`, err);
@@ -1791,7 +1897,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         batchKey: string,
         runs: readonly PagedRun[],
     ): void {
-        const seq = this.launch(this.channel(snapshot, batchKey));
+        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
         const api = this.api;
         const entries = runs.reduce((sum, [, count]) => sum + count, 0);
         void (async () => {
@@ -1823,8 +1929,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 for (const group of groups) {
                     const groupEntries = group.reduce((sum, [, count]) => sum + count, 0);
                     // The first window says how many entries a window places.
-                    const first = await api.place(workspace, path, { index, runs: group, offset: 0, hash: revision });
-                    if (!this.pinnedTo(snapshot, revision) || !land(first)) return;
+                    const first = await api.place(workspace, path, { index, runs: group, offset: 0, hash: revision }, signal);
+                    if (signal.aborted || !this.pinnedTo(snapshot, revision) || !land(first)) return;
                     if (first.placed < 1 && groupEntries > 0) throw new Error("a placement placed no entry of runs that hold some");
                     const width = first.placed;
                     // What is left to place, as stretches of the runs' entries.
@@ -1839,8 +1945,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                             else left[0] = [until, to];
                         }
                         const answers = await Promise.all(asked.map(([from, until]) =>
-                            api.place(workspace, path, { index, runs: group, offset: from, limit: until - from, hash: revision })));
-                        if (!this.pinnedTo(snapshot, revision)) return;
+                            api.place(workspace, path, { index, runs: group, offset: from, limit: until - from, hash: revision }, signal)));
+                        if (signal.aborted || !this.pinnedTo(snapshot, revision)) return;
                         for (const [k, answer] of answers.entries()) {
                             const [from, until] = asked[k]!;
                             if (answer.placed < 1) throw new Error("a placement placed no entry of a window that holds some");
@@ -1851,6 +1957,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     }
                 }
             } catch (err) {
+                if (signal.aborted) return;
                 if (this.followed(workspace, path, snapshot, revision, err)) return;
                 this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
                 console.error(`Data.bindPaged: placement failed for ${batchKey}:`, err);
@@ -1961,7 +2068,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         runs: readonly PagedRun[],
         keys: readonly string[],
     ): void {
-        const seq = this.launch(this.channel(snapshot, batchKey));
+        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
         const api = this.api;
         void (async () => {
             const within = new Array<boolean>(keys.length).fill(false);
@@ -1970,7 +2077,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 for (let k = 0; k < keys.length; k += DATASET_BATCH_MAX) {
                     const chunk = keys.slice(k, k + DATASET_BATCH_MAX);
                     for (let r = 0; r < Math.max(1, runs.length); r += DATASET_BATCH_MAX) {
-                        const answer = await api.within(workspace, path, { index, runs: runs.slice(r, r + DATASET_BATCH_MAX), keys: chunk, hash: revision });
+                        const answer = await api.within(workspace, path, { index, runs: runs.slice(r, r + DATASET_BATCH_MAX), keys: chunk, hash: revision }, signal);
                         if (answer.within.length !== chunk.length) {
                             throw new Error(`a membership read of ${chunk.length} keys answered ${answer.within.length}`);
                         }
@@ -1978,6 +2085,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     }
                 }
             } catch (err) {
+                if (signal.aborted) return;
                 if (this.followed(workspace, path, snapshot, revision, err)) return;
                 this.fail(batchKey, seq, failureOf(path, err), isPermanentPageError(err));
                 console.error(`Data.bindPaged: membership read failed for ${batchKey}:`, err);

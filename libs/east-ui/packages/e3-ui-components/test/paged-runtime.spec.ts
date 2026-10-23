@@ -1081,6 +1081,116 @@ describe("PagedRuntime — a burst of searches settles as one (#1360)", () => {
     });
 });
 
+describe("PagedRuntime — a read no reader waits on any longer is aborted (#1398, CL6)", () => {
+    // A window that left a list's demand ring, a period a newer navigation
+    // superseded: once its last reader lets it go, its request is aborted while
+    // still in flight, and the channel is idle again — never failed.
+    const rowsWindow = (R1: string, offset: number, limit: number) => pagedWindowKey(h.workspace, rowsPath, R1, offset, limit);
+    /** A runtime whose counts source, keyed `ja`, `ka1`–`ka3` and `kb`, has looked its revision up. */
+    const keyed = async () => {
+        await h.write(counts, KEYED_COUNTS);
+        const R1 = await hashOf(counts);
+        return { R1, ...await known(new PagedRuntime(), (r) => handleOf(r, KeyedType, countsPath).revision!()) };
+    };
+
+    test("a window its last reader lets go while in flight is aborted, not failed, and a read after asks for it afresh", async () => {
+        await h.write(rows, [10n, 20n, 30n, 40n, 50n]);
+        const R1 = await hashOf(rows);
+        const { runtime } = await known(new PagedRuntime());
+        const held = h.e3.hold(pages("inputs.preview_rows"));
+        const leave = runtime.subscribe(rowsWindow(R1, 0, 2), () => {});
+        assert.equal(callPage(runtime, 0n, 2n).type, "none");
+        await held.holding;
+        const [first] = h.requests().filter(pages("inputs.preview_rows"));
+        leave();
+        assert.equal(first!.signal.aborted, false, "not inside the turn that let it go: a reader running again subscribes again in it");
+        await h.settle();
+        assert.equal(first!.signal.aborted, true, "no reader waits on it: its request is aborted");
+        assert.equal(held.held, 0, "the aborted request no longer waits on e3");
+        held.release();
+        // Aborted is not failed: the channel is idle, and the next read asks again at once.
+        assert.equal(callPage(runtime, 0n, 2n).type, "none");
+        await h.settle();
+        assert.deepEqual(windows(), [{ offset: 0, limit: 2, hash: R1 }, { offset: 0, limit: 2, hash: R1 }]);
+        const landed = callPage(runtime, 0n, 2n);
+        assert.ok(landed.type === "some");
+        assert.deepEqual(landed.value, [10n, 20n]);
+    });
+
+    test("a reader running again keeps its window in flight, and so does another reader once the first goes", async () => {
+        await h.write(rows, [10n, 20n, 30n, 40n, 50n]);
+        const R1 = await hashOf(rows);
+        const { runtime } = await known(new PagedRuntime());
+        const held = h.e3.hold(pages("inputs.preview_rows"));
+        let reader = runtime.subscribe(rowsWindow(R1, 0, 2), () => {});
+        callPage(runtime, 0n, 2n);
+        await held.holding;
+        // A reader running again lets its windows go and subscribes again, in one turn.
+        reader();
+        reader = runtime.subscribe(rowsWindow(R1, 0, 2), () => {});
+        await h.settle();
+        // Another reader of the window; the first goes.
+        const other = runtime.subscribe(rowsWindow(R1, 0, 2), () => {});
+        reader();
+        await h.settle();
+        const [asked] = h.requests().filter(pages("inputs.preview_rows"));
+        assert.equal(asked!.signal.aborted, false, "a reader still waits on it");
+        held.release();
+        await h.settle();
+        const landed = callPage(runtime, 0n, 2n);
+        assert.ok(landed.type === "some");
+        assert.deepEqual(landed.value, [10n, 20n]);
+        assert.equal(windows().length, 1, "asked once");
+        other();
+    });
+
+    test("a search its reader lets go still ends its burst: the rest re-fire once the last lands", async () => {
+        const { R1, runtime } = await keyed();
+        const seek = handleOf(runtime, KeyedType, countsPath).seek;
+        assert.ok(seek.type === "some");
+        const keyOf = (prefix: string) => pagedSeekKey(h.workspace, countsPath, R1, toFindQuery(variant("prefix", prefix), NO_INDEX), NO_INDEX);
+        let fired = 0;
+        const leave = runtime.subscribe(keyOf("ka"), () => {});
+        runtime.subscribe(keyOf("kb"), () => { fired += 1; });
+        const held = h.e3.hold(finds("inputs.preview_counts"));
+        seek.value(variant("prefix", "ka"));
+        seek.value(variant("prefix", "kb"));
+        await held.holding;
+        await h.settle();
+        leave();
+        await h.settle();
+        assert.deepEqual(h.requests().filter(finds("inputs.preview_counts")).map((request) => [request.query.get("prefix"), request.signal.aborted]),
+            [["ka", true], ["kb", false]]);
+        assert.equal(fired, 0, "the burst waits on its member still in flight");
+        held.release();
+        await h.settle();
+        assert.equal(fired, 1, "the burst ended with its aborted member, and re-fired the rest");
+        assert.deepEqual(seek.value(variant("prefix", "kb")), some({ found: true, row: 4n, count: 1n }));
+    });
+
+    test("a batch its reader lets go is aborted, and asked again by the next read", async () => {
+        const { R1, runtime } = await keyed();
+        const source = runtime.sourceOf(handleOf(runtime, KeyedType, countsPath).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        const queries: DatasetFindQuery[] = [{ prefix: "ka" }, { prefix: "kb" }];
+        const held = h.e3.hold(finds("inputs.preview_counts"));
+        // One reader's run, as a view's: read under tracking, then subscribe to what the read tracked.
+        runtime.enableTracking();
+        assert.equal(runtime.seekAll(source, queries).type, "none");
+        const reader = runtime.disableTracking().map((key) => runtime.subscribe(key, () => {}));
+        await held.holding;
+        for (const leave of reader) leave();
+        await h.settle();
+        const [batch] = h.requests().filter(finds("inputs.preview_counts"));
+        assert.deepEqual([batch!.method, batch!.signal.aborted], ["POST", true]);
+        held.release();
+        assert.equal(runtime.seekAll(source, queries).type, "none", "aborted, not failed: asked again");
+        await h.settle();
+        assert.deepEqual(runtime.seekAll(source, queries), some([{ found: true, row: 1, count: 3, hash: R1 }, { found: true, row: 4, count: 1, hash: R1 }]));
+        assert.equal(h.requests().filter(finds("inputs.preview_counts")).length, 2);
+    });
+});
+
 describe("PagedRuntime — several reads in one request (#1351)", () => {
     /** The dispatch queue's window: the work orders by status and due date, each carrying its title. */
     const QueueWindow = indexWindowType(StringType, ex.WorkQueueKey, StringType, ex.WorkOrderRow);
