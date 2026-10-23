@@ -8,7 +8,7 @@
  * over the open flow's states, by key and by label — the shared key search's
  * item (`useKeySearchToolbarItem`), its box folding to its icon, over a
  * source of the flowchart's own. A pick selects the state on the canvas and
- * scrolls it into view.
+ * scrolls it into view, and the box shows the state's key.
  *
  * The shared search asks its source for a run of rows, labels a window of
  * them for its list and jumps to one; here the rows are the states a query
@@ -92,7 +92,9 @@ export function useFindState(states: readonly FindableState[], resetKey: string,
         found.current = matches;
         return { found: matches.length > 0, row: 0, count: matches.length };
     }, []);
-    const listRange = useCallback(async (row: number, limit: number): Promise<string[]> => found.current.slice(row, row + limit).map(stateLine), []);
+    // Each line its state's key and label; a pick shows its key in the box.
+    const listRange = useCallback(async (row: number, limit: number) =>
+        found.current.slice(row, row + limit).map((state, i) => ({ row: row + i, label: stateLine(state), text: state.key })), []);
     const jump = useCallback((row: number) => {
         const state = found.current[row];
         if (state !== undefined) latest.current.onPick(state.key);
