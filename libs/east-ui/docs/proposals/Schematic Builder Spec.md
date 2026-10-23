@@ -381,9 +381,14 @@ Find) and the history item (the Plan's View-bundle precedent).
 
 ### 6.2 Main
 
-Main holds the canvas. The minimap and the scale bar stay on it (bottom-right).
-There are no controls of its own: what was its control column is the toolbar's
-(§6.1).
+Main holds the canvas. The minimap (bottom-left) and the scale bar
+(bottom-right) stay on it. There are no controls of its own: what was its
+control column is the toolbar's (§6.1). The minimap shows the whole drawing,
+wherever the view is: each zone's floor and outline, each kind read by area as
+its whole drawing's density (§10.4), in the density's heat steps, and each item
+of a kind read whole as a dot. It is the drawing at its aspect, 150px wide at
+most, and no more than a quarter of the canvas's width or a third of its
+height, so on a phone it keeps to its corner.
 
 ### 6.3 Footer
 
@@ -613,6 +618,11 @@ What each read brings, in the reader components:
   narrowing the index doesn't lead isn't drawn in the raster, and the footer
   says so. A tap on the raster zooms into it; Find, the Index tab and the
   minimap work as ever; the tools that need items wait for them.
+- **The overview.** What the minimap draws of a kind read by area (§6.2): the
+  area index's counts over the drawing's extent, at the level whose cells are
+  about a sixty-fourth of it, the coarser levels' rows spread over them — one
+  `findKeys` of counted ranges, no row read, read once a revision and a
+  narrowing beside the window, the last one standing until the next lands.
 - **Kept until replaced.** The previous window stays drawn until the next lands.
 - **Details.** The details of the items a window holds come at every zoom, so
   a dot draws its item's status (D45): read by the runs the window's cells

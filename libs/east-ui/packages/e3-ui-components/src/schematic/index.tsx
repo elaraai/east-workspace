@@ -673,7 +673,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                 <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
                     words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                     onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
-                    viewport={areas.size > 0 ? viewport : undefined} density={data.density} reading={areas.size > 0 && data.loading}
+                    viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
                     onZoomRange={setZoomRange} />
             </BuilderFrame>
         </Box>

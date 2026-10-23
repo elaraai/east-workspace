@@ -129,7 +129,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
         "selectBox", "selectBoxCount", "draftCaption", "scaleBar", "scaleRuler", "scaleLabel",
-        "minimap", "minimapZone", "minimapViewport",
+        "minimap", "minimapPaint", "minimapViewport",
         "probe", "tools", "viewControls",
         "libraryPane", "indexSearch", "indexTree", "indexRows", "indexRow", "indexChevron", "indexName", "indexCount", "indexDot", "indexMetric", "indexEmpty",
         "layerList", "layerRow", "layerSwatch", "layerName", "layerCount", "layerToggles", "layerToggle", "layerFoot",
@@ -427,11 +427,14 @@ export const schematicSlotRecipe = defineSlotRecipe({
             overflow: "hidden",
             cursor: "pointer",
         },
-        minimapZone: {
+        /* The minimap's paint (#1393): the zones, each kind read by area's whole drawing's density and the items' dots, as
+         * the canvas's own paint layer draws them — under the viewport's box. */
+        minimapPaint: {
             position: "absolute",
-            borderWidth: "1px",
-            borderColor: "border.subtle",
-            background: "bg.canvas",
+            inset: "0",
+            width: "100%",
+            height: "100%",
+            pointerEvents: "none",
         },
         minimapViewport: {
             position: "absolute",

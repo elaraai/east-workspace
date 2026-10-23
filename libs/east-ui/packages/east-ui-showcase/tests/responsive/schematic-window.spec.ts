@@ -22,7 +22,9 @@
  * (D25): past 5,000 racks in it they are shaded, the footer saying more than
  * 5,000, and a view of fewer draws them, though its window's cells, reaching
  * the halls either side, hold more; wheeled back out to Fit, the floor is
- * shaded in the cells it opened in, one view one raster by any route.
+ * shaded in the cells it opened in, one view one raster by any route. The
+ * minimap draws the floor's whole density wherever the view is, never a dot
+ * of a rack's, and on a phone keeps to a quarter of the canvas's width.
  *
  * Every wait is a poll on the page's state, never a fixed pause.
  *
@@ -40,6 +42,23 @@ const LOADS = "records.schematic_stress_rack_loads";
 
 /** The density's words. */
 const notice = (root: Locator) => root.locator("[data-schematic-footer] [data-schematic-density='racks']");
+
+/** The minimap. */
+const minimap = (root: Locator) => root.locator("[data-schematic-minimap]");
+
+/** How many cells of the racks' whole drawing's density the minimap draws, once it draws any. */
+async function minimapCells(root: Locator): Promise<number> {
+    await expect.poll(async () => Number(await minimap(root).getAttribute("data-minimap-cells")), "the minimap's density cells").toBeGreaterThan(0);
+    return Number(await minimap(root).getAttribute("data-minimap-cells"));
+}
+
+/** The minimap's width over the canvas's, as the page lays them out. */
+function minimapShare(root: Locator): Promise<number> {
+    return root.evaluate((el) => {
+        const canvas = el.querySelector("[data-schematic-canvas]")!.getBoundingClientRect();
+        return el.querySelector("[data-schematic-minimap]")!.getBoundingClientRect().width / canvas.width;
+    });
+}
 
 /** How many racks the density's words say it shades. */
 async function saidRows(root: Locator): Promise<number> {
@@ -81,20 +100,26 @@ function overflow(root: Locator): Promise<string[]> {
     });
 }
 
-test("fitted, the floor's density: the footer says how many racks it shades and that zooming in draws them, its rail's one item, nothing past the rail's edge (#1393)", async ({ page, isMobile }) => {
+test("fitted, the floor's density: the footer says how many racks it shades and that zooming in draws them, its rail's one item, nothing past the rail's edge; the minimap draws the floor's density, on a phone in its corner (#1393)", async ({ page, isMobile }) => {
     const root = await openSchematic(page, RECORD_INDEXES);
     await expect(notice(root)).toHaveText("Density: 20,000 racks — zoom in to draw them");
     await expect(root.locator("[data-schematic-footer] > *")).toHaveCount(1);
     expect(await overflow(root)).toEqual([]);
+    // The minimap: the racks' whole drawing as its density, never a dot of theirs.
+    expect(await minimapCells(root)).toBeGreaterThan(0);
+    await expect(minimap(root)).toHaveAttribute("data-minimap-items", "0");
+    expect(await minimapShare(root)).toBeLessThanOrEqual(0.25);
     if (!isMobile) return;
-    // On a phone, narrower still: the words wrap inside the rail.
+    // On a phone, narrower still: the words wrap inside the rail, and the minimap keeps to a quarter of the canvas's width.
     await page.setViewportSize({ width: 360, height: 740 });
     await settled(page);
     await expect(notice(root)).toBeVisible();
     expect(await overflow(root), "at 360px").toEqual([]);
+    expect(await minimapShare(root), "the minimap at 360px").toBeLessThanOrEqual(0.25);
     await sizeTo(page, root, 294);
     await expect(notice(root)).toBeVisible();
     expect(await overflow(root), "in a 294px parent").toEqual([]);
+    expect(await minimapShare(root), "the minimap in a 294px parent").toBeLessThanOrEqual(0.25);
 });
 
 test.describe("A tap on the density (#1393)", () => {
@@ -151,6 +176,7 @@ test.describe("A tap on the density (#1393)", () => {
         await expect(notice(root)).toHaveText("Density: 20,000 racks — zoom in to draw them");
         const opened = await notice(root).getAttribute("data-density-cell");
         expect(opened, "the side of the cells it shades in").not.toBeNull();
+        const overview = await minimapCells(root);
         // Halls 2, 3 and 4's front rows, and a slip of halls 1 and 5's: past 5,000 racks in view, shaded, and the footer
         // says about how many — more than a window draws.
         await zoomInto(page, root, { minX: 79.0, minY: 3.0, maxX: 301.0, maxY: 50.0 });
@@ -167,6 +193,8 @@ test.describe("A tap on the density (#1393)", () => {
         expect(fewer).toBeLessThanOrEqual(5_000);
         await expect(notice(root)).toHaveCount(0);
         await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-lod", "dot");
+        // The minimap still draws the whole floor: its overview, never the window the racks were read by (#1393).
+        await expect(minimap(root)).toHaveAttribute("data-minimap-cells", String(overview));
         // Out a notch of the wheel at a time, each let rest, until the zoom stops at Fit: the floor shaded as it opened.
         const zoomOut = root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Zoom out" });
         const canvas = (await root.locator("[data-schematic-canvas]").boundingBox())!;

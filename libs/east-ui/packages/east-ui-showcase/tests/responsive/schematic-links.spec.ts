@@ -99,7 +99,7 @@ async function followToSchematic(page: Page): Promise<Locator> {
     await entry.scrollIntoViewIfNeeded();
     const root = entry.locator("[data-schematic]").first();
     await expect(root.locator("[data-builder-frame]")).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
-    await expect(root.locator("[data-schematic-canvas] canvas")).toBeVisible();
+    await expect(root.locator("[data-schematic-canvas] > canvas")).toBeVisible();
     await settled(page);
     return root;
 }
