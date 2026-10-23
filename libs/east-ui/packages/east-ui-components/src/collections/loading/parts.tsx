@@ -61,24 +61,15 @@ export function useLoadingStyles(): Styles {
     return useMemo(() => recipe() as Styles, [recipe]);
 }
 
-/** A bar's width: a share of the kind's length, keyed to its row, never wider than its cell. */
-function barWidth(length: string, index: number): CSSProperties {
-    return { width: `calc(${length} * ${barShare(index)})` };
+/**
+ * A text or label bar's share of its length, keyed to its row so the pattern
+ * never crawls (`--placeholder-share`): the one value of a shape that is the
+ * row's, not the kind's. Each kind's length, a share of its cell with a px cap,
+ * is the `loading` recipe's, by the bar's `data-length`.
+ */
+function share(index: number): CSSProperties {
+    return { "--placeholder-share": String(barShare(index)) } as CSSProperties;
 }
-
-/** The lengths the shapes take, as shares of their cell with a px cap: geometry, by the kind. */
-const LENGTH = {
-    text: "min(96px, 80%)",
-    label: "min(96px, 80%)",
-    sub: "min(56px, 50%)",
-    number: "min(40px, 60%)",
-    date: "min(64px, 80%)",
-    chip: "min(48px, 90%)",
-    linkChip: "min(40px, 40%)",
-    enumBar: "min(40px, 60%)",
-    aggregate: "min(48px, 60%)",
-    rowNumber: "min(24px, 60%)",
-} as const;
 
 /** Props of {@link PlaceholderShape}. */
 export interface PlaceholderShapeProps {
@@ -106,22 +97,22 @@ export function PlaceholderShape({ kind, index, number, overlay, styles: given }
     const styles = given ?? own;
     switch (kind) {
         case "text":
-            return <Box as="span" css={styles.bar} style={barWidth(LENGTH.text, index)} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.bar} style={share(index)} aria-hidden="true" data-shape={kind} data-length="text" />;
         case "label":
-            return <Box as="span" css={styles.bar} style={barWidth(LENGTH.label, index)} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.bar} style={share(index)} aria-hidden="true" data-shape={kind} data-length="label" />;
         case "label2":
             return (
                 <Box as="span" css={styles.stack} aria-hidden="true" data-shape={kind}>
-                    <Box as="span" css={styles.bar} style={barWidth(LENGTH.label, index)} />
-                    <Box as="span" css={styles.bar} data-size="label" style={barWidth(LENGTH.sub, index + 2)} />
+                    <Box as="span" css={styles.bar} style={share(index)} data-length="label" />
+                    <Box as="span" css={styles.bar} data-size="label" style={share(index + 2)} data-length="sub" />
                 </Box>
             );
         case "number":
-            return <Box as="span" css={styles.bar} style={{ width: LENGTH.number }} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.bar} aria-hidden="true" data-shape={kind} data-length="number" />;
         case "date":
-            return <Box as="span" css={styles.bar} style={{ width: LENGTH.date }} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.bar} aria-hidden="true" data-shape={kind} data-length="date" />;
         case "aggregate":
-            return <Box as="span" css={styles.bar} data-size="label" style={{ width: LENGTH.aggregate }} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.bar} data-size="label" aria-hidden="true" data-shape={kind} data-length="aggregate" />;
         case "boolean":
             return <Box as="span" css={styles.box} aria-hidden="true" data-shape={kind} />;
         case "check":
@@ -129,26 +120,26 @@ export function PlaceholderShape({ kind, index, number, overlay, styles: given }
         case "count":
             return <Box as="span" css={styles.count} aria-hidden="true" data-shape={kind} />;
         case "chip":
-            return <Box as="span" css={styles.chip} style={{ width: LENGTH.chip }} aria-hidden="true" data-shape={kind} />;
+            return <Box as="span" css={styles.chip} aria-hidden="true" data-shape={kind} />;
         case "link":
             return (
                 <Box as="span" css={styles.pair} aria-hidden="true" data-shape={kind}>
-                    <Box as="span" css={styles.chip} style={{ width: LENGTH.linkChip }} />
+                    <Box as="span" css={styles.chip} data-length="link" />
                     <Box as="span" css={styles.arrow}>→</Box>
-                    <Box as="span" css={styles.chip} style={{ width: LENGTH.linkChip }} />
+                    <Box as="span" css={styles.chip} data-length="link" />
                 </Box>
             );
         case "enum":
             return (
                 <Box as="span" css={styles.pair} aria-hidden="true" data-shape={kind}>
                     <Box as="span" css={styles.dot} />
-                    <Box as="span" css={styles.bar} style={{ width: LENGTH.enumBar }} />
+                    <Box as="span" css={styles.bar} data-length="enum" />
                 </Box>
             );
         case "rowNumber":
             return number !== undefined
                 ? <Box as="span" css={styles.number} aria-hidden="true" data-shape={kind}>{number}</Box>
-                : <Box as="span" css={styles.bar} data-size="label" style={{ width: LENGTH.rowNumber }} aria-hidden="true" data-shape={kind} />;
+                : <Box as="span" css={styles.bar} data-size="label" aria-hidden="true" data-shape={kind} data-length="rowNumber" />;
         case "wash":
             return <>
                 <Box as="span" css={styles.wash} aria-hidden="true" data-shape={kind} data-loading-wash="" />
@@ -230,7 +221,7 @@ export function LoadingFailedLine({ message, retry }: LoadingFailedLineProps) {
 /** A failure's Retry: the shared Button, Default. */
 function RetryButton({ retry, size }: { retry: LoadingRetry; size: "xs" | "md" }) {
     return (
-        <Button size={size} variant="outline" flex="none" data-loading-retry="" aria-label={retry.name} loading={retry.busy === true}
+        <Button size={size} variant="outline" data-loading-retry="" aria-label={retry.name} loading={retry.busy === true}
             onMouseDown={(event) => { event.stopPropagation(); }}
             onClick={(event) => { event.stopPropagation(); retry.onRetry(); }}>
             {retry.label ?? loadingMessages.retry()}

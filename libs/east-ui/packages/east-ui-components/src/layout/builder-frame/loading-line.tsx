@@ -33,7 +33,7 @@
  * @packageDocumentation
  */
 
-import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { useCallback, useLayoutEffect, useMemo, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { loadingMessages } from "../../collections/loading/messages.js";
 import { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type LoadingLineForm } from "./footer-fit.js";
@@ -114,10 +114,11 @@ function Form({ form, value, styles, retry }: { form: LoadingLineForm; value: Lo
 export function LoadingLine({ value, shown, form }: LoadingLineProps) {
     const recipe = useSlotRecipe({ key: "builderFooterLine" });
     const styles = useMemo(() => recipe() as Styles, [recipe]);
-    // What it said last: kept through the hold once its read has landed (CL4).
-    const last = useRef<LoadingLineValue | undefined>(undefined);
-    const now = value?.kind === "failed" ? value : shown ? value ?? last.current : undefined;
-    last.current = now;
+    // What it said last: kept through the hold once its read has landed (CL4) — state the render adjusts as what it
+    // says moves, never a ref written as it renders, so a render React throws away keeps no words of its own.
+    const [kept, setKept] = useState<LoadingLineValue | undefined>(undefined);
+    const now = value?.kind === "failed" ? value : shown ? value ?? kept : undefined;
+    if (now !== kept) setKept(now);
     const retry = now?.kind === "failed" ? now.retry ?? loadingMessages.retry() : loadingMessages.retry();
     if (now === undefined) {
         return <Box as="span" css={styles.root} data-footer-line="" data-idle="" role="status" aria-live="polite" />;
@@ -250,19 +251,18 @@ export function measureFooter(rail: HTMLElement): FooterFitInput {
  */
 export function useFooterFit(rail: RefObject<HTMLElement | null>): FooterFit {
     const [fit, setFit] = useState<FooterFit>(FOOTER_UNFIT);
-    const measure = useRef<() => void>(() => {});
-    measure.current = () => {
+    const measure = useCallback(() => {
         const el = rail.current;
         if (el === null) return;
         const next = fitFooter(measureFooter(el));
         setFit((was) => (was.kept === next.kept && was.form === next.form ? was : next));
-    };
+    }, [rail]);
     // After every render: what the rail holds may have moved.
-    useLayoutEffect(() => { measure.current(); });
+    useLayoutEffect(() => { measure(); });
     useLayoutEffect(() => {
         const el = rail.current;
         if (el === null) return undefined;
-        const run = () => measure.current();
+        const run = () => measure();
         const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(run);
         observer?.observe(el);
         const fonts = el.ownerDocument.fonts as FontFaceSet | undefined;
@@ -272,6 +272,6 @@ export function useFooterFit(rail: RefObject<HTMLElement | null>): FooterFit {
             observer?.disconnect();
             fonts?.removeEventListener?.("loadingdone", run);
         };
-    }, [rail]);
+    }, [rail, measure]);
     return fit;
 }

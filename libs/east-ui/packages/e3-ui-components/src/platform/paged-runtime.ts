@@ -972,8 +972,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     /** Fetches launched so far — the source of every channel's `launchSeq`. */
     private launches = 0;
 
-    /** Each fetch in flight, by its channel: its launch, and what aborts it (#1398, CL6). */
-    private readonly fetching = new Map<string, { readonly seq: number; readonly controller: AbortController }>();
+    /** Each fetch in flight, by its channel: its launch, what aborts it, and what an abort lets go besides (#1398, CL6). */
+    private readonly fetching = new Map<string, { readonly seq: number; readonly controller: AbortController; readonly onAbort: (() => void) | undefined }>();
 
     /** Each key type's printer and parser, and each landed Dict window's keys
      *  in order — what reads by key look keys up by (#1351). */
@@ -1240,13 +1240,14 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      *
      * @param key - The channel
      * @param entry - Its entry
+     * @param onAbort - What an abort lets go besides the request: what the fetch kept for its reader as it launched
      * @returns The fetch's sequence number, and its signal
      */
-    private launchFetch(key: string, entry: PageEntry): { seq: number; signal: AbortSignal } {
+    private launchFetch(key: string, entry: PageEntry, onAbort?: () => void): { seq: number; signal: AbortSignal } {
         const seq = this.launch(entry);
         this.fetching.get(key)?.controller.abort();
         const controller = new AbortController();
-        this.fetching.set(key, { seq, controller });
+        this.fetching.set(key, { seq, controller, onAbort });
         return { seq, signal: controller.signal };
     }
 
@@ -1274,6 +1275,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             entry.status = "idle";
             entry.launchSeq = ++this.launches;
         }
+        fetch.onAbort?.();
     }
 
     /** Apply a fetch's outcome if the channel still waits on it, letting
@@ -1897,7 +1899,11 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         batchKey: string,
         runs: readonly PagedRun[],
     ): void {
-        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
+        const batch = this.channel(snapshot, batchKey);
+        // A placement asked again — aborted, or failed — starts afresh: what the last one placed is not this one's, and
+        // its first window would take the count back below it.
+        delete batch.placement;
+        const { seq, signal } = this.launchFetch(batchKey, batch);
         const api = this.api;
         const entries = runs.reduce((sum, [, count]) => sum + count, 0);
         void (async () => {
@@ -2068,7 +2074,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         runs: readonly PagedRun[],
         keys: readonly string[],
     ): void {
-        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
+        // Aborted, the batch keeps nothing for a reader that has let it go.
+        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey),
+            () => { const held = snapshot.within.get(family); if (held !== undefined) releaseWithin(held, batchKey); });
         const api = this.api;
         void (async () => {
             const within = new Array<boolean>(keys.length).fill(false);

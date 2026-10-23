@@ -5,9 +5,11 @@
  *
  * `useLoadingReveal` on the page's timers (#1398, CL4), under a fake clock: a
  * 100 ms load shows nothing; a 400 ms load shows from 150 ms and for at least
- * 300 ms once shown.
+ * 300 ms once shown — under StrictMode too, which renders twice and mounts
+ * each effect twice, since the reveal moves only in its effects.
  */
 
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import { useLoadingReveal } from "./reveal.js";
@@ -64,6 +66,20 @@ describe("useLoadingReveal (CL4)", () => {
         advance(1000);
         expect(shown()).toBe(true);
         view.rerender(<Probe waiting={false} />);
+        expect(shown()).toBe(false);
+    });
+
+    test("under StrictMode, which renders twice and mounts each effect twice, the reveal keeps one clock", () => {
+        const view = render(<StrictMode><Probe waiting /></StrictMode>);
+        advance(149);
+        expect(shown()).toBe(false);
+        advance(1);
+        expect(shown()).toBe(true);
+        // The read lands as it shows: the hold keeps it to 450 ms.
+        view.rerender(<StrictMode><Probe waiting={false} /></StrictMode>);
+        advance(299);
+        expect(shown()).toBe(true);
+        advance(1);
         expect(shown()).toBe(false);
     });
 });
