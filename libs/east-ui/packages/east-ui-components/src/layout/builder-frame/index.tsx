@@ -48,12 +48,19 @@
  * attributes (`data-builder-frame`, `data-frame-slot`, `data-pane-mode`,
  * `data-collapsed`, `data-scrim`) and geometry only.
  *
+ * Cold load is `loading` (#1398, CL4, CL5): the skeleton covers the regions,
+ * its body's rows at the component's own pitch (`loadingPitch`), and a
+ * `liveFooter` stays out from under it, its loading line saying what is read.
+ * After cold load a read in flight is `busy`: nothing is covered — the
+ * toolbar, the panes, the selection and Save stay live — and main, the region
+ * being read, is `aria-busy` (CL12).
+ *
  * @packageDocumentation
  */
 
 import {
     useCallback, useLayoutEffect, useRef, useState,
-    type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
+    type CSSProperties, type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
 } from "react";
 import { flushSync } from "react-dom";
 import { Box, Skeleton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
@@ -85,6 +92,12 @@ const DEFAULT_SIZE = "320px";
 /** A width is taken as moved past this many CSS px. */
 const MOVED_PX = 0.5;
 
+/** The cold-load skeleton's row pitch when its host names none, in px. */
+const DEFAULT_LOADING_PITCH = 40;
+
+/** How many rows the cold-load skeleton's body draws: enough for a tall host at the smallest pitch; the body clips the rest. */
+const LOADING_ROWS = 40;
+
 /** Props of {@link BuilderFrame}. */
 export interface BuilderFrameProps {
     /** Main: the one region every frame has. It takes the room the panes leave and gives its content a bounded box, so the content scrolls itself. */
@@ -99,8 +112,33 @@ export interface BuilderFrameProps {
     end?: BuilderFramePane | undefined;
     /** One band under everything: a status line, say. */
     footer?: ReactNode;
-    /** Opt into a full-frame skeleton until the first layout/fonts and the requested data are ready. Regions remain mounted, hidden and inert, preserving their state and measured size. */
+    /**
+     * Opt into the cold-load skeleton until the first layout/fonts and the
+     * requested data are ready — cold load only (#1398, CL5): a period
+     * change, a narrowing or a new revision is `busy`, never `loading`.
+     * Regions remain mounted, hidden and inert, preserving their state and
+     * measured size.
+     */
     loading?: boolean | undefined;
+    /**
+     * A read the view needs is in flight after cold load (#1398, CL3, CL5): a
+     * window, a period, a narrowing. Nothing is covered — the toolbar, the
+     * panes, the selection and Save stay live — and main, the region being
+     * read, is `aria-busy` (CL12). The footer's loading line says what is read.
+     */
+    busy?: boolean | undefined;
+    /**
+     * The row pitch the cold-load skeleton's body draws at, in px: the
+     * component's own (#1398) — the Sheet's 36, the Plan's 42, the Roster's
+     * People 52 — so the skeleton matches what it covers. 40 unless given.
+     */
+    loadingPitch?: number | undefined;
+    /**
+     * Whether the footer stays live under the cold-load skeleton (#1398): its
+     * legend real and its loading line saying what is read, rather than
+     * covered with the rest. `false` unless given.
+     */
+    liveFooter?: boolean | undefined;
     /** Where each pane keeps its open tab, and its collapsed state when it persists. */
     storageKey: string;
     /** The narrowest main may get beside pinned panes before an `auto` pane overlays it: 480 (px) by default. */
@@ -310,8 +348,9 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, toolbarRef, onKeyDown, loading } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, toolbarRef, onKeyDown, loading, busy, liveFooter } = props;
     const minMain = props.minMain ?? MIN_MAIN;
+    const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
     const styles = useSlotRecipe({ key: "builderFrame" })() as Styles;
     const dragging = useDragLayerOptional()?.active ?? false;
 
@@ -341,7 +380,23 @@ export function BuilderFrame(props: BuilderFrameProps) {
     // ── What the frame measures of itself ───────────────────────────────
     const rootRef = useRef<HTMLDivElement | null>(null);
     const [initialReady, setInitialReady] = useState(false);
-    const busy = loading !== undefined && (loading || !initialReady);
+    // Covered by the cold-load skeleton: until the first complete read has landed and its fonts with it.
+    const covered = loading !== undefined && (loading || !initialReady);
+    // A live footer stays out from under the skeleton, which ends at its top (geometry, measured before paint).
+    const footerLive = covered && liveFooter === true && given(footer);
+    const footerRef = useRef<HTMLDivElement | null>(null);
+    const [footerHeight, setFooterHeight] = useState<number | undefined>(undefined);
+    useLayoutEffect(() => {
+        if (!footerLive) return undefined;
+        const el = footerRef.current;
+        if (el === null) return undefined;
+        const read = () => setFooterHeight(el.getBoundingClientRect().height);
+        read();
+        if (typeof ResizeObserver === "undefined") return undefined;
+        const ro = new ResizeObserver(read);
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, [footerLive]);
     const slotRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
     const probeRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
     const [measured, setMeasured] = useState<Measured | undefined>(undefined);
@@ -545,32 +600,39 @@ export function BuilderFrame(props: BuilderFrameProps) {
     };
 
     return (
-        <Box ref={setRoot} css={styles.root} data-builder-frame="" data-loading={busy ? "" : undefined} aria-busy={loading === undefined ? undefined : busy}
+        <Box ref={setRoot} css={styles.root} data-builder-frame="" data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
             {toolbar !== undefined && (
-                <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={busy} aria-hidden={busy ? true : undefined}>
+                <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>
                     <Toolbar items={toolbar} />
                 </Box>
             )}
-            {given(banners) && <Box css={styles.banners} data-frame-slot="banners" inert={busy} aria-hidden={busy ? true : undefined}>{banners}</Box>}
-            <Box css={styles.body} data-frame-slot="body" inert={busy} aria-hidden={busy ? true : undefined}>
+            {given(banners) && <Box css={styles.banners} data-frame-slot="banners" inert={covered} aria-hidden={covered ? true : undefined}>{banners}</Box>}
+            <Box css={styles.body} data-frame-slot="body" inert={covered} aria-hidden={covered ? true : undefined}>
                 {start !== undefined && pane("start", start)}
-                <Box css={styles.main} data-frame-slot="main">
+                {/* The region a read after cold load is in flight for (#1398, CL12): nothing covered, main busy. */}
+                <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}>
                     {children}
                     {scrim && <Box css={styles.scrim} data-scrim="" aria-hidden onClick={onScrim} />}
                 </Box>
                 {end !== undefined && pane("end", end)}
             </Box>
-            {given(footer) && <Box css={styles.footer} data-frame-slot="footer" inert={busy} aria-hidden={busy ? true : undefined}>{footer}</Box>}
-            {busy && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}>
+            {given(footer) && (
+                <Box ref={footerRef} css={styles.footer} data-frame-slot="footer" data-frame-live={footerLive ? "" : undefined}
+                    inert={covered && !footerLive} aria-hidden={covered && !footerLive ? true : undefined}>
+                    {footer}
+                </Box>
+            )}
+            {covered && <Box css={styles.loading} data-builder-loading="" role="status" aria-label={label === undefined ? "Loading builder" : `Loading ${label}`}
+                style={{ "--builder-loading-pitch": `${loadingPitch}px`, ...(footerLive ? { bottom: `${footerHeight ?? 0}px` } : {}) } as CSSProperties}>
                 {toolbar !== undefined && <Box css={[styles.toolbar, styles.loadingBar]} aria-hidden>
                     <Skeleton css={styles.loadingLine} /><Skeleton css={styles.loadingLine} /><Skeleton css={styles.loadingLine} />
                 </Box>}
-                <Box css={styles.loadingBody} aria-hidden>{Array.from({ length: 12 }, (_, i) => <Box key={i} css={styles.loadingRow} data-builder-loading-row="">
+                <Box css={styles.loadingBody} aria-hidden>{Array.from({ length: LOADING_ROWS }, (_, i) => <Box key={i} css={styles.loadingRow} data-builder-loading-row="">
                     <Skeleton css={[styles.loadingLine, styles.loadingCell]} /><Skeleton css={[styles.loadingLine, styles.loadingCell]} /><Skeleton css={[styles.loadingLine, styles.loadingCell]} />
                 </Box>)}</Box>
-                {given(footer) && <Box css={styles.loadingFooter} aria-hidden><Skeleton css={styles.loadingLine} /></Box>}
+                {given(footer) && !footerLive && <Box css={styles.loadingFooter} aria-hidden><Skeleton css={styles.loadingLine} /></Box>}
             </Box>}
         </Box>
     );

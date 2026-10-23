@@ -172,15 +172,33 @@ component, nothing in east-ui.
   the search box a key focuses); `onKeyDown` hears keys from anywhere in the
   frame, the panes included.
 - **Loading (opt-in).** `loading` covers the complete frame with shared Chakra
-  Skeletons while its active data window is unresolved. Its actual regions stay
-  mounted, measurable, inert and hidden from assistive technology. On the first
+  Skeletons for its cold load only — the first read, before anything it shows
+  has landed (#1398, CL5) — its body rows at `loadingPitch`, the component's
+  own row pitch, each a 12px bar. Its actual regions stay
+  mounted, measurable, inert and hidden from assistive technology; a
+  `liveFooter` stays live under the cover, so the footer's loading line and its
+  Retry carry the wait. On the first
   resolved window it also waits for the mounted content's fonts after layout
-  measurement; no timeout or initial pane animation. The `builderFrame` recipe
+  measurement; no timeout or initial pane animation. After cold load a read in
+  flight is `busy`: `aria-busy` on main, nothing covered, the toolbar, panes
+  and Save live. The `builderFrame` recipe
   owns these states and skeleton geometry. Existing callers that omit `loading`
   retain their own loading behavior. Keep usable cached data visible on refresh;
-  surface errors instead of leaving the skeleton indefinitely. Calendar and
-  Roster's integration and evidence are in
+  surface errors instead of leaving the skeleton indefinitely. The builders'
+  integration and evidence are in
   [`../e3-ui-components/CLAUDE.md`](../e3-ui-components/CLAUDE.md#loading-and-bounded-rendering).
+- **The footer's loading line** (#1398, CL3, `./internal`). One line in a slot
+  of its own at the footer rail's trailing end — `LoadingLine` over a
+  `LoadingLineValue` (what is read, or what failed with its reason and Retry,
+  in the builder's words), shown on one reveal clock (`useLoadingReveal`: after
+  150 ms, held at least 300 ms; a failure at once), a polite live region that
+  speaks once a load. The rail fits it on one line with no word cut
+  (`useFooterFit` over `fitFooter`, pure): the legend's items
+  (`data-footer-unit`, cut whole by `footerCut`, `FooterMore` ending a cut
+  legend), or a footer's hints running on in one item (`data-footer-units`),
+  stay whole; the line shows its full text, its short form or its dot alone. A
+  builder's own rail that carries the line takes `FOOTER_FIT`
+  (`builder-footer.ts`), as the Sheet's does.
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
   `count`, when given, follows its name, the Calendar's and the Sheet
@@ -632,9 +650,19 @@ When adding persistence to Chakra components that support both
 
 Row virtualization via `@tanstack/react-virtual`:
 
-- `RowStateManager` tracks loading/loaded/unloaded per row.
-- Visible rows trigger loading with a configurable delay
-  (`loadingDelay`).
+- The Table's rows: `RowStateManager` tracks loading/loaded/unloaded per row,
+  and visible rows trigger loading with a configurable delay (`loadingDelay`)
+  — the Table's alone.
+- The Plan's and the Sheet's rows not yet read are the shared unloaded run
+  (#1398, CL2: `UnloadedRun` over `runRows`, `collections/loading/`, through
+  `./internal`): rows at the collection's real pitch, drawn only where the run
+  meets the viewport, the virtualizer counting the run as one item; a region
+  whose items have no known position yet takes the shared wash
+  (`LoadingWash`). When a placeholder's fill and the footer's loading line
+  show is the shared reveal (CL4, `useLoadingReveal`): after 150 ms, held at
+  least 300 ms; geometry draws at once.
+- A count that lands before its rows sizes the ledger at the rows' declared
+  pitch (`createLedger`'s pitch), never at its starting 32px an element (CL1).
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current
