@@ -8,9 +8,11 @@
  * kind's record sought by key, never what the canvas draws. The racks, read
  * through their source of the rail, are sought in their record's own order
  * through e3 — a find of it, and no whole read — and a frame, read whole, in
- * its rows. A rack the rail hides is listed `hidden`: its pick flies to where it
- * stands, selects nothing, and the footer says so, with Clear filters, which
- * shows it and selects it. A rack with no position says it is in the Backlog.
+ * its rows. A pick shows the rack's key in the box and its place among the
+ * matches, and Next steps on from it. A rack the rail hides is listed
+ * `hidden`: its pick flies to where it stands, selects nothing, and the footer
+ * says so, with Clear filters, which shows it and selects it. A rack with no
+ * position says it is in the Backlog.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin.
@@ -119,6 +121,41 @@ test("Find seeks the racks' record through its source — a find of it, and no w
     await act(async () => { fireEvent.click(findBox(container).querySelector("button[aria-label='Clear search']")!); });
     await typeIntoFind(container, "MMR");
     await waitFor(() => expect(lines()).toEqual(["MMR-1 · Network frame"]), { timeout: 5_000 });
+});
+
+test("a pick shows the rack's key in the box and its place among the matches; Next steps on from it, and a narrowing that leaves the matches where they stand keeps both (#1404)", async () => {
+    const { container } = await open();
+    await typeIntoFind(container, "A0");
+    await waitFor(() => expect(lines()).toHaveLength(7), { timeout: 5_000 });
+    const input = findBox(container).querySelector<HTMLInputElement>("input")!;
+    const status = () => findBox(container).querySelector('[role="status"]')?.textContent;
+    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((each) => each.textContent === "A03 · Rack")!;
+    fireEvent.click(option);
+    // The camera flies over animation frames: the test runs them on a clock of its own, so it lands however busy the
+    // machine running it is. The pick's read lands first, and starts the fly.
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        await waitFor(() => expect(input.value).toBe("A03"));
+        await settle();
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+    } finally {
+        vi.useRealTimers();
+    }
+    await settle();
+    expect(status()).toBe("3 of 7");
+    await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-selected")).toBe(true));
+
+    // Next: the fourth match, in the box, its place counted.
+    await act(async () => { fireEvent.click(findBox(container).querySelector("button[aria-label='Next match']")!); });
+    await waitFor(() => expect(input.value).toBe("A04"));
+    expect(status()).toBe("4 of 7");
+
+    // A narrowing moves what Find's lines say of the racks, so it asks again; Find seeks the record whole, so the
+    // matches stand where they stood, and the box keeps A04 and its place.
+    await narrow(new SortedMap([["owner", variant("values", [printText("Harbour Labs")])]], compareString));
+    await settle();
+    await waitFor(() => expect(status()).toBe("4 of 7"));
+    expect(input.value).toBe("A04");
 });
 
 test("a rack the rail hides is listed hidden; its pick flies where it stands and selects nothing, the footer saying so, and Clear filters shows it and selects it (#1404)", async () => {

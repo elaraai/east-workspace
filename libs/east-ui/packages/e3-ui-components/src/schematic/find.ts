@@ -25,14 +25,18 @@
  * an item by its key, its label where it is not its key, and its kind's name,
  * and says what keeps it off the canvas: the rail's filters, its layer, or no
  * position. A pick hands the frame the item and what it knows of it
- * (`onPick`). The box asks its query again when a source's record moves.
+ * (`onPick`), and the box shows its key. The box asks its query again when
+ * what its lines are read from moves — a source's record or its narrowing, a
+ * kind read whole's rows, the layers hidden or how the narrowing draws — and
+ * never when a window of what the canvas draws lands, so a pick's fly keeps
+ * its place among the matches.
  *
  * @packageDocumentation
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, compareFor, equalFor, match, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
-import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { StringType, compareFor, equalFor, match, printFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
+import { RecordSliceWhereType, findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import { entityId, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
@@ -44,6 +48,23 @@ const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
 
 const compareKey = compareFor(StringType);
 const keyEqual = equalFor(StringType);
+const printWhere = printFor(RecordSliceWhereType);
+
+/** Each kind read whole's rows as read, numbered: what tells Find they were read again. */
+const rowsIds = new WeakMap<object, number>();
+let nextRowsId = 0;
+
+/** A kind read whole's rows, as a token that moves when they are read again; `-` while they are read. */
+function rowsToken(rows: option<ReadonlyMap<string, unknown>>): string {
+    const held = match(rows, { some: (value) => value }, undefined);
+    if (held === undefined) return "-";
+    let id = rowsIds.get(held);
+    if (id === undefined) {
+        id = nextRowsId++;
+        rowsIds.set(held, id);
+    }
+    return `rows:${id}`;
+}
 
 /** No narrowing: a record's own rows, in its order. */
 const WHOLE: ValueTypeOf<typeof RecordSliceWhereType> = new Map();
@@ -216,8 +237,6 @@ export interface SchematicFindProps {
     readonly dim: boolean;
     /** The layers hidden, by key. */
     readonly hiddenLayers: ReadonlySet<string>;
-    /** Moves whenever what the Schematic draws does: the box asks its query again, as a source's record moving does. */
-    readonly version: unknown;
     /** Told the item a pick lands on. */
     readonly onPick: (item: FoundItem) => void;
 }
@@ -225,10 +244,10 @@ export interface SchematicFindProps {
 /**
  * Find's source, for the shared key search's toolbar item (see the module docs).
  *
- * @param props - The kinds, the words, how the narrowing and the layers show, what moves the drawing, and the pick
+ * @param props - The kinds, the words, how the narrowing and the layers show, and the pick
  * @returns The source
  */
-export function useSchematicFind({ kinds, words, dim, hiddenLayers, version, onPick }: SchematicFindProps): KeySearchSource {
+export function useSchematicFind({ kinds, words, dim, hiddenLayers, onPick }: SchematicFindProps): KeySearchSource {
     // What a find reads, and whom a pick tells: the latest — the box calls what it captured before the find answered.
     const latest = useRef({ kinds, words, dim, hiddenLayers, onPick });
     useLayoutEffect(() => { latest.current = { kinds, words, dim, hiddenLayers, onPick }; });
@@ -260,24 +279,30 @@ export function useSchematicFind({ kinds, words, dim, hiddenLayers, version, onP
     }, []);
     const listRange = useCallback(async (row: number, limit: number) => {
         const { words: w, dim: d, hiddenLayers: hidden } = latest.current;
-        return (await itemsAt(row, limit)).map(({ at, item }) => ({ row: at, label: foundLine(item, foundMark(item, d, hidden), w) }));
+        // A pick shows the item's key in the box: what its query is typed against.
+        return (await itemsAt(row, limit)).map(({ at, item }) => ({ row: at, label: foundLine(item, foundMark(item, d, hidden), w), text: item.ref.key }));
     }, [itemsAt]);
     const jump = useCallback((row: number) => {
         void itemsAt(row, 1).then(([hit]) => { if (hit !== undefined) latest.current.onPick(hit.item); })
             .catch((error: unknown) => { console.error("[Schematic] Find could not read the item it found:", error); });
     }, [itemsAt]);
     const clear = useCallback(() => { asked.current++; found.current = []; }, []);
-    // The box asks its query again when a source's record moves, or anything the Schematic draws does.
-    const readRevisions = useCallback(() => kinds.map((kind) => (kind.part === undefined ? "" : someOf(recordSliceRevision(kind.part)) ?? "")).join("\n"), [kinds]);
-    const { result } = useTrackedEvaluation(readRevisions);
-    const revisions = result.ok ? result.value : "";
+    // The box asks its query again when what its lines are read from moves: each source's record and its narrowing,
+    // each kind read whole's rows — tracked, so a window the canvas reads moves none of it — the layers hidden and how
+    // the narrowing draws.
+    const readAnswers = useCallback(() => kinds.map((kind) => (kind.part === undefined
+        ? rowsToken(kind.rows())
+        : `${someOf(recordSliceRevision(kind.part)) ?? ""}\u0000${printWhere(kind.part.read().where)}`)).join("\n"), [kinds]);
+    const { result } = useTrackedEvaluation(readAnswers);
+    const answers = result.ok ? result.value : "";
+    const layers = useMemo(() => [...hiddenLayers].sort(compareKey).join("\u0000"), [hiddenLayers]);
     const [requery, setRequery] = useState(0);
-    const seen = useRef({ revisions, version });
+    const seen = useRef({ answers, layers, dim });
     useEffect(() => {
-        if (keyEqual(seen.current.revisions, revisions) && Object.is(seen.current.version, version)) return;
-        seen.current = { revisions, version };
+        if (keyEqual(seen.current.answers, answers) && keyEqual(seen.current.layers, layers) && seen.current.dim === dim) return;
+        seen.current = { answers, layers, dim };
         setRequery((n) => n + 1);
-    }, [revisions, version]);
+    }, [answers, layers, dim]);
     const noMatches = words.m.findNoMatches();
     return useMemo(() => ({ resetKey: "schematic", requery, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY, noMatchesText: noMatches }),
         [requery, find, listRange, jump, clear, noMatches]);

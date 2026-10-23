@@ -1057,8 +1057,9 @@ pinned read the server refuses because the dataset has moved on (409
 `dataset_hash_mismatch`) rediscovers the current snapshot instead of failing
 its window. How a consumer bridges the move is its own: e3-ui's `<Plan>` and
 `<Sheet>` keep the rows they show until the new snapshot's windows land; the
-Sheet clears a standing key search, and the Plan asks it again there, its
-text kept.
+Sheet clears a standing key search, and the Plan asks it again there: a
+match its box shows stays while the new snapshot holds it in place, else the
+box shows its query again.
 
 ## Key Patterns
 

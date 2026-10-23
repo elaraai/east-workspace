@@ -37,7 +37,8 @@ of the app's records, in a component of their own (`data.ts`, #1386) — its
 toolbar's items (`toolbar.tsx`: the rail, the tools, held under its `id` in
 `tools.ts`, the zoom and Fit, Find in `find.ts` — every item kind's record
 sought by key, one read through its source through e3, never what the canvas
-draws (#1404) — and the steps), its footer (`footer.tsx`: only what is live,
+draws (#1404), a pick shown in the box by its key, asked again only as what
+its lines say moves — and the steps), its footer (`footer.tsx`: only what is live,
 ruled 23 Oct 2026 — a kind drawn as its density, a refused gesture's words,
 each Save's notice and where Find's pick landed off the canvas) and its words
 (`messages.ts`) — and its canvas (`canvas/`: the canvas itself,

@@ -417,7 +417,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
             clear: part === undefined ? undefined : () => { part.clearAll(); setFound(undefined); canvasRef.current?.select(item.id); },
         });
     }, [look.dim, hiddenLayers, drawnItems, chrome, words]);
-    const find = useSchematicFind({ kinds: findKinds, words, dim: look.dim, hiddenLayers, version: data.drawn, onPick: onFound });
+    const find = useSchematicFind({ kinds: findKinds, words, dim: look.dim, hiddenLayers, onPick: onFound });
 
     // ── The toolbar (§6.1) ──────────────────────────────────────────────
     // What the rail counts a source in: a templates list's, its kind's templates; a kind's own, its rows (#1392).

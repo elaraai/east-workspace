@@ -10,7 +10,8 @@
  * lists in the shared combobox popup; other key types parse as `.east`
  * literals (bad input hints the expected type and sends nothing);
  * committing a match — or Enter with no highlighted option — jumps the
- * host tree, and next/prev step through the remembered range.
+ * host tree and shows the match in the box, and next/prev step through the
+ * remembered range, each showing its match.
  */
 
 import { readFile } from "node:fs/promises";
@@ -76,13 +77,17 @@ describe("DatasetKeySearch", () => {
         expect(screen.queryByRole("status")).toBeNull();
         fireEvent.click(screen.getByRole("option", { name: "state-1" }));
         await waitFor(() => expect(onJump).toHaveBeenLastCalledWith(1));
+        // The pick shows in the box, and its place among the rows browsed.
+        await waitFor(() => expect((input as HTMLInputElement).value).toBe("state-1"));
+        expect(screen.getByRole("status").textContent).toBe("2 of 100");
+        await userEvent.clear(input);
         await userEvent.type(input, "s");
         await waitFor(() => expect(onFind).toHaveBeenLastCalledWith({ prefix: "s" }));
         await userEvent.clear(input);
         await waitFor(() => expect(screen.getByRole("option", { name: "state-0" })).toBeTruthy());
         fireEvent.click(screen.getByRole("option", { name: "state-2" }));
         await waitFor(() => expect(onJump).toHaveBeenLastCalledWith(2));
-        expect((browse.getByPlaceholderText("Find state") as HTMLInputElement).value).toBe("");
+        await waitFor(() => expect((browse.getByPlaceholderText("Find state") as HTMLInputElement).value).toBe("state-2"));
     });
 
     test("string keys type-ahead as one debounced prefix query listing the head of the range", async () => {
@@ -104,29 +109,63 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(screen.getByText("k0100")).toBeTruthy());
     });
 
-    test("committing a match jumps the tree and next/prev step the range", async () => {
+    test("committing a match jumps the tree and shows it in the box; next/prev step the range, each showing its match", async () => {
         const onFind = vi.fn(async () => ({ found: true, row: 100, count: 3 }));
         const onListRange = vi.fn(async (row: number, limit: number) =>
             Array.from({ length: Math.min(limit, 3) }, (_, i) => `key-${row + i}`));
         const onJump = vi.fn();
         renderSearch({ keyType: StringKey, onFind, onListRange, onJump });
 
-        await userEvent.type(screen.getByPlaceholderText("Search Records"), "key");
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "key");
         await waitFor(() => expect(screen.getByText("key-100")).toBeTruthy());
         fireEvent.click(screen.getByText("key-100"));
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(100));
         await waitFor(() => expect(screen.getByText("1 of 3")).toBeTruthy());
-        // Committing preserves the typed query — the label must not replace
-        // it (the controlled empty selection re-syncing would then wipe the
-        // input, the range and the held highlight).
-        expect((screen.getByPlaceholderText("Search Records") as HTMLInputElement).value).toBe("key");
+        // The box shows the match — put there as the combobox's own text, which it tells no one of as typing, so the
+        // query, the range and the host's jump all stand.
+        await waitFor(() => expect(input.value).toBe("key-100"));
+        expect(onFind).toHaveBeenCalledTimes(1);
 
         fireEvent.click(screen.getByLabelText("Next match"));
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(101));
         expect(screen.getByText("2 of 3")).toBeTruthy();
+        await waitFor(() => expect(input.value).toBe("key-101"));
         fireEvent.click(screen.getByLabelText("Previous match"));
         await waitFor(() => expect(onJump).toHaveBeenLastCalledWith(100));
         expect(screen.getByText("1 of 3")).toBeTruthy();
+        await waitFor(() => expect(input.value).toBe("key-100"));
+        expect(onFind).toHaveBeenCalledTimes(1);
+    });
+
+    test("a match shows as the text its host gives its row; one past the rows listed is read through the list, and typing again starts a query from what is typed (#1404)", async () => {
+        const onFind = vi.fn(async () => ({ found: true, row: 0, count: 30 }));
+        const onListRange = vi.fn(async (row: number, limit: number) =>
+            Array.from({ length: limit }, (_, i) => ({ row: row + i, label: `K${row + i} · Rack`, text: `K${row + i}` })));
+        const onJump = vi.fn();
+        const onInputChange = vi.fn();
+        renderSearch({ keyType: StringKey, onFind, onListRange, onJump, onInputChange });
+
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "K");
+        await waitFor(() => expect(screen.getByText("K19 · Rack")).toBeTruthy());
+        fireEvent.click(screen.getByText("K19 · Rack"));
+        await waitFor(() => expect(input.value).toBe("K19"));
+        expect(screen.getByRole("status").textContent).toBe("20 of 30");
+        // A host that keeps the search is told what the box shows.
+        expect(onInputChange).toHaveBeenLastCalledWith("K19");
+
+        // The next match is past the 20 the popup lists: its text is read through the list.
+        fireEvent.click(screen.getByLabelText("Next match"));
+        await waitFor(() => expect(input.value).toBe("K20"));
+        expect(onListRange).toHaveBeenLastCalledWith(20, 1);
+        expect(onJump).toHaveBeenLastCalledWith(20);
+        expect(screen.getByRole("status").textContent).toBe("21 of 30");
+
+        await userEvent.clear(input);
+        await userEvent.type(input, "Z");
+        await waitFor(() => expect(onFind).toHaveBeenLastCalledWith({ prefix: "Z" }));
+        expect(input.value).toBe("Z");
     });
 
     test("Enter with no highlighted option jumps to the first match", async () => {
@@ -266,6 +305,35 @@ describe("DatasetKeySearch", () => {
         view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={2} /></ChakraProvider>);
         await new Promise((resolve) => setTimeout(resolve, 20));
         expect(onFind).toHaveBeenCalledTimes(2);
+    });
+
+    test("asked again at another snapshot, a match the box shows stays while the snapshot holds it at its place, and gives way to what was typed once it does not (#1199, #1404)", async () => {
+        let keys = ["a0", "a1", "a2"];
+        const onFind = vi.fn(async (_query: unknown, _again?: boolean) => ({ found: true, row: 0, count: keys.length }));
+        const onListRange = vi.fn(async (row: number, limit: number) => keys.slice(row, row + limit));
+        const props = { keyType: StringKey, onFind, onListRange, onJump: vi.fn() };
+        const view = render(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={0} /></ChakraProvider>);
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "a");
+        await waitFor(() => expect(screen.getByText("a1")).toBeTruthy());
+        fireEvent.click(screen.getByText("a1"));
+        await waitFor(() => expect(input.value).toBe("a1"));
+        expect(screen.getByRole("status").textContent).toBe("2 of 3");
+        const listed = onListRange.mock.calls.length;
+
+        // Asked again where a1 still stands second: read there, and kept, its place with it.
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={1} /></ChakraProvider>);
+        await waitFor(() => expect(onListRange.mock.calls.length).toBe(listed + 2));
+        expect(onListRange.mock.calls[listed]).toEqual([1, 1]);
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("2 of 3"));
+        expect(input.value).toBe("a1");
+
+        // A key added before it moves it: the box shows what was typed again, and the new count.
+        keys = ["a0", "a00", "a1", "a2"];
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} requery={2} /></ChakraProvider>);
+        await waitFor(() => expect(input.value).toBe("a"));
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("4 matches"));
+        expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" }, true);
     });
 
     test("misses report No matches; the control is the shared combobox recipe", async () => {

@@ -307,7 +307,10 @@ component, nothing in east-ui.
   (`useKeySearchToolbarItem`: in the row its box is 28px, the search pill's
   height, its input filling it, while the box its popover opens stays the
   design system's 32px field (the combobox recipe's `search` slot, ruled 23
-  Oct 2026, #1404); the box folds to its icon, which opens it in the edit
+  Oct 2026, #1404); a pick or a step shows its match in the box — the text
+  its host gives the row, else its label — its place counted (`3 of 7`), and
+  asked again at a new snapshot the box keeps it while the snapshot holds it
+  in place; the box folds to its icon, which opens it in the edit
   popover, and keeps its form while a query is typed; `focusKeySearch` brings
   a host's key for it, the Sheet's ⌘F, to it in either form). A record
   rail's summary (`12 of 69 people`) folds after every step of the rail and
