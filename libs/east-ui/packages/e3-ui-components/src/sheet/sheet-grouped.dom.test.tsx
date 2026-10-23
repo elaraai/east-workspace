@@ -874,9 +874,10 @@ describe("what the viewer arranged survives a remount (#857)", () => {
         const before = paged.asked.length;
         f.scrollTo(250 * PLAN_PX + 10);
         const anchor = () => (JSON.parse(localStorage.getItem("sheet-grouped-test") ?? "{}") as { anchor?: { key: string; element: number | null } }).anchor;
-        await waitFor(() => expect(anchor()?.key).toMatch(/^band:/));
-        // What it keeps is the element the band draws there; the window under the view was asked for, and is on its way.
-        expect(anchor()?.element).toBe(250);
+        // What it keeps once the frame reports where it rests, 150 ms after its last scroll, is the element the band draws
+        // there — not the anchor the scroll down left, which names a band too where that scroll rested before windows 6–9
+        // landed under it, at their element; the window under the view was asked for, and is on its way.
+        await waitFor(() => expect(anchor()).toMatchObject({ key: expect.stringMatching(/^band:/), element: 250 }));
         expect(paged.asked.slice(before)).toContain(1);
         ui.unmount();
         // The remount's run starts at the top — it draws no head band — and the element brings the view back.
