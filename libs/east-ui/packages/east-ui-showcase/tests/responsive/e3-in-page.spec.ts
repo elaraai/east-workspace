@@ -10,8 +10,8 @@
  * and its dataflow run once — and nothing stands in for it:
  *
  * - a bound paged Plan lands its first units in key order, stands the units
- *   it has not read in one tail band, and lands the next windows where the
- *   band began, nothing on screen moving;
+ *   it has not read in one tail run, and lands the next windows where the
+ *   run began, nothing on screen moving;
  * - an input written through one binding re-renders every reader of it;
  * - a function's result comes back from a unit worker;
  * - a record mutation commits, and every reader of the record follows;
@@ -77,9 +77,10 @@ function rowsOf(entry: Locator): Promise<{ id: string; top: number }[]> {
     });
 }
 
-/** Every mounted unloaded band of a Plan entry: which end of its block, the
+/** Every mounted unloaded run of a Plan entry: which end of its block, the
  *  units it stands for, its height as the ledger gives it and as it renders,
- *  where it starts in the extent, and what it says. */
+ *  where it starts in the extent, and what it says — nothing: no caption sits
+ *  in a gap (#1398, CL3). */
 function bandsOf(entry: Locator): Promise<{ at: string; elements: number; px: number; height: number; top: number; caption: string }[]> {
     return entry.evaluate((root) => {
         const origin = root.querySelector("[data-virtual-extent]")!.getBoundingClientRect().top;
@@ -100,7 +101,7 @@ function bandsOf(entry: Locator): Promise<{ at: string; elements: number; px: nu
 test.describe("the showcase's e3, in the page (#849)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
-    test("a bound paged Plan lands its first units in key order, stands the rest in one tail band, and lands the next windows where the band began", async ({ page }) => {
+    test("a bound paged Plan lands its first units in key order, stands the rest in one tail run, and lands the next windows where the run began", async ({ page }) => {
         // `dataBindPagedBlocks`: the 3,000 units an e3 task generates, two
         // series over them — two blocks of 3,000 32px rows, read 200 units a
         // window.
@@ -126,27 +127,25 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         await expect.poll(async () => (await rowsOf(entry)).slice(0, 10)).toEqual(first);
 
         // The loads block's first row at the top of the frame: the jobs block's
-        // tail band sits just above it — the 2,400 units it has not read, a
+        // tail run sits just above it — the 2,400 units it has not read, a
         // row's height each, from where its landed rows end to where the next
         // block begins.
         await scrollTo(BLOCK);
         await expect.poll(() => bandsOf(entry)).toEqual([{
-            at: "tail", elements: 2_400, px: 2_400 * ROW, height: 2_400 * ROW, top: 600 * ROW,
-            caption: "2,400 more elements — scroll to load",
+            at: "tail", elements: 2_400, px: 2_400 * ROW, height: 2_400 * ROW, top: 600 * ROW, caption: "",
         }]);
 
-        // Up to where the band begins: the next windows land there, unit 600's
-        // row exactly where the band's top was, and the frame does not move.
+        // Up to where the run begins: the next windows land there, unit 600's
+        // row exactly where the run's top was, and the frame does not move.
         await scrollTo(600 * ROW);
         await expect.poll(async () => (await rowsOf(entry)).find((r) => r.id === rowId("jobs", "U10600"))?.top).toBe(600 * ROW);
         await expect(footer.locator("[data-footer-line]")).toHaveAttribute("data-idle", "");
         expect(await frame.evaluate((el) => el.scrollTop)).toBe(600 * ROW);
 
-        // The band gave up exactly the units that landed.
+        // The run gave up exactly the units that landed.
         await scrollTo(BLOCK);
         await expect.poll(() => bandsOf(entry)).toEqual([{
-            at: "tail", elements: 1_800, px: 1_800 * ROW, height: 1_800 * ROW, top: 1_200 * ROW,
-            caption: "1,800 more elements — scroll to load",
+            at: "tail", elements: 1_800, px: 1_800 * ROW, height: 1_800 * ROW, top: 1_200 * ROW, caption: "",
         }]);
     });
 

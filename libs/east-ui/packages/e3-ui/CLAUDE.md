@@ -625,7 +625,18 @@ Subsequent loading keeps the frame, canvas, sessions and drafts mounted.
 Errors leave the loading state and show the existing error treatment.
 Keep the loading surface dense: body placeholders sit at the component's own
 row pitch (`BuilderFrame.loadingPitch` — the Sheet's density's, the Plan's row
-geometry), each a 12px bar, all in the shared recipe. Never stretch a few thin text bars
+geometry, the Allocation's 36px rows, the Calendar's hour), each a 12px bar,
+all in the shared recipe. The Sheet and the Plan draw rows not read as the
+shared unloaded run — the builder's own rows at their pitch where the run
+meets the view, never a caption in the gap — read the window under the view on
+intent, ahead the way it travels, and say a failed window once in its run's
+first row in view. A period builder draws a period not read yet with
+its geometry at once — never the old period's content under its labels — and
+placeholders where its content goes, says a failed read once in place (a line
+in its first row in view, or a box at a grid's top-left where no row can hold
+one), says a true empty only after its read, and holds its toolbar's status,
+issues, history and Publish in their slots from cold load; the renderer guide
+names the parts. Never stretch a few thin text bars
 through a tall host with `flex: 1` on each row. Spare body height stays empty;
 short hosts clip the placeholder list. Assert row height and placeholder-to-row
 height ratio at desktop and phone widths, not merely skeleton presence.
