@@ -15,8 +15,11 @@
  * (`expectSourceCounts`, #1358): the racks' owner leaves Harbour Labs' racks
  * drawn as themselves and the rest as context — `narrowed="dim"` — each faded
  * to 0.35, greyed and taking no pointer, in the recipe's styles, the rail
- * counting 2 of its 7 racks; a rack templates group the Templates tab,
- * `Templates 3 of 5`.
+ * counting 2 of its 7 racks, and each owner's chip its own racks, the chosen
+ * marked, as a faceted search counts (#1393); a rack templates group the Templates tab,
+ * `Templates 3 of 5`. A field's editor opens inside the frame, its first
+ * chip's at the frame's side included, never hanging past it, and inside the
+ * page on a phone, whose frame it is wider than (#1393).
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test schematic-narrowing`.
@@ -73,6 +76,12 @@ async function choose(page: Page, root: Locator, source: string, field: string, 
     await settled(page);
 }
 
+/** Each known value's chip in a field's open editor: its label, its count — none while it is read — and whether it is chosen. */
+const chipCounts = (editor: Locator) => editor.evaluate((el) => [...el.querySelectorAll("button[aria-pressed]")].map((chip) => {
+    const [label, count] = [...chip.children];
+    return [label?.textContent ?? "", count === undefined || count.querySelector("[aria-label='Count loading']") !== null ? null : count.textContent, chip.getAttribute("aria-pressed")];
+}));
+
 /** A card's look as the page computes it: its opacity, its filter and whether it takes the pointer. */
 const lookOf = (el: Locator) => el.evaluate((node) => {
     const style = getComputedStyle(node);
@@ -106,6 +115,12 @@ for (const theme of ["light", "dark"] as const) {
             expect([look.filter, look.pointer], key).toEqual(["grayscale(1)", "none"]);
         }
         for (const key of ["A01", "A02"]) expect(await lookOf(card(root, "racks", key)), key).toEqual({ opacity: 1, filter: "none", pointer: "auto" });
+        // Each owner counts its own racks, the chosen marked — never what a click on it would show: all 7 with Harbour
+        // Labs cleared, 4 with another added (#1393).
+        const owners = await recordField(page, root, "owner", "racks");
+        await expect.poll(() => chipCounts(owners)).toEqual([["Harbour Labs", "2", "true"], ["Northwind Media", "2", "false"], ["Elmway College", "2", "false"]]);
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
         // A rack templates group: the Templates tab alone.
         await choose(page, root, "rackTemplates", "group", /^Half racks/);
         await expectCounts([counted("racks", 2, 7, true), counted("rackTemplates", 1, 3, true), counted("fibreTemplates", 2, 2, false)]);
@@ -113,3 +128,36 @@ for (const theme of ["light", "dark"] as const) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     });
 }
+
+test("a field's editor opens inside the frame at every width it fits — the rail's first, at the frame's side, never hanging past it — and inside the page on a phone, whose frame it is wider than (#1393)", async ({ page }) => {
+    const root = await open(page, "light");
+    /** How far the open editor hangs past each side of the frame, and of the page. */
+    const past = () => root.evaluate((el) => {
+        const frame = el.querySelector("[data-builder-frame]")!.getBoundingClientRect();
+        const editor = document.querySelector("[role='dialog']")!.getBoundingClientRect();
+        const page = document.documentElement.clientWidth;
+        return {
+            frame: { left: Math.max(0, Math.round(frame.left - editor.left)), right: Math.max(0, Math.round(editor.right - frame.right)) },
+            page: { left: Math.max(0, Math.round(-editor.left)), right: Math.max(0, Math.round(editor.right - page)) },
+            fits: editor.width < frame.width,
+        };
+    });
+    const close = async () => {
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+    };
+    // An editor that grows as its field's section opens is placed again as it grows: each is read once placed.
+    for (const width of [1440, 1024, 768]) {
+        await sizeTo(page, root, width);
+        await recordField(page, root, "name", "racks");
+        await expect.poll(async () => (await past()).frame, { message: `${width}px: how far the editor hangs past each side of the frame` }).toEqual({ left: 0, right: 0 });
+        await close();
+    }
+    // A phone: the frame narrower than the editor, which keeps to the page.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await sizeTo(page, root, 294);
+    await recordField(page, root, "name", "racks");
+    expect((await past()).fits, "the phone's frame is narrower than the editor").toBe(false);
+    await expect.poll(async () => (await past()).page, { message: "390px: how far the editor hangs past each side of the page" }).toEqual({ left: 0, right: 0 });
+    await close();
+});

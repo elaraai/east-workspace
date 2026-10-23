@@ -156,7 +156,9 @@ export const RecordSliceConfigType = StructType({
 export type RecordSliceConfigType = typeof RecordSliceConfigType;
 
 /**
- * A value's exact count in the narrowing choosing it would produce.
+ * A value's exact count under the other fields' choices: the rows the
+ * narrowing holds with that value alone chosen for its field, as a faceted
+ * search counts (#1393) — never what a click on it would show.
  * @property value - Canonical .east literal.
  * @property label - Display label.
  * @property count - Exact result count, none while pending or failed.
@@ -188,7 +190,7 @@ export type RecordSliceDomainType = typeof RecordSliceDomainType;
  * @property countWhere - Exact count of a saved narrowing, without changing current state.
  * @property total - Exact primary-row count; none while pending.
  * @property domain - Inclusive numeric/date extent, ignoring that field's range; none while pending or empty.
- * @property values - Known values with exact prospective counts.
+ * @property values - Known values, each with its exact count under the other fields' choices, the chosen marked.
  * @property suggest - At most eight distinct String values with exact counts.
  * @property replaces - Field labels a new choice would replace.
  * @property togglePreset - Set or clear a named narrowing.

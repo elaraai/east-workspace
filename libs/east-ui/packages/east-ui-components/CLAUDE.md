@@ -254,6 +254,13 @@ component, nothing in east-ui.
   Numeric tab counts use the same formatter's full `number()` form. The dock
   recipe bounds badges to the rail, including longer locale abbreviations;
   builders must not implement their own abbreviation or badge styles.
+- **A rail's editor** (#1393). Each known value's chip counts its own rows
+  under the other fields' choices, the chosen marked, as a faceted search
+  counts — never what a click on it would show (east-ui's
+  `RecordSliceController.values`). The editor (`SliceEditPopover`) keeps to
+  the frame's sides while it fits between them, else to the page's, and down
+  the page always to the page's, so it flips above its trigger as it did
+  (`overlays/popover/frame-bounds.ts`, read live at every placement).
 - **A tab row too narrow folds** (`DockPane`, #1210): the counts leave the
   row first, kept in each tab's name; then the trailing tabs fold into a
   `+n` menu after the last that fits, the open tab always on the row, so no

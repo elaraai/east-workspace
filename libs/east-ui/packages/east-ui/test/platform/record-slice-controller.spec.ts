@@ -234,12 +234,75 @@ test("the rows of several of the record's keys are read in one request when the 
     assert.throws(() => controllerOf(bindingOf(true, () => some([]))).rows(["a"]), /a different number of rows/);
 });
 
-test("chip counts describe the exact state a toggle will apply, including clearing the final value", () => {
+test("a value's count is its own, exact at a trillion rows a value, whether it alone is chosen or every value is", () => {
     const { controller } = fixture();
     controller.choose("due", undefined);
-    assert.deepEqual(controller.values("status").map(choice => choice.count), [some(1_000_000_000_000n), some(1_000_000_000_000n)]);
+    const chips = () => controller.values("status").map(choice => [choice.label, choice.count, choice.selected]);
+    assert.deepEqual(chips(), [["Held", some(1_000_000_000_000n), true], ["Late", some(1_000_000_000_000n), true]]);
     controller.choose("status", values('"held"'));
-    assert.deepEqual(controller.values("status").map(choice => choice.count), [some(2_000_000_000_000n), some(2_000_000_000_000n)]);
+    assert.deepEqual(chips(), [["Held", some(1_000_000_000_000n), true], ["Late", some(1_000_000_000_000n), false]]);
     controller.choose("status", values('"held"', '"late"'));
     assert.equal(controller.count().value, 2_000_000_000_000n);
+});
+
+/**
+ * A record of 26 rows by status and region — held in the north 3, held in the south 5, late in the north 7, late in
+ * the south 11 — indexed both ways, so either field is chosen alone or both together, each search answered from those
+ * groups in the index's order.
+ */
+function facets() {
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: [
+            { fieldId: "status", label: "Status", kind: "string", optional: false, multiple: true, set: false, values: [
+                { value: '"held"', label: "Held" }, { value: '"late"', label: "Late" },
+            ], format: none },
+            { fieldId: "region", label: "Region", kind: "string", optional: false, multiple: true, set: false, values: [
+                { value: '"north"', label: "North" }, { value: '"south"', label: "South" },
+            ], format: none },
+        ],
+        indexes: [
+            { name: "by_status_region", fields: ["status", "region"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none },
+            { name: "by_region_status", fields: ["region", "status"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none },
+        ],
+        range: none, search: [], presets: [],
+    }));
+    const printString = printFor(StringType);
+    // Each index's groups in its order: their keys as `.east` literals, in its fields' order, and how many rows each holds.
+    const group = (first: string, second: string, count: bigint) => ({ keys: [printString(first), printString(second)], count });
+    const ordered: Readonly<Record<string, readonly ReturnType<typeof group>[]>> = {
+        by_status_region: [group("held", "north", 3n), group("held", "south", 5n), group("late", "north", 7n), group("late", "south", 11n)],
+        by_region_status: [group("north", "held", 3n), group("north", "late", 7n), group("south", "held", 5n), group("south", "late", 11n)],
+    };
+    const binding: RecordSliceBinding = {
+        id: "facets", recordId: "facets", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(26n), entryKeys: () => [], page: () => none,
+        seek(index, query) {
+            assert.equal(query.type, "fields");
+            const asked = query.type === "fields" ? query.value.values : [];
+            let row = 0n;
+            let at: bigint | undefined;
+            let count = 0n;
+            for (const { keys, count: held } of ordered[index]!) {
+                if (asked.every((value, i) => value === keys[i])) { at ??= row; count += held; }
+                row += held;
+            }
+            return some({ found: count > 0n, row: at ?? row, count });
+        },
+    };
+    let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    return new RecordSliceController(binding, config, StructType({ status: StringType, region: StringType }), () => current, next => { current = next; });
+}
+
+test("each known value counts its own rows under the other fields' choices, as a faceted search counts — the chosen marked, never what a click on it would show (#1393)", () => {
+    const controller = facets();
+    const chips = (field: string) => controller.values(field).map(choice => [choice.label, choice.count, choice.selected]);
+    assert.deepEqual(chips("status"), [["Held", some(8n), false], ["Late", some(18n), false]]);
+    // Held chosen: Held still reads its own 8 and Late its own 18 — a click on either would show all 26.
+    controller.choose("status", values('"held"'));
+    assert.deepEqual(chips("status"), [["Held", some(8n), true], ["Late", some(18n), false]]);
+    // The north chosen too: each status reads its rows in the north, and each region its rows of the held.
+    controller.choose("region", values('"north"'));
+    assert.deepEqual(chips("status"), [["Held", some(3n), true], ["Late", some(7n), false]]);
+    assert.deepEqual(chips("region"), [["North", some(3n), true], ["South", some(5n), false]]);
+    assert.equal(controller.count().value, 3n, "a chosen value's own count is the narrowing's");
 });

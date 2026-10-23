@@ -428,23 +428,30 @@ export class RecordSliceController {
         return this.config.fields.filter(value => state.where.has(value.fieldId) && !where.has(value.fieldId)).map(value => value.label);
     }
 
-    private counted(field: string, value: string, label: string, toggle = false): Count {
+    /**
+     * A value's own count under the other fields' choices — the rows the
+     * narrowing holds with that value alone chosen for its field, as a faceted
+     * search counts (#1393, ruled 23 Oct 2026) — and whether it is chosen; or
+     * why the narrowing cannot take it.
+     */
+    private counted(field: string, value: string, label: string): Count {
         const selected = this.readState().where.get(field);
         const base = { value, label, selected: selected?.type === "values" && selected.value.includes(value) };
         try {
-            const active = selected?.type === "values" ? selected.value : [];
-            const multiple = this.config.fields.find(candidate => candidate.fieldId === field)!.multiple;
-            const values = !toggle ? [value] : base.selected ? active.filter(candidate => candidate !== value) : multiple ? [...active, value] : [value];
-            return { ...base, count: this.count(this.proposed(field, values.length === 0 ? undefined : variant("values", values))), error: none };
+            return { ...base, count: this.count(this.proposed(field, variant("values", [value]))), error: none };
         } catch (error) {
             return { ...base, count: none, error: some(error instanceof Error ? error.message : "Could not load the count") };
         }
     }
 
-    /** Known choices with exact prospective counts; one failure does not hide others. */
+    /**
+     * Known choices, each with its own exact count under the other fields'
+     * choices, the chosen marked — never what a click on it would show; one
+     * failure does not hide others.
+     */
     values(field: string): Count[] {
         this.schema(field);
-        return this.config.fields.find(value => value.fieldId === field)!.values.map(value => this.counted(field, value.value, value.label, true));
+        return this.config.fields.find(value => value.fieldId === field)!.values.map(value => this.counted(field, value.value, value.label));
     }
 
     /**
