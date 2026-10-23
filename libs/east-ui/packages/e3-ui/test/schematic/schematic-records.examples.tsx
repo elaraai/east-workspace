@@ -93,6 +93,18 @@ export const schematicStressRacksByModel = e3.recordIndex("schematic_stress_rack
 export const schematicStressRackLoads = e3.record("schematic_stress_rack_loads", StressLoads, East.compile(generateLoads, [])(20000n));
 /** The loads' patch door: the budget run fills them through it, keyed as the racks it fills. */
 export const schematicStressRackLoadsPatch = e3.mutation.patch(schematicStressRackLoads);
+/** A rack joined to another across the floor. */
+export const StressUplink = StructType({ from: StringType, to: StringType });
+/**
+ * Uplinks from the front of Hall 1 to the front of Hall 5, 300 m across the floor: links whose far end a window over
+ * either hall doesn't hold, which it reads by key (#1393, SC22).
+ */
+export const schematicStressUplinks = e3.record("schematic_stress_uplinks", DictType(StringType, StressUplink), new Map([
+    ["u1", { from: "R100000", to: "R100400" }],
+    ["u2", { from: "R100001", to: "R100401" }],
+    ["u3", { from: "R100002", to: "R100402" }],
+    ["u4", { from: "R100003", to: "R100403" }],
+]));
 export const schematicStressHalls = e3.record("schematic_stress_halls", DictType(StringType, StressHall), new Map([
     ["hall-1", { name: "Hall 1", x: 2.0, y: 2.0, w: 72.0, h: 122.0 }],
     ["hall-2", { name: "Hall 2", x: 78.0, y: 2.0, w: 72.0, h: 122.0 }],
