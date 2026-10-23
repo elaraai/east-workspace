@@ -166,9 +166,12 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D35 | **Shapes are accessors over the app's own fields.** `footprint` and a zone's `geometry` return an `Option<Schematic.Types.Geometry>` built with `Schematic.circle`, `polygon`, `polyline` or `rect`, so the app's records hold only its own types; `pattern` and `style` were accessors already. A link's `via` stays a field: an `Array` of `{ x, y }` Floats, which any app's points already are. | ruled 22 Oct 2026, on the user's "also roster etc have like helpers to defined mapped entries etc, are we doing that?" (#1401) |
 | D36 | **The layers are the app's rows.** `layers={Schematic.layers(rows, { label, order?, tone?, color?, visible?, locked?, opacity? })}` reads a keyed record of the app's through accessors, as `Roster.groups(teams.read(), { label, order })` does, in their `order`, then key order; an entity's `layer` names a layer by its key. A list written in the code is refused, naming `Schematic.layers`. | ruled 22 Oct 2026 (#1401) |
 | D37 | **Find seeks every item kind's record, by key.** A kind read through its source is sought in its record's own order through e3 — a find of its keys and a page of the rows it lists, never the record read whole — and a kind read whole in its rows, as the Sheet's Search Records seeks its record. A hit the rail's filters leave out is listed and marked; its pick flies to where it stands, selects nothing, and the footer says so, with Clear filters (§6.1). | ruled 23 Oct 2026 (#1404) |
-| D38 | **The key search is 28px in a toolbar's row**, in every builder, its input filling it; the strips beside it stay 25px. The box a folded row's popover opens stays the design system's 32px search field, and on a touch screen the 44px field (#1221). | ruled 23 Oct 2026 (#1404) |
+| D38 | **The key search is 28px in a toolbar's row**, in every builder, its input filling it; the strips beside it stay 25px — since D43, every control in the row is 28px. The box a folded row's popover opens stays the design system's 32px search field, and on a touch screen the 44px field (#1221). | ruled 23 Oct 2026 (#1404) |
 | D39 | **The links' look is the Plan's.** The Schematic's links and nets draw in the shared links look — the casing, the round corner, the head, the caption on its knockout, and the lit link with the rings round its ends — through a Canvas2D painter beside the SVG layer, in the colours and the caption's font its theme probe reads from the `linkRibbons` part, so a change to the part changes the Plan, the Allocation and the Schematic together. Their routes, and a net's bus, stay the Schematic's own (§4.3, §15). | ruled 23 Oct 2026 (#1403) |
 | D40 | **Heads at the far end; the muted ink, the author's tone kept.** A link points from its `from` item to its `to` item; a net's head sits on each of its destination legs, its trunk and its bars carrying none. Every link and net draws in the shared muted ink, and in the strong ink while lit or selected; a kind's `style` tone still recolours its links (D14). | ruled 23 Oct 2026 (#1403) |
+| D41 | **A window is read a cell at a time**, as the Plan's events are (#1039): each of its searches is a cell; the cells not yet found are counted in one request before an entry is read; while they hold at most 5,000 rows, the entries of the cells not held come in one read of their runs, each cell kept at the revision it was read at while the window wants it. A window into new cells searches and reads only those (§10.4). | my call (#1393), on the Plan's cell reader |
+| D42 | **The footer holds only what is live** (§6.3): each kind drawn as its density — how many rows it shades in the view, and that zooming in draws them — the loading line, why a gesture was refused, each Save's notice, and where Find's last pick landed off the canvas. The counts and each record's last save are the inspector's Details', with nothing selected (§9), and the changes waiting on Save are the history's. | ruled 23 Oct 2026 ("Only what's live") |
+| D43 | **Every control in a toolbar's row is 28px**, in every builder, centred on the row (`theme/toolbar-row.ts`): the chips, the segment strips, the steppers, the tab strips, the key search's box (D38) and every button. | ruled 23 Oct 2026 ("All 28px"; "make sure the other builder frame components use the 28px as well") |
 
 ## 4. The kinds
 
@@ -378,12 +381,26 @@ There are no controls of its own: what was its control column is the toolbar's
 
 ### 6.3 Footer
 
-On the shared `builder-footer.ts` rail:
-- the counts: items drawn of the kind's total, zones, links;
-- the changes waiting on Save;
-- each record's last save;
+On the shared `builder-footer.ts` rail, only what is live (D42):
+- each kind drawn as its density in place of items (§10.4): how many rows it
+  shades in the view, and that zooming in draws them — `Density: 20,000 racks
+  — zoom in to draw them`. A cell's rows are held to its part of the drawing's
+  extent, as Issues holds every item to it, so the view Fit leaves counts
+  every row. The count is exact while each cell it shades lies in the view so
+  held and no coarser level's rows are spread over them; otherwise it is the
+  view's share of each cell it cuts, said `about` that many, to two
+  significant figures. Under a narrowing the index doesn't lead it adds `the
+  filters not applied`;
+- the loading line, as every builder's (#1398);
+- why a gesture, a drop or an inspector edit was refused, until one is recorded;
 - the shared Save notice, `RecordSliceSaveNotice`, for each source a Save took rows out of;
-- why a drop or an inspector edit was refused.
+- where Find's last pick landed on an item the canvas doesn't show as itself,
+  and why, with Clear filters where the filters leave it out (§6.1).
+
+With nothing live the rail is empty. The counts and each record's last save
+are the inspector's Details', with nothing selected (§9), and the changes
+waiting on Save are the history's (§6.1). Once the rail wraps, an item wider
+than it wraps its own words.
 
 ### 6.4 Panes and banners
 
@@ -398,7 +415,8 @@ its record), and a source whose narrowing couldn't be read, with Retry.
 
 `BuilderFrame.loading` covers the frame until the first window (or complete
 read) and the zones have landed. Later reads keep the canvas, and the previous
-window stays drawn until the next lands (§10.4).
+window stays drawn until the next lands (§10.4), main `aria-busy` meanwhile
+(`BuilderFrame.busy`, #1398) and the footer's loading line saying what is read.
 
 ## 7. Editing
 
@@ -872,7 +890,7 @@ records in the file, and each Schematic named by its `id`:
 | `schematicFloor` | the smallest: one hall's racks, read only (`Data.bind`), no panes |
 | `schematicDataCentre` | the builder: racks, cooling units and power distribution units (three item kinds); halls and cages; hot and cold aisles; fibre runs; power feeds as nets; the racks' loads as details (cards and inspector); rack and fibre templates; Templates, Backlog, Index and Layers, its layers a systems record; the rail; `narrowed="dim"`; the inspector, and a kind's own Details; `onSelect`, the whole selection kept in a State of the host's; and `canConnect`, a run between two frames refused in its words. Its records hold their own fields, mapped by accessors: a cooling unit's radius, an area's kind, a fibre run's cable |
 | `schematicShapes` | read only: polygon, circle and polyline footprints and zones, built by accessors from the rows' own fields; tones and theme colours; layers from a systems record |
-| `schematicRecordIndexes` | 50,000 racks over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom; the rail; and the cards' loads, bound with `Data.bindPaged` and read by key, one request a window. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
+| `schematicRecordIndexes` | 20,000 racks — each hall's first 20 rows, so neither the showcase nor a test deploys the 50,000 a full floor holds (ruled 23 Oct 2026); the budget run fills the floor through the patch doors — over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom, the footer saying how many racks it shades; the rail; and the cards' loads, bound with `Data.bindPaged` and read by key, one request a window. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
 | `schematicRecordIndexesMobile` | the same in a phone-width container |
 | `schematicHandover` | no panes: the toolbar, the canvas and the footer |
 
@@ -915,7 +933,7 @@ records in the file, and each Schematic named by its `id`:
 | SC33 | A kind or details record bound in a form its read doesn't take (§1, rule 4) is refused at build, naming the form to use. | `kinds.ts` | spec per form |
 | SC34 | A window is read through an area index whose `on` the rail's exact choices fill while its searches stay within 1,024, and otherwise through one with no `on`, the source's shown keys deciding what draws. A kind read by area with no area index without `on`, or through one whose box isn't the kind's roles, is refused as it reads, naming what to declare. | `schematic/window.ts` | spec: the index each `where` reads; the refusals |
 | SC35 | Geometry is drawn about its entity's anchor and moves with it; geometry outside its box draws and is listed in Issues; a `footprint` without `width` and `height` is refused at build. | `kinds.ts`, renderer `canvas/paint.ts` | spec; pure; DOM |
-| SC36 | Past 5,000 rows in view, the canvas draws a density raster from the area index's cell counts, in one request with no rows read, and draws items again below it; a tap on the raster zooms into it, and a narrowing the index doesn't lead is named in the footer. | renderer reader, `canvas/paint.ts` | DOM: request log; `E3_UI_PERF=1` budget |
+| SC36 | Past 5,000 rows in view, the canvas draws a density raster from the area index's cell counts, in one request with no rows read, and draws items again below it; a tap on the raster zooms into it; the footer says how many rows it shades in the view and that zooming in draws them, and names a narrowing the index doesn't lead (§6.3). | renderer reader, `canvas/paint.ts`, `area.ts`' `densityInView` | DOM: request log; pure; responsive (`schematic-window.spec.ts`); `E3_UI_PERF=1` budget |
 | SC37 | `Schematic.layers` reads the app's rows in their `order`, then key order, each layer keyed by its row's key; an accessor of another type is refused, naming it. `footprint` and `geometry` draw what their accessors return, about the anchor. | `schematic/layers.ts`, `kinds.ts` | spec; DOM |
 | SC38 | `templates()` lists every kind's templates and `backlog()` every item kind's rows with no position; each is refused when no kind has any, naming the change. | `schematic/library.ts` | spec |
 | SC39 | `canConnect` hears the gesture's `Candidate`: `none` lets it snap and record, and words refuse it; a veto that throws allows the pair and logs it. | renderer | DOM |
