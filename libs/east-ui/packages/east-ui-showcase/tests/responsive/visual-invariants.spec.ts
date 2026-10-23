@@ -891,6 +891,8 @@ interface ToolbarWindow {
     __paintPending: Painted | null;
     __paintFrame: number;
     __paintObserver: ResizeObserver;
+    /** Puts each item the row gains under {@link ToolbarWindow.__paintObserver} as it is added. */
+    __paintItems: MutationObserver | undefined;
 }
 
 /** Installs the readers every toolbar check shares, before the page's own scripts run. */
@@ -951,6 +953,18 @@ async function toolbarAtRest(entry: Locator): Promise<string> {
  * begins. A frame begun while a resize is still to be delivered (its row not
  * at the width last delivered) paints only after the toolbar has answered, so
  * that sample is dropped.
+ *
+ * The sampler watches the row's items as well as the row. A layout around the
+ * toolbar can settle in an observer of its own after the toolbar's — the
+ * Configurator stacking its preview under its controls — so the row reaches
+ * its width after the toolbar answered the one before, and the toolbar answers
+ * again in a later pass of the same frame. The row is then the size it was at
+ * the sampler's delivery, so watching the row alone the sampler is never
+ * delivered that pass, and takes a fold the frame never paints; every fold the
+ * toolbar answers with changes an item — resized, or added, which the sampler
+ * then watches too, or removed, which takes its size to nothing — so watching
+ * them it is delivered after the toolbar's last answer (#1393: once every
+ * control in the row stood 28px, no fold moved the row's height either).
  */
 async function startPainting(entry: Locator): Promise<void> {
     await entry.evaluate((root) => {
@@ -965,7 +979,16 @@ async function startPainting(entry: Locator): Promise<void> {
             w.__paintPending = s;
         });
         const row = root.querySelector("[data-toolbar]");
-        if (row !== null) w.__paintObserver.observe(row);
+        w.__paintItems = undefined;
+        if (row !== null) {
+            w.__paintObserver.observe(row);
+            for (const item of row.children) w.__paintObserver.observe(item);
+            // An item the row gains is watched as it is added: an observation's first delivery is due at once.
+            w.__paintItems = new MutationObserver((records) => {
+                for (const record of records) for (const node of record.addedNodes) if (node instanceof Element) w.__paintObserver.observe(node);
+            });
+            w.__paintItems.observe(row, { childList: true });
+        }
         const tick = () => {
             // What the frame before painted: its last delivery.
             if (w.__paintPending !== null) w.__painted.push(w.__paintPending);
@@ -984,6 +1007,7 @@ async function stopPainting(entry: Locator): Promise<Painted[]> {
         const w = window as unknown as ToolbarWindow;
         cancelAnimationFrame(w.__paintFrame);
         w.__paintObserver.disconnect();
+        w.__paintItems?.disconnect();
         if (w.__paintPending !== null) w.__painted.push(w.__paintPending);
         w.__paintPending = null;
         return w.__painted;
