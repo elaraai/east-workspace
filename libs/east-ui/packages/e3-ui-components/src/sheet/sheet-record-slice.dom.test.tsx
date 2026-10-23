@@ -116,3 +116,37 @@ test("indexed Sheet keeps the record's order under its lens, restores saved narr
     await settle();
     expect(ui.container.querySelector('[data-record-save-notice]')).toBeNull();
 });
+
+test("a scroll far from the rows, every page it shows on its way, is never covered again: the run drawn where the view is, main busy, and the rows land there (#1398, CL5)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10001")).not.toBeNull());
+    const main = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="main"]')!;
+    const covered = () => ui.container.querySelector("[data-builder-loading]");
+    expect(covered()).toBeNull();
+    // Every page of the orders held on its way to e3 from now until let land; the view goes to the record's middle.
+    const pages = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS);
+    const frame = main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    await act(async () => {
+        frame.scrollTop = Math.round(frame.scrollHeight / 2);
+        frame.dispatchEvent(new Event("scroll"));
+    });
+    await waitFor(() => expect(pages.held).toBeGreaterThan(0), { timeout: 10_000 });
+    await settle();
+    // Nothing the view shows is read yet, and nothing covers the frame: the run stands where the view is, its region busy.
+    expect(covered()).toBeNull();
+    expect(ui.row("JOB-10000")).toBeNull();
+    expect(main().querySelector("[data-unloaded-run]")).not.toBeNull();
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    await act(async () => { pages.release(); });
+    // The pages land where the view is, each row at its number, and the region is no longer busy.
+    await waitFor(() => expect(main().getAttribute("aria-busy")).toBe("false"), { timeout: 10_000 });
+    const numbers = ui.rows().map((row) => Number(row.querySelector('[data-slot="gutterNumber"]')!.textContent));
+    expect(numbers.length).toBeGreaterThan(0);
+    expect(Math.min(...numbers)).toBeGreaterThan(20_000);
+    expect(covered()).toBeNull();
+});

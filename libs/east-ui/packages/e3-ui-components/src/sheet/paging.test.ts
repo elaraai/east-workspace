@@ -54,9 +54,11 @@ describe("useSheetPaging's reading", () => {
         // Rendered again with nothing moved: the same object, so a memo over it holds.
         rerender();
         expect(result.current.reading).toBe(reading);
-        // The viewport moves down to element 700: the windows around it are asked, and the stretch reaches the end.
+        // The viewport moves down to element 700: the windows around it are asked, and the stretch is the window the
+        // view shows — never the windows read ahead of it, which nothing on screen waits for (#1398, F12).
         act(() => { result.current.reportViewport({ kind: "row", offset: 700 }, false); });
+        expect(result.current.pending).toEqual([0, 1, 2, 3, 4]);
         expect(result.current.reading).not.toBe(reading);
-        expect(result.current.reading?.to).toBe(999);
+        expect(result.current.reading).toEqual({ from: 3 * SHEET_PAGE_SIZE, to: 4 * SHEET_PAGE_SIZE - 1 });
     });
 });

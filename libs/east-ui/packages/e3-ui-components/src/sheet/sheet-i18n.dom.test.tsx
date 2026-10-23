@@ -5,8 +5,8 @@
  * @vitest-environment jsdom
  *
  * The localizable Sheet (#861): every word the Sheet says itself comes from ONE
- * message table — the toolbar and the view tabs, the header, the rows, bands,
- * the strip, the footer and the history bar, the insertion chips, and the
+ * message table — the toolbar and the view tabs, the header, the rows, a failed
+ * run's line, the strip, the footer and the history bar, the insertion chips, and the
  * message each gesture leaves — its numbers in the locale react-aria's
  * `I18nProvider` sets, and `SheetMessagesProvider` overrides the words for a
  * subtree. The Plan's #820 test, for the Sheet. Every sheet is built by
@@ -29,7 +29,7 @@ import { system, getRegisteredPlatformImplementations } from "@elaraai/east-ui-c
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { act, sheetHarness } from "./frame/harness.test-utils.js";
-import { SheetBandRow, SheetFailedBandRow, SheetRowBoundary } from "./Rows.js";
+import { SheetRowBoundary, SheetRunRow } from "./Rows.js";
 import { SheetFooter } from "./Footer.js";
 import { SheetMessagesProvider, sheetMessages, type SheetMessages } from "./messages.js";
 
@@ -255,20 +255,27 @@ describe("one message table (#861)", () => {
         expect(document.getElementById(qty().getAttribute("aria-describedby")!)!.textContent).toBe("⟦A value is required");
     });
 
-    test("the bands: an unloaded run, a window that could not be read and its Retry, a row that could not be drawn", () => {
+    test("the runs: an unloaded run says no word, a window that could not be read says so once with its Retry, a row that could not be drawn (#1398)", () => {
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        // What a run draws whatever the words: its real row numbers.
+        const said = (root: Element) => words(root).filter((w) => !/^[\d.,]+$/u.test(w));
+        const run = { gridTemplate: "80px", columns: { list: [], byKey: new Map(), totalWidth: 0 }, rowPx: 36, dense: false, noun: "rows", onRetry: () => {} };
         try {
             const { container } = render(
                 <ChakraProvider value={system}>
                     <SheetMessagesProvider messages={MARKED}>
-                        <SheetBandRow styles={{}} band={{ at: "tail", from: 600, to: 999, px: 400 }} loading={false} colCount={1} />
-                        <SheetFailedBandRow styles={{}} failure={{ w: 1, from: 200, to: 399, px: 400, error: "fetch failed: 503" }} onRetry={() => {}} colCount={1} />
+                        <SheetRunRow styles={{}} band={{ at: "tail", from: 600, to: 999, px: 400 }} loading={false} {...run} />
+                        <SheetRunRow styles={{}} failure={{ w: 1, from: 200, to: 399, px: 400, error: "fetch failed: 503" }} loading={false} {...run} />
                         <SheetRowBoundary styles={{}} rowPx={30} number={3} resetKey={0}><Thrower /></SheetRowBoundary>
                     </SheetMessagesProvider>
                 </ChakraProvider>,
             );
-            expect(words(container.querySelector('[data-band="tail"]')!)).toEqual(["⟦400 not loaded"]);
-            expect(words(container.querySelector('[data-band="failed"]')!)).toEqual(["⟦Elements 201–400 could not be read — fetch failed: 503", "⟦Retry"]);
+            const tail = container.querySelector('[data-band="tail"]')!;
+            expect(words(tail).length).toBeGreaterThan(0);
+            expect(said(tail)).toEqual([]);
+            const failed = container.querySelector('[data-band="failed"]')!;
+            expect(said(failed)).toEqual(["⟦Couldn't read rows 201–400", "⟦Retry"]);
+            expect(failed.querySelector("[data-loading-retry]")!.getAttribute("aria-label")).toBe("⟦Retry rows 201–400");
             expect(words(container.querySelector('[data-slot="rowError"]')!)).toEqual(["⟦Row 3 could not be drawn — boom"]);
         } finally {
             err.mockRestore();
