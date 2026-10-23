@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import { urlPathToTreePath } from '@elaraai/e3-types';
+import { parseKeypath, urlPathToTreePath, type TreePath } from '@elaraai/e3-types';
 import type { StorageBackend, TransferBackend } from '@elaraai/e3-core/portable';
 import {
   listDatasets,
@@ -18,7 +18,7 @@ import {
   setDataset,
   type PinnedCache,
 } from '../handlers/datasets.js';
-import { findDatasetKeys, getDatasetRows, getDatasetRuns } from '../handlers/dataset-batches.js';
+import { findDatasetKeys, getDatasetRows, getDatasetRuns, type DatasetRowsKeysOf } from '../handlers/dataset-batches.js';
 import { placeDatasetRuns, withinDatasetRuns } from '../handlers/dataset-place.js';
 import type { KeySearchQuery } from '../handlers/key-search.js';
 import { pageError } from '../handlers/dataset-reads.js';
@@ -138,10 +138,11 @@ export function createDatasetRoutes(
 
   // POST /api/repos/:repo/workspaces/:ws/datasets/* - A dataset's reads in
   // batches, their queries, keys or runs in a JSON body: several key searches
-  // (`findKeys=true`), the rows of several keys (`rows=true`), the entries of
-  // several runs (`runs=true`), and where a narrowing's runs of an index sit in
-  // its record (`place=true`) and which entries they hold (`within=true`). Any
-  // other POST is no route of these.
+  // (`findKeys=true`), the rows of several keys — or of the keys some runs of a
+  // record's index name (`rows=true`) — the entries of several runs
+  // (`runs=true`), and where a narrowing's runs of an index sit in its record
+  // (`place=true`) and which entries they hold (`within=true`). Any other POST
+  // is no route of these.
   app.post('/*', async (c, next) => {
     const findKeys = c.req.query('findKeys') === 'true';
     const rows = c.req.query('rows') === 'true';
@@ -175,9 +176,9 @@ export function createDatasetRoutes(
       });
     }
     if (rows) {
-      const keys = stringsOf(body, 'keys');
-      if ('refusal' in keys) return pageError('bad_request', keys.refusal);
-      return getDatasetRows(storage, repoPath, ws, treePath, { keys, ...(hash !== undefined && { hash }) }, limits);
+      const asked = rowsOf(body);
+      if ('refusal' in asked) return pageError('bad_request', asked.refusal);
+      return getDatasetRows(storage, repoPath, ws, treePath, { ...asked, ...(hash !== undefined && { hash }) }, limits);
     }
     if (hash === undefined) {
       const what = place ? 'A placement' : within ? 'A membership read' : 'A read of runs';
@@ -297,6 +298,37 @@ function queriesOf(body: unknown): KeySearchQuery[] | Refusal {
 function stringsOf(body: unknown, name: string): string[] | Refusal {
   const value = (body as Record<string, unknown> | null)?.[name];
   return isStrings(value) ? value : { refusal: `A read of rows by key is { "${name}": [ "<.east literal>", … ] }` };
+}
+
+/**
+ * What a `rows` body asks the rows of: its keys, `{ "keys": [ "<.east literal>",
+ * … ] }`, or the keys some runs of a record's index name, `{ "keysOf": { "path":
+ * ".<record>", "index": "<name>", "hash": "<state>", "runs": [[row, count], …] }
+ * }` — the path a keypath, as a status names a dataset (#1393). One form, never
+ * both.
+ */
+function rowsOf(body: unknown): { keys: string[] } | { keysOf: DatasetRowsKeysOf } | Refusal {
+  const form = (body ?? {}) as { keys?: unknown; keysOf?: unknown };
+  if (form.keysOf === undefined) {
+    const keys = stringsOf(body, 'keys');
+    return 'refusal' in keys ? keys : { keys };
+  }
+  if (form.keys !== undefined) return { refusal: 'A read of rows names its keys or the runs that name them, not both: { "keys": … } or { "keysOf": … }' };
+  const shape = 'A read of rows by runs is { "keysOf": { "path": ".<record>", "index": "<name>", "hash": "<state>", "runs": [[row, count], …] } }';
+  const of = form.keysOf as { path?: unknown; index?: unknown; hash?: unknown } | null;
+  if (of === null || typeof of !== 'object' || Array.isArray(of)) return { refusal: shape };
+  if (typeof of.path !== 'string' || typeof of.index !== 'string' || of.index === '' || typeof of.hash !== 'string' || of.hash === '') {
+    return { refusal: shape };
+  }
+  let path: TreePath;
+  try {
+    path = parseKeypath(of.path);
+  } catch (err) {
+    return { refusal: `keysOf's path must be a dataset's path, as a status names it (.records.x), got ${JSON.stringify(of.path)}: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  const runs = runsOf(of);
+  if ('refusal' in runs) return runs;
+  return { keysOf: { path, index: of.index, hash: of.hash, runs } };
 }
 
 /** The window a `place` body names beside its runs: `offset` and `limit`, each a number when given. */

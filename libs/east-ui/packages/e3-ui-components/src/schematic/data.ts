@@ -27,8 +27,9 @@
  * A kind whose source of the slice lists an area index is read by area
  * (#1393, §10.4): its viewport's window, a cell at a time (`area.ts`), never
  * its record whole nor its narrowing complete — its rows, or past
- * `SCHEMATIC_WINDOW_ROWS` its density; its cards' details at card and label
- * zoom; and the far ends of the links and nets that touch it, by key. One
+ * `SCHEMATIC_WINDOW_ROWS` its density; its items' details by the runs its
+ * window was read by, at every zoom, so a dot draws its item's status (D45);
+ * and the far ends of the links and nets that touch it, by key. One
  * that lists area indexes none of which reads it — none led by no field, or
  * one boxing its rows otherwise than its roles — is refused as it reads,
  * naming what to declare (SC34). The previous window stays drawn until the
@@ -379,7 +380,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         }
 
         // Each kind read by area: its far ends by key through its own paged read, its narrowing asked of its rows and theirs
-        // in one request, its rows made its stored rows, and its cards' details at card and label zoom.
+        // in one request, its rows made its stored rows, and its items' details by the runs its window was read by.
         const areaRows = new Map<string, { readonly rows: Rows<unknown>; readonly details: Rows<DetailsRoles> | undefined }>();
         for (const [slot, { kind, part, read: windowRead }] of byArea) {
             const isItem = value.items.some((item) => Object.is(item, kind));
@@ -391,9 +392,10 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
                 const narrowed = areaReader.narrowed(kind, part, windowRead, farRows, dim);
                 if (narrowed === READING) { loading = true; continue; }
                 const rows = areaReader.rowsOf(kind, narrowed) as ReadonlyMap<string, { readonly roles: unknown; readonly row: Uint8Array }>;
+                // At every zoom: a dot draws its item's status too (D45).
                 let details: Rows<DetailsRoles> | undefined;
-                if (kind.details.type === "some" && viewport !== undefined && viewport.lod !== "dot") {
-                    const got = areaReader.detailsOf(slot, kind.details.value, windowRead, rows);
+                if (kind.details.type === "some") {
+                    const got = areaReader.detailsOf(slot, kind.details.value, part, windowRead);
                     if (got === READING) loading = true;
                     else if (got !== undefined) details = got as Rows<DetailsRoles>;
                 }

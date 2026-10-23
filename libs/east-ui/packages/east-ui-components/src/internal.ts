@@ -74,11 +74,12 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 // a key lands in the record's own order (#1349) — the Sheet's lens; and the cells of a series or a summary index its
 // binding lists, counted and read, the rows of several of its record's keys in one read, and the revision its record is
 // read at (#1039) — the Plan's events; a window of its record's own rows, by position — the Schematic's Find (#1404); and an
-// area index's cells, counted and read, the bounds of a density raster's searches and the entries of some of their runs —
-// the Schematic's window (#1393).
+// area index's cells, counted and read, the bounds of a density raster's searches and the entries of some of their runs,
+// and another record's rows under the keys the cells' and the runs' entries name — the Schematic's window and its details
+// (#1393).
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
-    recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries,
+    recordSliceCellJoins, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";

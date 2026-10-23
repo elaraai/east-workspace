@@ -362,7 +362,10 @@ test("a plan of more searches than one batch takes is asked as several batches, 
 /**
  * A series index's cells (#1039) over a virtual index: each search by its
  * fields holds a known run, its entries the run's rows — every search, batch,
- * read and page kept, in the order asked. Without batching it answers single
+ * read and page kept, in the order asked. Batching, it reads another Dict's
+ * rows by runs too (#1393): each entry names its row as its key, and the Dict
+ * holds ten times an even key under it, and nothing under an odd one — every
+ * such read kept, with the Dict it names. Without batching it answers single
  * searches and pages alone.
  */
 function cellSource(ranges: Map<string, Range>, batching = true) {
@@ -373,6 +376,7 @@ function cellSource(ranges: Map<string, Range>, batching = true) {
     const seeks: Query[] = [];
     const runs: Range[][] = [];
     const pages: Range[] = [];
+    const joins: { runs: Range[]; dict: string }[] = [];
     const bounds = (query: Query) => {
         assert.equal(query.type, "fields", "a cell searches by its fields");
         const range = query.type === "fields" ? ranges.get(query.value.values.join("|")) : undefined;
@@ -402,13 +406,23 @@ function cellSource(ranges: Map<string, Range>, batching = true) {
                 const rows = rowsOf(asked);
                 return some(decodeRows(encodeRows(short ? rows.slice(1) : rows)));
             },
+            joinAll(_index: string, asked: readonly Range[], dict: string) {
+                joins.push({ runs: asked.map(({ row, count }) => ({ row, count })), dict });
+                if (pending) return none;
+                const rows = joinedOf(rowsOf(asked));
+                return some(short ? rows.slice(1) : rows);
+            },
         }),
     };
-    return { reader, batches, seeks, runs, pages,
+    return { reader, batches, seeks, runs, pages, joins,
         revision(value: option<string>) { revision = value; },
         pending(value: boolean) { pending = value; },
         /** Answer each read of runs one entry short of what they hold. */
         short(value: boolean) { short = value; } };
+}
+/** The cell source's Dict's rows under some entries' keys: ten times an even key, nothing under an odd one. */
+function joinedOf(keys: readonly bigint[]): { key: unknown; row: option<unknown> }[] {
+    return keys.map((key) => ({ key, row: key % 2n === 0n ? some(key * 10n) : none }));
 }
 const search = (...fields: string[]): Query => variant("fields", { values: fields, prefix: none });
 // Cell `a` searches its keys out of the index's order and one key it holds nothing of; cell `b` shares a search with it.
@@ -523,6 +537,60 @@ test("a reader's cells' entries are read in one read of their runs, each run onc
     const overlapping = cellSource(new Map([["w1|k1", { row: 10n, count: 3n }], ["w1|k2", { row: 12n, count: 2n }]]));
     assert.throws(() => new RecordSliceSource(overlapping.reader).cellEntries("jobs_by_press_week", [{ id: "x", queries: [search("w1", "k1"), search("w1", "k2")] }]),
         /overlap/);
+});
+
+test("a Dict's rows under several cells' entries' keys are read in one read of their runs, each run once, and handed back cell by cell in their searches' order (#1393)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    const read = unwrap(engine.cellJoins("racks_by_area", [cellA, cellB], "details"));
+    assert.deepEqual(source.joins, [{ runs: [{ row: 10n, count: 3n }, { row: 13n, count: 2n }, { row: 40n, count: 4n }], dict: "details" }],
+        "the run two cells share is read once, an empty one not at all, naming the Dict");
+    assert.deepEqual(read.get("a"), joinedOf([13n, 14n, 10n, 11n, 12n]));
+    assert.deepEqual(read.get("b"), joinedOf([40n, 41n, 42n, 43n, 10n, 11n, 12n]));
+    assert.deepEqual([source.runs.length, source.pages.length], [0, 0], "no entry is read: the keys are read where the entries are kept");
+    // The cells' searches are the ones their entries are read by: found once.
+    unwrap(engine.cellEntries("racks_by_area", [cellA, cellB]));
+    assert.equal(source.batches.length, 1);
+    assert.equal(source.runs.length, 1, "their entries are a read of their own");
+    // Nothing is kept here: read again, the reader is asked again; another revision; a read pending is none.
+    unwrap(engine.cellJoins("racks_by_area", [cellA], "details"));
+    assert.equal(source.joins.length, 2);
+    source.revision(some("B"));
+    source.pending(true);
+    assert.deepEqual(engine.cellJoins("racks_by_area", [cellA], "details"), none);
+    source.pending(false);
+    source.short(true);
+    assert.throws(() => engine.cellJoins("racks_by_area", [cellA], "details"), /rows read disagree with the runs' entries/);
+    source.short(false);
+    assert.deepEqual(unwrap(engine.cellJoins("racks_by_area", [cellA], "details")).get("a"), joinedOf([13n, 14n, 10n, 11n, 12n]),
+        "a refused read does not poison its retry");
+});
+
+test("a run a read of a Dict's rows in flight asks waits on it, a read of another Dict or of the entries asks its own; and a reader that reads no Dict by runs is refused (#1393)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    unwrap(engine.cellRuns("racks_by_area", [cellA, cellB, cellC]));
+    source.pending(true);
+    assert.deepEqual(engine.cellJoins("racks_by_area", [cellA, cellB], "details"), none);
+    assert.deepEqual(engine.cellJoins("racks_by_area", [cellB, cellC], "details"), none);
+    assert.deepEqual(engine.cellJoins("racks_by_area", [cellC], "owners"), none);
+    assert.deepEqual(engine.cellEntries("racks_by_area", [cellC]), none);
+    const first = [{ row: 10n, count: 3n }, { row: 13n, count: 2n }, { row: 40n, count: 4n }];
+    assert.deepEqual(source.joins, [
+        { runs: first, dict: "details" }, { runs: first, dict: "details" }, { runs: [{ row: 70n, count: 1n }], dict: "details" },
+        { runs: [{ row: 70n, count: 1n }], dict: "owners" },
+    ], "`b`'s runs wait on the read asking them; `c`'s, which none asks of that Dict, are read alone, and of another Dict on their own");
+    assert.deepEqual(source.runs, [[{ row: 70n, count: 1n }]], "a read of the entries waits on no read of a Dict's rows");
+    source.pending(false);
+    const read = unwrap(engine.cellJoins("racks_by_area", [cellB, cellC], "details"));
+    assert.deepEqual([read.get("b"), read.get("c")], [joinedOf([40n, 41n, 42n, 43n, 10n, 11n, 12n]), joinedOf([70n])]);
+    // Some runs of one source, as found.
+    const runs = [{ found: true, row: 10n, count: 3n }, { found: true, row: 40n, count: 4n }];
+    assert.deepEqual(unwrap(engine.runJoins("racks_by_area", runs, "details")), joinedOf([10n, 11n, 12n, 40n, 41n, 42n, 43n]));
+    assert.deepEqual(unwrap(engine.runJoins("racks_by_area", [], "details")), [], "no runs read nothing");
+    assert.throws(() => engine.runJoins("racks_by_area", [runs[1]!, runs[0]!], "details"), /ascending and disjoint/);
+    assert.throws(() => new RecordSliceSource(cellSource(cellRanges, false).reader).runJoins("racks_by_area", runs, "details"),
+        /cannot read another record's rows by its runs/);
 });
 
 test("a reader that does not batch finds cells by single searches, all started together, and reads a page a run (#1039)", () => {

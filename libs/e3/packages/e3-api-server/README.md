@@ -373,7 +373,7 @@ and a copy onto itself `invalid_name`.
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?page=true` | A window of a collection (`offset`, `limit`, or a writer's `segment`), or of one of a record's indexes (`index`, `join`), as BEAST2 of its type, placed by its `X-*` headers; pinned with `hash` |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?find=true` | Locate a key (`key`), a prefix (`prefix`), leading fields (`field`, repeated) or a range (`from`, `to`) in a Set's or a Dict's order, or an index's (`index`): JSON `{ found, row, count }`; pinned with `hash` |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?findKeys=true` | Several key searches of one collection or index (`index`), `{ queries: [...] }`, each in one of `find`'s forms, at most 10,000: JSON `{ results: [{ found, row, count }, …] }`, in order; pinned with `hash` |
-| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?rows=true` | The rows of several keys of a Dict, `{ keys: [<.east>, …] }`, at most 10,000: BEAST2 of `datasetRowsType(K, V)` — each key, its row or none, and its position in the Dict's order — for the first `X-Page-Count` keys the page budget reaches; pinned with `hash` |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?rows=true` | The rows of several keys of a Dict, `{ keys: [<.east>, …] }`, at most 10,000 — or of the keys the entries of some runs of another record's index name, `{ keysOf: { path: ".<record>", index, hash, runs: [[row, count], …] } }`, which the server reads from the index, so none is sent: BEAST2 of `datasetRowsType(K, V)` — each key, its row or none, and its position in the Dict's order, in the order asked or the runs' — for the first `X-Page-Count` keys the page budget and a page's 10,000 entries reach (read by runs, of the `X-Run-Entries` the runs hold); pinned with `hash`, the runs with `keysOf.hash`, a stale one refused 409 `runs_hash_mismatch` naming the record's content (`X-Content-SHA256`) |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?runs=true&hash=` | The entries of several runs of a collection's rows, or of an index's (`index`, `join`), `{ runs: [[row, count], …] }`, ascending and disjoint, at most 10,000: one window of the dataset's type, or the index's window type, holding the first `X-Page-Count` of the runs' `X-Run-Entries` entries a page's bounds reach |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?place=true&hash=` | Where a narrowing's rows sit in a record: `{ index, runs: [[row, count], …], offset?, limit? }`, the runs of one of its indexes, at most 10,000, a window of their entries from `offset`: JSON `{ segments: [{ segment, offset, count, rows }], placed }` — each record segment the window's entries fall in, its first row, its row count and how many of them it holds — for the first `placed` entries a page's bounds reach; `X-Total-Elements` the record's rows, `X-Run-Entries` the runs' |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?within=true&hash=` | Which of some index entries a narrowing's runs hold: `{ index, runs: [[row, count], …], keys: ["(ik=…, k=…)", …] }`, each key an entry's index key beside its row's key, at most 10,000 runs and 10,000 keys: JSON `{ within: [boolean, …] }`, in order |
@@ -386,10 +386,12 @@ through the objects route and splices them itself, as e3-api-client's
 [`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-download).
 
 A window's reads are a few requests, never one a search, a run or a row: its
-key searches in one `findKeys`, the runs they select in one `runs`, and the
-rows of the keys it names in one `rows`. Each batch places its bounds, keys or
-rows by the manifest's fences and counts, which reads nothing, then reads every
-segment it touches once, several at a time. The server keeps decoded segments
+key searches in one `findKeys`, the runs they select in one `runs`, the rows of
+the keys it names in one `rows`, and another record's rows for its runs — a
+drawing's details — in one `rows` by `keysOf`, the keys read from the index
+where the runs' entries are kept, never sent. Each batch places its bounds,
+keys or rows by the manifest's fences and counts, which reads nothing, then
+reads every segment it touches once, several at a time. The server keeps decoded segments
 by content hash, bounded by their decoded weight (64 MiB), and every page,
 search and batch reads through them — so a window read again, or a pan over
 the same segments, decodes none. A value read whole is streamed as its
@@ -397,7 +399,9 @@ segments' bytes, and decodes none of them.
 
 A summary index's entry stands for every row of its key — its `key` Null, its
 value the rows' totals — so it names no row to join: a `page` or `runs` read of
-one with `join` is refused 400 `bad_request`, naming the index.
+one with `join` is refused 400 `bad_request`, naming the index, and so is a
+`rows` read by its runs (`keysOf`). A read by runs also refuses an index whose
+entries name keys of another type than the Dict's, East deciding.
 
 Where a narrowing's rows sit among a record's is two reads of its index alone,
 never of a record segment. `place` reads the window's entries from the

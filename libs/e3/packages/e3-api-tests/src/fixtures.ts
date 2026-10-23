@@ -269,11 +269,16 @@ export const ItemRowType = StructType({ group: StringType, rank: IntegerType, la
 export const ItemsType = DictType(StringType, ItemRowType);
 /** The `by_group` index key: a group, then a rank inside it. */
 export const ItemGroupKeyType = StructType({ group: StringType, rank: IntegerType });
+/** The row of the batch-read fixture's second record: a note on an item. */
+export const ItemNoteRowType = StructType({ note: StringType });
+/** The batch-read fixture's second record: notes, keyed as the items are. */
+export const ItemNotesType = DictType(StringType, ItemNoteRowType);
 
 /**
  * Create a package whose record a dataset's batch reads are run over (#1351):
- * several key searches in one request, the rows of several keys, the entries
- * of several runs.
+ * several key searches in one request, the rows of several keys — or of the
+ * keys some runs of another record's index name (#1393) — the entries of
+ * several runs.
  *
  * Creates a package with:
  * - Record: "items" (Dict<String, {group, rank, label}>, empty), and Mutation
@@ -281,6 +286,9 @@ export const ItemGroupKeyType = StructType({ group: StringType, rank: IntegerTyp
  *   (`g0`…`g4`, by `i` mod 5), each ranked `i`
  * - Index: "by_group" on `group` then `rank`, one entry per row, so a group is
  *   one run of it
+ * - Record: "item_notes" (Dict<String, {note}>, empty), keyed as the items
+ *   are, and Mutation "seed_notes" (rows) => a note on every third of `rows`
+ *   items, `item-<i>` for `i` a multiple of 3, `Note <i>`
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name
@@ -304,7 +312,18 @@ export async function createBatchReadsPackageZip(
       return out;
     }));
   const byGroup = e3.recordIndex('by_group', items, { on: ['group', 'rank'] });
-  const pkg = e3.package(name, version, items, seed, byGroup);
+  const notes = e3.record('item_notes', ItemNotesType, new Map());
+  const seedNotes = e3.mutation.reduce('seed_notes', notes,
+    East.function([ItemNotesType, IntegerType], ItemNotesType, ($, _state, rows) => {
+      const out = $.let(new Map(), ItemNotesType);
+      $.for(East.Array.range(0n, rows), ($, i) => {
+        $.if(East.equal(i.remainder(3n), 0n), ($) => {
+          $(out.insert(East.str`item-${i}`, { note: East.str`Note ${i}` }));
+        });
+      });
+      return out;
+    }));
+  const pkg = e3.package(name, version, items, seed, byGroup, notes, seedNotes);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

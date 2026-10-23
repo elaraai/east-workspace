@@ -44,13 +44,17 @@
  * Several reads of one source are asked as one request when a reader asks
  * them together (#1351): `seekAll` a batch of key searches (`findKeys`),
  * `rowsAll` the rows of several keys of a Dict, `runsAll` the entries of
- * several runs. A batch is one request and one channel, which re-fires its
- * readers once. What it answers serves the single reads too: each search's
- * bounds land in that search's own channel, each row is held at its position —
- * a search by its key, or a one-row window at its row, is answered from it —
- * and a window inside one of a runs read's runs is cut from it. A record Slice
- * over a binding the indexed runtime built reads a plan's searches, and a
- * window across several runs, through them.
+ * several runs — and `joinAll` a Dict's rows under the keys some runs of one
+ * of a record's indexes name, the keys read by the server, none sent (#1393).
+ * A batch is one request and one channel, which re-fires its readers once.
+ * What it answers serves the single reads too: each search's bounds land in
+ * that search's own channel, each row is held at its position — a search by
+ * its key, or a one-row window at its row, is answered from it — and a window
+ * inside one of a runs read's runs is cut from it. A record Slice over a
+ * binding the indexed runtime built reads a plan's searches, and a window
+ * across several runs, through them. A read by another record's runs is
+ * pinned to both datasets' revisions, its channel both snapshots': a move of
+ * either drops it.
  *
  * A read no reader waits on any longer is aborted while still in flight
  * (#1398, CL6, CL7): a window that left the demand ring, a period read a newer
@@ -108,6 +112,7 @@ import {
     datasetPlace,
     datasetWithin,
     DatasetHashMismatchError,
+    RunsHashMismatchError,
     DATASET_BATCH_MAX,
     type DatasetPage,
     type DatasetPlaceQuery,
@@ -244,9 +249,10 @@ export interface PagedApi {
     /** Locate several key queries of one source in one request (#1351), each
      *  as {@link findKey} would, in order. */
     findKeys(workspace: string, path: TreePath, query: DatasetFindKeysQuery, signal?: AbortSignal): Promise<DatasetFindKeysResult>;
-    /** Read the rows a Dict dataset holds under several keys in one request:
-     *  each key's row or absence and its position, the first `count` of the
-     *  keys the page byte budget reaches. */
+    /** Read the rows a Dict dataset holds under several keys in one request —
+     *  its own, or those the entries of some runs of a record's index name
+     *  (#1393) — each key's row or absence and its position, the first `count`
+     *  of the keys the page's bounds reach. */
     getRows(workspace: string, path: TreePath, query: DatasetRowsQuery, signal?: AbortSignal): Promise<DatasetRows>;
     /** Read the entries of several runs of a source's rows in one request, in
      *  order: the first `count` of them a page's bounds reach. */
@@ -893,8 +899,8 @@ function seekQueryText(query: DatasetFindQuery): string {
 
 /**
  * Tracked-channel key for one batch of reads of one revision (#1351): several
- * key searches, the rows of several keys, or the entries of several runs, each
- * batch by what it asks.
+ * key searches, the rows of several keys — or of those another record's runs
+ * name (#1393) — or the entries of several runs, each batch by what it asks.
  *
  * @param workspace - The workspace
  * @param path - The dataset's path
@@ -905,7 +911,8 @@ function seekQueryText(query: DatasetFindQuery): string {
  * @returns The key
  */
 export function pagedBatchKey(
-    workspace: string, path: TreePath, revision: string, selector: PagedSelector, kind: "seekAll" | "rows" | "runs" | "place" | "within", parts: readonly string[],
+    workspace: string, path: TreePath, revision: string, selector: PagedSelector,
+    kind: "seekAll" | "rows" | "joins" | "runs" | "place" | "within", parts: readonly string[],
 ): string {
     return `${pagedWindowFamily(workspace, path, revision, selector)}#${kind}:${parts.join("\u0001")}`;
 }
@@ -1200,6 +1207,23 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             this.moveTo(workspace, path, snapshot, null);
             return true;
         }
+        return false;
+    }
+
+    /**
+     * Handle a read by a record's runs refused because the record moved
+     * (#1393), as {@link followed} handles a moved dataset: a refusal naming
+     * other content moves the record there; one naming none looks it up, and
+     * the read fails until the lookup moves it. Returns whether the refusal
+     * moved it, or arrived after it had already moved on.
+     */
+    private followedRuns(workspace: string, path: TreePath, snapshot: Snapshot, revision: string, err: RunsHashMismatchError): boolean {
+        if (!this.pinnedTo(snapshot, revision)) return true;
+        if (err.currentHash !== null && err.currentHash !== revision) {
+            this.moveTo(workspace, path, snapshot, err.currentHash);
+            return true;
+        }
+        this.find(workspace, path, snapshot);
         return false;
     }
 
@@ -1764,6 +1788,122 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             this.touchWindow(batchKey);
             this.notify(batchKey);
         })();
+    }
+
+    /**
+     * The rows a Dict source holds under the keys the entries of some runs of
+     * one of a record's indexes name, read as ONE request and ONE channel
+     * (#1393): each entry's key, the Dict's row under it or its absence, and
+     * its position in the Dict, in the runs' order — `none` while the read is
+     * in flight. The server reads the keys from the index: none is sent.
+     *
+     * @remarks
+     * The read is pinned to both datasets' revisions, and its channel is both
+     * snapshots', so a move of either drops it and the reader asks again at
+     * the new one; a refusal naming either's new content moves that one. The
+     * server holds an answer to a page's bounds, and the runs' rest is asked
+     * again until every entry is answered. Each row is held at its position,
+     * as a read by key's are, so a later read by its key answers from it.
+     *
+     * @param dict - A Dict dataset's own rows: the rows read
+     * @param of - One of a record's indexes: the runs' rows, whose entries name the keys
+     * @param runs - The runs: ascending, disjoint, each inside the index
+     * @returns Each entry's row, in the runs' order, once every one is known
+     * @throws The read's failure, until a read after the retry gap asks again;
+     *   at once, for a source that is not a Dict's own rows, or runs of no index
+     */
+    joinAll(dict: PagedSource, of: PagedSource, runs: readonly PagedRun[]): option<readonly PagedRow[]> {
+        if (dict.selector.index !== null || dict.type.type !== "Dict") {
+            throw new Error("Data.bindPaged: a read of rows by runs reads a Dict dataset's own rows, never an index's or another collection's");
+        }
+        const index = of.selector.index;
+        if (index === null) throw new Error("Data.bindPaged: a read of rows by runs reads the keys an index's entries name: name one of a record's indexes");
+        const workspace = this.resolveWorkspace();
+        const revision = this.revisionFor(workspace, dict.path);
+        const runsRevision = this.revisionFor(workspace, of.path);
+        if (typeof revision !== "string" || typeof runsRevision !== "string") return none;
+        const snapshot = this.snapshotOf(workspace, dict.path);
+        const runsSnapshot = this.snapshotOf(workspace, of.path);
+        const batchKey = pagedBatchKey(workspace, dict.path, revision, dict.selector, "joins",
+            [datasetPathToString(of.path), index, runsRevision, ...runs.map(([row, count]) => `${row}+${count}`)]);
+        this.track(batchKey);
+        // The channel is both snapshots': a move of either drops it.
+        runsSnapshot.channels.add(batchKey);
+        const batch = this.channel(snapshot, batchKey);
+        if (batch.status === "loaded" && batch.rows !== undefined) {
+            this.touchWindow(batchKey);
+            return some(batch.rows);
+        }
+        if (this.due(batch)) this.launchJoins(workspace, dict, snapshot, revision, of, index, runsSnapshot, runsRevision, batchKey, runs);
+        return this.answer(batch, batch.rows);
+    }
+
+    /** Launch a read of a Dict's rows by a record's runs, asking again for the
+     *  entries each answer's bounds did not reach. */
+    private launchJoins(
+        workspace: string,
+        dict: PagedSource,
+        snapshot: Snapshot,
+        revision: string,
+        of: PagedSource,
+        index: string,
+        runsSnapshot: Snapshot,
+        runsRevision: string,
+        batchKey: string,
+        runs: readonly PagedRun[],
+    ): void {
+        const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
+        const api = this.api;
+        const { key: keyType, value: rowType } = dict.type.value as { key: EastTypeValue; value: EastTypeValue };
+        const decode = decodeBeast2For(datasetRowsType(fromEastTypeValue(keyType), fromEastTypeValue(rowType))) as
+            (bytes: Uint8Array) => { key: unknown; row: option<unknown>; position: bigint }[];
+        void (async () => {
+            const rows: PagedRow[] = [];
+            try {
+                if (api === null) throw new Error("no PagedApi installed");
+                for (let rest: PagedRun[] = [...runs]; rest.length > 0;) {
+                    const chunk = rest.slice(0, DATASET_BATCH_MAX);
+                    const answer = await api.getRows(workspace, dict.path,
+                        { keysOf: { path: of.path, index, runs: chunk, hash: runsRevision }, hash: revision }, signal);
+                    const decoded = decode(answer.data);
+                    if (answer.count < 1 || decoded.length !== answer.count) {
+                        throw new Error(`a read of rows by ${chunk.length} runs answered ${decoded.length}, and said ${answer.count}`);
+                    }
+                    for (const entry of decoded) rows.push({ key: entry.key, row: entry.row, position: Number(entry.position) });
+                    rest = [...runsAfter(chunk, answer.count), ...rest.slice(DATASET_BATCH_MAX)];
+                }
+            } catch (err) {
+                if (signal.aborted) return;
+                // The record moved under its runs, or the Dict under its pin: the one that moved is followed.
+                if (err instanceof RunsHashMismatchError) {
+                    if (this.followedRuns(workspace, of.path, runsSnapshot, runsRevision, err)) return;
+                } else if (this.followed(workspace, dict.path, snapshot, revision, err)) {
+                    return;
+                }
+                this.fail(batchKey, seq, failureOf(dict.path, err), isPermanentPageError(err));
+                console.error(`Data.bindPaged: read of rows by runs failed for ${batchKey}:`, err);
+                return;
+            }
+            if (!this.pinnedTo(snapshot, revision) || !this.pinnedTo(runsSnapshot, runsRevision)) return;
+            if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; e.rows = rows; delete e.error; })) return;
+            this.hold(snapshot, pagedWindowFamily(workspace, dict.path, revision, NO_INDEX), keyType, rows);
+            this.touchWindow(batchKey);
+            this.notify(batchKey);
+        })();
+    }
+
+    /**
+     * The revision a source's reads are pinned to now (#1393): what a reader
+     * keeps what it read of the source under, so a move reads it again — a
+     * tracked read, which re-fires as the source moves.
+     *
+     * @param source - The source
+     * @returns Its dataset's revision; none while it is found, or while the dataset has no value
+     * @throws The failed lookup's reason, until a read after the retry gap looks again
+     */
+    revisionOf(source: PagedSource): option<string> {
+        const revision = this.revisionFor(this.resolveWorkspace(), source.path);
+        return typeof revision === "string" ? some(revision) : none;
     }
 
     /**

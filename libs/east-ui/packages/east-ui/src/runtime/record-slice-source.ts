@@ -56,6 +56,23 @@ export interface RecordSliceReader<T> {
      * its reads has it; without it, each row is read by its key.
      */
     rowsAll?(keys: readonly unknown[]): option<option<unknown>[]>;
+    /**
+     * The rows another Dict holds under the keys the entries of several runs
+     * of one source name, in one request (#1393): each entry's key and the
+     * Dict's row under it, or `none`, in the runs' order — none while pending.
+     * The keys are read from the source where its rows are kept, so none is
+     * sent: a Schematic's details, read for the cells of its area index. A
+     * binding whose runtime batches its reads has it.
+     */
+    joinAll?(index: string, runs: readonly Range[], dict: string): option<RecordSliceJoined[]>;
+}
+
+/** One entry's row of another Dict, as a read by runs answers it (#1393). */
+export interface RecordSliceJoined {
+    /** The key the entry names: one of the record's keys, of the Dict's key type. */
+    readonly key: unknown;
+    /** The Dict's row under it, or none. */
+    readonly row: option<unknown>;
 }
 
 /** One index entry of a row, as a membership read names it: its index key's `.east` text, and the row's primary key. */
@@ -127,6 +144,8 @@ interface AskedCells {
 interface AskedRuns {
     /** The index read. */
     readonly index: string;
+    /** The Dict whose rows a read by the runs reads (#1393): the `id` of its paged read; absent for a read of their entries. */
+    readonly dict?: string;
     /** Its runs: ascending, disjoint, none empty. */
     readonly runs: readonly Range[];
 }
@@ -452,6 +471,30 @@ export class RecordSliceSource<T> {
      * @throws {Error} When the runs are not ascending, disjoint and each non-empty, or the entries read disagree with them
      */
     runEntries(index: string, runs: readonly Range[]): option<T[]> {
+        return this.runsRead(index, runs, undefined, (asked) => this.readRuns(index, asked));
+    }
+
+    /**
+     * Read the rows another Dict holds under the keys the entries of some runs
+     * of one source name (#1393): the runs as {@link RecordSliceSource.runEntries}
+     * takes them, read in one request however many there are, a run a read
+     * still in flight asks waiting on it — each entry's key and the Dict's row
+     * under it, run after run. The keys are read where the source's entries
+     * are kept: none is sent. Nothing is kept: the reader holds what it read.
+     *
+     * @param index - The source
+     * @param runs - The runs
+     * @param dict - The Dict read: the `id` of its paged read
+     * @returns Each entry's key and its row there, run after run; none while the read is pending
+     * @throws {Error} When the reader reads no Dict by runs, the runs are not ascending, disjoint and each non-empty, or
+     *   the rows read disagree with them
+     */
+    runJoins(index: string, runs: readonly Range[], dict: string): option<RecordSliceJoined[]> {
+        return this.runsRead(index, runs, dict, (asked) => this.readJoins(index, asked, dict));
+    }
+
+    /** Some runs' entries, or their rows of a Dict, by `read`: the runs checked, each asked once (see {@link RecordSliceSource.runEntries}). */
+    private runsRead<E>(index: string, runs: readonly Range[], dict: string | undefined, read: (runs: readonly Range[]) => option<E[]>): option<E[]> {
         const revision = this.current();
         if (revision === undefined) return none;
         for (const [i, run] of runs.entries()) {
@@ -459,7 +502,7 @@ export class RecordSliceSource<T> {
             const before = runs[i - 1];
             if (before !== undefined && before.row + before.count > run.row) throw new Error("The runs read are ascending and disjoint");
         }
-        const byStart = this.readAsked(index, runs, revision);
+        const byStart = this.readAsked(index, dict, runs, revision, read);
         if (byStart === undefined) return none;
         return some(runs.flatMap((run) => byStart.get(run.row)!));
     }
@@ -480,6 +523,33 @@ export class RecordSliceSource<T> {
      *   with their bounds
      */
     cellEntries(index: string, cells: readonly RecordSliceCell[]): option<Map<string, T[]>> {
+        return this.cellsRead(index, cells, undefined, (runs) => this.readRuns(index, runs));
+    }
+
+    /**
+     * Read the rows another Dict holds under the keys several cells' entries
+     * name (#1393): every cell's runs in one request — each run once,
+     * ascending, however many cells share it — the keys read where the
+     * entries are kept, none sent, handed back cell by cell, each in its
+     * searches' order: each entry's key and the Dict's row under it. A run a
+     * read still in flight asks waits on it, as {@link RecordSliceSource.cellEntries}'s
+     * does. Nothing is kept once read: the reader holds the cells it draws —
+     * a Schematic's details, for the cells its window reads of its area index.
+     *
+     * @param index - The index the cells are of
+     * @param cells - The cells
+     * @param dict - The Dict read: the `id` of its paged read
+     * @returns Each cell's rows of the Dict, by its name; none while its runs or the read are pending
+     * @throws {Error} As {@link RecordSliceSource.cellEntries} does, and when the reader reads no Dict by runs
+     */
+    cellJoins(index: string, cells: readonly RecordSliceCell[], dict: string): option<Map<string, RecordSliceJoined[]>> {
+        return this.cellsRead(index, cells, dict, (runs) => this.readJoins(index, runs, dict));
+    }
+
+    /** Several cells' entries, or their rows of a Dict, by `read`: every cell's runs read once (see {@link RecordSliceSource.cellEntries}). */
+    private cellsRead<E>(
+        index: string, cells: readonly RecordSliceCell[], dict: string | undefined, read: (runs: readonly Range[]) => option<E[]>,
+    ): option<Map<string, E[]>> {
         const found = this.cellRuns(index, cells);
         if (found.type === "none") return none;
         const revision = this.revision!;
@@ -496,60 +566,86 @@ export class RecordSliceSource<T> {
         for (let i = 1; i < runs.length; i++) {
             if (runs[i - 1]!.row + runs[i - 1]!.count > runs[i]!.row) throw new Error("The cells' searches overlap; refresh the view and retry");
         }
-        const byStart = this.readAsked(index, runs, revision);
+        const byStart = this.readAsked(index, dict, runs, revision, read);
         if (byStart === undefined) return none;
-        const read = new Map<string, T[]>();
+        const got = new Map<string, E[]>();
         for (const cell of cells) {
-            const own: T[] = [];
+            const own: E[] = [];
             for (const range of found.value.get(cell.id)!.ranges) {
                 if (range.count === 0n) continue;
                 own.push(...byStart.get(range.row)!);
             }
-            read.set(cell.id, own);
+            got.set(cell.id, own);
         }
-        return some(read);
+        return some(got);
     }
 
     /**
-     * The entries of some runs of one source, each by its first row: a run a
-     * read still in flight asks waits on that read — asked again as it was,
-     * which asks the reader nothing new — and the rest are read together, in
-     * one more.
+     * Some runs of one source, read by `read` — their entries, or their rows of
+     * a Dict — each by its first row: a run a read of the same kind still in
+     * flight asks waits on that read — asked again as it was, which asks the
+     * reader nothing new — and the rest are read together, in one more.
      *
      * @param index - The source
+     * @param dict - The Dict whose rows are read; `undefined` for the entries
      * @param runs - The runs: ascending, disjoint, none empty
      * @param revision - The revision they were found at
-     * @returns Each run's entries, by its first row; `undefined` while a read is pending, or once the revision moved
+     * @param read - The read of some of the runs, in order
+     * @returns Each run's part, by its first row; `undefined` while a read is pending, or once the revision moved
      */
-    private readAsked(index: string, runs: readonly Range[], revision: string): Map<bigint, T[]> | undefined {
+    private readAsked<E>(
+        index: string, dict: string | undefined, runs: readonly Range[], revision: string, read: (runs: readonly Range[]) => option<E[]>,
+    ): Map<bigint, E[]> | undefined {
         const reads = new Set<AskedRuns>();
         const fresh: Range[] = [];
         for (const run of runs) {
-            const asked = this.askedRuns.find((read) => read.index === index && read.runs.some((r) => r.row === run.row && r.count === run.count));
+            const asked = this.askedRuns.find((one) => one.index === index && one.dict === dict
+                && one.runs.some((r) => r.row === run.row && r.count === run.count));
             if (asked !== undefined) reads.add(asked);
             else fresh.push(run);
         }
         if (fresh.length > 0) {
-            const read: AskedRuns = { index, runs: fresh };
-            this.askedRuns.push(read);
+            const asked: AskedRuns = { index, runs: fresh, ...(dict !== undefined && { dict }) };
+            this.askedRuns.push(asked);
             if (this.askedRuns.length > MAX_ASKED) this.askedRuns.shift();
-            reads.add(read);
+            reads.add(asked);
         }
-        const byStart = new Map<bigint, T[]>();
+        const byStart = new Map<bigint, E[]>();
         let pending = false;
         for (const asked of reads) {
-            const entries = this.readRuns(index, asked.runs);
+            const parts = read(asked.runs);
             if (this.current() !== revision) return undefined;
-            if (entries.type === "none") { pending = true; continue; }
+            if (parts.type === "none") { pending = true; continue; }
             const at = this.askedRuns.indexOf(asked);
             if (at >= 0) this.askedRuns.splice(at, 1);
             let offset = 0;
             for (const run of asked.runs) {
-                byStart.set(run.row, entries.value.slice(offset, offset + Number(run.count)));
+                byStart.set(run.row, parts.value.slice(offset, offset + Number(run.count)));
                 offset += Number(run.count);
             }
         }
         return pending ? undefined : byStart;
+    }
+
+    /**
+     * The rows a Dict holds under the keys the entries of some runs of one
+     * source name, in order: in one request through the reader, the keys read
+     * where the entries are kept.
+     *
+     * @param index - The source
+     * @param runs - The runs: ascending, disjoint, none empty
+     * @param dict - The Dict read: the `id` of its paged read
+     * @returns Each entry's key and its row there, in order; none while pending
+     * @throws {Error} When the reader reads no Dict by runs, or its rows disagree with the runs' entries
+     */
+    private readJoins(index: string, runs: readonly Range[], dict: string): option<RecordSliceJoined[]> {
+        if (this.reader.joinAll === undefined) throw new Error("This record's binding cannot read another record's rows by its runs");
+        if (runs.length === 0) return some([]);
+        const expected = runs.reduce((sum, run) => sum + run.count, 0n);
+        const read = this.reader.joinAll(index, runs, dict);
+        if (read.type === "none") return none;
+        if (BigInt(read.value.length) !== expected) throw new Error("The rows read disagree with the runs' entries; refresh the view and retry");
+        return read;
     }
 
     /**

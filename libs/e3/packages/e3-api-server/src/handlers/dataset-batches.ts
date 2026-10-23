@@ -6,10 +6,10 @@
 /**
  * A dataset's reads in batches (#1351): several key searches of one
  * collection in one request (`findKeys`), the rows of several keys of a Dict
- * (the rows form), and the entries of several runs of a collection's rows (the
- * runs form) — each answered at one content hash, each reading every segment
- * it touches once, several at a time, through the decoded segments the API
- * process keeps.
+ * (the rows form) — or of the keys some runs of a record's index name (#1393)
+ * — and the entries of several runs of a collection's rows (the runs form) —
+ * each answered at one content hash, each reading every segment it touches
+ * once, several at a time, through the decoded segments the API process keeps.
  *
  * A batch is a POST — its queries, keys or runs travel in the body — so no
  * cache between keeps its answer: a client's own caches serve a batch asked
@@ -18,9 +18,11 @@
  * @packageDocumentation
  */
 
-import { encodeBeast2For, fromEastTypeValue, none, parseFor, some, type EastTypeValue, type option } from '@elaraai/east';
+import {
+  encodeBeast2For, fromEastTypeValue, isTypeValueEqual, none, parseFor, printType, some, type EastTypeValue, type option,
+} from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, datasetRowsType, type TreePath } from '@elaraai/e3-types';
-import type { DatasetSegments, StorageBackend } from '@elaraai/e3-core/portable';
+import { workspaceGetDatasetStatus, type DatasetSegments, type StorageBackend } from '@elaraai/e3-core/portable';
 import { sendJsonError } from '../errors.js';
 import {
   PAGE_BYTE_BUDGET_DEFAULT, PAGE_MAX_LIMIT, cachedSegments, collectionOf, corruptRefusal, elementsOf, indexOf, openForRead,
@@ -124,12 +126,46 @@ export async function findDatasetKeys(
   }
 }
 
-/** The keys of a Dict whose rows a read asks for, for {@link getDatasetRows}. */
-export interface DatasetRowsRequest {
+/**
+ * The rows of a Dict a read asks for, for {@link getDatasetRows}: by their
+ * keys, or by the keys the entries of some runs of a record's index name.
+ */
+export type DatasetRowsRequest = DatasetRowsByKeys | DatasetRowsByRuns;
+
+/** The keys of a Dict whose rows a read asks for. */
+export interface DatasetRowsByKeys {
   /** `.east` literals of the keys, answered in this order. */
   keys: readonly string[];
   /** The content hash the read is pinned to; a stale one is refused with 409. */
   hash?: string;
+}
+
+/**
+ * The runs of a record's index whose entries' keys a read asks a Dict's rows
+ * of (#1393): the server reads the keys from the index, so none travels — a
+ * Schematic's details, read for the runs its area index's cells are.
+ */
+export interface DatasetRowsByRuns {
+  /** The record, its index and its runs. */
+  keysOf: DatasetRowsKeysOf;
+  /** The content hash the Dict is pinned to; a stale one is refused with 409 `dataset_hash_mismatch`. */
+  hash?: string;
+}
+
+/** The runs of one of a record's indexes, as {@link DatasetRowsByRuns} names them. */
+export interface DatasetRowsKeysOf {
+  /** The record's path, in the Dict's workspace. */
+  path: TreePath;
+  /** The index the runs are rows of: one whose entries each name one of the record's keys, of the Dict's key type. */
+  index: string;
+  /** The runs, `[row, count]`: ascending, disjoint, each inside the index — at most {@link DATASET_BATCH_MAX}. */
+  runs: readonly (readonly [number, number])[];
+  /**
+   * The record's content hash the runs are positions at. Required: a run means
+   * nothing at another state, so a stale one is refused with 409
+   * `runs_hash_mismatch`, naming the content the record holds now.
+   */
+  hash: string;
 }
 
 /** Server-side limits for the batch reads. */
@@ -142,7 +178,9 @@ export interface DatasetBatchLimits {
 /**
  * Read the rows a Dict holds under several keys in one request: each key's
  * row, or its absence, and its position in the Dict's canonical order, in the
- * order asked, as beast2 of `datasetRowsType(K, V)`.
+ * order asked, as beast2 of `datasetRowsType(K, V)`. The keys are the
+ * request's own (`keys`), or those the entries of some runs of one of a
+ * record's indexes name, in the runs' order (`keysOf`, #1393).
  *
  * @remarks
  * Each key is placed in the segment that can hold it by a bisect of the
@@ -152,17 +190,30 @@ export interface DatasetBatchLimits {
  * windows address: a key the Dict holds is at its row's, and one it does not
  * at the one it would take — what a search by the key answers.
  *
- * The answer is held to the page byte budget, by the Dict's average row size:
- * past it, the answer covers the keys it reached, in order, and says how many
- * (`X-Page-Count`); the client asks again for the rest. A batch of more than
- * {@link DATASET_BATCH_MAX} keys is refused, and so is a key that is not a
- * literal of the Dict's key type, naming it by its place.
+ * Read by runs, the keys never travel: the runs' entries are read from the
+ * index's segments, each touched once, as a read of the runs reads them, and
+ * each entry's key is looked up as a key asked would be — so a reader that
+ * holds a window of an index reads another record's rows for it by the runs it
+ * already has. The runs are pinned to the record's content apart from the
+ * Dict's: a stale one is refused 409 `runs_hash_mismatch`, naming the content
+ * the record holds now (`X-Content-SHA256`), so a client knows which of the
+ * two moved. The index's entries must name the record's keys — a summary's
+ * name none — and the record's key type must be the Dict's, East deciding.
+ *
+ * The answer is held to the page byte budget, by the Dict's average row size —
+ * and, read by runs, to a page's {@link PAGE_MAX_LIMIT} entries: past it, the
+ * answer covers the keys it reached, in order, and says how many
+ * (`X-Page-Count`, and of how many the runs hold, `X-Run-Entries`); the client
+ * asks again for the rest. A batch of more than {@link DATASET_BATCH_MAX} keys
+ * or runs is refused, and so is a key that is not a literal of the Dict's key
+ * type, naming it by its place, and runs that are not ascending, disjoint and
+ * inside the index.
  *
  * @param storage - Storage backend
  * @param repoPath - Repository identifier
  * @param workspace - Workspace name
  * @param treePath - The dataset's path: a Dict, or a record
- * @param request - The keys and the pin
+ * @param request - The keys, or the runs that name them, and the pin
  * @param limits - The byte budget
  * @returns The rows, or a JSON refusal
  */
@@ -175,6 +226,7 @@ export async function getDatasetRows(
   limits: DatasetBatchLimits = {},
 ): Promise<Response> {
   try {
+    if ('keysOf' in request) return await rowsOfRuns(storage, repoPath, workspace, treePath, request, limits);
     if (request.keys.length > DATASET_BATCH_MAX) {
       return pageError('bad_request', `A read of rows by key takes at most ${DATASET_BATCH_MAX} keys; this one has ${request.keys.length}`);
     }
@@ -223,6 +275,93 @@ export async function getDatasetRows(
   } catch (err) {
     return sendJsonError(err);
   }
+}
+
+/** A Dict's rows under the keys the entries of some runs of a record's index name: {@link getDatasetRows}'s runs form. */
+async function rowsOfRuns(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string,
+  treePath: TreePath,
+  request: DatasetRowsByRuns,
+  limits: DatasetBatchLimits,
+): Promise<Response> {
+  const { keysOf } = request;
+  if (keysOf.runs.length > DATASET_BATCH_MAX) {
+    return pageError('bad_request', `A read of rows by runs takes at most ${DATASET_BATCH_MAX} runs; this one has ${keysOf.runs.length}`);
+  }
+  if (keysOf.path.length === 0) {
+    return pageError('bad_request', 'A read of rows by runs names the record its runs are of: { "keysOf": { "path": ".<record>", … } }');
+  }
+  const dataset = await readDataset(storage, repoPath, workspace, treePath, request.hash, 'a read of rows by key');
+  if (dataset instanceof Response) return dataset;
+  if (dataset.typeValue.type !== 'Dict') {
+    return pageError('dataset_not_searchable', `A read of rows by key addresses a Dict; this dataset holds ${dataset.typeValue.type}`);
+  }
+  const { key: keyType, value: rowType } = dataset.typeValue.value as { key: EastTypeValue; value: EastTypeValue };
+
+  // The record the runs are positions in, pinned apart from the Dict: refused in its own words, so a client knows which moved.
+  const refPath = keysOf.path.map((segment) => segment.value).join('/');
+  const status = await workspaceGetDatasetStatus(storage, repoPath, workspace, keysOf.path);
+  const held = status.refType === 'unassigned' || status.refType === 'null' ? null : status.hash ?? null;
+  if (held !== keysOf.hash) {
+    return pageError('runs_hash_mismatch',
+      `Dataset '${refPath}' content is ${held ?? 'no value'}, not ${keysOf.hash}: the runs are positions at content it no longer holds — refetch its status and read its runs again`,
+      409, held === null ? undefined : { 'X-Content-SHA256': held });
+  }
+  const resolved = await indexOf(storage, repoPath, workspace, keysOf.path, keysOf.hash, keysOf.index);
+  if (resolved instanceof Response) return resolved;
+  if (resolved.summary) {
+    return pageError('bad_request',
+      `index '${keysOf.index}' of '${refPath}' is a summary: each entry stands for every row of its key and names none to read the rows of`);
+  }
+  const recordKeyType = (resolved.primaryType.value as { key: EastTypeValue }).key;
+  if (!isTypeValueEqual(recordKeyType, keyType)) {
+    return pageError('bad_request',
+      `index '${keysOf.index}' of '${refPath}' names keys of ${printType(fromEastTypeValue(recordKeyType))}, and this Dict's keys are ${printType(fromEastTypeValue(keyType))}`);
+  }
+  const index = await cachedSegments(storage, repoPath, resolved.manifest, (await storage.objects.stat(repoPath, resolved.manifest)).size);
+  const refused = runsRefusal(keysOf.runs, index.elementCount);
+  if (refused !== undefined) return pageError('bad_request', refused);
+  const entries = keysOf.runs.reduce((sum, [, count]) => sum + count, 0);
+
+  const segments = await openForRead(storage, repoPath, dataset.hash, dataset.size);
+  if (segments instanceof Response) return segments;
+
+  // A page's bounds: its entries, and the rows' share of the budget by the Dict's average row size.
+  const byteBudget = limits.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
+  const avgBytes = segments.elementCount > 0 ? segments.bytes / segments.elementCount : 1;
+  const limit = Math.max(1, Math.min(PAGE_MAX_LIMIT, Math.floor(byteBudget / Math.max(1, avgBytes))));
+  const spans: RowSpan[] = [];
+  let room = limit;
+  for (const [row, count] of keysOf.runs) {
+    if (room === 0) break;
+    const taken = Math.min(count, room);
+    spans.push({ from: row, to: row + taken });
+    room -= taken;
+  }
+
+  let answers: { key: unknown; row: option<unknown>; position: bigint }[];
+  try {
+    const pairs = await elementsOf(storage, repoPath, index, spans) as [{ ik: unknown; k: unknown }, unknown][];
+    answers = await rowsAt(storage, repoPath, segments, pairs.map(([entry]) => entry.k), keyType);
+  } catch (err) {
+    return corruptRefusal(err, 'dataset_not_canonical');
+  }
+
+  const body = encodeBeast2For(datasetRowsType(fromEastTypeValue(keyType), fromEastTypeValue(rowType)))(answers);
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': BEAST2_CONTENT_TYPE,
+      'Cache-Control': 'no-store',
+      'X-Content-SHA256': dataset.hash,
+      'X-Total-Elements': String(segments.elementCount),
+      'X-Page-Count': String(answers.length),
+      'X-Run-Entries': String(entries),
+      'Content-Length': String(body.byteLength),
+    },
+  });
 }
 
 /** Each key's row, or its absence, and its position, from the segments that

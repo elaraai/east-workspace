@@ -20,9 +20,12 @@ import {
     DateTimeType, East, Expr, OptionType, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { AREA_UNPLACED, RecordSliceWhereType, bindRecord } from "@elaraai/east-ui/internal";
+import { SeekQueryType } from "@elaraai/east-ui";
+import { AREA_UNPLACED, RecordSliceWhereType, areaQueries, bindRecord, type RecordSliceJoined } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
-import { recordSlicePlace, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import {
+    recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSlicePlace, recordSliceWithin,
+} from "@elaraai/east-ui-components/internal";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { Data, deriveManifest } from "@elaraai/e3-ui/internal";
@@ -370,6 +373,78 @@ test("a window over an area index reads the racks whose box meets it from the in
     const reads = [...pagesOf(racks), ...h.requests("runs", `records.${racks.name}`)].filter(request => request.query.has("index"));
     assert.ok(reads.length > 0 && reads.every(request => !request.query.has("join")), "an area index's reads join nothing");
     assert.equal(h.requests("read", `records.${racks.name}`).length, 0, "the record is never read whole");
+    runtime.clear();
+});
+
+test("a window's details are read by the runs its area index's cells are — the keys read by e3, none sent — pinned to both records, and read again as either moves (#1393)", async () => {
+    const racks = ex.indexedRacks;
+    const loads = ex.indexedRackLoads;
+    const source = Data.bindPaged(racks, { indexes: [ex.racksByArea, ex.racksByHallArea, ex.racksByHall] });
+    const sliced = bindRecord("test.racks.details", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } });
+    const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
+    const loadsBinding = Data.bindPaged(loads);
+    const loadsProgram = East.function([], Expr.type(loadsBinding), $ => $.return(loadsBinding));
+    const { runtime, clock } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const implementations = slicePlatform(runtime);
+    const handle = East.compile(program, implementations)();
+    // The loads' paged read: the details a Schematic's kind names by its `id`.
+    const dict = East.compile(loadsProgram, [runtime.buildPinnedPlatform(null), ...runtime.buildPrimitives()])().id;
+    const loadEqual = equalFor(OptionType(ex.IndexedRackLoad));
+    const printSeek = printFor(SeekQueryType);
+    /** A window's cells, a search each, as the Schematic's window reads them. */
+    const cellsOf = (box: { minX: number; minY: number; maxX: number; maxY: number }) =>
+        areaQueries([], box, 2 ** -7).map((query) => ({ id: printSeek(query), queries: [query] }));
+    /** What a read of the loads holds, by its rack's key: each a load as the loads' record types it. */
+    const byKey = (read: ReadonlyMap<string, readonly RecordSliceJoined[]>) =>
+        new Map([...read.values()].flat().map((joined) => [joined.key as string, joined.row as ValueTypeOf<OptionType<typeof ex.IndexedRackLoad>>] as const));
+    const joins = () => h.requests("rows", `records.${loads.name}`);
+    const row = cellsOf({ minX: 0.5, minY: 0.4, maxX: 3.5, maxY: 1.6 });
+    const R1 = await h.ready(() => handle.data.revision());
+    const L1 = await hashOf(loads.path);
+
+    const read = await h.ready(() => recordSliceCellJoins(handle, "racks_by_area", row, dict));
+    const entries = await h.ready(() => recordSliceCellEntries(handle, "racks_by_area", row));
+    for (const cell of row) {
+        assert.deepEqual(read.get(cell.id)!.map((joined) => joined.key), entries.get(cell.id)!.map((entry) => entry.key),
+            `${cell.id}: each entry's key, in the cell's order`);
+    }
+    const first = byKey(read);
+    assert.ok(loadEqual(first.get("r1")!, some({ kw: 4.2, alarm: "ok" })) && loadEqual(first.get("r2")!, some({ kw: 9.9, alarm: "warm" })));
+    assert.ok(loadEqual(first.get("r3")!, none), "a rack with no load reads none");
+    assert.ok(!first.has("far") && !first.has("unplaced") && !first.has("gone"), "only the window's racks");
+    // One request of the loads, naming the area index's runs: no key travels, pinned to both records' content.
+    assert.equal(joins().length, 1, "every cell in one request");
+    const body = JSON.parse(new TextDecoder().decode(joins()[0]!.body)) as { keys?: unknown; keysOf: { path: string; index: string; hash: string } };
+    assert.equal(body.keys, undefined, "no key travels");
+    assert.deepEqual([body.keysOf.path, body.keysOf.index, body.keysOf.hash, joins()[0]!.query.get("hash")],
+        [".records.indexed_racks", "racks_by_area", R1, L1]);
+    assert.equal(h.requests("read", `records.${loads.name}`).length, 0, "the loads are never read whole");
+    // Read again, the runtime holds the answer: nothing is asked.
+    assert.ok(recordSliceCellJoins(handle, "racks_by_area", row, dict).type === "some");
+    assert.equal(joins().length, 1);
+
+    // Another session loads r3: the next poll moves the loads, and the read asks again, pinned to their new content.
+    await h.patch(loads, new Map([...await h.read(loads), ["r3", { kw: 3.0, alarm: "ok" }]]));
+    const L2 = await hashOf(loads.path);
+    clock.tickAll();
+    await h.settle();
+    const again = byKey(await h.ready(() => recordSliceCellJoins(handle, "racks_by_area", row, dict)));
+    assert.ok(loadEqual(again.get("r3")!, some({ kw: 3.0, alarm: "ok" })), "r3's new load");
+    assert.deepEqual(joins().slice(1).map((request) => request.query.get("hash")), [L2]);
+
+    // The racks move under a read whose runs were found before: a commit no poll has reported. The read pinned to their old
+    // content is refused, naming their new content; the runtime moves them there at once, and the read asks again there.
+    // The far rack's window: a cell no read has joined yet (the row's racks and the one across the aisle share theirs).
+    const distant = cellsOf({ minX: 39.5, minY: 39.5, maxX: 40.5, maxY: 40.5 });
+    await h.ready(() => recordSliceCellRuns(handle, "racks_by_area", distant));
+    const refused = h.e3.answers((request) => request.kind === "rows" && request.dataset === `records.${loads.name}`);
+    await h.patch(racks, new Map([...await h.read(racks), ["r4", { hall: "B", x: some(2.1), y: some(3.5), w: 0.6, h: 1.2 }]]));
+    const R2 = await hashOf(racks.path);
+    const moved = byKey(await h.ready(() => recordSliceCellJoins(handle, "racks_by_area", distant, dict)));
+    assert.ok(loadEqual(moved.get("far")!, some({ kw: 1.0, alarm: "ok" })), "the far rack's load, read by its runs at the racks' new content");
+    assert.deepEqual(refused.map((answer) => answer.status), [409, 200], "refused at the old content, answered at the new");
+    assert.ok(revisionEqual(handle.data.revision(), some(R2)), "the refusal moved the racks, with no poll");
     runtime.clear();
 });
 

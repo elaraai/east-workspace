@@ -606,9 +606,13 @@ What each read brings, in the reader components:
   says so. A tap on the raster zooms into it; Find, the Index tab and the
   minimap work as ever; the tools that need items wait for them.
 - **Kept until replaced.** The previous window stays drawn until the next lands.
-- **Details.** The details of the items a window holds, at card and label zoom,
-  come in one request per details record (§12). They're read again when that
-  record's revision moves.
+- **Details.** The details of the items a window holds come at every zoom, so
+  a dot draws its item's status (D45): read by the runs the window's cells
+  are of its area index — at density, the coarser levels' runs — in one
+  request of the details record, which e3 answers by reading each entry's key
+  from the index, none sent (§12). Each cell's are kept at both records'
+  revisions while the window wants it, so a pan reads only the cells it adds;
+  they're read again when either record's revision moves.
 - **Links and nets** are read complete (D17). A drawn link's end outside the
   window is read by its key, all of a window's in one request (§12).
 - **Readers.** The reads run in components of their own (`SchematicDataReader`,
@@ -854,6 +858,16 @@ forms beside it, and how all three read (D24, D30):
   `{ keys: [<.east>…] }`, at most 10,000 keys within the page budget. It answers
   each key's row, or its absence, and the row's position in the record's
   order, in order.
+- **The rows form by runs** (D45). The same route with `{ keysOf: { path:
+  ".<record>", index, hash, runs: [[row, count], …] } }`: the rows of the keys
+  the entries of those runs of another record's index name, e3 reading each
+  key from the index, none sent, in the runs' order within a page's bounds,
+  saying how many the runs hold (`X-Run-Entries`). The runs are pinned to their
+  record's content apart from the Dict's: a stale one is refused 409
+  `runs_hash_mismatch`, naming the record's content now, which the client
+  raises as `RunsHashMismatchError`. The index's entries must name the
+  record's keys — a summary's name none — of the Dict's key type, East
+  deciding. What a window's details are read by.
 - **The runs form.** `POST …/datasets/<record>?runs=true&index=<name>&hash=<state>`
   with `{ runs: [[row, count], …] }`: the entries of those runs of one index,
   in order, as one index window within the page budget; past it, the entries
@@ -871,19 +885,23 @@ forms beside it, and how all three read (D24, D30):
   load.
 - **Every backend** implements them through `StorageBackend`'s seams, and
   e3-api-tests holds each against its by-key and by-run reads.
-- **e3-ui-components.** `PagedRuntime.rowsAll(source, keys)` and
-  `runsAll(source, index, runs)` read a batch as one request and one channel,
-  which notifies once. Each row is held at its position, so the source's
-  by-key read — a search by the key, then a one-row page — answers from it,
-  and a key a held window holds is answered from that window.
+- **e3-ui-components.** `PagedRuntime.rowsAll(source, keys)`,
+  `joinAll(dict, of, runs)` and `runsAll(source, index, runs)` read a batch as
+  one request and one channel, which notifies once — a join's channel both
+  records', so a move of either drops it. Each row is held at its position, so
+  the source's by-key read — a search by the key, then a one-row page —
+  answers from it, and a key a held window holds is answered from that window.
+  A record slice reads a join through its binding's batches
+  (`recordSliceCellJoins`, `recordSliceRunJoins`), a cell's runs once, and a
+  run a read in flight asks waiting on it.
 - **No East contract changes.** `Data.bindPaged`'s handle keeps its shape: it
   is released, and a platform call's return type is checked against its
   implementation's exactly. The batches are the runtime's, as #1351's `seekAll`
   is.
-- **Its users.** The Schematic's reader asks `rowsAll` for a window's cards'
-  details and its far link ends, and the record slice asks `runsAll` for a
-  window's runs. Save's confirmation, which reads eight keys a pass, could move
-  onto the rows form later; that isn't in scope here.
+- **Its users.** The Schematic's reader asks the rows form by runs for a
+  window's details and `rowsAll` for its far link ends, and the record slice
+  asks `runsAll` for a window's runs. Save's confirmation, which reads eight
+  keys a pass, could move onto the rows form later; that isn't in scope here.
 
 ## 13. Examples
 
@@ -895,7 +913,7 @@ records in the file, and each Schematic named by its `id`:
 | `schematicFloor` | the smallest: one hall's racks, read only (`Data.bind`), no panes |
 | `schematicDataCentre` | the builder: racks, cooling units and power distribution units (three item kinds); halls and cages; hot and cold aisles; fibre runs; power feeds as nets; the racks' loads as details (cards and inspector); rack and fibre templates; Templates, Backlog, Index and Layers, its layers a systems record; the rail; `narrowed="dim"`; the inspector, and a kind's own Details; `onSelect`, the whole selection kept in a State of the host's; and `canConnect`, a run between two frames refused in its words. Its records hold their own fields, mapped by accessors: a cooling unit's radius, an area's kind, a fibre run's cable |
 | `schematicShapes` | read only: polygon, circle and polyline footprints and zones, built by accessors from the rows' own fields; tones and theme colours; layers from a systems record |
-| `schematicRecordIndexes` | 20,000 racks — each hall's first 20 rows, so neither the showcase nor a test deploys the 50,000 a full floor holds (ruled 23 Oct 2026); the budget run fills the floor through the patch doors — over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom, the footer saying how many racks it shades; the rail; and the cards' loads, bound with `Data.bindPaged` and read by key, one request a window. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
+| `schematicRecordIndexes` | 20,000 racks — each hall's first 20 rows, so neither the showcase nor a test deploys the 50,000 a full floor holds (ruled 23 Oct 2026); the budget run fills the floor through the patch doors — over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom, the footer saying how many racks it shades; the rail; and the racks' loads, bound with `Data.bindPaged` and read by the runs the window's cells are of the area index (D45), a cell's once, so a dot draws its rack's alarm. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
 | `schematicRecordIndexesMobile` | the same in a phone-width container |
 | `schematicHandover` | no panes: the toolbar, the canvas and the footer |
 
@@ -923,7 +941,7 @@ records in the file, and each Schematic named by its `id`:
 | SC18 | Narrowed-out rows are hidden, or with `narrowed="dim"` drawn as context with the options of §10.3, from the source's shown keys, or by `within` for a window under a narrowing its area index doesn't lead. | renderer | DOM; responsive |
 | SC19 | A kind is read whole without a source, its narrowing complete through one, and its viewport's window through an area index; the window is never a rail choice or a count. | `schematic/window.ts`, renderer reader | spec: searches and pages counted, no whole read; e3-web: bounded reads |
 | SC20 | A window is one `findKeys` request and one runs read, its rows read from the index alone; a pan inside the margin reads nothing, and one into new cells searches only those; the previous window stays until the next lands. | renderer reader | DOM: request log |
-| SC21 | A window's cards' details are one rows request per details record, read again only when its revision moves. | renderer reader | DOM: request log |
+| SC21 | A window's details, at every zoom, are one request per details record by the runs of the cells not yet read — no key sent — each cell's kept at both records' revisions, read again only when either moves. | renderer reader, e3-api-server | e3 spec: request log; e3-api-tests |
 | SC22 | A drawn link's far end outside the window is read by key, all of a window's in one request. | renderer reader | DOM: request log |
 | SC23 | Drafts outside the window stay in their sessions and Save; a draft moved into the window shows. | renderer | DOM |
 | SC24 | The toolbar holds §6.1's items in order; the rail folds first and the history last; the phone row holds the rail's icon, the View bundle and the history. | renderer `toolbar.tsx` | responsive at 1440/1024/768/390/360 and a 294px parent |

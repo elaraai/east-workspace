@@ -14,7 +14,7 @@ import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
     RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType, tilingOf,
     recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry, type RecordSlicePlacement,
-    type RecordSliceCell, type RecordSliceCellRuns,
+    type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceJoined,
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
@@ -87,9 +87,10 @@ function activeScan(key: string): PagedScan<unknown, unknown[]> {
  * The reads a host's runtime batches for a record Slice's binding (#1351):
  * several searches of one source in one request, the entries of several runs
  * in one, where a narrowing's runs sit in the record and which entries they
- * hold (#1349), and the rows of several of the record's own keys (#1039).
+ * hold (#1349), the rows of several of the record's own keys (#1039), and
+ * another Dict's rows under the keys several runs' entries name (#1393).
  */
-export type RecordSliceBatches = Required<Pick<RecordSliceReader<RecordSliceEntry>, "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll">>;
+export type RecordSliceBatches = Required<Pick<RecordSliceReader<RecordSliceEntry>, "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll" | "joinAll">>;
 
 /** How the host's runtime batches a binding's reads, when it does. */
 let batchesOf: ((binding: RecordSliceBinding) => RecordSliceBatches | undefined) | undefined;
@@ -113,7 +114,7 @@ function batched(source: RecordSliceBinding): RecordSliceBinding {
     const batches = batchesOf?.(source);
     return batches === undefined ? source : {
         ...source, seekAll: batches.seekAll, runsAll: batches.runsAll, placeAll: batches.placeAll, withinAll: batches.withinAll,
-        rowsAll: batches.rowsAll,
+        rowsAll: batches.rowsAll, joinAll: batches.joinAll,
     };
 }
 
@@ -472,6 +473,27 @@ export function recordSliceCellEntries(slice: Pick<ValueTypeOf<RecordSliceBindTy
 }
 
 /**
+ * Read the rows another Dict holds under the keys some cells' entries of a
+ * series or an area index a record Slice's binding lists name (#1393): every
+ * cell's runs in one request, each run once, the keys read by the server
+ * where the index keeps them — none sent — handed back cell by cell, each
+ * entry's key and the Dict's row under it: a Schematic's details, for the
+ * cells its window reads. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The series or area index
+ * @param cells - The cells, as {@link recordSliceCellRuns} takes them
+ * @param dict - The Dict read: the `id` of its paged read, `Data.bindPaged` over it
+ * @returns Each cell's rows of the Dict, by its name, in its searches' order; none while pending
+ * @throws {Error} As {@link recordSliceCellEntries} does, and when the binding's runtime reads no Dict by runs
+ */
+export function recordSliceCellJoins(
+    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[], dict: string,
+): option<Map<string, RecordSliceJoined[]>> {
+    return cellsOf(slice, index).windows.cellJoins(index, cells, dict);
+}
+
+/**
  * A record Slice's controller, refusing an index its binding does not list (#1393).
  *
  * @param slice - The record Slice
@@ -522,6 +544,28 @@ export function recordSliceBounds(slice: Pick<ValueTypeOf<RecordSliceBindType>, 
  */
 export function recordSliceRunEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[]): option<RecordSliceEntry[]> {
     return listing(slice, index).windows.runEntries(index, runs);
+}
+
+/**
+ * Read the rows another Dict holds under the keys the entries of some runs of
+ * an index a record Slice's binding lists name (#1393): the runs as
+ * {@link recordSliceRunEntries} takes them, in one request however many there
+ * are, the keys read by the server where the index keeps them — none sent —
+ * each entry's key and the Dict's row under it, run after run: the details of
+ * the coarser levels' rows of the Schematic's density raster. A tracked read,
+ * as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The index read
+ * @param runs - The runs
+ * @param dict - The Dict read: the `id` of its paged read, `Data.bindPaged` over it
+ * @returns Each entry's key and its row there, run after run; none while the read is pending
+ * @throws {Error} As {@link recordSliceRunEntries} does, and when the binding's runtime reads no Dict by runs
+ */
+export function recordSliceRunJoins(
+    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[], dict: string,
+): option<RecordSliceJoined[]> {
+    return listing(slice, index).windows.runJoins(index, runs, dict);
 }
 
 /** Persist through the same store-key mechanism as local Slice, validating

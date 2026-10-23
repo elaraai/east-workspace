@@ -84,7 +84,7 @@ export class IndexedPagedRuntime {
     // Each index's printer of an entry key, `(ik=…, k=…)`, from its key's text and the row's key (#1349).
     private entryPrinters = new WeakMap<Schema, Map<string, (ik: string, key: unknown) => string>>();
 
-    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll">) {}
+    constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll" | "joinAll">) {}
 
     clear(): void { this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); this.entryPrinters = new WeakMap(); }
 
@@ -214,9 +214,11 @@ export class IndexedPagedRuntime {
     /**
      * The reads the paged runtime batches for a binding this runtime built
      * (#1351): several searches of one of its sources in one request, the
-     * entries of several runs of one in one, and the rows of several of the
-     * record's own keys in one (#1039), each through the source's own handle,
-     * so its channels are the ones the binding's single reads use.
+     * entries of several runs of one in one, the rows of several of the
+     * record's own keys in one (#1039), and another Dict's rows under the keys
+     * some runs of one of its indexes name in one (#1393), each through the
+     * source's own handle, so its channels are the ones the binding's single
+     * reads use.
      *
      * @param binding - What the binding reads
      * @returns Its batched reads
@@ -265,6 +267,16 @@ export class IndexedPagedRuntime {
                 if (!joined) throw new Error("A covering-only binding cannot read primary rows");
                 const read = this.paged.rowsAll(sourceOf("primary"), keys);
                 return read.type === "none" ? none : some(read.value.map(entry => entry.row));
+            },
+            // Another Dict's rows under the keys the entries of some runs of one of the record's indexes name, the server
+            // reading the keys from the index (#1393): a Schematic's details, for its area index's cells.
+            joinAll: (name, runs, dict) => {
+                if (name === "primary") throw new Error("A read of rows by runs reads the keys one of the record's indexes names, never runs of its own rows");
+                if (this.isSummary(schema, name)) throw new Error(`A read of rows by runs reads the keys its entries name, and '${name}' is a summary index, whose entries name none`);
+                const rows = this.paged.sourceOf(dict);
+                if (rows === undefined) throw new Error(`Data.bindPaged: the Dict read '${dict}' is bound on no page this runtime serves`);
+                const read = this.paged.joinAll(rows, sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const));
+                return read.type === "none" ? none : some([...read.value]);
             },
         };
     }
