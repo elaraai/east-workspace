@@ -28,6 +28,11 @@
  *
  * The e3 lives as long as the page, and so do the edits staged against it.
  *
+ * A responsive spec that asks for it before the page loads gets a fault hook
+ * over the e3's `fetch` (`showcase-e3-faults.ts`, #1398), which holds, fails
+ * and releases the page's requests by what they ask and the dataset they
+ * name; no page a person opens has it.
+ *
  * @packageDocumentation
  */
 
@@ -42,6 +47,7 @@ import {
     MemoryStagedAdapter, StagedStore, formatApiError, initializeStagedStore, type ReactiveDatasetCacheInterface,
 } from "@elaraai/e3-ui-components";
 import packageUrl from "virtual:e3-showcase-package";
+import { withFaults } from "./showcase-e3-faults";
 
 // The e3 keeps its repositories in memory, so the edits staged against it are
 // kept there too. Kept in IndexedDB, as they are by default, they would
@@ -237,8 +243,10 @@ async function runFailures(e3: WebE3, options: RequestOptions, run: DataflowResu
  *   closed
  */
 async function start(): Promise<WebE3> {
-    const e3 = await step("start its e3 worker", () =>
-        createWebE3(new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" })));
+    // Its fetch goes through the responsive suite's fault hook when a spec asked for it before the page loaded
+    // (`showcase-e3-faults.ts`); a page a person opens has none.
+    const e3 = withFaults(await step("start its e3 worker", () =>
+        createWebE3(new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" }))));
     try {
         const options: RequestOptions = { token: null, fetch: e3.fetch };
         const zip = await step("fetch its package", fetchPackage);

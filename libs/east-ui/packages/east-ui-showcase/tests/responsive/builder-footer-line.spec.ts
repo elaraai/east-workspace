@@ -23,13 +23,12 @@
  *
  * Nothing on a rail at rest is a control, so it is measured with a mouse
  * alone. The line's forms in flight — its words, its short form, its dot
- * alone, a failure's Retry — are measured by e3-ui-components' DOM tests on
- * e3-web, which hold and fail its reads: the showcase's e3 runs in the page,
- * behind no transport a spec could hold.
+ * alone, a failure's Retry — are `builder-footer-line-reads.spec.ts`'s, which
+ * holds and fails the builders' reads through the showcase's e3 fault hook.
  */
 
 import { expect, test, type Locator, type Page } from "playwright/test";
-import { settled } from "./settle";
+import { sizeBuilder, visitBuilder } from "./builder-page";
 
 /** Each builder by its example: the root the box its example gives it holds, and its footer's rail. */
 const BUILDERS = [
@@ -90,32 +89,6 @@ interface RailAt {
         readonly numeric: string;
         readonly color: string;
     } | null;
-}
-
-/**
- * Opens a builder's example and waits for the page at rest: the first by
- * loading the page in the theme, each after it by its hash, so the e3 the page
- * runs keeps running.
- */
-async function visit(page: Page, route: string, root: string, theme: "light" | "dark" | undefined): Promise<Locator> {
-    if (theme !== undefined) await page.goto(`/?theme=${theme}#${route}`);
-    else await page.evaluate((key) => { location.hash = key; }, route);
-    await page.evaluate(() => document.fonts.ready.then(() => undefined));
-    const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
-    await entry.scrollIntoViewIfNeeded();
-    await expect(entry.locator(root).first()).toBeVisible({ timeout: 30_000 });
-    await settled(page);
-    return entry;
-}
-
-/** Sets the builder's frame to a width, through the box its example gives it, and waits for the page at rest. */
-async function sizeFrame(page: Page, entry: Locator, root: string, width: number): Promise<void> {
-    await entry.locator(root).first().locator("xpath=..").evaluate((box, w) => {
-        const frame = box.querySelector("[data-builder-frame]")!;
-        const around = box.getBoundingClientRect().width - frame.getBoundingClientRect().width;
-        (box as HTMLElement).style.width = `${w + around}px`;
-    }, width);
-    await settled(page);
 }
 
 /** The footer's voice: the mono family, `label.md` and `fg.muted`, as the page resolves them in its theme. */
@@ -196,13 +169,13 @@ for (const theme of ["light", "dark"] as const) {
         let voice: Voice | undefined;
         for (const [i, { builder, route, root, rail: railSelector }] of BUILDERS.entries()) {
             await test.step(builder, async () => {
-                const entry = await visit(page, route, root, i === 0 ? theme : undefined);
+                const entry = await visitBuilder(page, route, root, i === 0 ? theme : undefined);
                 voice ??= await voiceOf(page);
                 const rail = entry.locator(railSelector).first();
                 let widest: RailAt | undefined;
                 let wider: RailAt | undefined;
                 for (const width of WIDTHS) {
-                    await sizeFrame(page, entry, root, width);
+                    await sizeBuilder(page, entry, root, width);
                     const at = await railAt(rail);
                     const where = `${builder} at ${width}px`;
                     widest ??= at;

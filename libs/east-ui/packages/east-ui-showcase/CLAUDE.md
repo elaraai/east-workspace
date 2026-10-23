@@ -38,7 +38,17 @@ layout's: a cold e3 deploys a fresh workspace in the page, some 20 s on a
 hosted runner. A read in flight keeps a builder's last window painted
 while its frame's main (`[data-frame-slot="main"]`) is `aria-busy` (#1398)
 — the Calendar's on a query change; `settled` waits for that state to
-clear, so assert the new rows after it. Remount checks must explicitly
+clear, so assert the new rows after it. A spec that needs a read held or
+failed installs the e3 fault hook before the page loads
+(`tests/responsive/e3-faults.ts`' `installE3Faults`, an init script setting
+the flag `showcase-e3-faults.ts` looks for): the page's e3 `fetch` then goes
+through it, and the spec holds, fails and releases the page's requests by
+their kind and dataset (`holdE3`, `failE3`, `releaseE3`, `e3Requests`). A
+page a person opens never has it, and no published package does. While a
+spec holds a read on purpose it waits with `settled(page, { holding: true })`,
+which does not wait on the busy main the hold keeps;
+`builder-footer-line-reads.spec.ts` measures the footer's loading line in
+flight and failed through it (#1398). Remount checks must explicitly
 unmount and revisit a representative example per category, rather than
 sweep a catalog whose scroll height grows as previews load. Relative date
 preset tests use a fixed clock. Do not add retries, fixed sleeps or longer timeouts to
