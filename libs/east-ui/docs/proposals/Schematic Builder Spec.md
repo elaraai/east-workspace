@@ -179,6 +179,7 @@ type an application changes. east-ui's `Schematic` arm goes from
 | D48 | **Fit frames the drawing.** Fit fits the drawing's extent inside the canvas less a 24px margin each side — no more than an eighth of the canvas — centred on both axes; the camera stands there as the canvas takes its size and as the size moves while it stands at Fit, and a zoom out to Fit recentres. Zoom out takes no press at Fit, nor Zoom in at the zoom's limit. | my call (#1393), on the hand test of 23 Oct 2026 |
 | D49 | **The density switch counts the view.** The rows in view are counted from the counts a window's searches answer, each cell's rows held evenly over its part of the drawing's extent, the view's share of them; past 5,000, by the density's own count of the view, finer, which the footer says, so the footer never says a count the rows would draw at. A window whose searches hold more than 20,000 rows — four views' worth, where a window reads a median 2.48 times its view's rows (§11.3) — draws its density whatever its view holds. A window drawn as its density holds only at the zoom it was made for, while it counts more than 5,000 rows in view, so a view draws one raster by any route to it: Fit's button, or the wheel out to Fit (§10.4). | my call (#1393), on the hand test of 23 Oct 2026 |
 | D50 | **A rail's editor keeps to its frame.** A field's editor — a chip's, or the Filters' — opens inside the frame's sides while it fits between them, sliding along its trigger rather than hanging past the frame's side; in a frame narrower than it, a phone's, inside the page. Down the page it keeps to the page, flipping above its trigger where there is no room below. In every builder's rail (`SliceEditPopover`, over `frameBounds`). | my call (#1393), on the hand test of 23 Oct 2026 |
+| D51 | **Beside a kind read by area, the Backlog is one paged list.** The rows in hand first — those of the kinds read whole or complete, and the drafted rows with no position — then each kind read by area's, a page of 32 at a time through the area index its window reads through, by its unplaced clause (§11.4): the narrowing's choices that index leads read with it, so the tab counts `N of M` while they narrow it. A choice no area index leads is asked of each page's rows in one `within` (D28), and a row it leaves out draws as context, faded and never dragged, as does a stored row a draft has placed or deleted. A drop or a card's ⏎ places a row at once, the row its page read the gesture's original, and the row draws where it lands while its draft waits, though its window doesn't hold it. The list has no search box: no index answers a search beside the unplaced clause. | my call (#1393), building §8 |
 
 ## 4. The kinds
 
@@ -478,10 +479,12 @@ window stays drawn until the next lands (§10.4), main `aria-busy` meanwhile
   templates is refused, naming the change (D33).
 - `Schematic.library.backlog()`: every item kind's rows with no position,
   each kind's under its name, each a drag source, in the Backlog tab, as the
-  Calendar's is. Read by area, a kind's are paged through the area index's
-  unplaced clause (§11.4) with `PagedLibrary`, counted `N of M`; read whole or
-  complete, they are listed from the rows in hand. A Schematic none of whose
-  item kinds has `x` and `y` Options is refused, naming the change (D33).
+  Calendar's is. Read whole or complete, they are listed from the rows in
+  hand. Beside a kind read by area the tab is one paged list (D51): the rows
+  in hand, then each such kind's, paged through its area index's unplaced
+  clause (§11.4) with `PagedLibrary`, counted `N of M`, a row a choice no area
+  index leads leaves out drawn as context. A Schematic none of whose item kinds
+  has `x` and `y` Options is refused, naming the change (D33).
 - `Schematic.library.index()`: the zones, nested by containment. The zone the
   viewport is in is marked, a click flies to a zone and selects it, and an
   opened zone lists its items, read through each item kind's source by the

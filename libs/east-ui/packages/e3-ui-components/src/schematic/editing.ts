@@ -19,8 +19,9 @@
  *   it was read at, serves a gesture's original and a Save's confirmation, and
  *   a row it does not hold is read by its key. A kind read by area (#1393) is
  *   the same, its window's rows serving while they are at the record's
- *   revision. Drafts of rows the narrowing hides, or the window does not hold,
- *   stay in their sessions, and Save sends them (SC23).
+ *   revision, and then the rows the paged Backlog's pages read at it — a drop
+ *   placing one records at once. Drafts of rows the narrowing hides, or the
+ *   window does not hold, stay in their sessions, and Save sends them (SC23).
  * - **Its writes.** A gesture's edits (`edits.ts`) go through the kinds' own
  *   functions: an existing row is rewritten from the row as its session finds
  *   it — drafted, else as the record holds it — through its kind's `write`, so
@@ -124,10 +125,13 @@ function kindsOf(value: Pick<SchematicValue, "items" | "zones" | "links" | "nets
  * @param held - Each kind's rows its read holds: the keys a new row's key is minted unique among
  * @param areas - The kinds read by area, by slot: never read whole, nor their narrowing complete
  * @param windows - The rows each kind read by area holds in its window, at the revision they were read at
+ * @param paged - A row of a kind read by area the paged Backlog's pages read, by the kind's slot and the row's key, and the
+ *   revision they read it at (#1393): asked as a gesture reads it, for a row the window does not hold
  * @returns The editing
  */
 export function useSchematicEditing(value: SchematicValue, storageKey: string, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[],
-    held: SchematicHeldRows, areas: ReadonlySet<string>, windows: SchematicWindowRows): SchematicEditing {
+    held: SchematicHeldRows, areas: ReadonlySet<string>, windows: SchematicWindowRows,
+    paged?: (slot: string, key: string) => { readonly revision: string; readonly row: Uint8Array } | undefined): SchematicEditing {
     const kinds = useMemo((): readonly AnyKind[] => kindsOf({ items: value.items, zones: value.zones, links: value.links, nets: value.nets }),
         [value.items, value.zones, value.links, value.nets]);
     // Each kind bound with its patch door, and each one's details so bound, in the Schematic's order of its sorts — none
@@ -146,9 +150,11 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
         }
         return out;
     }, [kinds, value.readOnly]);
-    // The windows of the kinds read by area as they stand when a gesture or a Save reads them.
+    // The windows of the kinds read by area as they stand when a gesture or a Save reads them, and the Backlog's pages.
     const windowsNow = useRef(windows);
     useLayoutEffect(() => { windowsNow.current = windows; }, [windows]);
+    const pagedNow = useRef(paged);
+    useLayoutEffect(() => { pagedNow.current = paged; }, [paged]);
     // A kind read through its source: the rows its source's read holds, kept at the revision they were read at — a
     // gesture's original, and what a Save confirms its entries by. A kind read by area: the rows its window holds,
     // while they are at the record's revision; any other row is read by its key (#1393).
@@ -159,10 +165,14 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
             const entries = kind.entries.value;
             if (areas.has(kind.key)) {
                 out[kind.key] = (key) => {
-                    const window = windowsNow.current.get(kind.key);
                     const at = entries.revision();
-                    if (window === undefined || at.type !== "some" || !stringEqual(window.revision, at.value)) return undefined;
-                    return heldInWindow(some(window.rows), key);
+                    if (at.type !== "some") return undefined;
+                    const window = windowsNow.current.get(kind.key);
+                    const inWindow = window === undefined || !stringEqual(window.revision, at.value) ? undefined : heldInWindow(some(window.rows), key);
+                    if (inWindow !== undefined) return inWindow;
+                    // A row the window doesn't hold, a page of the Backlog read at the revision: a drop placing it (#1393).
+                    const page = pagedNow.current?.(kind.key, key);
+                    return page === undefined || !stringEqual(page.revision, at.value) ? undefined : some(some(page.row));
                 };
                 continue;
             }

@@ -29,12 +29,12 @@
  */
 
 import {
-    BooleanType, DictType, East, Expr, IntegerType, OptionType, StringType, equalFor, isSubtype, isTypeEqual, none, some,
+    BooleanType, DictType, East, Expr, IntegerType, OptionType, SortedMap, StringType, compareFor, equalFor, isSubtype, isTypeEqual, none, some, variant,
     type ArrayType, type EastType, type ExprType, type FunctionType, type StructType, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType,
-    areaQueries, areaRaster, recordSliceReadPlatform,
+    AREA_FIELD, AREA_UNPLACED, MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
+    RecordSliceWhereType, areaQueries, areaRaster, recordSliceReadPlatform,
     type AreaCell, type AreaWindow, type RecordSliceChoiceType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
 import { optionOf } from "../schedule/window.js";
@@ -180,6 +180,7 @@ export const SCHEMATIC_WINDOW_ROWS = 5_000;
 export const SCHEMATIC_WINDOW_READ_ROWS = 20_000;
 
 const stringEqual = equalFor(StringType);
+const compareString = compareFor(StringType);
 const sideEqual = equalFor(OptionType(StringType));
 const booleanEqual = equalFor(BooleanType);
 
@@ -262,7 +263,28 @@ export interface SchematicWindowPlan {
  * @returns The index, its leading values and the fields left to `within`
  */
 export function schematicWindowPlan(areas: SchematicAreaIndexes, where: Where, box: AreaWindow): SchematicWindowPlan {
-    const cellOf = (index: Index) => (index.area.type === "some" ? index.area.value.cell : 1);
+    return areaPlan(areas, where, (index) => areaQueries([], box, cellOf(index)).length);
+}
+
+/** An area index's finest cell's side. */
+function cellOf(index: Index): number {
+    return index.area.type === "some" ? index.area.value.cell : 1;
+}
+
+/**
+ * Which area index a read by area reads through (§10.4, SC34): one whose `on`
+ * the narrowing's exact choices fill — each leading field a choice of values,
+ * one value for a Set field — while the read's searches across those choices
+ * stay within the record slice's bound on landed searches, the one leaving the
+ * fewest fields of the narrowing to `within` first; otherwise the one led by
+ * no field.
+ *
+ * @param areas - The kind's area indexes
+ * @param where - The narrowing the read takes
+ * @param searches - How many searches the read asks of each combination of an index's leading values
+ * @returns The index, its leading values and the fields left to `within`
+ */
+function areaPlan(areas: SchematicAreaIndexes, where: Where, searches: (index: Index) => number): SchematicWindowPlan {
     let best: SchematicWindowPlan | undefined;
     for (const index of areas.led) {
         const leading = index.fields.slice(0, -1);
@@ -277,11 +299,46 @@ export function schematicWindowPlan(areas: SchematicAreaIndexes, where: Where, b
             }
             prefixes = prefixes.flatMap((prefix) => values.map((value) => [...prefix, value]));
         }
-        if (!fills || prefixes.length * areaQueries([], box, cellOf(index)).length > MAX_LANDED_SEARCHES) continue;
+        if (!fills || prefixes.length * searches(index) > MAX_LANDED_SEARCHES) continue;
         const residual = [...where.keys()].filter((field) => !leading.some((led) => stringEqual(led, field)));
         if (best === undefined || residual.length < best.residual.length) best = { index, cell: cellOf(index), prefixes, residual };
     }
     return best ?? { index: areas.unled, cell: cellOf(areas.unled), prefixes: [[]], residual: [...where.keys()] };
+}
+
+/** How a kind read by area reads its rows with no position: the narrowing a read takes, and the fields it leaves to `within`. */
+export interface SchematicUnplacedPlan {
+    /** The index read. */
+    readonly index: Index;
+    /**
+     * The narrowing a read takes (`pageWhere`, `countWhere`): the narrowing's choices of the fields the index leads, and the
+     * unplaced clause under `__area`.
+     */
+    readonly where: ValueTypeOf<typeof RecordSliceWhereType>;
+    /** The narrowing's fields the index doesn't lead, which `within` asks of the rows read; none where it serves the narrowing whole. */
+    readonly residual: readonly string[];
+}
+
+/**
+ * How a kind read by area reads its rows with no position — its Backlog's
+ * (§8, §11.4, #1393): through the area index the window would read through
+ * ({@link schematicWindowPlan}'s rule, one search a combination of its leading
+ * values), the narrowing's choices of the fields it leads beside the unplaced
+ * clause; the narrowing's other fields left to `within`, asked of the rows
+ * read. The unplaced clause is offered only by an index whose `x` and `y` are
+ * Options, as a kind with a backlog boxes its rows.
+ *
+ * @param areas - The kind's area indexes ({@link schematicAreaIndexes})
+ * @param where - The narrowing: the rail's
+ * @returns The index, the narrowing a read takes and the fields left to `within`
+ */
+export function schematicUnplacedPlan(areas: SchematicAreaIndexes, where: Where): SchematicUnplacedPlan {
+    const plan = areaPlan(areas, where, () => 1);
+    const led = plan.index.fields.slice(0, -1);
+    const taken = new SortedMap<string, ValueTypeOf<typeof RecordSliceChoiceType>>([], compareString);
+    for (const [field, choice] of where) if (led.some((name) => stringEqual(name, field))) taken.set(field, choice);
+    taken.set(AREA_FIELD, variant("values", [AREA_UNPLACED]));
+    return { index: plan.index, where: taken, residual: plan.residual };
 }
 
 /** A window's density raster (§10.4, D25): one level's cells, counted, a combination of the index's leading values at a time. */

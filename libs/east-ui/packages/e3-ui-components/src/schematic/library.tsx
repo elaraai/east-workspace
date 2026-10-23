@@ -21,7 +21,11 @@
  *   label, its kind's name and its second line, and its status's dot, grouped
  *   by its kind. A kind read through its source lists the rows its narrowing
  *   holds; while the rail narrows one, an emptied tab says so with Clear
- *   filters.
+ *   filters. Beside a kind read by area (#1393, D51), it is one paged list
+ *   (`PagedLibrary` over `backlog-pages.ts`): the rows in hand, then each such
+ *   kind's, a page at a time through its area index's unplaced clause, a row
+ *   its narrowing leaves out, or a draft placed or deleted, drawn as context;
+ *   it counts `N of M` while an index the narrowing leads narrows it.
  * - **Index** (`Schematic.library.index()`) — the zones nested by containment
  *   and the items inside them (`index-tab.tsx`).
  * - **Layers** (`Schematic.library.layers()`) — each layer, with Isolate, Lock
@@ -55,18 +59,20 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, equalFor, none, some } from "@elaraai/east";
 import type { schematicKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraLibrary, getSomeorUndefined, useCoarsePointer,
-    type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
+    EastChakraLibrary, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useTrackedEvaluation,
+    type BuilderFrameDock, type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing, type LibraryValue,
 } from "@elaraai/east-ui-components";
+import { PagedLibrary, narrowedCount } from "@elaraai/east-ui-components/internal";
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import type { FollowedSources } from "../shared/schedule/follow-sources.js";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../shared/schedule/source-tab.js";
 import type { BacklogEntry } from "./backlog.js";
+import type { BacklogPageCount, BacklogPageRow, SchematicBacklogPages } from "./backlog-pages.js";
 import { entityId, type DrawnItem, type DrawnZone } from "./canvas/drawn.js";
 import type { SchematicLayerValue } from "./canvas/layers.js";
 import type { SchematicValue } from "./data.js";
@@ -147,6 +153,12 @@ export interface SchematicLibraryProps {
     readonly backlog: readonly BacklogEntry[];
     /** What the rail hides of the backlog. */
     readonly backlogNarrowing: SchematicBacklogNarrowing;
+    /**
+     * The Backlog beside item kinds read by area (#1393, D51): its one paged list — the rows in hand, then each such kind's
+     * rows with no position, read a page at a time — and what it counts, `undefined` while a count is read; `undefined`
+     * while the Backlog lists only rows in hand.
+     */
+    readonly backlogPages?: { readonly source: SchematicBacklogPages; readonly count: BacklogPageCount | undefined } | undefined;
     /** The layers, with their author defaults. */
     readonly layers: readonly SchematicLayerValue[];
     /** How many entities each layer holds in the drawing, by its key. */
@@ -214,8 +226,8 @@ function templatesTab(value: SchematicValue, followed: FollowedSources, words: S
  */
 export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameDock | undefined {
     const {
-        value, zones, items, backlog, backlogNarrowing, layers, layerCounts, layerView, onLayerView, inView, selected, onReveal, keys, words, followed,
-        picked, onPick, enter,
+        value, zones, items, backlog, backlogNarrowing, backlogPages, layers, layerCounts, layerView, onLayerView, inView, selected, onReveal, keys, words,
+        followed, picked, onPick, enter,
     } = props;
     const m = words.m;
     const styles = useSlotRecipe({ key: "schematic" })() as Styles;
@@ -270,25 +282,30 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
 
     // ── Backlog: every item kind's rows with no position, under its name ─
     const kindOf = useMemo(() => new Map(value.items.map((kind) => [kind.key, kind] as const)), [value.items]);
+    // A row's card: drawn as context — the narrowing leaves it out, or a draft placed or deleted it — faded, never dragged.
+    const backlogCard = useCallback(({ id, ref, roles }: BacklogEntry, context: boolean): LibraryItemValue => {
+        const kind = kindOf.get(ref.kind);
+        const name = kind?.name ?? ref.kind;
+        const icon = getSomeorUndefined(roles.icon) ?? (kind === undefined || kind.icon === "" ? undefined : kind.icon);
+        const line = m.backlogLine({ kind: name, sublabel: getSomeorUndefined(roles.sublabel) });
+        return scheduleLibraryCard({
+            key: id, label: roles.label, sublabel: some(line), icon: icon === undefined ? none : some(icon), status: roles.status, trailing: none,
+            // A drop places it where it lands (#1390, SC4).
+            draggable: !context, filtered: context, placed: isPicked("backlog", id),
+            search: some([roles.label, ref.key, line].join(" · ")),
+            groups: new Map([["group", name]]),
+        });
+    }, [kindOf, isPicked, m]);
     const backlogLibrary = useMemo((): LibraryValue => scheduleLibrary({
         id: schematicLibraryId(keys, "backlog"),
-        items: backlog.map(({ id, ref, roles }) => {
-            const kind = kindOf.get(ref.kind);
-            const name = kind?.name ?? ref.kind;
-            const icon = getSomeorUndefined(roles.icon) ?? (kind === undefined || kind.icon === "" ? undefined : kind.icon);
-            const line = m.backlogLine({ kind: name, sublabel: getSomeorUndefined(roles.sublabel) });
-            return scheduleLibraryCard({
-                key: id, label: roles.label, sublabel: some(line), icon: icon === undefined ? none : some(icon), status: roles.status, trailing: none,
-                // A drop places it where it lands (#1390, SC4).
-                draggable: true, filtered: false, placed: isPicked("backlog", id),
-                search: some([roles.label, ref.key, line].join(" · ")),
-                groups: new Map([["group", name]]),
-            });
-        }),
+        items: backlog.map((entry) => backlogCard(entry, false)),
         groupOptions: groupBy,
         noun: noun("backlog"),
         onCardClick: some((key: string) => { onCard("backlog", key); return null; }),
-    }, true), [keys, backlog, kindOf, isPicked, m, groupBy, noun, onCard]);
+    }, true), [keys, backlog, backlogCard, groupBy, noun, onCard]);
+    // The paged Backlog's cards, and a click on one (#1393).
+    const pagedCard = useCallback((row: BacklogPageRow) => backlogCard(row.entry, row.context), [backlogCard]);
+    const onPagedCard = useCallback((key: string) => onCard("backlog", key), [onCard]);
     // The backlog is each kind's read: while the rail narrows one, an emptied tab says so, with Clear filters.
     const backlogNarrowed = useMemo((): LibraryNarrowing | undefined => (!backlogNarrowing.narrows || backlogNarrowing.clear === undefined ? undefined : {
         empty: { title: m.libraryNarrowed({ tab: "backlog", name: "" }), description: m.libraryNarrowedHint({ tab: "backlog", name: "" }) },
@@ -346,7 +363,19 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
                                 narrowing={narrowingOf(templatesFollow.narrowing, "templates", "", words)} />
                         )),
                     };
-                case "backlog":
+                case "backlog": {
+                    // Beside a kind read by area, one paged list (#1393, D51), counted `N of M` while an index the narrowing leads narrows it.
+                    if (backlogPages !== undefined) {
+                        const { source, count } = backlogPages;
+                        return {
+                            key: "backlog", label: m.libraryTab({ tab: "backlog" }),
+                            count: count === undefined ? undefined : narrowedCount(words, count.shown, count.total, count.narrowing), shown: count?.shown ?? 0,
+                            body: body("backlog", {}, (
+                                <PagedLibrary source={source} id={source.id} item={pagedCard} onOpen={onPagedCard} onEnter={enters.get("backlog")}
+                                    empty={empty("backlog", "")} narrowing={backlogNarrowed} />
+                            )),
+                        };
+                    }
                     return {
                         key: "backlog", label: m.libraryTab({ tab: "backlog" }), count: backlogLibrary.items.length, shown: backlogLibrary.items.length,
                         body: body("backlog", {}, (
@@ -354,6 +383,7 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
                                 empty={empty("backlog", "")} narrowing={backlogNarrowed} />
                         )),
                     };
+                }
                 case "index":
                     return {
                         key: "index", label: m.libraryTab({ tab: "index" }), count: zones.length, shown: zones.length,
@@ -385,11 +415,35 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
             }
         });
         // Collapsed, the rail counts the backlog — or, with no Backlog tab, the first tab's cards.
+        const backlogShown = backlogPages === undefined ? backlogLibrary.items.length : backlogPages.count?.shown ?? 0;
         return {
             label: m.libraryPane(), icon: "layer-group", size: LIBRARY_SIZE, persist: "local",
-            badge: listsBacklog ? backlogLibrary.items.length : tabs[0]!.shown,
+            badge: listsBacklog ? backlogShown : tabs[0]!.shown,
             tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
-    }, [library, m, words, styles.libraryPane, templates, templatesFollow, backlogLibrary, backlogNarrowed, zones, items, kindName, inView, selected, onReveal,
-        layers, layerView, onLayerView, layerCounts, authorLibraries, authorFollows, keys, empty, listsBacklog, enters]);
+    }, [library, m, words, styles.libraryPane, templates, templatesFollow, backlogLibrary, backlogNarrowed, backlogPages, pagedCard, onPagedCard, zones, items,
+        kindName, inView, selected, onReveal, layers, layerView, onLayerView, layerCounts, authorLibraries, authorFollows, keys, empty, listsBacklog, enters]);
+}
+
+/**
+ * The paged Backlog's count (#1393), read where it renders nothing and handed
+ * to the frame only as it moves, as the Flows tab's count is: a tracked read
+ * in the frame would draw the whole frame again at every settle.
+ *
+ * @param props - The paged Backlog, the sources of the kinds it reads, and where its count goes
+ * @returns Nothing: the count is handed on
+ */
+export function SchematicBacklogCountReader({ source, parts, onCount }: {
+    readonly source: SchematicBacklogPages; readonly parts: readonly string[]; readonly onCount: (count: BacklogPageCount | undefined) => void;
+}): null {
+    useSlicesReactivity(parts);
+    const read = useCallback(() => source.count(), [source]);
+    const { result } = useTrackedEvaluation(read);
+    const count = result.ok ? result.value : undefined;
+    // Handed on by what it counts, so a read that settles the same count draws nothing again.
+    const shown = count?.shown, total = count?.total, narrowing = count?.narrowing;
+    useEffect(() => {
+        onCount(shown === undefined || total === undefined || narrowing === undefined ? undefined : { shown, total, narrowing });
+    }, [shown, total, narrowing, onCount]);
+    return null;
 }

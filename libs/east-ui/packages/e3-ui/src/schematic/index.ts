@@ -96,12 +96,14 @@ export {
     schematicDensityCells,
     schematicRaster,
     schematicSourceRows,
+    schematicUnplacedPlan,
     schematicWholeRows,
     schematicWindowPlan,
     type SchematicAreaIndexes,
     type SchematicDensityCell,
     type SchematicKindPart,
     type SchematicRaster,
+    type SchematicUnplacedPlan,
     type SchematicWindowPlan,
 } from "./window.js";
 export { isSchematicLayers, schematicLayers, type SchematicLayers, type SchematicLayersConfig } from "./layers.js";

@@ -100,6 +100,8 @@ export interface SchematicDropHost {
     readonly surface: string;
     /** Each library whose cards drop, by its id: its cards, by key. */
     readonly libraries: ReadonlyMap<string, ReadonlyMap<string, SchematicDropCard>>;
+    /** Each library whose cards a paged list draws, by its id: a card it has drawn, by key — the paged Backlog's (#1393). */
+    readonly paged: ReadonlyMap<string, (key: string) => SchematicDropCard | undefined>;
 }
 
 /**
@@ -115,13 +117,16 @@ export interface SchematicDropHost {
  * @param libraryOf - The library a tab's cards drag from, by the tab's key
  * @param tabs - The tabs the payload lists
  * @param kinds - The payload's item, link and net kinds: their templates
- * @param backlog - The Backlog's rows
+ * @param backlog - The Backlog's rows in hand
+ * @param pagedBacklog - What a card of the paged Backlog drops, by its id (#1393): a row it has drawn, placed where it lands;
+ *   `undefined` while the Backlog lists only rows in hand
  * @returns What the canvas takes
  */
 export function dropHostOf(surface: string, libraryOf: (tabKey: string) => string, tabs: SchematicValue["library"],
     kinds: { readonly items: readonly SchematicTemplatesKind[]; readonly links: readonly SchematicTemplatesKind[]; readonly nets: readonly SchematicTemplatesKind[] },
-    backlog: readonly BacklogEntry[]): SchematicDropHost {
+    backlog: readonly BacklogEntry[], pagedBacklog?: (key: string) => SchematicDropCard | undefined): SchematicDropHost {
     const libraries = new Map<string, ReadonlyMap<string, SchematicDropCard>>();
+    const paged = new Map<string, (key: string) => SchematicDropCard | undefined>();
     for (const tab of tabs) {
         switch (tab.type) {
             case "templates": {
@@ -141,6 +146,7 @@ export function dropHostOf(surface: string, libraryOf: (tabKey: string) => strin
             }
             case "backlog":
                 libraries.set(libraryOf("backlog"), new Map(backlog.map((entry) => [entry.id, { does: "place", ref: entry.ref, label: entry.roles.label }] as const)));
+                if (pagedBacklog !== undefined) paged.set(libraryOf("backlog"), pagedBacklog);
                 break;
             case "tab": {
                 const lands = tab.value.drop;
@@ -154,11 +160,11 @@ export function dropHostOf(surface: string, libraryOf: (tabKey: string) => strin
                 break;
         }
     }
-    return { surface, libraries };
+    return { surface, libraries, paged };
 }
 
 /**
- * A card the canvas takes, by its library and its key.
+ * A card the canvas takes, by its library and its key: one the library lists in hand, or one its paged list has drawn.
  *
  * @param host - What the canvas takes
  * @param library - The card's library
@@ -166,7 +172,7 @@ export function dropHostOf(surface: string, libraryOf: (tabKey: string) => strin
  * @returns The card, or `undefined` for one no tab that drops lists
  */
 export function cardOf(host: SchematicDropHost, library: string, key: string): SchematicDropCard | undefined {
-    return host.libraries.get(library)?.get(key);
+    return host.libraries.get(library)?.get(key) ?? host.paged.get(library)?.(key);
 }
 
 // ── Where a drag rests ────────────────────────────────────────────────────
