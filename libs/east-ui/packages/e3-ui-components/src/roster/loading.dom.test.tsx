@@ -4,10 +4,10 @@
  * @vitest-environment jsdom
  */
 import { expect, test } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { act, rosterHarness, settle, slot, width } from "./harness.test-utils.js";
+import { act, press, rosterHarness, settle, slot, width } from "./harness.test-utils.js";
 const h = rosterHarness();
 /** The weeks' and the duties' records, as the request log names their datasets. */
 const WEEKS = "records.roster_rota_weeks", DUTIES = "records.roster_duties";
@@ -75,6 +75,71 @@ test("once its week has landed, the Roster reads the weeks either side ahead: a 
     expect(held.held).toBeGreaterThan(0);
     await act(async () => { held.release(); });
     await settle();
+});
+
+test("a step to a week not read yet never covers the frame (#1398, CL5): the toolbar stays live, its status a placeholder — never `Not started` — and Publish in its slot; the week draws at once, a placeholder where each figure and duty goes, never `Off · assign`; its read lands in place", async () => {
+    const { container } = await h.mount(ex.rosterWindowed);
+    await settle();
+    const main = () => slot(container, "main");
+    const toolbar = () => slot(container, "toolbar");
+    const held = h.e3.hold(weekRead);
+    // Past the week read ahead, to one not read: two weeks on.
+    await step(container, "]");
+    await settle();
+    await step(container, "]");
+    await settle();
+    expect(container.querySelector("[data-builder-loading]")).toBeNull();
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    expect(toolbar().closest("[inert]")).toBeNull();
+    // The status, the issues and Publish keep their slots: the status and the issues placeholders, Publish off.
+    const status = toolbar().querySelector("[data-roster-status]")!;
+    expect([status.hasAttribute("data-pending"), status.textContent]).toEqual([true, ""]);
+    expect(toolbar().querySelector("[data-roster-issues]")!.hasAttribute("data-pending")).toBe(true);
+    expect(within(toolbar()).getByRole("button", { name: "Publish" }).hasAttribute("disabled")).toBe(true);
+    // The week's slots draw at once, unread: no duty, no figure of another week's, and no false empty.
+    expect(main().querySelector("[data-roster-unread]")).not.toBeNull();
+    expect(main().querySelector("[data-roster-assignment]")).toBeNull();
+    expect(main().textContent).not.toMatch(/positions|Off · assign|Not started/);
+    // Past the reveal's delay, the placeholders fill.
+    await waitFor(() => expect(main().querySelector("[data-roster-unread] [data-shape]")).not.toBeNull());
+    // In People, the people stay, each of their days a placeholder; on a phone, each person's card.
+    await press(within(toolbar()).getByRole("radio", { name: "People" }));
+    expect(main().querySelector("[data-roster-person-row][data-roster-unread]")).not.toBeNull();
+    expect(main().textContent).not.toMatch(/Off · assign|Not started/);
+    await width(390);
+    expect(main().querySelector("[data-roster-person-card][data-roster-unread]")).not.toBeNull();
+    expect(main().textContent).not.toMatch(/Off · assign|Not started/);
+    await width(900);
+    // Released, the week lands in place, and its status with it.
+    await act(async () => { held.release(); });
+    await settle();
+    await waitFor(() => expect(main().querySelector("[data-roster-unread]")).toBeNull());
+    expect(toolbar().querySelector("[data-roster-status]")!.hasAttribute("data-pending")).toBe(false);
+});
+
+test("a week whose read fails once the Roster has shown keeps its people and dates, and says so once — across the first person's days in view, with Retry — and on the footer's line, never `Roster unavailable`; Retry, the fault gone, lands the week (#1398, CL11)", async () => {
+    const { container } = await h.mount(ex.rosterWindowed);
+    await settle();
+    const main = () => slot(container, "main");
+    await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
+    const stop = h.e3.fail(weekRead, { status: 500, type: "internal", message: "the store is down" });
+    await step(container, "]");
+    await settle();
+    await step(container, "]");
+    await settle();
+    const said = () => [...main().querySelectorAll<HTMLElement>("[data-roster-read-line]")];
+    await waitFor(() => expect(said()).toHaveLength(1), { timeout: 15_000 });
+    expect(said()[0]!.closest("[data-roster-person-row]")).not.toBeNull();
+    expect(said()[0]!.textContent).toMatch(/^Couldn't read .+Retry$/);
+    expect(container.textContent).not.toContain("Roster unavailable");
+    // No cell says anything: every other person's days are blank, and the footer's line says it too.
+    expect([...main().querySelectorAll("[data-roster-person-day]")].every(cell => cell.textContent === "")).toBe(true);
+    expect(slot(container, "footer").querySelector("[data-footer-line]")!.hasAttribute("data-failed")).toBe(true);
+    stop();
+    await act(async () => { fireEvent.click(within(said()[0]!).getByRole("button", { name: "Retry" })); });
+    await settle();
+    await waitFor(() => expect(said()).toHaveLength(0), { timeout: 15_000 });
+    expect(main().querySelector("[data-roster-unread]")).toBeNull();
 });
 
 test("a step back while the week after is read ahead drops that read: each of its requests is aborted on its way to e3, and the frame never covers (#1398, CL6, CL7)", async () => {

@@ -21,7 +21,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
-        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions"],
+        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
+        "readLine", "heldSlot", "unreadValue"],
     base: {
         ...moveGhostBase,
         ...scheduleGroupBase,
@@ -103,5 +104,15 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         stat: { display: "flex", flexDirection: "column", gap: "4px" }, statValue: { textStyle: "num-lg" }, statLabel: { textStyle: "caption.eyebrow" },
         issue: { ...INSPECTOR_SECTION, gap: "6px", borderLeft: "2px solid", borderLeftColor: "fg.warning", "&[data-tone=danger]": { borderLeftColor: "fg.danger" }, "&[data-tone=info]": { borderLeftColor: "brand.solid" } },
         issueTitle: { textStyle: "body.sm", fontWeight: "semibold", textAlign: "left" }, issueDetail: { textStyle: "mono.xs", color: "fg.muted" }, issueActions: { display: "flex", gap: "8px", flexWrap: "wrap" },
+        // A week whose read failed says so once, in its first row in view (#1398, CL11): one line across that row's
+        // cells — a person's seven days, or every column of a shifts row — its head kept, the rest blank.
+        readLine: { gridColumn: "2 / -1", display: "flex", alignItems: "center", minWidth: 0, padding: "6px 12px", borderLeftWidth: "1px", borderColor: "border.subtle",
+            "&[data-days]": { gridColumn: "2 / span 7" } },
+        // A toolbar slot held while what fills it is unread, or empty (#1398, CL1): the toolbar never shifts as the week
+        // lands. Its placeholder keeps its footprint before the reveal's delay, unseen (`data-unfilled`).
+        heldSlot: { display: "inline-flex", alignItems: "center", gap: "6px", minWidth: "24px", minHeight: "24px", "&[data-unfilled] > *": { visibility: "hidden" } },
+        // A figure the week's read has not given yet beside what is known without it — a person's worked hours beside
+        // their contract's: the placeholder, then the known words, on one line (#1398).
+        unreadValue: { display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0, textStyle: "mono.xs", color: "fg.muted", whiteSpace: "nowrap" },
     },
 });
