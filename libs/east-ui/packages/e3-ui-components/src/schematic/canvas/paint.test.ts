@@ -19,6 +19,7 @@ import { describe, it, expect } from "vitest";
 import { defaultValue, none, some, variant } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import { drawnItem, drawnLink, drawnNet, drawnZone, type DrawnItem, type SchematicDrawn } from "./drawn";
+import { SCHEMATIC_CARD_MAX_PX } from "./model";
 import {
     netGeometry,
     MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS,
@@ -215,6 +216,46 @@ describe("markerHitbox / markerHit (P11)", () => {
         // Just inside / just outside the right edge.
         expect(markerHit(box, 50 + w / 2 - 1, 50)).toBe(true);
         expect(markerHit(box, 50 + w / 2 + 1, 50)).toBe(false);
+        expect(box.text).toBe(item.label);
+    });
+
+    it("a long label's pill is no wider than the widest card: its words cut before an ellipsis, between graphemes, a space before the cut dropped (#1393)", () => {
+        const measure = (t: string) => t.length * 6;          // 6px a UTF-16 unit
+        const pill = (label: string) => {
+            const box = markerHitbox({ ...item, label }, "label", cam, measure);
+            if (box.kind !== "rect") throw new Error("a label's marker is a pill");
+            return box;
+        };
+        // The widest pill's words are 200 − (6 + 7 + 4 + 6) = 177px: 29 letters, the ellipsis one of them.
+        const long = pill("A".repeat(80));
+        expect(long.text).toBe(`${"A".repeat(28)}…`);
+        expect(long.w).toBeCloseTo(6 + 7 + 4 + 29 * 6 + 6);
+        expect(long.w).toBeLessThanOrEqual(SCHEMATIC_CARD_MAX_PX);
+        // Hit as it draws: across its whole width, and no further.
+        expect(markerHit(long, 50 + long.w / 2 - 1, 50)).toBe(true);
+        expect(markerHit(long, 50 + long.w / 2 + 1, 50)).toBe(false);
+        // A flag where the cut falls goes whole — half of one would fit.
+        expect(pill(`${"A".repeat(26)}🇦🇺${"B".repeat(10)}`).text).toBe(`${"A".repeat(26)}…`);
+        // A space before the cut goes too.
+        expect(pill(`${"A".repeat(27)} ${"B".repeat(20)}`).text).toBe(`${"A".repeat(27)}…`);
+    });
+});
+
+describe("a labelled pin (#1393)", () => {
+    const T = Schematic.Types;
+    const at = (key: string, label: string, x: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label,
+    }, undefined)!;
+
+    it("draws its label whole, and a long one cut before an ellipsis: the words its hitbox gives", () => {
+        const short = at("S", "RACK-07", 2), long = at("L", "A".repeat(80), 20);
+        const { ctx, texts } = recorder();
+        paintSchematic({
+            ctx, value: { items: [short, long], zones: [], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: [short, long], tiers: new Map([[short.key, "label"], [long.key, "label"]]), selected: new Set(), selectedZones: new Set(),
+            centers: new Map([[short.key, { x: 2, y: 2 }], [long.key, { x: 20, y: 2 }]]), palette: PALETTE, tints: new Map(),
+        });
+        expect(texts.map((text) => text.text)).toEqual(["RACK-07", `${"A".repeat(28)}…`]);
     });
 });
 

@@ -466,10 +466,11 @@ export * from './flowchart/types.js';
 // The Schematic (#1381): `<Schematic>` with its namespace, the payload the
 // renderer takes through the `Schematic` carrier — its kinds over the app's
 // records, each closed behind East functions over bytes, its library's tabs,
-// its rail and each source's shown keys — its shared keys, and the types a
-// Schematic is written with. `Schematic` here is the internal namespace — the
-// public one, `Schematic.Payload`, `Schematic.Component` and the payload's
-// types.
+// its rail and each source's shown keys — its shared keys, which index and
+// searches a kind read by area reads a window through, and its density's
+// raster and the cells of it that hold rows (#1393), and the types a Schematic is written with. `Schematic` here
+// is the internal namespace — the public one, `Schematic.Payload`,
+// `Schematic.Component` and the payload's types.
 export {
     SchematicInternal as Schematic,
     SchematicTag,
@@ -481,23 +482,32 @@ export {
     SchematicLibraryCardType,
     SCHEMATIC_DEF,
     SCHEMATIC_TEMPLATES,
+    SCHEMATIC_WINDOW_ROWS,
     buildSchematicLibrary,
     checkedSchematicTemplates,
     createSchematicPayload,
     isSchematicKind,
     isSchematicLayers,
     isSchematicTemplates,
+    schematicAreaIndexes,
+    schematicDensityCells,
     schematicDetails,
     schematicItems,
     schematicKeys,
     schematicLayers,
     schematicLinks,
     schematicNets,
+    schematicRaster,
     schematicSourceRows,
     schematicTabSources,
     schematicTemplates,
     schematicWholeRows,
+    schematicWindowPlan,
     schematicZones,
+    type SchematicAreaIndexes,
+    type SchematicDensityCell,
+    type SchematicRaster,
+    type SchematicWindowPlan,
     type SchematicTagType,
     type SchematicNamespace,
     type SchematicInternalNamespace,

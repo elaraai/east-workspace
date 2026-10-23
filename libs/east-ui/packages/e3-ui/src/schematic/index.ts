@@ -21,7 +21,8 @@
  *   record.
  * - `layers.ts` — `Schematic.layers`, the layers read from the app's record.
  * - `window.ts` — a kind's reads: whole, or complete through its source of
- *   the slice.
+ *   the slice; and, read by area, which index and searches its window reads,
+ *   the agreement of the index's box with its roles, and the density's raster.
  * - `library.ts` — `Schematic.library`, the library pane's tabs, and their
  *   wire.
  * - `shapes.ts` — the pattern, style and geometry helpers.
@@ -88,7 +89,20 @@ export {
     type SchematicTemplates,
     type SchematicTemplatesConfig,
 } from "./templates.js";
-export { schematicSourceRows, schematicWholeRows, type SchematicKindPart } from "./window.js";
+export {
+    SCHEMATIC_WINDOW_ROWS,
+    schematicAreaIndexes,
+    schematicDensityCells,
+    schematicRaster,
+    schematicSourceRows,
+    schematicWholeRows,
+    schematicWindowPlan,
+    type SchematicAreaIndexes,
+    type SchematicDensityCell,
+    type SchematicKindPart,
+    type SchematicRaster,
+    type SchematicWindowPlan,
+} from "./window.js";
 export { isSchematicLayers, schematicLayers, type SchematicLayers, type SchematicLayersConfig } from "./layers.js";
 export {
     SchematicLibraryCardType,

@@ -445,6 +445,59 @@ test("a reader's cells are found in one batch of searches, each counted exactly 
     assert.throws(() => engine.cellRuns("jobs_by_press_week", [{ id: "x", queries: [search("w9", "k1")] }]), /invalid search bounds/);
 });
 
+test("some searches' bounds are found in one batch, no entry read and nothing kept here: a density raster's counted ranges and coarser keys (#1393)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    const queries = [search("w1", "k1"), search("w1", "k9"), search("w2", "k1")];
+    assert.deepEqual(unwrap(engine.bounds("racks_by_area", queries)).map(range => [range.row, range.count]), [[10n, 3n], [15n, 0n], [40n, 4n]],
+        "each search's bounds, in its order");
+    assert.deepEqual(source.batches, [queries], "every search in one batch, in order");
+    assert.deepEqual([source.seeks.length, source.runs.length, source.pages.length], [0, 0, 0], "counted, not read");
+    // Nothing is kept here: asked again, the reader is asked again, whose own channels answer the searches that landed.
+    assert.deepEqual(unwrap(engine.bounds("racks_by_area", queries)).map(range => range.count), [3n, 0n, 4n]);
+    assert.equal(source.batches.length, 2);
+    // A batch pending is none, never partial bounds; bounds no search has are refused.
+    source.pending(true);
+    assert.deepEqual(engine.bounds("racks_by_area", queries), none);
+    source.pending(false);
+    assert.throws(() => engine.bounds("racks_by_area", [search("w9", "k1")]), /invalid search bounds/);
+    // While the revision is unknown, nothing is found.
+    source.revision(none);
+    assert.deepEqual(engine.bounds("racks_by_area", queries), none);
+});
+
+test("some runs' entries are read in one read, run after run, a run a read in flight asks waiting on it, and nothing kept (#1393)", () => {
+    const source = cellSource(cellRanges);
+    const engine = new RecordSliceSource(source.reader);
+    const runs = [{ found: true, row: 10n, count: 3n }, { found: true, row: 40n, count: 4n }];
+    assert.deepEqual(unwrap(engine.runEntries("racks_by_area", runs)), [10n, 11n, 12n, 40n, 41n, 42n, 43n]);
+    assert.deepEqual(source.runs, [[{ row: 10n, count: 3n }, { row: 40n, count: 4n }]], "every run in one read");
+    assert.deepEqual([source.batches.length, source.seeks.length, source.pages.length], [0, 0, 0], "no search: the runs are as found");
+    // Nothing is kept here: read again, the reader is asked again.
+    unwrap(engine.runEntries("racks_by_area", runs));
+    assert.equal(source.runs.length, 2);
+    // A read pending is none; another wanting one of its runs waits on it, and reads only the run no read asks.
+    source.pending(true);
+    assert.deepEqual(engine.runEntries("racks_by_area", runs), none);
+    assert.deepEqual(engine.runEntries("racks_by_area", [runs[1]!, { found: true, row: 70n, count: 1n }]), none);
+    assert.deepEqual(source.runs.slice(2), [[{ row: 10n, count: 3n }, { row: 40n, count: 4n }], [{ row: 10n, count: 3n }, { row: 40n, count: 4n }],
+        [{ row: 70n, count: 1n }]], "the read in flight asked again as it was, and the new run alone");
+    source.pending(false);
+    assert.deepEqual(unwrap(engine.runEntries("racks_by_area", [runs[1]!, { found: true, row: 70n, count: 1n }])), [40n, 41n, 42n, 43n, 70n]);
+    // Read short of its runs, it is refused; runs out of order, overlapping or empty are refused before any read.
+    source.short(true);
+    assert.throws(() => engine.runEntries("racks_by_area", [{ found: true, row: 5n, count: 2n }]), /disagrees with its search bounds/);
+    source.short(false);
+    const reads = source.runs.length;
+    assert.throws(() => engine.runEntries("racks_by_area", [runs[1]!, runs[0]!]), /ascending and disjoint/);
+    assert.throws(() => engine.runEntries("racks_by_area", [runs[0]!, { found: true, row: 12n, count: 2n }]), /ascending and disjoint/);
+    assert.throws(() => engine.runEntries("racks_by_area", [{ found: false, row: 10n, count: 0n }]), /holds at least one/);
+    assert.equal(source.runs.length, reads, "nothing is read for runs refused");
+    // While the revision is unknown, nothing is read.
+    source.revision(none);
+    assert.deepEqual(engine.runEntries("racks_by_area", runs), none);
+});
+
 test("a reader's cells' entries are read in one read of their runs, each run once and ascending, and handed back cell by cell in their searches' order (#1039)", () => {
     const source = cellSource(cellRanges);
     const engine = new RecordSliceSource(source.reader);

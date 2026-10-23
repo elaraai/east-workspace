@@ -259,10 +259,10 @@ test.describe("The Schematic's frame (#1387)", () => {
             await expect(root.locator("[data-card-key]").first()).toBeVisible();
             const read = await root.evaluate((el) => {
                 // Geometry: positions and sizes, the grid's pattern — its size, and its position, which the page lists as its two
-                // longhands — and the camera's and a layer's custom properties.
+                // longhands — and the camera's, a layer's and the widest card's custom properties.
                 const geometry = new Set([
                     "left", "top", "width", "height", "transform", "background-size", "background-position-x", "background-position-y",
-                    "--cam-ppu", "--cam-tx", "--cam-ty", "--schematic-layer-opacity",
+                    "--cam-ppu", "--cam-tx", "--cam-ty", "--schematic-layer-opacity", "--schematic-card-max",
                 ]);
                 const styled = [...el.querySelectorAll<HTMLElement>("[data-schematic-canvas], [data-schematic-canvas] [style], [data-schematic-footer], [data-schematic-footer] [style]")];
                 return {
@@ -273,6 +273,37 @@ test.describe("The Schematic's frame (#1387)", () => {
             });
             expect(read.styled).toBeGreaterThan(5);
             expect(read.outside).toEqual([]);
+            // The widest card (#1393): a card is no wider than the card layer's figure, its label ending in an ellipsis inside
+            // it; one at its item's own width keeps that width, its label cut inside it too. A rack's card, cloned with a label
+            // longer than any card and laid out beside it — boxed as drawn, and with its own width taken off — then taken away.
+            const widest = await root.evaluate((el) => {
+                const real = el.querySelector<HTMLElement>("[data-card-key][data-boxed]")!;
+                const layer = real.parentElement!;
+                const probe = (boxed: boolean) => {
+                    const clone = real.cloneNode(true) as HTMLElement;
+                    clone.removeAttribute("data-card-key");
+                    if (!boxed) {
+                        clone.removeAttribute("data-boxed");
+                        clone.style.removeProperty("width");
+                    }
+                    const label = clone.querySelector<HTMLElement>("[data-card-label]")!;
+                    label.textContent = "R".repeat(120);
+                    layer.appendChild(clone);
+                    const box = clone.getBoundingClientRect(), words = label.getBoundingClientRect();
+                    const read = {
+                        width: Math.round(box.width),
+                        maxWidth: getComputedStyle(clone).maxWidth,
+                        cut: label.scrollWidth > label.clientWidth && getComputedStyle(label).textOverflow === "ellipsis",
+                        inside: words.left >= box.left && words.right <= box.right,
+                    };
+                    clone.remove();
+                    return read;
+                };
+                return { figure: layer.style.getPropertyValue("--schematic-card-max"), drawn: Math.round(real.getBoundingClientRect().width), held: probe(false), boxed: probe(true) };
+            });
+            expect(widest.figure).toBe("200px");
+            expect(widest.held).toEqual({ width: 200, maxWidth: "200px", cut: true, inside: true });
+            expect(widest.boxed).toEqual({ width: widest.drawn, maxWidth: "none", cut: true, inside: true });
             const canvas = root.locator("[data-schematic-canvas]");
             await expect(canvas).toHaveCSS("cursor", "grab");
             for (const [tool, cursor] of [["Marquee", "crosshair"], ["Zoom box", "crosshair"], ["Connect", "crosshair"], ["Move", "move"], ["Select", "grab"]] as const) {

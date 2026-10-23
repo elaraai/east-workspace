@@ -20,7 +20,7 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,
     decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, some, variant, type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
@@ -29,7 +29,7 @@ import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import {
     Data, DataBindHandleType, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType, Schematic as PublicSchematic,
 } from "@elaraai/e3-ui";
-import { Schematic, SchematicPayloadType, buildSchematicLibrary, schematicKeys } from "@elaraai/e3-ui/internal";
+import { Schematic, SchematicBoxFieldsType, SchematicPayloadType, buildSchematicLibrary, schematicKeys } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import * as ex from "./schematic.examples.js";
 
@@ -187,6 +187,10 @@ const rackBytes = encodeBeast2For(Rack);
 const rackOf = decodeBeast2For(Rack);
 const rackEqual = equalFor(Rack);
 const refOf = (kind: string, key: string) => ({ kind, key });
+const blobEqual = equalFor(BlobType);
+const boxEqual = equalFor(SchematicBoxFieldsType);
+/** The rows a reader read of a record by area or by key, as a kind's `rowsOf` takes them: an Array of `{ key, row }`, as bytes. */
+const readOf = <R extends StructType>(row: R, read: { key: string; row: ValueTypeOf<R> }[]) => encodeBeast2For(ArrayType(StructType({ key: StringType, row })))(read as never);
 
 // ============================================================================
 // SC1, SC35: each role checked at build
@@ -671,6 +675,22 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.ok(equalFor(Schematic.Types.Item)(read, rows.value.get("A02")!.roles));
     });
 
+    hostTest("the rows a reader read by area or by key are made its stored items: each one's roles beside its bytes, as its rows give them (#1393)", () => {
+        const rows = racks.rows();
+        if (rows.type !== "some") assert.fail("a record read whole holds its rows");
+        const made = racks.rowsOf(readOf(Rack, [{ key: "A02", row: A02 }, { key: "A01", row: A01 }]));
+        assert.deepEqual([...made.keys()], ["A01", "A02"], "by key, whatever order the reader read them in");
+        for (const key of ["A01", "A02"]) {
+            assert.ok(equalFor(Schematic.Types.Item)(made.get(key)!.roles, rows.value.get(key)!.roles), `${key}'s roles`);
+            assert.ok(blobEqual(made.get(key)!.row, rows.value.get(key)!.row), `${key}'s row, as bytes at the record's row type`);
+        }
+        assert.equal(racks.rowsOf(readOf(Rack, [])).size, 0, "nothing read, nothing made");
+    });
+
+    hostTest("its box is the fields its roles place it by, at its centre: what an area index it is read by names (#1393, §11.4)", () => {
+        assert.ok(boxEqual(racks.box, { x: "x", y: "y", width: some("w"), height: some("h") }));
+    });
+
     hostTest("the kind on the wire: its slot, its name and icon, its status table, editable with its session and history, its form over the fields no role writes", () => {
         assert.equal(racks.key, "racks");
         assert.equal(racks.name, "Rack");
@@ -680,6 +700,7 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.equal(racks.editing.type, "some");
         assert.equal(racks.history.type, "some");
         assert.equal(racks.entries.type, "none", "a record read whole is read by key from its snapshot");
+        assert.equal(racks.paged.type, "none", "and through no paged read: a far end of a kind read whole is in its rows (#1393)");
         assert.deepEqual(racks.fields.map((f) => f.path), [["model"], ["corners"], ["hall"], ["owner"], ["notes"]], "the row's own corners among them: no role writes them");
         assert.ok(isTypeEqual(fromEastTypeValue(racks.rowType), Rack), "its row type, which the renderer decodes a row at");
     });
@@ -696,6 +717,7 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         const rows = frames.rows();
         if (rows.type !== "some") assert.fail("a record read whole holds its rows");
         assert.ok(equalFor(OptionType(StringType))(rows.value.get("ODF-1")!.roles.icon, some("ODF-1")));
+        assert.ok(boxEqual(frames.box, { x: "x", y: "y", width: none, height: none }), "a kind with no box places points");
     });
 
     hostTest("an item kind whose centre is a pair of Options has a backlog: Unplace writes none, a drop places it, and the unplaced row has no position", () => {
@@ -790,6 +812,10 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
         assert.equal(hall.pattern.type, "outline");
         assert.ok(equalFor(OptionType(Schematic.Types.Geometry))(hall.geometry, some(variant("circle", { radius: 4.0 }))));
         assert.equal(hall.width, 20.0);
+        // Read by area, its rows are made its stored zones as its rows give them; its box is placed by its corner (#1393).
+        const made = zones.rowsOf(readOf(Area, [{ key: "hall-1", row: AREAS.get("hall-1")! }]));
+        assert.ok(equalFor(Schematic.Types.Zone)(made.get("hall-1")!.roles, hall));
+        assert.ok(boxEqual(zones.box, { x: "x", y: "y", width: some("w"), height: some("h") }));
     });
 
     hostTest("a kind's details give its cards' status, bar and figure, read whole beside a kind read whole", () => {
@@ -816,6 +842,11 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
         assert.ok(equalFor(OptionType(Schematic.Types.Status))(a01.status, some({ label: "Hot", tone: variant("danger", null), ring: false })));
         assert.equal(read.value.has("A02"), false, "a rack with no details row shows none");
         assert.equal(details.editable, false);
+        // Rows a reader read by key are made the details' stored rows as their rows give them; read whole, they name no paged read (#1393).
+        const made = details.rowsOf(readOf(Load, [{ key: "A01", row: LOADS.get("A01")! }]));
+        assert.ok(equalFor(Schematic.Types.DetailsRoles)(made.get("A01")!.roles, a01));
+        assert.ok(blobEqual(made.get("A01")!.row, read.value.get("A01")!.row));
+        assert.equal(details.paged.type, "none", "details read whole are read by no paged read");
         // A details row's fields are set as a kind's are.
         const set = details.set(encodeBeast2For(Load)(LOADS.get("A01")!), [{ path: ["kw"], value: encodeBeast2For(FloatType)(6.5) }]);
         if (set.type !== "some") assert.fail("kw is the load's");

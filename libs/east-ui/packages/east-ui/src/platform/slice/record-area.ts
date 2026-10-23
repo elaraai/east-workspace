@@ -136,19 +136,27 @@ function cellsMeeting(from: number, to: number, half: number, size: number, coun
     return cells;
 }
 
+/** Each byte's bits spread to the even places of sixteen: a byte of one axis's half of a Morton code. */
+const SPREAD = Array.from({ length: 256 }, (_, byte) => {
+    let spread = 0;
+    for (let bit = 0; bit < 8; bit++) spread |= ((byte >> bit) & 1) << (2 * bit);
+    return spread;
+});
+
 /**
- * The Morton code of a level's cell, aligned to the finest level.
+ * The Morton code of a level's cell, aligned to the finest level: a byte of
+ * each axis at a time, as a raster of thousands of cells computes thousands.
  *
- * @param ix - The cell's index along x at its level
+ * @param ix - The cell's index along x at its level, below `2 ** level`
  * @param iy - Its index along y
  * @param level - Its level
  * @returns x's bits in the even places, y's in the odd, shifted to level 28
  */
 function morton(ix: number, iy: number, level: number): bigint {
     let code = 0n;
-    for (let bit = 0; bit < level; bit++) {
-        code |= BigInt((ix >>> bit) & 1) << BigInt(2 * bit);
-        code |= BigInt((iy >>> bit) & 1) << BigInt(2 * bit + 1);
+    for (let byte = 3; byte >= 0; byte--) {
+        const shift = 8 * byte;
+        code = (code << 16n) | BigInt(SPREAD[(ix >>> shift) & 255]! | (SPREAD[(iy >>> shift) & 255]! << 1));
     }
     return code << BigInt(2 * (AREA_FINEST_LEVEL - level));
 }
@@ -214,4 +222,126 @@ export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: nu
         }
     }
     return searches.sort((a, b) => keyOrder(a.start, b.start)).map(search => search.query);
+}
+
+/** The most counted ranges a density raster asks in one request (§10.4, D25). */
+export const MAX_AREA_RASTER = 4096;
+
+/** One cell of a density raster (§10.4, D25): where it is, and the range its rows file under. */
+export interface AreaRasterCell {
+    /** Its index along x, at the raster's level. */
+    readonly ix: number;
+    /** Its index along y. */
+    readonly iy: number;
+    /** Its left edge, in world units. */
+    readonly minX: number;
+    /** Its top edge. */
+    readonly minY: number;
+    /** The range holding its own rows and every finer level's inside it, so a row counts once, in the cell holding its centre. */
+    readonly query: ValueTypeOf<SeekQueryType>;
+}
+
+/** One cell of a level coarser than a density raster's (§10.4, D25): where it is, and the exact key its rows file under. */
+export interface AreaRasterCoarse {
+    /** Its level, coarser than the raster's. */
+    readonly level: number;
+    /** Its index along x, at its level. */
+    readonly ix: number;
+    /** Its index along y. */
+    readonly iy: number;
+    /** Its exact key: the rows filed in it, boxes larger than half a raster cell, their centres anywhere in it. */
+    readonly query: ValueTypeOf<SeekQueryType>;
+}
+
+/** A density raster over a box (§10.4, D25): its level's cells, counted, and the coarser levels' cells, by exact key. */
+export interface AreaRaster {
+    /** Its level. */
+    readonly level: number;
+    /** Its cells' side, in world units. */
+    readonly side: number;
+    /** Its cells that meet the box, row by row. */
+    readonly cells: readonly AreaRasterCell[];
+    /**
+     * The coarser levels' cells whose loose bounds meet the box, in key order: their rows are boxes larger than half a
+     * raster cell, which the raster's ranges leave out, counted by their keys and read as rows while they are few.
+     */
+    readonly coarse: readonly AreaRasterCoarse[];
+}
+
+/**
+ * Plan a density raster over an area index (§10.4, D25): the counts of its
+ * cells at the level whose cells are about a sixty-fourth of the box's larger
+ * side, for one combination of the index's leading values, and no row read.
+ *
+ * 1. The raster's level `R` is the deepest whose cell is at least a
+ *    sixty-fourth of the box's larger side, coarser while its cells meeting
+ *    the box number more than `budget`.
+ * 2. Each level-`R` cell meeting the box is the range from its own key up to
+ *    its last descendant's, as {@link areaQueries}' finest level is: it holds
+ *    every row filed at `R` or finer whose centre lies in the cell, so a row
+ *    counts once, in the cell holding its centre.
+ * 3. At each level coarser than `R`, each cell whose loose bounds meet the
+ *    box, the root among them, by its exact key: those rows are boxes larger
+ *    than half a raster cell, which the ranges leave out — counted by their
+ *    keys, and read as rows while they are few.
+ *
+ * @param prefix - The `.east` literals of the index's leading fields, in order
+ * @param box - The box the raster covers, in world units
+ * @param cell - The index's finest cell's side, a power of two (its `area.cell`)
+ * @param budget - The most cells the raster takes
+ * @returns The raster's level, its cells' side, its cells and the coarser levels' cells
+ * @throws {Error} When the box is not finite or its maximum is below its minimum, when `cell` is not a positive power of
+ *   two, or when `budget` is not a positive whole number
+ */
+export function areaRaster(prefix: readonly string[], box: AreaWindow, cell: number, budget: number = MAX_AREA_RASTER): AreaRaster {
+    const { minX, minY, maxX, maxY } = box;
+    if (![minX, minY, maxX, maxY].every(Number.isFinite)) throw new Error("Choose a raster's box with finite bounds");
+    if (maxX < minX || maxY < minY) throw new Error("A raster's box has its maximum below its minimum");
+    if (!Number.isFinite(cell) || cell <= 0 || 2 ** Math.round(Math.log2(cell)) !== cell) {
+        throw new Error(`An area index's cell is a positive power of two, not ${cell}`);
+    }
+    if (!Number.isInteger(budget) || budget < 1) throw new Error(`A raster takes at least one cell, not ${budget}`);
+    const half = cell * 2 ** 27;
+    const larger = Math.max(maxX - minX, maxY - minY);
+    // The cells of a level whose own bounds meet an interval, on one axis: the first and the last, inside the domain.
+    const span = (from: number, to: number, size: number, count: number): [number, number] | undefined => {
+        const lo = Math.max(0, Math.floor((from + half) / size));
+        const hi = Math.min(count - 1, Math.floor((to + half) / size));
+        return hi < lo ? undefined : [lo, hi];
+    };
+    let level = AREA_FINEST_LEVEL;
+    while (level > 0 && cell * 2 ** (AREA_FINEST_LEVEL - level) < larger / 64) level--;
+    const sizeOf = (l: number) => cell * 2 ** (AREA_FINEST_LEVEL - l);
+    const cellsAt = (l: number) => {
+        const xs = span(minX, maxX, sizeOf(l), 2 ** l);
+        const ys = span(minY, maxY, sizeOf(l), 2 ** l);
+        return xs === undefined || ys === undefined ? 0 : (xs[1] - xs[0] + 1) * (ys[1] - ys[0] + 1);
+    };
+    while (level > 0 && cellsAt(level) > budget) level--;
+    const side = sizeOf(level);
+    const cells: AreaRasterCell[] = [];
+    const xs = span(minX, maxX, side, 2 ** level);
+    const ys = span(minY, maxY, side, 2 ** level);
+    if (xs !== undefined && ys !== undefined) {
+        const descendants = 4n ** (FINEST - BigInt(level));
+        for (let iy = ys[0]; iy <= ys[1]; iy++) {
+            for (let ix = xs[0]; ix <= xs[1]; ix++) {
+                const m = morton(ix, iy, level);
+                const query = variant("range", { from: [...prefix, integerText(m * 32n + BigInt(level))], to: [...prefix, integerText((m + descendants) * 32n)] });
+                cells.push({ ix, iy, minX: -half + ix * side, minY: -half + iy * side, query });
+            }
+        }
+    }
+    const coarse: { start: bigint; cell: AreaRasterCoarse }[] = [];
+    for (let l = 0; l < level; l++) {
+        const size = sizeOf(l);
+        const count = 2 ** l;
+        for (const ix of l === 0 ? [0] : cellsMeeting(minX, maxX, half, size, count)) {
+            for (const iy of l === 0 ? [0] : cellsMeeting(minY, maxY, half, size, count)) {
+                const start = morton(ix, iy, l) * 32n + BigInt(l);
+                coarse.push({ start, cell: { level: l, ix, iy, query: variant("fields", { values: [...prefix, integerText(start)], prefix: none }) } });
+            }
+        }
+    }
+    return { level, side, cells, coarse: coarse.sort((a, b) => keyOrder(a.start, b.start)).map(search => search.cell) };
 }

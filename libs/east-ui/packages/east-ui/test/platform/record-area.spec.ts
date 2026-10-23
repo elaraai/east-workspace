@@ -19,7 +19,7 @@ import {
 import { RecordSliceChoiceType, RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { planRecordSlice } from "../../src/platform/slice/record-plan.js";
 import {
-    AREA_FIELD, AREA_UNPLACED, MAX_AREA_SEARCHES, areaMarkerFields, areaQueries, readAreaMarker, type AreaWindow,
+    AREA_FIELD, AREA_UNPLACED, MAX_AREA_RASTER, MAX_AREA_SEARCHES, areaMarkerFields, areaQueries, areaRaster, readAreaMarker, type AreaWindow,
 } from "../../src/platform/slice/record-area.js";
 import { SeekQueryType } from "../../src/contracts/source.js";
 
@@ -238,6 +238,114 @@ test("a window that is not finite, is inverted, or reads an index whose cell is 
     assert.throws(() => areaQueries([], { minX: 2, minY: 0, maxX: 1, maxY: 1 }, 1), /maximum is below its minimum/);
     assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0.01), /power of two/);
     assert.throws(() => areaQueries([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0), /power of two/);
+});
+
+/** Whether a row's box meets a box itself, with no margin: what a raster's coarser levels read. */
+function touches(box: Box, view: AreaWindow): boolean {
+    const [x0, x1] = box.centre ? [box.x - Math.abs(box.w) / 2, box.x + Math.abs(box.w) / 2] : [Math.min(box.x, box.x + box.w), Math.max(box.x, box.x + box.w)];
+    const [y0, y1] = box.centre ? [box.y - Math.abs(box.h) / 2, box.y + Math.abs(box.h) / 2] : [Math.min(box.y, box.y + box.h), Math.max(box.y, box.y + box.h)];
+    return x0 <= view.maxX && x1 >= view.minX && y0 <= view.maxY && y1 >= view.minY;
+}
+
+/** The index along one axis of the cell of a level holding a coordinate, as the key function files it. */
+function cellIndex(at: number, cell: number, level: number): bigint {
+    return (BigInt(Math.floor(at / cell)) + (1n << 27n)) / 2n ** BigInt(28 - level);
+}
+
+test("a raster counts each row filed at its level or finer once, in the cell holding its centre, and reads each coarser row meeting its box by its key", () => {
+    const next = stream(1393);
+    for (const cell of [2 ** -7, 1, 2 ** 5]) {
+        const half = cell * 2 ** 27;
+        const boxes = Array.from({ length: 1500 }, () => randomBox(next, cell));
+        const keys = boxes.map(box => filed(box, cell));
+        for (let w = 0; w < 40; w++) {
+            const view = randomView(next, cell);
+            const prefix = w % 3 === 0 ? [] : ['"H1"'];
+            const raster = areaRaster(prefix, view, cell);
+            assert.ok(raster.cells.length <= MAX_AREA_RASTER, `${raster.cells.length} cells for ${printWindow(view)}`);
+            assert.equal(raster.side, cell * 2 ** (28 - raster.level));
+            const cellQueries = raster.cells.map(c => c.query);
+            const coarseQueries = raster.coarse.map(c => c.query);
+            // The cells' ranges and the coarser keys are disjoint, so no row is held twice.
+            spans([...cellQueries, ...coarseQueries], prefix);
+            const ranges = spans(cellQueries, prefix);
+            const coarse = spans(coarseQueries, prefix);
+            const byCell = new Map<string, (typeof raster.cells)[number]>(raster.cells.map(c => [`${c.ix},${c.iy}`, c]));
+            // Each coarser cell names where it is: its level coarser than the raster's, and the key a box half its side,
+            // centred in it, files under — the key function's own cell for it.
+            for (const c of raster.coarse) {
+                assert.ok(c.level < raster.level, `a coarser cell's level ${c.level} is coarser than the raster's ${raster.level}`);
+                const size = cell * 2 ** (28 - c.level);
+                const centre = (i: number) => -half + (i + 0.5) * size;
+                assert.equal(reads([c.query], prefix, c.level === 0 ? 0n : keyOf(centre(c.ix), centre(c.iy), size / 2, cell)), 1,
+                    `the coarser cell ${c.level}:${c.ix},${c.iy} is the one its key names`);
+            }
+            boxes.forEach((box, i) => {
+                const key = keys[i]!;
+                if (key < 0n) return;
+                if (key === 0n) {
+                    // The root's — outside the domain, not finite, or larger than half of it: the root range's at level 0, else read by its key.
+                    assert.ok(holds(raster.level === 0 ? ranges : coarse, key), `box ${JSON.stringify(box)} files under the root`);
+                    return;
+                }
+                const cx = box.centre ? box.x : box.x + box.w / 2;
+                const cy = box.centre ? box.y : box.y + box.h / 2;
+                if (Number(key % 32n) >= raster.level) {
+                    // Filed at the raster's level or finer: counted by the range of the cell holding its centre, when the raster has that cell.
+                    const own = byCell.get(`${cellIndex(cx, cell, raster.level)},${cellIndex(cy, cell, raster.level)}`);
+                    if (own !== undefined) assert.equal(reads([own.query], prefix, key), 1, `box ${JSON.stringify(box)} counts in the cell holding its centre`);
+                    else assert.ok(!holds(ranges, key), "a row whose centre's cell the raster leaves out counts nowhere");
+                    if (cx >= view.minX && cx <= view.maxX && cy >= view.minY && cy <= view.maxY && cx >= -half && cx < half && cy >= -half && cy < half) {
+                        assert.ok(own !== undefined, `the cell holding the centre of ${JSON.stringify(box)}, inside ${printWindow(view)}, is the raster's`);
+                    }
+                    assert.ok(!holds(coarse, key), "a row the raster counts is never read as a row");
+                } else {
+                    // Coarser than the raster: never counted by its ranges, and found by its key when its box meets the raster's
+                    // box, in the coarser cell holding its centre.
+                    assert.ok(!holds(ranges, key), "a coarser row is never counted by the raster's ranges");
+                    if (touches(box, view)) {
+                        const level = Number(key % 32n);
+                        const own = raster.coarse.find(c => reads([c.query], prefix, key) === 1);
+                        assert.ok(own !== undefined, `box ${JSON.stringify(box)} meets ${printWindow(view)}`);
+                        assert.deepEqual([own.level, BigInt(own.ix), BigInt(own.iy)], [level, cellIndex(cx, cell, level), cellIndex(cy, cell, level)],
+                            `box ${JSON.stringify(box)} is found in the coarser cell holding its centre`);
+                    }
+                }
+            });
+            assert.ok(!holds(ranges, -1n) && !holds(coarse, -1n), "an unplaced row has no box to count or read");
+        }
+    }
+});
+
+test("a raster's level is the deepest whose cells are a sixty-fourth of its box's larger side at least, coarser while it would take more cells than its budget", () => {
+    const cell = 1;
+    const box = { minX: 0, minY: 0, maxX: 640, maxY: 400 };
+    // A sixty-fourth of 640 is 10: 16-unit cells, level 24, 41 by 26 of them meeting the box.
+    const raster = areaRaster([], box, cell);
+    assert.deepEqual([raster.level, raster.side, raster.cells.length], [24, 16, 41 * 26]);
+    assert.ok(raster.cells.every(c => c.query.type === "range" && integer(c.query.value.from[0]!) % 32n === 24n));
+    assert.deepEqual(raster.cells.slice(0, 2).map(c => [c.minX, c.minY]), [[0, 0], [16, 0]], "row by row, each cell's corner in world units");
+    // A budget of 100 cells: 32-unit cells take 21 by 13, too many; 64-unit cells 11 by 7.
+    const coarser = areaRaster([], box, cell, 100);
+    assert.deepEqual([coarser.level, coarser.side, coarser.cells.length], [22, 64, 77]);
+    // Its coarser levels: the root, and every level down to the raster's, by exact key, each its own level's.
+    assert.ok(coarser.coarse.length > 0 && coarser.coarse.every(c => c.query.type === "fields" && integer(c.query.value.values[0]!) % 32n === BigInt(c.level)
+        && c.level < 22));
+    assert.ok(coarser.coarse.some(c => c.level === 0 && c.ix === 0 && c.iy === 0 && c.query.type === "fields" && sameKey(integer(c.query.value.values[0]!), 0n)),
+        "the root is read whatever the box");
+    // A box wider than the domain: the domain's cells a sixty-fourth of the box wide, sixteen a side at level 4, and
+    // its coarser levels' 85 cells by key, the root among them.
+    const half = cell * 2 ** 27;
+    const domain = areaRaster([], { minX: -4 * half, minY: -4 * half, maxX: 4 * half, maxY: 4 * half }, cell);
+    assert.deepEqual([domain.level, domain.side, domain.cells.length, domain.coarse.length], [4, 2 ** 24, 256, 1 + 4 + 16 + 64]);
+    assert.deepEqual(domain.cells[0], { ix: 0, iy: 0, minX: -half, minY: -half, query: variant("range", { from: ["4"], to: [`${4n ** 24n * 32n}`] }) });
+});
+
+test("a raster's box that is not finite or is inverted, an index whose cell is no power of two, and a budget of no cell are refused", () => {
+    assert.throws(() => areaRaster([], { minX: Number.NaN, minY: 0, maxX: 1, maxY: 1 }, 1), /finite bounds/);
+    assert.throws(() => areaRaster([], { minX: 2, minY: 0, maxX: 1, maxY: 1 }, 1), /maximum below its minimum/);
+    assert.throws(() => areaRaster([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 0.01), /power of two/);
+    assert.throws(() => areaRaster([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 1, 0), /at least one cell/);
 });
 
 test("an area index's marker names its box's fields by role, and reads back as itself", () => {

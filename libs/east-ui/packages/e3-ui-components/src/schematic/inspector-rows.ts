@@ -7,12 +7,13 @@
  * The inspected entity's stored rows (#1391, `Schematic Builder Spec.md` §9),
  * read in a component of their own, as the Calendar's selection is (#1343):
  * the row its kind's record holds, and its details row, each as bytes. A kind's
- * rows hold it where its read does — its record read whole, or its narrowing
- * read through its source — else it is read by its key through the kind's
- * `entries`; a details record read whole holds its row, and one read by key is
- * asked for it. The reader hands the frame what it read only when that moves,
- * so a scan landing elsewhere redraws no inspector. What its drafts make of
- * the rows is the inspector's: the reads are the record's alone.
+ * rows hold it where its read does — its record read whole, its narrowing
+ * read through its source, or, read by area, its window (#1393) — else it is
+ * read by its key through the kind's `entries`; a details record read whole
+ * holds its row, and one read by key is asked for it. The reader hands the
+ * frame what it read only when that moves, so a scan landing elsewhere redraws
+ * no inspector. What its drafts make of the rows is the inspector's: the reads
+ * are the record's alone.
  *
  * @packageDocumentation
  */
@@ -21,7 +22,7 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 import { BlobType, StringType, equalFor } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import type { SchematicRef } from "./canvas/drawn.js";
-import type { SchematicValue } from "./data.js";
+import type { SchematicValue, SchematicWindowRows } from "./data.js";
 
 const blobEqual = equalFor(BlobType);
 const stringEqual = equalFor(StringType);
@@ -63,13 +64,19 @@ function byKey(entries: AnyKind["entries"], key: string): SchematicRowRead | und
 
 /**
  * A kind's stored row of a key: where its rows hold it, else by its key through
- * its `entries`.
+ * its `entries`. A kind read by area is never read whole, nor its narrowing
+ * complete: its window holds the row, or it is read by its key (#1393).
  *
  * @param kind - The kind
  * @param key - The row's key
+ * @param window - The rows its window holds, for a kind read by area; `undefined` for one read through its `rows()`
  * @returns The read
  */
-export function storedRow(kind: AnyKind, key: string): SchematicRowRead {
+export function storedRow(kind: AnyKind, key: string, window?: ReadonlyMap<string, { readonly row: Uint8Array }>): SchematicRowRead {
+    if (window !== undefined) {
+        const held = window.get(key);
+        return held !== undefined ? { state: "held", row: held.row } : byKey(kind.entries, key) ?? ABSENT;
+    }
     const rows = kind.rows();
     if (rows.type === "some") {
         const entry = rows.value.get(key);
@@ -110,26 +117,36 @@ function rowsEqual(a: SchematicInspectedRows, b: SchematicInspectedRows): boolea
     return sameRef && readEqual(a.row, b.row) && readEqual(a.details, b.details);
 }
 
+/** No kind read by area. */
+const NO_AREAS: ReadonlySet<string> = new Set();
+
+/** No window read. */
+const NO_WINDOWS: SchematicWindowRows = new Map();
+
 /**
  * Reads the inspected entity's stored rows (see the module docs), handing them
  * on only when what they say moves.
  *
- * @param props - The payload, the entity inspected — `undefined` for none — and where its rows go
+ * @param props - The payload, the entity inspected — `undefined` for none — the kinds read by area and the rows each
+ *   one's window holds, and where its rows go
  * @returns Nothing: it reads
  */
-export function SchematicInspectedReader({ value, inspected, onRows }: {
-    value: SchematicValue; inspected: SchematicRef | undefined; onRows: (rows: SchematicInspectedRows) => void;
+export function SchematicInspectedReader({ value, inspected, areas = NO_AREAS, windows = NO_WINDOWS, onRows }: {
+    value: SchematicValue; inspected: SchematicRef | undefined; areas?: ReadonlySet<string>; windows?: SchematicWindowRows;
+    onRows: (rows: SchematicInspectedRows) => void;
 }): null {
     const read = useCallback((): SchematicInspectedRows => {
         if (inspected === undefined) return NO_INSPECTED_ROWS;
         const kind = [...value.items, ...value.zones, ...value.links, ...value.nets].find((k) => stringEqual(k.key, inspected.kind));
         if (kind === undefined) return { ref: inspected, row: ABSENT, details: undefined };
+        // A kind read by area: its window's rows, none before it has landed.
+        const window = areas.has(kind.key) ? windows.get(kind.key)?.rows ?? new Map<string, { readonly row: Uint8Array }>() : undefined;
         return {
             ref: inspected,
-            row: storedRow(kind, inspected.key),
+            row: storedRow(kind, inspected.key, window),
             details: kind.details.type === "some" ? storedDetailsRow(kind.details.value, inspected.key) : undefined,
         };
-    }, [value, inspected]);
+    }, [value, inspected, areas, windows]);
     const { result } = useTrackedEvaluation(read);
     const reported = useRef<SchematicInspectedRows | undefined>(undefined);
     useLayoutEffect(() => {

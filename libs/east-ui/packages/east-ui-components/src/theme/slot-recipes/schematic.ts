@@ -209,7 +209,11 @@ export const schematicSlotRecipe = defineSlotRecipe({
          * no pointer, so a click falls through to what lies beneath. A card
          * the rail's narrowing draws as context (#1392) fades to the opacity
          * its `narrowed` gives (`--schematic-context-opacity`), drained of
-         * colour while it says so, and takes no pointer either. */
+         * colour while it says so, and takes no pointer either. It is no
+         * wider than the card layer's widest card (`--schematic-card-max`,
+         * the canvas's figure, which a kind read by area pads its window by,
+         * #1393), its words ending in an ellipsis; one at its item's own
+         * width (`data-boxed`) is held to that instead. */
         item: {
             position: "absolute",
             transform: "translate(-50%, -50%)",
@@ -224,6 +228,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
             paddingX: "{spacing.2}",
             paddingY: "{spacing.1}",
             minWidth: "84px",
+            "&:not([data-boxed])": { maxWidth: "var(--schematic-card-max)" },
             cursor: "pointer",
             opacity: "calc(var(--schematic-layer-opacity, 1) * var(--schematic-context-opacity, 1))",
             "&[data-locked]": { pointerEvents: "none" },
@@ -272,7 +277,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             fontSize: "label.sm",
             flexShrink: "0",
         },
+        /* The label gives way in its head's row, so a card held to its width ends it in an ellipsis. */
         itemLabel: {
+            minWidth: "0",
             fontFamily: "mono",
             fontSize: "label.lg",
             fontWeight: "semibold",
@@ -322,6 +329,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             fontSize: "label.sm",
             color: "fg.muted",
             fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
         },
         /* The zoom box (#153) and the marquee (#159): a brand edge around an
          * area fill — the design system's `--brand-tint` at 0.7 — dashed for

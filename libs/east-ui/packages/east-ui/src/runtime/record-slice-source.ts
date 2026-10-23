@@ -149,8 +149,11 @@ const rowOrder = compareFor(IntegerType);
 const MAX_CACHED_RUNS = 128;
 /** Cells whose runs are kept per revision (#1039): a reader wanting more than a batch of searches reads a summary. */
 const MAX_CACHED_CELLS = 1024;
-/** Searches whose bounds are kept per revision; a window over an interval index is some fifty-five. */
-const MAX_LANDED_SEARCHES = 1024;
+/**
+ * Searches whose bounds are kept per revision; a window over an interval index is some fifty-five. A reader that keeps
+ * its searches within it — the Schematic's window across a led area index's choices (§10.4) — never asks one twice.
+ */
+export const MAX_LANDED_SEARCHES = 1024;
 /**
  * Batches of cells' searches, and reads of their runs, kept while in flight per
  * revision (#1039): past it the oldest is let go, and a cell waiting on it is
@@ -412,6 +415,56 @@ export class RecordSliceSource<T> {
     }
 
     /**
+     * Find the bounds of several searches of one source (#1393): where each one's
+     * entries sit and how many it holds, in one request (a batch for each
+     * {@link MAX_RECORD_SLICE_BATCH} of them, all asked in this pass), no entry
+     * read and nothing kept here — what a density raster asks of an area
+     * index's cells, its counted ranges and the coarser levels' keys
+     * (`areaRaster`), whose entries {@link RecordSliceSource.runEntries} reads
+     * while they are few. A read again answers from the reader's own channels
+     * for the searches that landed.
+     *
+     * @param index - The source searched
+     * @param queries - The searches
+     * @returns Each search's bounds, in order; none while any is pending
+     * @throws {Error} When the source answers a search with bounds no search has
+     */
+    bounds(index: string, queries: readonly Query[]): option<Range[]> {
+        const revision = this.current();
+        if (revision === undefined) return none;
+        const found = this.searchAll(index, queries);
+        if (this.current() !== revision || found.type === "none") return none;
+        for (const range of found.value) {
+            if (range.row < 0n || range.count < 0n || range.found !== (range.count > 0n)) throw new Error("The source returned invalid search bounds");
+        }
+        return found;
+    }
+
+    /**
+     * Read the entries of some runs of one source (#1393): the runs as searches
+     * found them at the record's revision now — ascending, disjoint and none
+     * empty — read in one request however many there are, a run a read still in
+     * flight asks waiting on it. Nothing is kept: the reader holds what it read.
+     *
+     * @param index - The source
+     * @param runs - The runs
+     * @returns Their entries, run after run; none while the read is pending
+     * @throws {Error} When the runs are not ascending, disjoint and each non-empty, or the entries read disagree with them
+     */
+    runEntries(index: string, runs: readonly Range[]): option<T[]> {
+        const revision = this.current();
+        if (revision === undefined) return none;
+        for (const [i, run] of runs.entries()) {
+            if (run.row < 0n || run.count <= 0n) throw new Error("A run read holds entries: its first row is in the source, and it holds at least one");
+            const before = runs[i - 1];
+            if (before !== undefined && before.row + before.count > run.row) throw new Error("The runs read are ascending and disjoint");
+        }
+        const byStart = this.readAsked(index, runs, revision);
+        if (byStart === undefined) return none;
+        return some(runs.flatMap((run) => byStart.get(run.row)!));
+    }
+
+    /**
      * Read several cells' entries (#1039): the entries of every cell's runs in
      * one request — each run once, ascending, however many cells share it —
      * handed back cell by cell, each in its searches' order. A run a read still
@@ -443,7 +496,32 @@ export class RecordSliceSource<T> {
         for (let i = 1; i < runs.length; i++) {
             if (runs[i - 1]!.row + runs[i - 1]!.count > runs[i]!.row) throw new Error("The cells' searches overlap; refresh the view and retry");
         }
-        // Each run waits on a read in flight that asks it; the rest are read together, in one more.
+        const byStart = this.readAsked(index, runs, revision);
+        if (byStart === undefined) return none;
+        const read = new Map<string, T[]>();
+        for (const cell of cells) {
+            const own: T[] = [];
+            for (const range of found.value.get(cell.id)!.ranges) {
+                if (range.count === 0n) continue;
+                own.push(...byStart.get(range.row)!);
+            }
+            read.set(cell.id, own);
+        }
+        return some(read);
+    }
+
+    /**
+     * The entries of some runs of one source, each by its first row: a run a
+     * read still in flight asks waits on that read — asked again as it was,
+     * which asks the reader nothing new — and the rest are read together, in
+     * one more.
+     *
+     * @param index - The source
+     * @param runs - The runs: ascending, disjoint, none empty
+     * @param revision - The revision they were found at
+     * @returns Each run's entries, by its first row; `undefined` while a read is pending, or once the revision moved
+     */
+    private readAsked(index: string, runs: readonly Range[], revision: string): Map<bigint, T[]> | undefined {
         const reads = new Set<AskedRuns>();
         const fresh: Range[] = [];
         for (const run of runs) {
@@ -457,12 +535,11 @@ export class RecordSliceSource<T> {
             if (this.askedRuns.length > MAX_ASKED) this.askedRuns.shift();
             reads.add(read);
         }
-        // Each run's entries, by its first row.
         const byStart = new Map<bigint, T[]>();
         let pending = false;
         for (const asked of reads) {
             const entries = this.readRuns(index, asked.runs);
-            if (this.current() !== revision) return none;
+            if (this.current() !== revision) return undefined;
             if (entries.type === "none") { pending = true; continue; }
             const at = this.askedRuns.indexOf(asked);
             if (at >= 0) this.askedRuns.splice(at, 1);
@@ -472,17 +549,7 @@ export class RecordSliceSource<T> {
                 offset += Number(run.count);
             }
         }
-        if (pending) return none;
-        const read = new Map<string, T[]>();
-        for (const cell of cells) {
-            const own: T[] = [];
-            for (const range of found.value.get(cell.id)!.ranges) {
-                if (range.count === 0n) continue;
-                own.push(...byStart.get(range.row)!);
-            }
-            read.set(cell.id, own);
-        }
-        return some(read);
+        return pending ? undefined : byStart;
     }
 
     /**

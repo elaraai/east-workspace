@@ -11,7 +11,7 @@
 import { describe, test, expect } from "vitest";
 import { defaultValue, variant, some, none } from "@elaraai/east";
 import { SchematicDrawnItemType, SchematicDrawnLinkType, SchematicDrawnZoneType, type DrawnItem, type DrawnZone } from "./drawn";
-import { buildCenterTree, buildNavTree, declutterTiers, matchesExtent, tierSize } from "./model";
+import { SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, declutterTiers, matchesExtent, tierSize } from "./model";
 
 type ItemValue = DrawnItem;
 type ZoneValue = DrawnZone;
@@ -90,6 +90,17 @@ describe("tierSize", () => {
             .toBeLessThan(tierSize(item("Y", 0, 0, "A MUCH LONGER LABEL"), "label", 30).w);
         const wide: ItemValue = { ...item("W", 0, 0), width: some(4) };
         expect(tierSize(wide, "card", 30).w).toBe(120);   // 4 world units × 30 ppu
+    });
+
+    test("a pin or a card is no wider than the widest card, however long its words; a card at its item's own width is that width (#1393)", () => {
+        const long = "A".repeat(80);
+        expect(tierSize(item("L", 0, 0, long), "label", 30).w).toBe(SCHEMATIC_CARD_MAX_PX);
+        expect(tierSize(item("L", 0, 0, long), "card", 30).w).toBe(SCHEMATIC_CARD_MAX_PX);
+        expect(tierSize({ ...item("S", 0, 0), sublabel: some("B".repeat(80)) }, "card", 30).w).toBe(SCHEMATIC_CARD_MAX_PX);
+        // Short words keep their own width.
+        expect(tierSize(item("X", 0, 0, "AB"), "label", 30).w).toBe(2 * 6 + 28);
+        // 10 world units × 30 ppu: wider than the widest card, and drawn so.
+        expect(tierSize({ ...item("W", 0, 0, long), width: some(10) }, "card", 30).w).toBe(300);
     });
 });
 
