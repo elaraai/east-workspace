@@ -12,9 +12,12 @@
  * density at overview — is #1393's, over the same source.
  *
  * Through its source a kind reads what its narrowing holds and nothing else:
- * the source's choices, each as the rail holds it. An entry's row is its
- * `row` — the source joins it — or its `value`, for an index that carries the
- * whole row (D29).
+ * the source's choices, each as the rail holds it. Under `narrowed="dim"` it
+ * reads every row through its source instead, and never the narrowing, so a
+ * choice reads none of its rows again: the renderer draws the rows the
+ * narrowing leaves out as context, from the source's shown keys (§10.3,
+ * #1392). An entry's row is its `row` — the source joins it — or its `value`,
+ * for an index that carries the whole row (D29).
  *
  * @packageDocumentation
  */
@@ -62,10 +65,12 @@ export function schematicWholeRows(handle: ExprType<EastType>, rowType: StructTy
  * @param slot - The kind's slot, which names the source
  * @param rowType - The kind's record's row type
  * @param where - The kind, as a refusal names it
- * @returns `()` → the rows the narrowing holds, by key; `none` while a search or a page is in flight
+ * @param every - Whether it reads every row, the narrowing read nowhere: under `narrowed="dim"`, what the narrowing
+ *   leaves out draws as context
+ * @returns `()` → the rows the narrowing holds — or every row — by key; `none` while a search or a page is in flight
  * @throws {Error} When the source narrows another record, or reads neither its rows nor an index carrying them
  */
-export function schematicSourceRows(part: SchematicKindPart, slot: string, rowType: StructType, where: string): RowsRead {
+export function schematicSourceRows(part: SchematicKindPart, slot: string, rowType: StructType, where: string, every = false): RowsRead {
     const type = Expr.type(part as unknown as Expr) as EastType;
     const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : {};
     const data = fields["data"];
@@ -99,15 +104,22 @@ export function schematicSourceRows(part: SchematicKindPart, slot: string, rowTy
             pageWhere: FunctionType<[RecordSliceWhereType, IntegerType, IntegerType], OptionType<typeof Entries>>;
             data: StructType<{ id: StringType; revision: FunctionType<[], OptionType<StringType>> }>;
         }>>);
-        const read = $.const(source.read);
         const countWhere = $.const(source.countWhere);
         const pageWhere = $.const(source.pageWhere);
         const id = $.const(source.data.id);
         const revision = $.const(source.data.revision);
-        // The narrowing as the rail holds it: each source's choices.
-        const state = $.const(read());
+        // The narrowing the read takes: none under `dim` — every row, the source's state read nowhere, so a choice reads
+        // nothing again and the renderer dims what it leaves out (§10.3) — else the rail's, each of the source's choices.
+        let taken: ExprType<typeof RecordSliceWhereType>;
+        if (every) {
+            taken = $.const(new Map(), RecordSliceWhereType);
+        } else {
+            const read = $.const(source.read);
+            const state = $.const(read());
+            taken = $.const(state.where);
+        }
         const result = $.let(none, OptionType(Held));
-        $.match(recordSliceReadPlatform([Entries], id, revision, countWhere, pageWhere, state.where), {
+        $.match(recordSliceReadPlatform([Entries], id, revision, countWhere, pageWhere, taken), {
             some: ($2, entries) => {
                 const held = $2.let(new Map(), Held);
                 $2.for(entries, ($3, e) => {

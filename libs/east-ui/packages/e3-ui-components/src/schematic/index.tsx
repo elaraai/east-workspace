@@ -57,6 +57,12 @@
  *   a component of their own (`inspector-rows.ts`), every edit one step of the
  *   history; and Issues (`issues.ts`), each selecting what it names. Enter, or
  *   a double-click on an entity, opens Details, its open tab kept per viewer;
+ * - **the narrowing** (#1392, `narrowing.ts`): each kind's source of the rail,
+ *   its shown keys followed while the narrowing dims or looks at its matches,
+ *   hiding what it leaves out or drawing it as context; every list — Find, the
+ *   Index, the Backlog, the Choosers, what an item is joined to — and every
+ *   count shows what it leaves in, and the canvas rings, frames and flies to
+ *   its matches;
  * - **the skeleton** — `BuilderFrame.loading` covers the frame until every
  *   kind has been read once (or its read failed); later reads keep the canvas
  *   and what it draws until they land (§6.5, §10.4).
@@ -88,9 +94,9 @@ import {
 } from "@elaraai/east-ui-components";
 import { schematicColorTokens } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
-import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
+import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { backlogEntries } from "./backlog.js";
-import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle } from "./canvas/view.js";
+import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle, type SchematicCanvasNarrowing } from "./canvas/view.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
 import { hostZones, zoneHolding } from "./canvas/model.js";
@@ -109,6 +115,7 @@ import { drawingIssues, sessionIssues } from "./issues.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
 import { useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
+import { looksAtMatches, narrowedDrawing, narrowedLook, schematicNarrowing, type SchematicNarrowedLook } from "./narrowing.js";
 import { useSchematicToolbarItems } from "./toolbar.js";
 import { offeredTools, toolsInForce, useSchematicTools } from "./tools.js";
 import { useSchematicDrop } from "./use-drop.js";
@@ -121,6 +128,7 @@ type Styles = Record<string, SystemStyleObject>;
 // is never replaced by a closure-only change.
 const schematicEqual = equivalentFor(Schematic.Types.Payload);
 const layersEqual = equalFor(ArrayType(Schematic.Types.Layer));
+const narrowedEqual = equalFor(Schematic.Types.Narrowed);
 const stringEqual = equalFor(StringType);
 
 export type { SchematicValue } from "./data.js";
@@ -182,15 +190,21 @@ interface SchematicFrameProps {
 }
 
 /**
- * The sources of the rail the library's tabs follow (#1389): each kind's
- * templates record's, and each an author's tab names — each once, in order —
- * and what the rail counts each in: a kind's templates, an author's tab's name.
+ * The sources of the rail the Schematic follows (#1389, #1392): each kind's
+ * templates record's, each an author's tab names, and — while the narrowing
+ * draws its context or its matches — each kind's read through its source;
+ * each once, in order, with what the rail counts each in: a kind's templates,
+ * an author's tab's name, a kind's rows.
  *
  * @param value - The payload
  * @param words - The Schematic's words
+ * @param chrome - The rail; `undefined` with no slice
+ * @param look - How a narrowed-out row draws, and what the matches take
  * @returns The sources, and their nouns, by name
  */
-function followedSources(value: SchematicValue, words: SchematicWords): { sources: string[]; nouns: Map<string, string> } {
+function followedSources(value: SchematicValue, words: SchematicWords, chrome: SourcesChrome | undefined, look: SchematicNarrowedLook): {
+    sources: string[]; nouns: Map<string, string>;
+} {
     const nouns = new Map<string, string>();
     for (const kind of [...value.items, ...value.links, ...value.nets]) {
         const source = getSomeorUndefined(kind.templatesSource);
@@ -200,26 +214,36 @@ function followedSources(value: SchematicValue, words: SchematicWords): { source
         const source = tab.type === "tab" ? getSomeorUndefined(tab.value.source) : undefined;
         if (tab.type === "tab" && source !== undefined && !nouns.has(source)) nouns.set(source, tab.value.name.toLocaleLowerCase(words.locale));
     }
+    // A kind's own source: its shown keys say what is context, dimmed, and what matches — read only while either draws.
+    if (look.dim || looksAtMatches(look)) {
+        for (const kind of [...value.items, ...value.zones, ...value.links, ...value.nets]) {
+            if (sourcePart(chrome, kind.key) !== undefined && !nouns.has(kind.key)) {
+                nouns.set(kind.key, words.m.kindNoun({ name: kind.name.toLocaleLowerCase(words.locale), plural: true }));
+            }
+        }
+    }
     return { sources: [...nouns.keys()], nouns };
 }
 
 /**
- * The frame, once each source its library's tabs follow is read (#1389): what
- * each templates list and each author's tab shows of the source it names —
- * one component a source, so a payload naming another set keeps each one's
- * hooks in order.
+ * The frame, once each source it follows is read (#1389, #1392): what each
+ * templates list and each author's tab shows of the source it names, and each
+ * kind's matches — one component a source, so a payload naming another set
+ * keeps each one's hooks in order.
  */
 function SchematicFollows(props: SchematicFrameProps) {
     const { value } = props;
     const formatters = useFormatters();
     const words = useMemo((): SchematicWords => ({ ...formatters, m: schematicMessages }), [formatters]);
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
-    const { sources, nouns } = useMemo(() => followedSources(value, words), [value, words]);
+    const narrowed = useDataStable(value.narrowed, narrowedEqual);
+    const look = useMemo(() => narrowedLook(narrowed), [narrowed]);
+    const { sources, nouns } = useMemo(() => followedSources(value, words, chrome, look), [value, words, chrome, look]);
     // What a source's failed narrowing says, in the Schematic's words.
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
     return (
         <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
-            {(followed) => <SchematicFrame {...props} followed={followed} />}
+            {(followed) => <SchematicFrame {...props} followed={followed} look={look} />}
         </FollowSources>
     );
 }
@@ -234,7 +258,10 @@ const NO_PICKS: ReadonlyMap<string, string> = new Map();
 const THEME_COLOURS: ReadonlySet<string> = new Set(schematicColorTokens);
 
 /** The frame, its regions holding the Schematic's parts over one shared state — see the module docs. */
-function SchematicFrame({ value, data, readAgain, storageKey, followed }: SchematicFrameProps & { readonly followed: FollowedSources }) {
+function SchematicFrame({ value, data, readAgain, storageKey, followed, look }: SchematicFrameProps & {
+    readonly followed: FollowedSources;
+    readonly look: SchematicNarrowedLook;
+}) {
     const styles = useSlotRecipe({ key: "schematic" })() as Styles;
     // The counts and the dates, in the app's locale (#850), and the Schematic's words.
     const formatters = useFormatters();
@@ -257,6 +284,24 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
     const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current), [data.drawn, data.held, editing.drafts]);
     const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: editing.record, mint: editing.mint } : undefined),
         [editing.edits, editing.record, editing.mint]);
+
+    // ── The narrowing (#1392, §10.2, §10.3): what each kind's source of the rail leaves out, hidden or dimmed ──
+    // Each kind read through its source; its shown keys once they have resolved — a pending one is not empty — `none`
+    // while it narrows nothing, read while the narrowing dims or looks at its matches.
+    const sourced = useMemo(() => new Set([...value.items, ...value.zones, ...value.links, ...value.nets]
+        .flatMap((kind) => (sourcePart(chrome, kind.key) === undefined ? [] : [kind.key]))), [value.items, value.zones, value.links, value.nets, chrome]);
+    const kindKeys = useCallback((slot: string): option<ReadonlySet<string>> | undefined => {
+        const shown = sourced.has(slot) ? followed.get(slot)?.shown : undefined;
+        return shown === undefined || (shown.keys.type === "some" && !shown.ready) ? undefined : shown.keys;
+    }, [sourced, followed]);
+    const narrowing = useMemo(() => schematicNarrowing({ drawn: drawing, held: data.held, sourced, keys: kindKeys, dim: look.dim }),
+        [drawing, data.held, sourced, kindKeys, look.dim]);
+    // The drawing as every list shows it — Find, the Index, the Choosers, what an item is joined to, the counts.
+    const listed = useMemo(() => narrowedDrawing(drawing, narrowing.out), [drawing, narrowing.out]);
+    const canvasNarrowing = useMemo((): SchematicCanvasNarrowing => ({ context: narrowing.context, out: narrowing.out, matches: narrowing.matches, look }),
+        [narrowing, look]);
+    // A kind's narrowing resolving: the frame is busy, its last membership drawn meanwhile.
+    const narrowingBusy = [...sourced].some((slot) => { const one = followed.get(slot); return one !== undefined && one.shown.busy && one.error === undefined; });
     // Why the last gesture was refused, until one is recorded or Esc.
     const [refusal, setRefusal] = useState<string | undefined>(undefined);
 
@@ -318,26 +363,31 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
     const connectValues = useCallback((slot: string): option<Uint8Array> =>
         (pickedTemplate !== undefined && stringEqual(pickedTemplate.slot, slot) ? some(pickedTemplate.values) : none), [pickedTemplate]);
 
-    // ── Find (§6.1): the items the drawing shows, by their keys ─────────
+    // ── Find (§6.1): the items the drawing shows, by their keys — what the narrowing leaves out left out ─────────
     const kindsBySlot = useMemo(() => new Map(value.items.map((kind, order) => [kind.key, { name: kind.name, order }] as const)), [value.items]);
-    const findable = useMemo((): FindableItem[] => drawing.items.flatMap((item) => {
+    const findable = useMemo((): FindableItem[] => listed.items.flatMap((item) => {
         const kind = kindsBySlot.get(item.ref.kind);
         return layers.hidden.has(item.key) || kind === undefined ? []
             : [{ id: item.key, key: item.ref.key, label: item.label, kind: kind.name, order: kind.order }];
-    }), [drawing.items, layers.hidden, kindsBySlot]);
+    }), [listed.items, layers.hidden, kindsBySlot]);
     const reveal = useCallback((entity: string) => canvasRef.current?.reveal(entity), []);
     const find = useFindItem(findable, words.m.findNoMatches(), reveal);
 
     // ── The toolbar (§6.1) ──────────────────────────────────────────────
-    // What the rail counts a templates list's source in: its kind's templates.
+    // What the rail counts a source in: a templates list's, its kind's templates; a kind's own, its rows (#1392).
     const nouns = useMemo(() => {
         const named: Record<string, string> = {};
         for (const kind of [...value.items, ...value.links, ...value.nets]) {
             const source = getSomeorUndefined(kind.templatesSource);
             if (source !== undefined && named[source] === undefined) named[source] = words.m.templatesNoun({ name: kind.name.toLocaleLowerCase(words.locale) });
         }
+        for (const kind of [...value.items, ...value.zones, ...value.links, ...value.nets]) {
+            if (named[kind.key] === undefined && sourcePart(chrome, kind.key) !== undefined) {
+                named[kind.key] = words.m.kindNoun({ name: kind.name.toLocaleLowerCase(words.locale), plural: true });
+            }
+        }
         return named;
-    }, [value.items, value.links, value.nets, words]);
+    }, [value.items, value.zones, value.links, value.nets, chrome, words]);
     const toolbarRef = useRef<HTMLDivElement>(null);
     // The history's acts: whatever has the focus lets it go first — a field commits what it holds.
     const history = editing.history;
@@ -376,9 +426,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
     }, [edits, onAction]);
 
     // ── The library (#1389, §8): the start pane, when `library` lists a tab ──
-    // Every item kind's rows with no position, the drafts in place: the Backlog's.
-    const backlog = useMemo(() => backlogEntries(value.items, data.unplaced, data.held, editing.drafts.items),
-        [value.items, data.unplaced, data.held, editing.drafts.items]);
+    // Every item kind's rows with no position, the drafts in place: the Backlog's — dimmed, its context left out (#1392).
+    const backlog = useMemo(() => backlogEntries(value.items, data.unplaced, data.held, editing.drafts.items).filter((entry) => !narrowing.isContext(entry.ref)),
+        [value.items, data.unplaced, data.held, editing.drafts.items, narrowing]);
     // An item kind with a backlog read through its source: while the rail narrows one, the Backlog says so, with Clear filters.
     const backlogParts = useMemo(() => value.items.flatMap((kind) => {
         const part = kind.backlog ? sourcePart(chrome, kind.key) : undefined;
@@ -391,9 +441,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
         // `backlogVersion` moves with each source's choices.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [backlogParts, backlogVersion]);
-    // The Index's zones and items: what the canvas draws, a hidden layer's left out.
-    const shownZones = useMemo(() => (layers.hidden.size === 0 ? drawing.zones : drawing.zones.filter((zone) => !layers.hidden.has(zone.key))), [drawing.zones, layers.hidden]);
-    const shownItems = useMemo(() => (layers.hidden.size === 0 ? drawing.items : drawing.items.filter((item) => !layers.hidden.has(item.key))), [drawing.items, layers.hidden]);
+    // The Index's zones and items: what the canvas draws, a hidden layer's and what the narrowing leaves out left out.
+    const shownZones = useMemo(() => (layers.hidden.size === 0 ? listed.zones : listed.zones.filter((zone) => !layers.hidden.has(zone.key))), [listed.zones, layers.hidden]);
+    const shownItems = useMemo(() => (layers.hidden.size === 0 ? listed.items : listed.items.filter((item) => !layers.hidden.has(item.key))), [listed.items, layers.hidden]);
     // How many entities each layer holds: every one on it, shown or hidden.
     const layerCounts = useMemo(() => {
         const counts = new Map<string, number>();
@@ -453,7 +503,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
         items: value.items.map((kind) => ({ key: kind.key, name: kind.name })),
         zones: value.zones.length > 0, links: value.links.length > 0, nets: value.nets.length > 0,
     }), [value.items, value.zones, value.links, value.nets]);
-    const counts = useMemo(() => schematicCounts(counted, drawing, layers), [counted, drawing, layers]);
+    // What the narrowing leaves out counts nowhere: dimmed context is no match.
+    const counts = useMemo(() => schematicCounts(counted, listed, layers), [counted, listed, layers]);
     // Each item kind read through its source of the slice: its record's total is its rows.
     const sources = useMemo(() => new Map(value.items.flatMap((kind) => {
         const part = sourcePart(chrome, kind.key);
@@ -550,12 +601,12 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
         // eslint-disable-next-line react-hooks/exhaustive-deps
     ], [sessions, historyVersion, kindName, labels, drawing, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
     const end = schematicInspectorPane({
-        value, inspected, rows: inspectedRows, drawn: drawing, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
+        value, inspected, rows: inspectedRows, drawn: drawing, listed, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
     });
 
     return (
-        <Box css={styles.root} data-schematic="" {...(data.loading ? { "aria-busy": "true" } : {})}>
+        <Box css={styles.root} data-schematic="" {...(data.loading || narrowingBusy ? { "aria-busy": "true" } : {})}>
             {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} onRows={setInspectedRows} />}
             <BuilderFrame
                 ref={frameRef}
@@ -571,7 +622,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, followed }: Schema
                     pending={pending} notices={notices} refusal={refusal} />}
                 onKeyDown={onKeyDown}
             >
-                <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} tool={held.tool} linkKind={held.link}
+                <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
                     words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                     onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues} />
             </BuilderFrame>

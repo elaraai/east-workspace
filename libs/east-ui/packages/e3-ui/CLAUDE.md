@@ -135,7 +135,10 @@ by its slot — is bound as it is read. Read whole, an editable kind binds
 it complete through that source instead, the kind giving `entries:
 Data.bindPaged(record)` beside its `Record.bind`, or bound
 `Data.bindPaged(record)` alone, read only. An indexed read is the source,
-never the kind's record. A kind's details (`Schematic.details`) are bound as
+never the kind's record. Hidden — the default — a narrowed-out row is never
+read; under `narrowed="dim"` (#1392) the kind reads every row through its
+source, never its narrowing, so a choice reads no row again, and the renderer
+draws what the narrowing leaves out as context, from the source's shown keys. A kind's details (`Schematic.details`) are bound as
 their kind is read: whole beside a kind read whole, by key beside one read
 through its source. Each templates list is `Schematic.templates(
 templates.read(), { name, group?, values, source })` over a record bound with

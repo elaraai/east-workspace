@@ -31,6 +31,9 @@
  * - **nothing**: the drawing — its counts, and each record's last save with
  *   who made it.
  *
+ * A Chooser, a side's tags and what an item is joined to offer only what the
+ * rail's narrowing shows (#1392, §10.2).
+ *
  * Every edit is one step of the editing's history (`editing.ts`): a field
  * through its record's `set`, the row a kind's own Details hands back through
  * `update` whole, a position, ends or sides through the kind's `write`, and
@@ -108,6 +111,8 @@ export interface SchematicInspectorProps {
     readonly rows: SchematicInspectedRows;
     /** What the canvas draws: the stored rows, the drafts in place. */
     readonly drawn: SchematicDrawn;
+    /** The drawing as its lists show it, what the rail's narrowing leaves out left out (#1392): what a Chooser offers, and what an item is joined to. */
+    readonly listed: SchematicDrawn;
     /** The editing: each record's session and drafts, and how an edit is recorded. */
     readonly editing: SchematicEditing;
     /** What the footer counts: the drawing's Details says it too. */
@@ -480,7 +485,7 @@ function SideBody({ styles, head, section, side, own, state, onField, writes, st
 
 /** An item: its head, its form or own Details, its details', its position and Unplace, Delete, and what it is joined to. */
 function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: SchematicValue["items"][number] }) {
-    const { item, kind, styles, words, value, drawn, rows, zoneAt, reveal, storageKey } = props;
+    const { item, kind, styles, words, value, drawn, listed, rows, zoneAt, reveal, storageKey } = props;
     const m = words.m;
     const unit = getSomeorUndefined(value.scaleUnit);
     // The item's own row, and its details row: each its record's side.
@@ -504,7 +509,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
         const at = stringEqual(path[0]!, "x") ? { x: n, y: item.y } : { x: item.x, y: n };
         commit([{ op: "place", ref: item.ref, at: some(at) }], "move", m.inspectorStep({ edit: "edit", name: item.label }));
     }, [item, commit, m]);
-    const joins = useMemo(() => joinsOf(item.key, drawn), [item.key, drawn]);
+    const joins = useMemo(() => joinsOf(item.key, listed), [item.key, listed]);
     const names = useMemo(() => new Map([...value.links, ...value.nets].map((k) => [k.key, k.name] as const)), [value.links, value.nets]);
     const actions = !self.writes ? undefined : (
         <>
@@ -601,7 +606,7 @@ function itemChoices(drawn: SchematicDrawn, slots: readonly string[], names: Rea
 
 /** A link: its head, its ends as Choosers, its form or own Details, and Delete. */
 function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: SchematicValue["links"][number] }) {
-    const { link, kind, styles, words, value, drawn, rows, storageKey } = props;
+    const { link, kind, styles, words, value, drawn, listed, rows, storageKey } = props;
     const m = words.m;
     const name = nameOf(link.key, drawn, words);
     const own = useSide(props, link.ref, name, kind, false);
@@ -609,9 +614,9 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
     const [refused, refuse] = useRefused();
     const names = useMemo(() => new Map(value.items.map((k) => [k.key, k.name] as const)), [value.items]);
     const options = useMemo(() => ({
-        from: itemChoices(drawn, kind.ends.from, names, [link.from]),
-        to: itemChoices(drawn, kind.ends.to, names, [link.to]),
-    }), [drawn, kind.ends, names, link.from, link.to]);
+        from: itemChoices(listed, kind.ends.from, names, [link.from]),
+        to: itemChoices(listed, kind.ends.to, names, [link.to]),
+    }), [listed, kind.ends, names, link.from, link.to]);
     const specs = useMemo(() => Fields.specs(EndsFormType, {
         from: Fields.reference({ of: "from", label: m.inspectorField({ field: "from" }) }),
         to: Fields.reference({ of: "to", label: m.inspectorField({ field: "to" }) }),
@@ -653,14 +658,14 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
 
 /** A net: its head, its sides as tags, its form or own Details, and Delete. */
 function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: SchematicValue["nets"][number] }) {
-    const { net, kind, styles, words, drawn, rows, storageKey, refuse: say } = props;
+    const { net, kind, styles, words, drawn, listed, rows, storageKey, refuse: say } = props;
     const m = words.m;
     const name = nameOf(net.key, drawn, words);
     const own = useSide(props, net.ref, name, kind, false);
     const { commit, remove } = useCommit(props);
     const [refused, refuse] = useRefused();
     const keysOf = (ids: readonly string[]) => ids.map((id) => refOfId(id)?.key ?? id);
-    const slotKeys = useCallback((slot: string) => drawn.items.filter((item) => stringEqual(item.ref.kind, slot)).map((item) => item.ref.key), [drawn.items]);
+    const slotKeys = useCallback((slot: string) => listed.items.filter((item) => stringEqual(item.ref.kind, slot)).map((item) => item.ref.key), [listed.items]);
     const specs = useMemo(() => Fields.specs(SidesFormType, {
         sources: Fields.tags({ label: m.inspectorField({ field: "sources" }), options: slotKeys(kind.sides.sources) }),
         destinations: Fields.tags({ label: m.inspectorField({ field: "destinations" }), options: slotKeys(kind.sides.destinations) }),

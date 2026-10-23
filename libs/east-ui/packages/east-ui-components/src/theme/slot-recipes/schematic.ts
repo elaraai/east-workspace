@@ -205,7 +205,10 @@ export const schematicSlotRecipe = defineSlotRecipe({
         },
         /* An item's card at card zoom. Its layer's opacity is the layer's
          * own (`--schematic-layer-opacity`); a card on a locked layer takes
-         * no pointer, so a click falls through to what lies beneath. */
+         * no pointer, so a click falls through to what lies beneath. A card
+         * the rail's narrowing draws as context (#1392) fades to the opacity
+         * its `narrowed` gives (`--schematic-context-opacity`), drained of
+         * colour while it says so, and takes no pointer either. */
         item: {
             position: "absolute",
             transform: "translate(-50%, -50%)",
@@ -221,8 +224,10 @@ export const schematicSlotRecipe = defineSlotRecipe({
             paddingY: "{spacing.1}",
             minWidth: "84px",
             cursor: "pointer",
-            opacity: "var(--schematic-layer-opacity, 1)",
+            opacity: "calc(var(--schematic-layer-opacity, 1) * var(--schematic-context-opacity, 1))",
             "&[data-locked]": { pointerEvents: "none" },
+            "&[data-context]": { pointerEvents: "none" },
+            "&[data-context][data-desaturate]": { filter: "grayscale(1)" },
             "&[data-selected]": {
                 outline: "2px solid",
                 outlineColor: "fg",

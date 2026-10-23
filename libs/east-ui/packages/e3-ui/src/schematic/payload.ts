@@ -25,10 +25,13 @@
  * that narrows it.
  *
  * Its narrowing is one `Slice.bindRecords` (§10.1): a source named after a
- * kind's slot narrows that kind, read complete through it (`window.ts`), and
- * each other source the templates list or the author's tab that names it. The
- * payload's block binds each source once (`recordSources(…).bind($)`, #1356),
- * and each kind reads its own source inside its functions.
+ * kind's slot narrows that kind, read complete through it (`window.ts`) — or,
+ * under `narrowed="dim"`, every row read through it, and what the narrowing
+ * leaves out drawn as context (§10.3, #1392) — and each other source the
+ * templates list or the author's tab that names it. The payload's block binds
+ * each source once (`recordSources(…).bind($)`, #1356), and each kind reads
+ * its own source inside its functions; none reads a source's state, so a
+ * choice builds the Schematic no more (#1354).
  *
  * The props §2 removes are refused when the surface is built, each naming the
  * form that replaces it (SC3).
@@ -371,8 +374,16 @@ function extentOf(extent: unknown): { width: number; height: number } {
     return { width: box!.width as number, height: box!.height as number };
 }
 
-/** How a narrowed-out row draws, on the wire. */
-function narrowedOf(narrowed: unknown): ExprType<SchematicNarrowedType> {
+/**
+ * How a narrowed-out row draws (§10.3), on the wire; and whether it is dimmed,
+ * when each kind read through its source reads every row and the renderer
+ * draws what the narrowing leaves out as context.
+ *
+ * @param narrowed - The Schematic's `narrowed`
+ * @returns It on the wire, and whether a narrowed-out row is dimmed
+ * @throws {Error} For a `narrowed` of another form, naming the forms it takes
+ */
+function narrowedOf(narrowed: unknown): { wire: ExprType<SchematicNarrowedType>; dim: boolean } {
     const options = narrowed === undefined || narrowed === "hide" ? { show: "hide" } : narrowed === "dim" ? { show: "dim" } : narrowed;
     const o = options as Partial<Record<keyof SchematicNarrowedOptions, unknown>>;
     const flag = (value: unknown) => value === undefined || typeof value === "boolean";
@@ -382,7 +393,7 @@ function narrowedOf(narrowed: unknown): ExprType<SchematicNarrowedType> {
         || !(o.emphasis === undefined || o.emphasis === "halo" || o.emphasis === "pulse")) {
         throw new Error("Schematic: `narrowed` is \"hide\" (the default), \"dim\", or { show: \"hide\" | \"dim\", opacity?: 0–1, desaturate?, dot?, emphasis?: \"halo\" | \"pulse\", frame?, fit? }");
     }
-    return East.value({
+    const wire = East.value({
         show: variant(o.show as "hide" | "dim", null),
         opacity: (o.opacity as number | undefined) ?? 0.35,
         desaturate: (o.desaturate as boolean | undefined) ?? true,
@@ -391,6 +402,7 @@ function narrowedOf(narrowed: unknown): ExprType<SchematicNarrowedType> {
         frame: (o.frame as boolean | undefined) ?? false,
         fit: (o.fit as boolean | undefined) ?? false,
     }, SchematicNarrowedType);
+    return { wire, dim: o.show === "dim" };
 }
 
 /** The layers' declaration, as a refusal names it. */
@@ -540,8 +552,9 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
         // Each source bound once (#1356): a kind reads its own source inside its functions.
         const bound = sources.bind($);
         const shown = East.value(new Map(Object.entries(bound.keys)) as never, ShownType) as ExprType<typeof ShownType>;
+        // Dimmed, a kind read through its source reads every row: the renderer draws what the narrowing leaves out as context.
         const built = (sort: Slotted["sort"]) => kinds.filter((one) => one.sort === sort)
-            .map((one) => one.kind.build(one.slot, bound.parts[one.slot]));
+            .map((one) => one.kind.build(one.slot, bound.parts[one.slot], narrowed.dim));
         return East.value({
             extent,
             scaleUnit: optional(given.scaleUnit),
@@ -552,7 +565,7 @@ export function createSchematicPayload(props: object): ExprType<SchematicPayload
             layers,
             slice: sources.chrome,
             shown,
-            narrowed,
+            narrowed: narrowed.wire,
             library,
             inspector,
             readOnly: given.readOnly ?? false,

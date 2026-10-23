@@ -8,15 +8,15 @@
  * paint layer can't be pixel-snapshotted here, so these assert the maths an arc
  * renders from: centre, radius, endpoints-on-circle, and — the bit a data test
  * can't catch — that the arc bulges to the side the bulge sign dictates. A
- * drop's marks (#1390) are asserted over a 2D context that records what each
- * stroke and fill draws: its style, width, dash and alpha, and its path's
- * arcs.
+ * drop's marks (#1390), and the narrowing's context, emphasis and frame
+ * (#1392), are asserted over a 2D context that records what each stroke and
+ * fill draws: its style, width, dash and alpha, and its path's arcs.
  */
 
 import { describe, it, expect } from "vitest";
 import { defaultValue, none, some, variant } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { drawnItem, drawnLink, drawnZone, type SchematicDrawn } from "./drawn";
+import { drawnItem, drawnLink, drawnNet, drawnZone, type SchematicDrawn } from "./drawn";
 import {
     netGeometry,
     MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS,
@@ -443,5 +443,99 @@ describe("a drop's marks (#1390)", () => {
             ["stroke", BRAND, [{ x: 50, y: 70, r: 8 }]],
             ["fill", BRAND, [{ x: 50, y: 70, r: 2.5 }]],
         ]);
+    });
+});
+
+// ============================================================================
+// The narrowing (#1392)
+// ============================================================================
+
+describe("the narrowing's context, emphasis and frame (#1392)", () => {
+    const T = Schematic.Types;
+    const at = (key: string, x: number, y: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y }), label: key,
+    }, undefined)!;
+    const a = at("A", 2, 2), b = at("B", 8, 2), c = at("C", 14, 2), unit = at("P", 8, 12);
+    const run = (key: string, from: string, to: string) => drawnLink({ kind: "fibre", key }, {
+        ...defaultValue<typeof T.Link>(T.Link), from: { kind: "racks", key: from }, to: { kind: "racks", key: to },
+        route: variant("direct", null), style: variant("solid", { tone: none, weight: none }),
+    });
+    const u1 = run("u1", "A", "B"), u2 = run("u2", "B", "C");
+    const cage = drawnZone({ kind: "areas", key: "cage" }, {
+        ...defaultValue<typeof T.Zone>(T.Zone), x: 10, y: 10, width: 4, height: 4, label: "Cage", pattern: variant("outline", { tone: none }),
+    });
+    // P feeds A and C: two stubs off a bar, A's then C's.
+    const feed = drawnNet({ kind: "feeds", key: "f" }, {
+        ...defaultValue<typeof T.Net>(T.Net), sources: [{ kind: "racks", key: "P" }], destinations: [{ kind: "racks", key: "A" }, { kind: "racks", key: "C" }],
+        route: variant("direct", null), style: variant("solid", { tone: none, weight: none }),
+    });
+    const items = [a, b, c, unit];
+    const DRAWN: SchematicDrawn = { items, zones: [cage], links: [u1, u2], nets: [feed] };
+    /** Each rack in a red of its own; each run and the feed in a green: what greying takes away. */
+    const RED: RGB = [200, 0, 0], GREEN: RGB = [0, 200, 0];
+    const TINTS = new Map<string, RGB>([...items.map((i): [string, RGB] => [i.key, RED]), [u1.key, GREEN], [u2.key, GREEN], [feed.key, GREEN], [cage.key, RED]]);
+
+    /** What a frame paints at 10 px a unit, the items as dots, under an effect. */
+    function paint(effect: PaintInput["effect"]): Drawn[] {
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: DRAWN, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: items, tiers: new Map(items.map((i) => [i.key, "dot" as const])), selected: new Set(), selectedZones: new Set(),
+            centers: new Map(items.map((i) => [i.key, { x: i.x, y: i.y }])), palette: PALETTE, tints: TINTS,
+            ...(effect === undefined ? {} : { effect }),
+        });
+        return drawn;
+    }
+    const RED_CSS = "rgb(200,0,0)", GREEN_CSS = "rgb(0,200,0)";
+    /** The palette's muted ink (`fgMuted`), and a zone's ground (`borderStrong`). */
+    const MUTED = "rgb(5,5,5)", GROUND = "rgb(11,11,11)";
+    /** The matches' ring: the brand's mark (`brandMark`) at the halo's alpha. */
+    const HALO = "rgba(0,0,0,0.34)";
+    /** The palette's brand line (`brand.solid`), as the frame strokes it. */
+    const BRAND_LINE = "rgb(10,20,30)";
+    const effect = (over: Partial<NonNullable<PaintInput["effect"]>>): NonNullable<PaintInput["effect"]> => ({
+        excluded: new Set(), excludedOpacity: 0.35, excludedDesaturate: true, matches: new Set(), emphasis: undefined, pulsePhase: 0, frame: undefined, ...over,
+    });
+    /** A dot's fill about a centre, in screen px. */
+    const dotAt = (drawn: Drawn[], x: number, y: number) => drawn.find((d) => d.op === "fill" && d.arcs.some((r) => r.x === x && r.y === y && r.r === 5))!;
+
+    it("what draws as context is faded and greyed — a rack's dot, a run, a zone's edge, and the feed's leg to it — and the rest draws as itself", () => {
+        const drawn = paint(effect({ excluded: new Set([c.key, u2.key, cage.key]) }));
+        expect([dotAt(drawn, 140, 20).style, dotAt(drawn, 140, 20).alpha]).toEqual([MUTED, 0.35]);
+        expect([dotAt(drawn, 20, 20).style, dotAt(drawn, 20, 20).alpha]).toEqual([RED_CSS, 1]);
+        // The runs: u1 as itself, u2 faded in the muted ink — their lines, 2.5 wide.
+        expect(drawn.filter((d) => d.op === "stroke" && d.width === 2.5 && d.arcs.length === 0).map((d) => [d.style, d.alpha])).toEqual([
+            [GREEN_CSS, 1], [MUTED, 0.35],
+            // The feed's stubs, its weight: A's as itself, C's faded with C.
+            [GREEN_CSS, 1], [MUTED, 0.35],
+        ]);
+        // The cage's dashed edge, drained to a zone's ground.
+        expect(drawn.filter((d) => d.op === "stroke" && d.dash.length === 2 && d.dash[0] === 5).map((d) => [d.style, d.alpha])).toEqual([[GROUND, 0.35]]);
+        // Greying off: faded in its own colour.
+        const kept = paint(effect({ excluded: new Set([c.key]), excludedDesaturate: false }));
+        expect([dotAt(kept, 140, 20).style, dotAt(kept, 140, 20).alpha]).toEqual([RED_CSS, 0.35]);
+    });
+
+    it("a halo rings each match — a rack's marker, a zone's edge, a run's line and the feed's — and nothing else", () => {
+        const drawn = paint(effect({ matches: new Set([a.key, cage.key, u1.key, feed.key]), emphasis: "halo" }));
+        const rings = drawn.filter((d) => d.style === HALO);
+        // The zone's edge (2 + 4), the run under its line (2.5 + 4 + 4), the feed under its trunk, bar and stubs (2.5 + 5 + 4), and A's marker (11 + 4).
+        expect(rings.map((d) => d.width)).toEqual([6, 10.5, 11.5, 11.5, 11.5, 11.5, 2]);
+        expect(rings.at(-1)!.arcs).toEqual([{ x: 20, y: 20, r: 15 }]);
+        // No match, no ring: an emphasis over nothing draws nothing.
+        expect(paint(effect({ emphasis: "halo" })).filter((d) => d.style === HALO)).toEqual([]);
+    });
+
+    it("a pulse breathes: its ring grows and fades with its phase", () => {
+        const ringOf = (phase: number) => paint(effect({ matches: new Set([a.key]), emphasis: "pulse", pulsePhase: phase }))
+            .find((d) => d.op === "stroke" && d.arcs.some((r) => r.x === 20 && r.y === 20 && r.r > 5))!;
+        // At rest the breath is half drawn in; a quarter on, it is full: wider, and fainter.
+        expect([ringOf(0).arcs[0]!.r, ringOf(0).style]).toEqual([11 + 3.5, `rgba(0,0,0,${0.14 + 0.3 * 0.5})`]);
+        expect([ringOf(0.25).arcs[0]!.r, ringOf(0.25).style]).toEqual([11 + 7, "rgba(0,0,0,0.14)"]);
+    });
+
+    it("the frame boxes the matches in a dashed brand edge over the brand's wash", () => {
+        const drawn = paint(effect({ matches: new Set([a.key, b.key]), frame: { minX: 2, minY: 2, maxX: 8, maxY: 2 } }));
+        expect(drawn.filter((d) => d.dash.length === 2 && d.dash[0] === 7).map((d) => [d.op, d.style, d.width])).toEqual([["stroke", BRAND_LINE, 1.5]]);
     });
 });

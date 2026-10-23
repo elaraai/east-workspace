@@ -97,24 +97,25 @@ export interface PaintCamera {
 }
 
 /**
- * Slice-effect paint parameters — how filtered-out items are de-emphasized and
- * the remainder emphasized. Absent from {@link PaintInput} ⇒ no effect (today's
- * behaviour). `hide`-mode excluded items are already dropped from `visibleItems`
- * upstream, so `excluded` here only ever holds *kept* (shown, de-emphasized)
- * item keys.
+ * What the rail's narrowing paints (#1392, §10.3): the rows it leaves out drawn
+ * as context, and its matches emphasised and framed. Absent from
+ * {@link PaintInput} ⇒ nothing narrows. A narrowed-out row that is hidden is
+ * never drawn, so `excluded` holds only what draws as context.
  */
 export interface SchematicPaintEffect {
-    /** Keys of kept-but-excluded items among `visibleItems` (dimmed / greyed). */
+    /** What draws as context, by id — items, zones, links and nets — faded, and greyed when `excludedDesaturate`; a net's leg to a context item too. */
     excluded: ReadonlySet<string>;
-    /** Fade alpha (0–1) applied to kept-excluded items; `1` ⇒ no fade. */
+    /** Context's alpha (0–1); `1` ⇒ no fade. */
     excludedOpacity: number;
-    /** Drain kept-excluded items' colour to grey. */
+    /** Drain context's colour to the muted ink. */
     excludedDesaturate: boolean;
-    /** Positive emphasis on matched items; `undefined` ⇒ none. */
+    /** The matches, by id: what `emphasis` rings — an item's marker, a zone's edge, a link's or a net's line. */
+    matches: ReadonlySet<string>;
+    /** The matches' emphasis — a ring, or one that breathes; `undefined` ⇒ none. */
     emphasis: "halo" | "pulse" | undefined;
     /** Animated pulse phase in `[0, 1)`; only read when `emphasis === "pulse"`. */
     pulsePhase: number;
-    /** World-coordinate bbox to frame the matched set; `undefined` ⇒ no frame. */
+    /** World-coordinate bbox framing the matches; `undefined` ⇒ no frame. */
     frame: Bbox | undefined;
 }
 
@@ -145,7 +146,7 @@ export interface PaintInput {
      * (`theme.tsx`). An entity it lacks draws in its kind's ground colour.
      */
     tints: ReadonlyMap<string, RGB>;
-    /** Optional slice-effect paint parameters (ghost / emphasis / frame). */
+    /** What the rail's narrowing paints: context, emphasis and a frame (#1392). */
     effect?: SchematicPaintEffect;
     /** Entity keys in a hidden layer — zones / links with a hidden-layer key are
      * skipped (items are already pre-filtered out of `visibleItems`). Empty ⇒ no
@@ -688,13 +689,20 @@ export function paintSchematic(input: PaintInput): void {
     const wx = (x: number) => x * cam.ppu + cam.tx;
     const wy = (y: number) => y * cam.ppu + cam.ty;
     const ppu = cam.ppu;
-    // Per-item render alpha / tint. `alphaOf` folds the slice-keep fade and the
-    // layer dim (multiplicative); `desatOf` re-tints a desaturated excluded item.
+    // Render alpha / tint. `contextAlpha` is the narrowing's fade of what draws as context (#1392); `alphaOf` folds an
+    // item's layer dim into it (multiplicative) — a layer dims its items alone; `desatOf` drains context to the muted ink.
     const isExcluded = (key: string): boolean => effect?.excluded.has(key) ?? false;
     const layerHidden = (key: string): boolean => layerHiddenKeys?.has(key) ?? false;
-    const alphaOf = (key: string): number =>
-        ((effect !== undefined && isExcluded(key)) ? effect.excludedOpacity : 1) * (layerAlpha?.get(key) ?? 1);
+    const contextAlpha = (key: string): number => ((effect !== undefined && isExcluded(key)) ? effect.excludedOpacity : 1);
+    const alphaOf = (key: string): number => contextAlpha(key) * (layerAlpha?.get(key) ?? 1);
     const desatOf = (key: string): boolean => (effect !== undefined && isExcluded(key) && effect.excludedDesaturate);
+    // The matches' emphasis (§10.3): a ring of the brand's mark about a match — steady for `halo`, breathing for
+    // `pulse` (0..1 sinusoid) — on an item's marker, a zone's edge, or under a link's or a net's line.
+    const pulse = effect?.emphasis === "pulse";
+    const breath = pulse ? Math.sin(effect!.pulsePhase * Math.PI * 2) * 0.5 + 0.5 : 1;
+    const emphasised = (key: string): boolean => effect !== undefined && effect.emphasis !== undefined && effect.matches.has(key);
+    const ringAlpha = pulse ? 0.14 + 0.30 * (1 - breath) : 0.34;
+    const ringGrow = pulse ? breath * 7 : 4;
     // The world rect currently on screen — zones / links whose geometry bbox
     // misses it are culled (issue #57, P6). Items are already viewport-culled
     // into `visibleItems` by the React layer's rbush.
@@ -716,17 +724,32 @@ export function paintSchematic(input: PaintInput): void {
         const geom = getSomeorUndefined(zone.geometry);
         if (!bboxOverlaps(zoneWorldBbox(zone, geom), viewBbox)) continue;
         const pattern = zone.pattern;
-        // Its colour token, else its tone, else its pattern's (§4.2).
-        const tint = tintOf(zone.key, p.borderStrong);
+        // Its colour token, else its tone, else its pattern's (§4.2); as context, drained to its ground (#1392).
+        const tint = desatOf(zone.key) ? css(p.borderStrong) : tintOf(zone.key, p.borderStrong);
         // A zone is unfilled unless its `fillOpacity` says how much: then it is filled in its tint.
         const zFillAlpha = getSomeorUndefined(zone.fillOpacity);
         const zWeight = getSomeorUndefined(zone.weight);
         const x = wx(zone.x), y = wy(zone.y), w = zone.width * ppu, h = zone.height * ppu;
         const anchor = zoneAnchor(zone);
+        // Its whole drawing faded as context, each alpha of its own times it.
+        const za = contextAlpha(zone.key);
+        ctx.save();
+        ctx.globalAlpha = za;
+        // Its shape's path, in screen space: its circle, its polygon, or its box.
+        const traceShape = () => {
+            ctx.beginPath();
+            if (geom !== undefined && geom.type === "circle") {
+                ctx.arc(x + w / 2, y + h / 2, geom.value.radius * ppu, 0, Math.PI * 2);
+            } else if (geom !== undefined && geom.type === "polygon") {
+                traceVertices(ctx, placedVertices(anchor, geom.value.vertices).map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge })), true);
+            } else {
+                ctx.rect(x, y, w, h);
+            }
+        };
         const fillShape = () => {
             if (zFillAlpha === undefined) return;
             ctx.save();
-            ctx.globalAlpha = zFillAlpha;
+            ctx.globalAlpha = zFillAlpha * za;
             ctx.fillStyle = tint;
             ctx.fill();
             ctx.restore();
@@ -761,7 +784,7 @@ export function paintSchematic(input: PaintInput): void {
                         ctx.lineCap = "round";
                         ctx.lineWidth = zWeight ?? band ?? 1.5;
                         ctx.save();
-                        ctx.globalAlpha = 0.55;
+                        ctx.globalAlpha = 0.55 * za;
                         ctx.strokeStyle = tint;
                         ctx.stroke();
                         ctx.restore();
@@ -780,12 +803,12 @@ export function paintSchematic(input: PaintInput): void {
             ctx.clip();
             if (zFillAlpha !== undefined) {
                 ctx.save();
-                ctx.globalAlpha = zFillAlpha;
+                ctx.globalAlpha = zFillAlpha * za;
                 ctx.fillStyle = tint;
                 ctx.fillRect(x, y, w, h);
                 ctx.restore();
             }
-            ctx.globalAlpha = 0.3;
+            ctx.globalAlpha = 0.3 * za;
             ctx.strokeStyle = tint;
             ctx.lineWidth = zWeight ?? 1;
             const dx = Math.cos(angle), dy = Math.sin(angle);
@@ -804,7 +827,7 @@ export function paintSchematic(input: PaintInput): void {
         } else {
             if (zFillAlpha !== undefined) {
                 ctx.save();
-                ctx.globalAlpha = zFillAlpha;
+                ctx.globalAlpha = zFillAlpha * za;
                 ctx.fillStyle = tint;
                 ctx.fillRect(x, y, w, h);
                 ctx.restore();
@@ -821,18 +844,11 @@ export function paintSchematic(input: PaintInput): void {
         // over the zone's actual shape, drawn above its pattern.
         if (selectedZones?.has(zone.key) ?? false) {
             ctx.save();
-            ctx.beginPath();
-            if (geom !== undefined && geom.type === "circle") {
-                ctx.arc(x + w / 2, y + h / 2, geom.value.radius * ppu, 0, Math.PI * 2);
-            } else if (geom !== undefined && geom.type === "polygon") {
-                traceVertices(ctx, placedVertices(anchor, geom.value.vertices).map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge })), true);
-            } else {
-                ctx.rect(x, y, w, h);
-            }
-            ctx.globalAlpha = 0.7;
+            traceShape();
+            ctx.globalAlpha = 0.7 * za;
             ctx.fillStyle = css(p.brandTint);
             ctx.fill();
-            ctx.globalAlpha = 1;
+            ctx.globalAlpha = za;
             ctx.setLineDash([]);
             ctx.lineWidth = 2;
             ctx.strokeStyle = css(p.brandSolid);
@@ -843,23 +859,27 @@ export function paintSchematic(input: PaintInput): void {
         // The zone a card's drop lands on (#1390): the brand's wash, under a dashed brand edge — a selection's is solid.
         if (dropOn === zone.key) {
             ctx.save();
-            ctx.beginPath();
-            if (geom !== undefined && geom.type === "circle") {
-                ctx.arc(x + w / 2, y + h / 2, geom.value.radius * ppu, 0, Math.PI * 2);
-            } else if (geom !== undefined && geom.type === "polygon") {
-                traceVertices(ctx, placedVertices(anchor, geom.value.vertices).map(q => ({ x: wx(q.x), y: wy(q.y), bulge: q.bulge })), true);
-            } else {
-                ctx.rect(x, y, w, h);
-            }
-            ctx.globalAlpha = 0.5;
+            traceShape();
+            ctx.globalAlpha = 0.5 * za;
             ctx.fillStyle = css(p.brandTint);
             ctx.fill();
-            ctx.globalAlpha = 1;
+            ctx.globalAlpha = za;
             ctx.setLineDash([6, 4]);
             ctx.lineWidth = 2;
             ctx.strokeStyle = css(p.brandSolid);
             ctx.stroke();
             ctx.setLineDash([]);
+            ctx.restore();
+        }
+
+        // A matched zone's emphasis (#1392): the brand's mark rings its edge.
+        if (emphasised(zone.key)) {
+            ctx.save();
+            traceShape();
+            ctx.setLineDash([]);
+            ctx.lineWidth = 2 + ringGrow;
+            ctx.strokeStyle = css(p.brandMark, ringAlpha);
+            ctx.stroke();
             ctx.restore();
         }
 
@@ -874,6 +894,7 @@ export function paintSchematic(input: PaintInput): void {
             ctx.textBaseline = "middle";
             ctx.fillText(label, x + 9, y);
         }
+        ctx.restore();
     }
 
     // ---- links --------------------------------------------------------------
@@ -884,7 +905,7 @@ export function paintSchematic(input: PaintInput): void {
     for (const link of value.links) {
         if (layerHidden(link.key)) continue;   // link in a hidden layer
         const from = centers.get(link.from), to = centers.get(link.to);
-        if (!from || !to) continue;   // endpoint item hidden (layer or slice) ⇒ no centre
+        if (!from || !to) continue;   // endpoint item hidden (a layer, or the narrowing) ⇒ no centre
         // Cull by the AABB over ALL anchors (endpoints + waypoints), not the
         // endpoints alone — a trunk whose two ends sit off-screen but whose
         // segment crosses the viewport must NOT be culled (issue #57, 1e).
@@ -910,9 +931,22 @@ export function paintSchematic(input: PaintInput): void {
         const style = link.style;
         const weight = style.value.weight.type === "some" ? style.value.weight.value
             : (style.type === "solid" ? 2.5 : 1.5);
-        // Its style's tone, or its style's own: a solid run the brand's, a dashed one muted.
-        const color = tintOf(link.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
+        // Its style's tone, or its style's own: a solid run the brand's, a dashed one muted; as context, the muted ink.
+        const color = desatOf(link.key) ? css(p.fgMuted) : tintOf(link.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
+        // Its whole drawing faded as context (#1392).
+        ctx.save();
+        ctx.globalAlpha = contextAlpha(link.key);
         ctx.lineCap = "round";
+        // A matched link's emphasis (#1392): the brand's mark, wide under its line.
+        if (emphasised(link.key)) {
+            ctx.save();
+            ctx.lineWidth = weight + 4 + ringGrow;
+            ctx.strokeStyle = css(p.brandMark, ringAlpha);
+            ctx.beginPath();
+            traceRounded(ctx, pts, corner);
+            ctx.stroke();
+            ctx.restore();
+        }
         // The link a card's drop lands on (#1390): the brand's wash, wide under its line.
         if (dropOn === link.key) {
             ctx.save();
@@ -962,7 +996,7 @@ export function paintSchematic(input: PaintInput): void {
         if (ppu >= LINK_LABEL_MIN_PPU) {
             drawEdgeLabel(ctx, p, pts, getSomeorUndefined(link.label), getSomeorUndefined(link.metric));
         }
-        ctx.lineCap = "butt";
+        ctx.restore();
     }
 
     // ---- nets: bus trunks with branches (#189) ---------------------------------
@@ -987,8 +1021,8 @@ export function paintSchematic(input: PaintInput): void {
             : (style.type === "solid" ? 2.5 : 1.5);
         const corner = net.route.type === "orthogonal"
             ? (net.route.value.corner.type === "some" ? net.route.value.corner.value : 8) : 0;
-        // Its style's tone, or its style's own, as a link's.
-        const color = tintOf(net.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
+        // Its style's tone, or its style's own, as a link's; as context, the muted ink.
+        const color = desatOf(net.key) ? css(p.fgMuted) : tintOf(net.key, style.type === "solid" ? p.brandSolid : p.fgMuted);
         const toScreen = (q: Pt): Pt => ({ x: wx(q.x), y: wy(q.y) });
         const routed = (worldAnchors: Pt[]): Pt[] => {
             const screen = worldAnchors.map(toScreen);
@@ -1000,8 +1034,22 @@ export function paintSchematic(input: PaintInput): void {
         // bar → via… → bar. Dots ONLY where a tap 3-way joins a bar.
         const geo = netGeometry(srcPts, dstPts, net.via);
         ctx.save();
+        // Its whole drawing faded as context (#1392).
+        ctx.globalAlpha = contextAlpha(net.key);
         ctx.lineCap = "round";
         const trunkPts = routed(geo.trunk);
+        // A matched net's emphasis (#1392): the brand's mark, wide under its trunk, its bars and its stubs.
+        if (emphasised(net.key)) {
+            ctx.save();
+            ctx.lineWidth = weight + 5 + ringGrow;
+            ctx.strokeStyle = css(p.brandMark, ringAlpha);
+            for (const pl of [trunkPts, ...geo.bars.map(bar => bar.map(toScreen)), ...geo.stubs.map(stub => stub.map(toScreen))]) {
+                ctx.beginPath();
+                traceRounded(ctx, pl, corner);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
         // The net a card's drop lands on (#1390): the brand's wash, wide under its trunk, its bars and its stubs.
         if (dropOn === net.key) {
             ctx.lineWidth = weight + 10;
@@ -1025,10 +1073,20 @@ export function paintSchematic(input: PaintInput): void {
             ctx.stroke();
         }
         ctx.lineWidth = weight;
-        for (const stub of geo.stubs) {
+        for (const [i, stub] of geo.stubs.entries()) {
+            // A leg to an item drawn as context is faded with it, the net itself drawing as itself (#1392).
+            const leg = geo.legs[i]!;
+            const member = leg.end === "source" ? srcK[leg.index] : dstK[leg.index];
+            const faded = member !== undefined && isExcluded(member) && !isExcluded(net.key);
+            if (faded) {
+                ctx.save();
+                ctx.globalAlpha = effect!.excludedOpacity;
+                if (effect!.excludedDesaturate) ctx.strokeStyle = css(p.fgMuted);
+            }
             ctx.beginPath();
             traceRounded(ctx, stub.map(toScreen), corner);
             ctx.stroke();
+            if (faded) ctx.restore();
         }
         ctx.setLineDash([]);
         // Junction dots: 3-way taps on the bars (one-line diagram convention — a dot
@@ -1075,8 +1133,9 @@ export function paintSchematic(input: PaintInput): void {
     }
 
     // ---- connect-tool overlays (#176): session edges, draft edge, flash ------
-    // Drawn above real links, below the slice-effect / markers. All routed
-    // through the SAME orthogonal painter as real links (shape constraints).
+    // Drawn above real links, below the narrowing's frame and rings and the
+    // markers. All routed through the SAME orthogonal painter as real links
+    // (shape constraints).
     const routeScreen = (a: Pt, b: Pt): Pt[] =>
         orthogonalize([{ x: wx(a.x), y: wy(a.y) }, { x: wx(b.x), y: wy(b.y) }]);
     if (session !== undefined) {
@@ -1177,10 +1236,11 @@ export function paintSchematic(input: PaintInput): void {
         ctx.restore();
     }
 
-    // ---- slice-effect: frame the matched set, then emphasise the survivors ---
+    // ---- the narrowing (#1392): frame the matches, then ring the matched items ---
     // Drawn between links and items so the frame sits under the markers and the
     // emphasis rings glow behind them. Card-tier emphasis is a DOM concern (the
     // React layer styles the card element); here we ring only dot / label markers.
+    // A zone's, a link's and a net's are drawn with them, above.
     if (effect !== undefined) {
         if (effect.frame !== undefined) {
             const pad = 10;
@@ -1203,21 +1263,16 @@ export function paintSchematic(input: PaintInput): void {
             ctx.restore();
         }
         if (effect.emphasis !== undefined) {
-            const pulse = effect.emphasis === "pulse";
-            // Breathing 0..1 sinusoid; `halo` is static (the ring's steady state).
-            const b = pulse ? (Math.sin(effect.pulsePhase * Math.PI * 2) * 0.5 + 0.5) : 1;
             for (const item of visibleItems) {
-                if (isExcluded(item.key)) continue;                    // matched only
+                if (!effect.matches.has(item.key)) continue;           // matched only
                 const tier = tiers.get(item.key) ?? "dot";
                 if (tier === "card") continue;                         // card ring is CSS
                 const baseR = tier === "label" ? 18 : 11;
-                const r = baseR + (pulse ? b * 7 : 4);
-                const alpha = pulse ? 0.14 + 0.30 * (1 - b) : 0.34;
                 ctx.save();
                 ctx.beginPath();
-                ctx.arc(wx(item.x), wy(item.y), r, 0, Math.PI * 2);
+                ctx.arc(wx(item.x), wy(item.y), baseR + ringGrow, 0, Math.PI * 2);
                 ctx.lineWidth = 2;
-                ctx.strokeStyle = css(p.brandMark, alpha);
+                ctx.strokeStyle = css(p.brandMark, ringAlpha);
                 ctx.stroke();
                 ctx.restore();
             }
@@ -1225,7 +1280,7 @@ export function paintSchematic(input: PaintInput): void {
     }
 
     // ---- item footprints (close zoom only — semantic zoom) ------------------
-    // Wrapped in save/restore per item so a slice-excluded footprint can fade
+    // Wrapped in save/restore per item so a footprint drawn as context can fade
     // (globalAlpha) / desaturate (grey tint) without leaking state to the next.
     for (const item of visibleItems) {
         const footprint = getSomeorUndefined(item.footprint);
@@ -1278,7 +1333,7 @@ export function paintSchematic(input: PaintInput): void {
     }
 
     // ---- item LOD markers: dots + labelled pins (cards are DOM) --------------
-    // Save/restore per item so a slice-excluded marker fades / desaturates
+    // Save/restore per item so a marker drawn as context fades / desaturates
     // without leaking alpha or font state into the next marker.
     for (const item of visibleItems) {
         const tier = tiers.get(item.key) ?? "dot";
