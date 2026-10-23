@@ -147,6 +147,31 @@ export class DatasetHashMismatchError extends ApiError {
 }
 
 /**
+ * A read by the runs of a record's index pinned to a content hash the record
+ * no longer holds (a 409 `runs_hash_mismatch`, #1393): the record has moved on
+ * — the dataset read may not have — and the server names what it holds now.
+ *
+ * @remarks
+ * A run is a position at the content it was found at and means nothing at
+ * another, so the read is never answered from other content. A reader that
+ * follows the record moves it to `currentHash`, finds its runs there and reads
+ * again. Apart from {@link DatasetHashMismatchError}, which says the dataset
+ * read moved.
+ */
+export class RunsHashMismatchError extends ApiError {
+  /**
+   * @param details - The server's message
+   * @param currentHash - The content the record holds now, as the response's
+   *   `X-Content-SHA256` names it; `null` when it holds no value, or the
+   *   response names none
+   */
+  constructor(details: unknown, public readonly currentHash: string | null) {
+    super('runs_hash_mismatch', details);
+    this.name = 'RunsHashMismatchError';
+  }
+}
+
+/**
  * Authentication error (401 response).
  */
 export class AuthError extends Error {

@@ -15,7 +15,10 @@
  * density zooms in about it, and once the racks there are read the footer
  * says nothing: they draw as themselves. Zoomed in until they draw as their
  * cards, no two overlap, and a pan leaves which of them draw as cards as it
- * was (ruled 23 Oct 2026).
+ * was (ruled 23 Oct 2026). Zoomed into a hall's front rows, where the racks
+ * draw as dots, each reads its load — what its dot's colour says — by the runs
+ * the window's cells are of the area index, e3 reading their keys, so none is
+ * sent; a pan inside the window reads none (D45).
  *
  * Every wait is a poll on the page's state, never a fixed pause.
  *
@@ -24,8 +27,12 @@
  */
 
 import { test, expect, type Locator } from "playwright/test";
-import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo } from "./schematic-page";
+import { e3Requests, installE3Faults } from "./e3-faults";
+import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo, zoomInto } from "./schematic-page";
 import { settled } from "./settle";
+
+/** The racks' loads, as the page's reads name them. */
+const LOADS = "records.schematic_stress_rack_loads";
 
 /** The density's words. */
 const notice = (root: Locator) => root.locator("[data-schematic-footer] [data-schematic-density='racks']");
@@ -110,5 +117,35 @@ test.describe("A tap on the density (#1393)", () => {
         const after = await cardsIn(root, { left: inner.left + 60, top: inner.top + 40, right: inner.right + 60, bottom: inner.bottom + 40 });
         expect(new Set(after)).toEqual(new Set(before));
         expect(await cardOverlaps(root)).toEqual([]);
+    });
+
+    test("zoomed into a hall's front rows, its racks drawn as dots read their loads by the runs of the window's cells — no key sent — and a pan inside the window reads none (D45)", async ({ page }) => {
+        await installE3Faults(page);
+        const root = await openSchematic(page, RECORD_INDEXES);
+        await expect(notice(root)).toBeVisible();
+        // Hall 1's front rows, 70 m by 49 m: fewer racks than a window draws, each a dot at this zoom.
+        await zoomInto(page, root, { minX: 3.0, minY: 3.0, maxX: 73.0, maxY: 52.0 });
+        await expect(notice(root)).toHaveCount(0);
+        await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-lod", "dot");
+        /** The page's reads of the loads, each by what its body names. */
+        const loadReads = async () => (await e3Requests(page))
+            .filter((request) => request.kind === "rows" && request.dataset === LOADS)
+            .map((request) => JSON.parse(request.body ?? "{}") as { keys?: unknown; keysOf?: { index: string; runs: unknown[] } });
+        const read = await loadReads();
+        expect(read.length, "the loads are read at the dots' zoom").toBeGreaterThan(0);
+        for (const body of read) {
+            expect(body.keys, "no key is sent").toBeUndefined();
+            expect(body.keysOf?.index).toBe("schematic_stress_racks_by_area");
+            expect(body.keysOf?.runs.length).toBeGreaterThan(0);
+        }
+        // A pan of 40 × 30px, inside the window's margin: no cell is added, and nothing more of the loads is read.
+        const canvas = (await root.locator("[data-schematic-canvas]").boundingBox())!;
+        const middle = { x: canvas.x + canvas.width / 2, y: canvas.y + canvas.height / 2 };
+        await page.mouse.move(middle.x, middle.y);
+        await page.mouse.down();
+        await page.mouse.move(middle.x + 40, middle.y + 30, { steps: 6 });
+        await page.mouse.up();
+        await settled(page);
+        expect((await loadReads()).length).toBe(read.length);
     });
 });

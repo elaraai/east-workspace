@@ -833,6 +833,24 @@ export const racksByArea = e3.recordIndex.area('racks_by_area', indexedRacks, { 
 export const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', indexedRacks, { on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
 export const racksByHall = e3.recordIndex('racks_by_hall', indexedRacks, { on: ["hall"] });
 
+/** A rack's load: what its card's figure and its dot draw. */
+export const IndexedRackLoad = StructType({ kw: FloatType, alarm: StringType });
+/**
+ * The racks' loads, keyed as the racks are: two of the row's three, the rack
+ * across the aisle's and the far one's — none for `r3`, nor for the rack not
+ * yet placed, and one for a rack the floor does not hold — what a window's
+ * racks read their details by, through the runs the area index files them in
+ * (#1393).
+ */
+export const indexedRackLoads = e3.record('indexed_rack_loads', DictType(StringType, IndexedRackLoad), new Map([
+    ["far",    { kw: 1.0,  alarm: "ok" }],
+    ["gone",   { kw: 2.0,  alarm: "ok" }],
+    ["r1",     { kw: 4.2,  alarm: "ok" }],
+    ["r2",     { kw: 9.9,  alarm: "warm" }],
+    ["r4",     { kw: 11.1, alarm: "hot" }],
+]));
+export const indexedRackLoadsPatch = e3.mutation.patch(indexedRackLoads);
+
 /** A print job: the press it runs on, if any yet, its state, and when it runs, if it is scheduled. */
 export const IndexedJob = StructType({ press: OptionType(StringType), state: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
 /**

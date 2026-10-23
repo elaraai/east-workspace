@@ -61,6 +61,8 @@ export interface FaultRequest {
     readonly method: string;
     /** Whether its caller gave it up. */
     readonly aborted: boolean;
+    /** What a batch read sent, the JSON naming what it reads — its keys, or the runs that name them; none for any other request. */
+    readonly body: string | undefined;
 }
 
 /** The hook's controls, on the window once it is installed. */
@@ -103,7 +105,11 @@ interface Logged {
     readonly dataset: string | undefined;
     readonly method: string;
     readonly signal: AbortSignal;
+    readonly body: string | undefined;
 }
+
+/** The kinds of a batch read: a POST whose JSON body names what it reads. */
+const BATCHES: readonly FaultKind[] = ["find", "rows", "runs", "place", "within"];
 
 /**
  * What a request asks e3 and the dataset it names, read from its route.
@@ -184,14 +190,16 @@ export function withFaults(e3: WebE3): WebE3 {
             for (const go of rule.parked.splice(0)) go();
         },
         held: (id) => rules.find((candidate) => candidate.id === id)?.parked.length ?? 0,
-        requests: () => log.map(({ kind, dataset, method, signal }) => ({ kind, dataset, method, aborted: signal.aborted })),
+        requests: () => log.map(({ kind, dataset, method, signal, body }) => ({ kind, dataset, method, aborted: signal.aborted, body })),
     };
     scope[FAULTS_CONTROLS] = controls;
     const fetch: typeof globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
         const url = new URL(request.url);
         const { kind, dataset } = classify(request.method, url);
-        log.push({ kind, dataset, method: request.method, signal: request.signal });
+        // A batch read's body names what it reads: read from a copy, so the request goes on whole.
+        const body = request.method === "POST" && BATCHES.includes(kind) ? await request.clone().text() : undefined;
+        log.push({ kind, dataset, method: request.method, signal: request.signal, body });
         const hold = rules.find((rule) => rule.live && rule.failure === undefined && takes(rule.match, kind, dataset));
         if (hold !== undefined) {
             // Parked until the hold lets it go, or its caller gives it up — as fetch rejects then.

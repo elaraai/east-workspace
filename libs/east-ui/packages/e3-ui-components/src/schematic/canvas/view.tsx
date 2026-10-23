@@ -2414,6 +2414,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             css={styles.canvas}
             data-schematic-canvas=""
             data-tool={effectiveTool}
+            data-lod={lod}
             {...(litShown !== undefined ? { "data-lit-link": litShown } : {})}
             {...(connectDraft?.forbidden !== undefined ? { "data-forbidden": "" } : {})}
             tabIndex={0}

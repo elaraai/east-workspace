@@ -94,7 +94,7 @@ export type {
 
 // HTTP utilities and auth
 export {
-  ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, requestFetch, get, getConditional, post, put, del, putEmpty,
+  ApiError, AuthError, DatasetHashMismatchError, RunsHashMismatchError, fetchWithAuth, fetchWithRetry, requestFetch, get, getConditional, post, put, del, putEmpty,
   parseErrorBody, requestAnswered, retryingRefusal, pollRequestOptions, NO_RETRY, RETRY_REFUSAL_MAX_MS,
 } from './http.js';
 export type { RequestOptions, RetryOptions, Response, Answered, Conditional } from './http.js';
@@ -175,6 +175,9 @@ export {
   type DatasetFindKeysQuery,
   type DatasetFindKeysResult,
   type DatasetRowsQuery,
+  type DatasetRowsByKeys,
+  type DatasetRowsByRuns,
+  type DatasetRowsKeysOf,
   type DatasetRows,
   type DatasetRunsQuery,
   type DatasetRuns,

@@ -43,11 +43,15 @@
  * window's alone. The footer says how many rows it shades in the viewport
  * ({@link densityInView}).
  *
- * Its cards' details are read at card and label zoom, every one of a window's
- * in one request through the paged read the details are read by key through
- * (`rowsAll`), again when that record's revision moves; and the far ends of
- * the links and nets that touch the window by key, a request a kind, through
- * the kind's own paged read — whether or not its source joins its rows.
+ * Its items' details are read at every tier — a dot draws its item's status
+ * too (D45) — by the runs its window's rows were read by: the window's cells,
+ * or at density the coarser levels' runs, every cell not held in one request
+ * of the details' record, the server reading each entry's key from the area
+ * index, none sent (`recordSliceCellJoins`); each cell's kept at the kind's
+ * revision and the details' while the window wants it, so a pan reads only the
+ * cells it adds, and a commit to the details reads them again. The far ends of
+ * the links and nets that touch the window are read by key, a request a kind,
+ * through the kind's own paged read — whether or not its source joins its rows.
  *
  * # What it keeps
  *
@@ -65,13 +69,16 @@ import {
     type StructType as StructTypeOf, type ValueTypeOf,
 } from "@elaraai/east";
 import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
-import { RecordSliceWhereType, areaQueries, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry } from "@elaraai/east-ui/internal";
+import {
+    RecordSliceWhereType, areaQueries, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry, type RecordSliceJoined,
+} from "@elaraai/east-ui/internal";
 import {
     SCHEMATIC_WINDOW_ROWS, schematicDensityCells, schematicRaster, schematicWindowPlan,
     type SchematicAreaIndexes, type SchematicDensityCell, type SchematicRaster, type SchematicWindowPlan,
 } from "@elaraai/e3-ui/internal";
 import {
-    recordSliceBounds, recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRunEntries, recordSliceWithin,
+    recordSliceBounds, recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceRevision, recordSliceRunEntries,
+    recordSliceRunJoins, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
 import { defaultPagedRuntime, pagedSourceOf, type PagedRow } from "../platform/paged-runtime.js";
 import { SCHEMATIC_CARD_MAX_PX, type LodTier, type WorldBox } from "./canvas/model.js";
@@ -94,7 +101,6 @@ type StoredRows = ReadonlyMap<string, { readonly roles: unknown; readonly row: U
 
 const stringEqual = equalFor(StringType);
 const rowOrder = compareFor(IntegerType);
-const compareString = compareFor(StringType);
 const printQuery = printFor(SeekQueryType);
 const printWhere = printFor(RecordSliceWhereType);
 
@@ -303,6 +309,8 @@ export interface SchematicWindowRead {
     readonly rows: SchematicAreaRows;
     /** Its density, past the rows a window draws; `undefined` while it draws items. */
     readonly density: SchematicDensity | undefined;
+    /** Where its rows were read from in its index, which its details are read by (D45): its cells, or at density the coarser levels' runs. */
+    readonly at: { readonly cells: readonly RecordSliceCell[] } | { readonly runs: readonly Range[] };
     /** What its rows were read from: the same parts, the same rows. */
     readonly from: readonly unknown[];
 }
@@ -336,8 +344,11 @@ const NO_ROWS: SchematicAreaRows = new Map();
 /** No entries: the coarser levels' while none holds a row, or while their rows are spread. */
 const NO_ENTRIES: readonly RecordSliceEntry[] = [];
 
-/** No rows read by key. */
-const NO_PAGED_ROWS: readonly PagedRow[] = [];
+/** No runs: the coarser levels' while none holds a row, or while their rows are spread. */
+const NO_RUNS: readonly Range[] = [];
+
+/** No details' rows: a cell's, or runs', that hold no entry. */
+const NO_JOINED: readonly RecordSliceJoined[] = [];
 
 /** The most within answers a kind keeps at a revision and a narrowing, past which those of rows no longer read go. */
 const MAX_KEPT_ANSWERS = 20_000;
@@ -362,6 +373,25 @@ interface Rastered {
     readonly queries: readonly Query[];
 }
 
+/**
+ * A kind's details' rows read by the runs its window's rows were read by (D45), at the kind's revision and the details':
+ * each cell's, and the coarser levels' runs' at density.
+ */
+interface Joined {
+    /** The `id` of the details' paged read. */
+    readonly dict: string;
+    /** The index the runs are of. */
+    readonly index: string;
+    /** The kind's revision the runs were found at. */
+    readonly revision: string;
+    /** The details' revision their rows were read at. */
+    readonly details: string;
+    /** Each cell's rows of the details, by its name, while the window wants it. */
+    readonly cells: Map<string, readonly RecordSliceJoined[]>;
+    /** The coarser levels' runs' rows of the details, for the runs they were read by. */
+    runs: { readonly runs: readonly Range[]; readonly joined: readonly RecordSliceJoined[] } | undefined;
+}
+
 /** What the reader holds of one kind read by area, across reads: each part beside what it was read from. */
 interface Slot {
     /** The window it holds. */
@@ -376,8 +406,8 @@ interface Slot {
     rastered?: Rastered;
     /** The raster's searches' bounds, found at a revision. */
     bounds?: { readonly revision: string; readonly raster: SchematicRaster; readonly found: readonly Range[] };
-    /** The coarser levels' rows, read for the bounds they were found by. */
-    coarse?: { readonly found: readonly Range[]; readonly entries: readonly RecordSliceEntry[] };
+    /** The coarser levels' rows, read for the bounds they were found by, and the runs they were read by. */
+    coarse?: { readonly found: readonly Range[]; readonly runs: readonly Range[]; readonly entries: readonly RecordSliceEntry[] };
     /** The density it last drew. */
     density?: SchematicDensity;
     /** Its window as it was last read, for its plan and its revision. */
@@ -390,10 +420,10 @@ interface Slot {
     narrowed?: { readonly read: SchematicWindowRead; readonly far: SchematicAreaRows; readonly where: Where; readonly dim: boolean; readonly result: SchematicAreaRead };
     /** Its rows made its stored rows: and what they were made from — the kind itself among it, whose accessors make the roles. */
     made?: { readonly from: readonly unknown[]; readonly rows: StoredRows };
-    /** The keys of the window's cards whose details it reads, for the window and the rows drawn. */
-    keys?: { readonly read: SchematicWindowRead; readonly rows: StoredRows; readonly keys: readonly string[] };
-    /** Its cards' details made their stored rows, for the details and the rows read. */
-    details?: { readonly details: Details; readonly read: readonly PagedRow[]; readonly rows: StoredRows };
+    /** Its details' rows, read by the runs its window's rows were read by (D45). */
+    joined?: Joined;
+    /** Its items' details made their stored rows, for the details and the rows read: each cell's, in the window's order. */
+    details?: { readonly details: Details; readonly from: readonly (readonly RecordSliceJoined[])[]; readonly rows: StoredRows };
     /** The rows its window holds, as the frame is handed them. */
     holding?: { readonly revision: string; readonly rows: ReadonlyMap<string, { readonly row: Uint8Array }> };
 }
@@ -501,7 +531,7 @@ export class SchematicAreaReader {
     private rows(slot: Slot, part: Part, planned: Planned, revision: string): SchematicWindowRead | Reading {
         const entries = this.entriesOf(slot, part, planned.plan.index.name, revision, planned.cells);
         if (entries === READING) return READING;
-        return { plan: planned.plan, revision, rows: rowsOfEntries(entries), density: undefined, from: entries };
+        return { plan: planned.plan, revision, rows: rowsOfEntries(entries), density: undefined, at: { cells: planned.cells }, from: entries };
     }
 
     /**
@@ -548,15 +578,17 @@ export class SchematicAreaReader {
         // The coarser levels' rows, boxes larger than half a raster cell: drawn as rows while a window would draw them all.
         const few = total <= BigInt(SCHEMATIC_WINDOW_ROWS);
         let entries = NO_ENTRIES;
+        let runs = NO_RUNS;
         if (few && total > 0n) {
             const read = this.coarseOf(slot, part, index, found, coarse);
             if (read === READING) return READING;
-            entries = read;
+            entries = read.entries;
+            runs = read.runs;
         }
         // Under `dim` the raster counts every row; otherwise the fields the index doesn't lead aren't counted in it.
         const unnarrowed = dim ? part.read().where.size > 0 : planned.plan.residual.length > 0;
         const density = this.densityOf(slot, rastered, counts, few ? undefined : coarse.map((range) => range.count), unnarrowed);
-        return { plan: planned.plan, revision, rows: rowsOfEntries([entries]), density, from: [entries, density] };
+        return { plan: planned.plan, revision, rows: rowsOfEntries([entries]), density, at: { runs }, from: [entries, density] };
     }
 
     /** A window's density raster and its searches, planned again only with the window's plan. */
@@ -580,16 +612,22 @@ export class SchematicAreaReader {
         return found.value;
     }
 
-    /** The coarser levels' rows: the runs holding any, ascending, read in one read — once for the bounds they were found by. */
-    private coarseOf(slot: Slot, part: Part, index: string, found: readonly Range[], coarse: readonly Range[]): readonly RecordSliceEntry[] | Reading {
+    /**
+     * The coarser levels' rows: the runs holding any, ascending, read in one read — once for the bounds they were found
+     * by — and those runs, which their details are read by.
+     */
+    private coarseOf(
+        slot: Slot, part: Part, index: string, found: readonly Range[], coarse: readonly Range[],
+    ): { readonly runs: readonly Range[]; readonly entries: readonly RecordSliceEntry[] } | Reading {
         const last = slot.coarse;
-        if (last !== undefined && Object.is(last.found, found)) return last.entries;
+        if (last !== undefined && Object.is(last.found, found)) return last;
         // Each coarser cell an exact key: their runs are disjoint, read in the index's order.
         const runs = coarse.filter((range) => range.count > 0n).sort((a, b) => rowOrder(a.row, b.row));
         const read = recordSliceRunEntries(part, index, runs);
         if (read.type !== "some") return READING;
-        slot.coarse = { found, entries: read.value };
-        return read.value;
+        const got = { found, runs, entries: read.value };
+        slot.coarse = got;
+        return got;
     }
 
     /** A raster's density, as the canvas draws it: the one it last drew while its cells read again as they were, over the same box. */
@@ -729,40 +767,81 @@ export class SchematicAreaReader {
     }
 
     /**
-     * The details of the cards a kind's window draws, made their stored rows
-     * (§12): every key in one request through the paged read the details are
-     * read by key through, again when that record's revision moves — a far
-     * end, drawn off the window, draws no card.
+     * The details of the items a kind's window holds, made their stored rows
+     * (§12, D45): read by the runs its rows were read by — its cells, or at
+     * density the coarser levels' runs — every cell not held in one request of
+     * the details' record, the server reading each entry's key from the area
+     * index, none sent; each cell's kept at the kind's revision and the
+     * details' while the window wants it, so a pan reads only the cells it
+     * adds and a commit to the details reads them again. Read at every tier: a
+     * dot draws its item's status too. A far end, drawn off the window, has
+     * none read.
      *
      * @param slot - The kind's slot
      * @param details - Its details
+     * @param part - Its source of the slice: the area index its window was read through
      * @param read - Its window, as it was read
-     * @param rows - The rows it draws, its narrowing asked of them
      * @returns Their details' rows, by key; `undefined` for details read whole or by no paged read; {@link READING} while the read is in flight
      * @throws {Error} When the details' paged read is bound on no page this runtime serves
      */
-    detailsOf(slot: string, details: Details, read: SchematicWindowRead, rows: StoredRows): StoredRows | Reading | undefined {
+    detailsOf(slot: string, details: Details, part: Part, read: SchematicWindowRead): StoredRows | Reading | undefined {
         if (details.paged.type !== "some") return undefined;
-        const source = pagedSourceOf(details.paged.value);
-        if (source === undefined) throw new Error(`The details' paged read '${details.paged.value}' is bound on no page this runtime serves`);
+        const dict = details.paged.value;
+        const source = pagedSourceOf(dict);
+        if (source === undefined) throw new Error(`The details' paged read '${dict}' is bound on no page this runtime serves`);
+        const revision = defaultPagedRuntime.revisionOf(source);
+        if (revision.type !== "some") return READING;
         const state = this.slotOf(slot);
-        let keys = state.keys;
-        if (keys === undefined || !Object.is(keys.read, read) || !Object.is(keys.rows, rows)) {
-            keys = { read, rows, keys: [...read.rows.keys()].filter((key) => rows.has(key)).sort(compareString) };
-            state.keys = keys;
+        const index = read.plan.index.name;
+        let kept = state.joined;
+        if (kept === undefined || !stringEqual(kept.dict, dict) || !stringEqual(kept.index, index)
+            || !stringEqual(kept.revision, read.revision) || !stringEqual(kept.details, revision.value)) {
+            kept = { dict, index, revision: read.revision, details: revision.value, cells: new Map(), runs: undefined };
+            state.joined = kept;
         }
-        let got = NO_PAGED_ROWS;
-        if (keys.keys.length > 0) {
-            const answer = defaultPagedRuntime.rowsAll(source, keys.keys);
-            if (answer.type !== "some") return READING;
-            got = answer.value;
-        }
+        const parts = this.joinedOf(kept, part, read.at);
+        if (parts === READING) return READING;
         const last = state.details;
-        if (last !== undefined && Object.is(last.details, details) && Object.is(last.read, got)) return last.rows;
-        const present = got.flatMap((row) => (row.row.type === "some" ? [{ key: row.key as string, row: row.row.value }] : []));
+        if (last !== undefined && Object.is(last.details, details) && sameFrom(last.from, parts)) return last.rows;
+        const present: { key: string; row: unknown }[] = [];
+        for (const joined of parts) {
+            for (const entry of joined) if (entry.row.type === "some") present.push({ key: entry.key as string, row: entry.row.value });
+        }
         const made = details.rowsOf(this.encoderOf(details)(present)) as StoredRows;
-        state.details = { details, read: got, rows: made };
+        state.details = { details, from: parts, rows: made };
         return made;
+    }
+
+    /**
+     * A window's details' rows (see {@link SchematicAreaReader.detailsOf}): its
+     * cells' — those not held read in one request, and every cell no longer
+     * wanted let go — or the coarser levels' runs', read once for the runs.
+     *
+     * @returns Each cell's rows of the details, in the window's order, or the runs'; {@link READING} while the read is in flight
+     */
+    private joinedOf(kept: Joined, part: Part, at: SchematicWindowRead["at"]): readonly (readonly RecordSliceJoined[])[] | Reading {
+        if ("runs" in at) {
+            if (kept.runs === undefined || !Object.is(kept.runs.runs, at.runs)) {
+                let joined = NO_JOINED;
+                if (at.runs.length > 0) {
+                    const got = recordSliceRunJoins(part, kept.index, at.runs, kept.dict);
+                    if (got.type !== "some") return READING;
+                    joined = got.value;
+                }
+                kept.runs = { runs: at.runs, joined };
+            }
+            return [kept.runs.joined];
+        }
+        const held = kept.cells;
+        const missing = at.cells.filter((cell) => !held.has(cell.id));
+        if (missing.length > 0) {
+            const got = recordSliceCellJoins(part, kept.index, missing, kept.dict);
+            if (got.type !== "some") return READING;
+            for (const cell of missing) held.set(cell.id, got.value.get(cell.id) ?? NO_JOINED);
+        }
+        const wanted = new Set(at.cells.map((cell) => cell.id));
+        for (const id of [...held.keys()]) if (!wanted.has(id)) held.delete(id);
+        return at.cells.map((cell) => held.get(cell.id)!);
     }
 }
 

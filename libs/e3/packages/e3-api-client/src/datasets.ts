@@ -5,10 +5,13 @@
 
 import { ArrayType, IntegerType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, printFor, spliceBeast2Segments } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
-import { BEAST2_CONTENT_TYPE, E3_RELEASE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, transferPartCount, transferPartRange } from '@elaraai/e3-types';
+import {
+  BEAST2_CONTENT_TYPE, E3_RELEASE, TRANSFER_PROTOCOL_VERSION, decodeCollectionManifest, pathToString, transferPartCount, transferPartRange,
+} from '@elaraai/e3-types';
 import { computeHash } from './util.js';
 import {
-  ApiError, AuthError, DatasetHashMismatchError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, requestFetch, type RequestOptions, type Response,
+  ApiError, AuthError, DatasetHashMismatchError, RunsHashMismatchError, fetchWithAuth, fetchWithRetry, parseErrorBody, get, requestFetch,
+  type RequestOptions, type Response,
 } from './http.js';
 import {
   ResponseType,
@@ -747,7 +750,8 @@ export const DATASET_BATCH_MAX = 10_000;
 /**
  * POST a batch read: its JSON body names what it reads, and a retry sends it
  * again as a GET's is sent — a read changes nothing, so it is safe to — with a
- * refusal raised as a page's is.
+ * refusal raised as a page's is, and a read by runs whose record moved as a
+ * {@link RunsHashMismatchError}.
  */
 async function postRead(target: string, body: unknown, accept: string, options: RequestOptions): Promise<globalThis.Response> {
   const response = await fetchWithRetry(target, {
@@ -767,6 +771,9 @@ async function postRead(target: string, body: unknown, accept: string, options: 
   }
   if (error.code === 'dataset_hash_mismatch') {
     throw new DatasetHashMismatchError(error.details, response.headers.get('X-Content-SHA256'));
+  }
+  if (error.code === 'runs_hash_mismatch') {
+    throw new RunsHashMismatchError(error.details, response.headers.get('X-Content-SHA256'));
   }
   throw error;
 }
@@ -836,8 +843,14 @@ export async function datasetFindKeys(
   return { results: body.results, hash: response.headers.get('X-Content-SHA256') ?? '' };
 }
 
-/** The keys of a Dict a read asks the rows of, for {@link datasetGetRows}. */
-export interface DatasetRowsQuery {
+/**
+ * The rows of a Dict a read asks for, for {@link datasetGetRows}: by their
+ * keys, or by the keys the entries of some runs of a record's index name.
+ */
+export type DatasetRowsQuery = DatasetRowsByKeys | DatasetRowsByRuns;
+
+/** The keys of a Dict a read asks the rows of. */
+export interface DatasetRowsByKeys {
   /** `.east` literals of the keys, answered in this order: at most
    *  {@link DATASET_BATCH_MAX}. */
   keys: readonly string[];
@@ -845,15 +858,45 @@ export interface DatasetRowsQuery {
   hash?: string;
 }
 
+/**
+ * The runs of a record's index whose entries' keys a read asks a Dict's rows
+ * of (#1393): the server reads the keys from the index, so none travels — a
+ * view that holds an index's runs reads another record's rows for them.
+ */
+export interface DatasetRowsByRuns {
+  /** The record, its index and its runs. */
+  keysOf: DatasetRowsKeysOf;
+  /** The content hash the Dict is pinned to. */
+  hash?: string;
+}
+
+/** The runs of one of a record's indexes, as {@link DatasetRowsByRuns} names them. */
+export interface DatasetRowsKeysOf {
+  /** The record's path, in the Dict's workspace. */
+  path: TreePath;
+  /** The index the runs are rows of: its entries each name one of the
+   *  record's keys, of the Dict's key type. */
+  index: string;
+  /** The runs, `[row, count]`: ascending, disjoint, each inside the index —
+   *  at most {@link DATASET_BATCH_MAX}. */
+  runs: readonly (readonly [number, number])[];
+  /** The record's content hash the runs are positions at. */
+  hash: string;
+}
+
 /** The rows of several keys of a Dict. */
 export interface DatasetRows {
   /** Raw BEAST2 of `datasetRowsType(K, V)` (e3-types): an entry per key
-   *  answered, in the order asked — the key, its row or none, and its
-   *  position in the Dict's canonical order. */
+   *  answered, in the order asked — or, read by runs, in the runs' order — the
+   *  key, its row or none, and its position in the Dict's canonical order. */
   data: Uint8Array;
   /** How many keys it answers: the first so many asked, the page byte budget
-   *  holding it to them. The rest are asked again. */
+   *  holding it to them — and, read by runs, a page's 10,000 entries. The rest
+   *  are asked again. */
   count: number;
+  /** Read by runs: how many entries the runs hold, of which the answer holds
+   *  the first {@link count}; absent read by keys. */
+  runEntries?: number;
   /** The Dict's row count. */
   totalElements: number;
   /** The content hash the answer is of. */
@@ -863,25 +906,35 @@ export interface DatasetRows {
 /**
  * Read the rows a Dict dataset — a record, say — holds under several keys in
  * one request: each key's row, or its absence, and its position in the Dict's
- * canonical order, the row space a page's element windows address.
+ * canonical order, the row space a page's element windows address. The keys
+ * are the query's own, or those the entries of some runs of one of a record's
+ * indexes name (`keysOf`, #1393), which the server reads from the index — so
+ * a reader holding an index's runs reads another Dict's rows for them without
+ * sending a key.
  *
  * @remarks
  * The server places each key in its segment by the fences and reads each such
- * segment once. The answer is held to the page byte budget: it answers the
- * first {@link DatasetRows.count} keys, and the caller asks again for the rest.
+ * segment once — and, read by runs, each index segment the runs touch once.
+ * The answer is held to the page byte budget: it answers the first
+ * {@link DatasetRows.count} keys, and the caller asks again for the rest — read
+ * by runs, the runs less the entries in hand.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param workspace - Workspace name
  * @param path - Path to the dataset: a Dict
- * @param query - The keys and the pin
+ * @param query - The keys, or the runs that name them, and the pin
  * @param options - Request options including auth token
  * @returns The rows, and how many keys they answer
  * @throws {DatasetHashMismatchError} When the read is pinned to a hash the
  *   dataset no longer holds; its `currentHash` names the one it does
+ * @throws {RunsHashMismatchError} When the runs are pinned to a hash their
+ *   record no longer holds; its `currentHash` names the one it does
  * @throws {ApiError} On application-level errors: more than
- *   {@link DATASET_BATCH_MAX} keys, a key that is no literal of the key type, a
- *   dataset that is not a Dict
+ *   {@link DATASET_BATCH_MAX} keys or runs, a key that is no literal of the key
+ *   type, a dataset that is not a Dict, runs that are not ascending, disjoint
+ *   and inside the index, an index the record does not hold, one whose
+ *   entries name no row (a summary) or keys of another type
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function datasetGetRows(
@@ -894,11 +947,16 @@ export async function datasetGetRows(
 ): Promise<DatasetRows> {
   const params = new URLSearchParams({ rows: 'true' });
   if (query.hash !== undefined) params.set('hash', query.hash);
-  const response = await postRead(batchUrl(url, repo, workspace, path, params), { keys: query.keys }, BEAST2_CONTENT_TYPE, options);
+  const body = 'keysOf' in query
+    ? { keysOf: { path: pathToString(query.keysOf.path), index: query.keysOf.index, hash: query.keysOf.hash, runs: query.keysOf.runs } }
+    : { keys: query.keys };
+  const response = await postRead(batchUrl(url, repo, workspace, path, params), body, BEAST2_CONTENT_TYPE, options);
   const intHeader = (name: string): number => Number(response.headers.get(name) ?? '0');
+  const runEntries = response.headers.get('X-Run-Entries');
   return {
     data: new Uint8Array(await response.arrayBuffer()),
     count: intHeader('X-Page-Count'),
+    ...(runEntries !== null && { runEntries: Number(runEntries) }),
     totalElements: intHeader('X-Total-Elements'),
     hash: response.headers.get('X-Content-SHA256') ?? '',
   };

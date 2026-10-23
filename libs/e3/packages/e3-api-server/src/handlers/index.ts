@@ -55,6 +55,9 @@ export {
   type DatasetFindKeysRequest,
   type DatasetFindKeysResult,
   type DatasetRowsRequest,
+  type DatasetRowsByKeys,
+  type DatasetRowsByRuns,
+  type DatasetRowsKeysOf,
   type DatasetRunsRequest,
   type DatasetBatchLimits,
 } from './dataset-batches.js';

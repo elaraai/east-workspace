@@ -2231,7 +2231,10 @@ kind's slot reads that kind through it — `Data.bindPaged(record, { indexes })`
 over the kind's record — every row of its narrowing; an indexed read is the
 source, never the kind's record. A kind's details (`Schematic.details`) are
 bound as their kind is read: whole beside a kind read whole, by key beside one
-read through its source. Bound with their patch door —
+read through its source — and beside one read by area, by the runs its
+window's cells are of the area index, e3 reading the keys from the index so
+none is sent, each cell's once, at every zoom, so a dot draws its item's
+status as a card does. Bound with their patch door —
 `Record.bind(record, [e3.mutation.patch(record)])`, with `entries:
 Data.bindPaged(record)` beside a kind read through its source — the inspector
 edits them beside their kind's row; `Data.bind` or `Data.bindPaged` alone
