@@ -9,7 +9,7 @@
  * line appear only once a wait passes {@link REVEAL_DELAY_MS}, then stay at
  * least {@link REVEAL_HOLD_MS} once shown — so a quick read never flashes, and
  * a slow one never blinks. The fill and the line share one clock: a builder
- * reads {@link useLoadingReveal} once and hands its answer to both.
+ * runs one {@link LoadingReveal} around its frame, and both read it.
  *
  * - A wait shorter than the delay shows nothing.
  * - A wait longer than the delay shows from the delay on, until the later of
@@ -21,12 +21,15 @@
  * delay and no timeout (BuilderFrame's `loading`).
  *
  * {@link revealStep} is the rule as pure arithmetic over a clock the caller
- * reads; {@link useLoadingReveal} runs it on the page's timers.
+ * reads; {@link useLoadingReveal} runs it on the page's timers; and
+ * {@link LoadingReveal} runs it for a whole builder, its parts reading it
+ * where they show ({@link useRevealed}) — so the clock's flips re-render those
+ * parts alone, never the builder around them.
  *
  * @packageDocumentation
  */
 
-import { useEffect, useState } from "react";
+import { createContext, createElement, useContext, useEffect, useState, type ReactNode } from "react";
 
 /** How long a wait runs before its fill and the footer's loading line show (CL4). */
 export const REVEAL_DELAY_MS = 150;
@@ -133,4 +136,46 @@ export function useLoadingReveal(waiting: boolean, timings: RevealTimings = TIMI
         return () => clearTimeout(timer);
     }, [wakeAt, tick]);
     return step.shown;
+}
+
+/** The reveal a builder's parts show by: `undefined` outside a {@link LoadingReveal}. */
+const RevealContext = createContext<boolean | undefined>(undefined);
+
+/** Props of {@link LoadingReveal}. */
+export interface LoadingRevealProps {
+    /** Whether a read the view needs is in flight: what the builder's footer line says while it is. */
+    readonly waiting: boolean;
+    /** The builder's frame, which the clock's flips never render again. */
+    readonly children?: ReactNode;
+    /** The delay and the hold; CL4's unless given. */
+    readonly timings?: RevealTimings | undefined;
+}
+
+/**
+ * A builder's one reveal clock (CL4), for every part of its frame that shows
+ * a read in flight: the footer's loading line, the placeholder shapes and
+ * washes, an unloaded run's fill. Each reads it where it shows
+ * ({@link useRevealed}), so the clock flipping — at the delay, at the hold's
+ * end — renders the clock and those parts again, never the builder: its
+ * frame is `children`, made by the builder's own render, which a flip does
+ * not repeat. It draws nothing of its own, so the frame's box is the
+ * builder's still.
+ *
+ * @param props - Whether a read is in flight, and the builder's frame
+ * @returns The frame, under the clock
+ */
+export function LoadingReveal({ waiting, children, timings }: LoadingRevealProps): ReactNode {
+    const shown = useLoadingReveal(waiting, timings);
+    return createElement(RevealContext.Provider, { value: shown }, children);
+}
+
+/**
+ * Whether the builder's reveal shows a read in flight now — its fill and its
+ * footer line — from the {@link LoadingReveal} around; `undefined` outside
+ * one, where a part shows as its caller says.
+ *
+ * @returns The reveal, or `undefined` with none around
+ */
+export function useRevealed(): boolean | undefined {
+    return useContext(RevealContext);
 }

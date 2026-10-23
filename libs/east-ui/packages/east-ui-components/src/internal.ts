@@ -28,6 +28,8 @@ export {
 // (the window ledger), which of them are resident, and a key search's query
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).
 export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, type RowsInView, type RowsViewport } from "./collections/virtual-rows.js";
+// What scrolls a frame's rows, for a row taller than the view — an unloaded run — to draw what of it is in view (#1398).
+export { useRowsScroll, type RowsScroll } from "./collections/rows-scroll.js";
 export { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "./collections/windowed-source.js";
 export {
     createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, observeWindow, offsetOfElement,
@@ -105,16 +107,18 @@ export { PagedLibrary, type LibraryPageSource, type PagedLibrarySearch } from ".
 export { narrowedCount, pagedCount, type CountWords, type PagedCountSource } from "./collections/library/count.js";
 
 // One way to show a read in flight or failed (#1398): the unloaded run and its placeholder shapes, the narrow
-// layouts' placeholder card, the region wash, a failure said once — a row grid's line, a region's box — the
-// reveal's one clock (CL4), their words, and the retained treatment's recipe parts; and the footer's one
-// loading line with the rail's fit (CL3).
+// layouts' placeholder card, the region wash, a failure said once — a row grid's line, a region's box — and an
+// empty region said once in the line's slot, the reveal's one clock (CL4) — a builder's, around its frame, which its
+// parts read where they show — their words, and the retained treatment's recipe parts; and the footer's one loading
+// line with the rail's fit (CL3).
 export {
     REVEAL_DELAY_MS, REVEAL_HOLD_MS, revealStep, useLoadingReveal, type RevealState, type RevealStep, type RevealTimings,
+    LoadingReveal, useRevealed, type LoadingRevealProps,
     barShare, runRows, runView, type RunGeometry, type RunGroup, type RunSlot, type RunView,
-    LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderCard, PlaceholderShape, placeholderAlign,
-    type LoadingFailedBoxProps, type LoadingFailedLineProps, type LoadingRetry, type LoadingWashProps, type PlaceholderCardProps,
+    LoadingEmptyLine, LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderCard, PlaceholderShape, placeholderAlign,
+    type LoadingEmptyLineProps, type LoadingFailedBoxProps, type LoadingFailedLineProps, type LoadingRetry, type LoadingWashProps, type PlaceholderCardProps,
     type PlaceholderKind, type PlaceholderShapeProps,
-    UnloadedRun, type RunCell, type RunFailure, type UnloadedRunProps,
+    UnloadedRun, type RunCell, type RunFailure, type RunGridCell, type UnloadedRunProps,
     loadingMessages, type LoadingMessages,
 } from "./collections/loading/index.js";
 export { retainedColumn, retainedRow } from "./theme/slot-recipes/loading.js";
