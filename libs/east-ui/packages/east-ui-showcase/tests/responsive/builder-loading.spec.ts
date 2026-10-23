@@ -15,15 +15,15 @@ type Probe = { active: boolean; paints: Paint[] };
  * Roster's, the Calendar's and the Allocation's do; the Schematic's canvas
  * (#1387, SC32) is one canvas at every width — whether its footer stays live
  * under the cover, its loading line carrying the wait (#1398): the Roster's,
- * the Calendar's and the Allocation's do — and the pitch its cover's rows
- * stand at, its own rows' where the cover is held to it (CL1): the
- * Allocation's 36, the Calendar's hour at its regular density, 48.
+ * the Calendar's, the Allocation's and the Schematic's do — and the pitch its
+ * cover's rows stand at, its own rows' where the cover is held to it (CL1):
+ * the Allocation's 36, the Calendar's hour at its regular density, 48.
  */
 const BUILDERS: readonly { scope: string; name: string; main: string; narrows: boolean; cards: string; liveFooter: boolean; pitch?: number }[] = [
     { scope: "roster", name: "rosterWarehouse", main: "[data-roster-main]", narrows: true, cards: "[data-roster-agenda]", liveFooter: true },
     { scope: "calendar", name: "calendarOperations", main: "[data-calendar-main]", narrows: true, cards: "[data-calendar-agenda]", liveFooter: true, pitch: 48 },
     { scope: "allocation", name: "allocationKilnYard", main: "[data-allocation-main]", narrows: true, cards: "[data-allocation-cards]", liveFooter: true, pitch: 36 },
-    { scope: "schematic", name: "schematicDataCentre", main: "[data-schematic-canvas]", narrows: false, cards: "[data-schematic-agenda]", liveFooter: false },
+    { scope: "schematic", name: "schematicDataCentre", main: "[data-schematic-canvas]", narrows: false, cards: "[data-schematic-agenda]", liveFooter: true },
 ];
 
 for (const { scope, name, main: mainSelector, narrows, cards, liveFooter, pitch } of BUILDERS) {

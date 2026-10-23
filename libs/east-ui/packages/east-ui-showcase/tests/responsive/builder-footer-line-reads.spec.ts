@@ -7,7 +7,7 @@
  * The footer's one loading line in flight and failed (#1398, CL3, CL11), in
  * the builders that read what they show a part at a time — the Sheet and the
  * Plan as they scroll, the Calendar, the Roster and the Allocation as they
- * step — on the real in-page e3, its
+ * step, the Schematic as the rail narrows its racks — on the real in-page e3, its
  * reads held and failed through the showcase's e3 fault hook (`e3-faults.ts`),
  * with the frame 1440, 768, 390 and 360px wide, in both themes, as
  * `builder-footer-line.spec.ts` measures the rail at rest:
@@ -37,6 +37,7 @@
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { sizeBuilder, visitBuilder } from "./builder-page";
 import { RECORD_READS, failE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
+import { recordField } from "./record-slice";
 import { token } from "./tokens";
 
 /** How a builder is made to ask for what it has not read yet: its `n`-th new read. */
@@ -80,12 +81,24 @@ const steppedTwoWeeks: Read = async (_page, entry) => {
     for (let step = 0, steps = name.endsWith("day") ? 14 : 2; step < steps; step++) await next.click();
 };
 
+/**
+ * The data centre's racks narrowed on the rail by their owner — Harbour Labs', then Northwind Media's too: each a new
+ * narrowing, whose racks the Schematic reads, the last standing in.
+ */
+const narrowedByOwner: Read = async (page, entry, n) => {
+    const editor = await recordField(page, entry, "owner", "racks");
+    await editor.getByRole("button", { name: n === 0 ? /^Harbour Labs/ : /^Northwind Media/ }).first().click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+};
+
 const READERS: readonly Reader[] = [
     { builder: "Sheet", route: "e3/sheet/sheet-records/sheetRecordIndexes", root: "[data-builder-frame]", rail: "[data-frame-slot='footer'] [data-slot='footer']", read: scrolled },
     { builder: "Plan", route: "e3/plan/plan-windows/planWindows", root: "[data-plan-frame]", rail: "[data-frame-slot='footer'] [data-slot='footer']", read: scrolled },
     { builder: "Calendar", route: "e3/calendar/calendar/calendarOperations", root: "[data-calendar-frame]", rail: "[data-calendar-footer]", read: stepped },
     { builder: "Roster", route: "e3/roster/roster/rosterWindowed", root: "[data-roster-frame]", rail: "[data-roster-footer]", read: steppedTwoWeeks },
     { builder: "Allocation", route: "e3/allocation/allocation/allocationKilnYard", root: "[data-allocation-frame]", rail: "[data-allocation-footer]", read: stepped },
+    { builder: "Schematic", route: "e3/schematic/schematic/schematicDataCentre", root: "[data-schematic]", rail: "[data-schematic-footer]", read: narrowedByOwner },
 ];
 
 /** The frame's widths, widest first. */
@@ -253,8 +266,8 @@ function missedTaps(retry: Locator): Promise<string[]> {
 
 for (const theme of ["light", "dark"] as const) {
     test(`each builder's loading line, held in flight and then failed, says what it reads in one line that fits whole at every width — full, short or the dot alone — then "Couldn't read · Retry", Retry asking again (#1398, CL3, CL11) (${theme}) @desktop`, async ({ page }) => {
-        // Five builders, each held and failed at four widths, on one e3 the page starts once. The page is wide enough
-        // that a 1440px frame keeps clear of its "On this page" column.
+        // Six builders, each held and failed at four widths, on the page's one e3, each area's workspace started as it is
+        // first shown. The page is wide enough that a 1440px frame keeps clear of its "On this page" column.
         test.setTimeout(480_000);
         await installE3Faults(page);
         await page.setViewportSize(PAGE);

@@ -406,7 +406,11 @@ On the shared `builder-footer.ts` rail, only what is live (D42):
   view's share of each cell it cuts, said `about` that many, to two
   significant figures. Under a narrowing the index doesn't lead it adds `the
   filters not applied`;
-- the loading line, as every builder's (#1398);
+- the loading line, as every builder's (#1398), at the rail's trailing end:
+  what is read now in a kind's noun — `Loading racks…` for a window, its
+  details or a kind read complete, `Filtering racks…` while a new
+  narrowing's rows are read and the last stand in — or a read that failed,
+  `Couldn't read racks`, with Retry, as its banner says it (SC32);
 - why a gesture, a drop or an inspector edit was refused, until one is recorded;
 - the shared Save notice, `RecordSliceSaveNotice`, for each source a Save took rows out of;
 - where Find's last pick landed on an item the canvas doesn't show as itself,
@@ -414,8 +418,10 @@ On the shared `builder-footer.ts` rail, only what is live (D42):
 
 With nothing live the rail is empty. The counts and each record's last save
 are the inspector's Details', with nothing selected (§9), and the changes
-waiting on Save are the history's (§6.1). Once the rail wraps, an item wider
-than it wraps its own words.
+waiting on Save are the history's (§6.1). The rail carries the loading line,
+so it never wraps: the live notices are one item of it, taking what the line
+leaves, which wraps within itself item by item where it is narrow, and there
+an item wider than it wraps its own words.
 
 ### 6.4 Panes and banners
 

@@ -156,7 +156,8 @@ test.describe("The Schematic's frame (#1387)", () => {
                     w: Math.round(f.width), h: Math.round(f.height),
                     toolbar: at("[data-frame-slot='toolbar']"), start: at("[data-frame-slot='start']"), main: at("[data-frame-slot='main']"),
                     end: at("[data-frame-slot='end']"), canvas: at("[data-schematic-canvas]"), footer: at("[data-frame-slot='footer']"),
-                    said: [...el.querySelectorAll("[data-schematic-footer] > *")].map((line) => line.textContent),
+                    said: [...el.querySelectorAll("[data-schematic-notices] > *")].map((line) => line.textContent),
+                    idle: el.querySelector("[data-schematic-footer] [data-footer-line]")?.hasAttribute("data-idle") ?? false,
                 };
             });
             expect(read.toolbar).toEqual([0, 0, read.w, 44]);
@@ -168,8 +169,9 @@ test.describe("The Schematic's frame (#1387)", () => {
             expect([read.main[0], read.main[1], read.main[0]! + read.main[2]!, read.main[1]! + read.main[3]!])
                 .toEqual([read.start[0]! + read.start[2]!, 44, read.end[0], read.footer[1]]);
             expect([read.footer[0], read.footer[2], read.footer[1]! + read.footer[3]!]).toEqual([0, read.w, read.h]);
-            // Only what is live: at rest, nothing — the counts are the inspector's (ruled 23 Oct 2026).
+            // Only what is live: at rest, nothing — the counts are the inspector's (ruled 23 Oct 2026) — its loading line idle.
             expect(read.said).toEqual([]);
+            expect(read.idle).toBe(true);
         });
 
         test(`the toolbar folds by one ladder — the rail first, then its summary, then the tools' words, Find's box and the tools' strip, the View last — one row at 1440, 1024 and 768px and in every box from 1600px to a 294px parent, nothing past its edge (SC24, ${theme})`, async ({ page }) => {

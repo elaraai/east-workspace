@@ -391,13 +391,15 @@ test("Find finds an item by its key, and a pick flies to it and selects it", asy
 
 // ── The footer (§6.3) ───────────────────────────────────────────────────────
 
-/** The footer's items, as they read. */
-const footerOf = (container: HTMLElement) => [...slot(container, "footer").querySelectorAll("[data-schematic-footer] > *")].map((line) => line.textContent);
+/** The footer's live notices, as they read. */
+const footerOf = (container: HTMLElement) => [...slot(container, "footer").querySelectorAll("[data-schematic-notices] > *")].map((line) => line.textContent);
 
 test("the footer holds only what is live: idle, or with a change waiting on Save, it says nothing — the counts are the drawing's Details', the change the history's (§6.3)", async () => {
     const { container } = await dataCentre();
     expect(slot(container, "footer").querySelector("[data-schematic-footer]")).not.toBeNull();
     expect(footerOf(container)).toEqual([]);
+    // Nothing read: its loading line is idle (#1398, CL3).
+    expect(slot(container, "footer").querySelector("[data-schematic-footer] [data-footer-line]")!.hasAttribute("data-idle")).toBe(true);
     expect(drawingCounts(container).links).toBe("6");
     // u1, tapped on its path and deleted: the change waits on Save, as the history says, and the drawing counts a link fewer.
     const canvas = canvasOf(container);

@@ -598,8 +598,8 @@ it at no width, never at a width that moves with its own choice, which looped
 it on a phone.
 Pass it through BuilderFrame's footer region with `liveFooter`, so the line
 and its Retry stay live under the cold-load cover; keep the footer visually
-distinct from the body. Plan, Sheet, Roster, Calendar and Allocation all
-consume this part. Browser tests must compare the actual rail and item styles
+distinct from the body. Plan, Sheet, Roster, Calendar, Allocation and the
+Schematic all consume this part. Browser tests must compare the actual rail and item styles
 in both themes and check that the rail stays one line at narrow widths, no
 word cut.
 
@@ -732,8 +732,10 @@ times. The Schematic's holds only what is live, ruled 23 Oct 2026: a kind drawn
 as its density, how many rows it shades in the view — `Density: 20,000 racks —
 zoom in to draw them` — a refused gesture's words, each Save's notice and where
 Find's pick landed off the canvas; its counts and saves are the inspector's,
-its changes waiting the history's, and once its rail wraps an item wider than
-it wraps its own words.) The inspector retains complete coverage/cost totals and explains
+its changes waiting the history's. Its notices are one item of its rail
+(`data-footer-slack`) beside the shared line — `Loading racks…`, `Filtering
+racks…` — which wraps within itself where main is narrow, an item wider than
+it wrapping its own words, so the rail itself never wraps.) The inspector retains complete coverage/cost totals and explains
 whole-staff scope when Slice narrows visible people. A collapsed Library badge reports availability
 for the day, while tab counts report the library's item count.
 

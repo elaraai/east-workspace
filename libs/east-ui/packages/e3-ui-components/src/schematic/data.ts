@@ -40,11 +40,18 @@
  * whose rows are still being made, keeps what was drawn of it, so the read
  * that next draws it keeps each entity that reads again as it was.
  *
+ * What it reads now is the footer's loading line's to say (#1398, CL3): the
+ * first kind in the Schematic's order whose rows, details or narrowing are in
+ * flight, and whether that read is of a new narrowing — the kind's source's
+ * narrowing no longer the one its drawing was read under, which stands in
+ * meanwhile.
+ *
  * @packageDocumentation
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { StringType, compareFor, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Schematic, schematicAreaIndexes, type SchematicAreaIndexes } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -65,7 +72,23 @@ const sameZone = equalFor(Schematic.Types.Zone);
 const sameLink = equalFor(Schematic.Types.Link);
 const sameNet = equalFor(Schematic.Types.Net);
 const sameDetails = equalFor(Schematic.Types.DetailsRoles);
+const sameWhere = equalFor(RecordSliceWhereType);
+const sameString = equalFor(StringType);
 const compareString = compareFor(StringType);
+
+/** A record Slice's narrowing, decoded. */
+type Where = ValueTypeOf<typeof RecordSliceWhereType>;
+
+/**
+ * What the Schematic reads now, as the footer's loading line says it (#1398, CL3): the first kind in the Schematic's
+ * order whose read is in flight, and whether that read is of a new narrowing, the last standing in.
+ */
+export interface SchematicReading {
+    /** The kind's slot. */
+    readonly slot: string;
+    /** Whether its source's narrowing is not the one its drawing was read under: `Filtering racks…`, not `Loading racks…`. */
+    readonly filtering: boolean;
+}
 
 /** What the Schematic has read of its kinds' records. */
 export interface SchematicData {
@@ -73,6 +96,8 @@ export interface SchematicData {
     readonly drawn: SchematicDrawn;
     /** Whether a read the drawing needs — a kind's rows, or its details read whole — is in flight. */
     readonly loading: boolean;
+    /** What is read now, the first kind in flight in the Schematic's order; `undefined` while nothing is. */
+    readonly reading: SchematicReading | undefined;
     /** Whether a read has settled: every kind read, or its read failed. */
     readonly ready: boolean;
     /** Why the read as a whole failed — outside any one kind's. */
@@ -152,8 +177,8 @@ const NO_MATCHED: ReadonlyMap<string, ReadonlySet<string>> = new Map();
 
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_SCHEMATIC_DATA: SchematicData = {
-    drawn: EMPTY_DRAWN, loading: true, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD, unplaced: NO_UNPLACED,
-    windows: NO_WINDOWS, density: NO_DENSITY, overview: NO_DENSITY, matched: NO_MATCHED,
+    drawn: EMPTY_DRAWN, loading: true, reading: undefined, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD,
+    unplaced: NO_UNPLACED, windows: NO_WINDOWS, density: NO_DENSITY, overview: NO_DENSITY, matched: NO_MATCHED,
 };
 
 /**
@@ -181,12 +206,14 @@ interface Kept extends SchematicHeldRow {
 
 /**
  * What was last read, for the payload it was read under: each kind's entities by its slot, then by key, what each
- * kind's were made from — its stored rows and its details' — and the drawing.
+ * kind's were made from — its stored rows and its details' — the narrowing each kind read through its source was
+ * drawn under, and the drawing.
  */
 interface Held {
     readonly value: SchematicValue | undefined;
     readonly kinds: ReadonlyMap<string, ReadonlyMap<string, Kept>>;
     readonly inputs: ReadonlyMap<string, { readonly rows: unknown; readonly details: unknown }>;
+    readonly wheres: ReadonlyMap<string, Where>;
     readonly drawn: SchematicDrawn;
 }
 
@@ -238,7 +265,7 @@ function isRefused(read: unknown): read is Refused {
  * @returns What the Schematic has read
  */
 export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: SchematicViewport): SchematicData {
-    const held = useRef<Held>({ value: undefined, kinds: new Map(), inputs: new Map(), drawn: EMPTY_DRAWN });
+    const held = useRef<Held>({ value: undefined, kinds: new Map(), inputs: new Map(), wheres: new Map(), drawn: EMPTY_DRAWN });
     // The reads by area: each kind's window, the cells it read and the rows it made, across reads (#1393).
     const [areaReader] = useState(() => new SchematicAreaReader());
     // Rows a read leaves to make, the next read makes, a task later, so a frame draws between: it moves to ask it (#1393).
@@ -249,25 +276,35 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         void makes;
         areaReader.begin();
         // A payload built again holds functions of its own: what they draw is read again.
-        const prior: Held = Object.is(held.current.value, value) ? held.current : { value, kinds: new Map(), inputs: new Map(), drawn: EMPTY_DRAWN };
+        const prior: Held = Object.is(held.current.value, value) ? held.current : { value, kinds: new Map(), inputs: new Map(), wheres: new Map(), drawn: EMPTY_DRAWN };
         const kinds = new Map<string, ReadonlyMap<string, Kept>>();
         const inputs = new Map<string, { readonly rows: unknown; readonly details: unknown }>();
+        const wheres = new Map<string, Where>();
         const failures = new Map<string, string>();
         const windows = new Map<string, SchematicWindowHeld>();
         const density = new Map<string, SchematicDensity>();
         const overview = new Map<string, SchematicDensity>();
         const matched = new Map<string, ReadonlySet<string>>();
         let loading = false;
+        // The kinds whose rows, details or narrowing are in flight: what the footer's loading line says (#1398, CL3).
+        const inFlight = new Set<string>();
+        const awaiting = (slot: string) => {
+            loading = true;
+            inFlight.add(slot);
+        };
         let changed = prior.kinds.size === 0;
         /**
          * One kind's entities: each kept where its roles and its details read again as they were, else drawn again — all
-         * of them, unread, where its rows and its details are the very ones the last read drew from.
+         * of them, unread, where its rows and its details are the very ones the last read drew from — and the narrowing
+         * they were read under.
          */
         const take = <R, E>(slot: string, rows: Rows<R>, details: Rows<DetailsRoles> | undefined, same: (a: R, b: R) => boolean,
             draw: (ref: SchematicRef, roles: R, details: DetailsRoles | undefined) => E | undefined, out: E[]) => {
             const was = prior.kinds.get(slot);
             const from = prior.inputs.get(slot);
             inputs.set(slot, { rows, details });
+            const where = whereOf(slot);
+            if (where !== undefined) wheres.set(slot, where);
             if (was !== undefined && from !== undefined && Object.is(from.rows, rows) && Object.is(from.details, details)) {
                 kinds.set(slot, was);
                 for (const kept of was.values()) if (kept.drawn !== undefined) out.push(kept.drawn as E);
@@ -298,6 +335,8 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             kinds.set(slot, was);
             const from = prior.inputs.get(slot);
             if (from !== undefined) inputs.set(slot, from);
+            const where = prior.wheres.get(slot);
+            if (where !== undefined) wheres.set(slot, where);
             for (const kept of was.values()) if (kept.drawn !== undefined) out.push(kept.drawn as E);
         };
         /** A kind whose read failed: what was drawn of it stays, and why is kept under its slot. */
@@ -312,6 +351,8 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         const links: DrawnLink[] = [];
         const nets: DrawnNet[] = [];
         const chrome = getSomeorUndefined(value.slice);
+        // The narrowing a kind's source holds now; `undefined` for a kind read through none.
+        const whereOf = (slot: string): Where | undefined => sourcePart(chrome, slot)?.read().where;
         const dim = value.narrowed.show.type === "dim";
         // The drawing's extent, where a window's rows lie as the viewport's count of them weighs them — the footer's too.
         const extent = { minX: 0, minY: 0, maxX: value.extent.width, maxY: value.extent.height };
@@ -343,7 +384,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         for (const kind of value.items) {
             try {
                 const area = areaRead(kind, "items");
-                if (area === READING) { loading = true; pending.add(kind.key); continue; }
+                if (area === READING) { awaiting(kind.key); pending.add(kind.key); continue; }
                 if (area !== undefined) continue;
                 const rows = kind.rows();
                 // A kind's details read whole beside it: what its cards draw where the kind gives none.
@@ -351,9 +392,9 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
                 if (kind.details.type === "some" && kind.details.value.rows.type === "some") {
                     const got = kind.details.value.rows.value();
                     if (got.type === "some") details = got.value;
-                    else loading = true;
+                    else awaiting(kind.key);
                 }
-                if (rows.type !== "some") { loading = true; pending.add(kind.key); continue; }
+                if (rows.type !== "some") { awaiting(kind.key); pending.add(kind.key); continue; }
                 wholeItems.push({ kind, rows: rows.value, details });
             } catch (error) {
                 failed(kind.key, error, items);
@@ -362,10 +403,10 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         for (const kind of value.zones) {
             try {
                 const area = areaRead(kind, "zones");
-                if (area === READING) { loading = true; pending.add(kind.key); continue; }
+                if (area === READING) { awaiting(kind.key); pending.add(kind.key); continue; }
                 if (area !== undefined) continue;
                 const rows = kind.rows();
-                if (rows.type !== "some") { loading = true; pending.add(kind.key); continue; }
+                if (rows.type !== "some") { awaiting(kind.key); pending.add(kind.key); continue; }
                 wholeZones.push({ kind, rows: rows.value });
             } catch (error) {
                 failed(kind.key, error, zones);
@@ -423,18 +464,18 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
                 // Only an item is a link's end or a net's member: a zone kind has no far ends.
                 const paged = "paged" in kind ? getSomeorUndefined(kind.paged) : undefined;
                 const farRows = areaReader.farEnds(slot, paged, [...(far.get(slot) ?? [])].sort(compareString));
-                if (farRows === READING) { loading = true; pending.add(slot); continue; }
+                if (farRows === READING) { awaiting(slot); pending.add(slot); continue; }
                 const narrowed = areaReader.narrowed(kind, part, windowRead, farRows, dim);
-                if (narrowed === READING) { loading = true; pending.add(slot); continue; }
+                if (narrowed === READING) { awaiting(slot); pending.add(slot); continue; }
                 // Made over as many reads as their making takes, a frame drawing between.
                 const made = areaReader.rowsOf(kind, narrowed);
-                if (made === READING) { loading = true; pending.add(slot); continue; }
+                if (made === READING) { awaiting(slot); pending.add(slot); continue; }
                 const rows = made as ReadonlyMap<string, { readonly roles: unknown; readonly row: Uint8Array }>;
                 // At every zoom: a dot draws its item's status too (D45).
                 let details: Rows<DetailsRoles> | undefined;
                 if (kind.details.type === "some") {
                     const got = areaReader.detailsOf(slot, kind.details.value, part, windowRead);
-                    if (got === READING) { loading = true; pending.add(slot); continue; }
+                    if (got === READING) { awaiting(slot); pending.add(slot); continue; }
                     if (got !== undefined) details = got as Rows<DetailsRoles>;
                 }
                 areaRows.set(slot, { rows, details });
@@ -469,17 +510,27 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         value.links.forEach((kind, i) => {
             const got = linkReads[i]!;
             if (isRefused(got)) { failed(kind.key, got.refused, links); return; }
-            if (got.type !== "some") { loading = true; carry(kind.key, links); return; }
+            if (got.type !== "some") { awaiting(kind.key); carry(kind.key, links); return; }
             take(kind.key, got.value, undefined, sameLink, (ref, roles) => drawnLink(ref, roles), links);
         });
         value.nets.forEach((kind, i) => {
             const got = netReads[i]!;
             if (isRefused(got)) { failed(kind.key, got.refused, nets); return; }
-            if (got.type !== "some") { loading = true; carry(kind.key, nets); return; }
+            if (got.type !== "some") { awaiting(kind.key); carry(kind.key, nets); return; }
             take(kind.key, got.value, undefined, sameNet, (ref, roles) => drawnNet(ref, roles), nets);
         });
         const drawn = changed || kinds.size !== prior.kinds.size ? { items, zones, links, nets } : prior.drawn;
-        return { held: { value, kinds, inputs, drawn } satisfies Held, loading, failures, windows, density, overview, matched, unmade: areaReader.unmade };
+        // The first kind in flight in the Schematic's order: what the footer's loading line names — and whether its source's
+        // narrowing has moved from the one its drawing was read under, which stands in meanwhile.
+        const first = [...value.items, ...value.zones, ...value.links, ...value.nets].find((kind) => inFlight.has(kind.key))?.key;
+        const was = first === undefined ? undefined : prior.wheres.get(first);
+        const now = first === undefined ? undefined : whereOf(first);
+        const reading: SchematicReading | undefined = first === undefined ? undefined
+            : { slot: first, filtering: was !== undefined && now !== undefined && !sameWhere(was, now) };
+        return {
+            held: { value, kinds, inputs, wheres, drawn } satisfies Held, loading, reading, failures, windows, density, overview, matched,
+            unmade: areaReader.unmade,
+        };
     }, [value, attempt, viewport, areaReader, makes]);
     const { result } = useTrackedEvaluation(read);
     // A read that left rows to make asks the next a task later: a frame draws between, each read making a budget's worth.
@@ -489,6 +540,8 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         const timer = setTimeout(() => setMakes((n) => n + 1), 0);
         return () => clearTimeout(timer);
     }, [unmade, makes]);
+    // What the last read said is read now, kept while it names the same kind the same way.
+    const readingRef = useRef<SchematicReading | undefined>(undefined);
     // The last settled read: a newer one in flight keeps it, so a scan landing redraws nothing until the read is whole.
     // What it holds moves with what it draws: a row added, removed, or its roles or details changed, draws anew.
     const settled = useRef<{
@@ -523,13 +576,19 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
     const last = settled.current;
     const loading = result.ok ? result.value.loading : false;
     const error = result.ok ? undefined : messageOf(result.error);
+    // What is read now: the same object while it names the same kind the same way, so a landing that leaves it moves nothing.
+    const readingNow = result.ok ? result.value.reading : undefined;
+    const readingWas = readingRef.current;
+    const reading = readingNow !== undefined && readingWas !== undefined && sameString(readingNow.slot, readingWas.slot)
+        && readingNow.filtering === readingWas.filtering ? readingWas : readingNow;
+    readingRef.current = reading;
     return useMemo((): SchematicData => (last === undefined
-        ? { ...INITIAL_SCHEMATIC_DATA, loading, error }
+        ? { ...INITIAL_SCHEMATIC_DATA, loading, reading, error }
         : {
-            drawn: last.drawn, loading, ready: true, error, failures: last.failures, rows: last.rows, held: last.held, unplaced: last.unplaced,
-            windows: last.windows, density: last.density, overview: last.overview, matched: last.matched,
+            drawn: last.drawn, loading, reading, ready: true, error, failures: last.failures, rows: last.rows, held: last.held,
+            unplaced: last.unplaced, windows: last.windows, density: last.density, overview: last.overview, matched: last.matched,
         }),
-    [last, loading, error]);
+    [last, loading, reading, error]);
 }
 
 /**

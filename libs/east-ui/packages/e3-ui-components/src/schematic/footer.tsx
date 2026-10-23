@@ -17,8 +17,18 @@
  * Clear filters; its layer; no position (#1404). With nothing live the rail is
  * empty. The drawing's counts and each record's last save are the
  * inspector's, in its Details with nothing selected (`counts.ts`), and the
- * changes waiting on Save the history's. Each item is its own on the rail, so
- * the rail wraps item by item where main is narrow (`useRailWrap`).
+ * changes waiting on Save the history's.
+ *
+ * At the rail's trailing end, in a slot of its own, the shared loading line
+ * (#1398, CL3): what is read now, in a kind's noun — `Loading racks…`,
+ * `Filtering racks…` while a new narrowing's rows are read and the last stand
+ * in — or why a read failed, with Retry; shown on the frame's one reveal
+ * clock (CL4, its `LoadingReveal`). The rail never wraps and never cuts a
+ * word: the line shows its full text, its short form or its dot alone, as the
+ * rail fits it (`useFooterFit`). The live notices are one item of the rail,
+ * which takes what the line leaves (`data-footer-slack`) and wraps within
+ * itself item by item where it is narrow (`useRailWrap`), an item wider than
+ * it wrapping its own words.
  *
  * @packageDocumentation
  */
@@ -27,7 +37,7 @@ import { useMemo, useRef, useSyncExternalStore } from "react";
 import { Box, Button, type SystemStyleObject } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { RecordSliceSaveNotice } from "@elaraai/east-ui-components/internal";
+import { LoadingLine, RecordSliceSaveNotice, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { useRailWrap } from "../shared/schedule/footer.js";
 import { densityInView, type SchematicDensity, type SchematicViewportStore } from "./area.js";
 import type { SchematicWords } from "./messages.js";
@@ -77,15 +87,18 @@ export interface SchematicFooterProps {
      * Clear filters; its layer; no position — or `undefined` while nothing does.
      */
     readonly found?: SchematicFoundNotice | undefined;
+    /** What the loading line says: a read in flight, or one that failed, with Retry; `undefined` while nothing is read. */
+    readonly line: LoadingLineValue | undefined;
 }
 
 /**
  * Renders the footer — see the module docs.
  *
- * @param props - The densities and where the viewport rests, the refusal, the Saves' notices and where Find's last pick landed
- * @returns The footer: its rail, empty while nothing is live
+ * @param props - The densities and where the viewport rests, the refusal, the Saves' notices, where Find's last pick
+ *   landed, and the loading line
+ * @returns The footer: its rail, its notices and its loading line, empty while nothing is live
  */
-export function SchematicFooter({ styles, words, density, names, viewport, extent, refusal, notices, found }: SchematicFooterProps) {
+export function SchematicFooter({ styles, words, density, names, viewport, extent, refusal, notices, found, line }: SchematicFooterProps) {
     // Where the viewport rests: the footer alone renders again as it moves, and only while a kind draws its density.
     const rests = useSyncExternalStore(viewport.subscribe, viewport.get, viewport.get);
     const { width, height } = extent;
@@ -98,22 +111,28 @@ export function SchematicFooter({ styles, words, density, names, viewport, exten
         const text = words.m.densityNotice({ n: seen.rows, count: words.number(seen.rows), name, about: !seen.exact, unfiltered: raster.unnarrowed });
         return [{ slot, text, side: raster.side }];
     })), [rests, density, width, height, names, words]);
-    const ref = useRef<HTMLDivElement>(null);
-    const wrap = useRailWrap(ref, [...dense.map((line) => line.text), refusal ?? "", found?.words ?? ""].join("\n"));
+    const rail = useRef<HTMLDivElement>(null);
+    const fit = useFooterFit(rail);
+    const shown = useRevealed() === true;
+    const live = useRef<HTMLDivElement>(null);
+    const wrap = useRailWrap(live, [...dense.map((notice) => notice.text), refusal ?? "", found?.words ?? ""].join("\n"));
     return (
-        <Box ref={ref} css={styles.footer} data-schematic-footer="" data-builder-narrow={wrap ? "" : undefined}>
-            {dense.map((line) => (
-                <Box as="span" key={line.slot} css={styles.footerItem} data-schematic-density={line.slot} data-density-cell={line.side}>{line.text}</Box>
-            ))}
-            {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" role="alert">{refusal}</Box>}
-            {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
-            {/* Where Find's last pick landed, the canvas not showing it as itself: why, and — the filters — their Clear, as the Save notice's Retry. */}
-            {found !== undefined && (
-                <Box as="span" css={styles.footerItem} data-schematic-found="" role="status">
-                    {found.words}
-                    {found.clear !== undefined && <> <Button size="xs" variant="plain" onClick={found.clear}>{words.m.clearFilters()}</Button></>}
-                </Box>
-            )}
+        <Box ref={rail} css={styles.footer} data-schematic-footer="">
+            <Box ref={live} css={styles.footerNotices} data-schematic-notices="" data-footer-slack="" data-builder-narrow={wrap ? "" : undefined}>
+                {dense.map((notice) => (
+                    <Box as="span" key={notice.slot} css={styles.footerItem} data-schematic-density={notice.slot} data-density-cell={notice.side}>{notice.text}</Box>
+                ))}
+                {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" role="alert">{refusal}</Box>}
+                {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
+                {/* Where Find's last pick landed, the canvas not showing it as itself: why, and — the filters — their Clear, as the Save notice's Retry. */}
+                {found !== undefined && (
+                    <Box as="span" css={styles.footerItem} data-schematic-found="" role="status">
+                        {found.words}
+                        {found.clear !== undefined && <> <Button size="xs" variant="plain" onClick={found.clear}>{words.m.clearFilters()}</Button></>}
+                    </Box>
+                )}
+            </Box>
+            <LoadingLine value={line} shown={shown} form={fit.form} />
         </Box>
     );
 }

@@ -22,13 +22,17 @@
  * refused, and a drop's step in the history; and its inspector's (#1391): the
  * pane and its tabs, the heads of Details' sections and its own fields, where
  * an entity stands, a gesture's button and its step, a record's last save and
- * who made it, why a net's side stays, and each issue's words. A host
- * translates the Schematic where it translates its formatters.
+ * who made it, why a net's side stays, and each issue's words; and the
+ * footer's loading line's (#1398, CL3), the shared paged words over a kind's
+ * rows — `Loading racks…`, `Filtering racks…`, `Couldn't read racks` — and
+ * the drawing's noun, where its read fails as a whole. A host translates the
+ * Schematic where it translates its formatters.
  *
  * @packageDocumentation
  */
 
 import type { Formatters } from "@elaraai/east-ui-components";
+import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
 
@@ -40,10 +44,12 @@ export interface SchematicCount {
     readonly count: string;
 }
 
-/** The Schematic's message table. */
-export interface SchematicMessages {
+/** The Schematic's message table: its own words, and the footer's loading line's over a kind's rows (`PagedLoadingMessages`). */
+export interface SchematicMessages extends PagedLoadingMessages {
     /** The frame's accessible name, and what its skeleton is the loading of. */
     frameLabel: () => string;
+    /** What the footer's loading line names a read of the drawing as a whole that failed — `Couldn't read the drawing`. */
+    drawingNoun: () => string;
     /** The canvas's accessible name: what it is, and what its keys do. */
     canvasLabel: () => string;
     /** The minimap's line under the pointer: what a press on it does. */
@@ -325,7 +331,9 @@ const TOOL_HINTS: { readonly [T in SchematicTool]: string } = {
 
 /** The English table. */
 export const schematicMessages: SchematicMessages = {
+    ...pagedLoadingMessages,
     frameLabel: () => "Schematic",
+    drawingNoun: () => "the drawing",
     canvasLabel: () => "Schematic canvas — arrow keys step through the items",
     minimapHint: () => "Jump to a location",
     toolsLabel: () => "Tool",
