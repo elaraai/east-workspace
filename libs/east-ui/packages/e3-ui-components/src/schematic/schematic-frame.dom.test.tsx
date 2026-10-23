@@ -19,7 +19,8 @@
  * The frame's skeleton covers the
  * first read, later reads keep the canvas, and a failed read is a banner with
  * Retry (SC32). A card's dot and the canvas's probe resolve one colour chain
- * (SC26), and the canvas sets nothing inline but geometry (SC31).
+ * (SC26), and the canvas sets nothing inline but geometry (SC31). The minimap
+ * draws the whole drawing, its items as dots (#1393).
  */
 
 import { expect, test, vi } from "vitest";
@@ -555,6 +556,34 @@ test("the card layer holds the widest card, which the recipe holds a card to; a 
     await waitFor(() => expect(card(container, "network", "MMR-1")).not.toBeNull());
     expect(card(container, "racks", "A01")!.parentElement!.style.getPropertyValue("--schematic-card-max")).toBe("200px");
     expect([card(container, "racks", "A01")!.hasAttribute("data-boxed"), card(container, "network", "MMR-1")!.hasAttribute("data-boxed")]).toEqual([false, true]);
+});
+
+/** The floor's racks and the network frames, the minimap shown whatever their count (§5). */
+const mapped = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Data.bind(ex.schematicFloorRacks));
+    const frames = $.let(Data.bind(ex.schematicFrames));
+    return Schematic({
+        id: "mapped",
+        extent: { width: 28, height: 14 },
+        minimap: true,
+        items: {
+            racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+            network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+        },
+    });
+})));
+
+test("the minimap draws the whole drawing — kinds read whole as every item's dot, no density — 150px wide at the drawing's aspect on a desktop's canvas (#1393)", async () => {
+    const { container } = await h.mount({ fn: mapped });
+    await waitFor(() => expect(card(container, "network", "MMR-1")).not.toBeNull());
+    const racks = await h.read(ex.schematicFloorRacks);
+    const frames = await h.read(ex.schematicFrames);
+    const minimap = container.querySelector<HTMLElement>("[data-schematic-minimap]")!;
+    expect(minimap.getAttribute("data-minimap-items")).toBe(String(racks.size + frames.size));
+    expect(minimap.getAttribute("data-minimap-cells")).toBe("0");
+    // 28 × 14 m on the 1080px canvas: 150 × 75px, its drawing painted.
+    expect([minimap.style.width, minimap.style.height]).toEqual(["150px", "75px"]);
+    expect(minimap.querySelector("canvas")).not.toBeNull();
 });
 
 test("the canvas, its cards, its minimap and the footer set nothing inline but geometry: the recipe owns every style (SC31)", async () => {

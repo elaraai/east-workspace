@@ -48,7 +48,8 @@ export async function openSchematic(page: Page, hash: string, theme: "light" | "
     await entry.scrollIntoViewIfNeeded();
     const root = entry.locator("[data-schematic]").first();
     await expect(root.locator("[data-builder-frame]")).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
-    await expect(root.locator("[data-schematic-canvas] canvas")).toBeVisible();
+    // Its paint layer: the minimap paints in a canvas of its own.
+    await expect(root.locator("[data-schematic-canvas] > canvas")).toBeVisible();
     await settled(page);
     return root;
 }

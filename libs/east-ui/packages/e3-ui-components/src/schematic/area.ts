@@ -54,6 +54,10 @@
  * (`schematicDensityCells`), and no row is read. No search of the density is
  * kept as a cell: the source's cells are the window's alone.
  *
+ * Beside its window, a kind's overview — its whole drawing's density, which
+ * the minimap draws — is counted over the drawing's extent in one request, once
+ * a revision and a narrowing ({@link SchematicAreaReader.overview}).
+ *
  * Its items' details are read at every tier — a dot draws its item's status
  * too (D45) — by the runs its window's rows were read by: the window's cells,
  * or at density the coarser levels' runs, every cell not held in one request
@@ -454,6 +458,17 @@ interface Rasterized {
     readonly few: boolean;
 }
 
+/** A kind's overview raster: planned over the drawing's extent for the source's config and the narrowing, and its searches. */
+interface OverviewPlanned {
+    readonly config: unknown;
+    readonly where: Where;
+    readonly extent: WorldBox;
+    readonly plan: SchematicWindowPlan;
+    readonly raster: SchematicRaster;
+    readonly cells: number;
+    readonly queries: readonly Query[];
+}
+
 /** A window's density raster: its plan's, over its reach, and its searches — its cells' ranges, then the coarser levels' keys. */
 interface Rastered {
     readonly planned: Planned;
@@ -499,6 +514,10 @@ interface Slot {
     coarse?: { readonly found: readonly Range[]; readonly runs: readonly Range[]; readonly entries: readonly RecordSliceEntry[] };
     /** The density it last drew. */
     density?: SchematicDensity;
+    /** Its overview's raster, planned over the drawing's extent. */
+    overviewPlanned?: OverviewPlanned;
+    /** Its overview: the whole drawing's density, read at a revision for the raster it was planned as. */
+    overview?: { readonly planned: OverviewPlanned; readonly revision: string; readonly density: SchematicDensity };
     /** Its window as it was last read, for its plan and its revision, and whether its cells hold more rows than a window reads. */
     read?: { readonly planned: Planned; readonly revision: string; readonly read: SchematicWindowRead; readonly capped: boolean };
     /** Its far ends' rows, as the read by key gave them. */
@@ -753,6 +772,51 @@ export class SchematicAreaReader {
             && sameCells(last.cells, cells)) return last;
         const density = { side: raster.side, cells, most: cells.reduce((most, cell) => Math.max(most, cell.count), 0), box, spread: spreads, unnarrowed };
         slot.density = density;
+        return density;
+    }
+
+    /**
+     * A kind's overview (#1393): its whole drawing's density, which the
+     * minimap draws, where its window holds only what the view is near — the
+     * area index's counts over the drawing's extent at the level whose cells
+     * are about a sixty-fourth of it, through the index its narrowing reads a
+     * window through, each combination of its leading values added cell by
+     * cell and the coarser levels' rows spread over them: one request of
+     * counted ranges, no row read, read once a revision and a narrowing, the
+     * last one standing until the next lands.
+     *
+     * @param kind - The kind
+     * @param part - Its source of the slice
+     * @param areas - Its area indexes
+     * @param extent - The drawing's extent, in world units
+     * @param dim - Whether every row is drawn, the narrowing as context (`narrowed="dim"`)
+     * @returns The density; {@link READING} while its counts are in flight
+     */
+    overview(kind: SchematicAreaKind, part: Part, areas: SchematicAreaIndexes, extent: WorldBox, dim: boolean): SchematicDensity | Reading {
+        const revision = recordSliceRevision(part);
+        if (revision.type !== "some") return READING;
+        const slot = this.slotOf(kind.key);
+        const where = dim ? NO_WHERE : part.read().where;
+        let planned = slot.overviewPlanned;
+        if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
+            const plan = schematicWindowPlan(areas, where, extent);
+            const raster = schematicRaster(plan, extent);
+            const ranges = raster.cells.flat().map((cell) => cell.query);
+            planned = { config: part.config, where, extent, plan, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
+            slot.overviewPlanned = planned;
+        }
+        const last = slot.overview;
+        if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision.value)) return last.density;
+        const found = recordSliceBounds(part, planned.plan.index.name, planned.queries);
+        // Until its counts land, the last overview it read stands, as the previous window does.
+        if (found.type !== "some") return last === undefined ? READING : last.density;
+        const cells = schematicDensityCells(planned.raster, found.value.slice(0, planned.cells).map((range) => range.count),
+            found.value.slice(planned.cells).map((range) => range.count));
+        const unnarrowed = dim ? part.read().where.size > 0 : planned.plan.residual.length > 0;
+        const density: SchematicDensity = {
+            side: planned.raster.side, cells, most: cells.reduce((most, cell) => Math.max(most, cell.count), 0), box: extent, spread: true, unnarrowed,
+        };
+        slot.overview = { planned, revision: revision.value, density };
         return density;
     }
 

@@ -6,7 +6,8 @@
 /**
  * The Schematic's canvas (#1387): the 2D world-coordinate drawing in its
  * frame's main — a Canvas2D paint layer and a DOM card layer under one camera,
- * the minimap and the scale bar at its foot. It holds no control of its own:
+ * the minimap and the scale bar at its foot, the minimap the whole drawing,
+ * wherever the view is (`minimap.ts`, #1393). It holds no control of its own:
  * the frame's toolbar holds the tools, the zoom, Fit, Find and the steps, and
  * drives the camera through this canvas's handle ({@link SchematicCanvasHandle});
  * the tool held and the link kind Connect draws are the frame's. What it draws
@@ -78,8 +79,9 @@ import {
 import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
 import { entityTints, itemTint, tintAttributes, tintsOf } from "./tints";
 import type { SchematicLayerState } from "./layers";
+import { minimapSize, paintMinimap } from "./minimap";
 import { densityInView, type SchematicDensity, type SchematicViewportStore } from "../area.js";
-import type { SchematicValue } from "../data.js";
+import { areaSlots, type SchematicValue } from "../data.js";
 import {
     NOWHERE, dropPoint, markEqual, markOf, printDropAt, readDropAt, restsAt, type SchematicCanvasDrop, type SchematicDropMark, type SchematicDropPoint,
 } from "../drop.js";
@@ -364,6 +366,8 @@ export interface SchematicCanvasProps {
     readonly viewport?: SchematicViewportStore | undefined;
     /** Each kind read by area drawing its density in place of its items (D25), by its slot: the raster painted under them. */
     readonly density?: ReadonlyMap<string, SchematicDensity> | undefined;
+    /** Each kind read by area's whole drawing's density, by its slot: what the minimap draws of it, wherever the view is (#1393). */
+    readonly overview?: ReadonlyMap<string, SchematicDensity> | undefined;
     /** Whether a read the drawing needs is in flight: an item a drop or a pick asks to select is waited for until it lands. */
     readonly reading?: boolean | undefined;
     /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393): the toolbar's Zoom out and Zoom in take no press there. */
@@ -389,7 +393,7 @@ export interface SchematicZoomRange {
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
     value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
-    viewport, density = NO_DENSITY, reading = false, onZoomRange, ref,
+    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, onZoomRange, ref,
 }: SchematicCanvasProps) {
     const styles = useSlotRecipe({ key: "schematic" })() as SlotStyles;
     const { width: W, height: H } = value.extent;
@@ -423,8 +427,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     const [lit, setLit] = useState<string | undefined>(undefined);
     const scaleUnit = getSomeorUndefined(value.scaleUnit);
     const showGrid = getSomeorUndefined(value.grid) ?? true;
-    // Shown by default from 25 items — and while a kind draws its density, whose rows are past any count of items (D25).
-    const showMinimap = getSomeorUndefined(value.minimap) ?? (data.items.length >= MINIMAP_AUTO || density.size > 0);
+    // Shown by default from 25 items — and for a kind read by area, whose drawing is past any count of items its window
+    // holds, its whole drawing's density the minimap's (D25, #1393).
+    const showMinimap = getSomeorUndefined(value.minimap) ?? (data.items.length >= MINIMAP_AUTO || density.size > 0 || overview.size > 0);
 
     // Each entity's reference by its id on the canvas: what the host hears an
     // entity named by — the links and nets drafted among them, each under its
@@ -586,6 +591,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         () => layerHiddenKeys.size === 0 ? data.zones : data.zones.filter(z => !layerHiddenKeys.has(z.key)),
         [data.zones, layerHiddenKeys],
     );
+    // What the minimap draws (#1393): the whole drawing — each kind read by area as its whole drawing's density, never only
+    // the items its window holds, and each item of a kind read whole as a dot (`minimap.ts`).
+    const areaKinds = useMemo(() => areaSlots(value), [value]);
+    const minimapItems = useMemo(() => items.filter((item) => !areaKinds.has(item.ref.kind)), [items, areaKinds]);
+    const minimapDensities = useMemo(() => [...overview.values()], [overview]);
+    const minimapCells = useMemo(() => minimapDensities.reduce((n, raster) => n + raster.cells.length, 0), [minimapDensities]);
 
     // Selection hygiene: prune any selected keys that left the working set (their
     // layer was hidden) or whose layer was locked — a locked layer's entities
@@ -818,6 +829,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     // The fit, and the camera Fit takes (#1393): the drawing inside the canvas less its margin, centred on both axes.
     const { fit, home } = useMemo(() => (size === null ? { fit: 0, home: IDENTITY } : fitView(size.w, size.h, W, H)), [size, W, H]);
     const ppu = fit * cameraSnapshot.zoom;
+    // The minimap's size: the drawing at its aspect, 150px wide at most, and no more than a quarter of the canvas's width
+    // or a third of its height, so a phone's keeps to its corner (#1393).
+    const minimapBox = useMemo(() => (size === null ? undefined : minimapSize(size, { width: W, height: H })), [size, W, H]);
     // The zoom's limit (#1393, ruled 23 Oct 2026): 40× Fit, or further — until the drawing's smallest item held to its own
     // width draws as a whole card (`cardWhole`), however dense the floor.
     const maxZoom = useMemo(() => {
@@ -1148,6 +1162,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         paintEffect, fitBox,
         lit: litShown, wasLink,
         density,
+        extent: value.extent,
+        minimap: showMinimap && minimapBox !== undefined ? { box: minimapBox, zones: shownZones, densities: minimapDensities, items: minimapItems } : undefined,
         palette: null as SchematicPalette | null,
         tints: NO_TINTS,
     };
@@ -1266,6 +1282,34 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         }
     }, []);
 
+    // The minimap's paint (#1393): from the commit-phase snapshot, as the canvas's is, and drawn again only as what it
+    // shows moves — its element, its size, the zones, the overview, the items, the palette — never as the camera moves:
+    // the viewport's box over it is the DOM's.
+    const minimapPaintRef = useRef<HTMLCanvasElement | null>(null);
+    const lastMinimapRef = useRef<{
+        el: HTMLCanvasElement; w: number; h: number; dpr: number; pal: SchematicPalette; zones: unknown; densities: unknown; items: unknown;
+    } | null>(null);
+    const applyMinimap = useCallback(() => {
+        const snap = renderSnapRef.current;
+        const canvas = minimapPaintRef.current, pal = snap.palette, mini = snap.minimap;
+        if (canvas === null || pal === null || mini === undefined) return;
+        const { box } = mini;
+        const last = lastMinimapRef.current;
+        if (last !== null && last.el === canvas && last.w === box.w && last.h === box.h && last.dpr === snap.dpr && last.pal === pal
+            && last.zones === mini.zones && last.densities === mini.densities && last.items === mini.items) return;
+        lastMinimapRef.current = { el: canvas, w: box.w, h: box.h, dpr: snap.dpr, pal, zones: mini.zones, densities: mini.densities, items: mini.items };
+        const bw = Math.round(box.w * snap.dpr), bh = Math.round(box.h * snap.dpr);
+        if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+        const ctx = canvas.getContext("2d");
+        if (ctx === null) return;
+        ctx.setTransform(snap.dpr, 0, 0, snap.dpr, 0, 0);
+        try {
+            paintMinimap({ ctx, width: box.w, height: box.h, extent: snap.extent, zones: mini.zones, densities: mini.densities, items: mini.items, palette: pal });
+        } catch (err) {
+            console.error("[Schematic] minimap paint failed:", err);
+        }
+    }, []);
+
     // THE commit-phase snapshot write (#172): dep-less, so it runs on EVERY
     // commit — the snapshot + commit context can never lag a render, and there
     // is no dependency list to drift. The palette is read from the probe here,
@@ -1289,6 +1333,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         renderSnapRef.current = { ...renderSnap, palette: read?.palette ?? null, tints: resolved?.byId ?? NO_TINTS };
         commitCtxRef.current = commitCtx;
         applyCamera();
+        applyMinimap();
     });
 
     // Each card's size as the page lays it out (#1403): a ResizeObserver hears each card as it is laid out and as its box
@@ -2543,12 +2588,15 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                             </Box>
                         );
                     })()}
-                    {showMinimap && (
+                    {showMinimap && minimapBox !== undefined && (
                         <Box
                             css={styles.minimap}
                             data-schematic-minimap=""
+                            // What it draws, for a reader of the page: the cells of each kind's whole drawing's density, and the items' dots.
+                            data-minimap-cells={minimapCells}
+                            data-minimap-items={minimapItems.length}
                             title={words.m.minimapHint()}
-                            style={{ width: 150, height: (150 * H) / W }}
+                            style={{ width: minimapBox.w, height: minimapBox.h }}
                             onPointerDown={e => {
                                 e.stopPropagation();
                                 const el = e.currentTarget as HTMLElement;
@@ -2567,27 +2615,17 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                                 releasePointer(e.currentTarget as HTMLElement, e.pointerId);
                             }}
                         >
-                            {shownZones.map(zone => (
-                                <Box
-                                    key={zone.key}
-                                    css={styles.minimapZone}
-                                    style={{
-                                        left: `${(zone.x / W) * 100}%`, top: `${(zone.y / H) * 100}%`,
-                                        width: `${(zone.width / W) * 100}%`, height: `${(zone.height / H) * 100}%`,
-                                    }}
-                                />
-                            ))}
-                            {size !== null && (
-                                <Box
-                                    css={styles.minimapViewport}
-                                    style={{
-                                        left: `${Math.max(0, (-cameraSnapshot.tx / ppu / W) * 100)}%`,
-                                        top: `${Math.max(0, (-cameraSnapshot.ty / ppu / H) * 100)}%`,
-                                        width: `${Math.min(100, (size.w / ppu / W) * 100)}%`,
-                                        height: `${Math.min(100, (size.h / ppu / H) * 100)}%`,
-                                    }}
-                                />
-                            )}
+                            {/* The zones, each kind read by area's whole drawing's density and the items' dots, painted (`minimap.ts`). */}
+                            <chakra.canvas ref={minimapPaintRef} css={styles.minimapPaint} />
+                            <Box
+                                css={styles.minimapViewport}
+                                style={{
+                                    left: `${Math.max(0, (-cameraSnapshot.tx / ppu / W) * 100)}%`,
+                                    top: `${Math.max(0, (-cameraSnapshot.ty / ppu / H) * 100)}%`,
+                                    width: `${Math.min(100, (size.w / ppu / W) * 100)}%`,
+                                    height: `${Math.min(100, (size.h / ppu / H) * 100)}%`,
+                                }}
+                            />
                         </Box>
                     )}
                 </>

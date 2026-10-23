@@ -29,7 +29,8 @@
  * its record whole nor its narrowing complete — its rows, or past
  * `SCHEMATIC_WINDOW_ROWS` in view its density; its items' details by the runs its
  * window was read by, at every zoom, so a dot draws its item's status (D45);
- * and the far ends of the links and nets that touch it, by key. One
+ * its whole drawing's density, which the minimap draws (`overview`); and the
+ * far ends of the links and nets that touch it, by key. One
  * that lists area indexes none of which reads it — none led by no field, or
  * one boxing its rows otherwise than its roles — is refused as it reads,
  * naming what to declare (SC34). The previous window stays drawn until the
@@ -40,7 +41,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { StringType, compareFor, equalFor, type ValueTypeOf } from "@elaraai/east";
-import { Schematic, schematicAreaIndexes } from "@elaraai/e3-ui/internal";
+import { Schematic, schematicAreaIndexes, type SchematicAreaIndexes } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import {
@@ -93,6 +94,8 @@ export interface SchematicData {
     readonly windows: SchematicWindowRows;
     /** Each kind read by area drawing its density in place of items, by its slot (D25). */
     readonly density: ReadonlyMap<string, SchematicDensity>;
+    /** Each kind read by area's whole drawing's density, by its slot: what the minimap draws of it (#1393). */
+    readonly overview: ReadonlyMap<string, SchematicDensity>;
     /**
      * Each kind read by area under `narrowed="dim"` and a narrowing, by its slot: the rows its window holds that the
      * narrowing holds, as `within` answered (D28) — what draws as a match, and the rest as context.
@@ -137,7 +140,7 @@ const NO_UNPLACED: SchematicUnplacedRows = new Map();
 /** No kind read by area. */
 const NO_WINDOWS: SchematicWindowRows = new Map();
 
-/** No kind drawing its density. */
+/** No kind drawing its density, and none's overview read. */
 const NO_DENSITY: ReadonlyMap<string, SchematicDensity> = new Map();
 
 /** No kind read by area under a dimmed narrowing. */
@@ -146,7 +149,7 @@ const NO_MATCHED: ReadonlyMap<string, ReadonlySet<string>> = new Map();
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_SCHEMATIC_DATA: SchematicData = {
     drawn: EMPTY_DRAWN, loading: true, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD, unplaced: NO_UNPLACED,
-    windows: NO_WINDOWS, density: NO_DENSITY, matched: NO_MATCHED,
+    windows: NO_WINDOWS, density: NO_DENSITY, overview: NO_DENSITY, matched: NO_MATCHED,
 };
 
 /**
@@ -244,6 +247,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         const failures = new Map<string, string>();
         const windows = new Map<string, SchematicWindowHeld>();
         const density = new Map<string, SchematicDensity>();
+        const overview = new Map<string, SchematicDensity>();
         const matched = new Map<string, ReadonlySet<string>>();
         let loading = false;
         let changed = prior.kinds.size === 0;
@@ -299,7 +303,10 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         const netReads = value.nets.map((kind) => rowsRead(() => kind.rows()));
 
         // Each item and zone kind read by area: its window, its narrowing not yet asked of it (#1393).
-        const byArea = new Map<string, { readonly kind: SchematicAreaKind; readonly part: NonNullable<ReturnType<typeof sourcePart>>; readonly read: SchematicWindowRead }>();
+        const byArea = new Map<string, {
+            readonly kind: SchematicAreaKind; readonly part: NonNullable<ReturnType<typeof sourcePart>>; readonly areas: SchematicAreaIndexes;
+            readonly read: SchematicWindowRead;
+        }>();
         /** A kind's read by area, where its source lists an area index: its window, or `READING`; `undefined` for a kind read through `rows()`. */
         const areaRead = (kind: SchematicAreaKind, sort: "items" | "zones"): SchematicWindowRead | typeof READING | undefined => {
             const part = sourcePart(chrome, kind.key);
@@ -309,7 +316,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             // Nothing is read before the canvas says where its viewport rests.
             if (viewport === undefined) return READING;
             const got = areaReader.window(kind, part, areas, viewport, dim, extent);
-            if (got !== READING) byArea.set(kind.key, { kind, part, read: got });
+            if (got !== READING) byArea.set(kind.key, { kind, part, areas, read: got });
             return got;
         };
         // Each item kind read through `rows()`, its details read whole beside it: its rows, to draw once the far ends are read.
@@ -384,8 +391,16 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         // Each kind read by area: its far ends by key through its own paged read, its narrowing asked of its rows and theirs
         // in one request, its rows made its stored rows, and its items' details by the runs its window was read by.
         const areaRows = new Map<string, { readonly rows: Rows<unknown>; readonly details: Rows<DetailsRoles> | undefined }>();
-        for (const [slot, { kind, part, read: windowRead }] of byArea) {
+        for (const [slot, { kind, part, areas, read: windowRead }] of byArea) {
             const isItem = value.items.some((item) => Object.is(item, kind));
+            // Its whole drawing's density, which the minimap draws: read beside its window, never holding the drawing up. One
+            // that fails is said as its kind's read failing, with Retry, its rows still drawn.
+            try {
+                const whole = areaReader.overview(kind, part, areas, extent, dim);
+                if (whole !== READING) overview.set(slot, whole);
+            } catch (error) {
+                failures.set(slot, messageOf(error));
+            }
             try {
                 // Only an item is a link's end or a net's member: a zone kind has no far ends.
                 const paged = "paged" in kind ? getSomeorUndefined(kind.paged) : undefined;
@@ -441,7 +456,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             take(kind.key, got.value, undefined, sameNet, (ref, roles) => drawnNet(ref, roles), nets);
         });
         const drawn = changed || kinds.size !== prior.kinds.size ? { items, zones, links, nets } : prior.drawn;
-        return { held: { value, kinds, inputs, drawn } satisfies Held, loading, failures, windows, density, matched };
+        return { held: { value, kinds, inputs, drawn } satisfies Held, loading, failures, windows, density, overview, matched };
     }, [value, attempt, viewport, areaReader]);
     const { result } = useTrackedEvaluation(read);
     // The last settled read: a newer one in flight keeps it, so a scan landing redraws nothing until the read is whole.
@@ -449,7 +464,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
     const settled = useRef<{
         drawn: SchematicDrawn; failures: ReadonlyMap<string, string>; rows: ReadonlyMap<string, number>; held: SchematicHeldRows;
         unplaced: SchematicUnplacedRows; windows: SchematicWindowRows; density: ReadonlyMap<string, SchematicDensity>;
-        matched: ReadonlyMap<string, ReadonlySet<string>>;
+        overview: ReadonlyMap<string, SchematicDensity>; matched: ReadonlyMap<string, ReadonlySet<string>>;
     } | undefined>(undefined);
     if (result.ok) {
         const got = result.value;
@@ -457,9 +472,10 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         if (!got.loading) {
             const rows = new Map([...got.held.kinds].map(([slot, kept]) => [slot, kept.size] as const));
             const was = settled.current;
+            const overview = got.overview;
             if (was === undefined || !Object.is(was.drawn, got.held.drawn) || signatureOf(was.failures) !== signatureOf(got.failures)
                 || signatureOf(was.rows) !== signatureOf(rows) || !sameEntries(was.windows, got.windows) || !sameEntries(was.density, got.density)
-                || !sameEntries(was.matched, got.matched)) {
+                || !sameEntries(was.overview, overview) || !sameEntries(was.matched, got.matched)) {
                 settled.current = {
                     drawn: got.held.drawn,
                     failures: was !== undefined && signatureOf(was.failures) === signatureOf(got.failures) ? was.failures : got.failures,
@@ -468,6 +484,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
                     unplaced: unplacedOf(value, got.held.kinds),
                     windows: was !== undefined && sameEntries(was.windows, got.windows) ? was.windows : got.windows,
                     density: was !== undefined && sameEntries(was.density, got.density) ? was.density : got.density,
+                    overview: was !== undefined && sameEntries(was.overview, overview) ? was.overview : overview,
                     matched: was !== undefined && sameEntries(was.matched, got.matched) ? was.matched : got.matched,
                 };
             }
@@ -480,7 +497,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         ? { ...INITIAL_SCHEMATIC_DATA, loading, error }
         : {
             drawn: last.drawn, loading, ready: true, error, failures: last.failures, rows: last.rows, held: last.held, unplaced: last.unplaced,
-            windows: last.windows, density: last.density, matched: last.matched,
+            windows: last.windows, density: last.density, overview: last.overview, matched: last.matched,
         }),
     [last, loading, error]);
 }
