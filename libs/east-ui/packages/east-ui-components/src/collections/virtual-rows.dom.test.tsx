@@ -231,6 +231,32 @@ describe("VirtualRows — the paged collection's two signals (#577)", () => {
         });
     });
 
+    test("each row is told which row shows at the top of the view — where a collection says a failure once (#1398, CL11); a frame in flow that watches nothing tells none", () => {
+        const tops = new Map<number, number | undefined>();
+        const frame = (height: string | undefined, count: number) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height={height} maxHeight={undefined} count={count} estimateSize={() => ROW_H} measureRows={false} overscan={6}
+                    renderRow={(i, view) => { tops.set(i, view.top); return <div>row {i}</div>; }} />
+            </ChakraProvider>
+        );
+        const { container, unmount } = render(frame("200px", 500));
+        const told = () => [...new Set([...container.querySelectorAll<HTMLElement>("[data-index]")].map((el) => tops.get(Number(el.dataset["index"]))))];
+        // At rest the top row is the first, and every row mounted is told so.
+        expect(told()).toEqual([0]);
+        // Scrolled ten rows and 5px down: the eleventh row shows at the top, and every row mounted — the overscan's above
+        // it among them — is told so.
+        const scrollEl = container.firstElementChild as HTMLElement;
+        scrollEl.scrollTop = 10 * ROW_H + 5;
+        fireEvent.scroll(scrollEl);
+        expect(told()).toEqual([10]);
+        unmount();
+        // Unbounded below scale, with no range asked for: every row in flow, and no view to place a row in.
+        tops.clear();
+        const inFlow = render(frame(undefined, 3));
+        expect(inFlow.container.querySelectorAll("[data-index]")).toHaveLength(0);
+        expect([...tops.values()]).toEqual([undefined, undefined, undefined]);
+    });
+
     test("sizeVersion busts TanStack's measurement memo when heights move at a constant count", () => {
         // The hazard, verified against virtual-core@3.13.23: `getMeasurements`
         // memoizes on [count, paddingStart, scrollMargin, getItemKey, enabled,

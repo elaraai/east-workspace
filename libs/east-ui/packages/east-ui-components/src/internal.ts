@@ -27,7 +27,7 @@ export {
 // Row virtualization, and a paged source's windows: their scroll geometry
 // (the window ledger), which of them are resident, and a key search's query
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).
-export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, type RowsViewport } from "./collections/virtual-rows.js";
+export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, type RowsInView, type RowsViewport } from "./collections/virtual-rows.js";
 export { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "./collections/windowed-source.js";
 export {
     createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, observeWindow, offsetOfElement,
