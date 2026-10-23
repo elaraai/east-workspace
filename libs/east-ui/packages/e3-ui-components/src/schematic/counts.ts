@@ -4,12 +4,14 @@
  */
 
 /**
- * What the Schematic's footer counts of a drawing (#1387, `Schematic Builder
- * Spec.md` §6.3): each item kind's items drawn — placed, and on no hidden
- * layer — the zones drawn, the links drawn between two items drawn and the
- * nets drawn with a member drawn on either side, each sort only where the
- * Schematic has a kind of it. Pure: data in, data out, unit-tested in
- * `footer.test.ts`; the footer (`footer.tsx`) says them.
+ * What the inspector's Details says of the drawing with nothing selected
+ * (#1387, #1391, `Schematic Builder Spec.md` §9): each item kind's items drawn
+ * — placed, and on no hidden layer — the zones drawn, the links drawn between
+ * two items drawn and the nets drawn with a member drawn on either side, each
+ * sort only where the Schematic has a kind of it; and the kinds' records whose
+ * commits say when each was last saved. Pure: data in, data out, unit-tested
+ * in `counts.test.ts`; the inspector (`inspector.tsx`) says them. The footer
+ * says none of it: it holds only what is live (`footer.tsx`).
  *
  * @packageDocumentation
  */
@@ -17,10 +19,11 @@
 import { StringType, equalFor } from "@elaraai/east";
 import type { SchematicDrawn } from "./canvas/drawn.js";
 import type { SchematicLayerState } from "./canvas/layers.js";
+import type { SchematicValue } from "./data.js";
 
 const stringEqual = equalFor(StringType);
 
-/** One item kind, as the footer counts it. */
+/** One item kind, as the drawing's Details counts it. */
 export interface SchematicKindCount {
     /** Its slot. */
     readonly slot: string;
@@ -30,7 +33,7 @@ export interface SchematicKindCount {
     readonly drawn: number;
 }
 
-/** What the footer counts. */
+/** What the drawing's Details counts. */
 export interface SchematicCounts {
     /** Each item kind's items drawn, in the order the Schematic lists them. */
     readonly kinds: readonly SchematicKindCount[];
@@ -42,7 +45,7 @@ export interface SchematicCounts {
     readonly nets: number | undefined;
 }
 
-/** What the Schematic declares, as the footer counts it: its kinds, by sort. */
+/** What the Schematic declares, as the drawing's Details counts it: its kinds, by sort. */
 export interface SchematicCountedKinds {
     /** The item kinds: each its slot and its name. */
     readonly items: readonly { readonly key: string; readonly name: string }[];
@@ -55,7 +58,7 @@ export interface SchematicCountedKinds {
 }
 
 /**
- * What the footer counts of a drawing (see the module docs).
+ * What the drawing's Details counts of a drawing (see the module docs).
  *
  * @param kinds - The Schematic's kinds
  * @param drawn - What the canvas draws
@@ -73,4 +76,30 @@ export function schematicCounts(kinds: SchematicCountedKinds, drawn: SchematicDr
         nets: kinds.nets ? drawn.nets.filter((net) => shown(net.key) && net.sources.some((m) => drawnItems.has(m))
             && net.destinations.some((m) => drawnItems.has(m))).length : undefined,
     };
+}
+
+/** A record's commits, newest first, as a kind's `history` reads them. */
+type History = Extract<SchematicValue["items"][number]["history"], { type: "some" }>["value"];
+
+/** A kind's record whose commits say when it was last saved: one bound with its patch door. */
+export interface SchematicSavedRecord {
+    /** The kind's slot. */
+    readonly slot: string;
+    /** The kind's name (`Rack`). */
+    readonly name: string;
+    /** Its record's commits, newest first. */
+    readonly history: History;
+}
+
+/**
+ * The kinds whose records say when they were last saved: each bound with its
+ * patch door, whose commits it reads — in the Schematic's order of its sorts,
+ * items, zones, links and nets.
+ *
+ * @param value - The payload
+ * @returns Each such kind's record
+ */
+export function savedRecords(value: SchematicValue): SchematicSavedRecord[] {
+    return [...value.items, ...value.zones, ...value.links, ...value.nets]
+        .flatMap((kind) => (kind.history.type === "some" ? [{ slot: kind.key, name: kind.name, history: kind.history.value }] : []));
 }

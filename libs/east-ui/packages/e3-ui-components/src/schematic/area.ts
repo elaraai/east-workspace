@@ -40,7 +40,8 @@
  * window draws, in one read of their runs; past that they are spread over the
  * raster cells their cells cover (`schematicDensityCells`), and no row is read.
  * No search of the density is kept as a cell: the source's cells are the
- * window's alone.
+ * window's alone. The footer says how many rows it shades in the viewport
+ * ({@link densityInView}).
  *
  * Its cards' details are read at card and label zoom, every one of a window's
  * in one request through the paged read the details are read by key through
@@ -222,8 +223,74 @@ export interface SchematicDensity {
     readonly cells: readonly SchematicDensityCell[];
     /** The most rows a cell holds: what the raster's shading is scaled to. */
     readonly most: number;
+    /** The box its cells cover, in world units: its window's reach. */
+    readonly box: WorldBox;
+    /** Whether the coarser levels' rows are spread over its cells, each cell's count then holding a share of theirs. */
+    readonly spread: boolean;
     /** Whether a narrowing the index doesn't lead is left out of it, which the footer says. */
     readonly unnarrowed: boolean;
+}
+
+/** How many rows a density shades in a box (#1393): what the footer says of a kind drawn as its density. */
+export interface SchematicDensityInView {
+    /**
+     * How many: every row of each cell inside the box, and the box's share of each cell it cuts — the cell's rows held
+     * evenly over its part in the drawing's extent — whole below a hundred and to two significant figures above, where it
+     * is not exact.
+     */
+    readonly rows: number;
+    /** Whether that is exact: every cell the box meets lies inside it, the density covers the box, and no coarser level's rows are spread. */
+    readonly exact: boolean;
+}
+
+/**
+ * How many rows a density shades in a box (#1393, D25) — the viewport's, where
+ * it rests: what the footer says of a kind drawn as its density. A cell's rows
+ * lie in its part of the drawing's extent, as Issues holds every item to the
+ * extent, so a cell reaching past the extent's edge lies in the box while its
+ * part in the extent does: the view Fit leaves, the extent edge to edge, counts
+ * every row exactly whatever cell the extent's edge cuts. A cell wholly outside
+ * the extent holds rows only where they stand outside it, and is taken whole. A
+ * cell the box cuts gives the box its share of the cell's rows, as the density
+ * holds a coarser cell's rows evenly over the cells it covers; a count that
+ * takes a share is an estimate, said to two significant figures.
+ *
+ * @param density - The kind's density
+ * @param box - The box, in world units
+ * @param extent - The drawing's extent, in world units
+ * @returns How many rows it shades in the box, and whether that is exact
+ */
+export function densityInView(density: SchematicDensity, box: WorldBox, extent: WorldBox): SchematicDensityInView {
+    const { side, box: covered } = density;
+    let exact = !density.spread && box.minX >= covered.minX && box.minY >= covered.minY && box.maxX <= covered.maxX && box.maxY <= covered.maxY;
+    let rows = 0;
+    for (const cell of density.cells) {
+        // The cell's rows lie in its part of the extent; a cell outside the extent holds them where they stand.
+        const whole = { minX: cell.minX, minY: cell.minY, maxX: cell.minX + side, maxY: cell.minY + side };
+        const part = overlap(whole, extent) ?? whole;
+        const seen = overlap(part, box);
+        if (seen === undefined) continue;
+        if (part.minX >= box.minX && part.maxX <= box.maxX && part.minY >= box.minY && part.maxY <= box.maxY) {
+            rows += cell.count;
+            continue;
+        }
+        exact = false;
+        rows += cell.count * ((seen.maxX - seen.minX) / (part.maxX - part.minX)) * ((seen.maxY - seen.minY) / (part.maxY - part.minY));
+    }
+    return { rows: exact ? rows : roughly(rows), exact };
+}
+
+/** Where two boxes overlap, with an area; `undefined` where they only touch, or not at all. */
+function overlap(a: WorldBox, b: WorldBox): WorldBox | undefined {
+    const minX = Math.max(a.minX, b.minX), minY = Math.max(a.minY, b.minY), maxX = Math.min(a.maxX, b.maxX), maxY = Math.min(a.maxY, b.maxY);
+    return minX < maxX && minY < maxY ? { minX, minY, maxX, maxY } : undefined;
+}
+
+/** An estimate's count, as it is said: whole below a hundred, else to two significant figures. */
+function roughly(n: number): number {
+    if (n < 100) return Math.round(n);
+    const unit = 10 ** (Math.floor(Math.log10(n)) - 1);
+    return Math.round(n / unit) * unit;
 }
 
 /** A kind's window as it was read, before its narrowing is asked of it (#1393). */
@@ -488,7 +555,7 @@ export class SchematicAreaReader {
         }
         // Under `dim` the raster counts every row; otherwise the fields the index doesn't lead aren't counted in it.
         const unnarrowed = dim ? part.read().where.size > 0 : planned.plan.residual.length > 0;
-        const density = this.densityOf(slot, rastered.raster, counts, few ? undefined : coarse.map((range) => range.count), unnarrowed);
+        const density = this.densityOf(slot, rastered, counts, few ? undefined : coarse.map((range) => range.count), unnarrowed);
         return { plan: planned.plan, revision, rows: rowsOfEntries([entries]), density, from: [entries, density] };
     }
 
@@ -525,12 +592,16 @@ export class SchematicAreaReader {
         return read.value;
     }
 
-    /** A raster's density, as the canvas draws it: the one it last drew while its cells read again as they were. */
-    private densityOf(slot: Slot, raster: SchematicRaster, counts: readonly bigint[], spread: readonly bigint[] | undefined, unnarrowed: boolean): SchematicDensity {
+    /** A raster's density, as the canvas draws it: the one it last drew while its cells read again as they were, over the same box. */
+    private densityOf(slot: Slot, rastered: Rastered, counts: readonly bigint[], spread: readonly bigint[] | undefined, unnarrowed: boolean): SchematicDensity {
+        const { raster } = rastered;
+        const box = rastered.planned.window.reach;
         const cells = schematicDensityCells(raster, counts, spread);
+        const spreads = spread !== undefined;
         const last = slot.density;
-        if (last !== undefined && last.side === raster.side && last.unnarrowed === unnarrowed && sameCells(last.cells, cells)) return last;
-        const density = { side: raster.side, cells, most: cells.reduce((most, cell) => Math.max(most, cell.count), 0), unnarrowed };
+        if (last !== undefined && last.side === raster.side && last.unnarrowed === unnarrowed && last.spread === spreads && sameBox(last.box, box)
+            && sameCells(last.cells, cells)) return last;
+        const density = { side: raster.side, cells, most: cells.reduce((most, cell) => Math.max(most, cell.count), 0), box, spread: spreads, unnarrowed };
         slot.density = density;
         return density;
     }
@@ -710,6 +781,11 @@ function rowsOfEntries(entries: readonly (readonly RecordSliceEntry[])[]): Map<s
 /** Whether two lists of what rows were read from are the same parts, in order. */
 function sameFrom(a: readonly unknown[], b: readonly unknown[]): boolean {
     return a.length === b.length && a.every((part, i) => Object.is(part, b[i]));
+}
+
+/** Whether two boxes are the same box. */
+function sameBox(a: WorldBox, b: WorldBox): boolean {
+    return a.minX === b.minX && a.minY === b.minY && a.maxX === b.maxX && a.maxY === b.maxY;
 }
 
 /** Whether two densities' cells read the same: each at the same corner, holding as many rows. */

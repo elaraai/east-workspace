@@ -2,11 +2,11 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
- * What the footer counts of a drawing (#1387, `counts.ts`, §6.3): each item
- * kind's items drawn, the zones, the links between two items drawn and the
- * nets with a member drawn on either side — each sort only where the
- * Schematic has a kind of it, and nothing a hidden layer holds. Fixtures are
- * real East values, made what the canvas draws by `drawn.ts`.
+ * What the drawing's Details counts of a drawing (#1387, #1391, `counts.ts`,
+ * §9): each item kind's items drawn, the zones, the links between two items
+ * drawn and the nets with a member drawn on either side — each sort only where
+ * the Schematic has a kind of it, and nothing a hidden layer holds. Fixtures
+ * are real East values, made what the canvas draws by `drawn.ts`.
  */
 
 import { describe, test, expect } from "vitest";

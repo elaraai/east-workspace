@@ -14,8 +14,9 @@
  * The keys (SC28): arrows step the selection, Esc clears it, Del deletes the
  * selected link (a step of the editing's history, #1388), Space and Ctrl hold
  * Select and Zoom box, ⌘F focuses Find. The
- * footer counts each item kind's items drawn of its rows, the zones, links and
- * nets, and each record's last save (§6.3). The frame's skeleton covers the
+ * footer holds only what is live: it says nothing idle, nor of a change waiting
+ * on Save — the counts are the inspector's, the change the history's (§6.3).
+ * The frame's skeleton covers the
  * first read, later reads keep the canvas, and a failed read is a banner with
  * Retry (SC32). A card's dot and the canvas's probe resolve one colour chain
  * (SC26), and the canvas sets nothing inline but geometry (SC31).
@@ -30,7 +31,7 @@ import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-component
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { at, card, layOutCanvas, tap } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -355,28 +356,32 @@ test("Find finds an item by its key, and a pick flies to it and selects it", asy
 
 // ── The footer (§6.3) ───────────────────────────────────────────────────────
 
-/** The footer's lines, as they read. */
+/** The footer's items, as they read. */
 const footerOf = (container: HTMLElement) => [...slot(container, "footer").querySelectorAll("[data-schematic-footer] > *")].map((line) => line.textContent);
 
-test("the footer counts each item kind's items drawn of its rows, the zones, the links and the nets, and says when each record was last saved (§6.3)", async () => {
+test("the footer holds only what is live: idle, or with a change waiting on Save, it says nothing — the counts are the drawing's Details', the change the history's (§6.3)", async () => {
     const { container } = await dataCentre();
-    await waitFor(() => expect(footerOf(container).slice(0, 7)).toEqual([
-        "Rack 5 of 7", "Network frame 3", "Cooling unit 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets",
-    ]));
-    // The racks, the cooling units, the fibre runs, the power feeds and the fibre trunks are bound with their patch doors: each
-    // record's last save, its time today.
-    await waitFor(() => expect(footerOf(container).slice(7).map((line) => line?.replace(/saved .*$/u, "saved"))).toEqual([
-        "Rack saved", "Cooling unit saved", "Fibre run saved", "Power feed saved", "Fibre trunk saved",
-    ]));
-    // Another session takes A05 off the floor: four drawn of seven.
-    const racks = await h.read(ex.schematicRacks);
-    await h.patch(ex.schematicRacks, new Map([...racks, ["A05", { ...racks.get("A05")!, x: none, y: none }]]));
-    await waitFor(() => expect(footerOf(container)[0]).toBe("Rack 4 of 7"));
+    expect(slot(container, "footer").querySelector("[data-schematic-footer]")).not.toBeNull();
+    expect(footerOf(container)).toEqual([]);
+    expect(drawingCounts(container).links).toBe("6");
+    // u1, tapped on its path and deleted: the change waits on Save, as the history says, and the drawing counts a link fewer.
+    const canvas = canvasOf(container);
+    fireEvent.pointerEnter(canvas);
+    await tap(canvas, PPU, 2.4, 6.0);
+    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "fibre", key: "u1" }])));
+    await act(async () => { fireEvent.keyDown(window, { key: "Delete" }); });
+    await waitFor(() => expect(keptSelection()).toBe(printRefs([])));
+    await settle();
+    expect(unsaved(container)).toBe(true);
+    expect(drawingCounts(container).links).toBe("5");
+    expect(footerOf(container)).toEqual([]);
 });
 
-test("a Schematic whose kinds are read whole counts the rows it read, and says no save", async () => {
+test("a Schematic whose kinds are read whole says nothing in its footer while nothing is live", async () => {
     const { container } = await h.mount(ex.schematicFloor);
-    await waitFor(() => expect(footerOf(container)).toEqual(["Rack 6"]));
+    await waitFor(() => expect(card(container, "racks", "A01")).not.toBeNull());
+    await settle();
+    expect(footerOf(container)).toEqual([]);
 });
 
 // ── Loading and failure (SC32) ──────────────────────────────────────────────
@@ -384,7 +389,7 @@ test("a Schematic whose kinds are read whole counts the rows it read, and says n
 /** Whether a request reads the data centre's racks through their source. */
 const racksSource = (request: { dataset: string | undefined }) => request.dataset === "records.schematic_racks";
 
-test("the frame's skeleton covers the first read; later reads keep the canvas and what it draws (SC32)", async () => {
+test("the frame's skeleton covers the first read; later reads keep the canvas and what it draws, main busy meanwhile (SC32)", async () => {
     const held = h.e3.hold(racksSource);
     const { container } = await h.mount(ex.schematicDataCentre);
     await held.holding;
@@ -409,11 +414,12 @@ test("the frame's skeleton covers the first read; later reads keep the canvas an
     await h.patch(ex.schematicRacks, new Map([...racks, ["A05", { ...racks.get("A05")!, y: some(8.0) }]]));
     await again.holding;
     expect(container.querySelector("[data-builder-loading]")).toBeNull();
-    expect(container.querySelector("[data-schematic]")!.getAttribute("aria-busy")).toBe("true");
+    expect(slot(container, "main").getAttribute("aria-busy")).toBe("true");
     expect(card(container, "racks", "A05")!.style.transform).toBe(before);
     again.release();
     await settle();
     await waitFor(() => expect(card(container, "racks", "A05")!.style.transform).not.toBe(before));
+    expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
     expect(canvasOf(container)).toBe(canvas);
 });
 

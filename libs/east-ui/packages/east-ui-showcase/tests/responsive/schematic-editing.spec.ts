@@ -13,9 +13,10 @@
  *
  * - **Move**: a rack's card follows the pointer while the drag is under way;
  *   Esc mid-drag puts it back, nothing waiting on Save, and let go it stays
- *   where it is, one change waiting on Save.
+ *   where it is, its change waiting on Save — the history's Discard on.
  * - **Connect**: a drag from a rack onto the meet-me room's frame draws its
- *   draft and records a run, one more link drawn; onto a power distribution
+ *   draft and records a run, one more link drawn as the drawing's Details
+ *   counts them; onto a power distribution
  *   unit, which a fibre run ends at none of, the unit rings danger and the
  *   draft says why in the shared drag caption, in the danger ink, and letting
  *   go there records nothing.
@@ -27,7 +28,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
-import { DATA_CENTRE, card, collapseInspector, openSchematic, sizeTo } from "./schematic-page";
+import { DATA_CENTRE, card, collapseInspector, discard, drawingCounts, openSchematic, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /**
@@ -65,9 +66,6 @@ async function tool(root: Locator, name: string): Promise<void> {
     await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-tool", name.toLowerCase());
 }
 
-/** A footer line, by its attribute. */
-const footer = (root: Locator, attribute: string) => root.locator(`[data-schematic-footer] [${attribute}]`);
-
 /** A drag by touch, as Chromium's touchscreen delivers it: touch events, and the pointer events it derives from them. */
 async function touchDrag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, during?: () => Promise<void>): Promise<void> {
     const cdp = await page.context().newCDPSession(page);
@@ -96,14 +94,14 @@ test.describe("The Schematic's drags (#1388)", () => {
         await page.keyboard.press("Escape");
         await expect.poll(async () => Math.round((await centre(a03)).y - from.y)).toBe(0);
         await page.mouse.up();
-        await expect(footer(root, "data-schematic-pending")).toHaveCount(0);
+        await expect(discard(root)).toBeDisabled();
         // Again, let go: the card followed the pointer while the drag was under way, and stays where it was let go.
         await page.mouse.move(from.x, from.y);
         await page.mouse.down();
         await page.mouse.move(from.x, from.y + 90, { steps: 8 });
         await expect.poll(async () => Math.round((await centre(a03)).y - from.y)).toBe(90);
         await page.mouse.up();
-        await expect(footer(root, "data-schematic-pending")).toHaveText("1 pending");
+        await expect(discard(root)).toBeEnabled();
         expect(Math.round((await centre(a03)).y - from.y)).toBe(90);
     });
 
@@ -115,7 +113,7 @@ test.describe("The Schematic's drags (#1388)", () => {
         await touchDrag(page, from, { x: from.x, y: from.y + 90 }, async () => {
             await expect.poll(async () => Math.round((await centre(a03)).y - from.y)).toBe(90);
         });
-        await expect(footer(root, "data-schematic-pending")).toHaveText("1 pending");
+        await expect(discard(root)).toBeEnabled();
         expect(Math.round((await centre(a03)).y - from.y)).toBe(90);
     });
 
@@ -143,7 +141,7 @@ test.describe("The Schematic's drags (#1388)", () => {
         expect(ink[0]).toBe(ink[1]);
         await page.mouse.up();
         await expect(caption).toHaveCount(0);
-        await expect(footer(root, "data-schematic-pending")).toHaveCount(0);
+        await expect(discard(root)).toBeDisabled();
         // Onto the meet-me room's frame: the draft snaps, and letting go records the run.
         const frame = card(root, "network", "MMR-1");
         const to = await centre(frame);
@@ -152,15 +150,15 @@ test.describe("The Schematic's drags (#1388)", () => {
         await page.mouse.move(to.x, to.y, { steps: 8 });
         await expect(root.locator("[data-schematic-canvas]")).not.toHaveAttribute("data-forbidden", "");
         await page.mouse.up();
-        await expect(footer(root, "data-schematic-count=\"links\"")).toHaveText("7 links");
-        await expect(footer(root, "data-schematic-pending")).toHaveText("1 pending");
+        await expect(discard(root)).toBeEnabled();
+        expect((await drawingCounts(page, root)).links).toBe("7");
     });
 
     test("Connect by touch: a run from a rack onto the frame is recorded, one more link drawn (SC9)", async ({ page }) => {
         const root = await openDataCentre(page);
         await tool(root, "Connect");
         await touchDrag(page, await centre(card(root, "racks", "A05")), await centre(card(root, "network", "MMR-1")));
-        await expect(footer(root, "data-schematic-count=\"links\"")).toHaveText("7 links");
-        await expect(footer(root, "data-schematic-pending")).toHaveText("1 pending");
+        await expect(discard(root)).toBeEnabled();
+        expect((await drawingCounts(page, root)).links).toBe("7");
     });
 });

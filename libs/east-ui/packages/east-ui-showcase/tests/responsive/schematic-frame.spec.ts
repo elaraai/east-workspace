@@ -10,7 +10,7 @@
  * example gives it — one 44px toolbar row, the library's pane at the start of
  * the body (#1389) and the inspector's at its end (#1391), the canvas filling
  * main between them with the scale bar on it and no control of its own, the
- * footer's counts along the foot. The toolbar
+ * footer along the foot, saying nothing while nothing is live. The toolbar
  * folds by one ladder (SC24): the rail first, in its own
  * order, then its summary, then the Schematic's own — the tools' words, Find's
  * box, the tools' strip — and last the tools, the zoom, Fit and Find into the
@@ -118,7 +118,7 @@ test.describe("The Schematic's frame (#1387)", () => {
                     w: Math.round(f.width), h: Math.round(f.height),
                     toolbar: at("[data-frame-slot='toolbar']"), start: at("[data-frame-slot='start']"), main: at("[data-frame-slot='main']"),
                     end: at("[data-frame-slot='end']"), canvas: at("[data-schematic-canvas]"), footer: at("[data-frame-slot='footer']"),
-                    counts: [...el.querySelectorAll("[data-schematic-footer] [data-schematic-count]")].map((line) => line.textContent),
+                    said: [...el.querySelectorAll("[data-schematic-footer] > *")].map((line) => line.textContent),
                 };
             });
             expect(read.toolbar).toEqual([0, 0, read.w, 44]);
@@ -130,7 +130,8 @@ test.describe("The Schematic's frame (#1387)", () => {
             expect([read.main[0], read.main[1], read.main[0]! + read.main[2]!, read.main[1]! + read.main[3]!])
                 .toEqual([read.start[0]! + read.start[2]!, 44, read.end[0], read.footer[1]]);
             expect([read.footer[0], read.footer[2], read.footer[1]! + read.footer[3]!]).toEqual([0, read.w, read.h]);
-            expect(read.counts).toEqual(["Rack 5 of 7", "Network frame 3", "Cooling unit 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets"]);
+            // Only what is live: at rest, nothing — the counts are the inspector's (ruled 23 Oct 2026).
+            expect(read.said).toEqual([]);
         });
 
         test(`the toolbar folds by one ladder — the rail first, then its summary, then the tools' words, Find's box and the tools' strip, the View last — one row at 1440, 1024 and 768px and in every box from 1600px to a 294px parent, nothing past its edge (SC24, ${theme})`, async ({ page }) => {

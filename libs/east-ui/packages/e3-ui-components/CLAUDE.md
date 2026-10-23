@@ -37,8 +37,10 @@ of the app's records, in a component of their own (`data.ts`, #1386) — its
 toolbar's items (`toolbar.tsx`: the rail, the tools, held under its `id` in
 `tools.ts`, the zoom and Fit, Find in `find.ts` — every item kind's record
 sought by key, one read through its source through e3, never what the canvas
-draws (#1404) — and the steps), its footer (`footer.tsx` over `counts.ts`)
-and its words (`messages.ts`) — and its canvas (`canvas/`: the canvas itself,
+draws (#1404) — and the steps), its footer (`footer.tsx`: only what is live,
+ruled 23 Oct 2026 — a kind drawn as its density, a refused gesture's words,
+each Save's notice and where Find's pick landed off the canvas) and its words
+(`messages.ts`) — and its canvas (`canvas/`: the canvas itself,
 `view.tsx`, and what it draws, the camera, the painter, the selection, the
 model, the layers, the colours and the theme bridge), whose invariants are
 `canvas/CLAUDE.md`'s. Every gesture that writes is one step of one history
@@ -76,7 +78,7 @@ matches. Hidden, a kind reads only its narrowing, and a link or a net whose
 ends it hides leaves the lists; dimmed, what it leaves out draws as context —
 faded, greyed or a bare marker, by the recipe and the painter — and is selected
 by no path. The Index, the Backlog, the inspector's Choosers, what an item is
-joined to and the footer's counts show only what it leaves in, and the matches
+joined to and the drawing's counts show only what it leaves in, and the matches
 take the emphasis, the frame and the fit. Find lists what it leaves out too,
 marked: a pick on it flies to where it stands, selects nothing, and the footer
 says why, with Clear filters (#1404). The
@@ -713,7 +715,12 @@ edits, counts, costs or hours there: shared history/toolbar controls and the
 inspector already own them. The legend stays whole and in place as the line
 comes and goes; measure that it stays one line at narrow widths. (The Sheet's
 and the Plan's footers also carry their counts, pending changes and saved
-times.) The inspector retains complete coverage/cost totals and explains
+times. The Schematic's holds only what is live, ruled 23 Oct 2026: a kind drawn
+as its density, how many rows it shades in the view — `Density: 20,000 racks —
+zoom in to draw them` — a refused gesture's words, each Save's notice and where
+Find's pick landed off the canvas; its counts and saves are the inspector's,
+its changes waiting the history's, and once its rail wraps an item wider than
+it wraps its own words.) The inspector retains complete coverage/cost totals and explains
 whole-staff scope when Slice narrows visible people. A collapsed Library badge reports availability
 for the day, while tab counts report the library's item count.
 

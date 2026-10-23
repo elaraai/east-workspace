@@ -4,14 +4,16 @@
  */
 
 /**
- * The Schematic's showcase entries, for its specs (#1387–#1391): one opened
+ * The Schematic's showcase entries, for its specs (#1387–#1393): one opened
  * on the real in-page e3 at rest, its box sized and centred in the window, its
  * inspector collapsed to its rail, an item's card, a world point of its drawing
- * on the screen, its library's tabs and cards, and a card picked up from it and
- * carried onto the canvas, with what the drag's ghost says.
+ * on the screen, its library's tabs and cards, a card picked up from it and
+ * carried onto the canvas, with what the drag's ghost says, the history's
+ * Discard and Save, and the drawing's counts as the inspector says them.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
+import { editingMessages } from "@elaraai/east-ui-components/testing";
 import { settled } from "./settle";
 
 /** A point on the screen, in client px. */
@@ -26,6 +28,8 @@ export const FILE = "e3/schematic/schematic";
 export const DATA_CENTRE = `${FILE}/schematicDataCentre`;
 /** The floor of shaped units. */
 export const SHAPES = `${FILE}/schematicShapes`;
+/** The floor of 20,000 racks read a window at a time (#1393). */
+export const RECORD_INDEXES = "e3/schematic/schematic-records/schematicRecordIndexes";
 
 /**
  * Opens a Schematic example at rest — its frame out from under its skeleton, its canvas drawn.
@@ -218,4 +222,51 @@ export function captionOf(page: Page): Promise<{ text: string; refused: boolean 
         const el = document.querySelector(".east-drag-ghost [data-drag-caption]");
         return el === null ? null : { text: el.textContent ?? "", refused: el.hasAttribute("data-refused") };
     });
+}
+
+/**
+ * The history's Discard, which drops the changes waiting on Save: on while any wait (#1388). The footer says nothing of
+ * them (ruled 23 Oct 2026).
+ *
+ * @param root - The Schematic's root
+ * @returns The button
+ */
+export function discard(root: Locator): Locator {
+    return root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.discard(), exact: true });
+}
+
+/**
+ * The history's Save.
+ *
+ * @param root - The Schematic's root
+ * @returns The button
+ */
+export function save(root: Locator): Locator {
+    return root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.apply(), exact: true });
+}
+
+/**
+ * The drawing's counts, as the inspector's Details says them with nothing selected (#1391): the Select tool held, which
+ * ends a Connect's session, Esc over the canvas's corner, which clears the selection, and the inspector opened from its
+ * rail.
+ *
+ * @param page - The page
+ * @param root - The Schematic's root
+ * @returns Each count as Details prints it, by what it counts — an item kind's slot, `zones`, `links` or `nets`
+ */
+export async function drawingCounts(page: Page, root: Locator): Promise<Record<string, string>> {
+    const canvas = root.locator("[data-schematic-canvas]");
+    await root.locator("[data-frame-slot='toolbar']").getByRole("radio", { name: "Select" }).click();
+    await expect(canvas).toHaveAttribute("data-tool", "select");
+    await canvas.hover({ position: { x: 4, y: 4 } });
+    await page.keyboard.press("Escape");
+    const end = root.locator("[data-frame-slot='end']");
+    if (await end.getAttribute("data-collapsed") !== null) {
+        await end.getByRole("button", { name: "Expand Inspector" }).click();
+        await expect(end).not.toHaveAttribute("data-collapsed", "");
+    }
+    const counts = end.locator("[data-schematic-inspector='drawing'] [data-inspector-counts] [data-count]");
+    await expect(counts.first()).toBeVisible();
+    await settled(page);
+    return Object.fromEntries(await counts.evaluateAll((els) => els.map((el) => [el.getAttribute("data-count") ?? "", el.children[0]?.textContent ?? ""])));
 }

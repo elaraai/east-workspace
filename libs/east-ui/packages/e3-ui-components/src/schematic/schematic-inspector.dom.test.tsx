@@ -34,7 +34,7 @@ import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { at, card, layOutCanvas, tap } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -46,6 +46,7 @@ const canvasLayout = layOutCanvas();
 const PPU = 1080 / 28;
 
 const rackEqual = equalFor(ex.DcRack);
+const feedEqual = equalFor(ex.DcFeed);
 const printRefs = printFor(ArrayType(Schematic.Types.Ref));
 const SAVE = editingMessages.apply();
 const UNDO = editingMessages.undo();
@@ -113,8 +114,6 @@ const action = (c: HTMLElement, name: "delete" | "unplace" | "remove"): HTMLButt
 const joins = (c: HTMLElement): (string | null)[] => [...panel(c).querySelectorAll("[data-inspector-join]")].map((el) => el.getAttribute("data-inspector-join"));
 /** A footer line, by its attribute; `undefined` while there is none. */
 const footer = (c: HTMLElement, attribute: string) => slot(c, "footer").querySelector(`[${attribute}]`)?.textContent ?? undefined;
-/** The changes waiting on Save, as the footer says them. */
-const pending = (c: HTMLElement) => footer(c, "data-schematic-pending");
 
 /** Clicks an element, as a pointer does, and lets the Schematic settle. */
 async function click(el: Element): Promise<void> {
@@ -218,11 +217,11 @@ test("an item: its head, its kind's form over the fields no role writes, its det
     expect(joins(container)).toEqual(['(kind="fibre", key="u3")', '(kind="feeds", key="feed-a")']);
     // The owner, retyped: one step, Pending, the field tinted against the record.
     await retype(container, "row", "owner", "Harbour Labs");
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     expect(head(container).chip).toBe("Pending");
     expect(field(container, "row", "owner").hasAttribute("data-dirty")).toBe(true);
     await history(container, UNDO);
-    expect(pending(container)).toBeUndefined();
+    expect(unsaved(container)).toBe(false);
     expect(head(container).chip).toBeNull();
     expect(field(container, "row", "owner").hasAttribute("data-dirty")).toBe(false);
     await history(container, REDO);
@@ -241,11 +240,10 @@ test("its details record's form writes the item's details row, and its position 
     await tap(canvas, PPU, 9.6, 2.9);
     // A03's capacity, in its load: the details record's own session.
     await retypeNumber(container, "details", "capacity", "9.5");
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     // Its x: the card moves.
     const before = card(container, "racks", "A03")!.style.transform;
     await retypeNumber(container, "position", "x", "10.6");
-    expect(pending(container)).toBe("2 pending");
     expect(card(container, "racks", "A03")!.style.transform).not.toBe(before);
     const loads = await h.read(ex.schematicRackLoads);
     const racks = await h.read(ex.schematicRacks);
@@ -259,7 +257,7 @@ test("its details record's form writes the item's details row, and its position 
     expect(card(container, "racks", "A04")).toBeNull();
     expect(showing(container)).toBe("drawing");
     expect([...slot(container, "start").querySelectorAll("[role='tab']")].map((t) => t.textContent)[1]).toBe("Backlog 3");
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
 });
 
 test("a kind's own Details shows in place of its form, and its update is one step Save writes", async () => {
@@ -270,7 +268,7 @@ test("a kind's own Details shows in place of its form, and its update is one ste
     expect(own().querySelector("[data-field]")).toBeNull();
     expect(own().textContent).toContain("CRAH-2 holds 22.0 °C");
     await click(within(own()).getByRole("button", { name: "Lower the setpoint by 1 °C" }));
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     await waitFor(() => expect(own().textContent).toContain("CRAH-2 holds 21.0 °C"));
     expect(head(container).chip).toBe("Pending");
     const stored = await h.read(ex.schematicCooling);
@@ -354,15 +352,15 @@ test("a zone shows its form; a link its ends as Choosers over the items of its s
     expect(head(container)).toEqual({ kind: "Fibre run", title: "u3", when: "A03 → ODF-1", status: null, chip: null });
     expect(editors(container, "ends")).toEqual(["from:reference", "to:reference"]);
     await choose(container, "ends", "to", "MMR-1 · Network frame");
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     expect(head(container).when).toBe("A03 → MMR-1");
     const stored = await h.read(ex.schematicFibre);
     await history(container, SAVE);
     expect(equalFor(ex.DcFibre)((await h.read(ex.schematicFibre)).get("u3")!, { ...stored.get("u3")!, to: variant("frame", "MMR-1") })).toBe(true);
     // Delete: the run goes, one step.
     await click(action(container, "delete")!);
-    expect(footer(container, 'data-schematic-count="links"')).toBe("5 links");
     expect(showing(container)).toBe("drawing");
+    expect(drawingCounts(container).links).toBe("5");
 });
 
 test("a net shows its sides as tags, a member taken off one step and an emptied side refused in the footer's words; a leg shows its item, and Remove takes it off its side", async () => {
@@ -376,12 +374,11 @@ test("a net shows its sides as tags, a member taken off one step and an emptied 
     expect([tags("sources"), tags("destinations")]).toEqual([["PDU-A"], ["A01", "A02", "A03"]]);
     // A03 taken off the fed side.
     await click(field(container, "sides", "destinations").querySelectorAll("[data-part=item-delete-trigger]")[2]!);
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     expect(tags("destinations")).toEqual(["A01", "A02"]);
     // Its only source taken off: refused, the footer saying why, the side as it was.
     await click(field(container, "sides", "sources").querySelector("[data-part=item-delete-trigger]")!);
     expect(footer(container, "data-schematic-refused")).toBe("A net keeps one source at least: Delete takes the net");
-    expect(pending(container)).toBe("1 pending");
     expect(tags("sources")).toEqual(["PDU-A"]);
     // Feed B's leg to A05, tapped: its item, and Remove.
     await tap(canvas, PPU, 16.8, 3.5);
@@ -389,11 +386,13 @@ test("a net shows its sides as tags, a member taken off one step and an emptied 
     expect(head(container).when).toBe("Destination leg");
     expect(panel(container).querySelector("[data-inspector-member] [data-inspector-join]")?.textContent).toBe("A05Destination leg");
     await click(action(container, "remove")!);
-    expect(pending(container)).toBe("2 pending");
     expect(showing(container)).toBe("net");
+    const stored = await h.read(ex.schematicFeeds);
     await history(container, SAVE);
+    // Feed A without A03, its source as it was — the emptied side refused — and feed B without A05: every other field as it was.
     const feeds = await h.read(ex.schematicFeeds);
-    expect([feeds.get("feed-a")!.racks, feeds.get("feed-b")!.racks]).toEqual([["A01", "A02"], ["A04"]]);
+    expect(feedEqual(feeds.get("feed-a")!, { ...stored.get("feed-a")!, racks: ["A01", "A02"] })).toBe(true);
+    expect(feedEqual(feeds.get("feed-b")!, { ...stored.get("feed-b")!, racks: ["A04"] })).toBe(true);
 });
 
 test("several show how many of each kind, and Delete takes them all with what names them, as one step; the selection moving between kinds shows each in turn", async () => {
@@ -419,11 +418,14 @@ test("several show how many of each kind, and Delete takes them all with what na
     expect([...panel(container).querySelectorAll("[data-inspector-count]")].map((el) => el.textContent)).toEqual(["2 racks"]);
     // Delete: both racks, their three runs and their feed legs — six rows, one step.
     await click(action(container, "delete")!);
-    expect(pending(container)).toBe("6 pending");
     expect(card(container, "racks", "A01")).toBeNull();
     expect(card(container, "racks", "A02")).toBeNull();
+    // Their three runs went with them, and their legs of feed A, which feeds A03 still.
+    expect(showing(container)).toBe("drawing");
+    expect(drawingCounts(container)).toEqual({ racks: "3", network: "3", cooling: "3", pdus: "2", zones: "5", links: "3", nets: "2" });
+    // One step: Undo takes back all six rows, and nothing waits on Save.
     await history(container, UNDO);
-    expect(pending(container)).toBeUndefined();
+    expect(unsaved(container)).toBe(false);
 });
 
 test("Enter on the canvas, or a double-click on an entity, opens what is selected in Details — the pane too, collapsed; with nothing selected Enter does nothing", async () => {
@@ -518,7 +520,7 @@ test("the app's check refusing a drafted row blocks in Issues, naming its field,
     const { container } = await open(checkedRacks);
     await tap(canvasOf(container), PPU, 9.6, 2.9);
     await retype(container, "row", "owner", "");
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
     await settle();
     await openTab(container, "Issues");
@@ -551,12 +553,12 @@ test("a Save its record's door refuses blocks in Issues, in the source's words, 
     await tap(canvasOf(container), PPU, 9.6, 6.0);
     expect(showing(container)).toBe("link");
     await retype(container, "row", "system", "power");
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     await history(container, SAVE);
     await openTab(container, "Issues");
     const rows = issueRows(container);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every(([where, , kind]) => where?.startsWith("Fibre run · ") === true && kind === "invalid")).toBe(true);
     expect(rows.some(([, said]) => said?.includes("the fibre runs are frozen") === true)).toBe(true);
-    expect(pending(container)).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
 });

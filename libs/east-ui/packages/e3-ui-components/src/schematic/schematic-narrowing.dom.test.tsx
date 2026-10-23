@@ -7,7 +7,7 @@
  * The Schematic's narrowing on e3 itself (#1392, `Schematic Builder Spec.md`
  * §10.2, §10.3, SC17, SC18): one `Slice.bindRecords`, each source narrowing its
  * kind everywhere it appears. Hidden — the default — a choice leaves the
- * canvas, the footer's counts, the Index, the Backlog, the inspector's Choosers
+ * canvas, the drawing's counts, the Index, the Backlog, the inspector's Choosers
  * and what an item is joined to the racks it holds, and a run or a feed whose
  * racks it hides goes with them. Dimmed (`narrowed="dim"`), the racks it leaves
  * out draw as context — faded, greyed and taking no tap — out of every list and
@@ -32,7 +32,7 @@ import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { countBuilds, type UIProgram } from "../shared/builds.test-utils.js";
-import { at, card, layOutCanvas, tap } from "./schematic.test-utils.js";
+import { at, card, drawingCounts, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -105,9 +105,6 @@ const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
 const rackReads = () => [...h.requests("page", RACKS_DATASET), ...h.requests("runs", RACKS_DATASET)].map((request) => request.query.get("index") ?? "");
 
 // ── What the frame shows ────────────────────────────────────────────────────
-
-/** The footer's counts, each as it reads. */
-const counts = (c: HTMLElement) => [...slot(c, "footer").querySelectorAll("[data-schematic-count]")].map((el) => el.textContent);
 
 /** The library pane. */
 const library = (c: HTMLElement) => slot(c, "start");
@@ -225,17 +222,17 @@ const hiddenFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
 
 test("hidden — the default — a choice leaves the canvas and the counts the racks it holds, and a run or a feed whose racks it hides goes with them (§10.2, SC17)", async () => {
     const { container } = await open(hiddenFloor);
-    expect(counts(container)).toEqual(["Rack 5 of 7", "Network frame 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets"]);
+    expect(drawingCounts(container)).toEqual({ racks: "5", network: "3", pdus: "2", zones: "5", links: "6", nets: "2" });
     await narrow(`${HIDDEN}.racks`, choose("owner", "Harbour Labs"));
     await waitFor(() => expect(card(container, "racks", "A03")).toBeNull());
     expect(["A01", "A02", "A04", "A05"].map((key) => card(container, "racks", key) !== null)).toEqual([true, true, false, false]);
     // u1, u2 and u2m run from Harbour Labs' racks, and x1 joins two frames: they stand. u3 and u4 go with their racks,
     // and so does feed B, whose racks are all hidden; feed A still feeds A01 and A02.
-    expect(counts(container)).toEqual(["Rack 2 of 7", "Network frame 3", "Power distribution unit 2", "5 zones", "4 links", "1 net"]);
+    expect(drawingCounts(container)).toEqual({ racks: "2", network: "3", pdus: "2", zones: "5", links: "4", nets: "1" });
     // Let back in, every rack draws again.
     await narrow(`${HIDDEN}.racks`, NOTHING);
     await waitFor(() => expect(card(container, "racks", "A03")).not.toBeNull());
-    expect(counts(container)).toEqual(["Rack 5 of 7", "Network frame 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets"]);
+    expect(drawingCounts(container)).toEqual({ racks: "5", network: "3", pdus: "2", zones: "5", links: "6", nets: "2" });
 });
 
 test("hidden, the Index and the Backlog list only what the narrowing holds, and the inspector's Choosers and what an item is joined to offer only what it shows (§10.2, SC17)", async () => {
@@ -276,7 +273,7 @@ const RACKS = "ex.schematicDataCentre.racks";
 test("dimmed, the racks a choice leaves out draw as context — faded, greyed, taking no tap — and leave every list and count; every rack is read once, whatever the choice (§10.3, SC18)", async () => {
     const { container } = await open(ex.schematicDataCentre);
     const canvas = canvasOf(container);
-    expect(counts(container)).toEqual(["Rack 5 of 7", "Network frame 3", "Cooling unit 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets"]);
+    expect(drawingCounts(container)).toEqual({ racks: "5", network: "3", cooling: "3", pdus: "2", zones: "5", links: "6", nets: "2" });
     // Every rack read: the record's own entries, read once — never through the owner index, which no choice narrows yet.
     const read = rackReads();
     expect(read.length).toBeGreaterThan(0);
@@ -290,7 +287,7 @@ test("dimmed, the racks a choice leaves out draw as context — faded, greyed, t
     }
     for (const key of ["A01", "A02"]) expect(card(container, "racks", key)!.hasAttribute("data-context")).toBe(false);
     // Context counts nowhere: Harbour Labs' racks, their runs and the frames' cross-connect, and feed A.
-    expect(counts(container)).toEqual(["Rack 2 of 7", "Network frame 3", "Cooling unit 3", "Power distribution unit 2", "5 zones", "4 links", "1 net"]);
+    expect(drawingCounts(container)).toEqual({ racks: "2", network: "3", cooling: "3", pdus: "2", zones: "5", links: "4", nets: "1" });
     // The choice read the narrowing's keys through the owner index, and no rack again.
     await waitFor(() => expect(rackReads().some((index) => index === ex.schematicRacksByOwner.name)).toBe(true));
     expect(rackReads().filter((index) => index !== ex.schematicRacksByOwner.name)).toEqual(read);
@@ -313,7 +310,10 @@ test("dimmed, the racks a choice leaves out draw as context — faded, greyed, t
     // Let back in: no context, every count as it was.
     await narrow(RACKS, NOTHING);
     await waitFor(() => expect(card(container, "racks", "A03")!.hasAttribute("data-context")).toBe(false));
-    expect(counts(container)).toEqual(["Rack 5 of 7", "Network frame 3", "Cooling unit 3", "Power distribution unit 2", "5 zones", "6 links", "2 nets"]);
+    // Nothing selected, Details shows the drawing's counts.
+    await act(async () => { fireEvent.keyDown(window, { key: "Escape" }); });
+    await settle();
+    expect(drawingCounts(container)).toEqual({ racks: "5", network: "3", cooling: "3", pdus: "2", zones: "5", links: "6", nets: "2" });
 });
 
 test("dimmed, a draft the narrowing leaves out draws where its draft has it, as context, and Save sends it (SC23)", async () => {
@@ -330,7 +330,7 @@ test("dimmed, a draft the narrowing leaves out draws where its draft has it, as 
     await narrow(RACKS, choose("owner", "Harbour Labs"));
     await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-context")).toBe(true));
     expect(card(container, "racks", "A03")!.style.transform).toBe(moved);
-    expect(slot(container, "footer").querySelector("[data-schematic-pending]")?.textContent).toBe("1 pending");
+    expect(unsaved(container)).toBe(true);
     await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
     await settle();
     const saved = (await h.read(ex.schematicRacks)).get("A03")!;
