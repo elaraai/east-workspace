@@ -3,10 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { cloneElement, useEffect, useId, useRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
+import { cloneElement, useEffect, useId, useMemo, useRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { Popover as ChakraPopover, Portal, Box, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
+import { frameBounds } from "../../overlays/popover/frame-bounds.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
@@ -90,6 +91,13 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
  * chip's menu item (#1229) — hangs from an `anchor` instead. Inside the
  * sectioned editor the same button opens an inline disclosure, its
  * `aria-expanded` the disclosure's (#1253).
+ *
+ * Inside a builder's frame — a rail's chip, its Filters — the popover keeps to
+ * the frame's sides while it fits between them (#1393): it slides along its
+ * trigger's edge rather than hang past the frame's side, as it slides inside
+ * the page anywhere else, and in a frame narrower than it — a phone's — inside
+ * the page. Down the page it keeps to the page, flipping above its trigger
+ * where there is no room below ({@link frameBounds}).
  */
 export function SliceEditPopover({
     open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
@@ -98,7 +106,15 @@ export function SliceEditPopover({
     const density = useSliceDensity();
     const anchored = trigger === undefined;
     const anchorRef = useRef<HTMLDivElement | null>(null);
+    const triggerRef = useRef<HTMLButtonElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    // Below its trigger, kept across the page to the builder's frame it opens in — its trigger's or its anchor's — while
+    // it fits there, read at every placement.
+    const positioning = useMemo(() => ({
+        placement: "bottom" as const,
+        gutter: POPOVER_GUTTER,
+        boundary: frameBounds(() => (anchored ? anchorRef.current : triggerRef.current), () => contentRef.current),
+    }), [anchored]);
     const regionId = useId();
     // An anchored popover has no trigger for Zag to give the focus back to: as
     // it closes, the focus goes back to its anchor's first control — unless it
@@ -156,7 +172,7 @@ export function SliceEditPopover({
         <ChakraPopover.Root
             open={open}
             onOpenChange={(d) => onOpenChange(d.open)}
-            positioning={{ placement: "bottom", gutter: POPOVER_GUTTER }}
+            positioning={positioning}
             lazyMount
             {...(initialFocusEl !== undefined && { initialFocusEl })}
             onInteractOutside={(e) => {
@@ -168,7 +184,7 @@ export function SliceEditPopover({
         >
             {anchored
                 ? <ChakraPopover.Anchor ref={anchorRef} css={styles.anchor}>{anchor}</ChakraPopover.Anchor>
-                : <ChakraPopover.Trigger asChild>{trigger}</ChakraPopover.Trigger>}
+                : <ChakraPopover.Trigger ref={triggerRef} asChild>{trigger}</ChakraPopover.Trigger>}
             <Portal>
                 <ChakraPopover.Positioner>
                     <ChakraPopover.Content ref={contentRef} css={styles.content}>
