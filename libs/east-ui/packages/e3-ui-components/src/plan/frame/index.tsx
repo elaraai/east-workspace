@@ -36,8 +36,11 @@
  *   narrow layout's tabs and cards — the links and the overlays;
  * - **the footer** — the event kinds' counts (the events in the window, the
  *   backlog, and when a kind's record was last saved), the changes waiting on
- *   Save, the author's items, and a paged canvas's
- *   transport line;
+ *   Save, the author's items, and a paged canvas's shared loading line, which
+ *   says what of its source is read (#1398) — live under the cold-load
+ *   skeleton, which covers the rest of the frame at the rows' pitch until the
+ *   source's first window lands; after it a read in flight covers nothing,
+ *   and main is busy;
  * - **the overlaps** (#1198, PB51–PB53) — read with the counts: two events of
  *   a kind that warns of them, on one resource at once. Each event in a pair
  *   wears the warn ring on the canvas, the toolbar's chip counts the pairs and
@@ -91,6 +94,7 @@ import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPaylo
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
+import { recordSliceNoun } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import type { KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import { usePlanCanvas } from "../canvas.js";
@@ -452,9 +456,12 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         }
         return out.length === 0 ? NO_NOTICES : out;
     }, [rowsPart, eventParts, m, words.locale]);
+    // What the loading line names the rows by: what the rail counts them in (#1398).
+    const rowsSource = chrome?.slices?.slice.parts.find((part) => stringEqual(part.source, ROWS_SOURCE));
+    const rowsNoun = rowsSource !== undefined && chrome !== undefined ? recordSliceNoun(rowsSource, chrome.nouns, words.locale) : m.saveNoticeNoun({ kind: undefined, n: 2 });
     const footer = chrome !== undefined
-        ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport}
-            counts={counts} pending={session?.pending} narrow={chrome.narrow} notices={notices} />
+        ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport} noun={rowsNoun}
+            counts={counts} pending={session?.pending} notices={notices} />
         : undefined;
     return (
         <Box css={styles.frame} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}
@@ -473,6 +480,12 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
                 start={start}
                 end={end}
                 footer={footer}
+                // A paged source's cold load is the frame's skeleton at the rows' pitch, its footer live and saying what
+                // is read; after it, a read in flight covers nothing, and main is busy (#1398).
+                loading={chrome?.cold}
+                busy={chrome?.busy}
+                loadingPitch={chrome?.pitch}
+                liveFooter
                 onKeyDown={onKeyDown}
             >
                 <PlanOverlapsContext.Provider value={overlapKeys}>{main}</PlanOverlapsContext.Provider>

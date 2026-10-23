@@ -324,13 +324,26 @@ waits on it — at most 32 of them — rather than being asked again (#1039). Th
 most 16 pages in flight (`LENS_BUDGET`), reading the segments a view wants a
 turn at a time and keeping only what that view wants (#1349). Never raise those
 bounds or pin every page to make Save or a scan finish.
+A read no reader waits on any longer is aborted on its way to e3 (#1398, CL6):
+the paging runtime aborts a request once no channel it answers has a
+subscriber, a microtask after the last one leaves, so a read the next render
+asks again keeps its request. A period builder's reader reads its period's
+neighbours ahead once its period has landed (`shared/schedule/read-ahead.ts`,
+CL7) — the Roster's weeks, the Allocation's days, the Calendar's days, weeks
+and months (`calendarAhead`; its timeline reads none ahead): a step to one
+shows it at once, and the reads of the periods moved away from are aborted.
+It reads them in a tracked read of their own beside the period's
+(`useReadAhead`, called after the period's read in the same reader): a page
+of theirs landing re-runs that read alone, never the period's, which would
+hand the frame a new read of a period that has not moved, once a page.
 Use the shared session's bounded primary-read batches and retain only confirmed
 facts at the committed revision. Save membership checks also accumulate facts
 at one revision. Partial provider pages must resume within their bounded window.
 
 For a complete active query, reuse `PagedScan`: retain its projected result and
-next unread offset, discard progress on revision/query replacement, and release
-obsolete results with their tracked reader. Schedule's internal scan operation
+next unread offset, its pages asked concurrently once its count is known, at
+most four in flight (#1398, CL7), discard progress on revision/query
+replacement, and release obsolete results with their tracked reader. Schedule's internal scan operation
 also lets gestures reuse an active result through weak references. Do not cache
 historical query results or restart at zero after each asynchronous page. Test
 scans and Save batches exceeding both cache capacities, and prove that an old
@@ -553,10 +566,23 @@ is `dropTarget(drag, { kind: "resource", resource })` at
 
 Use the same footer rail recipe as Plan, not just its text style. The shared
 `builder-footer.ts` owns the panel background, top rule, 28px desktop rail,
-spacing, status typography and narrow wrapping. Pass it through BuilderFrame's
-footer region; keep the footer visually distinct from the body. Calendar and
-Plan both consume this part. Browser tests must compare the actual rail and
-item styles in both themes and check narrow overflow.
+spacing, status typography and the one loading line (#1398, CL3):
+east-ui-components' `LoadingLine` in a slot of its own at the rail's trailing
+end, on the shared reveal's clock (`useLoadingReveal`: shown after 150 ms, held
+at least 300 ms; a failure at once), its words the builder's — over a paged
+source `pagedLoadingLine`, over a period `periodLoading` and
+`periodLoadingLine` (`shared/loading.ts`), in the record's noun
+(`recordSliceNoun`) and the builder's message table. A rail carrying the line
+never wraps and never cuts a word: each legend item is a unit of its fit
+(`data-footer-unit`, `data-footer-cut` from `useFooterFit`), `FooterMore` ends
+a cut legend, and the fit keeps the legend whole and in place as the line
+comes and goes, the line in its full text, its short form or its dot alone.
+Pass it through BuilderFrame's footer region with `liveFooter`, so the line
+and its Retry stay live under the cold-load cover; keep the footer visually
+distinct from the body. Plan, Sheet, Roster, Calendar and Allocation all
+consume this part. Browser tests must compare the actual rail and item styles
+in both themes and check that the rail stays one line at narrow widths, no
+word cut.
 
 Use the shared move-preview component and `time/move-ghost.ts` recipe for event
 dragging/resizing. The preview sizes to its content independently of the source
@@ -659,9 +685,10 @@ At main width below 480px, both Shifts and People become explicit-action cards;
 no drag source or target remains registered. Test both layouts, target editing,
 proposal acceptance, restore and Save/remount. Test the final toolbar forms at
 360px with every action present: date picking, view, history and Publish must
-all remain reachable. Bound each footer item separately so the shared rail can
-wrap on narrow screens. Use Font Awesome for every mark, as for other icons;
-avoid text glyph substitutes.
+all remain reachable. Mark each legend item a unit of the footer's fit, so a
+rail too narrow for the legend ends it at a whole item, then "…", and never
+wraps. Use Font Awesome for every mark, as for other icons; avoid text glyph
+substitutes.
 
 Test the actual contained width as well as viewport width: a 360px showcase
 viewport leaves a 294px frame after padding. Combine week and view controls
@@ -669,15 +696,21 @@ in a final shared-toolbar fold before history, keeping date picking, navigation
 and Publish reachable. Desktop proposals use the mock's single-line dashed chip
 with quiet Font Awesome actions; mobile cards keep labelled Accept/Reject.
 
-Keep the footer to the legend. Roster explains its five coverage marks —
+Keep the footer to the legend and the one shared loading line (ruled 22 Oct
+2026, #1398). Roster explains its five coverage marks —
 permanent, agency staff, requested, open and hours needed (`roster/footer.tsx`;
-overtime is the app's pay's to say) — and Calendar its configured event kinds,
+overtime is the app's pay's to say) — Calendar its configured event kinds
+(`calendar/footer.tsx`) and Allocation its layout's marks (`allocation/footer.tsx`),
 using the existing marks/icons and the
-shared footer rail. Do not repeat status, pending edits, counts, costs or hours
-there: shared history/toolbar controls and the inspector already own them.
-Keep legend items individually wrappable and measure narrow overflow. The
-inspector retains complete coverage/cost totals and explains whole-staff scope
-when Slice narrows visible people. A collapsed Library badge reports availability
+shared footer rail; the line says the period being read (`Loading 12–18 Mar`),
+a source's new narrowing (`Filtering people…`) or a read that failed, with
+Retry, and nothing while nothing is in flight. Do not repeat status, pending
+edits, counts, costs or hours there: shared history/toolbar controls and the
+inspector already own them. The legend stays whole and in place as the line
+comes and goes; measure that it stays one line at narrow widths. (The Sheet's
+and the Plan's footers also carry their counts, pending changes and saved
+times.) The inspector retains complete coverage/cost totals and explains
+whole-staff scope when Slice narrows visible people. A collapsed Library badge reports availability
 for the day, while tab counts report the library's item count.
 
 Only show controls that change the active layout. People has a fixed weekly
@@ -730,7 +763,8 @@ column counts fixed by a layout, padding and spacing belong in the recipe.
 Pass only data-dependent column counts and computed event/coverage positions
 inline (CSS variables are suitable). Sizing logic must read the recipe's
 computed padding, borders and gaps instead of repeating those values in JS;
-Roster's responsive footer measures those styles before fitting legend items.
+the footer's fit (`useFooterFit`) measures those styles before fitting legend
+items and the loading line.
 
 Calendar Timeline and Roster Shifts/People/narrow People cards reuse
 `shared/schedule/group-heading.tsx` and the theme's `schedule-group.ts` recipe
@@ -834,18 +868,25 @@ settles its panes. Verify the cold load as well as settled resize behavior.
 Show a loading state while the active record window is unresolved; do not
 render a targets-only empty roster as though it were loaded data.
 
-Calendar and Roster pass their actual window-loading state to the internal
-`BuilderFrame.loading` prop. The frame owns one Chakra Skeleton surface and
+`BuilderFrame.loading` is for cold load only (#1398, CL5): a builder's first
+read, before anything it shows has landed — the Sheet's and the Plan's paged
+rows too. A period step, a narrowing or a new revision never covers: it keeps
+the toolbar, panes, selection and Save live, and passes `BuilderFrame.busy`,
+which puts `aria-busy` on main while the footer's loading line says what is
+read. The frame owns one Chakra Skeleton surface and
 its loading slots in the `builderFrame` recipe. Keep its real regions mounted
 and measured underneath, inert and hidden from assistive technology; cover the
-whole frame rather than letting its toolbar, library and grid appear separately.
+whole frame rather than letting its toolbar, library and grid appear separately
+— all but a `liveFooter`, whose loading line carries the pulse.
 The first resolved window also waits for the mounted content's fonts after
 layout measurement. Suppress initial pane-width transitions while covered.
 Do not use a fixed timeout or a skeleton sized from partial content. Subsequent
 loading keeps the frame, canvas, sessions and drafts mounted. Errors leave the
 loading state and show the existing error treatment.
-Keep the loading surface dense: body placeholders sit in fixed 40px rows with
-24px-high blocks, all in the shared recipe. Never stretch a few thin text bars
+Keep the loading surface dense: body placeholders sit at the component's own
+row pitch (`BuilderFrame.loadingPitch` — the Sheet's density's, the Plan's row
+geometry), each a 12px bar, all in the shared recipe, so the skeleton matches
+what it covers. Never stretch a few thin text bars
 through a tall host with `flex: 1` on each row. Spare body height stays empty;
 short hosts clip the placeholder list. Assert row height and placeholder-to-row
 height ratio at desktop and phone widths, not merely skeleton presence.

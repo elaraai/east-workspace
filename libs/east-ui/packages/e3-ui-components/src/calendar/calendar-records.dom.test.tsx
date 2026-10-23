@@ -62,7 +62,8 @@ test("indexed Calendar preserves overlaps, replaces windows atomically, and save
     await searches.holding;
     await settle();
     expect(event(container, "job")).toBe(heldJob);
-    expect(container.querySelector('[data-calendar-main]')?.getAttribute("aria-busy")).toBe("true");
+    // The frame's main, which holds the window, says it is busy (#1398): the frame stays live.
+    expect(slot(container, "main").getAttribute("aria-busy")).toBe("true");
     expect(container.querySelector('[data-calendar-main]')?.hasAttribute("inert")).toBe(true);
     await act(async () => { searches.release(); });
     await waitFor(() => expect(event(container, "job")).toBeNull());

@@ -6,7 +6,8 @@
 /**
  * The Allocation's renderer (`Allocation Spec.md`, #1372, `Builder Interfaces
  * Spec.md` §6, §7, §9): the board in its BuilderFrame — one toolbar, the
- * banners, the panes, the footer's legend and the loading cover — over the
+ * banners, the panes, the footer's legend and its loading line (#1398), and
+ * the loading cover, the footer live under it — over the
  * app's own records: its bins and its days, a session each of one history,
  * read a day at a time and assembled into the day the Timeline, the Table, the
  * cards, the Library and the Inspector draw, drafts in place; Publish saving
@@ -28,6 +29,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { StatusDisplay } from "../components/StatusDisplay.js";
+import { periodLoading, periodLoadingLine, retryPeriod } from "../shared/loading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceShown } from "../shared/schedule/source-tab.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
@@ -48,7 +50,7 @@ import {
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
 import { narrowingPart, useNarrowed } from "./narrowed.js";
-import { NounsContext, a } from "./nouns.js";
+import { NounsContext, a, other } from "./nouns.js";
 import { AllocationTable, RESERVE_PROBE } from "./table.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
@@ -334,9 +336,20 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     };
     const sessionName = (kind: string) => kind === PERIODS ? "Days" : value.bin.kind.name;
     const loading = (!current && data.error === undefined) || narrowing.some(n => !n.ready && n.loading);
+    // What the footer's loading line says (#1398, CL3): the day being read, the lanes', the resources' or the arrivals'
+    // new narrowing, or why one could not be read, with Retry — the day's asking again each record the day reads.
+    const retryDay = useCallback(() => retryPeriod([
+        { entries: value.bin.kind.entries, part: sourcePart(value.slice.type === "some" ? value.slice.value : undefined, value.bin.kind.key) },
+        ...(value.periods.type === "some" ? [{ entries: value.periods.value.entries }] : [])]), [value]);
+    const dayWords = format.weekdayDate(day);
+    const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading, error: data.error, retry: retryDay }, [
+        { noun: other(nouns.lane), ...lanesShown }, { noun: other(nouns.resource), ...resourcesShown }, { noun: other(nouns.arrival), ...arrivalsShown },
+    ]), dayWords), [data.loading, data.error, retryDay, nouns, lanesShown, resourcesShown, arrivalsShown, dayWords]);
+    // After cold load a read in flight — the day, a narrowing — leaves the frame live, main busy.
+    const busy = data.loading || narrowingLoading;
     return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={readOnly ? "" : undefined}>
         <AllocationDataReader value={value} day={day} pickerDays={picker} onData={setData} />
-        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={loading} toolbar={toolbar}
+        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={loading} busy={busy} liveFooter toolbar={toolbar}
             start={start} end={end} onKeyDown={event => {
             // The keys, never while typing (A6).
             if (event.defaultPrevented || typedInto(event.target)) return;
@@ -366,9 +379,9 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             {fitError !== undefined && <BannerView status="error" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={fit.retry}>Retry</Button>} />}
             {rangeError !== undefined && <BannerView status="error" title="Day unavailable" description={rangeError} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
-        </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} narrow={narrow} />}>
+        </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} line={line} />}>
             <Box ref={main} css={styles.main} data-allocation-main="" data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
-                aria-busy={(!current && data.error === undefined) || narrowingLoading} inert={narrowingLoading || narrowingFailed ? true : undefined}
+                inert={narrowingLoading || narrowingFailed ? true : undefined}
                 data-allocation-narrow={narrow ? "" : undefined}>
                 {!current && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
                     // Below 480px of main, cards with explicit actions, each one of the board's commands (A78); resizing keeps the layout, the

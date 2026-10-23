@@ -110,6 +110,7 @@ import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { linkedElement, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
+import type { PagedLoading } from "../shared/loading.js";
 import {
     createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf, elementRowsOf,
     type PlanReconcileModel, type PlanSnapshot,
@@ -463,25 +464,35 @@ export function usePlanCanvas({
     // ── Chrome: transport, search ─────────────────────────────────────────
     // The series library (#590) is the library pane's Series tab (#1195): the
     // Plan feeds ITSELF the picked series, and the frame has no Series button.
-    // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
-    // the number `total()` reports — never canvas rows, since a series can
-    // emit any number of rows per element; the count is the block the
-    // viewport is in (#823: each block pages on its own). `partial` says some
+    // What the chrome tells the truth with (#567 D9). `partial` says some
     // block does not hold every element: counts across the canvas cover the
     // loaded windows, and so does a top-level section's member count and
     // strip. Every other parent derives from one entry's subtree, which a
     // window holds whole, so its numbers are exact (`spansWindows`, #822).
+    // The footer's loading line (#1398, CL3) says, in ELEMENTS, which of the
+    // source's are read — the span nearest the viewport — that a new
+    // narrowing's rows are, or which read failed; never how many have landed.
+    const failures = paging.failures;
+    const pagingError = paging.sourceError;
+    const retryFailed = useCallback(() => {
+        if (failures.length === 0) controller.refreshSource();
+        for (const f of failures) controller.retry(f.w);
+    }, [failures, controller]);
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
-        return {
-            loaded: paging.resident?.elements ?? 0,
-            from: paging.resident?.from ?? 0,
-            to: paging.resident?.to ?? 0,
-            total: paging.total,
-            loading: paging.loading,
-            partial: !paging.complete,
-        };
-    }, [paged, paging.resident, paging.total, paging.loading, paging.complete]);
+        const failed = failures[0];
+        const loading: PagedLoading | undefined = failed !== undefined ? { kind: "failed", from: failed.from, to: failed.to, reason: failed.error }
+            : pagingError !== undefined ? { kind: "failed", from: undefined, to: undefined, reason: pagingError }
+                : paging.replacing ? { kind: "filtering" }
+                    : paging.loading ? { kind: "loading", from: paging.reading?.from, to: paging.reading?.to }
+                        : undefined;
+        return { partial: !paging.complete, loading, retry: retryFailed };
+    }, [paged, failures, pagingError, paging.replacing, paging.loading, paging.reading, paging.complete, retryFailed]);
+    const partial = transport?.partial;
+    // Cold load (#1398, CL5): nothing of a paged source landed yet, and no failure to say — the frame's skeleton
+    // covers the Plan. After it, a read in flight — a window, a resource kind's narrowing — leaves it live and busy.
+    const cold = paged ? paging.rows.length === 0 && paging.total === undefined && failures.length === 0 && pagingError === undefined : undefined;
+    const frameBusy = cold !== true && (busy || (paged && paging.loading));
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
     // positions on the first row that element placed, since a row's id starts
@@ -790,9 +801,9 @@ export function usePlanCanvas({
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
-        canExpand, expandBody, expandGutterBody, partial: transport?.partial, rowDrop, marks, groupEnds,
+        canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
-        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, rowDrop, marks,
+        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, partial, rowDrop, marks,
         groupEnds]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
@@ -1298,10 +1309,10 @@ export function usePlanCanvas({
             data-plan-narrow={narrow ? "" : undefined}
             // The source is not exhausted: the counts across this body
             // cover the loaded windows (`PlanTransport.partial`).
-            data-plan-partial={transport?.partial === true ? "" : undefined}
+            data-plan-partial={partial === true ? "" : undefined}
             // A resource kind's narrowing resolving (#1344): the rows it
-            // showed stay, busy, and take no gesture until it lands.
-            aria-busy={busy ? true : undefined}
+            // showed stay and take no gesture until it lands — busy, as the
+            // frame's main says (#1398).
             inert={busy ? true : undefined}
             // Bounded, the canvas fills the frame's main and scrolls its
             // own rows. Grown with its rows, it keeps its own height —
@@ -1317,7 +1328,7 @@ export function usePlanCanvas({
                     styles={styles} index={index} derived={derived} view={view}
                     dense={dense} storageKey={storageKey}
                     expandBody={expandBody} expandGutterBody={expandGutterBody}
-                    canExpand={canExpand} partial={transport?.partial} fill={frameFills}
+                    canExpand={canExpand} partial={partial} fill={frameFills}
                     failures={paging.failures} onRetry={controller.retry}
                     paging={narrowPaging} marks={marks}
                 />
@@ -1430,6 +1441,7 @@ export function usePlanCanvas({
             // for the segment to do there.
             grain: hasRootGroup && !narrow ? grain : undefined,
             transport, search, diagnostics,
+            cold, busy: frameBusy, pitch: geometry.row,
             history: historyProps, sessions, where,
             events: kinds.length > 0 ? eventEditing : undefined,
             cells: lead.cells,

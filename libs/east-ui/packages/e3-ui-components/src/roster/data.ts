@@ -13,7 +13,10 @@
  * open picker's weeks' through the same, and the week's targets through
  * theirs. What it reads is kept by its bytes: a row read again as it was keeps
  * its decoded row, so a render never decodes it again, and the frame is handed
- * what it reads only when that moves.
+ * what it reads only when that moves. Once the week has landed, the weeks
+ * either side are read ahead (`shared/schedule/read-ahead.ts`, #1398, CL7), in
+ * a read of their own, so a step to one shows it at once and a page of theirs
+ * landing runs the week's read no more; a step further drops their reads.
  *
  * @packageDocumentation
  */
@@ -22,6 +25,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { BlobType, DateTimeType, DictType, SortedMap, equalFor } from "@elaraai/east";
 import { RosterStatusType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { compareDate, compareString, rosterDomain, weekBefore, weekSpan, weekWindow, type RosterPayload, type Status, type StoredDuty, type StoredTarget } from "./model.js";
 
 const sameBytes = equalFor(BlobType);
@@ -148,6 +152,18 @@ export function useRosterData(value: RosterPayload, start: Date, pickerDates: re
         return { duties, previous, period, picker, targets, loading };
     }, [value, start, pickerDates, holds]);
     const { result } = useTrackedEvaluation(read);
+    // Once the week has landed, the weeks either side are read ahead (#1398, CL7) — in a read of their own, so a page of
+    // theirs landing runs the week's read no more: a step to one shows it at once.
+    const at = start.getTime();
+    const neighbours = useMemo(() => [weekSpan(new Date(at)).to, weekBefore(new Date(at))], [at]);
+    const readNext = useCallback((next: Date) => {
+        const around = weekWindow(next);
+        value.duty.rows(around.from, around.to);
+        const span = weekSpan(next);
+        if (value.periods.type === "some") value.periods.value.rows(span.from, span.to);
+        if (value.targets.type === "some") value.targets.value.rows(span.from, span.to);
+    }, [value]);
+    useReadAhead(result.ok && !result.value.loading && result.value.duties !== undefined, neighbours, readNext);
     // The last complete read of a week: a newer one in flight keeps it, so a page landing redraws nothing until the read is whole.
     const complete = useRef<RosterData | undefined>(undefined);
     if (result.ok) {

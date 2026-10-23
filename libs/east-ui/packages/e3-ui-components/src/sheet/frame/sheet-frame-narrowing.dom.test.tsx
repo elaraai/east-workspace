@@ -337,22 +337,28 @@ test("a choice on the rail builds the sheet no more: the grid's rows and the Row
     }
 });
 
-test("a choice keeps the rows on screen, the grid busy, until the lens has read the narrowing's rows near the view; then its rows (#1354, #1349)", async () => {
+test("a choice keeps the rows on screen, the grid busy and the footer saying so, until the lens has read the narrowing's rows near the view; then its rows (#1354, #1349, #1398)", async () => {
     const { container } = await h.mount(sheet());
     const part = railParts();
     await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
-    const card = () => slot(container, "main")!.querySelector<HTMLElement>("[data-sheet-card]")!;
+    const main = () => slot(container, "main")!;
+    const line = () => slot(container, "footer")!.querySelector<HTMLElement>("[data-footer-line]")!;
     const shown = bands(container);
     // Every read of which orders a narrowing holds, held on its way to e3 from now until let land.
     const windows = h.e3.hold((request) => request.kind === "within" && request.dataset === ORDERS);
     await act(async () => { part("rows").choose("status", [print("ON HOLD")]); });
     await settle();
     // The lens's read of which orders near the view the narrowing holds is on the wire: the last rows stand in,
-    // and the grid says it is busy.
+    // and the frame's main, which they are in, says it is busy — the frame live, nothing covering it.
     expect(windows.held).toBeGreaterThan(0);
     expect(bands(container)).toEqual(shown);
-    expect(card().getAttribute("aria-busy")).toBe("true");
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    expect(container.querySelector('[data-builder-frame][aria-busy="true"]')).toBeNull();
+    // Once the wait passes its reveal, the footer's loading line says what is read, in what the rail counts the rows in (CL3).
+    await waitFor(() => expect(line().querySelector("[data-line-text]")?.textContent).toBe("Filtering orders…"));
     await act(async () => { windows.release(); });
     await waitFor(() => expect(bands(container)).toEqual(["WO-2204"]));
-    expect(card().hasAttribute("aria-busy")).toBe(false);
+    await waitFor(() => expect(main().getAttribute("aria-busy")).toBe("false"));
+    // The line goes once its hold is over: nothing is in flight.
+    await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(true));
 });

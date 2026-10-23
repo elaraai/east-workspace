@@ -34,8 +34,9 @@ function sample(page: Page): Promise<{ starting: number; still: boolean }> {
         const layout = () => {
             const doc = document.scrollingElement ?? document.documentElement;
             // An example draws once its East has compiled, or failed to; an e3
-            // example once e3 has started, or failed to.
-            const waiting = document.querySelectorAll('[data-east-compiling], [data-e3-start="starting"], [data-builder-loading], [data-calendar-main][aria-busy="true"]').length
+            // example once e3 has started, or failed to; a builder once its
+            // cold load is over and no read keeps its main busy (#1398).
+            const waiting = document.querySelectorAll('[data-east-compiling], [data-e3-start="starting"], [data-builder-loading], [data-builder-frame] [data-frame-slot="main"][aria-busy="true"]').length
                 + [...document.querySelectorAll("[data-example-deferred]")].filter(el => {
                     const box = el.getBoundingClientRect();
                     const view = el.closest("[data-doc-scroll]")?.getBoundingClientRect()
@@ -85,7 +86,7 @@ function panesStill(page: Page): Promise<boolean> {
  * Resolves once the page has stopped laying itself out: the webfonts are
  * loaded, no example is still compiling its East behind its skeleton, no e3
  * example is waiting for the e3 the page runs to start (#849), no builder is
- * still loading or retaining its previous Calendar query, visible deferred
+ * still loading or busy reading what it shows (its main `aria-busy`), visible deferred
  * previews have started, every virtualized row and the document's width
  * hold still across two frames, and then two more, and no builder's pane is
  * still sliding.

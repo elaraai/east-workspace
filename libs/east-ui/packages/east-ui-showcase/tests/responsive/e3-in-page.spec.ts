@@ -108,15 +108,19 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         const BLOCK = 3_000 * ROW;
         const entry = await openExample(page, "dataBindPagedBlocks", "e3/bind/data/data");
         const frame = entry.locator('[data-virtual-rows="bounded"]');
-        const transport = entry.locator('[data-slot="footerTransport"]');
+        const footer = entry.locator('[data-frame-slot="footer"]');
         const scrollTo = async (top: number) => {
             await frame.evaluate((el, at) => { el.scrollTop = at; }, top);
             await settled(page);
         };
 
         // The first landing: three windows, the units in key order from the
-        // top of the canvas, a row each.
-        await expect(transport).toHaveText("600 loaded of 3,000");
+        // top of the canvas, a row each — nothing in flight once they have
+        // landed, so the footer's loading line says nothing, and the footer
+        // counts nothing of what has (#1398, CL3).
+        await expect(entry.locator('[data-frame-slot="main"]')).toHaveAttribute("aria-busy", "false");
+        await expect(footer.locator("[data-footer-line]")).toHaveAttribute("data-idle", "");
+        await expect(footer).not.toContainText("loaded");
         await expect(entry.locator("[data-virtual-extent]")).toHaveAttribute("data-virtual-extent", String(2 * BLOCK));
         const first = Array.from({ length: 10 }, (_, i) => ({ id: rowId("jobs", `U${10_000 + i}`), top: i * ROW }));
         await expect.poll(async () => (await rowsOf(entry)).slice(0, 10)).toEqual(first);
@@ -134,8 +138,8 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         // Up to where the band begins: the next windows land there, unit 600's
         // row exactly where the band's top was, and the frame does not move.
         await scrollTo(600 * ROW);
-        await expect(transport).toHaveText("1,200 loaded of 3,000");
         await expect.poll(async () => (await rowsOf(entry)).find((r) => r.id === rowId("jobs", "U10600"))?.top).toBe(600 * ROW);
+        await expect(footer.locator("[data-footer-line]")).toHaveAttribute("data-idle", "");
         expect(await frame.evaluate((el) => el.scrollTop)).toBe(600 * ROW);
 
         // The band gave up exactly the units that landed.

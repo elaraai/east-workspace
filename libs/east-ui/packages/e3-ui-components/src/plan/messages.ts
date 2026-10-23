@@ -25,6 +25,7 @@
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
+import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
@@ -91,11 +92,14 @@ export type PlanInspectorStat = "events" | "hours" | "hoursInView" | "backlog";
  *
  * It carries the editing session's messages too ({@link EditingMessages},
  * #880: the history bar and the draft issues), so a host translates the
- * canvas's history bar where it translates the canvas; and the time scale's
+ * canvas's history bar where it translates the canvas; the time scale's
  * ({@link TimeMessages}, #1148: its ruler's week and quarter ticks and their
- * words), which the scale the Plan shares with the Calendar speaks.
+ * words), which the scale the Plan shares with the Calendar speaks; and the
+ * footer's loading line over a paged source ({@link PagedLoadingMessages},
+ * #1398: `lineLoading`, `lineFiltering`, `lineFailed`, `lineShort`), in what
+ * the rail counts the rows in.
  */
-export interface PlanMessages extends EditingMessages, TimeMessages {
+export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadingMessages {
     // ── The frame ──────────────────────────────────────────────────────────
     /** The treegrid's accessible name. */
     gridLabel: () => string;
@@ -149,14 +153,6 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     searchFailed: (p: { reason: string }) => string;
     /** An axis the grid had to truncate. */
     truncated: (p: { n: number; count: string }) => string;
-
-    // ── The transport line (#567 D9) ───────────────────────────────────────
-    /** A resident prefix — `1,200 loaded of 8,431`. */
-    transportLoaded: (p: { loaded: string; total: string | undefined }) => string;
-    /** A resident run in the middle — `elements 39,801–41,000 of 50,000`. */
-    transportRange: (p: { from: string; to: string; total: string | undefined }) => string;
-    /** The line while a window is in flight. */
-    transportLoading: (p: { line: string }) => string;
 
     // ── The footer's counts (#1193) ────────────────────────────────────────
     /** The event kinds' events in the window — `64 events`. */
@@ -459,8 +455,6 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     announceGrain: (p: { grain: PlanGrainWord }) => string;
     /** The resolution changed. */
     announceResolution: (p: { resolution: string }) => string;
-    /** A paged source's window landed — `Loaded elements 201–400 of 5,000`. */
-    announceLanded: (p: { from: string; to: string; total: string | undefined }) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -534,6 +528,7 @@ const pluralName = (name: string): string => {
 export const planMessages: PlanMessages = {
     ...editingMessages,
     ...timeMessages,
+    ...pagedLoadingMessages,
     gridLabel: () => "Plan",
     noWindow: () => "NO WINDOW — declare an axis window, or bind a slice whose range supplies it",
     noWindowOrdinal: () => "NO WINDOW — an ordinal axis needs at least one declared value",
@@ -568,10 +563,6 @@ export const planMessages: PlanMessages = {
     sourceUnavailable: ({ reason }) => `source unavailable — ${reason}`,
     searchFailed: ({ reason }) => `search failed — ${reason}`,
     truncated: ({ count }) => `showing the first ${count} buckets — zoom in`,
-
-    transportLoaded: ({ loaded, total }) => (total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`),
-    transportRange: ({ from, to, total }) => (total !== undefined ? `elements ${from}–${to} of ${total}` : `elements ${from}–${to}`),
-    transportLoading: ({ line }) => `${line} · Loading…`,
 
     footerEvents: ({ n, count }) => `${count} ${plural(n, "event", "events")}`,
     footerBacklog: ({ count }) => `${count} in backlog`,
@@ -748,8 +739,6 @@ export const planMessages: PlanMessages = {
     announceCleared: () => "Selection cleared",
     announceGrain: ({ grain }) => `Grain: ${grain}`,
     announceResolution: ({ resolution }) => `Resolution: ${resolution}`,
-    announceLanded: ({ from, to, total }) =>
-        (total !== undefined ? `Loaded elements ${from}–${to} of ${total}` : `Loaded elements ${from}–${to}`),
 };
 
 const PlanMessagesContext = createContext<PlanMessages>(planMessages);

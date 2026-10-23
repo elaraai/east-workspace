@@ -114,9 +114,11 @@ test.describe("a Plan read a window at a time (#1199)", () => {
 
     test("planWindows: the presses in view and the ring around them read first, the next window once the canvas scrolls to it — every row in view holding its place as it lands, the scroll where it was put", async ({ page }) => {
         const entry = await openExample(page, "planWindows", WINDOWS);
-        const transport = entry.locator("[data-slot='footerTransport']");
-        // Three windows of the ten: the presses in view, and the two after them.
-        await expect(transport).toHaveText("600 loaded of 2,000");
+        // Three windows of the ten, the presses in view and the two after them, landed: nothing in flight, so main is not
+        // busy and the footer's loading line says nothing (#1398) — and the next window's presses are not read.
+        const line = entry.locator("[data-frame-slot='footer'] [data-footer-line]");
+        await expect(entry.locator("[data-frame-slot='main']")).toHaveAttribute("aria-busy", "false");
+        await expect(line).toHaveAttribute("data-idle", "");
         await expect(entry.locator(rowSel("presses.span", "P-1601"))).toHaveCount(0);
         // Scrolled to the last presses read, the next window's place in view under them, each row its 42px.
         await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 600 * 42 - 200; });
@@ -128,7 +130,9 @@ test.describe("a Plan read a window at a time (#1199)", () => {
         // The rows above the window that landed, and its first, all in view.
         const last = frames[frames.length - 1]!;
         expect(Object.keys(last.rows)).toEqual(expect.arrayContaining([rowId("presses.span", "P-1600"), rowId("presses.span", "P-1601")]));
-        await expect(transport).not.toHaveText("600 loaded of 2,000");
+        // Landed, nothing is in flight again: the footer's line says nothing, and counted nothing meanwhile.
+        await expect(line).toHaveAttribute("data-idle", "");
+        await expect(entry.locator("[data-frame-slot='footer']")).not.toContainText("loaded");
     });
 
     test("planWindows: the jobs read as the canvas pans — the days `n` brings in read from the day index, the ticket books drawn — every bar moved once, by the pan, and every row holding its place", async ({ page }) => {

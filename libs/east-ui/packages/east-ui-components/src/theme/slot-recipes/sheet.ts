@@ -48,8 +48,9 @@
  *     brandTint + inset ring); the chips page rather than
  *     scroll or clip: `‹ 1/3 ›` ghost chevrons at the row's end, the count
  *     mono 10.5 tabular; meta mono 11 (ellipsis past a third of the band).
- *   - Footer: 8/20; counts mono 11; key hint mono 10; message mono 10.5
- *     right-aligned; transport mono 10.
+ *   - Footer: 8/20; counts mono 11; key hint mono 10, each of its hints
+ *     whole — a rail too narrow ends them at a whole hint, then "…" (#1398);
+ *     message mono 10.5 right-aligned, the shared loading line after it.
  *   - Tabs: 30 px mono 10.5/600/.12em uppercase; active `inset 0 -2px 0`
  *     ink; counts `fg.subtle`; dirty dot 5 px brand; × 14 px → neg;
  *     `+ TAB` 22 px r-sm 1 px `border.strong` mono 9.5/600. A tab, `+n` and
@@ -144,6 +145,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fieldInRingedControl } from "../field-chrome.js";
+import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
 export const sheetSlotRecipe = defineSlotRecipe({
@@ -169,7 +171,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
         "stripPager", "stripPage", "stripPageCount", "stripMeasure",
-        "footer", "footerCounts", "footerHint", "footerMessage", "footerTransport",
+        "footer", "footerCounts", "footerHint", "footerHintSep", "footerMessage",
         "diagnostic",
         "subRow", "subRowGutter", "subRowIndex", "subRowStem", "subRowWell", "subRowContent", "subRowLead", "subRowCode", "subRowName",
         "subRowDetail", "subRowChip", "subRowFacet", "subRowFacetLabel", "subRowFacetValue", "subRowId", "subRowChevron",
@@ -1368,7 +1370,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // A failed window's pill (#853): the reason in the danger ink, kept in view while its band scrolls past, the Retry beside it.
             "&[data-failed]": { position: "sticky", top: "60px", alignSelf: "flex-start", color: "fg.danger", cursor: "default" },
         },
-        // The one Retry (#853) — a failed window's band, the transport line, the whole-sheet message: the band controls' brand, a button.
+        // The one Retry (#853) — a failed window's band, the whole-sheet message: the band controls' brand, a button.
         retry: {
             display: "inline-flex",
             alignItems: "center",
@@ -1663,7 +1665,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             width: "max-content",
         },
+        // The footer fits its hints and the shared loading line on one line, cutting a hint whole (#1398, CL3); the
+        // line follows the message, which takes the rail's slack.
         footer: {
+            ...FOOTER_FIT,
             display: "flex",
             alignItems: "center",
             gap: "18px",
@@ -1673,6 +1678,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",
             minWidth: "0",
+            "& > [data-footer-line]": { marginInlineStart: "0" },
         },
         footerCounts: {
             fontFamily: "mono",
@@ -1686,14 +1692,18 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "& [data-tone=warning]": { color: "status.warn" },
             "& [data-tone=info]": { color: "status.info" },
         },
+        // The key hint: its hints run on, each whole — the fit ends them at a whole hint rather than cut a word.
         footerHint: {
+            flex: "none",
             fontFamily: "mono",
             fontSize: "10px",
             color: "fg.subtle",
             letterSpacing: "0.04em",
             whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+        },
+        // The ` · ` before a hint: its spaces kept wherever the hint is laid out, so a hint measures the same cut or shown.
+        footerHintSep: {
+            whiteSpace: "pre",
         },
         footerMessage: {
             marginLeft: "auto",
@@ -1703,14 +1713,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
-        },
-        footerTransport: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            color: "fg.subtle",
-            whiteSpace: "nowrap",
-            // A source that could not be read (#853): its reason in the danger ink, the Retry beside it.
-            "& [data-slot=transportError]": { color: "fg.danger" },
         },
         diagnostic: {
             padding: "20px",

@@ -5,7 +5,7 @@
  * @vitest-environment jsdom
  *
  * One formatter (#850), rendered — the Sheet's own counts: under
- * `I18nProvider locale="de-DE"` the transport line, an unloaded band, a lens
+ * `I18nProvider locale="de-DE"` the loading line's range, an unloaded band, a lens
  * gap, the view tabs, a grouped sheet's summary and a band's line count print
  * German numbers. The grouped sheet is `<Sheet>`, COMPILED, and renders
  * through its carrier in its frame (#1216), so the renderer reads what an
@@ -65,17 +65,18 @@ function texts(root: Element): string[] {
 describe("the Sheet's counts (#850)", () => {
     const styles = {} as Record<string, Record<string, unknown>>;
 
-    test("the transport line, an unloaded band and a lens gap", () => {
+    test("the loading line's range, an unloaded band and a lens gap", () => {
         const { container } = german(
             <>
-                <SheetFooter styles={styles} items={[]} hint="" message="" transport={{ loaded: 600, total: 5000, loading: false }} />
+                {/* A failed read's line shows at once, its range in the locale (#1398). */}
+                <SheetFooter styles={styles} items={[]} hint="" message="" noun="rows" loading={{ kind: "failed", from: 600, to: 4999, reason: "timeout" }} />
                 <SheetBandRow styles={styles} band={{ at: "tail", from: 600, to: 4999, px: 100 }} loading={false} colCount={2} />
                 <SheetGapRow styles={styles} gap={{ key: "g", from: 10, to: 1509, hidden: 1500, first: false, last: false }}
                     reach={{ top: 1, bottom: 3, both: 10 }} onReveal={() => {}} colCount={2} />
             </>,
         );
         const words = texts(container);
-        expect(words).toContain("600 loaded of 5.000");
+        expect(words).toContain("601–5.000");
         expect(words).toContain("4.400 not loaded");
         expect(words).toContain("1.500 hidden");
     });

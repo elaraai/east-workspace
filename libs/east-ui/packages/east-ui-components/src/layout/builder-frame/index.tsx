@@ -129,8 +129,8 @@ export interface BuilderFrameProps {
     busy?: boolean | undefined;
     /**
      * The row pitch the cold-load skeleton's body draws at, in px: the
-     * component's own (#1398) — the Sheet's 36, the Plan's 42, the Roster's
-     * People 52 — so the skeleton matches what it covers. 40 unless given.
+     * component's own (#1398) — the Sheet's density's, the Plan's row
+     * geometry — so the skeleton matches what it covers. 40 unless given.
      */
     loadingPitch?: number | undefined;
     /**

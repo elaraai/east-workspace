@@ -214,10 +214,9 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         await waitFor(() => {
             expect(container.querySelector(unitRow("u0000"))).toBeTruthy();
         });
-        // The compiled `total` taught the transport the exact element count.
+        // The compiled `total` sized the canvas: every element of the source, at the rows' pitch, landed or not.
         await waitFor(() => {
-            const line = container.querySelector('[data-slot="footerTransport"]');
-            expect(line?.textContent).toMatch(/of 4,000$/);
+            expect(Number(container.querySelector("[data-virtual-extent]")?.getAttribute("data-virtual-extent"))).toBe(ELEMENTS * ROW_PX);
         });
         // It walked a bounded ring, not the whole source.
         expect(Math.max(...asked)).toBeLessThan(5);
@@ -423,9 +422,10 @@ describe("the same canvas inline and paged (#822)", () => {
         const expected = drawn(inline.container);
         cleanup();
         const paged = renderPlan(buildOver(n, twoSeries, true), `plan-822-paged-${n}`);
+        // Every element in: the body marks no prefix of its numbers, and every row is drawn.
         await waitFor(() => {
-            expect(paged.container.querySelector('[data-slot="footerTransport"]')?.textContent)
-                .toBe(`${n.toLocaleString("en-US")} loaded of ${n.toLocaleString("en-US")}`);
+            expect(paged.container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
+            expect(drawn(paged.container)).toHaveLength(expected.length);
         }, { timeout: 10_000 });
         return [expected, drawn(paged.container)];
     }
@@ -460,8 +460,11 @@ describe("the same canvas inline and paged (#822)", () => {
             cleanup();
             const { root, asked } = withRecordedWindows(buildOver(300, true, true));
             const paged = renderPlan(root, "plan-823-paged");
-            await waitFor(() => expect(paged.container.querySelector('[data-slot="footerTransport"]')?.textContent)
-                .toBe("300 loaded of 300"), { timeout: 10_000 });
+            // Every element in: the body marks no prefix of its numbers, and every row is drawn.
+            await waitFor(() => {
+                expect(paged.container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
+                expect(drawn(paged.container)).toHaveLength(expected.length);
+            }, { timeout: 10_000 });
             expect(drawn(paged.container)).toEqual(expected);
             // One read of each window served both blocks.
             expect([...asked].sort((a, b) => a - b)).toEqual([0, 1]);

@@ -13,7 +13,10 @@
  * row read again as it was keeps its decoded row, so a render never decodes it
  * again, and the frame is handed what it reads only when that moves. While the
  * day's read is in flight the frame is covered (A80); a day it has not read is
- * never drawn as empty.
+ * never drawn as empty. Once the day has landed, the days either side are read
+ * ahead (`shared/schedule/read-ahead.ts`, #1398, CL7), in a read of their own,
+ * so a step to one shows it at once and a page of theirs landing runs the
+ * day's read no more; a step further drops their reads.
  *
  * @packageDocumentation
  */
@@ -22,6 +25,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { BlobType, DateTimeType, DictType, SortedMap, equalFor } from "@elaraai/east";
 import { SchedulePeriodStatusType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { DAY, allocationDomain, compareDate, compareString, type AllocationValue, type Day, type StoredBin } from "./model.js";
 
 const sameBytes = equalFor(BlobType);
@@ -115,6 +119,16 @@ export function useAllocationData(value: AllocationValue, day: Date, pickerDays:
         return { bins, period, picker, loading };
     }, [value, day, pickerDays]);
     const { result } = useTrackedEvaluation(read);
+    // Once the day has landed, the days either side are read ahead (#1398, CL7) — in a read of their own, so a page of
+    // theirs landing runs the day's read no more: a step to one shows it at once.
+    const at = day.getTime();
+    const neighbours = useMemo(() => [new Date(at + DAY), new Date(at - DAY)], [at]);
+    const readNext = useCallback((from: Date) => {
+        const to = new Date(from.getTime() + DAY);
+        value.bin.rows(from, to);
+        if (value.periods.type === "some") value.periods.value.rows(from, to);
+    }, [value]);
+    useReadAhead(result.ok && !result.value.loading && result.value.bins !== undefined, neighbours, readNext);
     // The last complete read of a day: a newer one in flight keeps it, so a page landing redraws nothing until the read is whole.
     const complete = useRef<AllocationData | undefined>(undefined);
     if (result.ok) {

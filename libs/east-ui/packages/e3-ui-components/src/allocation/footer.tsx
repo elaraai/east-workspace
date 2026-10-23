@@ -4,7 +4,7 @@
  */
 import { useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { useRailWrap } from "../shared/schedule/footer.js";
+import { FooterMore, LoadingLine, footerCut, useFooterFit, useLoadingReveal, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { AllocationStyles } from "./model.js";
 import { one, useNouns, type Nouns } from "./nouns.js";
 
@@ -27,14 +27,29 @@ export const legends = (nouns: Nouns) => ({
     ],
 });
 
-/** The shared footer rail with the layout's legend only (A79): no counts, hints or status; each item wraps on its own. */
-export function AllocationFooter({ styles, layout, narrow }: { styles: AllocationStyles; layout: "timeline" | "table"; narrow: boolean }) {
+/**
+ * The shared footer rail with the layout's legend (A79) — no counts, hints or
+ * status — and at its trailing end the shared loading line (#1398, CL3): the
+ * day being read — `Loading Tue, May 11, 2027` — or why it could not be, with
+ * Retry. The rail never wraps and never cuts a word: the legend stays whole
+ * and in place, ending at a whole item, then "…", only where it cannot fit.
+ */
+export function AllocationFooter({ styles, layout, line }: {
+    styles: AllocationStyles; layout: "timeline" | "table";
+    /** What the day's read says: the day being read, or why it could not be; `undefined` while it has landed. */
+    line: LoadingLineValue | undefined;
+}) {
     const ref = useRef<HTMLDivElement>(null);
-    const wrap = useRailWrap(ref, layout);
+    const fit = useFooterFit(ref);
+    // The shared reveal's clock (CL4): a read shows after 150 ms, and stays 300 ms once shown.
+    const shown = useLoadingReveal(line?.kind === "loading");
     const items = legends(useNouns())[layout];
-    return <Box ref={ref} css={styles.footer} data-allocation-footer={layout} data-builder-narrow={narrow || wrap ? "" : undefined}>
-        {items.map(item => <Box as="span" key={item.kind} css={[styles.footerItem, styles.legendItem]} data-allocation-legend={item.kind}>
+    return <Box ref={ref} css={styles.footer} data-allocation-footer={layout}>
+        {items.map((item, i) => <Box as="span" key={item.kind} css={[styles.footerItem, styles.legendItem]} data-allocation-legend={item.kind}
+            data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
             <Box as="span" aria-hidden="true" css={styles.legendSwatch} data-kind={item.kind} />{item.label}
         </Box>)}
+        <FooterMore shown={fit.kept < items.length} />
+        <LoadingLine value={line} shown={shown} form={fit.form} />
     </Box>;
 }

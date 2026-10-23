@@ -24,8 +24,10 @@ import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useDataStable, useFormatters,
     usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
+import { periodLoading, periodLoadingLine, retryPeriod } from "../shared/loading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
+import { DAY } from "../shared/schedule/window.js";
 import { publishChange, rosterCommands } from "./actions.js";
 import { RosterDataReader, initialRosterData, type RosterData } from "./data.js";
 import { useRosterDrag } from "./drag.js";
@@ -36,7 +38,7 @@ import { useRosterInspector } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
 import {
     NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, editableStatus, placeDrafted, placeStored, placeTargets,
-    rosterContext, rosterDomain, started, statusText, weekBefore, weekKey, weekOf, weekWindow, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
+    rosterContext, rosterDomain, started, statusText, weekBefore, weekKey, weekOf, weekSpan, weekWindow, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget,
 } from "./model.js";
 import { useRosterToolbar } from "./toolbar.js";
@@ -199,9 +201,22 @@ function RosterFrame(props: FrameProps) {
         : kind === TARGETS ? "Targets" : source.duty.kind.name;
     const loading = (!current && data.error === undefined) || (!visibility.ready && visibility.loading) || (!activities.ready && activities.loading);
     const dutyPart = sourcePart(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key);
+    // What the footer's loading line says (#1398, CL3): the week being read, the people's or the activities' new
+    // narrowing, or why one could not be read, with Retry — the week's asking again each record the week reads.
+    const retryWeek = useCallback(() => retryPeriod([{ entries: source.duty.kind.entries, part: dutyPart },
+        ...(source.periods.type === "some" ? [{ entries: source.periods.value.entries }] : []),
+        ...(source.targets.type === "some" ? [{ entries: source.targets.value.entries, part: sourcePart(source.slice.type === "some" ? source.slice.value : undefined, "targets") }] : [])]),
+        [source, dutyPart]);
+    const readSpan = weekSpan(start);
+    const weekWords = format.range(readSpan.from, new Date(readSpan.to.getTime() - DAY));
+    const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading, error: data.error, retry: retryWeek },
+        [{ noun: "people", ...visibility }, { noun: "activities", ...activities }]), weekWords),
+        [data.loading, data.error, retryWeek, visibility, activities, weekWords]);
+    // After cold load a read in flight — the week, the people's or the activities' narrowing — leaves the frame live, main busy.
+    const busy = data.loading || visibility.loading || activities.loading;
     return <Box ref={root} css={styles.root} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined}>
         <RosterDataReader value={source} start={start} pickerDates={pickerDates} holds={holds} onData={setData} />
-        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={loading} start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
+        <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={loading} busy={busy} liveFooter start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
             if (action !== undefined && history !== undefined && !value.settings.readOnly && (commands.available || history.pending > 0)) { event.preventDefault(); onAction(action); }
@@ -225,8 +240,8 @@ function RosterFrame(props: FrameProps) {
             {find !== undefined && fitError !== undefined && <BannerView status="warning" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={retryFit}>Retry</Button>} />}
             {props.rangeError !== undefined && <BannerView status="error" title="Week unavailable" description={props.rangeError} />}
             {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
-        </>} footer={<RosterFooter styles={styles} narrow={narrow} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} />}>
-            <Box ref={main} css={styles.main} data-roster-main="" aria-busy={(!current && data.error === undefined) || visibility.loading} inert={visibility.loading || visibility.error !== undefined ? true : undefined} data-roster-narrow={narrow ? "" : undefined}>
+        </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line} />}>
+            <Box ref={main} css={styles.main} data-roster-main="" inert={visibility.loading || visibility.error !== undefined ? true : undefined} data-roster-narrow={narrow ? "" : undefined}>
                 {!current && data.error !== undefined ? <StatusDisplay variant="error" title="Roster unavailable" message={data.error} /> : <RosterViews {...viewProps} />}
             </Box>
         </BuilderFrame>

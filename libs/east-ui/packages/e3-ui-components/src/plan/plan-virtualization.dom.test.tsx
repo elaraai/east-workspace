@@ -399,13 +399,13 @@ describe("Plan narrow paged demand (#812)", () => {
         // At rest the demand is the opening ring — windows 0–2, no further.
         expect(Math.max(...asked)).toBe(2);
 
-        const transport = () => container.querySelector('[data-slot="footerTransport"]')!.textContent;
+        const last = () => container.querySelector(rowSel("u1999", "data-plan-card"));
         let tailShown = false;
         // Scroll: the list's last card comes into view, then its "N more
         // rows" is tapped. Only loaded rows are ever revealed — the demand
         // comes from the cards on screen, and it stays AHEAD of the reader:
         // the list never runs out and asks for the next window itself.
-        for (let step = 0; step < 400 && transport() !== "2,000 loaded of 2,000"; step++) {
+        for (let step = 0; step < 400 && last() === null; step++) {
             const cards = container.querySelectorAll("[data-plan-card]");
             inView([cards[cards.length - 1]!]);
             tailShown ||= container.querySelector('[data-plan-more="source"]') !== null;
@@ -413,7 +413,8 @@ describe("Plan narrow paged demand (#812)", () => {
             if (more !== null) fireEvent.click(more);
             await act(async () => {});
         }
-        expect(transport()).toBe("2,000 loaded of 2,000");
+        // The source's last row is a card of the list.
+        expect(last()).toBeTruthy();
         expect(tailShown).toBe(false);
         // Window by window, each asked once — it followed the list.
         expect(asked.filter((w) => w === 9)).toHaveLength(1);
@@ -441,8 +442,6 @@ describe("Plan narrow paged demand (#812)", () => {
 });
 
 // ── Paged canvases page by parents (#823) ───────────────────────────────────
-/** A paged canvas's transport line. */
-const transport = (c: HTMLElement) => c.querySelector('[data-slot="footerTransport"]')!.textContent;
 /** Where a mounted body item starts: its column's top, plus every mounted item
  *  above it — a row's `data-plan-h`, a band's `data-plan-px`. */
 function topOf(c: HTMLElement, el: Element): number {
@@ -541,10 +540,13 @@ describe("a paged window drawing otherwise than its estimate (#823, #878)", () =
     // lands 200 × 10px taller than its band.
     const EST = 200 * 32;
     const TALL = 200 * 42;
+    /** The windows asked for, each as its read is: the source answers at once, so an asked window has landed. */
+    const asked: number[] = [];
     const source = {
         id: "dom-823-varied",
         page: (offset: bigint) => {
             const w = Number(offset) / 200;
+            asked.push(w);
             return some(Array.from({ length: 200 }, (_u, i) =>
                 planRow(`w${pad(w, 4)}r${pad(i, 3)}`, span(), w === 0 ? undefined : { sub: "two lines" })));
         },
@@ -552,18 +554,19 @@ describe("a paged window drawing otherwise than its estimate (#823, #878)", () =
     };
     // The frame anchors through `scrollTo`: its writes land on scrollTop.
     let restore: () => void = () => {};
-    beforeEach(() => { restore = stubScrollTo(false); });
+    beforeEach(() => { asked.length = 0; restore = stubScrollTo(false); });
     afterEach(() => { restore(); });
 
     test("lands above the rows in view and leaves them where they are — the view follows its rows, not the estimate", async () => {
         const { container } = renderPlan(planRoot([], { height: "400px", source }), "plan-823-anchor");
-        await waitFor(() => expect(transport(container)).toBe("600 loaded of 2,000"));
         // Windows 1 and 2 landed at their own height; the rest are estimates.
-        expect(extentOf(container)).toBe(EST + 2 * TALL + 7 * EST);
+        await waitFor(() => expect(extentOf(container)).toBe(EST + 2 * TALL + 7 * EST));
+        expect(asked).toEqual(expect.arrayContaining([0, 1, 2]));
         // Far down, over the tail band, where the estimate puts element 1,500:
-        // the run rebases to window 7 and grows to [6, 9].
+        // the run rebases to window 7 and grows to [6, 9], each landing at its own height.
         scrollFrame(container, EST + 2 * TALL + 4 * EST + 100 * 32);
-        await waitFor(() => expect(transport(container)).toBe("elements 1,201–2,000 of 2,000"), { timeout: 10_000 });
+        await waitFor(() => expect(extentOf(container)).toBe(EST + 2 * TALL + 3 * EST + 4 * TALL), { timeout: 10_000 });
+        expect(asked).toEqual(expect.arrayContaining([6, 7, 8, 9]));
         // Windows 0–5 are the head band: 0–2 as they drew, 3–5 estimates.
         const head = EST + 2 * TALL + 3 * EST;
         // Up to window 6's first row, 10px into it. Once the scroll settles,
@@ -572,7 +575,8 @@ describe("a paged window drawing otherwise than its estimate (#823, #878)", () =
         scrollFrame(container, head + 10);
         const first = () => container.querySelector(rowSel("w0006r000"))!;
         expect(frameOf(container).scrollTop - topOf(container, first())).toBe(10);
-        await waitFor(() => expect(transport(container)).toBe("elements 1,001–2,000 of 2,000"), { timeout: 10_000 });
+        await waitFor(() => expect(extentOf(container)).toBe(EST + 2 * TALL + 2 * EST + 5 * TALL), { timeout: 10_000 });
+        expect(asked).toContain(5);
         // The rows in view kept their places: the view moved with them, by
         // exactly what window 5 drew beyond its estimate.
         expect(frameOf(container).scrollTop).toBe(head + 10 + (TALL - EST));
@@ -590,10 +594,13 @@ describe("a link into an evicted window (#823, #818)", () => {
         }],
         decisions: [], ports: [], rollup: none,
     });
+    /** The windows asked for, each as its read is: the source answers at once, so an asked window has landed. */
+    const asked: number[] = [];
     const source = {
         id: "dom-823-links",
         page: (offset: bigint) => {
             const w = Number(offset) / 200;
+            asked.push(w);
             return some(Array.from({ length: 20 }, (_u, i) => planRow(`w${pad(w, 4)}r${pad(i, 3)}`, bar)));
         },
         total: () => some(2_000n), seek: none, revision: () => none, refresh: () => null,
@@ -611,6 +618,7 @@ describe("a link into an evicted window (#823, #818)", () => {
     // The ribbons need the plot's width: the layer is the 168px gutter and a 1000px plot.
     const realClientWidth = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
     beforeEach(() => {
+        asked.length = 0;
         Object.defineProperty(Element.prototype, "clientWidth", {
             configurable: true,
             get(this: Element) { return this.hasAttribute("data-plan-ribbons") ? 1168 : 0; },
@@ -620,11 +628,15 @@ describe("a link into an evicted window (#823, #818)", () => {
 
     test("its end sits at that window's offset in the band — and clamps and stubs like any row out of view", async () => {
         const { container } = renderPlan(planRoot([], { height: "400px", source, links }), "plan-823-links");
-        await waitFor(() => expect(transport(container)).toBe("600 loaded of 2,000"));
+        await waitFor(() => expect(asked).toEqual(expect.arrayContaining([0, 1, 2])));
+        await waitFor(() => expect(container.querySelector(rowSel("w0000r000"))).toBeTruthy());
         // Far down, to window 7: the run rebases to [6, 9] and windows 0–2 are
         // evicted — w0001r000 with them.
         scrollFrame(container, 7 * W + 10);
-        await waitFor(() => expect(transport(container)).toBe("elements 1,201–2,000 of 2,000"), { timeout: 10_000 });
+        await waitFor(() => {
+            expect(asked).toEqual(expect.arrayContaining([6, 7, 8, 9]));
+            expect(container.querySelector(rowSel("w0007r000"))).toBeTruthy();
+        }, { timeout: 10_000 });
         expect(container.querySelector(rowSel("w0001r000"))).toBeNull();
         fireEvent.click(container.querySelector(`${rowSel("w0007r000")} [data-plan-control="links"]`)!);
         // Over the head band, 40px above window 1's place in it. (The scroll

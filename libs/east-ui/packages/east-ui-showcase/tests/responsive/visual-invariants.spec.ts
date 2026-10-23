@@ -366,7 +366,8 @@ test.describe("Visual invariants — the Plan", () => {
                     bars,
                     range: (range as HTMLElement | null)?.innerText ?? null,
                     rangeType: rs === undefined ? null : { size: Number.parseFloat(rs.fontSize), mono: /mono/i.test(rs.fontFamily) },
-                    footer: [...root.querySelectorAll("[data-frame-slot='footer'] [data-slot='footer'] > :not([data-slot='footerTransport'])")].map((el) => (el as HTMLElement).innerText),
+                    // What the footer says, past the "…" a cut rail ends with and the loading line (#1398).
+                    footer: [...root.querySelectorAll("[data-frame-slot='footer'] [data-slot='footer'] > :not([data-footer-more]):not([data-footer-line])")].map((el) => (el as HTMLElement).innerText),
                     summary: (root.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='record-summary'] [data-record-slices-summary]") as HTMLElement | null)?.innerText ?? null,
                 };
             });
