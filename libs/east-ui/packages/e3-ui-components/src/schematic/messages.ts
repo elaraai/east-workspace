@@ -22,7 +22,9 @@
  * refused, and a drop's step in the history; and its inspector's (#1391): the
  * pane and its tabs, the heads of Details' sections and its own fields, where
  * an entity stands, a gesture's button and its step, a record's last save and
- * who made it, why a net's side stays, and each issue's words; and the
+ * who made it, why a net's side stays, and each issue's words — and below
+ * 480px of main (#1394) its Connect to…, its link kind, and an item with no
+ * position, its Place; and the
  * footer's loading line's (#1398, CL3), the shared paged words over a kind's
  * rows — `Loading racks…`, `Filtering racks…`, `Couldn't read racks` — and
  * its own over a kind's window — `Loading racks in view`, `Loading counts`,
@@ -210,12 +212,17 @@ export interface SchematicMessages extends PagedLoadingMessages {
     inspectorTab: (p: { tab: "details" | "issues" }) => string;
     /** What nothing selected shows, in its head's eyebrow: the drawing. */
     inspectorDrawing: () => string;
-    /** A section of Details, under its head — `Rack`, `Rack details`, `Position`, `Joined to`, `Ends`, `Sides`, `Member`: `name` is the kind's. */
+    /**
+     * A section of Details, under its head — `Rack`, `Rack details`, `Position`, `Joined to`, `Ends`, `Sides`, `Member`, and below 480px of
+     * main `Connect to` (#1394): `name` is the kind's.
+     */
     inspectorSection: (p: { section: SchematicInspectorSection; name: string }) => string;
-    /** A field of Details' own — an item's `x` and `y`, a link's ends, a net's sides. */
-    inspectorField: (p: { field: "x" | "y" | "from" | "to" | "sources" | "destinations" }) => string;
-    /** A gesture's button: Delete, Unplace, Remove. */
-    inspectorAction: (p: { action: "delete" | "unplace" | "remove" }) => string;
+    /** A field of Details' own — an item's `x` and `y`, a link's ends, a net's sides, and Connect to…'s link kind (#1394). */
+    inspectorField: (p: { field: "x" | "y" | "from" | "to" | "sources" | "destinations" | "kind" }) => string;
+    /** A gesture's button: Delete, Unplace, Remove, and below 480px of main an item with no position's Place (#1394). */
+    inspectorAction: (p: { action: "delete" | "unplace" | "remove" | "place" }) => string;
+    /** What an item with no position says under its name, below 480px of main (#1394) — `Not placed`. */
+    inspectorUnplaced: () => string;
     /** An item's place, under its name: the zone holding it, if one does, and its centre — `Cage A · 9.60, 2.90 m`. */
     inspectorAt: (p: { zone: string | undefined; x: string; y: string; unit: string | undefined }) => string;
     /** A zone's size, under its name — `19.60 × 4.60 m`. */
@@ -251,7 +258,7 @@ export interface SchematicMessages extends PagedLoadingMessages {
 }
 
 /** A section of the inspector's Details, as its head names it. */
-export type SchematicInspectorSection = "fields" | "details" | "position" | "joins" | "ends" | "sides" | "member";
+export type SchematicInspectorSection = "fields" | "details" | "position" | "joins" | "ends" | "sides" | "member" | "connect";
 
 /**
  * Why a drop is refused, as its words say it (#1390): outside the drawing; no
@@ -299,6 +306,7 @@ function inspectorSection({ section, name }: { section: SchematicInspectorSectio
         case "ends": return "Ends";
         case "sides": return "Sides";
         case "member": return "Member";
+        case "connect": return "Connect to";
     }
 }
 
@@ -430,8 +438,9 @@ export const schematicMessages: SchematicMessages = {
     inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
     inspectorDrawing: () => "Drawing",
     inspectorSection,
-    inspectorField: ({ field }) => ({ x: "x", y: "y", from: "From", to: "To", sources: "Sources", destinations: "Destinations" })[field],
-    inspectorAction: ({ action }) => ({ delete: "Delete", unplace: "Unplace", remove: "Remove" })[action],
+    inspectorField: ({ field }) => ({ x: "x", y: "y", from: "From", to: "To", sources: "Sources", destinations: "Destinations", kind: "Link kind" })[field],
+    inspectorAction: ({ action }) => ({ delete: "Delete", unplace: "Unplace", remove: "Remove", place: "Place" })[action],
+    inspectorUnplaced: () => "Not placed",
     inspectorAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
     inspectorSize: ({ width, height, unit }) => `${width} × ${height}${unit === undefined ? "" : ` ${unit}`}`,
     inspectorSides: ({ sources, destinations }) =>

@@ -20,10 +20,15 @@ const componentSpecs = {
     plan: ["plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
     query: ["query-builder.spec.ts", "query-library.spec.ts", "query-runs.spec.ts"],
     roster: ["roster.spec.ts", "roster-inspector.spec.ts", "roster-load.spec.ts"],
-    // The Schematic's frame (#1387), editing (#1388), library (#1389) and
-    // drops (#1390); its hosts in the shared suites — the toolbar sweep, the
-    // touch toolbars, the cold load, the shadow sweep — run with it always.
-    schematic: ["schematic-drop.spec.ts", "schematic-editing.spec.ts", "schematic-frame.spec.ts", "schematic-library.spec.ts"],
+    // The Schematic's frame (#1387), editing (#1388), library (#1389), drops
+    // (#1390), narrowing (#1392), windows and their budget (#1393) and phone
+    // (#1394); its hosts in the shared suites — the toolbar sweep, the touch
+    // toolbars, the cold load, the shadow sweep, and its links beside the
+    // Plan's (#1403) — run with it always.
+    schematic: [
+        "schematic-drop.spec.ts", "schematic-editing.spec.ts", "schematic-frame.spec.ts", "schematic-library.spec.ts", "schematic-narrowing.spec.ts",
+        "schematic-perf.spec.ts", "schematic-phone.spec.ts", "schematic-window.spec.ts",
+    ],
     sheet: ["sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
     studio: ["studio-builder.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts"],
 } as const;

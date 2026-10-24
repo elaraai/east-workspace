@@ -45,8 +45,14 @@
  * edges of the items it joins where they draw at the zoom — a card's side, as
  * the page lays the card out, a labelled pin's edge, a dot's rim — and the one
  * under the pointer lights, named in `data-lit-link`, while no gesture is under
- * way; a tap, a hover, a drop and a selected link's handles meet each one's
- * route as the painter draws it, searched through the links' R-tree.
+ * way; a tap, a hover, a drop and a selected link's handles — named in
+ * `data-link-handles` while they draw — meet each one's route as the painter
+ * draws it, searched through the links' R-tree.
+ *
+ * Below 480px of main (#1394, D15) the canvas pans, pinches and selects: the
+ * frame holds no Move or Connect and gives it no drop cell, and a selected
+ * link draws no handle — the inspector moves, connects, re-targets, places and
+ * deletes. The frame measures main by the canvas's element, which fills it.
  *
  * While a read is in flight (#1398) it washes the area the reads have not
  * drawn yet, under its grid, with no item's shape in it (CL2); a card whose
@@ -99,7 +105,7 @@ import {
 } from "../drop.js";
 import { zoneInView } from "../index-tree.js";
 import {
-    clampDelta, connectCandidate, connectStep, deleteEdits, editKinds, extendEdits, linkRefusal, moveEdits, retargetEdits,
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, linkRefusal, moveEdits, retargetEdits,
     type ConnectDragArgs, type ConnectSession, type EditRefusal, type Mover, type NetLeg, type SchematicEdit, type SessionDrawn,
 } from "../edits.js";
 import type { SchematicStep, SchematicWords } from "../messages.js";
@@ -393,6 +399,14 @@ export interface SchematicCanvasProps {
     readonly failure?: SchematicCanvasFailure | undefined;
     /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393): the toolbar's Zoom out and Zoom in take no press there. */
     readonly onZoomRange?: ((range: SchematicZoomRange) => void) | undefined;
+    /**
+     * Whether main is below 480px (#1394, D15): the canvas pans, pinches and selects, and a selected link draws no handle
+     * and takes no re-target's drag — the inspector's ends re-target it. The frame offers no Move or Connect there, and
+     * gives the canvas no drop cell.
+     */
+    readonly narrow?: boolean | undefined;
+    /** Hears the canvas's element as it mounts, and `null` as it goes (#1394): the canvas fills main, whose width the frame measures by it. */
+    readonly onElement?: ((element: HTMLDivElement | null) => void) | undefined;
     /** The canvas's handle, the frame's. */
     readonly ref?: Ref<SchematicCanvasHandle> | undefined;
 }
@@ -427,7 +441,7 @@ export interface SchematicZoomRange {
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
     value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
-    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, unread = NO_UNREAD, failure, onZoomRange, ref,
+    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, unread = NO_UNREAD, failure, onZoomRange, narrow = false, onElement, ref,
 }: SchematicCanvasProps) {
     // The recipe's styles, resolved once a recipe: the canvas renders at every frame its camera moves.
     const recipe = useSlotRecipe({ key: "schematic" });
@@ -475,40 +489,24 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         for (const entity of [...data.items, ...data.zones, ...data.links, ...data.nets]) refs.set(entity.key, entity.ref);
         return refs;
     }, [data.items, data.zones, data.links, data.nets]);
-    // Whether the selected link writes: its connector handles show, and a re-target writes it.
-    const selectedLinkEditable = selectedLink !== null && kinds.links.get(refById.get(selectedLink.key)?.kind ?? "")?.editable === true;
+    // Whether the selected link writes: its connector handles show, and a re-target writes it — never below 480px of main,
+    // where the inspector's ends re-target it (#1394, D15).
+    const selectedLinkEditable = !narrow && selectedLink !== null && kinds.links.get(refById.get(selectedLink.key)?.kind ?? "")?.editable === true;
     // Each item's label by its id: what a refusal's words name it by.
     const labelById = useMemo(() => new Map(data.items.map((item) => [item.key, item.label] as const)), [data.items]);
     // Connection veto (#176, #1401 D34): gates the connect GESTURE itself — the
     // one channel behind pairwise links, every Shift-session extension (nets),
-    // and endpoint re-targets — so all three obey the same rule. It hears the
+    // and endpoint re-targets — so all three obey the same rule, as the
+    // inspector's Connect to…, ends and sides do (#1394). It hears the
     // gesture's candidate: the link or net kind it writes and its two items;
     // `none` allows it, and words refuse it, which the draft shows (#1388).
-    // Verdicts cache per (kind, from, to) (reset when the fn changes) so the
-    // pointermove probe never re-runs the East function for the same
-    // candidate; a THROWING veto logs and ALLOWS (fail-open) so a broken
-    // function cannot brick editing.
+    // Verdicts cache per (kind, from, to) (`edits.ts`' `connectVeto`), afresh
+    // when the fn or the drawing's entities change, so the pointermove probe
+    // never re-runs the East function for the same candidate; a THROWING veto
+    // logs and ALLOWS (fail-open) so a broken function cannot brick editing.
     const canConnectFn = useMemo(() => getSomeorUndefined(value.canConnect), [value.canConnect]);
-    const connectVerdictRef = useRef(new Map<string, string | null>());
-    useEffect(() => { connectVerdictRef.current = new Map(); }, [canConnectFn, refById]);
     /** The veto's words for a candidate, or `undefined` when it allows it. */
-    const connectRefusal = useCallback((kind: string, from: string, to: string): string | undefined => {
-        if (canConnectFn === undefined) return undefined;
-        const cacheKey = `${kind}\u0000${from}\u0000${to}`;
-        const hit = connectVerdictRef.current.get(cacheKey);
-        if (hit !== undefined) return hit ?? undefined;
-        let refusal: string | null = null;
-        const fromRef = refById.get(from), toRef = refById.get(to);
-        if (fromRef !== undefined && toRef !== undefined) {
-            try {
-                refusal = getSomeorUndefined(canConnectFn({ kind, from: fromRef, to: toRef })) ?? null;
-            } catch (err) {
-                console.error("[Schematic] canConnect veto failed (allowing):", err);
-            }
-        }
-        connectVerdictRef.current.set(cacheKey, refusal);
-        return refusal ?? undefined;
-    }, [canConnectFn, refById]);
+    const connectRefusal = useMemo(() => connectVeto(canConnectFn, (id) => refById.get(id)), [canConnectFn, refById]);
     // --- A Move's preview (#179, #1388) — while its drag is under way. ----------
     // Each item the drag moves, where it has it: applied UPSTREAM of the working set
     // so centers / rbush / LOD / nav / link endpoints all follow it. The release
@@ -1939,7 +1937,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     const setCanvasElement = useCallback((el: HTMLDivElement | null) => {
         canvasRef.current = el;
         dropCell(el);
-    }, [dropCell]);
+        onElement?.(el);
+    }, [dropCell, onElement]);
     // An item a drop added or placed (#1390), selected once the drawing draws it — or, a drawing that doesn't, nothing.
     const pendingSelectRef = useRef<{ readonly id: string; readonly seen: unknown } | undefined>(undefined);
     const [selectAsked, setSelectAsked] = useState(0);
@@ -2544,6 +2543,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             data-tool={effectiveTool}
             data-lod={lod}
             {...(litShown !== undefined ? { "data-lit-link": litShown } : {})}
+            {...(selectedLinkEditable && selectedLink !== null ? { "data-link-handles": selectedLink.key } : {})}
             {...(connectDraft?.forbidden !== undefined ? { "data-forbidden": "" } : {})}
             tabIndex={0}
             role="application"

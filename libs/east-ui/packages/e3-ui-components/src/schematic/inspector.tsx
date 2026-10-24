@@ -34,6 +34,17 @@
  * A Chooser, a side's tags and what an item is joined to offer only what the
  * rail's narrowing shows (#1392, §10.2).
  *
+ * Below 480px of main (#1394, D15) Details gains the actions the canvas
+ * doesn't take there: an item's Connect to… — a Chooser over the items a link
+ * of a kind may run to from it, and the kind while several may, a choice
+ * recording the link as a Connect drag does — and, for the Backlog's card
+ * picked, an item with no position: its Place puts it at the canvas's centre,
+ * as the card's ⏎ does, and selects it, its fields then Details' to edit. Its
+ * Move is the position's `x` and `y`, its Delete the item's. A link's ends, a
+ * net's sides and Connect to… are held to the host's veto as the gestures are
+ * (`edits.ts`' `connectVeto`): a link's new pair, each pair a net's sides newly
+ * join; refused, the footer says why and nothing is recorded.
+ *
  * Every edit is one step of the editing's history (`editing.ts`): a field
  * through its record's `set`, the row a kind's own Details hands back through
  * `update` whole, a position, ends or sides through the kind's `write`, and
@@ -62,7 +73,7 @@ import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
     ArrayType, FloatType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant,
-    type EastType, type StructType as EastStructType,
+    type EastType, type StructType as EastStructType, type option,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
 import {
@@ -74,9 +85,12 @@ import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicCounts, SchematicSavedRecord } from "./counts.js";
 import type { SchematicValue } from "./data.js";
-import { deleteEdits, editKinds, retargetEdits, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite } from "./edits.js";
+import {
+    NO_SESSION, connectStep, deleteEdits, editKinds, joinedPairs, linkRefusal, retargetEdits,
+    type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite,
+} from "./edits.js";
 import { detailsKey, type SchematicEditing } from "./editing.js";
-import { joinsOf, type SchematicDrawnEntity, type SchematicInspected } from "./inspect.js";
+import { joinsOf, type SchematicDrawnEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
 import type { SchematicInspectedRows, SchematicRowRead } from "./inspector-rows.js";
 import type { SchematicIssue } from "./issues.js";
 import type { SchematicWords } from "./messages.js";
@@ -105,6 +119,8 @@ const PositionType = StructType({ x: FloatType, y: FloatType });
 const EndsFormType = StructType({ from: StringType, to: StringType });
 /** A net's sides, as their tags list them: each member by its key. */
 const SidesFormType = StructType({ sources: ArrayType(StringType), destinations: ArrayType(StringType) });
+/** Connect to…, below 480px of main (#1394): the link kind it records, by its slot, and the item it runs to, by its id. */
+const ConnectFormType = StructType({ kind: StringType, to: StringType });
 
 /** What the inspector reads of the Schematic. */
 export interface SchematicInspectorProps {
@@ -140,6 +156,18 @@ export interface SchematicInspectorProps {
     readonly storageKey: string;
     /** The Schematic's words. */
     readonly words: SchematicWords;
+    /** Whether main is below 480px (#1394, D15): Details gains the actions the canvas doesn't take there — an item's Connect to…, an unplaced item's Place. */
+    readonly narrow: boolean;
+    /** The host's veto, as every route that connects two items asks it (`edits.ts`' `connectVeto`): what Connect to…, a link's ends and a net's sides are held to. */
+    readonly veto: ConnectVetoOf;
+    /** The link kind Connect draws, by its slot — the toolbar's Connect menu's choice: what Connect to… records, while it may run from the item. */
+    readonly linkKind: string | undefined;
+    /** Picks the link kind Connect draws: Connect to…'s choice of it, which the toolbar's Connect menu follows. */
+    readonly onLinkKind: (slot: string) => void;
+    /** What a new link takes its other fields from, by its kind's slot (§4.3): the values of the template of its kind the library has selected; `none`, their types' defaults. */
+    readonly connectValues: (slot: string) => option<Uint8Array>;
+    /** Places an item with no position at the canvas's centre, by its id, as its Backlog card's ⏎ does, and selects it (#1394). */
+    readonly place: (id: string) => void;
 }
 
 /** Each view's props: the inspector's, and the recipe's styles. */
@@ -169,6 +197,7 @@ function whatOf(props: SchematicInspectorProps): string | undefined {
         case "several": return words.m.inspectorSeveral({ n: inspected.entities.length, count: words.number(inspected.entities.length) });
         case "entity":
         case "leg": return nameOf(inspected.id, drawn, words);
+        case "unplaced": return inspected.label;
     }
 }
 
@@ -204,8 +233,8 @@ export function schematicInspectorPane(props: SchematicInspectorProps): BuilderF
 // The shared parts
 // ============================================================================
 
-/** One gesture's button: Delete, Unplace, Remove. */
-function Action({ action, onClick, words }: { action: "delete" | "unplace" | "remove"; onClick: () => void; words: SchematicWords }) {
+/** One gesture's button: Delete, Unplace, Remove, and an item with no position's Place (#1394). */
+function Action({ action, onClick, words }: { action: "delete" | "unplace" | "remove" | "place"; onClick: () => void; words: SchematicWords }) {
     const button = useRecipe({ key: "button" });
     return (
         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action={action} onClick={onClick}>
@@ -421,7 +450,7 @@ function coordinate(n: number, words: SchematicWords): string {
 // Details
 // ============================================================================
 
-/** The Details tab: what is selected — an item, a zone, a link, a net, a net's leg, several — or the drawing. */
+/** The Details tab: what is selected — an item, a zone, a link, a net, a net's leg, several, an item with no position — or the drawing. */
 const SchematicInspectorDetails = memo(function SchematicInspectorDetails(props: SchematicInspectorProps) {
     const styles = useSlotRecipe({ key: "schematicInspector" })() as Styles;
     const view = { ...props, styles };
@@ -430,6 +459,10 @@ const SchematicInspectorDetails = memo(function SchematicInspectorDetails(props:
     switch (inspected.view) {
         case "drawing": return <DrawingView key="drawing" {...view} />;
         case "several": return <SeveralView key="several" {...view} entities={inspected.entities} />;
+        case "unplaced": {
+            const kind = kindOf(value.items, inspected.ref.kind);
+            return kind === undefined ? null : <UnplacedView key={`unplaced:${inspected.id}`} {...view} item={inspected} kind={kind} />;
+        }
         case "leg": {
             const net = drawn.nets.find((n) => stringEqual(n.key, inspected.id));
             const kind = kindOf(value.nets, inspected.ref.kind);
@@ -565,6 +598,8 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 <Form styles={styles} head={m.inspectorSection({ section: "position", name: kind.name })} section="position" specs={positionSpecs}
                     value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} />
             </Edits>
+            {/* Below 480px of main, what a Connect drag from it records (#1394, D15). */}
+            {props.narrow && <ConnectTo {...props} item={item} />}
             {details !== undefined && (
                 <Edits styles={styles} available={theirs.available} actions={undefined}>
                     <SideBody styles={styles} head={m.inspectorSection({ section: "details", name: kind.name })} section="details" side={details}
@@ -595,6 +630,87 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                     </Box>
                 </Box>
             )}
+        </Box>
+    );
+}
+
+/**
+ * An item's Connect to…, below 480px of main (#1394, D15): a Chooser over the items a link of its kind may run to from
+ * the item — what the rail's narrowing shows — and, while several link kinds may run from it, the kind, the toolbar's
+ * Connect menu's choice. A choice records the link, one step, as a Connect drag from the item onto the one chosen does —
+ * its key minted, its other fields the template of its kind the library has selected (§4.3) — and the Chooser is clear
+ * again for the next; refused — its kind's end, or the host's veto — the footer says why, and nothing is recorded.
+ */
+function ConnectTo(props: ViewProps & { readonly item: DrawnItem }) {
+    const { item, styles, words, value, listed, editing, veto, linkKind, onLinkKind, connectValues, refuse: say } = props;
+    const m = words.m;
+    const { commit } = useCommit(props);
+    const [chosen, clear] = useRefused();
+    const kinds = useMemo(() => editKinds(value), [value]);
+    // The link kinds that write and may run from the item: its kind among their start's slots.
+    const choices = useMemo(() => value.links.filter((kind) => kinds.links.get(kind.key)?.editable === true
+        && kind.ends.from.some((slot) => stringEqual(slot, item.ref.kind))), [value.links, kinds, item.ref.kind]);
+    const kind = choices.find((choice) => linkKind !== undefined && stringEqual(choice.key, linkKind)) ?? choices[0];
+    const names = useMemo(() => new Map(value.items.map((k) => [k.key, k.name] as const)), [value.items]);
+    const options = useMemo(() => ({
+        kind: choices.map((choice) => ({ key: choice.key, label: choice.name })),
+        // The items its end may hold, but the item itself: a link joins two.
+        to: kind === undefined ? [] : itemChoices(listed, kind.ends.to, names, []).filter((choice) => !stringEqual(choice.key, item.key)),
+    }), [choices, kind, listed, names, item.key]);
+    const specs = useMemo(() => Fields.specs(ConnectFormType, {
+        kind: Fields.reference({ of: "kind", label: m.inspectorField({ field: "kind" }) }),
+        to: Fields.reference({ of: "to", label: m.inspectorField({ field: "to" }) }),
+    }, choices.length > 1 ? [] : ["kind"]), [m, choices.length]);
+    const onChange = useCallback((path: readonly string[], next: unknown) => {
+        if (kind === undefined) return;
+        if (stringEqual(path[0]!, "kind")) {
+            onLinkKind(next as string);
+            return;
+        }
+        // Whatever it records, the Chooser is clear again, for the next.
+        clear();
+        const target = listed.items.find((i) => stringEqual(i.key, next as string));
+        const link = kinds.links.get(kind.key);
+        if (target === undefined || link === undefined) return;
+        const from = { ref: item.ref, label: item.label }, to = { ref: target.ref, label: target.label };
+        const refusal = linkRefusal(link, from, to);
+        const said = refusal !== undefined ? refusalWords(refusal, words) : veto(kind.key, item.key, target.key);
+        if (said !== undefined) {
+            say(said);
+            return;
+        }
+        const minted = new Set<string>();
+        const step = connectStep(kinds, { session: undefined, shift: false, linkKind: kind.key, from, to, drawn: NO_SESSION, labelOf: (ref) => ref.key }, (slot) => {
+            const key = editing.mint(slot, minted);
+            minted.add(key);
+            return key;
+        }, connectValues);
+        if (step !== undefined) commit(step.edits, "insert", m.step({ step: "connect", name: kind.name.toLocaleLowerCase(words.locale), n: 1 }));
+    }, [kind, kinds, listed.items, item, words, veto, say, editing, connectValues, commit, m, onLinkKind, clear]);
+    if (kind === undefined) return null;
+    return (
+        <Edits styles={styles} available={editing.schedule.available(kind.key)} actions={undefined}>
+            <Form styles={styles} head={m.inspectorSection({ section: "connect", name: kind.name })} section="connect" specs={specs}
+                value={{ kind: kind.key, to: undefined }} baseline={undefined} options={options} onChange={onChange} readOnly={false} refused={chosen} />
+        </Edits>
+    );
+}
+
+/**
+ * An item with no position, below 480px of main (#1394, D15) — the Backlog's card picked: its kind's head, and Place,
+ * which puts it at the canvas's centre as the card's ⏎ does and selects it, its fields then Details' to edit. Its kind
+ * read only, it has no Place; while its kind's session takes no edit, its Place is off.
+ */
+function UnplacedView(props: ViewProps & { readonly item: SchematicUnplaced; readonly kind: SchematicValue["items"][number] }) {
+    const { item, kind, styles, words, value, editing, place } = props;
+    const m = words.m;
+    const writes = kind.editable && !value.readOnly;
+    const actions = !writes ? undefined : <Action action="place" words={words} onClick={() => place(item.id)} />;
+    return (
+        <Box css={styles.root} data-schematic-inspector="unplaced">
+            <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: item.icon ?? (kind.icon === "" ? "cube" : kind.icon) }} title={item.label}
+                when={m.inspectorUnplaced()} />
+            <Edits styles={styles} available={writes && editing.schedule.available(kind.key)} actions={actions}>{null}</Edits>
         </Box>
     );
 }
@@ -633,7 +749,7 @@ function itemChoices(drawn: SchematicDrawn, slots: readonly string[], names: Rea
 
 /** A link: its head, its ends as Choosers, its form or own Details, and Delete. */
 function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: SchematicValue["links"][number] }) {
-    const { link, kind, styles, words, value, drawn, listed, rows, storageKey } = props;
+    const { link, kind, styles, words, value, drawn, listed, rows, storageKey, veto, refuse: say } = props;
     const m = words.m;
     const name = nameOf(link.key, drawn, words);
     const own = useSide(props, link.ref, name, kind, false);
@@ -659,8 +775,17 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
         const from = refOfId(link.from), to = refOfId(link.to), target = refOfId(next as string);
         const end = stringEqual(path[0]!, "from") ? "from" as const : "to" as const;
         if (from === undefined || to === undefined || target === undefined) return;
-        if (!commit(retargetEdits({ ref: link.ref, ends: { from, to } }, end, target), "move", m.inspectorStep({ edit: "edit", name }))) refuse();
-    }, [link, commit, m, name, refuse]);
+        const edits = retargetEdits({ ref: link.ref, ends: { from, to } }, end, target);
+        // The new pair held to the host's veto in the link's own direction, as a Retarget's drag is (#1394): refused, the
+        // footer says why, and the Chooser shows the end it has.
+        const said = edits.length === 0 ? undefined : end === "from" ? veto(link.ref.kind, next as string, link.to) : veto(link.ref.kind, link.from, next as string);
+        if (said !== undefined) {
+            say(said);
+            refuse();
+            return;
+        }
+        if (!commit(edits, "move", m.inspectorStep({ edit: "edit", name }))) refuse();
+    }, [link, commit, m, name, refuse, veto, say]);
     const actions = !own.writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
             remove({ items: new Set(), link: { key: link.key, leg: null } }, m.inspectorStep({ edit: "delete", name }));
@@ -685,7 +810,7 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
 
 /** A net: its head, its sides as tags, its form or own Details, and Delete. */
 function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: SchematicValue["nets"][number] }) {
-    const { net, kind, styles, words, drawn, listed, rows, storageKey, refuse: say } = props;
+    const { net, kind, styles, words, drawn, listed, rows, storageKey, veto, refuse: say } = props;
     const m = words.m;
     const name = nameOf(net.key, drawn, words);
     const own = useSide(props, net.ref, name, kind, false);
@@ -717,8 +842,18 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
         const slot = side === "sources" ? kind.sides.sources : kind.sides.destinations;
         const written = keys.map((key) => ({ kind: slot, key }));
         const sides = side === "sources" ? { sources: written, destinations: refs(net.destinations) } : { sources: refs(net.sources), destinations: written };
+        // Each pair the sides newly join held to the host's veto, as an Extend's is (#1394): refused, the footer says why,
+        // and the tags show the sides as they stand.
+        for (const pair of joinedPairs({ sources: refs(net.sources), destinations: refs(net.destinations) }, sides)) {
+            const said = veto(net.ref.kind, entityId(pair.from), entityId(pair.to));
+            if (said !== undefined) {
+                say(said);
+                refuse();
+                return;
+            }
+        }
         if (!commit([{ op: "sides", ref: net.ref, sides }], "typed", m.inspectorStep({ edit: "edit", name }))) refuse();
-    }, [net, kind.sides, commit, m, name, say, refuse]);
+    }, [net, kind.sides, commit, m, name, say, refuse, veto]);
     const actions = !own.writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
             remove({ items: new Set(), link: { key: net.key, leg: null } }, m.inspectorStep({ edit: "delete", name }));

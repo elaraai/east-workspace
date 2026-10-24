@@ -17,9 +17,14 @@
  *   Schematic as it stands (`drop.ts`' `planDrop`), says where it lands in the
  *   ghost's caption and to a screen reader, and vetoes what it refuses; the
  *   canvas works out where a drag rests from its own drawing.
- * - **A card's ⏎** — and, on a touch screen, a tap on the selected card —
- *   drops it on the selection, or at the view's centre (`planEnter`);
- *   refused, the footer says why, and a drop that lands clears it.
+ * - **A card's ⏎** — and, on a touch screen or below 480px of main, a tap on
+ *   the selected card — drops it on the selection, or at the view's centre
+ *   (`planEnter`); refused, the footer says why, and a drop that lands clears
+ *   it.
+ *
+ * Below 480px of main (#1394, D15) no card drags: no target registers and the
+ * canvas has no drop cell, and a card's ⏎ — a tap on the selected card, or the
+ * inspector's Place — is how a card lands.
  *
  * An item a drop adds or places is selected (SC12). Every function the parts
  * hold reads the frame's latest state, so the parts stay put while the
@@ -73,11 +78,13 @@ export interface SchematicDropProps {
     readonly words: SchematicWords;
     /** The drawing's scale unit, if it has one: what the words measure a drop's point in. */
     readonly unit: string | undefined;
+    /** Whether a card drags onto the canvas: `false` below 480px of main (#1394, D15), where no target registers and the canvas has no drop cell. */
+    readonly drags?: boolean | undefined;
 }
 
 /** What the drop target hands the canvas and the library. */
 export interface SchematicDropState {
-    /** The canvas's drop cell; `undefined` while no tab of the library drops. */
+    /** The canvas's drop cell; `undefined` while no tab of the library drops, or no card drags. */
     readonly canvas: SchematicCanvasDrop | undefined;
     /** A card's ⏎ (SC13): the card, by its library and its key, dropped on the selection or at the view's centre. */
     readonly enter: (library: string, key: string) => void;
@@ -91,7 +98,7 @@ export interface SchematicDropState {
  * @returns The canvas's drop cell, and a card's ⏎
  */
 export function useSchematicDrop(props: SchematicDropProps): SchematicDropState {
-    const { value, backlog, pagedBacklog, keys } = props;
+    const { value, backlog, pagedBacklog, keys, drags = true } = props;
     // The latest props, which every function of the parts reads: the parts stay put.
     const latest = useRef(props);
     latest.current = props;
@@ -127,8 +134,8 @@ export function useSchematicDrop(props: SchematicDropProps): SchematicDropState 
         return true;
     }, []);
 
-    // The Schematic's drop target, taking the cards of every tab of its library that drops.
-    const target = useMemo((): DragTargetConfig | null => (!drops ? null : {
+    // The Schematic's drop target, taking the cards of every tab of its library that drops — while a card drags.
+    const target = useMemo((): DragTargetConfig | null => (!drops || !drags ? null : {
         id: host.surface,
         sources: [...host.libraries.keys()],
         kinds: { add: true },
@@ -136,11 +143,11 @@ export function useSchematicDrop(props: SchematicDropProps): SchematicDropState 
             const drop = read(event);
             return drop !== undefined && run(drop.card, drop.plan);
         },
-    }), [drops, host, read, run]);
+    }), [drops, drags, host, read, run]);
     useDragTarget(target);
 
     const canvas = useMemo((): SchematicCanvasDrop | undefined => {
-        if (!drops) return undefined;
+        if (!drops || !drags) return undefined;
         const cardOfPayload = (payload: DragPayload): SchematicDropCard | undefined =>
             (payload.kind === "item" ? cardOf(host, payload.from.library, payload.from.key) : undefined);
         /** What a drop of what a drag carries does where its coordinate says it rests. */
@@ -168,7 +175,7 @@ export function useSchematicDrop(props: SchematicDropProps): SchematicDropState 
                 },
             },
         };
-    }, [drops, host, plan, read]);
+    }, [drops, drags, host, plan, read]);
 
     // A card's ⏎ (SC13): a drop on the selection, or at the view's centre — refused, the footer says why.
     const enter = useCallback((libraryId: string, key: string) => {
