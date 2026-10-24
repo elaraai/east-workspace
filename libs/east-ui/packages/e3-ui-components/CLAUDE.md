@@ -88,7 +88,12 @@ by no path. The Index, the Backlog, the inspector's Choosers, what an item is
 joined to and the drawing's counts show only what it leaves in, and the matches
 take the emphasis, the frame and the fit. Find lists what it leaves out too,
 marked: a pick on it flies to where it stands, selects nothing, and the footer
-says why, with Clear filters (#1404). The
+says why, with Clear filters (#1404). Below 480px of main (#1394, D15) its
+canvas pans, pinches and selects and nothing drags — no Move or Connect, no
+card dragged, no drop cell or link handle — and Details takes the gestures'
+place: an item's Connect to…, and the Backlog's card picked as an item with no
+position, its Place, beside its Move fields, ends, sides and Delete, every
+route that connects held to the host's veto (`edits.ts`' `connectVeto`). The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
 toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it

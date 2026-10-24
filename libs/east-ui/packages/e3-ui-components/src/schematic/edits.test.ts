@@ -9,17 +9,21 @@
  * a deleted item among them, and its refusal where a read-only link or net
  * names one (SC5, D7); and the refusals of an end no kind's field holds; and
  * a new link's or net's values, the selected template's of its kind (§4.3,
- * #1390). Fixtures are real East values typed from the Schematic's East
- * types; each gesture's edits are compared as East prints them.
+ * #1390); and the host's veto as every route asks it — its verdicts kept, a
+ * veto that throws allowing — and the pairs a change of a net's sides newly
+ * joins, which it hears (#1394). Fixtures are real East values typed from the
+ * Schematic's East types; each gesture's edits are compared as East prints
+ * them.
  */
 
-import { describe, expect, test } from "vitest";
-import { ArrayType, BlobType, OptionType, StringType, StructType, defaultValue, equalFor, none, printFor, some, type option } from "@elaraai/east";
+import { describe, expect, test, vi } from "vitest";
+import { ArrayType, BlobType, East, OptionType, StringType, StructType, defaultValue, equalFor, none, printFor, some, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { drawnItem, drawnLink, drawnNet, entityId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
+import { drawnItem, drawnLink, drawnNet, entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import {
-    clampDelta, connectCandidate, connectStep, deleteEdits, editKinds, extendEdits, foldPair, foldSession, linkRefusal, moveEdits, netKindFor,
-    netRefusal, retargetEdits, type ConnectDragArgs, type ConnectSession, type EditKinds, type SchematicEdit, type SessionDrawn,
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, foldPair, foldSession, joinedPairs, linkRefusal, moveEdits,
+    netKindFor, netRefusal, retargetEdits, type ConnectDragArgs, type ConnectPair, type ConnectSession, type EditKinds, type SchematicEdit,
+    type SessionDrawn,
 } from "./edits.js";
 
 const T = Schematic.Types;
@@ -281,6 +285,58 @@ describe("Retarget and Extend (SC10)", () => {
         const feed = { ref: ref("feeds", "feed-a"), sides: { sources: [PDU], destinations: [A01, A02] } };
         expect(extendEdits(feed, A03).map(printed)).toEqual([`sides ${printRef(feed.ref)} ${printSides({ sources: [PDU], destinations: [A01, A02, A03] })}`]);
         expect(extendEdits(feed, A02)).toEqual([]);
+    });
+});
+
+describe("the host's veto (#1401, D34, #1394)", () => {
+    /** The data centre's veto: two frames are joined by a cross-connect, never a run. */
+    const frames = East.compile(East.function([T.Candidate], OptionType(StringType), ($, candidate) => {
+        const reason = $.let(none, OptionType(StringType));
+        $.if(candidate.from.kind.equal("network").and(() => candidate.to.kind.equal("network")), ($2) => {
+            $2.assign(reason, some("Two frames are joined by a cross-connect"));
+        });
+        return reason;
+    }), []);
+
+    test("its words refuse a candidate it refuses, and allow the rest; each verdict kept, so a candidate asked again asks it nothing", () => {
+        let asked = 0;
+        const veto = connectVeto((candidate) => { asked++; return frames(candidate); }, refOfId);
+        expect(veto("fibre", entityId(MMR), entityId(ODF))).toBe("Two frames are joined by a cross-connect");
+        expect(veto("fibre", entityId(A01), entityId(ODF))).toBeUndefined();
+        expect(veto("fibre", entityId(MMR), entityId(ODF))).toBe("Two frames are joined by a cross-connect");
+        expect(veto("fibre", entityId(A01), entityId(ODF))).toBeUndefined();
+        expect(asked).toBe(2);
+    });
+
+    test("with no veto every connection is allowed; a veto that throws is logged and allows; an item it can't name it is never asked of, and allowed", () => {
+        expect(connectVeto(undefined, refOfId)("fibre", entityId(MMR), entityId(ODF))).toBeUndefined();
+        const broken = East.compile(East.function([T.Candidate], OptionType(StringType), ($, _candidate) => {
+            const reason = $.let(none, OptionType(StringType));
+            $.error("the veto broke");
+            return reason;
+        }), []);
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            expect(connectVeto(broken, refOfId)("fibre", entityId(MMR), entityId(ODF))).toBeUndefined();
+            expect(logged).toHaveBeenCalledTimes(1);
+        } finally {
+            logged.mockRestore();
+        }
+        let asked = 0;
+        const veto = connectVeto((candidate) => { asked++; return frames(candidate); }, (id) => (stringEqual(id, entityId(MMR)) ? undefined : refOfId(id)));
+        expect(veto("fibre", entityId(MMR), entityId(ODF))).toBeUndefined();
+        expect(asked).toBe(0);
+    });
+
+    test("a change of a net's sides joins each source with each destination one of the two is new to: a destination added, a source added; members taken off join none", () => {
+        const print = (pairs: readonly ConnectPair[]) => pairs.map((pair) => `${printRef(pair.from)} → ${printRef(pair.to)}`);
+        const PDU_B = ref("pdus", "PDU-B");
+        const feed = { sources: [PDU], destinations: [A01, A02] };
+        expect(print(joinedPairs(feed, { sources: [PDU], destinations: [A01, A02, A03] }))).toEqual([`${printRef(PDU)} → ${printRef(A03)}`]);
+        expect(print(joinedPairs(feed, { sources: [PDU, PDU_B], destinations: [A01, A02] })))
+            .toEqual([`${printRef(PDU_B)} → ${printRef(A01)}`, `${printRef(PDU_B)} → ${printRef(A02)}`]);
+        expect(joinedPairs(feed, { sources: [PDU], destinations: [A02] })).toEqual([]);
+        expect(joinedPairs(feed, feed)).toEqual([]);
     });
 });
 

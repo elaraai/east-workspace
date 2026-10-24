@@ -52,7 +52,8 @@
  * (`use-drop.ts`). A card that drops takes ⏎ too — dropped on the selection,
  * or at the view's centre — and on a touch screen a tap on the selected card
  * does the same, so no drop needs a precise drag (SC13); the tap leaves it
- * selected, for the next.
+ * selected, for the next. Below 480px of main (#1394, D15) no card drags, and
+ * a tap on the selected card drops it whatever the pointer.
  *
  * The pane is the frame's start pane, 272px open, its open tab and its
  * collapsed state kept under the Schematic's `id`; collapsed, its rail counts
@@ -189,6 +190,8 @@ export interface SchematicLibraryProps {
     readonly onPick: (tabKey: string, key: string) => void;
     /** A card's ⏎ (#1390, SC13): the card, by its library and its key, dropped on the selection or at the view's centre. */
     readonly enter?: ((library: string, key: string) => void) | undefined;
+    /** Whether main is below 480px (#1394, D15): no card drags, and a tap on the selected card is its ⏎, whatever the pointer. */
+    readonly narrow?: boolean | undefined;
 }
 
 /** A tab's narrowing in the Schematic's words: the shared narrowing, its empty state said by its message table. */
@@ -231,7 +234,7 @@ function templatesTab(value: SchematicValue, followed: FollowedSources, words: S
 export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameDock | undefined {
     const {
         value, zones, items, backlog, backlogNarrowing, backlogPages, indexArea, layers, layerCounts, layerView, onLayerView, inView, selected, onReveal, keys,
-        words, followed, picked, onPick, enter,
+        words, followed, picked, onPick, enter, narrow = false,
     } = props;
     const m = words.m;
     // The recipe's styles, resolved once a recipe: the frame renders it again as each window lands.
@@ -239,8 +242,9 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
     const styles = useMemo(() => recipe() as Styles, [recipe]);
     const library = value.library;
     const listsBacklog = library.some((tab) => tab.type === "backlog");
-    // A touch screen: a tap on the selected card drops it, as its ⏎ does (SC13).
+    // A touch screen, or a main too narrow to drag on (#1394): a tap on the selected card drops it, as its ⏎ does (SC13).
     const coarse = useCoarsePointer();
+    const tapDrops = coarse || narrow;
 
     const isPicked = useCallback((tabKey: string, key: string) => {
         const chosen = picked.get(tabKey);
@@ -256,12 +260,13 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
         const id = schematicLibraryId(keys, tabKey);
         return [[tabKey, (key: string) => enter(id, key)]];
     })), [library, keys, enter]);
-    // A click on a card selects it, or lets the selected one go; on a touch screen, a tap on the selected card is its ⏎ (SC13).
+    // A click on a card selects it, or lets the selected one go; on a touch screen, or below 480px of main, a tap on the
+    // selected card is its ⏎ (SC13, #1394).
     const onCard = useCallback((tabKey: string, key: string) => {
         const onEnter = enters.get(tabKey);
-        if (coarse && onEnter !== undefined && isPicked(tabKey, key)) onEnter(key);
+        if (tapDrops && onEnter !== undefined && isPicked(tabKey, key)) onEnter(key);
         else onPick(tabKey, key);
-    }, [enters, coarse, isPicked, onPick]);
+    }, [enters, tapDrops, isPicked, onPick]);
     const groupBy = useMemo(() => [{ key: "group", label: m.libraryGroupBy() }], [m]);
     const noun = useCallback((tab: SchematicLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
     const empty = useCallback((tab: SchematicLibraryTabWord, name: string): LibraryEmpty => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
@@ -275,8 +280,9 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
             const icon = getSomeorUndefined(template.icon) ?? (kind.icon === "" ? undefined : kind.icon);
             return scheduleLibraryCard({
                 key, label: template.name, sublabel: some(kind.name), icon: icon === undefined ? none : some(icon), status: none, trailing: none,
-                // An item kind's lands on the canvas, a link or a net kind's on a link or a net of its kind (#1390).
-                draggable: true, filtered: false, placed: isPicked("templates", key),
+                // An item kind's lands on the canvas, a link or a net kind's on a link or a net of its kind (#1390) — dragged
+                // there wherever main is wide enough (#1394).
+                draggable: !narrow, filtered: false, placed: isPicked("templates", key),
                 search: some([template.name, kind.name, getSomeorUndefined(template.group) ?? ""].filter((text) => text !== "").join(" · ")),
                 groups: new Map([["group", m.templateGroup({ kind: kind.name, group: getSomeorUndefined(template.group) })]]),
             });
@@ -284,7 +290,7 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
         groupOptions: groupBy,
         noun: noun("templates"),
         onCardClick: some((key: string) => { onCard("templates", key); return null; }),
-    }, true), [keys, templatesFollow, isPicked, m, groupBy, noun, onCard]);
+    }, true), [keys, templatesFollow, narrow, isPicked, m, groupBy, noun, onCard]);
 
     // ── Backlog: every item kind's rows with no position, under its name ─
     const kindOf = useMemo(() => new Map(value.items.map((kind) => [kind.key, kind] as const)), [value.items]);
@@ -296,12 +302,12 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
         const line = m.backlogLine({ kind: name, sublabel: getSomeorUndefined(roles.sublabel) });
         return scheduleLibraryCard({
             key: id, label: roles.label, sublabel: some(line), icon: icon === undefined ? none : some(icon), status: roles.status, trailing: none,
-            // A drop places it where it lands (#1390, SC4).
-            draggable: !context, filtered: context, placed: isPicked("backlog", id),
+            // A drop places it where it lands (#1390, SC4): dragged there wherever main is wide enough (#1394).
+            draggable: !context && !narrow, filtered: context, placed: isPicked("backlog", id),
             search: some([roles.label, ref.key, line].join(" · ")),
             groups: new Map([["group", name]]),
         });
-    }, [kindOf, isPicked, m]);
+    }, [kindOf, narrow, isPicked, m]);
     const backlogLibrary = useMemo((): LibraryValue => scheduleLibrary({
         id: schematicLibraryId(keys, "backlog"),
         items: backlog.map((entry) => backlogCard(entry, false)),
@@ -328,8 +334,8 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
     const authorLibraries = useMemo(() => new Map(authorTabs.map((tab): [string, LibraryValue] => {
         const tabKey = `tab:${tab.name}`;
         const icon = getSomeorUndefined(tab.icon);
-        // Its cards drag when its patch names the kind they land on (#1390).
-        const drops = tab.drop.type === "some";
+        // Its cards drag when its patch names the kind they land on (#1390), wherever main is wide enough (#1394).
+        const drags = tab.drop.type === "some" && !narrow;
         return [tabKey, scheduleLibrary({
             id: schematicLibraryId(keys, tabKey),
             items: (authorFollows.get(tabKey)?.cards ?? tab.cards).map((card) => {
@@ -338,7 +344,7 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
                 return scheduleLibraryCard({
                     key: card.key, label: card.label, sublabel: meta === undefined ? none : some(meta), icon: icon === undefined ? none : some(icon),
                     status: none, trailing: none,
-                    draggable: drops, filtered: false, placed: isPicked(tabKey, card.key),
+                    draggable: drags, filtered: false, placed: isPicked(tabKey, card.key),
                     search: some([card.key, card.label, meta ?? ""].filter((text) => text !== "").join(" · ")),
                     groups: group === undefined ? new Map() : new Map([["group", group]]),
                 });
@@ -347,7 +353,7 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
             noun: noun("tab"),
             onCardClick: some((key: string) => { onCard(tabKey, key); return null; }),
         }, true)];
-    })), [authorTabs, authorFollows, keys, isPicked, groupBy, noun, onCard]);
+    })), [authorTabs, authorFollows, keys, narrow, isPicked, groupBy, noun, onCard]);
 
     // The kinds' names, by slot: what the Index's search reads beside an item's label and key.
     const kindName = useCallback((slot: string) => kindOf.get(slot)?.name ?? slot, [kindOf]);

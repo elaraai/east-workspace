@@ -13,6 +13,9 @@
  *   stub a tap selected, its item on one side.
  * - **Several** — each by its sort and its reference, in the order the canvas
  *   selected them.
+ * - **An item with no position** — below 480px of main, the Backlog's card
+ *   picked (#1394, D15), which Details places at the canvas's centre. The frame
+ *   says which; the canvas draws none.
  *
  * An id the drawing no longer draws is left out: a selection the canvas holds
  * a moment longer than the drawing does shows what is left of it.
@@ -35,12 +38,25 @@ export interface SchematicDrawnEntity {
     readonly ref: SchematicRef;
 }
 
-/** What Details shows: the drawing, one entity, a net's leg, or several. */
+/** An item with no position, as Details shows it (#1394): its id, its reference, its label and its icon, as its Backlog card has them. */
+export interface SchematicUnplaced {
+    /** Its id: its reference, printed, and its Backlog card's key. */
+    readonly id: string;
+    /** Its kind's slot and its key. */
+    readonly ref: SchematicRef;
+    /** Its label. */
+    readonly label: string;
+    /** Its own icon, where its row gives one. */
+    readonly icon: string | undefined;
+}
+
+/** What Details shows: the drawing, one entity, a net's leg, several, or an item with no position. */
 export type SchematicInspected =
     | { readonly view: "drawing" }
     | { readonly view: "entity"; readonly sort: SchematicSort; readonly id: string; readonly ref: SchematicRef }
     | { readonly view: "leg"; readonly id: string; readonly ref: SchematicRef; readonly leg: NetLeg }
-    | { readonly view: "several"; readonly entities: readonly (SchematicDrawnEntity & { readonly id: string })[] };
+    | { readonly view: "several"; readonly entities: readonly (SchematicDrawnEntity & { readonly id: string })[] }
+    | ({ readonly view: "unplaced" } & SchematicUnplaced);
 
 /** Nothing selected: the drawing. */
 export const NOTHING_INSPECTED: SchematicInspected = { view: "drawing" };
@@ -94,6 +110,8 @@ export function inspectedEqual(a: SchematicInspected, b: SchematicInspected): bo
         case "entity": return b.view === "entity" && stringEqual(a.id, b.id);
         case "leg": return b.view === "leg" && stringEqual(a.id, b.id) && a.leg.end === b.leg.end && stringEqual(a.leg.item, b.leg.item);
         case "several": return b.view === "several" && a.entities.length === b.entities.length && a.entities.every((e, i) => stringEqual(e.id, b.entities[i]!.id));
+        case "unplaced": return b.view === "unplaced" && stringEqual(a.id, b.id) && stringEqual(a.label, b.label)
+            && (a.icon === undefined ? b.icon === undefined : b.icon !== undefined && stringEqual(a.icon, b.icon));
     }
 }
 

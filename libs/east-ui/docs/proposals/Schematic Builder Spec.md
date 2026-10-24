@@ -574,9 +574,19 @@ tinted against the record. Read only, Details shows every field and edits none.
 
 Below 480px of main, Details gains the actions the canvas doesn't take (D15):
 - Move: the `x` and `y` fields;
-- Connect to…: a Chooser over the items, recording a link of the chosen kind;
-- Place: an unplaced item at the canvas's centre, its fields then editable;
+- Connect to…: a Chooser over the items a link of the chosen kind may run to
+  from the item — the kind Connect's menu holds, chosen beside it while several
+  may run from it — recording the link as a Connect drag does;
+- Place: the Backlog's card picked shows in Details as an item with no
+  position, until the canvas selects something; its Place puts it at the
+  canvas's centre, as the card's ⏎ does, and selects it, its fields then
+  editable;
 - Delete.
+
+Connect to…, a link's ends and a net's sides are held to `canConnect` as the
+gestures are, at any width: a link's new pair, and each pair a net's sides
+newly join, a source with a destination. Refused, the footer says why and
+nothing is recorded.
 
 ## 10. Narrowing and reading
 
@@ -1011,7 +1021,7 @@ records in the file, and each Schematic named by its `id`:
 | SC22 | A drawn link's far end outside the window is read by key, all of a window's in one request. | renderer reader | DOM: request log |
 | SC23 | Drafts outside the window stay in their sessions and Save; a draft moved into the window shows. | renderer | DOM |
 | SC24 | The toolbar holds §6.1's items in order; the rail folds first and the history last; the phone row holds the rail's icon, the View bundle and the history. | renderer `toolbar.tsx` | responsive at 1440/1024/768/390/360 and a 294px parent |
-| SC25 | Below 480px of main no drag source, drop target or handle is registered; the inspector's actions do what the gestures did. | renderer | responsive phone |
+| SC25 | Below 480px of main no drag source, drop target or handle is registered; the inspector's actions do what the gestures did. | renderer `index.tsx`, `inspector.tsx`, `edits.ts`' `connectVeto` | DOM (`schematic-narrow.dom.test.tsx`); responsive (`schematic-phone.spec.ts`) at 390 and 360px, a 294px parent and a box narrowed in a wide window |
 | SC26 | Colours are a tone or a theme token, resolved through the theme on canvas and cards in both modes; a value naming no token draws the tone and is listed in Issues. | renderer `canvas/theme.tsx` | DOM; responsive both themes |
 | SC27 | The Layers tab isolates, locks and hides each layer; the viewer's choices persist; locked entities never select. | renderer `library.tsx` | DOM; responsive |
 | SC28 | Arrows step the selection, Enter and a double-click open the selection in Details, Del deletes, Esc unwinds the gesture then the selection; Space and Ctrl hold Select and Zoom box. | renderer canvas | DOM |

@@ -18,8 +18,9 @@
  * — unfolded there — to a 294px parent, nothing past its edge, a narrower row
  * never folding less;
  * on a phone, 390px and 360px wide, the row holds the rail's icon, the View and
- * the history (#1388), and the View holds the tools, the zoom and Fit over
- * Find's box. The canvas
+ * the history (#1388), and the View holds the tools — no Move or Connect, the
+ * inspector's below 480px of main (#1394) — the zoom and Fit over Find's box.
+ * The canvas
  * draws in the design system's tokens and its mono font, read through the
  * recipe's probe, and an item's card dot is the colour its marks draw in on the
  * canvas — a theme colour token resolved, a value naming none its tone (SC26) —
@@ -417,13 +418,14 @@ test.describe("The Schematic's frame on a phone (#1387)", () => {
             await expectPhoneRow(root, "at 360px");
             await sizeTo(page, root, 294);
             await expectPhoneRow(root, "in a 294px parent");
-            // The View, tapped open: the tools, each its icon named by its word; the zoom and Fit; Find's box under them.
+            // The View, tapped open: the tools, each its icon named by its word — no Move or Connect, which below 480px of
+            // main are the inspector's (#1394, D15); the zoom and Fit; Find's box under them.
             const view = root.locator("[data-toolbar-item='seek'] [data-key-search='icon']");
             await view.tap();
             const controls = page.locator("[data-schematic-view]");
             await expect(controls).toBeVisible();
             expect(await controls.locator("[data-schematic-seg='tools'] [role='radio']").evaluateAll((radios) => radios.map((radio) => radio.getAttribute("aria-label"))))
-                .toEqual(["Select", "Zoom box", "Marquee", "Connect", "Move"]);
+                .toEqual(["Select", "Zoom box", "Marquee"]);
             await expect(controls.locator("[data-schematic-zoom] button")).toHaveCount(3);
             await expect(page.locator("[data-key-search='popover'] input")).toBeVisible();
             // A tool picked there closes it, and the canvas takes the next gesture with it.

@@ -320,7 +320,7 @@ export const schematicDataCentre = example({
         "details", "templates", "backlog", "layers", "narrowed", "inspector", "accessor", "id", "onSelect", "canConnect", "Schematic.Types.Ref",
         "Schematic.Types.Candidate", "veto", "editing", "Save", "undo", "Move", "Connect", "nets", "drag and drop", "drop",
     ],
-    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card, editable in the inspector; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
+    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card, editable in the inspector; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into, none onto the core; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const racks = $.let(Record.bind(schematicRacks, [schematicRacksPatch]));
@@ -361,12 +361,16 @@ export const schematicDataCentre = example({
             const onSelect = $.const(East.function([ArrayType(Schematic.Types.Ref)], NullType, ($2, refs) => {
                 $2(selected.write(refs));
             }));
-            // Two frames are joined by a cross-connect, never a fibre run: the veto's words refuse the pair, and the
-            // draft shows them.
+            // Two frames are joined by a cross-connect, never a fibre run, and the racks' trunks land on a fibre frame,
+            // never on the core: the veto's words refuse the pair — a drag's draft shows them, and the footer says them of
+            // the inspector's ends, sides and Connect to….
             const canConnect = $.const(East.function([Schematic.Types.Candidate], OptionType(StringType), ($2, candidate) => {
                 const reason = $2.let(none, OptionType(StringType));
                 $2.if(candidate.from.kind.equal("network").and(() => candidate.to.kind.equal("network")), ($3) => {
                     $3.assign(reason, some("Two frames are joined by a cross-connect"));
+                });
+                $2.if(candidate.kind.equal("trunks").and(() => candidate.to.key.equal("CORE-1")), ($3) => {
+                    $3.assign(reason, some("A trunk lands on a fibre frame, never the core"));
                 });
                 return reason;
             }));

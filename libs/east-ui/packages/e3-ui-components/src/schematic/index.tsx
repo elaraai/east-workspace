@@ -65,6 +65,16 @@
  *   a component of their own (`inspector-rows.ts`), every edit one step of the
  *   history; and Issues (`issues.ts`), each selecting what it names. Enter, or
  *   a double-click on an entity, opens Details, its open tab kept per viewer;
+ * - **the narrow layout** (#1394, §9, D15): below 480px of main — measured by
+ *   the canvas's element, which fills it, as `useContainerBelow` measures the
+ *   other builders' — the canvas pans, pinches and selects, and nothing drags:
+ *   the tools hold no Move or Connect, no card drags and the canvas has no
+ *   drop cell, and a selected link draws no handle. A tap on the selected card
+ *   drops it, whatever the pointer, and Details gains the actions the canvas
+ *   doesn't take — an item's Connect to…, and for the Backlog's card picked an
+ *   item with no position, its Place — beside its Move (`x`, `y`), its ends,
+ *   its sides and Delete. Resizing keeps the tool held, the selection and the
+ *   drafts;
  * - **the narrowing** (#1392, `narrowing.ts`): each kind's source of the rail,
  *   its shown keys followed while the narrowing dims or looks at its matches,
  *   hiding what it leaves out or drawing it as context; every list — the
@@ -104,12 +114,14 @@ import { ArrayType, StringType, equalFor, equivalentFor, none, some, type option
 import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
-    implementUIComponent, typedInto, useDataStable, useFormatters, usePersistedState, useSlicesReactivity, type EditIssue, type EditingWords, type HistoryAction,
+    implementUIComponent, typedInto, useContainerBelow, useDataStable, useFormatters, usePersistedState, useSlicesReactivity,
+    type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
+import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicBacklogPages, type BacklogAreaKind, type BacklogPageCount } from "./backlog-pages.js";
@@ -123,11 +135,11 @@ import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicD
 import { savedRecords, schematicCounts } from "./counts.js";
 import { draftedDrawing, type DraftedCache } from "./drafted.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
-import type { NetLeg, SchematicEdit } from "./edits.js";
+import { connectVeto, type NetLeg, type SchematicEdit } from "./edits.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
 import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
 import { SchematicFooter, type SchematicFoundNotice, type SchematicNotice } from "./footer.js";
-import { drawnEntities, inspectedEqual, inspectedOf } from "./inspect.js";
+import { drawnEntities, inspectedEqual, inspectedOf, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
 import { schematicInspectorPane } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
 import { drawingIssues, sessionIssues } from "./issues.js";
@@ -137,8 +149,8 @@ import { layersInForce, useSchematicLayerView } from "./layers-view.js";
 import { SchematicBacklogCountReader, schematicLibraryId, useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
 import { looksAtMatches, narrowedDrawing, narrowedLook, schematicNarrowing, type SchematicNarrowedLook } from "./narrowing.js";
-import { useSchematicToolbarItems } from "./toolbar.js";
-import { offeredTools, toolsInForce, useSchematicTools } from "./tools.js";
+import { useSchematicToolbarItems, type SchematicLinkChoice } from "./toolbar.js";
+import { offeredTools, toolsInForce, useSchematicTools, type SchematicToolsOffered } from "./tools.js";
 import { useSchematicDrop } from "./use-drop.js";
 
 type Styles = Record<string, SystemStyleObject>;
@@ -284,6 +296,12 @@ const NO_PICKS: ReadonlyMap<string, string> = new Map();
 /** The zoom as the canvas opens: at Fit. */
 const AT_FIT: SchematicZoomRange = { atFit: true, atLimit: false };
 
+/** What the tools offer below 480px of main (#1394, D15): no Move and no Connect, the inspector's actions there. */
+const VIEW_ONLY: SchematicToolsOffered = { links: [], movable: false };
+
+/** No link kind Connect's menu draws: below 480px of main, where no Connect is offered. */
+const NO_LINK_CHOICES: readonly SchematicLinkChoice[] = [];
+
 /** The theme colour tokens a colour may name (D14): what the Issues tab holds each colour to (#1391). */
 const THEME_COLOURS: ReadonlySet<string> = new Set(schematicColorTokens);
 
@@ -355,17 +373,30 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const layersNow = useMemo(() => layersInForce(layerValues, layerView), [layerValues, layerView]);
     const layers = useMemo(() => layerState(layersNow, drawing), [layersNow, drawing]);
 
+    // ── The narrow layout (#1394, §9, D15): below 480px of main, measured by the canvas's element, which fills it ──
+    // The canvas pans, pinches and selects there: no Move or Connect, no card dragged, no drop cell or link handle — the
+    // inspector moves, connects, re-targets, places and deletes. Resizing keeps the tool held, the selection and the drafts.
+    const mainRef = useRef<HTMLDivElement | null>(null);
+    const onCanvasElement = useCallback((element: HTMLDivElement | null) => { mainRef.current = element; }, []);
+    const narrow = useContainerBelow(mainRef, NARROW_WIDTH);
+
     // ── The tools (§6.1): the viewer's, as the Schematic offers them ─────
-    // Connect over a link kind bound with its patch door, Move over such an item kind; `readOnly` offers neither.
+    // Connect over a link kind bound with its patch door, Move over such an item kind; `readOnly` offers neither, nor
+    // does a narrow main, where each is the inspector's (#1394) — the tool the viewer holds kept for a wider one.
     const readOnly = value.readOnly;
     const linkChoices = useMemo(() => (readOnly ? [] : value.links.filter((kind) => kind.editable).map((kind) => ({ key: kind.key, name: kind.name }))),
         [readOnly, value.links]);
     const movable = !readOnly && value.items.some((kind) => kind.editable);
     const linkSlots = useMemo(() => linkChoices.map((link) => link.key).join("\u0000"), [linkChoices]);
     const offered = useMemo(() => ({ links: linkSlots === "" ? [] : linkSlots.split("\u0000"), movable }), [linkSlots, movable]);
+    const offeredNow = narrow ? VIEW_ONLY : offered;
     const [stored, pickTools] = useSchematicTools(keys.tools);
-    const held = useMemo(() => toolsInForce(stored, offered), [stored, offered]);
-    const tools = useMemo(() => offeredTools(offered), [offered]);
+    const held = useMemo(() => toolsInForce(stored, offeredNow), [stored, offeredNow]);
+    const tools = useMemo(() => offeredTools(offeredNow), [offeredNow]);
+    // The link kind Connect draws, the toolbar's Connect menu's choice: on a narrow main, what Details' Connect to… records.
+    const connectKind = useMemo(() => toolsInForce(stored, offered).link, [stored, offered]);
+    const storedTool = stored.tool;
+    const pickConnectKind = useCallback((link: string) => pickTools({ tool: storedTool, link }), [pickTools, storedTool]);
 
     // ── The canvas: the camera and the selection are its own ────────────
     const canvasRef = useRef<SchematicCanvasHandle>(null);
@@ -376,11 +407,17 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Why the item Find's last pick landed on doesn't show as itself — the filters, its layer, no position — until the
     // next pick, Clear filters or a selection (#1404).
     const [found, setFound] = useState<SchematicFoundNotice | undefined>(undefined);
+    // The Backlog's card picked below 480px of main (#1394, D15), by its id: an item with no position, which Details shows
+    // with its Place until the canvas selects something, the card is let go, or it is placed.
+    const [placingId, setPlacingId] = useState<string | undefined>(undefined);
     const onSelection = useCallback((ids: ReadonlySet<string>, next: NetLeg | null) => {
         setSelection(ids);
         setLeg(next);
-        // A selection says no more where Find's last pick landed (#1404).
-        if (ids.size > 0) setFound(undefined);
+        // A selection says no more where Find's last pick landed (#1404), and Details shows it, not the Backlog's card.
+        if (ids.size > 0) {
+            setFound(undefined);
+            setPlacingId(undefined);
+        }
     }, []);
     const selected = selection.size > 0;
     // Where the zoom stands, as the canvas tells it: the toolbar's Zoom out and Zoom in take no press past either end (#1393).
@@ -390,17 +427,23 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const step = useCallback((delta: 1 | -1) => canvasRef.current?.step(delta), []);
 
     // ── The library's selected cards (#1389, #1390): each card tab's, by the tab's key ──
-    // A click selects a card, and a click on the selected one lets it go.
+    // A click selects a card, and a click on the selected one lets it go. Below 480px of main a Backlog card selected is
+    // what Details shows, an item with no position with its Place, and lets go of what the canvas selects (#1394).
     const [picked, setPicked] = useState<ReadonlyMap<string, string>>(NO_PICKS);
     const onPick = useCallback((tabKey: string, key: string) => {
-        setPicked((was) => {
-            const next = new Map(was);
-            const chosen = was.get(tabKey);
-            if (chosen !== undefined && stringEqual(chosen, key)) next.delete(tabKey);
-            else next.set(tabKey, key);
-            return next;
-        });
-    }, []);
+        const chosen = picked.get(tabKey);
+        const letGo = chosen !== undefined && stringEqual(chosen, key);
+        const next = new Map(picked);
+        if (letGo) next.delete(tabKey);
+        else next.set(tabKey, key);
+        setPicked(next);
+        if (!stringEqual(tabKey, "backlog")) return;
+        if (letGo) setPlacingId(undefined);
+        else if (narrow) {
+            setPlacingId(key);
+            canvasRef.current?.reveal(undefined);
+        }
+    }, [picked, narrow]);
     // The template the Templates tab has selected, of a link or a net kind: what a Connect's new link or net of its kind
     // takes its other fields from (§4.3).
     const pickedTemplate = useMemo(() => {
@@ -478,7 +521,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, onAction })
         : undefined;
     const items = useSchematicToolbarItems({
-        styles, words, chrome, nouns, tools, held, links: linkChoices, onTools: pickTools, find,
+        styles, words, chrome, nouns, tools, held, links: narrow ? NO_LINK_CHOICES : linkChoices, onTools: pickTools, find,
         onZoom: zoomBy, zoom: zoomRange, onFit: fit, selected, onStep: step, history: historyItem,
     });
     // ⌘F, or Ctrl+F, anywhere in the frame: Find, in whichever form the row holds it; ⌘Z, ⇧⌘Z and ⌘Y the history's,
@@ -586,16 +629,21 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // What the canvas has selected, each entity by its reference: what a card's ⏎ drops on.
     const selectedRefs = useCallback((): SchematicRef[] => [...selection].flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; }), [selection]);
     const viewCentre = useCallback(() => canvasRef.current?.centre(), []);
-    const selectDropped = useCallback((id: string) => canvasRef.current?.select(id), []);
+    // The item a drop added or placed, selected once it draws; a Backlog card placed leaves the Backlog, its pick with it.
+    const selectDropped = useCallback((id: string) => {
+        canvasRef.current?.select(id);
+        setPicked((was) => { const chosen = was.get("backlog"); return chosen !== undefined && stringEqual(chosen, id) ? new Map([...was].filter(([tab]) => !stringEqual(tab, "backlog"))) : was; });
+        setPlacingId((was) => (was !== undefined && stringEqual(was, id) ? undefined : was));
+    }, []);
     const drop = useSchematicDrop({
         value, backlog, pagedBacklog, keys, context: dropContext, record: recordDrop, mint: editing.mint, selection: selectedRefs, centre: viewCentre,
-        select: selectDropped, notice: setRefusal, words, unit: getSomeorUndefined(value.scaleUnit),
+        select: selectDropped, notice: setRefusal, words, unit: getSomeorUndefined(value.scaleUnit), drags: !narrow,
     });
 
     const library = useSchematicLibrary({
         value, zones: shownZones, items: shownItems, backlog, backlogNarrowing, backlogPages: backlogPaged, indexArea, layers: layerValues, layerCounts, layerView,
         onLayerView: setLayerView,
-        inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter,
+        inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter, narrow,
     });
 
     // ── The drawing's counts and saves: the inspector's Details, with nothing selected (#1391) ──
@@ -702,9 +750,19 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     );
 
     // ── The inspector (#1391, §9): the end pane, given `inspector` ──────
-    // What Details shows: the selection as the drawing draws it, a net's leg with it; and its rows, read on their own.
+    // What Details shows: the selection as the drawing draws it, a net's leg with it — or, below 480px of main, the
+    // Backlog's card picked, an item with no position (#1394); and its rows, read on their own.
     const entities = useMemo(() => drawnEntities(drawing), [drawing]);
-    const inspectedNow = useMemo(() => inspectedOf(selection, leg, entities), [selection, leg, entities]);
+    const placing = useMemo((): SchematicUnplaced | undefined => {
+        if (!narrow || placingId === undefined) return undefined;
+        const entry = backlog.find((row) => stringEqual(row.id, placingId));
+        if (entry !== undefined) return { id: entry.id, ref: entry.ref, label: entry.roles.label, icon: getSomeorUndefined(entry.roles.icon) };
+        // A row of the paged Backlog, as its page read it.
+        const card = backlogPages?.card(placingId);
+        return card?.does === "place" ? { id: placingId, ref: card.ref, label: card.label, icon: undefined } : undefined;
+    }, [narrow, placingId, backlog, backlogPages]);
+    const inspectedNow = useMemo((): SchematicInspected => (placing !== undefined ? { view: "unplaced", ...placing } : inspectedOf(selection, leg, entities)),
+        [placing, selection, leg, entities]);
     const inspected = useDataStable(inspectedNow, inspectedEqual);
     const inspectedRef = inspected.view === "entity" || inspected.view === "leg" ? inspected.ref : undefined;
     const [inspectedRows, setInspectedRows] = useState<SchematicInspectedRows>(NO_INSPECTED_ROWS);
@@ -737,13 +795,20 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         // A session's readiness and its Save's issues move with the history's version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     ], [sessions, historyVersion, kindName, labels, drawing, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
+    // The host's veto, as Details' Connect to…, a link's ends and a net's sides ask it — as the canvas's gestures do (#1394).
+    const canConnectFn = useMemo(() => getSomeorUndefined(value.canConnect), [value.canConnect]);
+    const veto = useMemo(() => connectVeto(canConnectFn, refOfId), [canConnectFn]);
+    // Details' Place: the Backlog's card, dropped as its ⏎ drops it — at the canvas's centre, selected (#1394).
+    const enterCard = drop.enter;
+    const place = useCallback((id: string) => enterCard(schematicLibraryId(keys, "backlog"), id), [enterCard, keys]);
     const end = schematicInspectorPane({
         value, inspected, rows: inspectedRows, drawn: drawing, listed, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
+        narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });
 
     return (
-        <Box css={styles.root} data-schematic="">
+        <Box css={styles.root} data-schematic="" data-schematic-layout={narrow ? "narrow" : "wide"}>
             {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
             {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
             {/* The frame's one reveal clock (CL4): the footer's line, the canvas's wash and placeholders and the inspector's show a
@@ -769,7 +834,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                         words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
                         viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
-                        unread={data.unread} failure={canvasFailure} onZoomRange={setZoomRange} />
+                        unread={data.unread} failure={canvasFailure} onZoomRange={setZoomRange} narrow={narrow} onElement={onCanvasElement} />
                 </BuilderFrame>
             </LoadingReveal>
         </Box>

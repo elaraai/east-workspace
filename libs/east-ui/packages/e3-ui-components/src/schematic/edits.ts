@@ -39,7 +39,15 @@
  * values written over a link or a net of its kind, and an author's card's
  * fields set on an entity. So does the inspector (#1391): a field of its
  * form, of the row or its details row; the row a kind's own Details hands
- * back; an item's centre, or Unplace; a link's ends; a net's sides.
+ * back; an item's centre, or Unplace; a link's ends; a net's sides; and below
+ * 480px of main an item's Connect to… (#1394, D15), a link from it as a
+ * Connect drag draws one.
+ *
+ * The host's veto (`canConnect`, #1401, D34) is asked the same way by every
+ * route that connects two items ({@link connectVeto}): a Connect drag's draft
+ * and its release, a Retarget's and an Extend's, and the inspector's Connect
+ * to…, ends and sides — a change of a net's sides by each pair it newly joins
+ * ({@link joinedPairs}).
  *
  * @packageDocumentation
  */
@@ -438,6 +446,72 @@ export function connectStep(kinds: EditKinds, args: ConnectDragArgs, mint: (slot
         edits: [...open.links.map((ref): SchematicEdit => ({ op: "remove", ref })), { op: "net", ref: net, sides, values: values(slot) }],
         session: { links: [], net },
     };
+}
+
+/** No session's links or net: what a plain drag reads of the drawing, and the inspector's Connect to… (#1394), which opens none. */
+export const NO_SESSION: SessionDrawn = { ends: () => undefined, sides: () => undefined };
+
+// ============================================================================
+// The host's veto
+// ============================================================================
+
+/** The host's veto of a connection (`canConnect`, #1401, D34), decoded: its words refusing a candidate, or `none` allowing it. */
+export type ConnectVeto = Extract<SchematicValue["canConnect"], { readonly type: "some" }>["value"];
+
+/**
+ * A connection, as every route asks the host's veto of it: the link or net kind it writes, by its slot, and the item it
+ * runs from and the one it runs to, by their ids — its words refusing it, or `undefined` allowing it.
+ */
+export type ConnectVetoOf = (kind: string, from: string, to: string) => string | undefined;
+
+/**
+ * The host's veto as every route that connects two items asks it (#1401, D34): a Connect drag's draft and its release, a
+ * Retarget's and an Extend's, and the inspector's Connect to…, ends and sides (#1394). Its verdict on each candidate is
+ * kept, so a pointer's moves never ask it again for one; one that throws is logged and allows, so a broken veto never
+ * blocks editing.
+ *
+ * @param veto - The host's veto; `undefined` for none, which allows every connection
+ * @param refOf - An item's reference, by its id: what the veto hears it as; `undefined` for one it can't name, which it allows
+ * @returns The veto, by the candidate's kind and its items' ids
+ */
+export function connectVeto(veto: ConnectVeto | undefined, refOf: (id: string) => SchematicRef | undefined): ConnectVetoOf {
+    if (veto === undefined) return () => undefined;
+    const verdicts = new Map<string, string | null>();
+    return (kind, from, to) => {
+        const key = `${kind}\u0000${from}\u0000${to}`;
+        const kept = verdicts.get(key);
+        if (kept !== undefined) return kept ?? undefined;
+        let refusal: string | null = null;
+        const fromRef = refOf(from), toRef = refOf(to);
+        if (fromRef !== undefined && toRef !== undefined) {
+            try {
+                const said = veto({ kind, from: fromRef, to: toRef });
+                refusal = said.type === "some" ? said.value : null;
+            } catch (err) {
+                console.error("[Schematic] canConnect veto failed (allowing):", err);
+            }
+        }
+        verdicts.set(key, refusal);
+        return refusal ?? undefined;
+    };
+}
+
+/**
+ * The pairs a change of a net's sides joins that its sides didn't before (#1394): each source with each destination, one
+ * of the two new to its side — what the host's veto hears of the change, each pair a net's feeding member and its fed one
+ * (`Schematic.Types.Candidate`), as it hears an Extend's. A change that only takes members off joins none.
+ *
+ * @param before - The sides as they stand
+ * @param after - The sides as the change leaves them
+ * @returns The pairs, in the sides' order
+ */
+export function joinedPairs(before: SchematicSides, after: SchematicSides): ConnectPair[] {
+    const pairs: ConnectPair[] = [];
+    for (const from of after.sources) {
+        const was = holds(before.sources, from);
+        for (const to of after.destinations) if (!was || !holds(before.destinations, to)) pairs.push({ from, to });
+    }
+    return pairs;
 }
 
 // ============================================================================
