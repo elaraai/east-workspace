@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DictType, East, FloatType, IntegerType, NullType, StringType, StructType, VariantType, example, some, variant } from "@elaraai/east";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
-import { Data, Schematic } from "@elaraai/e3-ui";
+import { Data, Record, Schematic } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 // ============================================================================
@@ -18,7 +18,9 @@ import e3 from "@elaraai/e3";
 // of each hall, so neither the showcase nor a test deploys the 50,000 a full
 // floor holds (ruled 23 Oct 2026): the budget run (`E3_UI_PERF=1`) fills the
 // floor through the racks' and the loads' patch doors, as the lens benchmark
-// fills its million rows.
+// fills its million rows. The racks are bound with their patch door: a move
+// is a draft that waits in its session wherever the window goes, and Save
+// writes it through the door.
 
 /** A rack of the floor: its hall and model, placed by its centre, its box 0.6 m by 1.2 m. */
 export const StressRack = StructType({ name: StringType, hall: StringType, model: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType });
@@ -80,7 +82,7 @@ export const generateLoads = East.function([IntegerType], StressLoads, ($, count
 export const schematicStressRackCount = e3.input("schematic_stress_rack_count", IntegerType, variant("value", 20000n));
 export const schematicStressRacksGenerated = e3.task("schematic_stress_racks_generated", [schematicStressRackCount], generateRacks);
 export const schematicStressRacks = e3.record("schematic_stress_racks", StressRacks, East.compile(generateRacks, [])(20000n));
-/** The racks' patch door: the budget run fills the floor through it. */
+/** The racks' patch door: each Save of the floor writes through it, and the budget run fills the floor through it. */
 export const schematicStressRacksPatch = e3.mutation.patch(schematicStressRacks);
 /** The window, whatever the rail chooses: every rack filed once by its box, at a 1 cm cell. */
 export const schematicStressRacksByArea = e3.recordIndex.area("schematic_stress_racks_by_area", schematicStressRacks, {
@@ -122,13 +124,15 @@ export const schematicStressHalls = e3.record("schematic_stress_halls", DictType
 
 export const schematicRecordIndexes = example({
     keywords: [
-        "Schematic", "Schematic.items", "Schematic.zones", "Schematic.details", "Data.bindPaged", "Slice.bindRecords", "e3.recordIndex.area", "area index",
-        "window", "paging", "density", "records", "details", "read only", "20,000",
+        "Schematic", "Schematic.items", "Schematic.zones", "Schematic.details", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "e3.recordIndex.area", "area index",
+        "window", "paging", "density", "records", "details", "editing", "drafts", "Save", "20,000",
     ],
-    description: "A floor of 20,000 racks in ten halls, read a window at a time: the racks bound Data.bindPaged and read through their source of the slice, whose indexes include an area index at a 1 cm cell, so the canvas reads only the racks its view shows, from the index alone, and draws their density from the index's counts while the view holds more than 5,000; a choice of halls reads through the area index the hall leads, and a choice of models through the one led by nothing, asking which of the window's racks the choice holds; each rack's load read by the runs its window's cells are of the area index — e3 reads their keys from the index, so none is sent — every cell not yet read in one request, so a dot draws its rack's alarm as a card does",
+    description: "A floor of 20,000 racks in ten halls, read a window at a time: the racks bound with their patch door and read through their source of the slice, whose indexes include an area index at a 1 cm cell, so the canvas reads only the racks its view shows, from the index alone, and draws their density from the index's counts while the view holds more than 5,000; a choice of halls reads through the area index the hall leads, and a choice of models through the one led by nothing, asking which of the window's racks the choice holds; each rack's load read by the runs its window's cells are of the area index — e3 reads their keys from the index, so none is sent — every cell not yet read in one request, so a dot draws its rack's alarm as a card does; a rack moved is a draft that waits in its session wherever the window goes, and Save writes it through the door",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const racks = $.let(Data.bindPaged(schematicStressRacks));
+            // The racks bound with their patch door, read by key through their own entries beside their source of the slice.
+            const racks = $.let(Record.bind(schematicStressRacks, [schematicStressRacksPatch]));
+            const rackEntries = $.let(Data.bindPaged(schematicStressRacks));
             const loads = $.let(Data.bindPaged(schematicStressRackLoads));
             const halls = $.let(Data.bind(schematicStressHalls));
             // One rail: the racks by hall, through the area index the hall leads, and by model, through the one led by nothing.
@@ -151,7 +155,65 @@ export const schematicRecordIndexes = example({
                         slice={{ slice }}
                         items={{
                             racks: Schematic.items(racks, {
-                                name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name",
+                                name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", entries: rackEntries,
+                                sublabel: (r) => r.model,
+                                details: Schematic.details(loads, {
+                                    meter: (l) => ({ value: l.kw, max: l.capacity }),
+                                    metric: (l) => some(East.str`${East.Float.printFixed(l.kw, 1n)} kW`),
+                                    status: { field: "alarm", cases: {
+                                        ok: { label: "OK", tone: variant("success", null), ring: false },
+                                        warm: { label: "Warm", tone: variant("warning", null), ring: false },
+                                        hot: { label: "Hot", tone: variant("danger", null), ring: false },
+                                    } },
+                                }),
+                            }),
+                        }}
+                        zones={{
+                            halls: Schematic.zones(halls, { name: "Hall", icon: "warehouse", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+                        }}
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const schematicRecordIndexesMobile = example({
+    keywords: [
+        "Schematic", "Schematic.items", "Schematic.zones", "Schematic.details", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "e3.recordIndex.area", "area index",
+        "window", "density", "inspector", "mobile", "phone", "touch", "pinch", "20,000",
+    ],
+    description: "The same floor of 20,000 racks in a phone-width frame, with the inspector: one finger pans it and two pinch it, and the toolbar's one row holds the rail's icon, the View — the tools, the zoom and Fit over Find's box — and the history; nothing drags, so a rack tapped shows in the inspector, opened from its rail, with its load, its x and y to move it and its Delete, each a step Save writes through the racks' patch door; the canvas reads only the racks its view shows, from the area index alone, and their density while the view holds more than 5,000",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            // The racks bound with their patch door, read by key through their own entries beside their source of the slice.
+            const racks = $.let(Record.bind(schematicStressRacks, [schematicStressRacksPatch]));
+            const rackEntries = $.let(Data.bindPaged(schematicStressRacks));
+            const loads = $.let(Data.bindPaged(schematicStressRackLoads));
+            const halls = $.let(Data.bind(schematicStressHalls));
+            // One rail: the racks by hall, through the area index the hall leads, and by model, through the one led by nothing.
+            const slice = $.let(Slice.bindRecords("ex.schematicRecordIndexesMobile", {
+                racks: {
+                    source: Data.bindPaged(schematicStressRacks, { indexes: [schematicStressRacksByArea, schematicStressRacksByHallArea, schematicStressRacksByModel] }),
+                    icon: { prefix: "fas", name: "server" },
+                    fields: {
+                        hall: { label: "Hall", hints: ["Hall 1", "Hall 2", "Hall 3", "Hall 4", "Hall 5", "Hall 6", "Hall 7", "Hall 8", "Hall 9", "Hall 10"] },
+                        model: { label: "Model", hints: ["42U · 8 kW", "48U · 12 kW", "24U · 4 kW"] },
+                    },
+                },
+            }));
+            return (
+                <Box width="390px" maxWidth="100%" height="640px">
+                    <Schematic
+                        id="recordIndexesMobile"
+                        inspector
+                        extent={{ width: 382, height: 254 }}
+                        scaleUnit="m"
+                        slice={{ slice }}
+                        items={{
+                            racks: Schematic.items(racks, {
+                                name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", entries: rackEntries,
                                 sublabel: (r) => r.model,
                                 details: Schematic.details(loads, {
                                     meter: (l) => ({ value: l.kw, max: l.capacity }),

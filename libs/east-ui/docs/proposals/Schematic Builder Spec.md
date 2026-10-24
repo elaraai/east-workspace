@@ -381,7 +381,9 @@ The items, in order, on the frame's one folding row:
 6. **History** — `historyToolbarItem`, last (Undo · Redo · Discard · Save), while any kind edits.
 
 On a phone the row holds the rail's icon, a View bundle (Tools, Zoom, Fit,
-Find) and the history item (the Plan's View-bundle precedent).
+Find, and the steps while something is selected) and the history item (the
+Plan's View-bundle precedent). The steps join the View folded even while Find's
+query holds it, so the history keeps its place in the row (#1395).
 
 ### 6.2 Main
 
@@ -989,9 +991,9 @@ records in the file, and each Schematic named by its `id`:
 | `schematicFloor` | the smallest: one hall's racks, read only (`Data.bind`), no panes |
 | `schematicDataCentre` | the builder: racks, cooling units and power distribution units (three item kinds); halls and cages; hot and cold aisles; fibre runs; power feeds as nets; the racks' loads as details (cards and inspector); rack and fibre templates; Templates, Backlog, Index and Layers, its layers a systems record; the rail; `narrowed="dim"`; the inspector, and a kind's own Details; `onSelect`, the whole selection kept in a State of the host's; and `canConnect`, a run between two frames refused in its words. Its records hold their own fields, mapped by accessors: a cooling unit's radius, an area's kind, a fibre run's cable |
 | `schematicShapes` | read only: polygon, circle and polyline footprints and zones, built by accessors from the rows' own fields; tones and theme colours; layers from a systems record |
-| `schematicRecordIndexes` | 20,000 racks — each hall's first 20 rows, so neither the showcase nor a test deploys the 50,000 a full floor holds (ruled 23 Oct 2026); the budget run fills the floor through the patch doors — over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom, the footer saying how many racks it shades; the rail; and the racks' loads, bound with `Data.bindPaged` and read by the runs the window's cells are of the area index (D45), a cell's once, so a dot draws its rack's alarm. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
-| `schematicRecordIndexesMobile` | the same in a phone-width container |
-| `schematicHandover` | no panes: the toolbar, the canvas and the footer |
+| `schematicRecordIndexes` | 20,000 racks — each hall's first 20 rows, so neither the showcase nor a test deploys the 50,000 a full floor holds (ruled 23 Oct 2026); the budget run fills the floor through the patch doors — over the area index (`racks_by_area`, with `racks_by_hall_area` beside it, at a 1 cm cell), read from the index alone; the density layer at fit zoom, the footer saying how many racks it shades; the rail; and the racks' loads, bound with `Data.bindPaged` and read by the runs the window's cells are of the area index (D45), a cell's once, so a dot draws its rack's alarm; and the racks bound with their patch door, a move a draft wherever the window goes, Save writing it through the door. Its record is seeded by the pure generator that also runs as an e3 task, as `sheetRecordIndexes`' is |
+| `schematicRecordIndexesMobile` | the same in a phone-width container, with the inspector: nothing drags, so a rack found or tapped shows in Details, its `x` and `y` moving it, each a draft Save writes through the racks' patch door |
+| `schematicHandover` | no panes: the toolbar, the canvas and the footer, over one hall's racks bound with their patch door — Move and Del, each a step Save writes |
 
 ## 14. Behaviour
 
@@ -1019,10 +1021,10 @@ records in the file, and each Schematic named by its `id`:
 | SC20 | A window is one `findKeys` request and one runs read, its rows read from the index alone; a pan inside the margin reads nothing, and one into new cells searches only those; the previous window stays until the next lands. | renderer reader | DOM: request log |
 | SC21 | A window's details, at every zoom, are one request per details record by the runs of the cells not yet read — no key sent — each cell's kept at both records' revisions, read again only when either moves. | renderer reader, e3-api-server | e3 spec: request log; e3-api-tests |
 | SC22 | A drawn link's far end outside the window is read by key, all of a window's in one request. | renderer reader | DOM: request log |
-| SC23 | Drafts outside the window stay in their sessions and Save; a draft moved into the window shows. | renderer | DOM |
-| SC24 | The toolbar holds §6.1's items in order; the rail folds first and the history last; the phone row holds the rail's icon, the View bundle and the history. | renderer `toolbar.tsx` | responsive at 1440/1024/768/390/360 and a 294px parent |
+| SC23 | Drafts outside the window stay in their sessions and Save; a draft moved into the window shows. | renderer | DOM; responsive (`schematic-records.spec.ts`: a rack moved, the view at the floor's far end and back, Save and a remount reading it back — by the mouse, and on a phone through Find and Details) |
+| SC24 | The toolbar holds §6.1's items in order; the rail folds first and the history last; the phone row holds the rail's icon, the View bundle and the history. | renderer `toolbar.tsx`; east-ui-components `toolbar/index.tsx` (a member joining a held bundle) | responsive at 1440/1024/768/390/360 and a 294px parent; the phone row with a rack selected and Find's query standing (`schematic-records.spec.ts`); DOM (`toolbar.dom.test.tsx`) |
 | SC25 | Below 480px of main no drag source, drop target or handle is registered; the inspector's actions do what the gestures did. | renderer `index.tsx`, `inspector.tsx`, `edits.ts`' `connectVeto` | DOM (`schematic-narrow.dom.test.tsx`); responsive (`schematic-phone.spec.ts`) at 390 and 360px, a 294px parent and a box narrowed in a wide window |
-| SC26 | Colours are a tone or a theme token, resolved through the theme on canvas and cards in both modes; a value naming no token draws the tone and is listed in Issues. | renderer `canvas/theme.tsx` | DOM; responsive both themes |
+| SC26 | Colours are a tone or a theme token, resolved through the theme on canvas and cards in both modes; a value naming no token draws the tone and is listed in Issues. | renderer `canvas/theme.tsx` | DOM; responsive both themes, the canvas's own pixels read through its 2D context — the density's heat steps and each dot's status token (`schematic-window.spec.ts`) |
 | SC27 | The Layers tab isolates, locks and hides each layer; the viewer's choices persist; locked entities never select. | renderer `library.tsx` | DOM; responsive |
 | SC28 | Arrows step the selection, Enter and a double-click open the selection in Details, Del deletes, Esc unwinds the gesture then the selection; Space and Ctrl hold Select and Zoom box. | renderer canvas | DOM |
 | SC29 | `onSelect` hears the whole selection after each change, items, zones, links and nets alike, each by its `Ref`, through the isolated dispatch; `[]` when it is cleared. | renderer | DOM |

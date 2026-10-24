@@ -39,6 +39,7 @@ const floorRacksByModel = e3.recordIndex("schematic_floor_racks_by_model", ex.sc
 describeEast("Schematic", (test) => {
     Assert.examples(test, {
         schematicFloor: ex.schematicFloor,
+        schematicHandover: ex.schematicHandover,
         schematicShapes: ex.schematicShapes,
         schematicDataCentre: ex.schematicDataCentre,
     });

@@ -14,7 +14,7 @@
  * of the leading values at a time, within its budget, and the cells of it that
  * hold rows (D25); how a kind read by area reads its rows with no position,
  * its Backlog's (D51); and the floor of 20,000 racks read a window at a time,
- * its example run.
+ * its examples run — the floor, and the same in a phone-width frame.
  */
 
 import { test as hostTest } from "node:test";
@@ -30,6 +30,7 @@ import * as rec from "./schematic-records.examples.js";
 describeEast("Schematic reading by area", (test) => {
     Assert.examples(test, {
         schematicRecordIndexes: rec.schematicRecordIndexes,
+        schematicRecordIndexesMobile: rec.schematicRecordIndexesMobile,
     });
 }, { platformFns: TestImpl });
 
