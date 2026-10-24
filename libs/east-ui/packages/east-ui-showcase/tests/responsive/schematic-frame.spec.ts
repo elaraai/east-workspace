@@ -10,7 +10,8 @@
  * example gives it — one 44px toolbar row, the library's pane at the start of
  * the body (#1389) and the inspector's at its end (#1391), the canvas filling
  * main between them with the scale bar on it and no control of its own, the
- * footer along the foot, saying nothing while nothing is live. The toolbar
+ * footer along the foot, saying nothing while nothing is live; given no pane,
+ * as the handover is (#1395), its toolbar, its canvas and its footer. The toolbar
  * folds by one ladder (SC24): the rail first, in its own
  * order, then its summary, then the Schematic's own — the tools' words, Find's
  * box, the tools' strip — and last the tools, the zoom, Fit and Find into the
@@ -34,7 +35,7 @@
 
 import { test, expect, type Locator } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
-import { DATA_CENTRE, RECORD_INDEXES, SHAPES, cardOverlaps, collapseInspector, openSchematic, sizeTo } from "./schematic-page";
+import { DATA_CENTRE, HANDOVER, RECORD_INDEXES, SHAPES, cardOverlaps, collapseInspector, openSchematic, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The Schematic's own fold steps, after every step of its rail and its summary's, in order — the history's, which the data centre edits, last (#1388). */
@@ -355,6 +356,33 @@ test.describe("The Schematic's frame (#1387)", () => {
             }
         });
     }
+
+    test("given no pane — the handover's — the frame is its toolbar, its canvas and its footer: the canvas filling the body from edge to edge between them, the tools Move among them and the history in the row (#1395)", async ({ page }) => {
+        const root = await openSchematic(page, HANDOVER);
+        const read = await root.evaluate((el) => {
+            const f = el.querySelector("[data-builder-frame]")!.getBoundingClientRect();
+            const at = (sel: string) => {
+                const node = el.querySelector(sel);
+                if (node === null) return null;
+                const b = node.getBoundingClientRect();
+                return [Math.round(b.left - f.left), Math.round(b.top - f.top), Math.round(b.width), Math.round(b.height)];
+            };
+            return {
+                w: Math.round(f.width), h: Math.round(f.height),
+                toolbar: at("[data-frame-slot='toolbar']"), start: at("[data-frame-slot='start']"), end: at("[data-frame-slot='end']"),
+                main: at("[data-frame-slot='main']"), canvas: at("[data-schematic-canvas]"), footer: at("[data-frame-slot='footer']"),
+                tools: [...el.querySelectorAll("[data-frame-slot='toolbar'] [data-schematic-seg='tools'] [role='radio']")].map((radio) => radio.getAttribute("aria-label") ?? radio.textContent),
+            };
+        });
+        expect({ start: read.start, end: read.end }).toEqual({ start: null, end: null });
+        expect(read.toolbar).toEqual([0, 0, read.w, 44]);
+        expect(read.canvas).toEqual(read.main);
+        expect(read.main).toEqual([0, 44, read.w, read.footer![1]! - 44]);
+        expect([read.footer![0], read.footer![2], read.footer![1]! + read.footer![3]!]).toEqual([0, read.w, read.h]);
+        // Its racks edit by Move — no link kind, so no Connect — and each step is the history's.
+        expect(read.tools).toEqual(["Select", "Zoom box", "Marquee", "Move"]);
+        await expect(root.locator("[data-toolbar-item='history']")).toBeVisible();
+    });
 
     test("Fit frames the drawing — its extent inside the canvas less Fit's margin, centred on both axes, and so as its box changes while the camera stands at Fit — and no two cards overlap (#1393)", async ({ page }) => {
         for (const [hash, extent] of [[DATA_CENTRE, DATA_CENTRE_EXTENT], [RECORD_INDEXES, RECORD_INDEXES_EXTENT]] as const) {

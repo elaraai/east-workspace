@@ -4,7 +4,7 @@
  */
 
 /**
- * The Schematic's showcase entries, for its specs (#1387–#1393): one opened
+ * The Schematic's showcase entries, for its specs (#1387–#1395): one opened
  * on the real in-page e3 at rest, its box sized and centred in the window, its
  * inspector collapsed to its rail, an item's card, a world point of its drawing
  * on the screen, the cards that overlap and those standing in a box, a box of
@@ -30,8 +30,12 @@ export const FILE = "e3/schematic/schematic";
 export const DATA_CENTRE = `${FILE}/schematicDataCentre`;
 /** The floor of shaped units. */
 export const SHAPES = `${FILE}/schematicShapes`;
+/** The hall handed over to its install crew: its racks edited, with no pane (#1395). */
+export const HANDOVER = `${FILE}/schematicHandover`;
 /** The floor of 20,000 racks read a window at a time (#1393). */
 export const RECORD_INDEXES = "e3/schematic/schematic-records/schematicRecordIndexes";
+/** The same floor in a phone-width frame, with its inspector (#1395). */
+export const RECORD_INDEXES_MOBILE = "e3/schematic/schematic-records/schematicRecordIndexesMobile";
 
 /**
  * Opens a Schematic example at rest — its frame out from under its skeleton, its canvas drawn.

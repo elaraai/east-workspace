@@ -278,6 +278,42 @@ popover's final View form before history folds; Filters and Save must remain
 inside the toolbar and clickable. Exercise indexed search, far scrolling,
 Save leaving a filter and draft retention in one real e3 workflow per device.
 
+### Schematic records, windows by area and the narrow layout
+
+Each kind is one of the app's records, keyed by String, its fields mapped to
+the Schematic's roles (#1386), and the tag refuses any other binding, naming
+the one to use: editable `Record.bind(record, [e3.mutation.patch(record)])`,
+read only `Data.bind(record)`, and beside a kind read through its source of
+the one `Slice.bindRecords`, `entries: Data.bindPaged(record)`. A kind whose
+source lists an area index (`e3.recordIndex.area` over the kind's own box —
+its `x`, `y`, `width` and `height`, `at: "centre"`) is read by area (#1393), a
+window at a time from the index alone: list one led by no field, which a
+window reads through whatever the rail chooses, and ones led by the rail's
+fields beside it. Never read such a record whole — not to draw, not to fill
+the Backlog (the index's unplaced clause) or the Index (a zone's items by its
+box), not to save (a Save confirms by key). Past 5,000 rows in view the kind
+draws the index's density; never a mark per row past it. Its details record
+is keyed as the kind is, read by key beside a kind read through its source
+and by the window's runs of the index beside one read by area.
+
+Drafts are kept by each row's original key in its kind's session, whatever
+the window, the narrowing or a remount: a row moved off the window it was read
+in draws where its draft places it, Save writes it through the patch door, and
+a window there reads it back once the index has moved it. Test it on e3: a
+move, the view taken to the floor's far end and back, Save, and a remount
+reading it back — by the mouse on a desktop and through Find and Details on a
+phone (the showcase's `schematic-records.spec.ts`).
+
+Below 480px of main nothing drags (#1394): no Move or Connect among the
+View's tools, no draggable card, no drop cell and no link handle. The
+inspector carries the gestures — an item's Connect to… and a Backlog card's
+Place, beside its position, a link's ends, a net's sides and Delete — each
+through the same edits as the canvas's, and every route that connects held to
+`canConnect`. Include the phone-width frame with its inspector
+(`schematicRecordIndexesMobile`) and an editable frame with no pane
+(`schematicHandover`), and on a phone test Save reachable with a rack
+selected and Find's query standing, as well as with nothing selected.
+
 ### Examples show the complete component definition inline
 
 Each example's `fn: East.function(...)` must show its own `Reactive` bindings,

@@ -27,9 +27,13 @@
  * of a rack's, and on a phone keeps to a quarter of the canvas's width. A pan
  * into cells not read, the read held, washes what the drawing does not cover
  * — under the grid, the paint and the cards, moving with the camera as a card
- * does — until the window lands (#1398, CL2).
+ * does — until the window lands (#1398, CL2). The canvas's own paint, read
+ * through its 2D context, draws the density in the theme's heat steps and
+ * nothing past the racks, and each rack's dot in its load's status token, in
+ * both themes (#1395).
  *
- * Every wait is a poll on the page's state, never a fixed pause.
+ * Every wait is a poll on the page's state, never a fixed pause; nothing reads
+ * a screenshot.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test schematic-window`.
@@ -87,6 +91,43 @@ function racksIn(box: WorldBox): number {
         if (x >= box.minX && x <= box.maxX && y >= box.minY && y <= box.maxY) n++;
     }
     return n;
+}
+
+/**
+ * A pixel of the canvas's own paint at a world point, read through its 2D context — sRGBA channels as the page painted
+ * them, never a screenshot.
+ */
+function painted(root: Locator, x: number, y: number): Promise<number[]> {
+    return root.evaluate((el, [wx, wy]) => {
+        const host = el.querySelector<HTMLElement>("[data-schematic-canvas]")!;
+        const paint = host.querySelector<HTMLCanvasElement>(":scope > canvas")!;
+        const layer = host.querySelector<HTMLElement>("[style*='--cam-ppu']")!;
+        const box = layer.getBoundingClientRect(), at = paint.getBoundingClientRect();
+        const ppu = Number(layer.style.getPropertyValue("--cam-ppu"));
+        const cx = box.left + parseFloat(layer.style.getPropertyValue("--cam-tx")) + wx * ppu;
+        const cy = box.top + parseFloat(layer.style.getPropertyValue("--cam-ty")) + wy * ppu;
+        const px = Math.floor(((cx - at.left) * paint.width) / at.width), py = Math.floor(((cy - at.top) * paint.height) / at.height);
+        return [...paint.getContext("2d")!.getImageData(px, py, 1, 1).data];
+    }, [x, y] as const);
+}
+
+/** A theme colour token as the page resolves it, as sRGBA channels: painted on a one-pixel canvas and read back, as the canvas's probe reads its palette. */
+function token(root: Locator, name: string): Promise<number[]> {
+    return root.evaluate((el, variable) => {
+        const probe = document.createElement("span");
+        probe.style.color = `var(${variable})`;
+        el.appendChild(probe);
+        const colour = getComputedStyle(probe).color;
+        probe.remove();
+        const pixel = document.createElement("canvas");
+        pixel.width = 1;
+        pixel.height = 1;
+        const ink = pixel.getContext("2d", { willReadFrequently: true })!;
+        ink.fillStyle = "#000000";
+        ink.fillStyle = colour;
+        ink.fillRect(0, 0, 1, 1);
+        return [...ink.getImageData(0, 0, 1, 1).data];
+    }, name);
 }
 
 /** What passes an edge: the density's words past the rail's inner box, the rail past the frame's, or the page wider than the window. */
@@ -300,4 +341,32 @@ test.describe("Reading by area (#1398)", () => {
         await settled(page);
         await expect(unread).toHaveAttribute("data-schematic-unread", "0");
     });
+});
+
+test.describe("What the canvas paints, read through its 2D context (#1395)", () => {
+    test.skip(({ isMobile }) => isMobile, "a desktop's canvas, one CSS px a canvas pixel");
+
+    for (const theme of ["light", "dark"] as const) {
+        test(`fitted, Hall 1's racks paint a heat step of the theme's and its floor past its 20th row nothing, the ground showing through; zoomed into its front rows, each rack's dot paints its load's status in the theme's token — OK, hot, warm (${theme})`, async ({ page }) => {
+            const root = await openSchematic(page, RECORD_INDEXES, theme);
+            await expect(notice(root)).toBeVisible();
+            // A cell amid Hall 1's racks, read at its centre — the cells lie on the floor's grid of their side, and where two
+            // meet each paints a part of the pixel between them: one of the five heat steps, as the theme resolves them in
+            // this mode.
+            const side = Number(await notice(root).getAttribute("data-density-cell"));
+            const centre = (at: number) => (Math.floor(at / side) + 0.5) * side;
+            const heats = await Promise.all([1, 2, 3, 4, 5].map((step) => token(root, `--chakra-colors-heat-${step}`)));
+            expect(heats.map((heat) => heat.join(",")), "the heat steps' rows").toContainEqual((await painted(root, centre(38.0), centre(26.0))).join(","));
+            // Hall 1's floor behind its 20th row, which no rack stands on, outline or eyebrow near: nothing painted.
+            expect((await painted(root, 38.0, 100.0))[3], "Hall 1's floor past its racks").toBe(0);
+            // Its front rows, zoomed in until each rack's dot stands clear of its neighbours', 0.7 m either side, at its
+            // centre — the racks still dots — each in its load's status: R100000 OK, R100003 hot at 11.1 kW, R100006 warm
+            // at 10.2.
+            await zoomInto(page, root, { minX: 3.0, minY: 3.0, maxX: 46.0, maxY: 33.0 });
+            await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-lod", "dot");
+            await expect.poll(() => painted(root, 3.3, 3.6), "R100000's dot, OK").toEqual(await token(root, "--chakra-colors-status-pos"));
+            expect(await painted(root, 5.4, 3.6), "R100003's dot, hot").toEqual(await token(root, "--chakra-colors-status-neg"));
+            expect(await painted(root, 7.5, 3.6), "R100006's dot, warm").toEqual(await token(root, "--chakra-colors-status-warn"));
+        });
+    }
 });

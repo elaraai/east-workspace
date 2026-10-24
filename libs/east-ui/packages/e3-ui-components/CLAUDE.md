@@ -425,6 +425,40 @@ popover's final View form before history folds; Filters and Save must remain
 inside the toolbar and clickable. Exercise indexed search, far scrolling,
 Save leaving a filter and draft retention in one real e3 workflow per device.
 
+### Schematic windows, drafts and the narrow layout
+
+A kind read by area (#1393) is read through its window (`schematic/area.ts`):
+the viewport the canvas writes to a store of its own, padded by the largest
+card's half, planned by e3-ui's `schematicWindowPlan` — the area index the
+rail's exact choices lead, else the one led by none, the rest asked in one
+`within` — every cell not yet found in one request, and past 5,000 rows in
+view the index's density raster (`schematicRaster`). `made-rows.ts` makes a
+window's rows a budget a read, a frame drawing between, and keeps at most
+`MAX_MADE_ROWS`. The Backlog pages the index's unplaced clause
+(`backlog-pages.ts`) and the Index reads a zone's items by its box
+(`index-area.ts`). Never read the record whole for any of them, and keep the
+record slice's bounds on landed searches.
+
+Every gesture writes through `editing.ts`' sessions, one a record, by original
+key, and `drafted.ts` draws the drafts over the stored rows: a drafted row no
+window holds draws where its draft places it, so Find's pick flies to it
+there; a row Find finds that nothing draws is flown to where its record
+stands, and selected once it draws.
+
+Below 480px of main (`useContainerBelow` on the canvas's element, committed
+before paint, #1394) the canvas registers no drag: the tools in force drop
+Move and Connect (the stored tool is kept), library cards don't drag, and the
+drop cell and the link handles go. Details carries the gestures —
+`inspector.tsx`'s `ConnectTo` and the Backlog card's `UnplacedView`, its
+Place — through the same edits, each held to the host's veto (`edits.ts`'
+`connectVeto`, a verdict kept per pair). On a phone the View bundles the
+tools, the zoom, Fit and the steps; the steps join it as a selection appears,
+folded even while Find's query holds the View (the shared toolbar's held
+bundles keep a joining member at the bundle's form). Test the narrow flow in
+a real browser at 390 and 360px and in a 294px parent — tap, Connect to…,
+Place, Find, Save and a remount — with Save reachable while a rack is
+selected (`schematic-phone.spec.ts`, `schematic-records.spec.ts`).
+
 ### Frame, editing and narrow content
 
 Let BuilderFrame own pane placement, rails, responsive overlays and focus.

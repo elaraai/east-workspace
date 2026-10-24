@@ -44,7 +44,7 @@ export const schematicFloorRacks = e3.record("schematic_floor_racks", DictType(S
     ["B01", { name: "B01", x: 2.4, y: 8.6, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 6.1, capacity: 8.0 }],
     ["B02", { name: "B02", x: 6.0, y: 8.6, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 2.8, capacity: 8.0 }],
 ]));
-/** The floor's racks' patch door: another session's moves of a rack, which the floor redraws. */
+/** The floor's racks' patch door: the handover's Save, and another session's moves of a rack, which the floor redraws. */
 export const schematicFloorRacksPatch = e3.mutation.patch(schematicFloorRacks);
 
 export const schematicFloor = example({
@@ -57,6 +57,46 @@ export const schematicFloor = example({
                 <Box height="440px">
                     <Schematic
                         id="floor"
+                        extent={{ width: 18, height: 12 }}
+                        scaleUnit="m"
+                        items={{
+                            racks: Schematic.items(racks, {
+                                name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name",
+                                sublabel: (r) => r.model,
+                                meter: (r) => ({ value: r.kw, max: r.capacity }),
+                            }),
+                        }}
+                    />
+                </Box>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ----------------------------------------------------------------------------
+// The handover: the same hall edited, with no pane
+// ----------------------------------------------------------------------------
+
+/**
+ * The same hall handed over to its install crew, who move its racks into
+ * place: the racks bound with their patch door, so Move moves them and Del
+ * deletes them, each a step of the history Save writes through it. It is
+ * given no pane — no library and no inspector — so its frame is its toolbar,
+ * its canvas and its footer.
+ */
+export const schematicHandover = example({
+    keywords: [
+        "Schematic", "Schematic.items", "Record.bind", "records", "editing", "Move", "Delete", "Save", "undo", "history", "no pane", "toolbar", "footer", "id",
+    ],
+    description: "The same hall handed over to its install crew, who move its racks into place: the racks bound with their patch door, so Move moves them and Del deletes them, each a step of the history Save writes through it; with no pane — no library and no inspector — its frame is its toolbar, its canvas and its footer",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const racks = $.let(Record.bind(schematicFloorRacks, [schematicFloorRacksPatch]));
+            return (
+                <Box height="440px">
+                    <Schematic
+                        id="handover"
                         extent={{ width: 18, height: 12 }}
                         scaleUnit="m"
                         items={{
