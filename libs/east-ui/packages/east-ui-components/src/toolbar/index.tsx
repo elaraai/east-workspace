@@ -43,7 +43,11 @@
  * apply together, so a chip that takes the place of other controls draws in
  * the step that hides them (`./fold.ts`). A held item holds its bundles: every
  * item sharing one with it keeps its form too, so the controls a chip's open
- * menu holds never unfold beside it.
+ * menu holds never unfold beside it. An item that joins the row while its
+ * bundle is held takes the bundle as it stands — folded where the bundle
+ * applies — so a control appearing beside a held chip (the Schematic's steps,
+ * shown with a selection beside the View its Find's query holds, on a phone,
+ * #1395) joins it folded, never pushing the row past its end.
  */
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -250,13 +254,23 @@ export function Toolbar({ items, gap }: ToolbarProps) {
         for (const el of observed.current) if (!onScreen.has(el)) observer.current?.unobserve(el);
         observed.current = onScreen;
         for (const it of list) if (it.held === true) held.set(it.key, formOf(it));
+        // Whether a bundle applies as the row stands: its members the toolbar has placed stand past their steps of it.
+        const applies = (bundle: string) => list.some((it) => chosen.has(it.key) && bundlesOf(it).some((b, i) => b === bundle && formOf(it) > i));
+        // The form a held bundle keeps a member at: its own, once placed; one joining the row as it is held, the bundle's
+        // as it stands — past each of its steps of a bundle that applies — so it never unfolds beside the chip holding it.
+        const keptForm = (it: ToolbarItem) => {
+            if (chosen.has(it.key)) return formOf(it);
+            let kept = 0;
+            bundlesOf(it).forEach((b, i) => { if (b !== undefined && applies(b)) kept = i + 1; });
+            return kept;
+        };
         // A held item holds its bundles: each item sharing one keeps its form too.
         for (let grew = true; grew;) {
             grew = false;
             const holding = new Set(list.filter((it) => held.has(it.key)).flatMap(bundlesOf).filter((b): b is string => b !== undefined));
             for (const it of list) {
                 if (held.has(it.key) || !bundlesOf(it).some((b) => b !== undefined && holding.has(b))) continue;
-                held.set(it.key, formOf(it));
+                held.set(it.key, keptForm(it));
                 grew = true;
             }
         }
