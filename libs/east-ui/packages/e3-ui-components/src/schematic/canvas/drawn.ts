@@ -11,13 +11,14 @@
  * printed (`entityId`): its kind's slot and its key, so two kinds' rows of one
  * key are two entities. A link's ends and a net's sides name their items so.
  * An item's card draws its details' status, bar, figure and second line where
- * its kind gives none. React-free data in, data out, unit-tested in
- * `drawn.test.ts`.
+ * its kind gives none — and, while its details row is read, a placeholder in
+ * each one's place (#1398): never a value it has not read. React-free data in,
+ * data out, unit-tested in `drawn.test.ts`.
  *
  * @packageDocumentation
  */
 
-import { ArrayType, FloatType, OptionType, StringType, StructType, parseFor, printFor, type ValueTypeOf, type option } from "@elaraai/east";
+import { ArrayType, FloatType, OptionType, StringType, StructType, none, parseFor, printFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 
 const T = Schematic.Types;
@@ -28,6 +29,8 @@ const T = Schematic.Types;
  *
  * @property key - Its id on the canvas: its reference, printed
  * @property ref - Its kind's slot and its key
+ * @property pending - Which of its card's roles its details give, while its details row is read: each a placeholder in
+ *   its place (#1398); `none` once it is read, and for a kind with no details
  */
 export const SchematicDrawnItemType = StructType({
     key: StringType,
@@ -48,6 +51,7 @@ export const SchematicDrawnItemType = StructType({
     fillOpacity: OptionType(FloatType),
     weight: OptionType(FloatType),
     layer: OptionType(StringType),
+    pending: OptionType(T.CardRoles),
 });
 
 /**
@@ -149,6 +153,8 @@ export type LinkRoles = ValueTypeOf<typeof T.Link>;
 export type NetRoles = ValueTypeOf<typeof T.Net>;
 /** A details row's roles. */
 export type DetailsRoles = ValueTypeOf<typeof T.DetailsRoles>;
+/** Which of a card's roles its kind's details give. */
+export type CardRoles = ValueTypeOf<typeof T.CardRoles>;
 
 /** Nothing drawn: a Schematic whose reads have not landed. */
 export const EMPTY_DRAWN: SchematicDrawn = { items: [], zones: [], links: [], nets: [] };
@@ -182,9 +188,10 @@ function either<V>(own: option<V>, details: option<V> | undefined): option<V> {
  * @param ref - Its kind's slot and its key
  * @param roles - Its roles
  * @param details - Its details row's roles, if its kind has details and the row has one
+ * @param pending - The card roles its kind's details give, while its details row is read: its card draws a placeholder in each one's place (#1398)
  * @returns The item, or `undefined` for an unplaced row
  */
-export function drawnItem(ref: SchematicRef, roles: ItemRoles, details: DetailsRoles | undefined): DrawnItem | undefined {
+export function drawnItem(ref: SchematicRef, roles: ItemRoles, details: DetailsRoles | undefined, pending?: CardRoles): DrawnItem | undefined {
     if (roles.position.type !== "some") return undefined;
     return {
         key: entityId(ref),
@@ -205,7 +212,20 @@ export function drawnItem(ref: SchematicRef, roles: ItemRoles, details: DetailsR
         fillOpacity: roles.fillOpacity,
         weight: roles.weight,
         layer: roles.layer,
+        pending: pending === undefined ? none : some(pending),
     };
+}
+
+/**
+ * Whether an item's colour is its status's, and its status unread (#1398): its
+ * details give its status, their row is read, and the item has no colour of
+ * its own — its marker and its card's dot draw a placeholder, never a status.
+ *
+ * @param item - The item
+ * @returns Whether its status is unread
+ */
+export function statusUnread(item: DrawnItem): boolean {
+    return item.pending.type === "some" && item.pending.value.status && item.color.type === "none" && item.tone.type === "none";
 }
 
 /**

@@ -45,6 +45,14 @@
  * way; a tap, a hover, a drop and a selected link's handles meet each one's
  * route as the painter draws it, searched through the links' R-tree.
  *
+ * While a read is in flight (#1398) it washes the area the reads have not
+ * drawn yet, under its grid, with no item's shape in it (CL2); a card whose
+ * details are read keeps the places of the roles they give, a placeholder in
+ * each, and a marker whose status is unread draws in the placeholders' fill —
+ * each on its builder's reveal clock (CL4), which the painter hears with no
+ * render; and a read that failed is said once, at the top-left in view of the
+ * area it failed reading, with Retry (CL11).
+ *
  * Its gestures, its selection funnels, its camera and its paint path are the
  * ones `CLAUDE.md` holds to its invariants: no render-phase ref write, one
  * commit-phase snapshot, the paint's identity short-circuit, the fly before
@@ -65,16 +73,19 @@ import { SCHEMATIC_WINDOW_ROWS, Schematic } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload, type DropCellOptions, type Origin,
 } from "@elaraai/east-ui-components";
+import { LoadingFailedBox, LoadingWash, PlaceholderShape, useRevealed } from "@elaraai/east-ui-components/internal";
 import {
     linkRoutes, markerHit, markerHitbox, netRoutes, paintSchematic, parallelLanes as paintParallelLanes, placedVertices, routeEnv,
     zoneAnchor, type EdgeGeometry, type RGB, type SchematicPaintEffect, type SchematicPalette,
 } from "./paint";
 import { EMPTY_STRING_SET, type ItemBox, linkAt, linkIndex, marqueeHits } from "./selection";
-import { type LodTier, type NavZone, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, byLabel, cardContentWidth, declutterTiers, matchesExtent, tierSize } from "./model";
-import { entityId, refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
+import {
+    type LodTier, type NavZone, type WorldBox, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, byLabel, cardContentWidth, declutterTiers, matchesExtent, tierSize,
+} from "./model";
+import { entityId, refOfId, statusUnread, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
-    FLY_DURATION_MS, IDENTITY, cancelsFly, cardTranslateCss, cardWidthCss, fitView, flyStep, makeRafCoalescer, nextMode, zoomAbout,
+    FLY_DURATION_MS, IDENTITY, boxCss, cancelsFly, cardTranslateCss, cardWidthCss, fitView, flyStep, makeRafCoalescer, nextMode, zoomAbout,
 } from "./camera";
 import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
 import { entityTints, itemTint, tintAttributes, tintsOf } from "./tints";
@@ -206,6 +217,10 @@ const SLOW_READ_MS = 200;
 const NOWHERE_AT = printDropAt(NOWHERE);
 /** The card layer's widest card (#1393): what the recipe holds a card to, but one at its item's own width — the figure `tierSize` and the area read reckon with. */
 const CARD_LAYER_STYLE = { "--schematic-card-max": `${SCHEMATIC_CARD_MAX_PX}px` } as CSSProperties;
+/** Nothing unread. */
+const NO_UNREAD: readonly WorldBox[] = [];
+/** How far inside the area it failed reading a failure's message box sits, from its top-left in view (CL11), in px — and its least room from the canvas's right. */
+const FAILED_INSET_PX = 16;
 
 /** Runs an author's East callback off the event turn (queueMicrotask, per
  *  the interactive-state pattern) with error isolation — a throwing callback
@@ -250,6 +265,27 @@ function statusRing(status: DrawnItem["status"]): boolean {
 function hasDot(item: DrawnItem): boolean {
     return item.status.type === "some" || item.color.type === "some" || item.tone.type === "some";
 }
+
+/**
+ * An item's placeholders' index, from its id (#1398): what keys their bars' widths, the same however the view moves, so
+ * the pattern never crawls as cards come and go.
+ */
+function placeholderIndex(key: string): number {
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) % 9973;
+    return hash;
+}
+
+/**
+ * Tells the canvas whether its builder's reveal shows a read in flight (#1398, CL4), as its clock flips: what its
+ * painted placeholders — a marker whose status is unread — show by. It draws nothing, and its flip renders it alone,
+ * never the canvas. Outside a builder's reveal a placeholder shows, as the shared shapes do.
+ */
+const RevealTell = memo(function RevealTell({ onReveal }: { onReveal: (shown: boolean) => void }) {
+    const shown = useRevealed() !== false;
+    useLayoutEffect(() => { onReveal(shown); }, [shown, onReveal]);
+    return null;
+});
 
 /** How much room a fly leaves about the box it frames: the box at 1 / 1.18 of the canvas's width or height, whichever binds. */
 const FLY_PAD = 1.18;
@@ -372,10 +408,27 @@ export interface SchematicCanvasProps {
     readonly overview?: ReadonlyMap<string, SchematicDensity> | undefined;
     /** Whether a read the drawing needs is in flight: an item a drop or a pick asks to select is waited for until it lands. */
     readonly reading?: boolean | undefined;
+    /** What the reads in flight have not drawn yet, in world units, as disjoint boxes (#1398, CL2): washed, under the grid, until they land. */
+    readonly unread?: readonly WorldBox[] | undefined;
+    /** A read that failed, said once where it happened (CL11), with Retry; `undefined` while none has. */
+    readonly failure?: SchematicCanvasFailure | undefined;
     /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393): the toolbar's Zoom out and Zoom in take no press there. */
     readonly onZoomRange?: ((range: SchematicZoomRange) => void) | undefined;
     /** The canvas's handle, the frame's. */
     readonly ref?: Ref<SchematicCanvasHandle> | undefined;
+}
+
+/**
+ * A read that failed, as the canvas says it once where it happened (#1398, CL11): in the message box, at the top-left in
+ * view of the area it failed reading, with Retry.
+ */
+export interface SchematicCanvasFailure {
+    /** Its words: `Couldn't read this area`, or the kind's or the drawing's, `Couldn't read racks`. */
+    readonly message: string;
+    /** Asks it again. */
+    readonly retry: () => void;
+    /** The area it failed reading, in world units; `undefined` for a kind read whole, or the drawing's read — said at the canvas's top-left. */
+    readonly area: readonly WorldBox[] | undefined;
 }
 
 /** Where the zoom stands (#1393): at Fit, where Zoom out does nothing, and at its limit, where Zoom in does nothing. */
@@ -395,7 +448,7 @@ export interface SchematicZoomRange {
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
     value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
-    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, onZoomRange, ref,
+    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, unread = NO_UNREAD, failure, onZoomRange, ref,
 }: SchematicCanvasProps) {
     // The recipe's styles, resolved once a recipe: the canvas renders at every frame its camera moves.
     const recipe = useSlotRecipe({ key: "schematic" });
@@ -634,6 +687,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     const cardSizesRef = useRef<ReadonlyMap<string, { w: number; h: number }>>(new Map());
     const cardLayerRef = useRef<HTMLDivElement | null>(null);
     const gridRef = useRef<HTMLDivElement | null>(null);
+    // The unread area's layer, under the grid (#1398): its washes follow the camera's custom properties, as the cards do.
+    const washLayerRef = useRef<HTMLDivElement | null>(null);
+    // Whether the painted placeholders show, as the builder's reveal says (CL4): heard by `RevealTell`, read at paint time.
+    const placeholdersRef = useRef(true);
 
     // --- The theme bridge (#1387): every colour and font the canvas draws in ----
     // The colours the drawing names, each entity's by its id: read from what is
@@ -1073,6 +1130,37 @@ export const SchematicCanvas = memo(function SchematicCanvas({
 
     const lod: LodTier = ppu >= LOD_CARD_PPU ? "card" : ppu >= LOD_LABEL_PPU ? "label" : "dot";
 
+    // --- A read that failed (#1398, CL11): said once, at the top-left in view of the area it failed reading. ---
+    // The area's first box in view, topmost then leftmost, at its top-left — the canvas's own for a read with no area —
+    // inset; none while the area is out of view, the footer's line saying it still. Its box measured as it lays out, so
+    // it stays inside the canvas however near its right edge the area begins.
+    const [failedWidth, setFailedWidth] = useState(0);
+    const failedAt = useMemo(() => {
+        if (failure === undefined || size === null || ppu === 0) return undefined;
+        let at: { x: number; y: number } | undefined;
+        if (failure.area === undefined) at = { x: 0, y: 0 };
+        else {
+            const view = {
+                minX: -cameraSnapshot.tx / ppu, minY: -cameraSnapshot.ty / ppu,
+                maxX: (size.w - cameraSnapshot.tx) / ppu, maxY: (size.h - cameraSnapshot.ty) / ppu,
+            };
+            for (const box of failure.area) {
+                const minX = Math.max(box.minX, view.minX), minY = Math.max(box.minY, view.minY);
+                if (minX >= Math.min(box.maxX, view.maxX) || minY >= Math.min(box.maxY, view.maxY)) continue;
+                const sx = minX * ppu + cameraSnapshot.tx, sy = minY * ppu + cameraSnapshot.ty;
+                if (at === undefined || sy < at.y || (sy === at.y && sx < at.x)) at = { x: sx, y: sy };
+            }
+        }
+        if (at === undefined) return undefined;
+        const left = Math.max(FAILED_INSET_PX, Math.min(at.x + FAILED_INSET_PX, size.w - FAILED_INSET_PX - failedWidth));
+        return { top: at.y + FAILED_INSET_PX, left };
+    }, [failure, size, ppu, cameraSnapshot, failedWidth]);
+    useLayoutEffect(() => {
+        const box = failedAt === undefined ? null : canvasRef.current?.querySelector<HTMLElement>("[data-loading-failed-box]") ?? null;
+        const width = box === null ? 0 : box.offsetWidth;
+        if (width !== failedWidth) setFailedWidth(width);
+    }, [failedAt, failedWidth]);
+
     // --- Where the viewport rests (#1393): what a kind read by area reads its window around. ---
     // Told to the reader's store as the camera comes to rest — 100 ms without a move, or while it moves slower than a
     // viewport each 200 ms, a fly never, as it lands where it flies (CL6) — rendering nothing for it; the first at once,
@@ -1187,7 +1275,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; tints: unknown; w: number; h: number; dpr: number; val: unknown;
         lay: unknown; alp: unknown;
         dl: unknown; cf: number; slk: unknown; sle: boolean; dm: unknown; eff: unknown; phase: number;
-        lit: string | undefined; was: string | undefined; cs: unknown; den: unknown;
+        lit: string | undefined; was: string | undefined; cs: unknown; den: unknown; ph: boolean;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -1204,8 +1292,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
 
         // DOM card layer: move every card with three custom-property writes on
         // the parent (compositor only — no per-card layout) — invariant 6.
-        const layer = cardLayerRef.current;
-        if (layer !== null) {
+        for (const layer of [cardLayerRef.current, washLayerRef.current]) {
+            if (layer === null) continue;
             layer.style.setProperty("--cam-ppu", String(ppuLive));
             layer.style.setProperty("--cam-tx", `${cam.tx}px`);
             layer.style.setProperty("--cam-ty", `${cam.ty}px`);
@@ -1237,7 +1325,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             && last.dl === snap.connectDraftWorld && last.cf === cfPhase
             && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable && last.dm === snap.dropMark
             && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current
-            && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizes && last.den === snap.density) return;
+            && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizes && last.den === snap.density
+            && last.ph === placeholdersRef.current) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
             sel: snap.renderSelected, zsel: snap.zoneSelection, pal, tints: snap.tints, w: sz.w, h: sz.h, dpr: dprLive, val: snap.value,
@@ -1245,7 +1334,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             dl: snap.connectDraftWorld, cf: cfPhase,
             slk: snap.selectedLink, sle: snap.selectedLinkEditable, dm: snap.dropMark,
             eff: snap.paintEffect, phase: pulsePhaseRef.current,
-            lit: snap.lit, was: snap.wasLink, cs: cardSizes, den: snap.density,
+            lit: snap.lit, was: snap.wasLink, cs: cardSizes, den: snap.density, ph: placeholdersRef.current,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -1282,11 +1371,20 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 ...(snap.wasLink !== undefined ? { was: snap.wasLink } : {}),
                 // The density at overview, each kind read by area past the rows a window draws (#1393, D25).
                 ...(snap.density.size > 0 ? { density: snap.density } : {}),
+                // A marker whose status is unread draws in the placeholders' fill once the reveal says so (#1398, CL4).
+                placeholders: placeholdersRef.current,
             });
         } catch (err) {
             console.error("[Schematic] paint failed (frame skipped):", err);
         }
     }, []);
+
+    // The builder's reveal flipping (CL4): the painted placeholders show, or go unseen, with no render of the canvas.
+    const onReveal = useCallback((shown: boolean) => {
+        if (placeholdersRef.current === shown) return;
+        placeholdersRef.current = shown;
+        applyCamera();
+    }, [applyCamera]);
 
     // The minimap's paint (#1393): from the commit-phase snapshot, as the canvas's is, and drawn again only as what it
     // shows moves — its element, its size, the zones, the overview, the items, the palette — never as the camera moves:
@@ -2483,6 +2581,15 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         >
             {/* The theme bridge's probe: what the canvas reads its colours and fonts from (#1387). */}
             <SchematicProbe tints={tintIndex.specs} signature={tintIndex.signature} probeRef={probeRef} />
+            {/* The builder's reveal, which the painted placeholders show by (#1398, CL4). */}
+            <RevealTell onReveal={onReveal} />
+            {/* The area the reads in flight have not drawn yet (#1398, CL2): the shared wash, under the grid, each box placed
+                by the camera's custom properties as a card is, so a pan moves it with no render. */}
+            {size !== null && (
+                <Box ref={washLayerRef} css={styles.washLayer} data-schematic-unread={unread.length} aria-hidden="true">
+                    {unread.map((box, i) => <LoadingWash key={i} geometry={boxCss(box)} />)}
+                </Box>
+            )}
             {/* Grid size/position are driven imperatively by applyCamera so
                 they stay locked to the same camera frame as the canvas. */}
             {showGrid && size !== null && <Box ref={gridRef} css={styles.grid} />}
@@ -2513,6 +2620,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                             const meter = getSomeorUndefined(item.meter);
                             const metric = getSomeorUndefined(item.metric);
                             const width = getSomeorUndefined(item.width);
+                            // While its details are read, each role they give holds its place: a placeholder, never a value (#1398).
+                            const pending = getSomeorUndefined(item.pending);
+                            const shape = pending === undefined ? 0 : placeholderIndex(item.key);
                             const iconDef = icon !== undefined
                                 ? findIconDefinition({ prefix: "fas", iconName: icon as IconName })
                                 : undefined;
@@ -2544,16 +2654,25 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                                             <Box as="span" css={styles.itemIcon}><FontAwesomeIcon icon={iconDef} /></Box>
                                         )}
                                         <Box as="span" css={styles.itemLabel} data-card-label="">{item.label}</Box>
-                                        {/* Its colour: its colour token, else its tone, else its status's — its markers' on the canvas (D14, SC26). */}
-                                        {hasDot(item) && <Box as="span" css={styles.statusDot} {...tintAttributes(itemTint(item))} {...(statusRing(item.status) ? { "data-ring": "" } : {})} />}
+                                        {/* Its colour: its colour token, else its tone, else its status's — its markers' on the canvas (D14, SC26);
+                                            its status unread, the dot's place a placeholder. */}
+                                        {statusUnread(item)
+                                            ? <Box as="span" css={styles.statusDot} data-pending=""><PlaceholderShape kind="fill" index={shape} /></Box>
+                                            : hasDot(item) && <Box as="span" css={styles.statusDot} {...tintAttributes(itemTint(item))} {...(statusRing(item.status) ? { "data-ring": "" } : {})} />}
                                     </Box>
-                                    {sublabel !== undefined && <Box css={styles.itemSublabel}>{sublabel}</Box>}
-                                    {meter !== undefined && (
+                                    {pending?.sublabel === true
+                                        ? <Box css={styles.itemSublabel} data-pending=""><PlaceholderShape kind="text" index={shape} /></Box>
+                                        : sublabel !== undefined && <Box css={styles.itemSublabel}>{sublabel}</Box>}
+                                    {pending?.meter === true ? (
+                                        <Box css={styles.meterTrack} data-meter="" data-pending=""><PlaceholderShape kind="fill" index={shape} /></Box>
+                                    ) : meter !== undefined && (
                                         <Box css={styles.meterTrack} data-meter="">
                                             <Box css={styles.meterFill} style={{ width: `${meter.max > 0 ? Math.min(100, (meter.value / meter.max) * 100) : 0}%` }} />
                                         </Box>
                                     )}
-                                    {metric !== undefined && <Box css={styles.itemMetric}>{metric}</Box>}
+                                    {pending?.metric === true
+                                        ? <Box css={styles.itemMetric} data-pending=""><PlaceholderShape kind="number" index={shape} /></Box>
+                                        : metric !== undefined && <Box css={styles.itemMetric}>{metric}</Box>}
                                 </Box>
                             );
                         })}
@@ -2594,6 +2713,11 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                             </Box>
                         );
                     })()}
+                    {/* A read that failed, said once (#1398, CL11): the message box at the top-left in view of the area it
+                        failed reading, with Retry. */}
+                    {failure !== undefined && failedAt !== undefined && (
+                        <LoadingFailedBox message={failure.message} retry={{ onRetry: failure.retry }} at={failedAt} />
+                    )}
                     {showMinimap && minimapBox !== undefined && (
                         <Box
                             css={styles.minimap}

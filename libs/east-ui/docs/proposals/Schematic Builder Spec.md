@@ -407,10 +407,13 @@ On the shared `builder-footer.ts` rail, only what is live (D42):
   significant figures. Under a narrowing the index doesn't lead it adds `the
   filters not applied`;
 - the loading line, as every builder's (#1398), at the rail's trailing end:
-  what is read now in a kind's noun — `Loading racks…` for a window, its
-  details or a kind read complete, `Filtering racks…` while a new
+  what is read now in a kind's noun — `Loading racks in view` for a window,
+  `Loading counts` for its density, `Loading details for 12 racks` while the
+  details of a window's rows that have none drawn are read, `Loading racks…`
+  for a kind read whole or complete, `Filtering racks…` while a new
   narrowing's rows are read and the last stand in — or a read that failed,
-  `Couldn't read racks`, with Retry, as its banner says it (SC32);
+  `Couldn't read racks in view` for a window, `Couldn't read racks` for a
+  kind read whole, with Retry, as the canvas says it (§6.5, SC32);
 - why a gesture, a drop or an inspector edit was refused, until one is recorded;
 - the shared Save notice, `RecordSliceSaveNotice`, for each source a Save took rows out of;
 - where Find's last pick landed on an item the canvas doesn't show as itself,
@@ -430,14 +433,37 @@ inspector is in the end pane when `inspector` is given (§9). Their open tab and
 collapsed state persist under `schematicKeys(id).frame`.
 
 Banners sit under the toolbar: the sessions' (`SessionBanners`, each titled by
-its record), and a source whose narrowing couldn't be read, with Retry.
+its record), and a source the library follows whose narrowing couldn't be
+read, with Retry. A kind's read that fails is no banner: the canvas says it
+where it happened (§6.5).
 
 ### 6.5 Loading
 
 `BuilderFrame.loading` covers the frame until the first window (or complete
-read) and the zones have landed. Later reads keep the canvas, and the previous
-window stays drawn until the next lands (§10.4), main `aria-busy` meanwhile
-(`BuilderFrame.busy`, #1398) and the footer's loading line saying what is read.
+read), its details and the zones have landed. Later reads keep the canvas, and
+the previous window stays drawn until the next lands (§10.4), main `aria-busy`
+meanwhile (`BuilderFrame.busy`, #1398) and the footer's loading line saying
+what is read. While they are in flight (#1398, CL2):
+
+- **The area a window's read has not drawn yet** — the reach it reads less the
+  reach the drawing holds — takes the shared region wash, under the grid, the
+  paint and the cards, with no item's shape in it; an item read before stands
+  in there, real, until the window lands.
+- **A window's rows draw before their details.** A card keeps the place of
+  each role its kind's details give — its status's dot, its bar, its figure,
+  its second line — a placeholder there, never a value it has not read; a dot
+  or a pin whose colour is its unread status draws in the placeholders' fill.
+  A row whose details were drawn before keeps them until they land again. The
+  first read opens on its details: the skeleton waits for them.
+- **The inspector's form** over a row or a details row being read shows each
+  field's label over a placeholder, shaped as its editor's value.
+
+Each placeholder and the wash show only once the wait passes the frame's
+reveal — 150 ms, held 300 ms once shown (CL4) — which the inspector's reads
+start too. A read that fails is said once (CL11): the message box, `Couldn't
+read this area` with Retry, at the top-left in view of the area it failed
+reading — the canvas's own top-left, in the kind's words, for a kind read
+whole and for the drawing's read — and the footer's line.
 
 ## 7. Editing
 
@@ -637,14 +663,16 @@ What each read brings, in the reader components:
   about a sixty-fourth of it, the coarser levels' rows spread over them — one
   `findKeys` of counted ranges, no row read, read once a revision and a
   narrowing beside the window, the last one standing until the next lands.
-- **Kept until replaced.** The previous window stays drawn until the next lands.
+- **Kept until replaced.** The previous window stays drawn until the next lands,
+  the area it does not cover washed meanwhile (§6.5).
 - **Details.** The details of the items a window holds come at every zoom, so
   a dot draws its item's status (D45): read by the runs the window's cells
   are of its area index — at density, the coarser levels' runs — in one
   request of the details record, which e3 answers by reading each entry's key
   from the index, none sent (§12). Each cell's are kept at both records'
   revisions while the window wants it, so a pan reads only the cells it adds;
-  they're read again when either record's revision moves.
+  they're read again when either record's revision moves. A window's rows draw
+  before their details land, each card holding their places (§6.5).
 - **Links and nets** are read complete (D17). A drawn link's end outside the
   window is read by its key, all of a window's in one request (§12).
 - **Readers.** The reads run in components of their own (`SchematicDataReader`,
@@ -990,7 +1018,7 @@ records in the file, and each Schematic named by its `id`:
 | SC29 | `onSelect` hears the whole selection after each change, items, zones, links and nets alike, each by its `Ref`, through the isolated dispatch; `[]` when it is cleared. | renderer | DOM |
 | SC30 | Pans at 60 fps with 2,000 visible items and 200 zones (paint under 16 ms); the 50,000-rack drawing's fit view, a card-zoom window and a pan into a new window are within their budgets. | renderer | `E3_UI_PERF=1`, never in CI |
 | SC31 | The canvas draws in the design system's tokens and its mono font; its recipe owns every style; inline values are geometry only. | renderer, `slot-recipes/schematic.ts` | lint; responsive |
-| SC32 | The frame's skeleton covers the first read; later reads keep the canvas; a failed read is a banner with Retry. | renderer | DOM; `builder-loading.spec.ts` |
+| SC32 | The frame's skeleton covers the first read, its details among it; later reads keep the canvas, washing what a window has not drawn and holding the places of a card's unread details; a failed read is said once on the canvas, at the top-left in view of the area it failed reading, with Retry, and in the footer's line (#1398). | renderer | DOM (`schematic-loading.dom.test.tsx`); `builder-loading.spec.ts`; `schematic-window.spec.ts` |
 | SC33 | A kind or details record bound in a form its read doesn't take (§1, rule 4) is refused at build, naming the form to use. | `kinds.ts` | spec per form |
 | SC34 | A window is read through an area index whose `on` the rail's exact choices fill while its searches stay within 1,024, and otherwise through one with no `on`, the source's shown keys deciding what draws. A kind read by area with no area index without `on`, or through one whose box isn't the kind's roles, is refused as it reads, naming what to declare. | `schematic/window.ts` | spec: the index each `where` reads; the refusals |
 | SC35 | Geometry is drawn about its entity's anchor and moves with it; geometry outside its box draws and is listed in Issues; a `footprint` without `width` and `height` is refused at build. | `kinds.ts`, renderer `canvas/paint.ts` | spec; pure; DOM |

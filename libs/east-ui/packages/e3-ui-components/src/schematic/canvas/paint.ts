@@ -17,7 +17,10 @@
  * (`theme.tsx`, #1387): its own marks' roles, and each entity's colour by its
  * id — its colour token, its tone, or its status's, resolved as the cards
  * resolve theirs (D14). Its labels draw in the font the bridge read from the
- * recipe: the design system's mono face.
+ * recipe: the design system's mono face. A marker whose colour is its status's
+ * while its status is unread — its details row read — draws in the
+ * placeholders' fill once the builder's reveal says so, and is unseen before
+ * (#1398): never a status it has not read.
  *
  * Its links and nets draw in the shared links look (#1403), through the shared
  * Canvas2D painter (`shared/links/canvas.ts`) the Plan's and the Allocation's
@@ -42,7 +45,7 @@ import { placeCaptions, type RibbonCaption } from "../../shared/links/captions.j
 import { LINK_CAPTION_DROP, LINK_CORNER } from "../../shared/links/look.js";
 import type { SchematicDensity } from "../area.js";
 import { type Bbox, type ScreenCamera, bboxOverlaps, pointsBbox, project, viewportWorldBbox } from "./camera";
-import { type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn } from "./drawn";
+import { statusUnread, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn } from "./drawn";
 import { PIN_DOT_W, PIN_GAP, PIN_H, PIN_LEAD_PX, PIN_PAD_X, SCHEMATIC_CARD_MAX_PX, tierSize } from "./model";
 
 /** An Option's value, or `undefined` — East's `match`, as east-ui-components'
@@ -101,6 +104,8 @@ export interface SchematicPalette {
     statusWarn: RGB;
     /** `status.info`. */
     statusInfo: RGB;
+    /** `bg.subtle`: the placeholders' fill — a marker whose status is unread (#1398). */
+    bgSubtle: RGB;
     /** `heat.1` … `heat.5`, lightest first: a density cell's steps (#1393). */
     heat1: RGB;
     heat2: RGB;
@@ -240,6 +245,12 @@ export interface PaintInput {
      * each in its heat step by how many rows it holds, under the zones and every link and item.
      */
     density?: ReadonlyMap<string, SchematicDensity>;
+    /**
+     * Whether the placeholders show (#1398, CL4): a marker — or a footprint — whose colour is its status's while its status
+     * is unread draws in the placeholders' fill once the builder's reveal says so, and is unseen before, its place kept.
+     * Absent, they show.
+     */
+    placeholders?: boolean;
 }
 
 /**
@@ -1036,6 +1047,8 @@ export function paintSchematic(input: PaintInput): void {
     const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, tints, effect, layerHiddenKeys, layerAlpha, draftLink, session, connectFlash, selectedLink, dropMark } = input;
     // An entity's colour by its id, as the bridge resolved it; else its kind's ground.
     const tintOf = (key: string, ground: RGB): string => css(tints.get(key) ?? ground);
+    // Whether a status unread draws its placeholder now: once the builder's reveal says so (#1398, CL4).
+    const placeholders = input.placeholders ?? true;
     // The entity a library card's drop lands on, by its id (#1390).
     const dropOn = dropMark?.kind === "entity" ? dropMark.id : undefined;
     const wx = (x: number) => x * cam.ppu + cam.tx;
@@ -1546,8 +1559,11 @@ export function paintSchematic(input: PaintInput): void {
         if (footprint === undefined || footprint.type === "rect") continue;
         if ((tiers.get(item.key) ?? "dot") !== "card") continue;
         const isSel = selected.has(item.key);
+        // Its status unread, its colour is the placeholders' fill, once revealed; unseen before (#1398).
+        const unread = statusUnread(item);
+        if (unread && !placeholders) continue;
         // Its colour token, else its tone, else its status's — the colour its card's dot is.
-        let tint = tintOf(item.key, p.fgMuted);
+        let tint = unread ? css(p.bgSubtle) : tintOf(item.key, p.fgMuted);
         if (desatOf(item.key)) tint = css(p.fgMuted);
         const a = alphaOf(item.key);
         const fillAlpha = getSomeorUndefined(item.fillOpacity) ?? (isSel ? 0.24 : 0.12);
@@ -1600,7 +1616,9 @@ export function paintSchematic(input: PaintInput): void {
     for (const item of marked) {
         const tier = tiers.get(item.key) ?? "dot";
         if (tier === "card") continue; // rich card rendered by the React layer
-        let tint = tintOf(item.key, p.fgMuted);
+        // Its status unread (#1398): its dot in the placeholders' fill once revealed, unseen before — never a status.
+        const unread = statusUnread(item);
+        let tint = unread ? css(p.bgSubtle) : tintOf(item.key, p.fgMuted);
         if (desatOf(item.key)) tint = css(p.fgMuted);
         const isSel = selected.has(item.key);
         const x = wx(item.x), y = wy(item.y);
@@ -1609,14 +1627,16 @@ export function paintSchematic(input: PaintInput): void {
         ctx.globalAlpha = alphaOf(item.key);
         const ring = statusRing(item.status);
         if (tier === "dot") {
-            ctx.beginPath();
-            ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
-            // A ring status — a tentative one — is an open ring in its tone; any other a filled dot.
-            ctx.fillStyle = ring ? css(p.bgSurface) : tint;
-            ctx.fill();
-            ctx.lineWidth = ring ? 2 : 1.5;
-            ctx.strokeStyle = ring ? tint : css(p.bgSurface);
-            ctx.stroke();
+            if (!unread || placeholders) {
+                ctx.beginPath();
+                ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
+                // A ring status — a tentative one — is an open ring in its tone; any other a filled dot.
+                ctx.fillStyle = ring ? css(p.bgSurface) : tint;
+                ctx.fill();
+                ctx.lineWidth = ring ? 2 : 1.5;
+                ctx.strokeStyle = ring ? tint : css(p.bgSurface);
+                ctx.stroke();
+            }
             if (isSel) {
                 ctx.beginPath();
                 ctx.arc(x, y, 7.5, 0, Math.PI * 2);
@@ -1640,16 +1660,18 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.lineWidth = 1;
                 ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
                 ctx.stroke();
-                // Its dot on its item's point.
-                ctx.beginPath();
-                ctx.arc(x, y, ring ? PIN_DOT_W / 2 - 0.75 : PIN_DOT_W / 2, 0, Math.PI * 2);
-                if (ring) {
-                    ctx.lineWidth = 1.5;
-                    ctx.strokeStyle = tint;
-                    ctx.stroke();
-                } else {
-                    ctx.fillStyle = tint;
-                    ctx.fill();
+                // Its dot on its item's point — its status unread, the placeholders' fill once revealed, unseen before.
+                if (!unread || placeholders) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, ring ? PIN_DOT_W / 2 - 0.75 : PIN_DOT_W / 2, 0, Math.PI * 2);
+                    if (ring) {
+                        ctx.lineWidth = 1.5;
+                        ctx.strokeStyle = tint;
+                        ctx.stroke();
+                    } else {
+                        ctx.fillStyle = tint;
+                        ctx.fill();
+                    }
                 }
                 ctx.fillStyle = css(p.fg);
                 ctx.textBaseline = "middle";

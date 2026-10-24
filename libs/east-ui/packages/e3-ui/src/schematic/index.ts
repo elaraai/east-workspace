@@ -42,7 +42,7 @@ import { SchematicTag, type SchematicTagType } from "./schematic.js";
 import { SchematicShapes } from "./shapes.js";
 import { schematicTemplates } from "./templates.js";
 import {
-    SchematicBoxType, SchematicCandidateType, SchematicDetailsEntryType, SchematicDetailsRolesType, SchematicKindDetailsType, SchematicEmphasisType,
+    SchematicBoxType, SchematicCandidateType, SchematicCardRolesType, SchematicDetailsEntryType, SchematicDetailsRolesType, SchematicKindDetailsType, SchematicEmphasisType,
     SchematicEndsType, SchematicGeometryType, SchematicItemEntryType, SchematicItemKindType, SchematicItemType, SchematicLayerType,
     SchematicLinkEntryType, SchematicLinkKindType, SchematicLinkStyleType, SchematicLinkType, SchematicMeterType, SchematicNarrowedType,
     SchematicNetEntryType, SchematicNetKindType, SchematicNetType, SchematicPointType, SchematicRefType, SchematicRouteType, SchematicSidesType,
@@ -372,6 +372,8 @@ export interface SchematicInternalNamespace extends SchematicNamespace {
         Details: typeof SchematicKindDetailsType;
         /** A details row's roles ({@link SchematicDetailsRolesType}). */
         DetailsRoles: typeof SchematicDetailsRolesType;
+        /** Which of a card's roles its kind's details give ({@link SchematicCardRolesType}). */
+        CardRoles: typeof SchematicCardRolesType;
         /** A stored item: its roles and its row's bytes ({@link SchematicItemEntryType}). */
         ItemEntry: typeof SchematicItemEntryType;
         /** A stored zone ({@link SchematicZoneEntryType}). */
@@ -419,6 +421,7 @@ export const SchematicInternal: SchematicInternalNamespace = Object.assign(Schem
         NetKind: SchematicNetKindType,
         Details: SchematicKindDetailsType,
         DetailsRoles: SchematicDetailsRolesType,
+        CardRoles: SchematicCardRolesType,
         ItemEntry: SchematicItemEntryType,
         ZoneEntry: SchematicZoneEntryType,
         LinkEntry: SchematicLinkEntryType,

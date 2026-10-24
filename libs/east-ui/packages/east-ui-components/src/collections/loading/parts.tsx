@@ -48,12 +48,14 @@ type Styles = Record<string, SystemStyleObject>;
  * - `count`: the Count's 24 × 16 rect;
  * - `check`: a selection's checkbox, drawn disabled until its row lands;
  * - `rowNumber`: a flat sheet's real row number — its place in the collection, plus one;
+ * - `fill`: its host's own box, filled — a shape whose size and corners are its host's: a card's meter track, a
+ *   status's dot (the Schematic's cards);
  * - `wash`: the region wash, over a region whose items have no known position;
  * - `blank`: nothing — the cell's rules alone.
  */
 export type PlaceholderKind =
     | "text" | "number" | "date" | "boolean" | "chip" | "link" | "enum" | "label" | "label2" | "aggregate" | "count" | "check"
-    | "rowNumber" | "wash" | "blank";
+    | "rowNumber" | "fill" | "wash" | "blank";
 
 /** How a kind aligns its shape when its column says nothing: a number's at the end, a boolean's and a count's in the middle. */
 export function placeholderAlign(kind: PlaceholderKind): "start" | "end" | "center" {
@@ -145,6 +147,8 @@ export function PlaceholderShape({ kind, index, number, overlay, styles: given }
                     <Box as="span" css={styles.bar} data-length="enum" />
                 </Box>
             );
+        case "fill":
+            return <Box as="span" css={styles.fill} aria-hidden="true" data-shape={kind} data-unrevealed={hidden} />;
         case "rowNumber":
             return number !== undefined
                 ? <Box as="span" css={styles.number} aria-hidden="true" data-shape={kind}>{number}</Box>

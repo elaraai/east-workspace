@@ -43,6 +43,11 @@
  * none, an own Details giving way to the form; while a record takes no edit
  * (a Save in flight) its controls are off.
  *
+ * While a row of what is selected is read — its own, or its details' — its
+ * section shows its form's fields, each its real label over a placeholder in
+ * its control's place, shaped as its editor's value (#1398): never a value it
+ * has not read, and the form its own height when the row lands.
+ *
  * Issues (SC16) lists the drawing's issues (`issues.ts`), each a control that
  * selects what it names and flies to it.
  *
@@ -63,6 +68,7 @@ import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
 import {
     EastChakraComponent, FieldForm, getSomeorUndefined, useTrackedEvaluation, type BuilderFrameDock, type FieldOption, type Origin,
 } from "@elaraai/east-ui-components";
+import { PlaceholderShape, type PlaceholderKind } from "@elaraai/east-ui-components/internal";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
@@ -218,17 +224,36 @@ function Edits({ styles, available, children, actions }: { styles: Styles; avail
     );
 }
 
-/** A form under its section's head — or, given none, an own Details in its place — remounted after a refused edit so it shows what the row holds again. */
-function Form({ styles, head, section, specs, value, baseline, options, onChange, readOnly, refused }: {
+/** What a field's value is drawn as while its row is read (#1398): the shape of its editor's value. */
+function placeholderOf(spec: FieldSpecValue): PlaceholderKind {
+    switch (spec.editor.type) {
+        case "number": return "number";
+        case "checkbox": return "boolean";
+        case "datetime": return "date";
+        case "select": return "enum";
+        case "tags": return "chip";
+        default: return "text";
+    }
+}
+
+/** A field's control while its row is read: a placeholder in its place, its length keyed to the field, so it never moves. */
+const pendingControl = (spec: FieldSpecValue): ReactNode => <PlaceholderShape kind={placeholderOf(spec)} index={spec.path.join(".").length} />;
+
+/**
+ * A form under its section's head — or, given none, an own Details in its place — remounted after a refused edit so it
+ * shows what the row holds again; while its row is read (`pending`), each field its label over a placeholder (#1398).
+ */
+function Form({ styles, head, section, specs, value, baseline, options, onChange, readOnly, refused, pending = false }: {
     styles: Styles; head: string; section: string; specs: readonly FieldSpecValue[]; value: unknown; baseline: unknown;
     options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
-    onChange: (path: readonly string[], value: unknown) => void; readOnly: boolean; refused?: number;
+    onChange: (path: readonly string[], value: unknown) => void; readOnly: boolean; refused?: number; pending?: boolean;
 }) {
     if (specs.length === 0) return null;
     return (
-        <Box css={styles.fields} data-inspector-fields={section}>
+        <Box css={styles.fields} data-inspector-fields={section} data-pending={pending ? "" : undefined}>
             <Box css={styles.sectionHead}>{head}</Box>
-            <FieldForm key={refused ?? 0} specs={specs} value={value} baseline={baseline} options={options} onChange={onChange} readOnly={readOnly} />
+            <FieldForm key={refused ?? 0} specs={specs} value={value} baseline={baseline} options={options} onChange={onChange} readOnly={readOnly}
+                renderControl={pending ? pendingControl : undefined} />
         </Box>
     );
 }
@@ -468,12 +493,15 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     return { side, writes, available, state, onField, own };
 }
 
-/** A record's side drawn: its form, or its own Details, under its head; reading, or no row, said so. */
-function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty, words }: {
+/** A record's side drawn: its form, or its own Details, under its head; while its row is read, its fields' placeholders; no row, said so. */
+function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty }: {
     styles: Styles; head: string; section: string; side: RecordSide; own: unknown; state: RowState;
-    onField: (path: readonly string[], value: unknown) => void; writes: boolean; storageKey: string; empty: string; words: SchematicWords;
+    onField: (path: readonly string[], value: unknown) => void; writes: boolean; storageKey: string; empty: string;
 }) {
-    if (state.reading) return <Fact styles={styles} fact="reading">{words.m.inspectorReading()}</Fact>;
+    // Read, its form's fields stand at their places, each a placeholder until the row lands (#1398): its head is real.
+    if (state.reading) {
+        return <Form styles={styles} head={head} section={section} specs={side.fields} value={undefined} baseline={undefined} onChange={NO_EDIT} readOnly={!writes} pending />;
+    }
     if (state.row === undefined) return <Fact styles={styles} fact={`${section}-none`}>{empty}</Fact>;
     if (own !== undefined) return <Custom styles={styles} head={head} section={section} ui={own} storageKey={storageKey} />;
     return <Form styles={styles} head={head} section={section} specs={side.fields} value={state.row} baseline={state.baseline}
@@ -533,7 +561,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 status={status} pending={self.state.chip} />
             <Edits styles={styles} available={self.available} actions={actions}>
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={self.own}
-                    state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} words={words} />
+                    state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
                 <Form styles={styles} head={m.inspectorSection({ section: "position", name: kind.name })} section="position" specs={positionSpecs}
                     value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} />
             </Edits>
@@ -541,7 +569,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 <Edits styles={styles} available={theirs.available} actions={undefined}>
                     <SideBody styles={styles} head={m.inspectorSection({ section: "details", name: kind.name })} section="details" side={details}
                         own={theirs.own} state={theirs.state} onField={theirs.onField} writes={theirs.writes}
-                        storageKey={`${storageKey}.inspector.${kind.key}.details`} empty={m.inspectorNoDetails({ name: kind.name })} words={words} />
+                        storageKey={`${storageKey}.inspector.${kind.key}.details`} empty={m.inspectorNoDetails({ name: kind.name })} />
                 </Edits>
             )}
             {(joins.links.length > 0 || joins.nets.length > 0) && (
@@ -585,7 +613,7 @@ function ZoneView(props: ViewProps & { readonly zone: DrawnZone; readonly kind: 
                 when={m.inspectorSize({ width: coordinate(zone.width, words), height: coordinate(zone.height, words), unit })} pending={own.state.chip} />
             <Edits styles={styles} available={own.available} actions={undefined}>
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
-                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} words={words} />
+                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
             </Edits>
         </Box>
     );
@@ -647,7 +675,7 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
                     value={{ from: link.from, to: link.to }} baseline={baseline} options={options}
                     onChange={own.writes ? onEnd : NO_EDIT} readOnly={!own.writes} refused={refused} />
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
-                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} words={words} />
+                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
             </Edits>
         </Box>
     );
@@ -706,7 +734,7 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
                     value={{ sources: keysOf(net.sources), destinations: keysOf(net.destinations) }} baseline={baseline}
                     onChange={own.writes ? onSide : NO_EDIT} readOnly={!own.writes} refused={refused} />
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
-                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} words={words} />
+                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
             </Edits>
         </Box>
     );

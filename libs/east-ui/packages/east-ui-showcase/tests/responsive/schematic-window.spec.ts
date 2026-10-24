@@ -24,7 +24,10 @@
  * the halls either side, hold more; wheeled back out to Fit, the floor is
  * shaded in the cells it opened in, one view one raster by any route. The
  * minimap draws the floor's whole density wherever the view is, never a dot
- * of a rack's, and on a phone keeps to a quarter of the canvas's width.
+ * of a rack's, and on a phone keeps to a quarter of the canvas's width. A pan
+ * into cells not read, the read held, washes what the drawing does not cover
+ * — under the grid, the paint and the cards, moving with the camera as a card
+ * does — until the window lands (#1398, CL2).
  *
  * Every wait is a poll on the page's state, never a fixed pause.
  *
@@ -33,12 +36,15 @@
  */
 
 import { test, expect, type Locator } from "playwright/test";
-import { e3Requests, installE3Faults } from "./e3-faults";
+import { e3Requests, heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo, viewOf, zoomInto, type WorldBox } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The racks' loads, as the page's reads name them. */
 const LOADS = "records.schematic_stress_rack_loads";
+
+/** The racks, as the page's reads name them. */
+const RACKS = "records.schematic_stress_racks";
 
 /** The density's words. */
 const notice = (root: Locator) => root.locator("[data-schematic-footer] [data-schematic-density='racks']");
@@ -237,5 +243,61 @@ test.describe("A tap on the density (#1393)", () => {
         await page.mouse.up();
         await settled(page);
         expect((await loadReads()).length).toBe(read.length);
+    });
+});
+
+test.describe("Reading by area (#1398)", () => {
+    test.skip(({ isMobile }) => isMobile, "a desktop's canvas, whose pan brings in cells its window has not read");
+
+    test("a pan into cells not read washes what the drawing does not cover — under the grid, the paint and the cards, moving with the camera as a card does — until the window lands (CL2)", async ({ page }) => {
+        await installE3Faults(page);
+        const root = await openSchematic(page, RECORD_INDEXES);
+        await expect(notice(root)).toBeVisible();
+        // Hall 1's front rows, its racks dots: a window of fewer racks than a window draws, read and drawn.
+        await zoomInto(page, root, { minX: 3.0, minY: 3.0, maxX: 73.0, maxY: 52.0 });
+        await expect(notice(root)).toHaveCount(0);
+        const unread = root.locator("[data-schematic-unread]");
+        await expect(unread).toHaveAttribute("data-schematic-unread", "0");
+        // The racks' window reads held: a pan of most of the canvas's width brings in cells the window has not read.
+        const hold = await holdE3(page, { kinds: ["find", "runs"], dataset: RACKS });
+        const canvas = (await root.locator("[data-schematic-canvas]").boundingBox())!;
+        const y = canvas.y + canvas.height / 2;
+        await page.mouse.move(canvas.x + canvas.width * 0.85, y);
+        await page.mouse.down();
+        await page.mouse.move(canvas.x + canvas.width * 0.15, y, { steps: 8 });
+        await page.mouse.up();
+        await expect.poll(() => heldE3(page, hold), "the window's read, held").toBeGreaterThan(0);
+        await expect.poll(async () => Number(await unread.getAttribute("data-schematic-unread")), "boxes washed").toBeGreaterThan(0);
+        const wash = unread.locator("[data-loading-wash]").first();
+        // Shown once the reveal's delay has passed, in the shared wash, edge to edge with no shape in it.
+        await expect(wash).not.toHaveAttribute("data-unrevealed", "");
+        const look = await root.evaluate((el) => {
+            const host = el.querySelector("[data-schematic-canvas]")!;
+            const layer = host.querySelector<HTMLElement>("[data-schematic-unread]")!;
+            const box = layer.querySelector<HTMLElement>("[data-loading-wash]")!;
+            const later = [host.querySelector(":scope > canvas"), host.querySelector("[data-schematic-cards]")];
+            return {
+                // The lowest layer: the grid, the paint and the cards come after it, and nothing raises it.
+                under: later.every((other) => other !== null && (layer.compareDocumentPosition(other) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0),
+                raised: getComputedStyle(layer).zIndex,
+                pointer: getComputedStyle(layer).pointerEvents,
+                clipped: getComputedStyle(layer).overflow,
+                visible: getComputedStyle(box).visibility,
+                painted: getComputedStyle(box).backgroundColor !== "rgba(0, 0, 0, 0)",
+                shapes: box.childElementCount,
+            };
+        });
+        expect(look).toEqual({ under: true, raised: "auto", pointer: "none", clipped: "hidden", visible: "visible", painted: true, shapes: 0 });
+        // It moves with the camera, as a card does: a further pan of 50px left moves it 50px left, the window still read.
+        const before = (await wash.boundingBox())!;
+        await page.mouse.move(canvas.x + canvas.width / 2, y);
+        await page.mouse.down();
+        await page.mouse.move(canvas.x + canvas.width / 2 - 50, y, { steps: 5 });
+        await page.mouse.up();
+        await expect.poll(async () => Math.round(((await wash.boundingBox())!.x - before.x) * 10) / 10, "the wash's move").toBe(-50);
+        // Released, the window lands, and nothing is washed.
+        await releaseE3(page, hold);
+        await settled(page);
+        await expect(unread).toHaveAttribute("data-schematic-unread", "0");
     });
 });

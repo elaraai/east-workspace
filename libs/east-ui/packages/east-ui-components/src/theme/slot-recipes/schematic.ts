@@ -6,9 +6,11 @@
 /**
  * Schematic slot recipe — the 2D canvas in its builder frame (#1387,
  * `Schematic Builder Spec.md` §6, "The canvas's theme and styles"): the root
- * the frame fills; the canvas filling main, its metric grid, its paint layer
- * and its card layer; the item cards (icon · label · status dot · meter ·
- * metric), and the card a drop lands on (#1390); the zoom and marquee boxes; a refused connection's caption, the
+ * the frame fills; the canvas filling main, the layer of the area its reads
+ * have not drawn yet (#1398) under its metric grid, its paint layer and its
+ * card layer; the item cards (icon · label · status dot · meter · metric),
+ * each role its details give a placeholder's host while they are read
+ * (`data-pending`), and the card a drop lands on (#1390); the zoom and marquee boxes; a refused connection's caption, the
  * shared drag caption placed on the canvas (#1388); the scale bar and the minimap, which
  * stay on the canvas; the theme bridge's probe; the toolbar's tool controls
  * and the View popover's; the library's tabs (#1389) — a tab's body, the
@@ -122,12 +124,14 @@ const PALETTE_ROLES: Readonly<Record<string, string>> = {
     borderSubtle: "border.subtle", borderStrong: "border.strong",
     statusPos: "status.pos", statusNeg: "status.neg", statusWarn: "status.warn", statusInfo: "status.info",
     heat1: "heat.1", heat2: "heat.2", heat3: "heat.3", heat4: "heat.4", heat5: "heat.5",
+    // The placeholders' fill (#1398): the Skeleton's static `--paper-3`, a marker whose status is unread.
+    bgSubtle: "bg.subtle",
 };
 
 export const schematicSlotRecipe = defineSlotRecipe({
     className: "elara-schematic",
     slots: [
-        "root", "canvas", "paint", "grid", "cardLayer",
+        "root", "canvas", "washLayer", "paint", "grid", "cardLayer",
         "item", "itemHead", "itemIcon", "itemLabel", "statusDot",
         "itemSublabel", "meterTrack", "meterFill", "itemMetric",
         "selectBox", "selectBoxCount", "draftCaption", "scaleBar", "scaleRuler", "scaleLabel",
@@ -176,6 +180,15 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-drag-cell][data-drop-valid]::before, &[data-drag-cell][data-drop-active]::before, &[data-drag-cell][data-drop-invalid]::before": { content: "none" },
             "&[data-drag-cell][data-drop-active], &[data-drag-cell][data-drop-invalid]": { background: "bg.canvas" },
             "&[data-drag-cell][data-drop-invalid]": { cursor: "not-allowed", "&::after": { content: "none" } },
+        },
+        /* The area the canvas's reads have not drawn yet (#1398, CL2): the shared region wash, each box placed by the
+         * camera's custom properties, as the cards are — the lowest layer, under the grid, the paint and the cards, so
+         * the rules and every item drawn stand over it — clipped to the canvas, taking no pointer. */
+        washLayer: {
+            position: "absolute",
+            inset: "0",
+            overflow: "hidden",
+            pointerEvents: "none",
         },
         /* The paint layer: the Canvas2D surface over the grid. */
         paint: {
@@ -307,6 +320,8 @@ export const schematicSlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             background: TINT,
             "&[data-ring]": { background: "transparent", boxShadow: `inset 0 0 0 1.5px ${TINT}` },
+            /* Its status unread (#1398): the placeholder's fill in its place, at its size, and no colour of its own. */
+            "&[data-pending]": { background: "transparent" },
         },
         itemSublabel: {
             fontFamily: "mono",
@@ -318,12 +333,16 @@ export const schematicSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            /* Its details read (#1398): a bar in its place, one line of its own height, so the card stays its size. */
+            "&[data-pending]": { display: "flex", alignItems: "center", minHeight: "1lh" },
         },
         meterTrack: {
             height: "4px",
             background: "bg.subtle",
             borderRadius: "{radii.full}",
             overflow: "hidden",
+            /* Its details read (#1398): the placeholder's fill in the track, unseen until the reveal — no empty bar. */
+            "&[data-pending]": { background: "transparent" },
         },
         meterFill: {
             height: "100%",
@@ -338,6 +357,8 @@ export const schematicSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
+            /* Its details read (#1398): a short bar in its place, one line of its own height, so the card stays its size. */
+            "&[data-pending]": { display: "flex", alignItems: "center", minHeight: "1lh" },
         },
         /* The zoom box (#153) and the marquee (#159): a brand edge around an
          * area fill — the design system's `--brand-tint` at 0.7 — dashed for
