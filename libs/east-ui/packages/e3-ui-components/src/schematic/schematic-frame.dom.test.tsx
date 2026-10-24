@@ -17,8 +17,8 @@
  * footer holds only what is live: it says nothing idle, nor of a change waiting
  * on Save — the counts are the inspector's, the change the history's (§6.3).
  * The frame's skeleton covers the
- * first read, later reads keep the canvas, and a failed read is a banner with
- * Retry (SC32). A card's dot and the canvas's probe resolve one colour chain
+ * first read, later reads keep the canvas, and a failed read is said once on
+ * the canvas, with Retry (SC32, #1398 CL11). A card's dot and the canvas's probe resolve one colour chain
  * (SC26), and the canvas sets nothing inline but geometry (SC31). The minimap
  * draws the whole drawing, its items as dots (#1393).
  */
@@ -421,7 +421,7 @@ test("a Schematic whose kinds are read whole says nothing in its footer while no
     expect(footerOf(container)).toEqual([]);
 });
 
-// ── Loading and failure (SC32) ──────────────────────────────────────────────
+// ── Loading and failure (SC32, #1398 CL11) ──────────────────────────────────
 
 /** Whether a request reads the data centre's racks through their source. */
 const racksSource = (request: { dataset: string | undefined }) => request.dataset === "records.schematic_racks";
@@ -460,25 +460,26 @@ test("the frame's skeleton covers the first read; later reads keep the canvas an
     expect(canvasOf(container)).toBe(canvas);
 });
 
-test("a kind whose read fails is a banner with Retry, the other kinds drawn; Retry reads it again (SC32)", async () => {
+test("a kind whose read fails is said once on the canvas — read through its source, at the canvas's top-left — with Retry, no banner, the other kinds drawn; Retry reads it again (SC32, #1398 CL11)", async () => {
     const stop = h.e3.fail(racksSource);
     const { container, getByRole } = await h.mount(ex.schematicDataCentre);
     await settle();
-    const banner = await waitFor(() => {
-        const found = slot(container, "banners")?.querySelector<HTMLElement>("[data-schematic-banner='racks']");
-        if (found === null || found === undefined) throw new Error("no banner for the racks");
+    const box = await waitFor(() => {
+        const found = canvasOf(container)?.querySelector<HTMLElement>("[data-loading-failed-box]");
+        if (found === null || found === undefined) throw new Error("no failure said for the racks");
         return found;
     });
-    expect(within(banner).getByText("Rack rows could not be read")).toBeDefined();
+    expect([box.querySelector("[data-loading-failed-message]")!.textContent, box.style.top, box.style.left]).toEqual(["Couldn't read racks", "16px", "16px"]);
+    expect(slot(container, "banners")?.querySelector("[data-schematic-banner]") ?? null).toBeNull();
     // The skeleton is gone: every other kind is drawn, and the racks are not.
     expect(container.querySelector("[data-builder-loading]")).toBeNull();
     expect(card(container, "network", "MMR-1")).not.toBeNull();
     expect(card(container, "racks", "A01")).toBeNull();
     stop();
-    await act(async () => { fireEvent.click(within(banner).getByRole("button", { name: "Retry" })); });
+    await act(async () => { fireEvent.click(within(box).getByRole("button", { name: "Retry" })); });
     await settle();
     await waitFor(() => expect(card(container, "racks", "A01")).not.toBeNull());
-    expect(container.querySelector("[data-schematic-banner]")).toBeNull();
+    expect(canvasOf(container).querySelector("[data-loading-failed-box]")).toBeNull();
     expect(getByRole("radio", { name: "Select" })).toBeDefined();
 });
 
@@ -491,8 +492,9 @@ const tintOf = (el: Element) => ["data-surface", "data-color", "data-tone", "dat
 test("the canvas's probe resolves its own marks' colours and fonts, and each colour its drawing names, through the recipe (SC26)", async () => {
     const { container } = await dataCentre();
     const probe = container.querySelector("[data-schematic-probe]")!;
-    // The canvas's own marks: a role each — the density's five heat steps among them (#1393) — and its fonts.
-    expect(probe.querySelectorAll("[data-role]")).toHaveLength(21);
+    // The canvas's own marks: a role each — the density's five heat steps (#1393) and the placeholders' fill (#1398) among
+    // them — and its fonts.
+    expect(probe.querySelectorAll("[data-role]")).toHaveLength(22);
     expect([...probe.querySelectorAll("[data-font]")].map((el) => el.getAttribute("data-font"))).toEqual(["label", "eyebrow"]);
     // Each colour once: the items in their ground, naming none; the rooms outlined in their pattern's muted, the cold aisle hatched in the
     // brand's and the hot in warning's. The fibre runs and the feeds name no tone of their own: they draw in the links' look (#1403).

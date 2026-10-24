@@ -449,8 +449,11 @@ line at narrow widths. The Schematic's footer holds only what is live (ruled 23
 Oct 2026): a kind drawn as its density, how many rows it shades in the view, a
 refused gesture's words, each Save's notice and where Find's pick landed off
 the canvas — its counts and saves are the inspector's, its changes waiting the
-history's — and the shared loading line beside them, in a kind's noun
-(`Loading racks…`). The inspector retains complete coverage/cost totals and
+history's — and the shared loading line beside them, in a kind's noun: what
+is read (`Loading racks in view`, `Loading counts`, `Loading details for 12
+racks`), a source's new narrowing (`Filtering racks…`) or a read that failed,
+with Retry. A kind's failed read is said on the canvas too, never in a banner.
+The inspector retains complete coverage/cost totals and
 explains whole-staff scope when Slice narrows visible people. A collapsed
 Library badge reports availability for the day, while tab counts report the
 library's item count.
@@ -636,8 +639,12 @@ its geometry at once — never the old period's content under its labels — and
 placeholders where its content goes, says a failed read once in place (a line
 in its first row in view, or a box at a grid's top-left where no row can hold
 one), says a true empty only after its read, and holds its toolbar's status,
-issues, history and Publish in their slots from cold load; the renderer guide
-names the parts. Never stretch a few thin text bars
+issues, history and Publish in their slots from cold load. The Schematic keeps
+what it drew while a read is in flight and washes what of the view a kind read
+by area has not drawn; a card draws a placeholder where its details go until
+they land, as the inspector's fields do, and a failed read is said once, in a
+box at the top-left of the area it could not read. The renderer guide names
+the parts. Never stretch a few thin text bars
 through a tall host with `flex: 1` on each row. Spare body height stays empty;
 short hosts clip the placeholder list. Assert row height and placeholder-to-row
 height ratio at desktop and phone widths, not merely skeleton presence.

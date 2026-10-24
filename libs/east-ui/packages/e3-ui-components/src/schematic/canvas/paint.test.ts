@@ -9,7 +9,8 @@
  * renders from: centre, radius, endpoints-on-circle, and — the bit a data test
  * can't catch — that the arc bulges to the side the bulge sign dictates. A
  * drop's marks (#1390), the narrowing's context, emphasis and frame (#1392),
- * and the links' look (#1403) are asserted over a 2D context that records what
+ * a marker whose status is unread (#1398), and the links' look (#1403) are
+ * asserted over a 2D context that records what
  * each stroke and fill draws — its style, width, dash and alpha, and its path's
  * arcs — and each text; the links' routes, each end on an item's edge where it
  * draws at the zoom, over the routes themselves.
@@ -299,6 +300,53 @@ describe("what is selected draws last (#1393)", () => {
     });
 });
 
+describe("a marker whose status is unread (#1398)", () => {
+    const T = Schematic.Types;
+    /** Its details, which give its status, read: the card roles they give. */
+    const UNREAD = { status: true, meter: false, metric: false, sublabel: false };
+    const at = (key: string, x: number, roles: Partial<ReturnType<typeof defaultValue<typeof T.Item>>> = {}) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label: key, ...roles,
+    }, undefined, UNREAD)!;
+    /** The placeholders' fill (`bgSubtle`), and the paper (`bgSurface`). */
+    const FILL = "rgb(21,21,21)", PAPER = "rgb(8,8,8)";
+
+    /** The fills about a point, in screen px, as a frame paints the items at a tier, the placeholders shown or not. */
+    function fillsAt(items: readonly DrawnItem[], tier: LodTier, placeholders: boolean, x: number, selected: ReadonlySet<string> = new Set()) {
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: { items: [...items], zones: [], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: items, tiers: new Map(items.map((i) => [i.key, tier])), selected, selectedZones: new Set(),
+            centers: new Map(items.map((i) => [i.key, { x: i.x, y: i.y }])), palette: PALETTE, tints: new Map(), placeholders,
+        });
+        return { fills: drawn.filter((d) => d.op === "fill" && d.arcs.some((r) => r.x === x && r.y === 20)).map((d) => d.style), drawn };
+    }
+
+    it("a dot draws nothing until the reveal says so, then the placeholders' fill — never a status", () => {
+        const rack = at("A", 2);
+        expect(fillsAt([rack], "dot", false, 20).fills).toEqual([]);
+        expect(fillsAt([rack], "dot", true, 20).fills).toEqual([FILL]);
+    });
+
+    it("a pin draws its words and its pill at once, its dot the placeholders' fill once revealed", () => {
+        const rack = at("A", 2);
+        const unseen = fillsAt([rack], "label", false, 20);
+        expect(unseen.fills).toEqual([]);
+        expect(unseen.drawn.filter((d) => d.op === "fill").map((d) => d.style)).toEqual([PAPER]);
+        expect(fillsAt([rack], "label", true, 20).fills).toEqual([FILL]);
+    });
+
+    it("an item with a colour of its own draws it, whatever its status: its colour is read", () => {
+        const toned = at("A", 2, { tone: some(variant("danger", null)) });
+        expect(fillsAt([toned], "dot", false, 20).fills).toEqual(["rgb(5,5,5)"]);
+    });
+
+    it("selected, its ring draws though its dot waits on the reveal", () => {
+        const rack = at("A", 2);
+        const { drawn } = fillsAt([rack], "dot", false, 20, new Set([rack.key]));
+        expect(drawn.filter((d) => d.op === "stroke" && d.arcs.some((r) => r.x === 20 && r.r === 7.5)).length).toBe(1);
+    });
+});
+
 describe("the density (#1393, ruled 23 Oct 2026)", () => {
     const rgb = (c: RGB) => `rgb(${c[0]},${c[1]},${c[2]})`;
     const HEAT = [PALETTE.heat1, PALETTE.heat2, PALETTE.heat3, PALETTE.heat4, PALETTE.heat5].map(rgb);
@@ -518,7 +566,7 @@ const LINKS: SchematicPalette["links"] = {
 /** A palette whose every role is its own colour: the brand's line `rgb(10,20,30)`, its wash `rgb(40,50,60)`; the links' look each part's own. */
 const PALETTE: SchematicPalette = (() => {
     const roles = ["brandMark", "brandSolid", "brandTint", "fg", "fgStrong", "fgMuted", "fgSubtle", "fgFaint", "bgSurface", "bgCanvas",
-        "borderSubtle", "borderStrong", "statusPos", "statusNeg", "statusWarn", "statusInfo", "heat1", "heat2", "heat3", "heat4", "heat5"] as const;
+        "borderSubtle", "borderStrong", "statusPos", "statusNeg", "statusWarn", "statusInfo", "heat1", "heat2", "heat3", "heat4", "heat5", "bgSubtle"] as const;
     const palette = Object.fromEntries(roles.map((role, i): [string, RGB] => [role, [i, i, i]])) as unknown as SchematicPalette;
     return { ...palette, brandSolid: [10, 20, 30], brandTint: [40, 50, 60], labelFont: "10px mono", eyebrowFont: "9px mono", links: LINKS };
 })();

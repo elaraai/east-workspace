@@ -36,7 +36,7 @@ describe("the loading parts", () => {
     });
 
     test("every shape is aria-hidden and states no value", () => {
-        const kinds: PlaceholderKind[] = ["text", "number", "date", "boolean", "chip", "link", "enum", "label", "label2", "aggregate", "count", "check", "rowNumber"];
+        const kinds: PlaceholderKind[] = ["text", "number", "date", "boolean", "chip", "link", "enum", "label", "label2", "aggregate", "count", "check", "rowNumber", "fill"];
         wrap(<div>{kinds.map((kind) => <PlaceholderShape key={kind} kind={kind} index={3} />)}</div>);
         const shapes = [...document.querySelectorAll("[data-shape]")];
         expect(shapes.map((shape) => shape.getAttribute("data-shape"))).toEqual(kinds);
@@ -89,7 +89,7 @@ describe("the loading parts", () => {
     test("under a builder's reveal every shape and the wash keep their footprint unseen until it says so; a real row number shows at once (CL4)", () => {
         vi.useFakeTimers();
         try {
-            const kinds: PlaceholderKind[] = ["text", "number", "date", "boolean", "chip", "link", "enum", "label", "label2", "aggregate", "count"];
+            const kinds: PlaceholderKind[] = ["text", "number", "date", "boolean", "chip", "link", "enum", "label", "label2", "aggregate", "count", "fill"];
             wrap(
                 <LoadingReveal waiting>
                     {kinds.map((kind) => <PlaceholderShape key={kind} kind={kind} index={3} />)}

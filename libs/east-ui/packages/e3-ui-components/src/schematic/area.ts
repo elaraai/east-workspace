@@ -84,6 +84,15 @@
  * which the drawing keeps; and a window of thousands of rows new to it is
  * made over several reads, a frame drawing between (#1393).
  *
+ * # What it says while it reads
+ *
+ * While a kind's window is read, the reader says what the read waits on — its
+ * rows, or its density's counts ({@link SchematicAreaReader.waiting}), what
+ * the footer's loading line names — and the window it reads
+ * ({@link SchematicAreaReader.wanted}), each read saying the window it was
+ * read for: the canvas washes what of the window the drawing does not cover
+ * yet ({@link unreadArea}, #1398, CL2).
+ *
  * @packageDocumentation
  */
 
@@ -366,6 +375,48 @@ function overlap(a: WorldBox, b: WorldBox): WorldBox | undefined {
     return minX < maxX && minY < maxY ? { minX, minY, maxX, maxY } : undefined;
 }
 
+/**
+ * What of a box another leaves (#1398): up to four boxes, disjoint — the
+ * strips above and below the other, then those beside it, between them. The
+ * box whole where the two do not overlap; none where the other covers it.
+ *
+ * @param a - The box
+ * @param b - What is taken from it; `undefined`, nothing
+ * @returns What of `a` lies outside `b`
+ */
+export function boxMinus(a: WorldBox, b: WorldBox | undefined): WorldBox[] {
+    const cut = b === undefined ? undefined : overlap(a, b);
+    if (cut === undefined) return [a];
+    const out: WorldBox[] = [];
+    if (cut.minY > a.minY) out.push({ minX: a.minX, minY: a.minY, maxX: a.maxX, maxY: cut.minY });
+    if (cut.maxY < a.maxY) out.push({ minX: a.minX, minY: cut.maxY, maxX: a.maxX, maxY: a.maxY });
+    if (cut.minX > a.minX) out.push({ minX: a.minX, minY: cut.minY, maxX: cut.minX, maxY: cut.maxY });
+    if (cut.maxX < a.maxX) out.push({ minX: cut.maxX, minY: cut.minY, maxX: a.maxX, maxY: cut.maxY });
+    return out;
+}
+
+/**
+ * The area a drawing's reads in flight have not drawn yet (#1398, CL2): each
+ * kind's window being read, less the reach of the window its drawing holds —
+ * what the canvas washes, as boxes disjoint from one another, so where two
+ * kinds' unread areas meet it washes once.
+ *
+ * @param parts - Each kind read by area whose window is read: the reach it reads, and the reach its drawing holds — `undefined` for none yet
+ * @returns The unread area, as disjoint boxes
+ */
+export function unreadArea(parts: readonly { readonly want: WorldBox; readonly have: WorldBox | undefined }[]): WorldBox[] {
+    const out: WorldBox[] = [];
+    for (const { want, have } of parts) {
+        for (const piece of boxMinus(want, have)) {
+            // What an earlier kind's unread area holds already is washed once.
+            let rest = [piece];
+            for (const held of out) rest = rest.flatMap((box) => boxMinus(box, held));
+            out.push(...rest);
+        }
+    }
+    return out;
+}
+
 /** An estimate's count, as it is said: whole below a hundred, else to two significant figures. */
 function roughly(n: number): number {
     if (n < 100) return Math.round(n);
@@ -387,6 +438,8 @@ export interface SchematicWindowRead {
     readonly at: { readonly cells: readonly RecordSliceCell[] } | { readonly runs: readonly Range[] };
     /** What its rows were read from: the same parts, the same rows. */
     readonly from: readonly unknown[];
+    /** The window it was read for: the drawing it makes covers that window's reach. */
+    readonly window: SchematicWindow;
 }
 
 /** A kind's rows read by area, the narrowing asked of them (#1393). */
@@ -535,7 +588,12 @@ interface Slot {
     details?: { readonly details: Details; readonly from: readonly (readonly RecordSliceJoined[])[]; readonly rows: StoredRows };
     /** The rows its window holds, as the frame is handed them. */
     holding?: { readonly revision: string; readonly rows: ReadonlyMap<string, { readonly row: Uint8Array }> };
+    /** What its window's read waits on while it is in flight: its rows, or its density's counts (#1398, CL3). */
+    waiting?: SchematicWindowWait | undefined;
 }
+
+/** What a kind's window's read waits on: its rows — its cells' counts and entries, the coarser levels' — or its density's counts. */
+export type SchematicWindowWait = "rows" | "counts";
 
 /**
  * The reader's state across reads (see the module docs): each kind's window,
@@ -599,12 +657,17 @@ export class SchematicAreaReader {
      * @returns What the window holds; {@link READING} while a search or a read is in flight
      */
     window(kind: SchematicAreaKind, part: Part, areas: SchematicAreaIndexes, viewport: SchematicViewport, dim: boolean, extent: WorldBox): SchematicWindowRead | Reading {
+        const slot = this.slotOf(kind.key);
+        // Until it lands, what it waits on is said: its rows, or its density's counts.
+        slot.waiting = "rows";
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
-        const slot = this.slotOf(kind.key);
         const planned = this.plannedOf(slot, part, areas, dim ? NO_WHERE : part.read().where, this.windowFor(slot, viewport, extent));
         const last = slot.read;
-        if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision.value)) return last.read;
+        if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision.value)) {
+            slot.waiting = undefined;
+            return last.read;
+        }
         const found = this.foundOf(slot, part, planned, revision.value);
         if (found === READING) return READING;
         // The rows are read while the viewport holds no more than a window draws — by the cells' counts, else by the
@@ -614,15 +677,40 @@ export class SchematicAreaReader {
         if (!capped && cellsInView(planned.places, found.counts, viewport.box, extent) <= SCHEMATIC_WINDOW_ROWS) {
             read = this.rows(slot, part, planned, revision.value);
         } else {
+            slot.waiting = "counts";
             const raster = this.rasterOf(slot, part, planned, revision.value, dim);
             if (raster === READING) return READING;
+            slot.waiting = "rows";
             read = !capped && densityInView(raster.density, viewport.box, extent).rows <= SCHEMATIC_WINDOW_ROWS
                 ? this.rows(slot, part, planned, revision.value)
                 : this.density(slot, part, planned, revision.value, raster);
         }
         if (read === READING) return READING;
+        slot.waiting = undefined;
         slot.read = { planned, revision: revision.value, read, capped };
         return read;
+    }
+
+    /**
+     * The window a kind reads now (#1398): its viewport's, or the one it holds while it holds — what the canvas washes
+     * the part of its drawing does not cover, while its read is in flight.
+     *
+     * @param slot - The kind's slot
+     * @returns The window; `undefined` before the kind has planned one
+     */
+    wanted(slot: string): SchematicWindow | undefined {
+        return this.slots.get(slot)?.window;
+    }
+
+    /**
+     * What a kind's window's read waits on, while it is in flight (#1398, CL3): its rows — `Loading racks in view` — or
+     * its density's counts — `Loading counts`.
+     *
+     * @param slot - The kind's slot
+     * @returns What it waits on; `undefined` while its read has landed
+     */
+    waiting(slot: string): SchematicWindowWait | undefined {
+        return this.slots.get(slot)?.waiting;
     }
 
     /**
@@ -671,7 +759,7 @@ export class SchematicAreaReader {
     private rows(slot: Slot, part: Part, planned: Planned, revision: string): SchematicWindowRead | Reading {
         const entries = this.entriesOf(slot, part, planned.plan.index.name, revision, planned.cells);
         if (entries === READING) return READING;
-        return { plan: planned.plan, revision, rows: rowsOfEntries(entries), density: undefined, at: { cells: planned.cells }, from: entries };
+        return { plan: planned.plan, revision, rows: rowsOfEntries(entries), density: undefined, at: { cells: planned.cells }, from: entries, window: planned.window };
     }
 
     /**
@@ -731,7 +819,10 @@ export class SchematicAreaReader {
             entries = read.entries;
             runs = read.runs;
         }
-        return { plan: planned.plan, revision, rows: rowsOfEntries([entries]), density: raster.density, at: { runs }, from: [entries, raster.density] };
+        return {
+            plan: planned.plan, revision, rows: rowsOfEntries([entries]), density: raster.density, at: { runs }, from: [entries, raster.density],
+            window: planned.window,
+        };
     }
 
     /** A window's density raster and its searches, planned again only with the window's plan. */

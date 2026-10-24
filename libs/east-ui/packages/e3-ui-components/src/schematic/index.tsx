@@ -34,10 +34,14 @@
  *   each Save's notice; and where Find's last pick landed off the canvas, why.
  *   The drawing's counts and each record's last save are the inspector's
  *   (`counts.ts`), the changes waiting on Save the history's;
- * - **the banners** — a kind whose read failed, each with Retry: a kind read
- *   through its source of the slice asks the source again, and one read whole
- *   is read again; and each record's session's (`SessionBanners`), titled by
- *   its kind;
+ * - **the banners** — each record's session's (`SessionBanners`), titled by
+ *   its kind, and each source the library follows whose narrowing could not be
+ *   read, with Retry. A kind's read that fails is said once where it happened
+ *   (#1398, CL11): on the canvas, at the top-left in view of the area it failed
+ *   reading — the canvas's own top-left for a kind read whole or the drawing's
+ *   read — with Retry, and in the footer's line: a kind read through its
+ *   source of the slice asks the source again, and one read whole is read
+ *   again;
  * - **the library** — the start pane, when `library` lists a tab (#1389,
  *   `library.tsx`): every kind's templates, the item kinds' backlog, the
  *   zones' Index — the zone the viewport is in marked, a row's click flying
@@ -71,7 +75,11 @@
  *   kind has been read once (or its read failed); later reads keep the canvas
  *   and what it draws until they land, main `aria-busy` meanwhile
  *   (`BuilderFrame.busy`, #1398 CL12), as it is while a narrowing resolves
- *   (§6.5, §10.4).
+ *   (§6.5, §10.4) — the canvas washing the area a window's read has not drawn
+ *   yet, and a card whose details are read holding their places (CL2); the
+ *   footer's line saying what is read (CL3); each placeholder and the line on
+ *   the frame's one reveal clock (CL4), the inspector's reads among what it
+ *   waits on.
  *
  * Every gesture is one step of one history over a session per record the
  * Schematic writes (`editing.ts`, #1388): the canvas records each gesture's
@@ -98,15 +106,16 @@ import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
     implementUIComponent, typedInto, useDataStable, useFormatters, usePersistedState, useSlicesReactivity, type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, schematicColorTokens, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
-import { pagedLoadingLine } from "../shared/loading.js";
+import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicBacklogPages, type BacklogAreaKind, type BacklogPageCount } from "./backlog-pages.js";
-import { SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasHandle, type SchematicCanvasNarrowing, type SchematicZoomRange } from "./canvas/view.js";
+import {
+    SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasFailure, type SchematicCanvasHandle, type SchematicCanvasNarrowing, type SchematicZoomRange,
+} from "./canvas/view.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
 import { hostZones, zoneHolding } from "./canvas/model.js";
@@ -606,7 +615,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         return part === undefined ? [] : [{ slot: kind.key, slice: part, singular: words.m.kindNoun({ name, plural: false }), plural: words.m.kindNoun({ name, plural: true }) }];
     }), [value.items, value.zones, value.links, value.nets, value.readOnly, chrome, words]);
 
-    // ── The banners (§6.4, SC32): a kind whose read failed, with Retry ──
+    // ── A read that failed, said once where it happened (#1398, CL11) ──
     const kindName = useMemo(() => new Map([...value.items, ...value.zones, ...value.links, ...value.nets].map((kind) => [kind.key, kind.name] as const)),
         [value.items, value.zones, value.links, value.nets]);
     // A kind read through its source asks its source again; one read whole is read again.
@@ -615,30 +624,58 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         if (part !== undefined) part.retry();
         else readAgain();
     }, [chrome, readAgain]);
-    const failures = [...data.failures];
+    // A kind's rows, as the line names them — `racks`, one `rack`.
+    const nounOf = useCallback((slot: string, plural = true) => words.m.kindNoun({ name: (kindName.get(slot) ?? slot).toLocaleLowerCase(words.locale), plural }),
+        [kindName, words]);
+    // On the canvas, at the top-left in view of the area it failed reading — the canvas's own for a kind read whole and
+    // the drawing's read — with Retry: the drawing's first, then the first kind's in the Schematic's order.
+    const canvasFailure = useMemo((): SchematicCanvasFailure | undefined => {
+        if (data.error !== undefined) {
+            return { message: loadingLineText(words.m.lineFailed({ noun: words.m.drawingNoun(), from: undefined, to: undefined })), retry: () => retry(undefined), area: undefined };
+        }
+        const [failure] = data.failures;
+        if (failure === undefined) return undefined;
+        const [slot] = failure;
+        const area = data.failedAreas.get(slot);
+        const message = area !== undefined ? words.m.areaFailed() : loadingLineText(words.m.lineFailed({ noun: nounOf(slot), from: undefined, to: undefined }));
+        return { message, retry: () => retry(slot), area };
+    }, [data.error, data.failures, data.failedAreas, words, nounOf, retry]);
     // ── The footer's loading line (#1398, CL3): a read that failed first — the drawing's, a kind's, then a narrowing's the
     // frame follows — then what is read, then a narrowing resolving ──
-    // A kind's rows, as the line names them — `racks`.
-    const nounOf = useCallback((slot: string) => words.m.kindNoun({ name: (kindName.get(slot) ?? slot).toLocaleLowerCase(words.locale), plural: true }),
-        [kindName, words]);
     // A kind's source the frame follows whose narrowing resolves, its last standing in: `Filtering racks…`.
     const resolving = [...sourced].find((slot) => { const one = followed.get(slot); return one !== undefined && one.shown.busy && one.error === undefined; });
     const reading = data.reading;
     const line = useMemo((): LoadingLineValue | undefined => {
-        const failed = (noun: string, reason: string, again: () => void) =>
-            pagedLoadingLine({ kind: "failed", from: undefined, to: undefined, reason }, noun, words.m, words.number, again);
-        if (data.error !== undefined) return failed(words.m.drawingNoun(), data.error, () => retry(undefined));
+        const m = words.m;
+        const failed = (text: LoadingLineText, reason: string, again: () => void): LoadingLineValue =>
+            ({ kind: "failed", text, short: m.lineShort({ kind: "failed" }), reason, onRetry: again, retry: m.retry() });
+        const loading = (text: LoadingLineText, filtering: boolean): LoadingLineValue =>
+            ({ kind: "loading", text, short: m.lineShort({ kind: filtering ? "filtering" : "loading" }) });
+        if (data.error !== undefined) return failed(m.lineFailed({ noun: m.drawingNoun(), from: undefined, to: undefined }), data.error, () => retry(undefined));
         const [failure] = data.failures;
-        if (failure !== undefined) return failed(nounOf(failure[0]), failure[1], () => retry(failure[0]));
+        if (failure !== undefined) {
+            const [slot, reason] = failure;
+            const noun = nounOf(slot);
+            return failed(data.failedAreas.has(slot) ? m.lineFailedInView({ noun }) : m.lineFailed({ noun, from: undefined, to: undefined }), reason, () => retry(slot));
+        }
         // A source the frame follows whose narrowing could not be read: in its own noun, its Retry its own.
         const unread = [...followed.values()].find((source) => source.error !== undefined);
-        if (unread?.error !== undefined) return failed(unread.name, unread.error, unread.retry);
+        if (unread?.error !== undefined) return failed(m.lineFailed({ noun: unread.name, from: undefined, to: undefined }), unread.error, unread.retry);
         if (reading !== undefined) {
-            return pagedLoadingLine(reading.filtering ? { kind: "filtering" } : { kind: "loading", from: undefined, to: undefined }, nounOf(reading.slot),
-                words.m, words.number, () => retry(reading.slot));
+            const noun = nounOf(reading.slot);
+            if (reading.filtering) return loading(m.lineFiltering({ noun }), true);
+            switch (reading.what) {
+                case "area": return loading(m.lineInView({ noun }), false);
+                case "counts": return loading(m.lineCounts(), false);
+                case "details": {
+                    const n = reading.waiting;
+                    return loading(m.lineDetails({ n, count: words.number(n), noun: nounOf(reading.slot, n !== 1) }), false);
+                }
+                case "rows": return loading(m.lineLoading({ noun, from: undefined, to: undefined }), false);
+            }
         }
-        return resolving === undefined ? undefined : pagedLoadingLine({ kind: "filtering" }, nounOf(resolving), words.m, words.number, () => retry(resolving));
-    }, [data.error, data.failures, followed, reading, resolving, nounOf, words, retry]);
+        return resolving === undefined ? undefined : loading(m.lineFiltering({ noun: nounOf(resolving) }), true);
+    }, [data.error, data.failures, data.failedAreas, followed, reading, resolving, nounOf, words, retry]);
     // Each source the library follows whose narrowing could not be read, with Retry (#1389).
     const followedFailures = [...followed.values()].filter((source) => source.error !== undefined);
     // Each record's session's banners, titled by its kind, an issue placed by the item it names.
@@ -648,18 +685,12 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const name = kindName.get(slot) ?? slot;
         return stringEqual(slot, key) ? name : words.m.detailsName({ name });
     };
-    const banners = failures.length === 0 && data.error === undefined && sessions.length === 0 && followedFailures.length === 0 ? undefined : (
+    const banners = sessions.length === 0 && followedFailures.length === 0 ? undefined : (
         <>
             {sessions.map((part) => (
                 <SessionBanners key={part.key} session={part.session} words={editingWords} name={sessionName(part.kind)}
                     where={(issue) => labels.get(entityId({ kind: recordSlot(part.kind), key: issue.entry })) ?? issue.entry}
                     onAction={(action) => history.actOn(part.key, action)} />
-            ))}
-            {failures.map(([slot, message]) => (
-                <Box key={slot} data-schematic-banner={slot}>
-                    <BannerView status="error" title={words.m.kindUnavailable({ name: kindName.get(slot) ?? slot })} description={message}
-                        actions={<Button size="xs" variant="outline" onClick={() => retry(slot)}>{words.m.retry()}</Button>} />
-                </Box>
             ))}
             {followedFailures.map((source) => (
                 <Box key={source.name} data-schematic-banner="source">
@@ -667,12 +698,6 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                         actions={<Button size="xs" variant="outline" onClick={source.retry}>{words.m.retry()}</Button>} />
                 </Box>
             ))}
-            {data.error !== undefined && (
-                <Box data-schematic-banner="">
-                    <BannerView status="error" title={words.m.drawingUnavailable()} description={data.error}
-                        actions={<Button size="xs" variant="outline" onClick={() => retry(undefined)}>{words.m.retry()}</Button>} />
-                </Box>
-            )}
         </>
     );
 
@@ -683,6 +708,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const inspected = useDataStable(inspectedNow, inspectedEqual);
     const inspectedRef = inspected.view === "entity" || inspected.view === "leg" ? inspected.ref : undefined;
     const [inspectedRows, setInspectedRows] = useState<SchematicInspectedRows>(NO_INSPECTED_ROWS);
+    // Its rows in flight: what the frame's reveal waits on too, so its placeholders show by the same clock (#1398, CL4).
+    const inspectorReading = inspectedRows.ref !== undefined && (inspectedRows.row.state === "reading" || inspectedRows.details?.state === "reading");
     // Its open tab, kept per viewer; Enter, or a double-click on an entity, opens Details — the pane too, collapsed.
     const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" });
     const onInspectorTab = useCallback((tab: string) => setInspectorTab({ tab }), [setInspectorTab]);
@@ -719,8 +746,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         <Box css={styles.root} data-schematic="">
             {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
             {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
-            {/* The frame's one reveal clock (CL4): the footer's line shows a read in flight after 150 ms, held 300 ms once shown. */}
-            <LoadingReveal waiting={line?.kind === "loading"}>
+            {/* The frame's one reveal clock (CL4): the footer's line, the canvas's wash and placeholders and the inspector's show a
+                read in flight after 150 ms, held 300 ms once shown. */}
+            <LoadingReveal waiting={line?.kind === "loading" || inspectorReading}>
                 <BuilderFrame
                     ref={frameRef}
                     storageKey={keys.frame}
@@ -741,7 +769,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                         words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
                         viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
-                        onZoomRange={setZoomRange} />
+                        unread={data.unread} failure={canvasFailure} onZoomRange={setZoomRange} />
                 </BuilderFrame>
             </LoadingReveal>
         </Box>

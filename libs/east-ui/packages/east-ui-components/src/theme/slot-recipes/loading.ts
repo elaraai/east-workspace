@@ -25,6 +25,9 @@
  *     `--placeholder-share`, so the pattern never crawls. Nothing in them
  *     moves. Inside a builder's `LoadingReveal` each is unseen, at its
  *     footprint, until the reveal says so (`data-unrevealed`, CL4).
+ *   - fill: its host's own box, filled — its host's size and corners, a card's
+ *     meter track or a status's dot, which the host gives no fill of its own
+ *     while it holds one.
  *   - band / chevron: a grouped run's band, its chevron real.
  *   - wash: the region wash, `--ink` at 6% over a region whose items have no
  *     known position yet — under the real rules, shading and the now line,
@@ -116,7 +119,7 @@ export const heldToolbarSlot = {
 export const loadingSlotRecipe = defineSlotRecipe({
     className: "elara-loading",
     slots: [
-        "run", "row", "cell", "number", "bar", "chip", "box", "dot", "count", "arrow", "pair", "stack", "check", "band", "chevron",
+        "run", "row", "cell", "number", "bar", "chip", "box", "dot", "count", "arrow", "pair", "stack", "check", "fill", "band", "chevron",
         "wash", "failedLine", "failedIcon", "failedMessage", "failedBox", "emptyLine", "emptyLead", "emptyIcon", "emptyHint",
         "card", "cardBody", "cardHead", "cardTitle", "cardMeta",
     ],
@@ -188,6 +191,8 @@ export const loadingSlotRecipe = defineSlotRecipe({
         arrow: { flex: "none", fontFamily: "mono", fontSize: "{fontSizes.label.md}", color: "fg.subtle" },
         pair: { display: "inline-flex", alignItems: "center", gap: "{spacing.1}", minWidth: "0", maxWidth: "100%", ...UNREVEALED },
         stack: { display: "grid", gap: "{spacing.1}", minWidth: "0", width: "100%", ...UNREVEALED },
+        // Its host's own box: its size and its corners, filled.
+        fill: { ...FILL, display: "block", width: "100%", height: "100%", borderRadius: "inherit" },
         check: {
             display: "block",
             flex: "none",

@@ -664,6 +664,8 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
                 // The paged read the details are read by key through: a reader asks a window's cards' rows of it, in one request (#1393).
                 paged: byKey === undefined ? none : some(fieldOf(byKey, "id")),
                 read: readOf(rowType, rolesOf, SchematicDetailsRolesType),
+                // The card roles they give: what a card keeps the place of while its details row is read (#1398).
+                roles: { status: status !== undefined, meter: meter !== undefined, metric: metric !== undefined, sublabel: sublabel !== undefined },
             } as never, SchematicKindDetailsType) as ExprType<typeof SchematicKindDetailsType>;
         },
     };

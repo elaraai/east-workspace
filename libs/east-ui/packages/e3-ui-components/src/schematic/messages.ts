@@ -8,8 +8,8 @@
  * the toolbar's tools, Connect's menu, the zoom, Fit, Find and the steps
  * through the items, the View popover a phone's row folds them into, and what
  * the rail counts a templates list's source in; what the footer says of a kind
- * drawn as its density (#1393); the banner over a kind whose read failed, and
- * its Retry; what Find marks an item it found by and what the footer says of
+ * drawn as its density (#1393); what the canvas says where a read failed, and
+ * its Retry (#1398, CL11); what Find marks an item it found by and what the footer says of
  * one the canvas doesn't show as itself (#1404); the canvas's and the frame's
  * accessible names; and its editing's
  * (#1388): what a Save's notice counts a kind's
@@ -25,13 +25,16 @@
  * who made it, why a net's side stays, and each issue's words; and the
  * footer's loading line's (#1398, CL3), the shared paged words over a kind's
  * rows — `Loading racks…`, `Filtering racks…`, `Couldn't read racks` — and
- * the drawing's noun, where its read fails as a whole. A host translates the
+ * its own over a kind's window — `Loading racks in view`, `Loading counts`,
+ * `Loading details for 12 racks`, `Couldn't read racks in view` — and the
+ * drawing's noun, where its read fails as a whole. A host translates the
  * Schematic where it translates its formatters.
  *
  * @packageDocumentation
  */
 
 import type { Formatters } from "@elaraai/east-ui-components";
+import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
@@ -50,6 +53,16 @@ export interface SchematicMessages extends PagedLoadingMessages {
     frameLabel: () => string;
     /** What the footer's loading line names a read of the drawing as a whole that failed — `Couldn't read the drawing`. */
     drawingNoun: () => string;
+    /** A kind's window's rows read, the drawing in view standing meanwhile (#1398, CL3) — `Loading racks in view`. */
+    lineInView: (p: { noun: string }) => LoadingLineText;
+    /** A kind's density's counts read — `Loading counts`. */
+    lineCounts: () => LoadingLineText;
+    /** A kind's rows' details read, its rows drawn meanwhile — `Loading details for 12 racks`, the count strong; `noun` is one row's or several's, by `n`. */
+    lineDetails: (p: SchematicCount & { noun: string }) => LoadingLineText;
+    /** A kind's window whose read failed — `Couldn't read racks in view`. */
+    lineFailedInView: (p: { noun: string }) => LoadingLineText;
+    /** What the canvas says at the top-left of an area whose read failed, beside its Retry (CL11) — `Couldn't read this area`. */
+    areaFailed: () => string;
     /** The canvas's accessible name: what it is, and what its keys do. */
     canvasLabel: () => string;
     /** The minimap's line under the pointer: what a press on it does. */
@@ -102,11 +115,7 @@ export interface SchematicMessages extends PagedLoadingMessages {
     densityNotice: (p: SchematicCount & { name: string; about: boolean; unfiltered: boolean }) => string;
     /** What the rail counts a templates list's source in — `rack templates`: `name` is its kind's, as running text writes it. */
     templatesNoun: (p: { name: string }) => string;
-    /** The banner over a kind whose read failed — `Rack rows could not be read`; `name` is the kind's. */
-    kindUnavailable: (p: { name: string }) => string;
-    /** The banner over a read that failed as a whole. */
-    drawingUnavailable: () => string;
-    /** The banner's button, which reads again. */
+    /** A failed read's Retry, which reads it again. */
     retry: () => string;
     /**
      * What a Save's notice counts a kind's rows in, a row or several (`RecordSliceSaveNotice`): `name` is the
@@ -221,8 +230,6 @@ export interface SchematicMessages extends PagedLoadingMessages {
     inspectorCount: (p: { what: "zones" | "links" | "nets"; n: number }) => string;
     /** How many of a kind are selected — `3 racks`: `name` is the kind's, as running text writes it. */
     inspectorKindCount: (p: SchematicCount & { name: string }) => string;
-    /** A row whose read is in flight. */
-    inspectorReading: () => string;
     /** A row the record holds none of: an entity whose row is gone. */
     inspectorNoRow: () => string;
     /** An item whose details record holds no row of it. */
@@ -334,6 +341,11 @@ export const schematicMessages: SchematicMessages = {
     ...pagedLoadingMessages,
     frameLabel: () => "Schematic",
     drawingNoun: () => "the drawing",
+    lineInView: ({ noun }) => [`Loading ${noun} in view`],
+    lineCounts: () => ["Loading counts"],
+    lineDetails: ({ count, noun }) => ["Loading details for ", { strong: count }, ` ${noun}`],
+    lineFailedInView: ({ noun }) => [`Couldn't read ${noun} in view`],
+    areaFailed: () => "Couldn't read this area",
     canvasLabel: () => "Schematic canvas — arrow keys step through the items",
     minimapHint: () => "Jump to a location",
     toolsLabel: () => "Tool",
@@ -362,8 +374,6 @@ export const schematicMessages: SchematicMessages = {
     densityNotice: ({ n, count, name, about, unfiltered }) =>
         `Density: ${about ? "about " : ""}${count} ${plural(n, name, `${name}s`)}${unfiltered ? ", the filters not applied" : ""} — zoom in to draw ${plural(n, "it", "them")}`,
     templatesNoun: ({ name }) => `${name} templates`,
-    kindUnavailable: ({ name }) => `${name} rows could not be read`,
-    drawingUnavailable: () => "The drawing could not be read",
     retry: () => "Retry",
     kindNoun: ({ name, plural }) => (plural ? `${name}s` : name),
     detailsName: ({ name }) => `${name} details`,
@@ -430,7 +440,6 @@ export const schematicMessages: SchematicMessages = {
     inspectorSeveral: ({ count }) => `${count} selected`,
     inspectorCount: ({ what, n }) => ({ zones: plural(n, "Zone", "Zones"), links: plural(n, "Link", "Links"), nets: plural(n, "Net", "Nets") })[what],
     inspectorKindCount: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
-    inspectorReading: () => "Reading…",
     inspectorNoRow: () => "Its record holds no row of it",
     inspectorNoDetails: ({ name }) => `No ${name.toLowerCase()} details`,
     inspectorJoin: ({ kind, end }) => (end === undefined ? kind : `${kind} · ${end === "source" ? "source" : "destination"}`),

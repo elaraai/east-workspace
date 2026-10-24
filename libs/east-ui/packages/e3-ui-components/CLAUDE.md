@@ -733,9 +733,11 @@ as its density, how many rows it shades in the view — `Density: 20,000 racks �
 zoom in to draw them` — a refused gesture's words, each Save's notice and where
 Find's pick landed off the canvas; its counts and saves are the inspector's,
 its changes waiting the history's. Its notices are one item of its rail
-(`data-footer-slack`) beside the shared line — `Loading racks…`, `Filtering
-racks…` — which wraps within itself where main is narrow, an item wider than
-it wrapping its own words, so the rail itself never wraps.) The inspector retains complete coverage/cost totals and explains
+(`data-footer-slack`) beside the shared line — `Loading racks in view`,
+`Loading counts`, `Loading details for 12 racks`, `Filtering racks…`,
+`Couldn't read racks in view` — which wraps within itself where main is
+narrow, an item wider than it wrapping its own words, so the rail itself never
+wraps.) The inspector retains complete coverage/cost totals and explains
 whole-staff scope when Slice narrows visible people. A collapsed Library badge reports availability
 for the day, while tab counts report the library's item count.
 
@@ -953,7 +955,28 @@ toolbar's status, issues, history and Publish hold their slots from cold load
 (`heldToolbarSlot`): unread, the status and the issues are placeholders, the
 history as the last period read had it, and Publish in its slot, off,
 wherever it cannot publish; the rail's summary keeps a narrowed source's place
-while its count is read. Never stretch a few thin text bars
+while its count is read.
+
+The Schematic (#1398) keeps what it drew while a read is in flight: its last
+complete drawing, and once it has settled once, a kind's rows as they land,
+before their details — each a row drawn before keeping the details it had,
+each new one carrying the card roles its details give (`drawn.ts`' `pending`,
+from its kind's `roles`). It washes what of the view a kind read by area has
+not drawn (`LoadingWash`): each such kind's window whose rows or cells' counts
+are in flight, less the reach its drawing holds (`area.ts`' `unreadArea`), in
+a layer under the grid, the paint and the cards that follows the camera's
+variables (`boxCss`), so what is drawn shows over it. A card draws a
+placeholder in each role its details give until they land (the shared `fill`
+shape in its dot and its meter's track), the painter a marker whose status is
+unread so (`statusUnread`) — hearing the reveal clock through a ref, never a
+render of the canvas — and the inspector the fields of a row it has not read
+(`Form`'s `pending`). A kind's failed read is said once on the canvas — a
+`LoadingFailedBox` with Retry at the top-left of the area it could not read
+in view, or the canvas's for a kind read whole — and on the line, never in a
+banner; a followed source's failure and a session's keep their banners, as
+every builder's do.
+
+Never stretch a few thin text bars
 through a tall host with `flex: 1` on each row. Spare body height stays empty;
 short hosts clip the placeholder list. Assert row height and placeholder-to-row
 height ratio at desktop and phone widths, not merely skeleton presence.

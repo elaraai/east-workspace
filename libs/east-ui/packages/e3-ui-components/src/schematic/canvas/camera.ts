@@ -112,6 +112,26 @@ export function cardWidthCss(width: number): string {
 }
 
 /**
+ * A world box's CSS geometry on the card layer's camera (#1398): its left and
+ * top edges where {@link cardTranslateCss} would place a card's anchor —
+ * `ppu × coord + t` — and its width and height as {@link cardWidthCss} sizes a
+ * card, each reading the live `--cam-ppu` / `--cam-tx` / `--cam-ty` custom
+ * properties, so the box follows the camera with no render: an unread area's
+ * wash.
+ *
+ * @param box - The box, in world units
+ * @returns Its `left`, `top`, `width` and `height`, as CSS lengths referencing the `--cam-*` vars
+ */
+export function boxCss(box: Bbox): { left: string; top: string; width: string; height: string } {
+    return {
+        left: `calc(var(--cam-ppu) * ${box.minX} * 1px + var(--cam-tx))`,
+        top: `calc(var(--cam-ppu) * ${box.minY} * 1px + var(--cam-ty))`,
+        width: `calc(var(--cam-ppu) * ${box.maxX - box.minX} * 1px)`,
+        height: `calc(var(--cam-ppu) * ${box.maxY - box.minY} * 1px)`,
+    };
+}
+
+/**
  * The world-space rectangle currently visible — the inverse projection of the
  * canvas corners. Used to cull off-screen zones / links (issue #57, P6).
  *

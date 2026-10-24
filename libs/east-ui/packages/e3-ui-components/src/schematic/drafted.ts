@@ -27,7 +27,7 @@
 
 import {
     drawnItem, drawnLink, drawnNet, drawnZone, entityId,
-    type DetailsRoles, type ItemRoles, type LinkRoles, type NetRoles, type SchematicDrawn, type SchematicRef, type ZoneRoles,
+    type CardRoles, type DetailsRoles, type ItemRoles, type LinkRoles, type NetRoles, type SchematicDrawn, type SchematicRef, type ZoneRoles,
 } from "./canvas/drawn.js";
 import type { SchematicHeldRows } from "./data.js";
 
@@ -57,8 +57,8 @@ export interface SchematicDrafts {
 /** No drafts. */
 export const NO_DRAFTS: SchematicDrafts = { items: new Map(), zones: new Map(), links: new Map(), nets: new Map() };
 
-/** What a drafted row was drawn as, by the roles it was drawn from: kept while they are. */
-export type DraftedCache = WeakMap<object, { readonly details: DetailsRoles | undefined; readonly drawn: unknown }>;
+/** What a drafted row was drawn as, by the roles it was drawn from: kept while they are, and its details' and what of them is unread. */
+export type DraftedCache = WeakMap<object, { readonly details: DetailsRoles | undefined; readonly pending: CardRoles | undefined; readonly drawn: unknown }>;
 
 /** No kind read by area. */
 const NONE_WINDOWED: ReadonlySet<string> = new Set();
@@ -84,12 +84,13 @@ function drafted(drafts: SortDrafts<unknown>): boolean {
  * @param held - Each kind's rows the read holds
  * @param windowed - The kinds read by area, by slot: a drafted row of one draws though its window doesn't hold it
  * @param cache - What each drafted row was drawn as
- * @param draw - An entity from its reference, its roles and its details' roles; `undefined` for one that draws nothing
+ * @param draw - An entity from its reference, its roles, its details' roles and the card roles they give while they are
+ *   read (#1398); `undefined` for one that draws nothing
  * @returns The entities
  */
 function merged<R extends object, E extends { readonly key: string }>(
     entities: readonly E[], drafts: SortDrafts<R>, held: SchematicHeldRows, windowed: ReadonlySet<string>, cache: DraftedCache,
-    draw: (ref: SchematicRef, roles: R, details: DetailsRoles | undefined) => E | undefined,
+    draw: (ref: SchematicRef, roles: R, details: DetailsRoles | undefined, pending: CardRoles | undefined) => E | undefined,
 ): E[] {
     // Each drafted entity, by its id: what it draws as, or `undefined` for nothing.
     const replaced = new Map<string, E | undefined>();
@@ -102,11 +103,13 @@ function merged<R extends object, E extends { readonly key: string }>(
             const kept = read?.get(key);
             // A row a narrowing hides waits in its session; a new one draws, and one of a kind read by area its window doesn't hold.
             if (kept === undefined && !row.created && !windowed.has(slot)) continue;
+            // A drafted card over a row whose details are read holds their places, as the row's own does (#1398).
             const details = kept?.details;
+            const pending = kept?.pending;
             const was = cache.get(row.roles);
-            if (was !== undefined && was.details === details) { replaced.set(id, was.drawn as E | undefined); continue; }
-            const drawn = draw(ref, row.roles, details);
-            cache.set(row.roles, { details, drawn });
+            if (was !== undefined && was.details === details && was.pending === pending) { replaced.set(id, was.drawn as E | undefined); continue; }
+            const drawn = draw(ref, row.roles, details, pending);
+            cache.set(row.roles, { details, pending, drawn });
             replaced.set(id, drawn);
         }
     }
@@ -137,7 +140,7 @@ export function draftedDrawing(stored: SchematicDrawn, held: SchematicHeldRows, 
     const items = drafted(drafts.items), zones = drafted(drafts.zones), links = drafted(drafts.links), nets = drafted(drafts.nets);
     if (!items && !zones && !links && !nets) return stored;
     return {
-        items: items ? merged(stored.items, drafts.items, held, windowed, cache, (ref, roles, details) => drawnItem(ref, roles, details)) : stored.items,
+        items: items ? merged(stored.items, drafts.items, held, windowed, cache, (ref, roles, details, pending) => drawnItem(ref, roles, details, pending)) : stored.items,
         zones: zones ? merged(stored.zones, drafts.zones, held, windowed, cache, (ref, roles) => drawnZone(ref, roles)) : stored.zones,
         links: links ? merged(stored.links, drafts.links, held, windowed, cache, (ref, roles) => drawnLink(ref, roles)) : stored.links,
         nets: nets ? merged(stored.nets, drafts.nets, held, windowed, cache, (ref, roles) => drawnNet(ref, roles)) : stored.nets,

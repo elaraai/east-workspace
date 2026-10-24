@@ -543,6 +543,21 @@ export const SchematicDetailsRolesType = StructType({
 export type SchematicDetailsRolesType = typeof SchematicDetailsRolesType;
 
 /**
+ * Which of an item's card's roles its kind's details give (§4.5): what a card
+ * keeps the place of while its details row is read, and draws there as a
+ * placeholder until the row lands (#1398) — never a value it has not read.
+ *
+ * @property status - Whether the details give its status
+ * @property meter - Whether they give its card's bar
+ * @property metric - Whether they give its card's figure
+ * @property sublabel - Whether they give its card's second line
+ */
+export const SchematicCardRolesType = StructType({ status: BooleanType, meter: BooleanType, metric: BooleanType, sublabel: BooleanType });
+
+/** Type representing which of a card's roles its details give. */
+export type SchematicCardRolesType = typeof SchematicCardRolesType;
+
+/**
  * One stored row as a kind's `rows` gives it: its roles, read in the pass
  * that reads the row, and the row as bytes at the record's row type — what a
  * write and the editing session take.
@@ -676,6 +691,7 @@ const RowsRead = <E extends StructType>(entry: E) => FunctionType([BlobType], Di
  * @property rowsOf - The details rows a reader read by key, as bytes, made their roles beside their bytes: a window's cards' details, one request a window (#1393)
  * @property paged - The `id` of the paged read the details are read by key through, beside a kind read through its source: what a reader asks the rows of a window's cards from, all in one request (#1393); `none` for details read whole
  * @property read - A details row's roles, from its bytes and its key
+ * @property roles - Which of the kind's cards' roles they give: what a card keeps the place of, a placeholder, while its details row is read (#1398)
  */
 export const SchematicKindDetailsType = StructType({
     ...RecordSideFields,
@@ -683,6 +699,7 @@ export const SchematicKindDetailsType = StructType({
     rowsOf: RowsRead(SchematicDetailsEntryType),
     paged: OptionType(StringType),
     read: FunctionType([BlobType, StringType], SchematicDetailsRolesType),
+    roles: SchematicCardRolesType,
 });
 
 /** Type representing a kind's details. */
