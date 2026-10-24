@@ -8,7 +8,9 @@
  * releases the page's requests of its e3, by what they ask and the dataset
  * they name, so the responsive suite can measure what a builder draws while a
  * read is in flight, or once it has failed — the footer's loading line in
- * each of its forms, a failure with its Retry.
+ * each of its forms, a failure with its Retry. It also applies a record's
+ * mutation of the spec's own, as another session would (#1393): the budget
+ * run fills a floor through its patch doors so.
  *
  * It is installed only when a spec asks for it before the page loads, by
  * setting {@link FAULTS_FLAG} on the window through `page.addInitScript`; the
@@ -16,7 +18,8 @@
  * it wraps the e3's `fetch`, which every request the page makes of its e3
  * goes through — its start's and its examples' — and puts its controls on the
  * window ({@link FAULTS_CONTROLS}). Without a hold or a fault, a request goes
- * to e3 as it would.
+ * to e3 as it would. A spec's own mutation goes to e3 past it: no hold or
+ * fault takes it, and the log never lists it.
  *
  * A request's kind and dataset are read from its route as e3's API server
  * routes it, as e3-ui-components' test harness reads them
@@ -25,6 +28,8 @@
  * @packageDocumentation
  */
 
+import { none, some } from "@elaraai/east";
+import { workspaceRecordMutate } from "@elaraai/e3-api-client";
 import type { WebE3 } from "@elaraai/e3-web";
 
 /** What a spec sets on the window, before the page loads, to install the hook: `true`. */
@@ -86,6 +91,18 @@ export interface ShowcaseE3Faults {
     held(id: number): number;
     /** Each request the page has made since the hook was installed, in order. */
     requests(): readonly FaultRequest[];
+    /**
+     * Applies a record's mutation as another session would, through e3's API:
+     * the spec's own request, which no hold or fault takes and the log never
+     * lists.
+     *
+     * @param workspace - The workspace
+     * @param record - The record's name
+     * @param mutation - The mutation's name
+     * @param args - Its arguments, each its type's beast2, in base64
+     * @returns What e3 answered: its outcome's case, `committed` once it applied
+     */
+    mutate(workspace: string, record: string, mutation: string, args: readonly string[]): Promise<string>;
 }
 
 /** A hold or a fault, as the hook keeps it. */
@@ -167,9 +184,10 @@ function failureResponse(failure: Exclude<FaultFailure, "network">, method: stri
  * it before the page loaded ({@link FAULTS_FLAG}); else the e3 as it is.
  *
  * @param e3 - The e3 the page started
+ * @param repo - The repository its areas' workspaces are in, which a spec's own mutation names
  * @returns The e3 every request of the page goes to
  */
-export function withFaults(e3: WebE3): WebE3 {
+export function withFaults(e3: WebE3, repo: string): WebE3 {
     const scope = globalThis as unknown as Record<string, unknown>;
     if (scope[FAULTS_FLAG] !== true) return e3;
     const rules: Rule[] = [];
@@ -191,6 +209,12 @@ export function withFaults(e3: WebE3): WebE3 {
         },
         held: (id) => rules.find((candidate) => candidate.id === id)?.parked.length ?? 0,
         requests: () => log.map(({ kind, dataset, method, signal, body }) => ({ kind, dataset, method, aborted: signal.aborted, body })),
+        async mutate(workspace, record, mutation, args) {
+            const bytes = args.map((arg) => Uint8Array.from(atob(arg), (char) => char.charCodeAt(0)));
+            const result = await workspaceRecordMutate(e3.apiUrl, repo, workspace, record, mutation,
+                { args: bytes, actor: some("the responsive suite"), limits: none }, { token: null, fetch: e3.fetch });
+            return result.outcome.type;
+        },
     };
     scope[FAULTS_CONTROLS] = controls;
     const fetch: typeof globalThis.fetch = async (input, init) => {

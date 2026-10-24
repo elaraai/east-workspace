@@ -36,9 +36,11 @@ const StressLoads = DictType(StringType, StressLoad);
  * The floor's racks, a row of 100 in each of the ten halls in turn — five
  * halls to a row of the floor, each holding 50 rows, 0.7 m apart along a row
  * and 2.4 m from row to row — so any count fills every hall's rows from the
- * front: 20,000 racks fill each hall's first 20, and 50,000 the floor.
+ * front: 20,000 racks fill each hall's first 20, and 50,000 the floor. The
+ * budget run makes the floor's 50,000 with it, and patches in what the seed's
+ * 20,000 lack.
  */
-const generateRacks = East.function([IntegerType], StressRacks, ($, count) => {
+export const generateRacks = East.function([IntegerType], StressRacks, ($, count) => {
     const racks = $.let(new Map(), StressRacks);
     const models = $.const(["42U · 8 kW", "48U · 12 kW", "24U · 4 kW"], ArrayType(StringType));
     const i = $.let(0n);
@@ -60,8 +62,8 @@ const generateRacks = East.function([IntegerType], StressRacks, ($, count) => {
     return racks;
 });
 
-/** The racks' loads, keyed as the racks are: up to 12 kW of a 12 kW rack, warm past 9.6 and hot past 10.8. */
-const generateLoads = East.function([IntegerType], StressLoads, ($, count) => {
+/** The racks' loads, keyed as the racks are: up to 12 kW of a 12 kW rack, warm past 9.6 and hot past 10.8. The budget run makes the floor's with it. */
+export const generateLoads = East.function([IntegerType], StressLoads, ($, count) => {
     const loads = $.let(new Map(), StressLoads);
     const i = $.let(0n);
     $.while(i.less(count), ($2) => {

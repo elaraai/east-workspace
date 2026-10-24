@@ -18,6 +18,8 @@
  * - **A pan into cells not read** washes the area the drawing does not cover,
  *   under the grid; a rack read before stands in, real, and one not read draws
  *   nowhere until the window lands.
+ * - **A window the view leaves before it lands** is dropped (CL6): each of its
+ *   requests is aborted on its way to e3.
  * - **A window's rows land before their details**: a rack new to the window
  *   holds its bar's place, a placeholder, never an empty bar, and one drawn
  *   before keeps its own; the line is `Loading details for 1 rack`.
@@ -193,6 +195,27 @@ test("a pan into cells not read washes the area the drawing does not cover, unde
     await waitFor(() => expect(card(container, "racks", "A05")).not.toBeNull());
     expect(unreadOf(container).getAttribute("data-schematic-unread")).toBe("0");
     await waitFor(() => expect(lineOf(container).hasAttribute("data-idle")).toBe(true));
+});
+
+test("a window the view leaves before it lands is dropped: each of its requests is aborted on its way to e3, and the window the view came back to draws as it was (#1398, CL6)", async () => {
+    const { container } = await open();
+    await landed(container, () => intoCorner(container));
+    const held = h.e3.hold(windowRead);
+    const before = h.requests().length;
+    await toFarEnd(container);
+    await held.holding;
+    // The far end's window, on its way: none of its requests given up.
+    const far = h.requests().slice(before).filter(windowRead);
+    expect(far.length).toBeGreaterThan(0);
+    expect(far.some((request) => request.signal.aborted)).toBe(false);
+    // Back at the corner before it lands: nothing reads the far end's cells any more, and every request for them is aborted.
+    await intoCorner(container);
+    await settle();
+    await waitFor(() => expect(far.every((request) => request.signal.aborted)).toBe(true));
+    await act(async () => { held.release(); });
+    await settle();
+    await waitFor(() => expect(lineOf(container).hasAttribute("data-idle")).toBe(true));
+    expect(card(container, "racks", "A01")).not.toBeNull();
 });
 
 test("a window's rows draw while their details are read: a rack new to it holds its bar's place, a placeholder, never an empty bar, one drawn before keeps its own, and the line says how many wait (#1398, CL2, CL3)", async () => {
