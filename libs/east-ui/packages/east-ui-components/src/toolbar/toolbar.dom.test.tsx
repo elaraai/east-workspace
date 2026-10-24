@@ -11,6 +11,7 @@
  * can move the row's width the way the browser reports it.
  */
 
+import type { ReactElement } from "react";
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -230,6 +231,38 @@ describe("the toolbar's one ladder", () => {
         expect(shown(container)).toEqual(["zoom-chip", "history"]);
         resize(300);
         expect(shown(container)).toEqual(["zoom-chip", "history"]);
+    });
+
+    /**
+     * A search whose box folds into a View popover with the zoom, as the
+     * Schematic's Find does (#1395): held while its query is typed, it holds
+     * the View; the steps join the bundle as something is selected.
+     */
+    const searchItems = (held: boolean, steps: boolean): ToolbarItem[] => [
+        { key: "zoom", forms: [form("zoom", 100), null], rank: 50, bundle: "view" },
+        { key: "seek", forms: [form("seek-box", 160), form("seek-view", 45)], rank: 50, bundle: "view", held },
+        ...(steps ? [{ key: "steps", forms: [form("steps", 72), null], rank: 50, bundle: "view" }] : []),
+        { key: "history", side: "end", forms: [form("history", 136)] },
+    ];
+    const rerenderWith = (rerender: (ui: ReactElement) => void, list: ToolbarItem[]) =>
+        rerender(<ChakraProvider value={system}><Toolbar items={list} /></ChakraProvider>);
+
+    test("an item that joins a held bundle takes it as it stands: beside the folded View its search holds, the steps join folded and the row still fits; beside the box held unfolded, they show (#1395)", () => {
+        // 45 + 136 + 10 = 191 fits 200: the View applies, the zoom inside it.
+        const narrow = mount(searchItems(false, false), 200);
+        expect(shown(narrow.container)).toEqual(["seek-view", "history"]);
+        // A query typed holds the View; something selected, the steps join it — folded, the history still in the row.
+        rerenderWith(narrow.rerender, searchItems(true, false));
+        rerenderWith(narrow.rerender, searchItems(true, true));
+        expect(shown(narrow.container)).toEqual(["seek-view", "history"]);
+        expect(narrow.container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-state")).toBe("zoom=1/2;seek=1/2;steps=1/2;history=0/1");
+        cleanup();
+        // With room, the box is held unfolded: the View does not apply, and the steps show beside it.
+        const wide = mount(searchItems(false, false), 620);
+        expect(shown(wide.container)).toEqual(["zoom", "seek-box", "history"]);
+        rerenderWith(wide.rerender, searchItems(true, false));
+        rerenderWith(wide.rerender, searchItems(true, true));
+        expect(shown(wide.container)).toEqual(["zoom", "seek-box", "steps", "history"]);
     });
 
     test("an empty form hides the item, and takes no gap", () => {

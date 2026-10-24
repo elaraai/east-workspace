@@ -338,7 +338,10 @@ component, nothing in east-ui.
   draws in the step that hides them, and a popover one of them opens hangs
   from the chip (`SliceEditPopover`'s `anchor`), its item `held` while it is
   open — as the SnapGrid editor's View chip and Studio's and the query
-  builder's ⋯ chips do. On a
+  builder's ⋯ chips do. An item that joins the row while its bundle is held
+  takes the bundle as it stands, folded where the bundle applies, so a
+  control appearing beside a held chip never pushes the row past its end (the
+  Schematic's steps beside the View Find's query holds, #1395). On a
   coarse pointer a control in the row is a 44px tap target by its box or by its
   halo (`coarseHitArea`, #346), never by growing the row (#1193, #1221): a
   segment whose neighbours sit edge to edge takes the halo on the block axis
