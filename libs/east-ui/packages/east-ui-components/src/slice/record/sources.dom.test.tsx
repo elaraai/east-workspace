@@ -47,7 +47,7 @@ const field = (fieldId: string, label: string, values: readonly string[]): Field
 /** One part over the shared store, its counts tracked against `network`. */
 function part(key: string, fields: Field[], presets: { id: string; name: string; where: State["where"] }[]) {
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
-        fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none })),
+        fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none })),
         range: none, search: [], presets,
     }));
     if (getStore().read(key) === undefined) getStore().write(key, encode({ where: new Map(), preset: none, resolution: none }));
@@ -174,12 +174,16 @@ test("a choice through one source's chip writes only that source's key; the summ
     expect(within(summary).getAllByRole("status")).toHaveLength(1);
 });
 
-test("a count still being read is left out of the summary, never a zero; folded, its source's heading shows it loading (#1358)", async () => {
+test("a narrowed source whose count is still being read keeps its place in the summary, its count pending, never a zero (#1398, CL1); folded, its source's heading shows it loading (#1358)", async () => {
     const f = fixture();
     narrowBoth(f);
     f.kilns.count.mockImplementation(() => { trackKey("network"); return none; });
     show(f.product);
-    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 lanes");
+    const summary = document.querySelector<HTMLElement>("[data-record-slices-summary]")!;
+    expect([...summary.querySelectorAll<HTMLElement>("[data-record-slice-source]")].map(part => part.dataset.recordSliceSource)).toEqual(["lanes", "resources"]);
+    expect(summary.textContent).toBe("7 of 20 lanes· of 20 kilns");
+    const pending = summary.querySelector<HTMLElement>('[data-record-slice-source="resources"]')!;
+    expect([within(pending).getByLabelText("Count loading") !== null, within(pending).getByRole("status").getAttribute("aria-busy")]).toEqual([true, "true"]);
     cleanup();
     show(f.product, { folded: true });
     const dialog = await openEditor();
@@ -187,6 +191,20 @@ test("a count still being read is left out of the summary, never a zero; folded,
     const kilns = headingCount(dialog, "resources")!;
     expect(within(kilns).getByLabelText("Count loading")).toBeTruthy();
     expect(within(kilns).getByRole("status").getAttribute("aria-busy")).toBe("true");
+});
+
+test("a pending count's source, once counted, stays only while its narrowing hides rows of it; a source no narrowing is in force over is named nowhere, its count read or not (#1358, #1398)", async () => {
+    const f = fixture();
+    narrowBoth(f);
+    f.kilns.count.mockImplementation(() => { trackKey("network"); return none; });
+    show(f.product);
+    expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 lanes· of 20 kilns");
+    // Counted, a narrowing that hides none of its rows names it no more.
+    act(() => { f.kilns.count.mockImplementation(() => { trackKey("network"); return some(20n); }); f.kilns.retry(); });
+    await waitFor(() => expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 lanes"));
+    // Its narrowing cleared, its count read again: named nowhere while it is read.
+    act(() => { f.kilns.count.mockImplementation(() => { trackKey("network"); return none; }); f.kilns.clearAll(); f.kilns.retry(); });
+    await waitFor(() => expect(document.querySelector("[data-record-slices-summary]")!.textContent).toBe("7 of 20 lanes"));
 });
 
 test("folded, each source's heading carries its count, as a Library tab counts — the total, N of M while narrowed — and no line repeats them (#1358)", async () => {

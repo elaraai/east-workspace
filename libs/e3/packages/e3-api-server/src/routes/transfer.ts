@@ -151,10 +151,12 @@ export function createTransferRoutes(
   // Authenticated API routes (mounted at /api/repos/:repo/workspaces/:ws/datasets)
   // =========================================================================
 
-  // POST routes use catch-all wildcard and dispatch based on URL suffix:
+  // POST routes use catch-all wildcard and dispatch based on URL suffix, and
+  // leave every other POST — a dataset's batch reads — to the dataset routes
+  // mounted after these:
   // - .../datasets/<path>/upload          → init transfer
   // - .../datasets/<path>/upload/<id>     → commit transfer
-  api.post('/*', async (c) => {
+  api.post('/*', async (c, next) => {
     const fullPath = c.req.path;
 
     // Check for commit: .../upload/<uuid>
@@ -168,8 +170,7 @@ export function createTransferRoutes(
       return handleInit(c);
     }
 
-    // Not a transfer route — return 404
-    return new Response('Not found', { status: 404 });
+    await next();
   });
 
   // GET routes dispatch the same way, and leave every other read to the

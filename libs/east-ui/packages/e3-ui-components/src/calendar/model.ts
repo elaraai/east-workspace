@@ -6,6 +6,7 @@
 /** Calendar's UTC windows and projected data; no UI or record writes. */
 import { DateTimeType, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { CalendarPayloadType, ScheduleEventRefType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
+import type { Formatters } from "@elaraai/east-ui-components";
 import { shiftCalendar } from "../shared/time/calendar-math.js";
 import { type ScheduleItemValue } from "../shared/schedule/overlaps.js";
 
@@ -80,6 +81,42 @@ export function calendarRange(view: CalendarView, settings: CalendarValue["setti
         if (period === "day" || settings.weekends || (day.getUTCDay() !== 0 && day.getUTCDay() !== 6)) days.push(day);
     }
     return { from, to, days };
+}
+/** No period read ahead. */
+const NO_RANGES: readonly CalendarRange[] = [];
+/**
+ * The periods either side of the view, read ahead once its window lands
+ * (#1398, CL7): the ranges a step to the next and the previous period reads.
+ * The timeline's window follows its scroll, and a step there moves from where
+ * the viewer scrolled, which nothing read ahead can know: it reads none ahead.
+ *
+ * @param view - The view
+ * @param settings - The Calendar's settings: its week's first day and its weekends
+ * @returns The next period's range, then the previous one's
+ */
+export function calendarAhead(view: CalendarView, settings: CalendarValue["settings"]): readonly CalendarRange[] {
+    return view.layout === "timeline" ? NO_RANGES : [calendarRange(navigate(view, 1), settings), calendarRange(navigate(view, -1), settings)];
+}
+/**
+ * The period a window is, as the footer's loading line names it (#1398, CL3):
+ * where the window is the view's own period, a day's name or a month's —
+ * `Tue, Nov 3, 2026`, `November 2026` — else its days, from its first to its
+ * last: a week, the timeline's window, a range the slice holds.
+ *
+ * @param view - The view
+ * @param range - The window read
+ * @param settings - The Calendar's settings: its week's first day and its weekends
+ * @param format - The locale's formatters
+ * @returns The period's words
+ */
+export function periodWords(view: CalendarView, range: CalendarRange, settings: CalendarValue["settings"],
+    format: Pick<Formatters, "weekdayDate" | "monthYear" | "range">): string {
+    const own = calendarRange(view, settings);
+    const period = view.layout === "resources" ? "day" : view.period;
+    const same = view.layout !== "timeline" && compareDate(range.from, own.from) === 0 && compareDate(range.to, own.to) === 0;
+    if (same && period === "day") return format.weekdayDate(range.from);
+    if (same && period === "month") return format.monthYear(dayStart(view.date));
+    return format.range(range.from, new Date(range.to.getTime() - 1));
 }
 /** Previous/next period, with resource columns retaining one day. */
 export function navigate(view: CalendarView, step: number): CalendarView {

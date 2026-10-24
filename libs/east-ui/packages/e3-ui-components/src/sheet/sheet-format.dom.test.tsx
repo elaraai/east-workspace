@@ -5,9 +5,11 @@
  * @vitest-environment jsdom
  *
  * One formatter (#850), rendered — the Sheet's own counts: under
- * `I18nProvider locale="de-DE"` the transport line, an unloaded band, a lens
- * gap, the view tabs, a grouped sheet's summary and a band's line count print
- * German numbers. The grouped sheet is `<Sheet>`, COMPILED, and renders
+ * `I18nProvider locale="de-DE"` the loading line's range, a lens gap, the
+ * view tabs, a grouped sheet's summary and a band's line count print German
+ * numbers. A row number is no count: an unloaded run's are drawn as the gutter
+ * draws the rows that land in their place, ungrouped in every locale (#1398).
+ * The grouped sheet is `<Sheet>`, COMPILED, and renders
  * through its carrier in its frame (#1216), so the renderer reads what an
  * author's program produces. The other families' counts are
  * east-ui-components' `format.dom.test.tsx`.
@@ -24,7 +26,7 @@ import { Sheet } from "@elaraai/e3-ui/internal";
 import { EastChakraComponent, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { SheetFooter } from "./Footer.js";
-import { SheetBandRow, SheetGapRow } from "./Rows.js";
+import { SheetGapRow, SheetRunRow } from "./Rows.js";
 import { SheetTabs } from "./Tabs.js";
 import { boundFrame } from "./frame.test-utils.js";
 // The renderer registers against its carrier as it loads.
@@ -65,18 +67,23 @@ function texts(root: Element): string[] {
 describe("the Sheet's counts (#850)", () => {
     const styles = {} as Record<string, Record<string, unknown>>;
 
-    test("the transport line, an unloaded band and a lens gap", () => {
+    test("the loading line's range and a lens gap in the locale; an unloaded run's real row numbers as the gutter draws them", () => {
         const { container } = german(
             <>
-                <SheetFooter styles={styles} items={[]} hint="" message="" transport={{ loaded: 600, total: 5000, loading: false }} />
-                <SheetBandRow styles={styles} band={{ at: "tail", from: 600, to: 4999, px: 100 }} loading={false} colCount={2} />
+                {/* A failed read's line shows at once, its range in the locale (#1398). */}
+                <SheetFooter styles={styles} items={[]} hint="" message="" noun="rows" loading={{ kind: "failed", from: 600, to: 4999, reason: "timeout" }} />
+                {/* A flat sheet's unloaded run keeps its real row numbers (#1398, CL2): its first rows in view, 4401 on. */}
+                <SheetRunRow styles={styles} band={{ at: "tail", from: 4400, to: 4999, px: 600 * 36 }} loading={false} gridTemplate="80px"
+                    columns={{ list: [], byKey: new Map(), totalWidth: 0 }} rowPx={36} dense={false} noun="rows" onRetry={() => {}} />
                 <SheetGapRow styles={styles} gap={{ key: "g", from: 10, to: 1509, hidden: 1500, first: false, last: false }}
                     reach={{ top: 1, bottom: 3, both: 10 }} onReveal={() => {}} colCount={2} />
             </>,
         );
         const words = texts(container);
-        expect(words).toContain("600 loaded of 5.000");
-        expect(words).toContain("4.400 not loaded");
+        expect(words).toContain("601–5.000");
+        // As the gutter draws the row that lands in its place: never 4.401, which would change as it lands.
+        expect(words).toContain("4401");
+        expect(words).not.toContain("4.401");
         expect(words).toContain("1.500 hidden");
     });
 

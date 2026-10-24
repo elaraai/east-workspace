@@ -29,9 +29,15 @@
  * depot (#1250): over its record of flows a state, a transition, a decision,
  * a lane, several states, nothing selected and a flow its drafts delete, and
  * over its tables, read only, a transition with its evidence, an end no state
- * stands for and the Issues tab — a chip in its ink. Pinned beside main on a
- * desktop, overlaid on a phone; in both themes. No screenshot is read: boxes
- * and computed styles, polled until the page is at rest.
+ * stands for and the Issues tab — a chip in its ink — and over the
+ * Schematic's data centre floor (#1391): nothing selected, a rack — its own
+ * fields, its load's and its position, and on a phone its Connect to… (#1394)
+ * — the fibre run and the power feed it is
+ * joined to, their ends as Choosers and their sides as tags, a cooling unit's
+ * own Details, two racks, an area read only, a field changed, and a rack typed
+ * off the floor, listed in Issues. Pinned beside main on a desktop, overlaid
+ * on a phone; in both themes. No screenshot is read: boxes and computed
+ * styles, polled until the page is at rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test inspector-form`.
@@ -40,6 +46,7 @@
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { settled } from "./settle";
 import { openExample, rowId, rowSel } from "./plan-page";
+import { DATA_CENTRE, centred, openSchematic, openTab as openLibraryTab, printedRef, screenPoint, sizeTo } from "./schematic-page";
 
 const SHEETS = "e3/sheet/sheet";
 const EVENTS = "e3/plan/plan-events";
@@ -758,5 +765,195 @@ for (const phone of [false, true]) {
                 expect(await paneFaults(pane)).toEqual([]);
             });
         }
+    });
+}
+
+// ============================================================================
+// The Schematic's inspector (#1391)
+// ============================================================================
+
+/**
+ * Open the data centre floor at rest, in the window's middle so each point of its drawing is clicked in view: on a
+ * desktop in a page 1600px wide, its box 1440px wide, the library pinned at its start and the inspector at its end,
+ * each beside main; on a phone as the page lays it out, the inspector a rail main never moves for.
+ */
+async function openDataCentre(page: Page, theme: "light" | "dark", phone: boolean): Promise<{ root: Locator; pane: Locator }> {
+    if (!phone) await page.setViewportSize({ width: 1600, height: 1000 });
+    const root = await openSchematic(page, DATA_CENTRE, theme);
+    if (!phone) await sizeTo(page, root, 1440);
+    await centred(page, root);
+    const pane = root.locator("[data-builder-frame] [data-frame-slot=end]");
+    await expect(pane).toHaveAttribute("data-pane-mode", phone ? "overlay" : "pinned");
+    return { root, pane };
+}
+
+/**
+ * Fit the floor in view from the toolbar — on a phone from its View popover — as a viewer does after an entity the
+ * inspector selected flew the camera to it.
+ */
+async function fitFloor(page: Page, root: Locator, phone: boolean): Promise<void> {
+    const toolbar = root.locator("[data-frame-slot='toolbar']");
+    if (phone) {
+        await toolbar.locator("[data-toolbar-item='seek'] [data-key-search='icon']").tap();
+        const fit = page.locator("[data-schematic-view]").getByRole("button", { name: "Fit" });
+        await fit.tap();
+        await page.keyboard.press("Escape");
+        await expect(fit).toHaveCount(0);
+    } else {
+        await toolbar.getByRole("button", { name: "Fit" }).click();
+    }
+    await settled(page);
+}
+
+/**
+ * Select what the floor draws at a point, in metres, the floor fitted in view first — by a click, or a tap on a phone,
+ * the open pane's scrim tapped away first and the inspector then opened from its rail. The example's box is narrower
+ * than a desktop's 1440px frame and scrolls it sideways, as a click on the inspector at its end does: the frame's
+ * start is scrolled back into view, so the point is clicked on the canvas, never on what the box clips it under.
+ */
+async function selectAt(page: Page, root: Locator, x: number, y: number, phone: boolean): Promise<void> {
+    const scrim = root.locator("[data-scrim]");
+    if (phone && await scrim.isVisible()) {
+        await scrim.tap({ position: { x: 8, y: 8 } });
+        await expect(scrim).toBeHidden();
+        await settled(page);
+    }
+    await fitFloor(page, root, phone);
+    await root.evaluate((el) => { el.scrollIntoView({ block: "center", inline: "start" }); });
+    await settled(page);
+    const at = await screenPoint(root, x, y);
+    if (phone) await page.touchscreen.tap(at.x, at.y);
+    else await page.mouse.click(at.x, at.y);
+    await settled(page);
+    if (phone) {
+        await root.getByRole("button", { name: "Expand Inspector" }).tap();
+        await settled(page);
+    }
+}
+
+/** What the selected item is joined to, by its kind and key, as its Details lists it: a click — a tap on a phone — selects it. */
+async function selectJoined(page: Page, pane: Locator, kind: string, key: string, phone: boolean): Promise<void> {
+    const join = pane.locator(`[data-inspector-join=${JSON.stringify(printedRef(kind, key))}]`);
+    if (phone) await join.tap();
+    else await join.click();
+    await settled(page);
+}
+
+/** A03, the third rack of Cage A, by its centre in metres. */
+const A03 = [9.6, 2.9] as const;
+/** A02, the rack beside it — on Feed A too, and at no end of A03's fibre run, whose handles a selected run draws on its ends. */
+const A02 = [6.0, 2.9] as const;
+
+for (const phone of [false, true]) {
+    test.describe(`The Schematic's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1391)`, { tag: phone ? "@mobile" : "@desktop" }, () => {
+        const themes = phone ? (["light"] as const) : (["light", "dark"] as const);
+        for (const theme of themes) {
+            test(`floor selections: nothing, a rack, its fibre run and its power feed (${theme})`, async ({ page }) => {
+                const { root, pane } = await openDataCentre(page, theme, phone);
+                await test.step(`nothing selected: the floor's counts, two to a line, and its saves, inside the pane (${theme})`, async () => {
+                    if (phone) {
+                        await root.getByRole("button", { name: "Expand Inspector" }).tap();
+                        await settled(page);
+                    }
+                    await expect(pane.locator("[data-schematic-inspector='drawing']")).toBeVisible();
+                    expect(await paneFaults(pane)).toEqual([]);
+                    // Seven counts: the four item kinds', then the zones', the links' and the nets'.
+                    const tops = await pane.locator("[data-inspector-counts] [data-count]").evaluateAll((cells) => cells.map((cell) => Math.round(cell.getBoundingClientRect().top)));
+                    expect([tops.length, tops[0] === tops[1], tops[1]! < tops[2]!, tops[2] === tops[3], tops[4] === tops[5], tops[5]! < tops[6]!]).toEqual([7, true, true, true, true, true]);
+                });
+                await test.step(`a rack: its own fields, its load's and its position${phone ? " and its Connect to…" : ""}, each on one column and one line; what it is joined to inside the pane (${theme})`, async () => {
+                    await selectAt(page, root, ...A03, phone);
+                    // Below 480px of main its Connect to… joins them (#1394): one field, the item a fibre run ends at — the
+                    // rack starts runs of one kind, so no kind's field beside it.
+                    await expect(pane.locator("[data-schematic-inspector='item'] [data-field]")).toHaveCount(phone ? 9 : 8);
+                    await expect(pane.locator("[data-schematic-inspector='item'] [data-inspector-fields='connect'] [data-field]")).toHaveCount(phone ? 1 : 0);
+                    await expect(pane.locator("[data-inspector-join]")).toHaveCount(2);
+                    await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                    // On a coarse pointer each entity it is joined to is a 44px tap target.
+                    if (phone) {
+                        const heights = await pane.locator("[data-inspector-join]").evaluateAll((joins) => joins.map((join) => join.getBoundingClientRect().height));
+                        expect(heights.every((h) => h >= TOUCH - 0.5), `${heights.join(", ")}`).toBe(true);
+                    }
+                });
+                await test.step(`its fibre run, from what the rack is joined to: its ends, each a Chooser, and its own fields, on one column and one line (${theme})`, async () => {
+                    await selectJoined(page, pane, "fibre", "u3", phone);
+                    await expect(pane.locator("[data-schematic-inspector='link'] [data-inspector-fields='ends'] [data-field][data-editor='reference']")).toHaveCount(2);
+                    await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                });
+                await test.step(`a power feed, from a rack it feeds: its sides, each tags of its members' keys, and its own fields, on one column and one line (${theme})`, async () => {
+                    await selectAt(page, root, ...A02, phone);
+                    await selectJoined(page, pane, "feeds", "feed-a", phone);
+                    await expect(pane.locator("[data-schematic-inspector='net'] [data-inspector-fields='sides'] [data-field][data-editor='tags']")).toHaveCount(2);
+                    await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+                    expect(await paneFaults(pane)).toEqual([]);
+                });
+                if (!phone && theme === "light") {
+                    await test.step("a cooling unit: its own Details in place of its form, and its position, inside the pane", async () => {
+                        await selectAt(page, root, 9.0, 11.9, phone);
+                        const own = pane.locator("[data-schematic-inspector='item'] [data-inspector-fields='row']");
+                        await expect(own.getByRole("button", { name: "Lower the setpoint by 1 °C" })).toBeVisible();
+                        await expect(own.locator("[data-field]")).toHaveCount(0);
+                        await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                        expect(await paneFaults(pane)).toEqual([]);
+                    });
+                    await test.step("two racks, the second Shift-clicked: how many of each kind, and Delete, inside the pane", async () => {
+                        await selectAt(page, root, 2.4, 2.9, phone);
+                        const a02 = await screenPoint(root, ...A02);
+                        await page.keyboard.down("Shift");
+                        await page.mouse.click(a02.x, a02.y);
+                        await page.keyboard.up("Shift");
+                        await settled(page);
+                        await expect(pane.locator("[data-schematic-inspector='several'] [data-inspector-count]")).toHaveText(["2 racks"]);
+                        expect(await paneFaults(pane)).toEqual([]);
+                    });
+                    await test.step("an area, its layer unlocked in the library's Layers tab: its field read only, on one line inside the pane", async () => {
+                        await openLibraryTab(page, root, "Layers");
+                        await root.locator("[data-frame-slot='start'] [data-schematic-layer='structure'] [data-layer-toggle='lock']").click();
+                        await settled(page);
+                        // Cage A's clear floor, above its racks.
+                        await selectAt(page, root, 12.0, 1.0, phone);
+                        await expect(pane.locator("[data-schematic-inspector='zone'] [data-field][data-editor='readonly']")).toHaveCount(1);
+                        await expect.poll(() => formFaults(pane, false)).toEqual([]);
+                        expect(await paneFaults(pane)).toEqual([]);
+                    });
+                    await test.step("a rack: every control's focus ring stays inside the pane", async () => {
+                        await selectAt(page, root, ...A03, phone);
+                        expect(await ringFaults(page, pane)).toEqual([]);
+                    });
+                }
+            });
+        }
+
+        test("a field changed in the form is one edit, tinted, the tint clear of its neighbours and inside the pane; a rack typed off the floor is an issue, its row a 44px tap target inside the pane", async ({ page }) => {
+            const { root, pane } = await openDataCentre(page, "light", phone);
+            await selectAt(page, root, ...A03, phone);
+            const owner = pane.locator("[data-inspector-fields='row'] [data-field='owner'] input");
+            await owner.fill("Elmway College");
+            await owner.press("Enter");
+            await expect(pane.locator("[data-field='owner'][data-dirty]")).toHaveCount(1);
+            await expect(pane.locator("[data-inspector-marks] > [data-state]")).toHaveText("Pending");
+            await expect.poll(() => formFaults(pane, phone)).toEqual([]);
+            expect(await paneFaults(pane)).toEqual([]);
+            // Its x typed past the floor's east edge, 28 m, a key at a time — the shared input writes back on a frame.
+            const x = pane.locator("[data-inspector-fields='position'] [data-field='x'] [role=spinbutton]");
+            await x.click();
+            await x.press("ControlOrMeta+a");
+            await x.press("Backspace");
+            await x.pressSequentially("30", { delay: 30 });
+            await x.press("Enter");
+            await expect(pane.locator("[data-field='x'][data-dirty]")).toHaveCount(1);
+            const tab = pane.getByRole("tab", { name: /^Issues/u });
+            await expect(tab).toHaveText("Issues 1");
+            if (phone) await tab.tap();
+            else await tab.click();
+            await settled(page);
+            const issue = pane.locator("[data-inspector-issue='outside']");
+            await expect(issue).toHaveText("Rack · A03Outside the drawing");
+            // Its two lines in their padding: a 44px tap target, on any pointer.
+            expect(await issue.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(TOUCH - 0.5);
+            expect(await paneFaults(pane)).toEqual([]);
+        });
     });
 }

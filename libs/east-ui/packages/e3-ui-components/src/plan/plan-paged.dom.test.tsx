@@ -5,7 +5,7 @@
  * @vitest-environment jsdom
  *
  * Plan paged-source DOM tests (P-c) — the resident run, its bands, the
- * transport line and paging around the viewport. The rail narrows a record
+ * footer's loading line and paging around the viewport. The rail narrows a record
  * itself (#1344) — the Plan's dated rows on e3 itself (`rail.test-utils.ts`,
  * #1376): its counts are the record's, exact, and nothing narrows the loaded
  * prefix — so no scope badge — while a seekable source keeps its key search.
@@ -135,6 +135,13 @@ function renderPlan(value: PlanRootValue, key = "plan") {
     );
 }
 
+/** The frame's footer, and its loading line's words while it shows. */
+function footerOf(container: HTMLElement) {
+    const footer = container.querySelector<HTMLElement>('[data-frame-slot="footer"]')!;
+    const line = footer.querySelector<HTMLElement>("[data-footer-line]");
+    return { footer, line, text: line?.querySelector("[data-line-text]")?.textContent };
+}
+
 describe("Plan paged source (P-c)", () => {
     test("a paged source streams windows into the canvas; an empty window ends the stream", async () => {
         const w1 = [
@@ -197,16 +204,15 @@ describe("Plan paged source (P-c)", () => {
         expect(calls).toContain(400n);
     });
 
-    test("the footer carries the transport line, counted in ELEMENTS (#567 D9)", async () => {
-        // `total` / `loadedElements` / `loading` were returned by the hook and
-        // read by NOBODY: no spinner, no progress, no marker that the derived
-        // numbers cover a prefix. The footer is where transport state belongs
-        // (the rail is *narrowing* state), and it counts SOURCE ELEMENTS —
-        // a series can emit any number of canvas rows per element, so a row
-        // count would disagree with `total()` on screen.
+    test("the footer's loading line names the source ELEMENTS in flight, never a count of what landed (#567 D9, #1398 CL3)", async () => {
+        // The footer is where what is read is said (the rail is *narrowing*
+        // state), in SOURCE ELEMENTS — a series can emit any number of canvas
+        // rows per element, so a row count would disagree with `total()`. It
+        // names what is on the wire, and counts nothing of what has landed:
+        // the toolbar's count is the only count.
         const w0 = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
-            // Window 0 lands; the next is still in flight.
+            // Window 0 lands; the next two are still in flight.
             page: (offset: bigint) => (offset === 0n ? some(w0) : none),
             total: () => some(600n),
             id: "dom-test-transport",
@@ -217,15 +223,15 @@ describe("Plan paged source (P-c)", () => {
         const { container } = renderPlan(planRoot([], { source }), "plan-d9-footer");
         await screen.findByText("R1");
 
-        const line = container.querySelector('[data-slot="footerTransport"]')!;
-        expect(line).toBeTruthy();
-        expect(line.textContent).toBe("200 loaded of 600 · Loading…");
-        expect(line.getAttribute("data-partial")).toBe("");
+        // Once the wait passes its reveal, the line says what is read.
+        await waitFor(() => expect(footerOf(container).text).toBe("Loading rows 201–600"));
+        expect(footerOf(container).line!.getAttribute("role")).toBe("status");
+        expect(footerOf(container).footer.textContent).not.toMatch(/loaded/i);
         // Every derived number in the body is over that prefix.
         expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeTruthy();
     });
 
-    test("an EXHAUSTED source drops every partial mark", async () => {
+    test("an EXHAUSTED source drops every partial mark, and its footer says nothing is read", async () => {
         const rows = [planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))]))];
         const source = {
             page: (offset: bigint) => (offset === 0n ? some(rows) : some([])),
@@ -238,28 +244,27 @@ describe("Plan paged source (P-c)", () => {
         const { container } = renderPlan(planRoot([], { source }), "plan-d9-done");
         await screen.findByText("R1");
 
-        const line = container.querySelector('[data-slot="footerTransport"]')!;
-        // Loaded is clamped to the total — never "200 loaded of 2".
-        expect(line.textContent).toBe("2 loaded of 2");
-        expect(line.getAttribute("data-partial")).toBeNull();
+        expect(footerOf(container).line!.hasAttribute("data-idle")).toBe(true);
+        expect(footerOf(container).footer.textContent).not.toMatch(/loaded/i);
         expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
     });
 
-    test("an INLINE canvas has no transport line at all", () => {
+    test("an INLINE canvas has no loading line at all", () => {
         const { container } = renderPlan(planRoot([
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
         ]), "plan-d9-inline");
-        expect(container.querySelector('[data-slot="footerTransport"]')).toBeNull();
+        expect(footerOf(container).line).toBeNull();
         expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
     });
 
-    test("a top-level section's count covers the loaded windows — MARKED until the source is exhausted (#822)", async () => {
+    test("a top-level section's count covers the loaded windows — a placeholder until the source is exhausted (#822, #1398 CL13)", async () => {
         // A section's members are its series' ENTRIES, which the source's
         // windows share out between them — the one parent whose rows can span
         // windows. Over the loaded windows its derived member count is an
-        // understatement, so it prints `~2 rows` and the band carries
-        // `data-plan-partial` — the author's own `meta` is never rewritten,
-        // since that is their text rather than a derivation.
+        // understatement, so it is a short bar, never a count the read has not
+        // finished, and the band carries `data-plan-partial` — the author's own
+        // `meta` is never rewritten, since that is their text rather than a
+        // derivation.
         const hall = sectionId("hall");
         const w0 = [
             planRow("hall", plainGroup(), { id: hall, gutter: gutter("Hall 1") }),
@@ -278,7 +283,8 @@ describe("Plan paged source (P-c)", () => {
         await screen.findByText("R1");
         const band = partial.container.querySelector(sectionSel("hall"))!;
         expect(band.getAttribute("data-plan-partial")).toBe("");
-        expect(band.textContent).toContain("~2 rows");
+        expect(band.querySelector('[data-plan-gutter="meta"] [data-shape="aggregate"]')).not.toBeNull();
+        expect(band.textContent).not.toMatch(/\brows?\b/);
         cleanup();
 
         // Every element resident: the count is the section's, and final.
@@ -348,7 +354,7 @@ describe("Plan paged source (P-c)", () => {
     test("the rail narrows the record itself, never the loaded prefix: no scope badge, its summary the record's exact count (#567 D9, #1344)", async () => {
         // A record rail asks the record's indexes, whatever has landed of the
         // canvas's windows: its counts are exact, and nothing it narrows is a
-        // prefix's — the footer's transport line alone says how much is loaded.
+        // prefix's — the footer's loading line says only what is read.
         // Six hundred rows, another session's, every other one in Hall A.
         await h.patch(records.planDatedRows, new Map(Array.from({ length: 600 }, (_x, i): [string, DatedRow] =>
             [`r${String(i).padStart(3, "0")}`, { at: W27, owner: "Team A", hall: i % 2 === 0 ? "Hall A" : "Hall B" }])));
@@ -380,8 +386,9 @@ describe("Plan paged source (P-c)", () => {
         expect(container.querySelector('[data-slot="scopeBadge"]')).toBeNull();
         // The summary counts the record's rows — Hall A's three hundred of six hundred — whatever has landed of the canvas's windows.
         expect(container.querySelector("[data-toolbar-item='record-summary'] [data-record-slices-summary]")!.textContent).toBe("300 of 600 rows");
-        // How much of the canvas has landed is the footer's transport line.
-        expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toContain("200 loaded of 600");
+        // The footer names what is read, in what the rail counts the rows in, and counts nothing of what has landed (#1398, CL3).
+        await waitFor(() => expect(footerOf(container).text).toBe("Loading rows 201–600"));
+        expect(footerOf(container).footer.textContent).not.toMatch(/loaded/i);
     });
 
     test("a seekable source mounts its KEY SEARCH (#574): the source's own seek, primary-key navigation", async () => {
@@ -458,8 +465,7 @@ describe("Plan paged source (P-c)", () => {
         //
         // The demand is the VIEWPORT's (#812): window 0 fills the 768px jsdom
         // window, so the canvas asks for window 0's ring and no further. A
-        // canvas whose viewport showed unloaded space would load on — the
-        // band says as much ("scroll to load").
+        // canvas whose viewport showed unloaded space would load on.
         const w0 = [
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
             ...Array.from({ length: 29 }, (_u, i) => planRow(`f${i}`, spanKind([]))),
@@ -484,21 +490,22 @@ describe("Plan paged source (P-c)", () => {
         const highest = offsets.reduce((a, b) => (b > a ? b : a), 0n);
         expect(highest).toBeLessThan(8000n);
         // ... and says so, rather than showing a blank canvas or claiming
-        // the whole source landed.
-        const line = container.querySelector('[data-slot="footerTransport"]')!;
-        expect(line.textContent).toMatch(/loaded of 8,000$/);
-        expect(line.getAttribute("data-partial")).toBe("");
+        // the whole source landed: the body marks its numbers a prefix's, and
+        // the rest of the source is its band.
+        expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeTruthy();
+        expect(Number(container.querySelector('[data-plan-window-band="tail"]')!.getAttribute("data-plan-elements"))).toBeGreaterThan(7_000);
         // The rows it did load are still there — the failure mode was that they
         // vanished on the next evaluation.
         expect(container.querySelector(rowSel("m1"))).toBeTruthy();
     });
 
-    test("the unloaded remainder renders as ONE band, sized by the ledger (#577)", async () => {
-        // Not one skeleton per row: the canvas cannot know how many rows an
-        // unvisited window makes, so a per-row skeleton would assert a count it
-        // has no way to support. One band, captioned with what IS known — the
-        // source ELEMENTS it covers. (Window 0 fills the jsdom viewport, so
-        // the demand rests on its ring and the band stays — #812.)
+    test("the unloaded remainder renders as ONE run, sized by the ledger, saying nothing (#577, #1398 CL2)", async () => {
+        // One item of the grid, whatever its size: the canvas cannot know how
+        // many rows an unvisited window makes, so the run claims no count — it
+        // draws the rows' look at their pitch where it meets the view, and no
+        // caption (CL3); its data says what IS known — the source ELEMENTS it
+        // covers. (Window 0 fills the jsdom viewport, so the demand rests on
+        // its ring and the run stays — #812.)
         const w0 = [
             planRow("m1", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
             ...Array.from({ length: 29 }, (_u, i) => planRow(`f${i}`, spanKind([]))),
@@ -519,9 +526,10 @@ describe("Plan paged source (P-c)", () => {
 
         const band = container.querySelector('[data-plan-window-band="tail"]');
         expect(band).toBeTruthy();
-        // It reports ELEMENTS, never a row count.
+        // It reports ELEMENTS, never a row count — and draws its rows' placeholders, hidden from a reader, saying no word.
         expect(Number(band!.getAttribute("data-plan-elements"))).toBeGreaterThan(9_000);
-        expect(band!.textContent).toMatch(/more elements — scroll to load/);
+        expect(band!.querySelectorAll('[data-run-row][aria-hidden="true"]').length).toBeGreaterThan(0);
+        expect(band!.textContent).toBe("");
         // Nothing above the first window, so no head band.
         expect(container.querySelector('[data-plan-window-band="head"]')).toBeNull();
     });
@@ -605,9 +613,9 @@ describe("Plan paged source (P-c)", () => {
         // capability — so a bound canvas rendered outside a workspace has
         // nothing to read. Drawing an empty axis reads as "this dataset is
         // empty", a lie about the data. Since #811 the failure is LOCAL: the
-        // window that could not be read is a band carrying the reason and a
-        // Retry, and the source's own failure is a toolbar chip — the canvas
-        // itself stays up.
+        // window that could not be read is a run that says so once, with a
+        // Retry, the footer's line saying why (#1398, CL11), and the source's
+        // own failure is a toolbar chip — the canvas itself stays up.
         const boom = (): never => { throw new Error("no paging service — resolves only inside a live workspace"); };
         const source = {
             page: boom,
@@ -625,9 +633,10 @@ describe("Plan paged source (P-c)", () => {
                 expect(el).toBeTruthy();
                 return el!;
             });
-            // The reason travels with it — not just to the console.
-            expect(band.textContent).toMatch(/could not be read — no paging service/);
-            expect(band.querySelector('[data-plan-retry="0"]')).toBeTruthy();
+            // Said where its rows would be, and why in the footer's line — not just to the console.
+            expect([...band.querySelectorAll("[data-loading-failed-message]")].map((said) => said.textContent)).toEqual(["Couldn't read rows 1–200"]);
+            expect(band.querySelector("[data-loading-retry]")).toBeTruthy();
+            expect(footerOf(container).line!.querySelector("[data-line-reason]")!.textContent).toMatch(/no paging service/);
             expect(container.querySelector('[data-plan-diagnostics="source"]')!.textContent)
                 .toMatch(/source unavailable — no paging service/);
             // No rows are claimed: nothing drawn reads as an empty dataset.

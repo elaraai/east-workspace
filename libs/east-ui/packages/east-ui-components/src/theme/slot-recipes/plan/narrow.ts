@@ -23,7 +23,7 @@ export const narrowSlots = [
     "narrowRulerTick", "narrowSection", "narrowSectionTitle", "narrowSectionGo", "narrowScope",
     "narrowScopeTitle", "narrowScopeMeta", "narrowBack", "narrowList", "narrowCard",
     "narrowCardHead", "narrowCardTitle", "narrowCardSub", "narrowCardBody",
-    "narrowRender", "narrowTicks", "narrowMore", "narrowEmpty",
+    "narrowRender", "narrowTicks", "narrowMore", "narrowPending", "narrowEmpty",
 ] as const;
 
 /** Their base styles. */
@@ -313,6 +313,16 @@ export const narrowBase = {
         width: "100%",
         _coarse: { minHeight: "44px" },
         "&:hover": { color: "fg.default" },
+    },
+    // A paged source's tail in list form (#1398, CL2): placeholder cards at a
+    // row card's height, spaced as the list spaces its cards — what scrolling
+    // into view demands the next window with. Its failed window's card holds
+    // the failed line in its head.
+    narrowPending: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+        minWidth: 0,
     },
     narrowEmpty: {
         fontFamily: "mono",

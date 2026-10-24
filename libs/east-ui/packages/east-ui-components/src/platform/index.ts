@@ -69,7 +69,7 @@ export { ShareImpl } from "./share/index.js";
 // Slice — stateful narrowing platform (bind) + pure apply engine
 export { SliceImpl, SliceApplyImpl, buildSliceHandle, DEFAULT_SLICE_STATE, boundRangeDomain, boundSliceConfig } from "./slice/index.js";
 
-export { RecordSliceImpl, createRecordSliceImplementation } from "./slice/record.js";
+export { RecordSliceImpl, createRecordSliceImplementation, registerRecordSliceBatches, type RecordSliceBatches } from "./slice/record.js";
 
 // =============================================================================
 // StateRuntime Namespace

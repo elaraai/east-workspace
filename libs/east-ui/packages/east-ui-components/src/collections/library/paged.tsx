@@ -77,8 +77,11 @@ export interface PagedLibrarySearch<T> {
 export interface PagedLibraryProps<T> {
     source: LibraryPageSource<T>;
     id: string;
+    /** A row's card: `filtered`, it draws faded as context and never drags, as a resident Library's filtered card does. */
     item(row: T): LibraryItemValue;
     onOpen(key: string): void;
+    /** ⏎ on a card, by its key: what a card that drops does at once — the Schematic's backlog row placed (#1390, SC13). */
+    onEnter?: ((key: string) => void) | undefined;
     /** What it says while its source holds no row, in its host's words (`No flows`). */
     empty?: LibraryEmpty | undefined;
     /**
@@ -181,7 +184,7 @@ interface PagedRowsProps<T> extends PagedLibraryProps<T> {
 }
 
 /** The palette's rows: the source as the rail narrows it, or what the tab's own search finds within it. */
-function PagedRows<T>({ source, id, item, onOpen, empty, narrowing, search, noMatch, query, styles, onShowAll }: PagedRowsProps<T>) {
+function PagedRows<T>({ source, id, item, onOpen, onEnter, empty, narrowing, search, noMatch, query, styles, onShowAll }: PagedRowsProps<T>) {
     const words = useFormatters();
     const [range, setRange] = useState({ start: 0, end: 12 });
     const read = useCallback(() => {
@@ -240,10 +243,11 @@ function PagedRows<T>({ source, id, item, onOpen, empty, narrowing, search, noMa
                     onRangeChange={onRangeChange}
                     renderRow={index => {
                         const row = rows.get(index);
+                        const card = row === undefined ? undefined : item(row);
                         return <Box css={styles.pagedRow} data-library-position={index}>
-                            {row === undefined ? <Skeleton css={styles.pagedSkeleton} aria-label="Loading record" /> :
-                                <LibraryCard libraryId={id} item={item(row)} dimOrder={EMPTY_DIMS} activeDims={EMPTY_DIMS}
-                                    filtered={false} styles={styles} onCardClick={onOpen} onCardEnter={undefined} />
+                            {card === undefined ? <Skeleton css={styles.pagedSkeleton} aria-label="Loading record" /> :
+                                <LibraryCard libraryId={id} item={card} dimOrder={EMPTY_DIMS} activeDims={EMPTY_DIMS}
+                                    filtered={card.filtered} styles={styles} onCardClick={onOpen} onCardEnter={onEnter} />
                             }
                         </Box>;
                     }} />

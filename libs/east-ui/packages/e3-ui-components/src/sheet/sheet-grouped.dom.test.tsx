@@ -14,7 +14,9 @@
  * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216). (The
  * lens on lines, and the folds a view keeps, went with the local Slice,
  * #1345: the folds a view keeps are `frame/sheet-frame-narrowing`'s, over a
- * record's `rows` source, and #1349 restores the lens over records.)
+ * record's `rows` source. The lens over records, #1349, narrows a grouped
+ * sheet's groups, never its lines: `model.test.ts` and
+ * `frame/sheet-frame-narrowing`.)
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -29,6 +31,7 @@ import { Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
+import { SHEET_PAGE_SIZE } from "./paging.js";
 import { sheetJournal } from "./journal.test-utils.js";
 import { boundFrame, frameScrolls } from "./frame.test-utils.js";
 
@@ -454,6 +457,39 @@ const PAGED_PLANS = {
     2000: pinnedOver("sheet_grouped_paged_2000", plansOfOneLine(2_000)),
 };
 
+/**
+ * A paged sheet whose windows' reads are logged, each by its window as it is
+ * asked. The fixtures' sources answer at once, so an asked window has landed —
+ * but a window the test puts in `held`, which stays in flight: its read
+ * answers none while it is held.
+ */
+function withAsked(sheet: SheetValue, held: ReadonlySet<number> = new Set()): { value: SheetValue; asked: number[] } {
+    const asked: number[] = [];
+    const root = sheet.sheet;
+    const ask = (offset: bigint): number => {
+        const w = Math.floor(Number(offset) / SHEET_PAGE_SIZE);
+        asked.push(w);
+        return w;
+    };
+    if (root.rows.type === "paged") {
+        const served = root.rows.value;
+        const page = (offset: bigint, limit: bigint) => (held.has(ask(offset)) ? none : served.page(offset, limit));
+        return { value: { ...sheet, sheet: { ...root, rows: variant("paged", { ...served, page }) } } as SheetValue, asked };
+    }
+    if (root.rows.type === "pinned") {
+        const served = root.rows.value;
+        const page = (offset: bigint, limit: bigint) => (held.has(ask(offset)) ? none : served.page(offset, limit));
+        return { value: { ...sheet, sheet: { ...root, rows: variant("pinned", { ...served, page }) } } as SheetValue, asked };
+    }
+    throw new Error("Expected a paged Sheet");
+}
+
+/** Wait until each of `windows` has been asked for — so has landed — and the render that draws them is in. */
+async function landed(asked: readonly number[], ui: ReturnType<typeof mount>, ...windows: number[]): Promise<void> {
+    await waitFor(() => expect(asked).toEqual(expect.arrayContaining(windows)), { timeout: 15_000 });
+    await ui.flush();
+}
+
 /** A pinned paged source of `n` plans — a bound dataset the planner edits —, one line each, keyed by an id that sorts as it streams. */
 function buildPagedPlans(n: 10 | 250 | 1000 | 2000): SheetValue {
     const program = East.function([], SheetPayloadType, ($) => {
@@ -469,8 +505,13 @@ function buildPagedPlans(n: 10 | 250 | 1000 | 2000): SheetValue {
 
 describe("the paged arm (G13)", () => {
     test("windows land with children and insertion controls without a ghost band", async () => {
-        const { container, band, lines, ghost, chip } = mount(withSpy(buildPagedPlans(250)).value);
-        await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("250 loaded of 250"), { timeout: 15_000 });
+        const paged = withAsked(buildPagedPlans(250));
+        const ui = mount(withSpy(paged.value).value);
+        const { container, band, lines, ghost, chip } = ui;
+        // Both windows land; nothing is in flight then, and the footer counts no rows held (#1398, CL3).
+        await landed(paged.asked, ui, 0, 1);
+        expect(container.querySelector('[data-frame-slot="footer"] [data-footer-line]')!.hasAttribute("data-idle")).toBe(true);
+        expect(container.querySelector('[data-frame-slot="footer"]')!.textContent).not.toMatch(/loaded/);
         expect(band("P1000")!.querySelector('[data-slot="groupTitle"]')!.textContent).toBe("Plan 0");
         expect(ghost()).toBeNull();
         expect(chip(band("P1000")!, "insertGroup")!.getAttribute("aria-label")).toBe("New group");
@@ -487,8 +528,10 @@ describe("the paged arm (G13)", () => {
         // The frame scrolls to the ring, as a browser's does.
         const restore = frameScrolls();
         try {
-            const { container, lines, key } = mount(withSpy(buildPagedPlans(1_000)).value);
-            await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
+            const paged = withAsked(buildPagedPlans(1_000));
+            const ui = mount(withSpy(paged.value).value);
+            const { lines, key } = ui;
+            await landed(paged.asked, ui, 0, 1, 2);
             fireEvent.mouseDown(lines("P1000")[0]!.querySelector('[data-key="task"]')!, { button: 0 });
             key("End", { ctrlKey: true });
             const task = (id: string, k: number) => lines(id)[k]?.querySelector('[data-key="task"]');
@@ -816,17 +859,26 @@ describe("what the viewer arranged survives a remount (#857)", () => {
     });
 
     test("paged: a view resting over an unloaded band persists the element the band draws there, and comes back to it", async () => {
-        const ui = mount(buildFramedPlans());
+        const held = new Set<number>();
+        const paged = withAsked(buildFramedPlans(), held);
+        const ui = mount(paged.value);
         const f = framed(ui);
-        const transport = () => ui.container.querySelector('[data-slot="footerTransport"]')!.textContent;
-        await waitFor(() => expect(transport()).toBe("600 loaded of 2,000"));
-        // Far down — windows 0–2 leave the run for the head band — then back up over it, to plan 250, 10 px in.
+        await landed(paged.asked, ui, 0, 1, 2);
+        // Far down — windows 0–2 leave the run for the head band, windows 6–9 land — then back up over it, to plan 250, 10 px in.
         f.scrollTo(1_500 * PLAN_PX);
-        await waitFor(() => expect(transport()).toBe("800 loaded of 2,000"), { timeout: 10_000 });
+        await landed(paged.asked, ui, 6, 7, 8, 9);
         expect(ui.band("P10000")).toBeNull();
+        // The windows up there stay in flight: the scroll settles over an unloaded band before any row lands under it,
+        // however soon the view asks for them (#1398, CL6) — the run rebased around the view, which is far from it.
+        for (let w = 0; w < 6; w++) held.add(w);
+        const before = paged.asked.length;
         f.scrollTo(250 * PLAN_PX + 10);
-        // The scroll settles over the band, before any row lands under it.
-        await waitFor(() => expect(localStorage.getItem("sheet-grouped-test")).toContain('"key":"band:head"'));
+        const anchor = () => (JSON.parse(localStorage.getItem("sheet-grouped-test") ?? "{}") as { anchor?: { key: string; element: number | null } }).anchor;
+        // What it keeps once the frame reports where it rests, 150 ms after its last scroll, is the element the band draws
+        // there — not the anchor the scroll down left, which names a band too where that scroll rested before windows 6–9
+        // landed under it, at their element; the window under the view was asked for, and is on its way.
+        await waitFor(() => expect(anchor()).toMatchObject({ key: expect.stringMatching(/^band:/), element: 250 }));
+        expect(paged.asked.slice(before)).toContain(1);
         ui.unmount();
         // The remount's run starts at the top — it draws no head band — and the element brings the view back.
         const again = mount(buildFramedPlans());
@@ -852,7 +904,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
     // height — the height it declares inline — as if nothing wrapped.
     beforeEach(() => { frameAt(600); });
 
-    /** The frame's extent, where each plan's band starts, the frame's scroll, and the transport line. */
+    /** The frame's extent, where each plan's band starts, and the frame's scroll. */
     function framed(ui: ReturnType<typeof mount>) {
         const frame = ui.container.querySelector('[data-virtual-rows="bounded"]') as HTMLElement;
         const extent = () => Number(ui.container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
@@ -861,21 +913,21 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
             return Number(/translateY\((-?[\d.]+)px\)/.exec(wrapper.style.transform)![1]);
         };
         const scrollTo = (px: number) => act(() => { frame.scrollTop = px; fireEvent.scroll(frame); });
-        const transport = () => ui.container.querySelector('[data-slot="footerTransport"]')!.textContent;
-        return { frame, extent, bandTop, scrollTo, transport };
+        return { frame, extent, bandTop, scrollTo };
     }
 
     test("the document is every plan's height from the first landing, and after a far scroll every plan sits where the geometry put it — windows landing above and leaving the run move nothing", async () => {
-        const ui = mount(buildFramedPlans());
+        const paged = withAsked(buildFramedPlans());
+        const ui = mount(paged.value);
         const f = framed(ui);
-        await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
+        await landed(paged.asked, ui, 0, 1, 2);
         // Three windows landed, seven described: the document is all 2,000 plans.
         expect(f.extent()).toBe(2_000 * PLAN_PX);
         // Far down, to plan 1,500: the run rebases to its window (7) and grows
         // back to window 6 above it — never visited — while windows 0–2 leave
         // it for the head band.
         f.scrollTo(1_500 * PLAN_PX);
-        await waitFor(() => expect(f.transport()).toBe("800 loaded of 2,000"), { timeout: 10_000 });
+        await landed(paged.asked, ui, 6, 7, 8, 9);
         expect(ui.band("P10000")).toBeNull();
         expect(f.extent()).toBe(2_000 * PLAN_PX);
         // The plan the frame scrolled to is at the top of the view: nothing
@@ -885,25 +937,27 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
     });
 
     test("a window landing above the rows in view leaves them where they are", async () => {
-        const ui = mount(buildFramedPlans());
+        const paged = withAsked(buildFramedPlans());
+        const ui = mount(paged.value);
         const f = framed(ui);
-        await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
+        await landed(paged.asked, ui, 0, 1, 2);
         f.scrollTo(1_500 * PLAN_PX);
-        await waitFor(() => expect(f.transport()).toBe("800 loaded of 2,000"), { timeout: 10_000 });
+        await landed(paged.asked, ui, 6, 7, 8, 9);
         // Up to the top of window 6, the run's first: plan 1,210 at the top of
         // the view. Once the scroll settles, window 5 above it is asked for.
         f.scrollTo(1_210 * PLAN_PX);
         expect(f.bandTop("P11210") - f.frame.scrollTop).toBe(0);
-        await waitFor(() => expect(f.transport()).toBe("1,000 loaded of 2,000"), { timeout: 10_000 });
+        await landed(paged.asked, ui, 5);
         // It landed above the rows in view and took exactly its band's slot.
         expect(f.bandTop("P11210") - f.frame.scrollTop).toBe(0);
         expect(f.extent()).toBe(2_000 * PLAN_PX);
     });
 
     test("what a planner opens and folds counts: the window is re-measured, and leaving the run it leaves exactly what its rows drew", async () => {
-        const ui = mount(buildFramedPlans());
+        const paged = withAsked(buildFramedPlans());
+        const ui = mount(paged.value);
         const f = framed(ui);
-        await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
+        await landed(paged.asked, ui, 0, 1, 2);
         // Plan 0's first line opens its two operations (2 × 30 px), and plan 1
         // folds to its band (its two lines, 2 × 36 px, go).
         const cut0 = ui.container.querySelector('[data-slot="row"][data-group-id="P10000"][data-line="0"]')!;
@@ -915,7 +969,7 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
         expect(f.extent()).toBe(2_000 * PLAN_PX + change);
         // Far down: their window leaves the run as the planner left it.
         f.scrollTo(1_500 * PLAN_PX + change);
-        await waitFor(() => expect(f.transport()).toBe("800 loaded of 2,000"), { timeout: 10_000 });
+        await landed(paged.asked, ui, 6, 7, 8, 9);
         expect(ui.band("P10000")).toBeNull();
         expect(f.extent()).toBe(2_000 * PLAN_PX + change);
         expect(f.bandTop("P11500")).toBe(1_500 * PLAN_PX + change);
@@ -937,19 +991,20 @@ describe("the paged arm in a bounded frame: unloaded bands are as tall as their 
         });
 
         test("lands above the rows in view and leaves them where they are — the view follows its rows, not its estimate", async () => {
-            const ui = mount(buildVariedPlans());
+            const paged = withAsked(buildVariedPlans());
+            const ui = mount(paged.value);
             const f = framed(ui);
-            await waitFor(() => expect(f.transport()).toBe("600 loaded of 2,000"));
+            await landed(paged.asked, ui, 0, 1, 2);
             // Unvisited windows are described at the first window's 78 px a plan.
             const rate = 42 + 36;
-            const landed = 200 * rate + 2 * 200 * PLAN_PX;
-            expect(f.extent()).toBe(landed + 7 * 200 * rate);
+            const landedPx = 200 * rate + 2 * 200 * PLAN_PX;
+            expect(f.extent()).toBe(landedPx + 7 * 200 * rate);
             // Where the estimate puts plan 1,500: the run rebases to window 7,
             // which lands there, and grows back to window 6 above it — 200 ×
             // (114 − 78) px taller than its estimate.
-            const at = landed + 4 * 200 * rate + 100 * rate;
+            const at = landedPx + 4 * 200 * rate + 100 * rate;
             f.scrollTo(at);
-            await waitFor(() => expect(f.transport()).toBe("800 loaded of 2,000"), { timeout: 10_000 });
+            await landed(paged.asked, ui, 6, 7, 8, 9);
             // The rows window 7 put in view kept their places: the view moved
             // with them, by exactly what window 6 drew beyond its estimate.
             const grew = 200 * (PLAN_PX - rate);

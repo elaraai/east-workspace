@@ -53,6 +53,10 @@ export { mergeUnitParts, loadUnitMergeFunction, type UnitMergeFunction, type Uni
 // and the CRC-32 each entry's bytes are named by, likewise
 export { inflateRawSync } from './serialization/beast2/v5/frames.js';
 export { crc32 } from './serialization/crc32.js';
+// What a pager's cache counts a decoded segment by (v5/SPEC.md, "The pager's
+// cache"), the same in every runtime: what e3's API process weighs the decoded
+// segments it keeps by
+export { decodedWeightFor } from './serialization/beast2/v5/weight.js';
 
 /**
  * Type helper for platform function definitions.

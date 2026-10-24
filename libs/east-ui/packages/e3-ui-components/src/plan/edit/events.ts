@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { useMemo } from "react";
-import { parseFor, type ValueTypeOf } from "@elaraai/east";
+import { useMemo, useRef } from "react";
+import { none, parseFor, some, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { useScheduleEditing, type ScheduleChange, type ScheduleEditing, type ScheduleEditingArgs, type ScheduleRead } from "../../shared/schedule/editing.js";
 export type {
@@ -21,10 +21,26 @@ export type PlanEventEditing = ScheduleEditing<Item>;
 export interface PlanEventEditingArgs extends Omit<ScheduleEditingArgs<Item>, "kinds"> {
     /** The Plan's event kinds. */
     kinds: readonly Kind[];
+    /**
+     * The rows each kind read by its cells holds (#1039), by the kind's slot, then by the event's key's text: where a
+     * gesture, the inspector and a banner find one of its events, with no read of its own; one they do not hold is read
+     * by its key, never over the window.
+     */
+    held?: ReadonlyMap<string, ReadonlyMap<string, { readonly row: Uint8Array }>> | undefined;
 }
 /** Adapts the Plan's event projection to the shared record editing history. */
 export function usePlanEventEditing(args: PlanEventEditingArgs): PlanEventEditing {
-    const kinds = useMemo(() => args.kinds.map(kind => ({ ...kind, event: kind.planEvent })), [args.kinds]);
+    // The latest rows held: the kinds' reads read them as they run, so new cells make no new kinds.
+    const held = useRef(args.held);
+    held.current = args.held;
+    const kinds = useMemo(() => args.kinds.map(kind => ({
+        ...kind,
+        event: (id: string, drafts: Parameters<Kind["planEvent"]>[1], from: Date, to: Date) => {
+            const rows = held.current?.get(kind.key);
+            const row = rows?.get(id);
+            return kind.planEvent(id, drafts, from, to, rows === undefined ? none : some(row === undefined ? none : some(row.row)));
+        },
+    })), [args.kinds]);
     return useScheduleEditing({ ...args, kinds });
 }
 

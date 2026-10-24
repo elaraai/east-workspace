@@ -5,7 +5,7 @@
 
 /** Record Slice wire; the existing local Slice types remain unchanged. */
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, FunctionType, IntegerType, NullType,
+    ArrayType, BlobType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType,
     OptionType, SetType, StringType, StructType, VariantType, type EastType,
 } from "@elaraai/east";
 import { ValueFormatType } from "../../contracts/format.js";
@@ -16,14 +16,25 @@ import { LiveSourceType, SeekQueryType, SeekRangeType } from "../../contracts/so
 /**
  * One field's narrowing, with values encoded as typed .east literals.
  * @remarks Prefix text is raw text; every exact value and range end is a literal.
- * @property values - Exact alternatives on a leading field (one on a Set field).
+ * A `window` is a read's, never the rail's: it is given under an area index's
+ * `__area` field to a read's `where` (`pageWhere`, `countWhere`, a scan), never
+ * written into a Slice's state, and never shown as a chip (#1385). It is named
+ * to sort after every case before it, so the earlier cases keep their tags. A
+ * narrowing is a Dict of choices, whose values beast2 reads at exactly their
+ * written type, so one an earlier release wrote does not decode under this type
+ * (docs/conventions/WIRE_MIGRATION.md).
+ * @property values - Exact alternatives on a leading field (one on a Set field);
+ *   under `__area`, the unplaced clause (`-1`).
  * @property range - Half-open range on the next field.
  * @property prefix - String prefix on the next field.
+ * @property window - The viewport an area index reads, in world units: the rows
+ *   whose box meets it grown by its margin (`areaQueries`).
  */
 export const RecordSliceChoiceType = VariantType({
     values: ArrayType(StringType),
     range: StructType({ from: StringType, to: StringType }),
     prefix: StringType,
+    window: StructType({ minX: FloatType, minY: FloatType, maxX: FloatType, maxY: FloatType }),
 });
 export type RecordSliceChoiceType = typeof RecordSliceChoiceType;
 
@@ -80,16 +91,53 @@ export const RecordSliceFieldType = StructType({
 export type RecordSliceFieldType = typeof RecordSliceFieldType;
 
 /**
+ * The time tile a series or a summary index files a record's events by
+ * (#1039): a day, an ISO week from Monday, a calendar month, a quarter or a
+ * year, each in UTC.
+ */
+export const RecordSliceTileType = VariantType({ day: NullType, week: NullType, month: NullType, quarter: NullType, year: NullType });
+export type RecordSliceTileType = typeof RecordSliceTileType;
+
+/**
+ * What a series or a summary index files a record's events by (#1039).
+ * @property key - The row field naming what an event is on: a Plan's resource.
+ * @property from - The row field an event starts at.
+ * @property to - The row field it ends at.
+ * @property tile - The tile.
+ */
+export const RecordSliceTilingType = StructType({ key: StringType, from: StringType, to: StringType, tile: RecordSliceTileType });
+export type RecordSliceTilingType = typeof RecordSliceTilingType;
+
+/**
  * One available query path, invisible to users.
+ * @remarks An index's metadata is part of a record Slice's config, which a
+ * component's IR carries, and beast2 reads it at exactly its written type: a
+ * config an earlier release wrote does not decode under this one
+ * (docs/conventions/WIRE_MIGRATION.md).
  * @property name - Source selector.
  * @property fields - Row fields in index order.
  * @property sets - Fields that fan out; all must be fixed to one exact value.
  * @property structured - Index key is a Struct, including a single computed field.
  * @property interval - Final field represents overlap with an interval, using distinct start/carry-in queries.
+ * @property area - Final field is an area index's `__area` (#1385): the row fields its box is read from (`x`, `y`,
+ *   and `width` and `height` unless the rows are points), whether `x`, `y` is the box's centre or its minimum corner,
+ *   the finest cell's side in world units (a power of two), and whether `x` and `y` are Options, which makes the
+ *   unplaced clause meaningful. Its entries carry their rows.
+ * @property series - A series index (#1039): its events filed by the key they are on and by each tile they touch,
+ *   `{ …on, __tile, <key> }`, carrying their rows. It never serves the rail's narrowing, which would count an event
+ *   once for each tile it touches: a reader reads its cells (`tileCellQueries`).
+ * @property summary - A summary index (#1039): under the same keys, how many rows touch the tile and the
+ *   milliseconds of it they cover. Its entries name no row, so it never serves the rail's narrowing either.
  */
 export const RecordSliceIndexType = StructType({
     name: StringType, fields: ArrayType(StringType), sets: SetType(StringType), structured: BooleanType,
     interval: OptionType(StructType({ from: StringType, to: StringType, optional: BooleanType })),
+    area: OptionType(StructType({
+        x: StringType, y: StringType, width: OptionType(StringType), height: OptionType(StringType),
+        centre: BooleanType, cell: FloatType, optional: BooleanType,
+    })),
+    series: OptionType(RecordSliceTilingType),
+    summary: OptionType(RecordSliceTilingType),
 });
 export type RecordSliceIndexType = typeof RecordSliceIndexType;
 
@@ -108,7 +156,9 @@ export const RecordSliceConfigType = StructType({
 export type RecordSliceConfigType = typeof RecordSliceConfigType;
 
 /**
- * A value's exact count in the narrowing choosing it would produce.
+ * A value's exact count under the other fields' choices: the rows the
+ * narrowing holds with that value alone chosen for its field, as a faceted
+ * search counts (#1393) — never what a click on it would show.
  * @property value - Canonical .east literal.
  * @property label - Display label.
  * @property count - Exact result count, none while pending or failed.
@@ -140,7 +190,7 @@ export type RecordSliceDomainType = typeof RecordSliceDomainType;
  * @property countWhere - Exact count of a saved narrowing, without changing current state.
  * @property total - Exact primary-row count; none while pending.
  * @property domain - Inclusive numeric/date extent, ignoring that field's range; none while pending or empty.
- * @property values - Known values with exact prospective counts.
+ * @property values - Known values, each with its exact count under the other fields' choices, the chosen marked.
  * @property suggest - At most eight distinct String values with exact counts.
  * @property replaces - Field labels a new choice would replace.
  * @property togglePreset - Set or clear a named narrowing.

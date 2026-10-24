@@ -6,7 +6,7 @@
 /**
  * Every word the Sheet says itself (#861) — ONE typed message table, the
  * Plan's #820 table's twin. The toolbar and the view tabs, the header, the
- * rows, bands and gap pills, the strip, the editor and the link cells, the
+ * rows, a failed run's line and the gap pills, the strip, the editor and the link cells, the
  * footer and the history bar, the insertion chips, the message each gesture
  * leaves, and the words it gives a reader for what it shows only by look all
  * come from here. What the AUTHOR wrote — a column's header, a group's noun,
@@ -30,6 +30,7 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
+import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { pluralKind } from "./link/grammar.js";
 import type { SheetKind } from "./model.js";
 
@@ -104,7 +105,7 @@ export type SheetDropRefusalWord =
  * number, as written. `noun` / `nouns` are the host's words for a group
  * (#844), `header` a column's header, `name` a view's name — the author's.
  */
-export interface SheetMessages extends EditingMessages {
+export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     // ── Counting ───────────────────────────────────────────────────────────
     /** A count of the host's groups — `3 plans`. */
     countNoun: (p: { n: number; count: string; noun: string; nouns: string }) => string;
@@ -232,13 +233,13 @@ export interface SheetMessages extends EditingMessages {
     /** The footer's line for an issue the history bar went to. */
     issueAt: (p: { where: string; message: string }) => string;
 
-    // ── Bands, gaps, failures ──────────────────────────────────────────────
-    /** An unloaded run's pill. */
-    bandUnloaded: (p: { n: number; count: string; loading: boolean }) => string;
+    // ── Gaps and failures ──────────────────────────────────────────────────
+    // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
+    // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed read's retry. */
     retry: () => string;
-    /** A window whose read failed (#853). */
-    windowFailed: (p: { from: string; to: string; reason: string }) => string;
+    /** Why the lens draws a record's rows as a failed band (#1349): which of them the narrowing holds disagrees with where e3 placed its rows — the record changed between the two reads. */
+    lensChanged: () => string;
     /** A row that threw as it drew. */
     rowFailed: (p: { number: string; reason: string }) => string;
     /** A paged source that failed before anything landed. */
@@ -303,12 +304,8 @@ export interface SheetMessages extends EditingMessages {
     // ── The footer (B§9) ───────────────────────────────────────────────────
     /** A grouped sheet's count line — `3 plans · 14 lines`, and `· 2 loose rows` when rows stand between the groups (#846). */
     summary: (p: { groups: string; n: number; lines: string; nLoose: number; loose: string; nSub: number; subRows: string }) => string;
-    /** The transport line — `600 loaded of 1,000`. */
-    transport: (p: { loaded: string; total: string | undefined }) => string;
-    /** The same line while a window is on its way. */
-    transportLoading: (p: { line: string }) => string;
-    /** The transport line's failure (#853). */
-    transportFailed: (p: { reason: string }) => string;
+    // The footer's loading line over a paged source (#1398, CL3), in what the rail counts the rows in: `lineLoading`,
+    // `lineFiltering`, `lineFailed` and `lineShort` (`PagedLoadingMessages`).
     /** The key hint — a selected suggestion. */
     hintProposal: () => string;
     /** The key hint — the ring on a band. */
@@ -610,6 +607,7 @@ const plural = (n: number, one: string, many: string): string => (n === 1 ? one 
 /** The English table — the default: the editing session's words, then the sheet's own. */
 export const sheetMessages: SheetMessages = {
     ...editingMessages,
+    ...pagedLoadingMessages,
     countNoun: ({ n, count, noun, nouns }) => `${count} ${plural(n, noun, nouns)}`,
     groupNoun: () => "group",
     groupNouns: () => "groups",
@@ -678,9 +676,8 @@ export const sheetMessages: SheetMessages = {
     issueGroupCheck: ({ reason }) => `Group readiness failed: ${reason}`,
     issueAt: ({ where, message }) => `${where}: ${message}`,
 
-    bandUnloaded: ({ count, loading }) => `${count} ${loading ? "loading" : "not loaded"}`,
     retry: () => "Retry",
-    windowFailed: ({ from, to, reason }) => `Elements ${from}–${to} could not be read — ${reason}`,
+    lensChanged: () => "the record changed while they were read",
     rowFailed: ({ number, reason }) => `Row ${number} could not be drawn — ${reason}`,
     noSource: ({ reason }) => `NO ROWS — the paged source could not be read. ${reason} `,
     gapMore: ({ count }) => `+${count}`,
@@ -714,10 +711,7 @@ export const sheetMessages: SheetMessages = {
 
     summary: ({ groups, n, lines, nLoose, loose, nSub, subRows }) =>
         `${groups} · ${lines} ${plural(n, "line", "lines")}${nLoose > 0 ? ` · ${loose} loose ${plural(nLoose, "row", "rows")}` : ""}${nSub > 0 ? ` · ${subRows} sub ${plural(nSub, "row", "rows")}` : ""}`,
-    transport: ({ loaded, total }) => (total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`),
-    transportLoading: ({ line }) => `${line} · Loading…`,
-    transportFailed: ({ reason }) => ` · could not be read — ${reason} `,
-    hintProposal: () => "⏎ adds the selected row · ⌫ rejects it · esc deselects",
+    hintProposal:() => "⏎ adds the selected row · ⌫ rejects it · esc deselects",
     hintBand: ({ noun }) => `⏎ renames the ${noun} · Space folds it · ⇧Space folds all · click its number to select its lines`,
     hintSubRows: ({ open, n, count, noun }) => `Space ${open ? "hides" : "shows"} its ${count} sub ${plural(n, "row", "rows")} · ⇧Space every line's in the ${noun} · ⏎ edit`,
     hintRows: ({ n, count }) => `${count} ${plural(n, "row", "rows")} selected · ⌫ deletes them · ⌘C copies`,
@@ -972,7 +966,7 @@ export interface SheetMessagesProviderProps {
  * const GERMAN: Partial<SheetMessages> = {
  *     tabAll: () => "Alle",
  *     scopeBadge: () => "nur geladene Zeilen",
- *     transport: ({ loaded, total }) => (total !== undefined ? `${loaded} von ${total} geladen` : `${loaded} geladen`),
+ *     lineLoading: ({ noun, from, to }) => (from === undefined || to === undefined ? [`${noun} werden geladen…`] : [`${noun} `, { strong: `${from}–${to}` }, " werden geladen"]),
  * };
  *
  * <I18nProvider locale="de-DE">

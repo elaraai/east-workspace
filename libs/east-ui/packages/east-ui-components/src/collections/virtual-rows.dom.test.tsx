@@ -231,6 +231,32 @@ describe("VirtualRows — the paged collection's two signals (#577)", () => {
         });
     });
 
+    test("each row is told which row shows at the top of the view — where a collection says a failure once (#1398, CL11); a frame in flow that watches nothing tells none", () => {
+        const tops = new Map<number, number | undefined>();
+        const frame = (height: string | undefined, count: number) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height={height} maxHeight={undefined} count={count} estimateSize={() => ROW_H} measureRows={false} overscan={6}
+                    renderRow={(i, view) => { tops.set(i, view.top); return <div>row {i}</div>; }} />
+            </ChakraProvider>
+        );
+        const { container, unmount } = render(frame("200px", 500));
+        const told = () => [...new Set([...container.querySelectorAll<HTMLElement>("[data-index]")].map((el) => tops.get(Number(el.dataset["index"]))))];
+        // At rest the top row is the first, and every row mounted is told so.
+        expect(told()).toEqual([0]);
+        // Scrolled ten rows and 5px down: the eleventh row shows at the top, and every row mounted — the overscan's above
+        // it among them — is told so.
+        const scrollEl = container.firstElementChild as HTMLElement;
+        scrollEl.scrollTop = 10 * ROW_H + 5;
+        fireEvent.scroll(scrollEl);
+        expect(told()).toEqual([10]);
+        unmount();
+        // Unbounded below scale, with no range asked for: every row in flow, and no view to place a row in.
+        tops.clear();
+        const inFlow = render(frame(undefined, 3));
+        expect(inFlow.container.querySelectorAll("[data-index]")).toHaveLength(0);
+        expect([...tops.values()]).toEqual([undefined, undefined, undefined]);
+    });
+
     test("sizeVersion busts TanStack's measurement memo when heights move at a constant count", () => {
         // The hazard, verified against virtual-core@3.13.23: `getMeasurements`
         // memoizes on [count, paddingStart, scrollMargin, getItemKey, enabled,
@@ -742,6 +768,76 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
             rerender(paged([...keysOf("n", 10), ...ROWS.slice(1)], 90, 1));
             expect(scrollEl.scrollTop).toBe(requested);
         });
+    });
+});
+
+describe("VirtualRows — a row out of the layout keeps its size (#1389)", () => {
+    // jsdom lays nothing out and has no `checkVisibility`: here a row is out of the layout while an ancestor is
+    // `hidden`, and measured there at nothing, as a browser measures it; each ResizeObserver hears its rows' boxes
+    // change when the test says the page laid them out again; and the frame's writes land on scrollTop, as a browser's do.
+    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+    const realScrollTo = proto.scrollTo;
+    const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    const observers: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver }[] = [];
+    beforeEach(() => {
+        observers.length = 0;
+        proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+            if (options.top !== undefined) this.scrollTop = options.top;
+        };
+        Element.prototype.checkVisibility = function (this: Element) { return this.closest("[hidden]") === null; };
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const height = this.closest("[hidden]") !== null ? 0 : this.hasAttribute("data-index") ? 44 : 200;
+            return { x: 0, y: 0, top: 0, left: 0, right: 240, width: 240, height, bottom: height, toJSON: () => ({}) } as DOMRect;
+        };
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver };
+            constructor(cb: ResizeObserverCallback) {
+                this.entry = { cb, targets: new Set(), self: this as unknown as ResizeObserver };
+                observers.push(this.entry);
+            }
+            observe(target: Element) { this.entry.targets.add(target); }
+            unobserve(target: Element) { this.entry.targets.delete(target); }
+            disconnect() { this.entry.targets.clear(); }
+        };
+    });
+    afterEach(() => {
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
+        delete (Element.prototype as { checkVisibility?: unknown }).checkVisibility;
+        if (realScrollTo === undefined) delete proto.scrollTo;
+        else proto.scrollTo = realScrollTo;
+    });
+    /** The page lays the rows out again: each observer of a row hears its box. */
+    const laidOut = () => act(() => {
+        for (const { cb, targets, self } of observers) {
+            const rows = [...targets].filter((target) => target.isConnected && target.hasAttribute("data-index"));
+            if (rows.length > 0) cb(rows.map((target) => ({ target }) as unknown as ResizeObserverEntry), self);
+        }
+    });
+
+    test("hidden by its tab, a row keeps its size; shown again, the rows and the scroll are where they were — not run to the list's end", () => {
+        // A list with nothing above its first row, as the Schematic's Index is: no padding, no header.
+        const frame = (hidden: boolean) => (
+            <ChakraProvider value={system}>
+                <div {...(hidden ? { hidden: true } : {})}>
+                    <VirtualRows height="200px" maxHeight={undefined} count={20} estimateSize={() => 36} overscan={2}
+                        getItemKey={(i) => `r${i}`} renderRow={(i) => <div>r{i}</div>} />
+                </div>
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(frame(false));
+        laidOut();
+        const scrollEl = container.querySelector<HTMLElement>("[data-virtual-rows]")!;
+        const offsets = () => [...container.querySelectorAll<HTMLElement>("[data-slot=virtualRow]")].slice(0, 3)
+            .map((el) => Number(/translateY\((-?[\d.]+)px\)/.exec(el.style.transform)![1]));
+        expect(offsets()).toEqual([0, 44, 88]);
+        // Its tab closed: the rows are out of the layout, the page measuring them at nothing.
+        rerender(frame(true));
+        laidOut();
+        // Open again: each row grows back from the size it kept — never from nothing at the scroll's offset.
+        rerender(frame(false));
+        laidOut();
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(offsets()).toEqual([0, 44, 88]);
     });
 });
 

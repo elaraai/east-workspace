@@ -1575,29 +1575,30 @@ test.describe("Plan paged blocks (#823)", { tag: "@desktop" }, () => {
         const entry = await openExample(page, "dataBindPagedBlocks", "e3/bind/data/data");
         const frame = entry.locator('[data-virtual-rows="bounded"]');
         const extent = entry.locator("[data-virtual-extent]");
-        const transport = entry.locator('[data-slot="footerTransport"]');
         const scrollTo = (top: number) => frame.evaluate((el, at) => { el.scrollTop = at; }, top);
-        await expect(transport).toHaveText("600 loaded of 3,000");
+        // The first landing: nothing in flight, main not busy.
+        await expect(entry.locator('[data-frame-slot="main"]')).toHaveAttribute("aria-busy", "false");
         // The document is both blocks whole from the first landing.
         await expect(extent).toHaveAttribute("data-virtual-extent", String(2 * BLOCK));
         await expect.poll(() => misplaced(entry), "first landing").toEqual([]);
 
         // Far into the jobs block's tail band, where the ledger puts unit
-        // 2,000: its run rebases to window 10, and windows 0–2 leave it for
-        // the head band.
+        // 2,000: its run rebases to window 10, its rows land there, and
+        // windows 0–2 leave it for the head band.
         const far = 2_000 * ROW;
         await scrollTo(far);
-        await expect(transport).toHaveText("elements 1,801–2,600 of 3,000");
+        await expect(entry.locator(rowSel("jobs", "U12000"))).toHaveCount(1);
         await expect(entry.locator(rowSel("jobs", "U10000"))).toHaveCount(0);
         await expect.poll(() => misplaced(entry), "after the jump").toEqual([]);
         await expect(extent).toHaveAttribute("data-virtual-extent", String(2 * BLOCK));
         expect(await frame.evaluate((el) => el.scrollTop)).toBe(far);
 
         // Up to the run's first row, 10px into it: once the scroll settles,
-        // window 8 lands above it — and the rows in view stay where they are.
+        // window 8 lands above it — its last row just above the view — and
+        // the rows in view stay where they are.
         const first = 1_800 * ROW + 10;
         await scrollTo(first);
-        await expect(transport).toHaveText("elements 1,601–2,600 of 3,000");
+        await expect(entry.locator(rowSel("jobs", "U11799"))).toHaveCount(1);
         await expect.poll(() => misplaced(entry), "after the landing").toEqual([]);
         expect(await frame.evaluate((el) => el.scrollTop)).toBe(first);
     });

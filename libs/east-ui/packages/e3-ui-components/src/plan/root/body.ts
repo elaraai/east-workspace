@@ -20,6 +20,7 @@ import { appendAll } from "../reductions.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanController, PlanNavAlign, PlanPagingSnapshot, PlanScrollTarget } from "../controller/index.js";
 import type { PlanPagedBlock, PlanRowOrigin } from "../controller/paging.js";
+import { PLAN_PAGE_SIZE } from "../use-plan-paging.js";
 
 /** The body items, and what the frame measures and keys them by. */
 export interface PlanBody {
@@ -248,13 +249,17 @@ export function usePlanScrollTarget(
  * band) the viewport sits on. The item under the viewport CENTER when the
  * frame can resolve one (the live scroll offset — inside one huge band item
  * only the center pixel can say where the thumb is, #612), else the middle of
- * the mounted range. No body-layout knowledge crosses into the driver.
+ * the mounted range — with the windows the mounted range shows (#1398): each
+ * row's, a run's nearest its rows and a failed window's, which the footer's
+ * loading line and the frame's busy follow. No body-layout knowledge crosses
+ * into the driver.
  *
  * @param items - The body items
  * @param controller - Where the viewport is reported
+ * @param origin - Which block and window each paged row came from
  * @returns The frame's `onRangeChange`
  */
-export function usePlanRangeReport(items: readonly PlanBodyItem[], controller: PlanController) {
+export function usePlanRangeReport(items: readonly PlanBodyItem[], controller: PlanController, origin: ReadonlyMap<string, PlanRowOrigin>) {
     return useCallback((
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
@@ -263,17 +268,25 @@ export function usePlanRangeReport(items: readonly PlanBodyItem[], controller: P
         const mid = Math.floor((range.startIndex + range.endIndex) / 2);
         const item = items[center?.index ?? mid] ?? items[range.startIndex];
         if (item === undefined) return;
+        const shows: number[] = [];
+        for (let i = range.startIndex; i <= range.endIndex; i++) {
+            const it = items[i];
+            const w = it?.kind === "row" ? origin.get(it.row.row.key)?.w
+                : it?.kind === "band" ? Math.floor((it.band.at === "head" ? it.band.to : it.band.from) / PLAN_PAGE_SIZE)
+                    : it?.kind === "failed" ? it.failure.w : undefined;
+            if (w !== undefined && !shows.includes(w)) shows.push(w);
+        }
         if (item.kind === "band") {
             // `withinPx` is measured from the band's own top — the one origin
             // its block's ledger can place exactly, whatever the resident rows
             // above it rendered at.
-            controller.reportViewport({ kind: "band", block: item.band.block, at: item.band.at, px: center?.withinPx }, isScrolling);
+            controller.reportViewport({ kind: "band", block: item.band.block, at: item.band.at, px: center?.withinPx, shows }, isScrolling);
         } else if (item.kind === "row") {
-            controller.reportViewport({ kind: "row", key: item.row.row.key }, isScrolling);
+            controller.reportViewport({ kind: "row", key: item.row.row.key, shows }, isScrolling);
         } else if (item.kind === "failed") {
             // A failed window's band names its own block and window (#811).
-            controller.reportViewport({ kind: "window", block: item.failure.block, w: item.failure.w }, isScrolling);
+            controller.reportViewport({ kind: "window", block: item.failure.block, w: item.failure.w, shows }, isScrolling);
         }
         // A links-focus gap band names no window — the demand stays where it is.
-    }, [items, controller]);
+    }, [items, controller, origin]);
 }

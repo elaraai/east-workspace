@@ -22,12 +22,14 @@
  * shifts' together. An ordinal axis has no range arm (its list is its window),
  * so the strip never mounts there; a Plan with no slice has no wider horizon
  * to brush. A record's query moves once per gesture: the strip previews its
- * selection, and commits on release.
+ * selection, and commits on release. While the sources' span is read its row
+ * is held at its height, a placeholder track in the strip's place (#1398,
+ * CL1), so nothing below it moves as the span lands.
  */
 
 import { useCallback, useMemo } from "react";
 import { Box, chakra } from "@chakra-ui/react";
-import { BrushStrip, recordSliceDomain } from "@elaraai/east-ui-components/internal";
+import { BrushStrip, PlaceholderShape, recordSliceDomain } from "@elaraai/east-ui-components/internal";
 import { useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
@@ -113,6 +115,16 @@ export function HorizonBrush({ styles, gridTemplate, parts, now }: HorizonBrushP
     if (!recordDomain.ok) return <Box css={styles.partError} role="alert">
         Could not load date span <chakra.button type="button" css={styles.windowRetry} onClick={() => { for (const { part } of parts) part.retry(); }}>Retry</chakra.button>
     </Box>;
+    // Its row is held while its span is read (#1398, CL1): the band at its height, a placeholder track in the
+    // strip's place and the caption's in its own, so the rows below never move as the span lands.
+    if (domain === undefined && (scale.kind === "time" || scale.kind === "number")) {
+        return (
+            <Box css={styles.brushRow} gridTemplateColumns={gridTemplate} data-slot="horizon" data-plan-horizon="pending" aria-hidden="true">
+                <Box css={styles.brushCaption}><PlaceholderShape kind="label" index={0} /></Box>
+                <Box css={styles.brushPending} />
+            </Box>
+        );
+    }
     if (extent === undefined || domain === undefined) return null;
 
     const span = extent.hi - extent.lo;

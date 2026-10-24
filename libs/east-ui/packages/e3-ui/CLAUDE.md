@@ -50,7 +50,8 @@ A builder's tag checks its `slice` with `utils/record-sources.ts`'
 `recordSources`, a Library tab's `source` with `tabSource`, and a templates
 list's source with `templatesSource` (#1340): every builder takes only
 `Slice.bindRecords`, its sources named after what they narrow — the
-Allocation, the Roster, the Calendar, the Plan, the Sheet and the Flowchart.
+Allocation, the Roster, the Calendar, the Plan, the Sheet, the Flowchart and
+the Schematic.
 Templates are records: each list names its source of the one
 `Slice.bindRecords`, and a list written in the code is refused, naming the
 change to make.
@@ -85,14 +86,19 @@ loaded"), though the in-memory test harness answers it (#1343). `Record.bind`
 stays the mutation door a Save commits through.
 
 The Sheet (#1345) takes `slice={{ slice: Slice.bindRecords(key, { rows, … })
-}}`. Its `rows` source gives the rows, paged from it, edited through
-`onApply={Record.onApply(record, { keyed: true })}`; a sheet over `record` or
-`data` takes a slice of templates sources alone. Each list is
+}}`. Its `rows` source gives the record's rows, every one in the record's
+order, paged from it, edited through `onApply={Record.onApply(record, { keyed:
+true })}`, and its narrowing is drawn over them as the lens (#1349): each match
+at its row number, its context rows either side and gaps of their size over
+the rest, e3 placing the narrowing's rows from the source's index alone and
+the renderer reading only the segments that hold them near the view. A sheet
+over `record` or `data` takes a slice of templates sources alone. Each list is
 `Sheet.templates(templates.read(), { name, group?, values, source })`, its
 record bound with `Data.bind`, a grouped sheet's row templates and group
 templates two records and two sources. A saved view is a
-`Sheet.Types.RecordView`, every source's narrowing by name. The lens is off
-until #1349: the rail filters the rows.
+`Sheet.Types.RecordView`, every source's narrowing by name, with the lens's
+context and the runs the planner opened by their rows' keys
+(`Sheet.Types.Reveal`).
 
 The Flowchart (#1346) takes `slice={{ slice: Slice.bindRecords(key, { flows, …
 }) }}`. Over `record`, its `flows` source — `Data.bindPaged(record, { indexes
@@ -116,11 +122,60 @@ source holding a `range` of the axis's arm holds the window with the others:
 the date navigator, the horizon brush, the keys and the resolution write each
 of them. Each templates list is `Schedule.templates(templates.read(), { …,
 source })` over a record bound with `Data.bind`, an instant kind's giving no
-`duration`, and each tab that names a `source` follows it.
+`duration`, and each tab that names a `source` follows it. A source named
+after an event kind's slot may list a series index and a summary index beside
+its interval index (#1039): the kind, placed on a paged resource kind, is then
+read a cell at a time and shaded from the summary zoomed out (`planSeries`).
+
+The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
+}}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed
+by its slot — is bound as it is read. Read whole, an editable kind binds
+`Record.bind(record, [e3.mutation.patch(record)])` and a read-only one
+`Data.bind(record)`. A source of the slice named after the kind's slot reads
+it complete through that source instead, the kind giving `entries:
+Data.bindPaged(record)` beside its `Record.bind`, or bound
+`Data.bindPaged(record)` alone, read only. An indexed read is the source,
+never the kind's record. Hidden — the default — a narrowed-out row is never
+read; under `narrowed="dim"` (#1392) the kind reads every row through its
+source, never its narrowing, so a choice reads no row again, and the renderer
+draws what the narrowing leaves out as context, from the source's shown keys. A kind's details (`Schematic.details`) are bound as
+their kind is read: whole beside a kind read whole, by key beside one read
+through its source. Each templates list is `Schematic.templates(
+templates.read(), { name, group?, values, source })` over a record bound with
+`Data.bind`, and its layers are the app's rows too — `Schematic.layers(
+systems.read(), { label, order?, tone?, color?, … })` over a record bound with
+`Data.bind`, as the Roster's lists are (#1401). Its shapes are accessors over
+the row's own fields (`footprint: (u) => some(Schematic.circle(u.radius))`),
+so no record of the app's holds a type of the Schematic's. Its props are the
+Plan's: `id`, an `inspector` opted into (a kind's own Details its kind's
+`inspector`), `onSelect` over the whole selection and `canConnect` answering
+a candidate with the refusal's words. The inspector (#1391) edits each kind's
+fields no role writes — its `fields`, the `Fields` hints over its row — and
+its details record's, bound with its patch door beside the kind, and a kind's
+`ready` checks a drafted row; `fields`, `ready` and `inspector` are typed over
+the kind's own row (`RecordSide<R>`). The library's tabs are
+`Schematic.library`'s, each over every kind as the Calendar's are:
+`templates()`, `backlog()` (every item kind's rows with no position), the
+zones' `index()` and the `layers()`, drawn in the frame's start pane
+(#1389), each card tab following its source of the rail; the Layers tab's
+choices are the viewer's, kept under the `id`. Its cards drop on the canvas
+(#1390): a template's `values` give a new item every field but its centre,
+and a link or a net of its kind every field but its ends or sides; a backlog
+row is placed; an author's tab's `drop`, a `Schematic.patch(R, { … })`, sets
+those fields on an entity of `R`'s kind through the kind's `set`, a wire
+function over the row's field setters — `schedule/fields.ts`' `fieldSetters`,
+which the Schedule kinds' `field` gesture writes through too. Every gesture is one step of one history
+over a session per record it writes (#1388): Move writes an item's centre,
+Connect a new link under a key minted unique, a Shift session the net it grows
+into, Retarget and Extend a link's end and a net's side, and Del the rows it
+deletes — every link and net leg naming a deleted item among them — each
+through its kind's own write, so only its roles' fields move; Save sends each
+record's changes through its patch door as a request of its own. A kind bound
+read only takes no gesture.
 
 A builder takes neither `Slice.bind` nor a single `Slice.bindRecord`; east-ui's
-own collections — a Table, a Library, a Deck, a Schematic — keep their own
-Slice (`Slice.bind(key, rows, { … })` over rows held whole, read through
+own collections — a Table, a Library, a Deck — keep their own Slice
+(`Slice.bind(key, rows, { … })` over rows held whole, read through
 `Slice.rows(slice)`). An indexed record narrows a builder as a source of its
 one `Slice.bindRecords`: declare `e3.recordIndex(name, record, { on: [fields...]
 })` and bind `Data.bindPaged(record, { indexes })`. Never turn the loaded page
@@ -130,9 +185,9 @@ supported combinations come from declared indexes.
 The Calendar's `slice` (#1343) is one `Slice.bindRecords`, a
 source named after each event kind's slot, each resource kind's slot, and each
 source a templates list or a tab names. An event kind's source reads its record
-through an interval index, for example `e3.recordIndex("by_status_time", events,
-{ on: ["status"], interval: { from: "start", to: "end" } })`, with `range:
-"start"`, and the kind gives `Data.bindPaged(events)` as its `entries`; a kind
+through an interval index, for example `e3.recordIndex.interval("by_status_time",
+events, { on: ["status"], from: "start", to: "end" })`, with `range: "start"`,
+and the kind gives `Data.bindPaged(events)` as its `entries`; a kind
 takes no `slice`, `filter`, `window` or `backlogWindow` beside its source. The
 Calendar's navigation writes its window into every event source's range, and
 the leading source's range is the time navigator's Range panel, never a chip of
@@ -223,6 +278,42 @@ popover's final View form before history folds; Filters and Save must remain
 inside the toolbar and clickable. Exercise indexed search, far scrolling,
 Save leaving a filter and draft retention in one real e3 workflow per device.
 
+### Schematic records, windows by area and the narrow layout
+
+Each kind is one of the app's records, keyed by String, its fields mapped to
+the Schematic's roles (#1386), and the tag refuses any other binding, naming
+the one to use: editable `Record.bind(record, [e3.mutation.patch(record)])`,
+read only `Data.bind(record)`, and beside a kind read through its source of
+the one `Slice.bindRecords`, `entries: Data.bindPaged(record)`. A kind whose
+source lists an area index (`e3.recordIndex.area` over the kind's own box —
+its `x`, `y`, `width` and `height`, `at: "centre"`) is read by area (#1393), a
+window at a time from the index alone: list one led by no field, which a
+window reads through whatever the rail chooses, and ones led by the rail's
+fields beside it. Never read such a record whole — not to draw, not to fill
+the Backlog (the index's unplaced clause) or the Index (a zone's items by its
+box), not to save (a Save confirms by key). Past 5,000 rows in view the kind
+draws the index's density; never a mark per row past it. Its details record
+is keyed as the kind is, read by key beside a kind read through its source
+and by the window's runs of the index beside one read by area.
+
+Drafts are kept by each row's original key in its kind's session, whatever
+the window, the narrowing or a remount: a row moved off the window it was read
+in draws where its draft places it, Save writes it through the patch door, and
+a window there reads it back once the index has moved it. Test it on e3: a
+move, the view taken to the floor's far end and back, Save, and a remount
+reading it back — by the mouse on a desktop and through Find and Details on a
+phone (the showcase's `schematic-records.spec.ts`).
+
+Below 480px of main nothing drags (#1394): no Move or Connect among the
+View's tools, no draggable card, no drop cell and no link handle. The
+inspector carries the gestures — an item's Connect to… and a Backlog card's
+Place, beside its position, a link's ends, a net's sides and Delete — each
+through the same edits as the canvas's, and every route that connects held to
+`canConnect`. Include the phone-width frame with its inspector
+(`schematicRecordIndexesMobile`) and an editable frame with no pane
+(`schematicHandover`), and on a phone test Save reachable with a rack
+selected and Find's query standing, as well as with nothing selected.
+
 ### Examples show the complete component definition inline
 
 Each example's `fn: East.function(...)` must show its own `Reactive` bindings,
@@ -260,10 +351,15 @@ verify its examples and displayed code before saying the preview is updated.
 
 Use the same footer rail recipe as Plan, not just its text style. The shared
 `builder-footer.ts` owns the panel background, top rule, 28px desktop rail,
-spacing, status typography and narrow wrapping. Pass it through BuilderFrame's
-footer region; keep the footer visually distinct from the body. Calendar and
-Plan both consume this part. Browser tests must compare the actual rail and
-item styles in both themes and check narrow overflow.
+spacing, status typography and the one loading line (#1398): what the builder
+reads, in its record's noun, or why it could not, with Retry — never a count
+of what has landed. A rail carrying the line never wraps and never cuts a
+word: its legend's items are units of its fit, cut whole, "…" ending a cut
+legend. Pass it through BuilderFrame's footer region with `liveFooter`; keep
+the footer visually distinct from the body. Plan, Sheet, Roster, Calendar,
+Allocation and the Schematic all consume this part. Browser tests must compare the actual rail
+and item styles in both themes and check that the rail stays one line at
+narrow widths, no word cut. The renderer guide has the parts' names.
 
 Use the shared move-preview component and `time/move-ghost.ts` recipe for event
 dragging/resizing. The preview sizes to its content independently of the source
@@ -364,9 +460,10 @@ At main width below 480px, both Shifts and People become explicit-action cards;
 no drag source or target remains registered. Test both layouts, target editing,
 proposal acceptance, restore and Save/remount. Test the final toolbar forms at
 360px with every action present: date picking, view, history and Publish must
-all remain reachable. Bound each footer item separately so the shared rail can
-wrap on narrow screens. Use Font Awesome for every mark, as for other icons;
-avoid text glyph substitutes.
+all remain reachable. Mark each legend item a unit of the footer's fit, so a
+rail too narrow for the legend ends it at a whole item, then "…", and never
+wraps. Use Font Awesome for every mark, as for other icons; avoid text glyph
+substitutes.
 
 Test the actual contained width as well as viewport width: a 360px showcase
 viewport leaves a 294px frame after padding. Combine week and view controls
@@ -374,16 +471,28 @@ in a final shared-toolbar fold before history, keeping date picking, navigation
 and Publish reachable. Desktop proposals use the mock's single-line dashed chip
 with quiet Font Awesome actions; mobile cards keep labelled Accept/Reject.
 
-Keep the footer to the legend. Roster explains its five coverage marks —
-permanent, agency staff, requested, open and hours needed; overtime is the
-app's pay's to say — and Calendar its configured event kinds, using the
-existing marks/icons and the
-shared footer rail. Do not repeat status, pending edits, counts, costs or hours
-there: shared history/toolbar controls and the inspector already own them.
-Keep legend items individually wrappable and measure narrow overflow. The
-inspector retains complete coverage/cost totals and explains whole-staff scope
-when Slice narrows visible people. A collapsed Library badge reports availability
-for the day, while tab counts report the library's item count.
+Keep the footer to the legend and the one shared loading line (ruled 22 Oct
+2026, #1398). Roster explains its five coverage marks — permanent, agency
+staff, requested, open and hours needed; overtime is the app's pay's to say —
+Calendar its configured event kinds and Allocation its layout's marks, using
+the existing marks/icons and the shared footer rail; the line says the period
+being read (`Loading 12–18 Mar`), a source's new narrowing (`Filtering
+people…`) or a read that failed, with Retry, and nothing while nothing is in
+flight. Do not repeat status, pending edits, counts, costs or hours there:
+shared history/toolbar controls and the inspector already own them. The legend
+stays whole and in place as the line comes and goes; measure that it stays one
+line at narrow widths. The Schematic's footer holds only what is live (ruled 23
+Oct 2026): a kind drawn as its density, how many rows it shades in the view, a
+refused gesture's words, each Save's notice and where Find's pick landed off
+the canvas — its counts and saves are the inspector's, its changes waiting the
+history's — and the shared loading line beside them, in a kind's noun: what
+is read (`Loading racks in view`, `Loading counts`, `Loading details for 12
+racks`), a source's new narrowing (`Filtering racks…`) or a read that failed,
+with Retry. A kind's failed read is said on the canvas too, never in a banner.
+The inspector retains complete coverage/cost totals and
+explains whole-staff scope when Slice narrows visible people. A collapsed
+Library badge reports availability for the day, while tab counts report the
+library's item count.
 
 Only show controls that change the active layout. People has a fixed weekly
 window, so omit Day/Week; Calendar Resources has a fixed daily window, so omit
@@ -435,7 +544,8 @@ column counts fixed by a layout, padding and spacing belong in the recipe.
 Pass only data-dependent column counts and computed event/coverage positions
 inline (CSS variables are suitable). Sizing logic must read the recipe's
 computed padding, borders and gaps instead of repeating those values in JS;
-Roster's responsive footer measures those styles before fitting legend items.
+the footer's fit (`useFooterFit`) measures those styles before fitting legend
+items and the loading line.
 
 Calendar Timeline and Roster Shifts/People/narrow People cards reuse
 `shared/schedule/group-heading.tsx` and the theme's `schedule-group.ts` recipe
@@ -539,18 +649,38 @@ settles its panes. Verify the cold load as well as settled resize behavior.
 Show a loading state while the active record window is unresolved; do not
 render a targets-only empty roster as though it were loaded data.
 
-Calendar and Roster pass their actual window-loading state to the internal
-`BuilderFrame.loading` prop. The frame owns one Chakra Skeleton surface and
-its loading slots in the `builderFrame` recipe. Keep its real regions mounted
-and measured underneath, inert and hidden from assistive technology; cover the
-whole frame rather than letting its toolbar, library and grid appear separately.
-The first resolved window also waits for the mounted content's fonts after
-layout measurement. Suppress initial pane-width transitions while covered.
-Do not use a fixed timeout or a skeleton sized from partial content. Subsequent
-loading keeps the frame, canvas, sessions and drafts mounted. Errors leave the
-loading state and show the existing error treatment.
-Keep the loading surface dense: body placeholders sit in fixed 40px rows with
-24px-high blocks, all in the shared recipe. Never stretch a few thin text bars
+`BuilderFrame.loading` is for cold load only (#1398): a builder's first read,
+before anything it shows has landed. A period step, a narrowing or a new
+revision never covers: it keeps the toolbar, panes, selection and Save live,
+and passes `BuilderFrame.busy`, which puts `aria-busy` on main while the
+footer's loading line says what is read. The frame owns one Chakra Skeleton
+surface and its loading slots in the `builderFrame` recipe. Keep its real
+regions mounted and measured underneath, inert and hidden from assistive
+technology; cover the whole frame rather than letting its toolbar, library and
+grid appear separately — all but a `liveFooter`, whose loading line carries
+the pulse. The first resolved window also waits for the mounted content's
+fonts after layout measurement. Suppress initial pane-width transitions while
+covered. Do not use a fixed timeout or a skeleton sized from partial content.
+Subsequent loading keeps the frame, canvas, sessions and drafts mounted.
+Errors leave the loading state and show the existing error treatment.
+Keep the loading surface dense: body placeholders sit at the component's own
+row pitch (`BuilderFrame.loadingPitch` — the Sheet's density's, the Plan's row
+geometry, the Allocation's 36px rows, the Calendar's hour), each a 12px bar,
+all in the shared recipe. The Sheet and the Plan draw rows not read as the
+shared unloaded run — the builder's own rows at their pitch where the run
+meets the view, never a caption in the gap — read the window under the view on
+intent, ahead the way it travels, and say a failed window once in its run's
+first row in view. A period builder draws a period not read yet with
+its geometry at once — never the old period's content under its labels — and
+placeholders where its content goes, says a failed read once in place (a line
+in its first row in view, or a box at a grid's top-left where no row can hold
+one), says a true empty only after its read, and holds its toolbar's status,
+issues, history and Publish in their slots from cold load. The Schematic keeps
+what it drew while a read is in flight and washes what of the view a kind read
+by area has not drawn; a card draws a placeholder where its details go until
+they land, as the inspector's fields do, and a failed read is said once, in a
+box at the top-left of the area it could not read. The renderer guide names
+the parts. Never stretch a few thin text bars
 through a tall host with `flex: 1` on each row. Spare body height stays empty;
 short hosts clip the placeholder list. Assert row height and placeholder-to-row
 height ratio at desktop and phone widths, not merely skeleton presence.

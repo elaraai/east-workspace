@@ -1255,7 +1255,7 @@ export type SlicePartitionRowType = typeof SlicePartitionRowType;
  * narrowing (`matched`) — the "keep the excluded, don't hide them" data feed. Use
  * it (instead of `Slice.rows`) to drive a de-emphasis effect: feed the tagged
  * rows to a component and derive per-row styling from `matched` (e.g. a
- * Schematic's `excluded` flag). `Slice.rows` is `Slice.partition(...).filter(matched)`.
+ * `<Library>` card's `filtered`). `Slice.rows` is `Slice.partition(...).filter(matched)`.
  */
 const slice_partition = East.genericPlatform("slice_partition", ["T"],
     [SliceBindType],
@@ -1407,13 +1407,10 @@ export const Slice = {
      *
      * @example
      * ```ts
-     * // Feed the full set to a Schematic and ghost the filtered-out items.
-     * const tagged = $.let(Slice.partition([EquipType], slice));
-     * // Schematic.Root(tagged, {
-     * //   item: t => ({ key: t.value.id, x: t.value.x, y: t.value.y, label: t.value.id,
-     * //                 excluded: t.matched.not() }),
-     * //   slice, sliceEffect: { excluded: { opacity: 0.25 }, emphasis: "pulse" },
-     * // })
+     * // Feed the full set to a Library and dim the cards the slice filters out.
+     * const tagged = $.let(Slice.partition([RackType], slice));
+     * // <Library data={tagged} slice={slice}
+     * //     card={t => ({ key: t.value.id, title: t.value.id, filtered: t.matched.not() })} />
      * ```
      */
     partition: Object.assign(<T extends EastType>(types: [T], handle: SubtypeExprOrValue<SliceBindType>) =>

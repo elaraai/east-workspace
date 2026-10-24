@@ -1,0 +1,84 @@
+<!-- @dsCard group="Components · Collections" name="Calendar · loading" viewport="700x4239" subtitle="A Day cold load · Day, Resources, Month, Timeline and Agenda, each with its real geometry and the wash · never old events under new labels · the Backlog's count and cards · stale narrowing · failed with Retry · empty only after the read · Timeline rows growing below the row in view" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.tlg{grid-template-columns:128px minmax(0,1fr)}
+.ag{display:grid;gap:8px;padding:12px;background:var(--paper)}
+.ag .dh{display:flex;align-items:center;justify-content:space-between;height:20px}
+.rel{position:relative}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Day · cold load</div>
+<div class="it2"><div class="bf" id="cold"></div><div class="cap"><span class="f"><b>cold · first open</b>: BuilderFrame's skeleton at the Day view's own geometry, 48 an hour, in place of 12 rows of 40</span> · <span class="f">every toolbar slot drawn at its footprint; the Backlog's tabs real, their counts "…", its cards placeholders</span> · <span class="f">the day column takes the wash, since no event's time is known yet; the date, hours, off-hours shading, the now line and the legend real; the footer line carries the only pulse</span> · <span class="f">swaps all at once when the first complete read lands</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Day · a step not prefetched, Fri 2 → Sat 3</div>
+<div class="it2"><div class="bf" id="day"></div><div class="cap"><span class="f"><b>unread · day</b> (today: "Sat, Oct 3" over Friday's three events for ~335 ms)</span> · <span class="f">the new day's column, hours and shading draw at once and take the wash; "N events" a short bar</span> · <span class="f">the toolbar's count "…", never "0 events"</span> · <span class="f">the Backlog tab: "…" and two placeholder cards, never "No backlog events"</span> · <span class="f">the time grid keeps its offset (09:00 stays at the top), it doesn't jump to 05:30</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Resources · columns real, events washed</div>
+<div class="it2"><div class="bf" id="res"></div><div class="cap"><span class="f"><b>unread · resources</b>: resource columns, Unassigned included, real</span> · <span class="f">"· N h booked" a short bar in each head</span> · <span class="f">the now line runs over the wash</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Month · October → November</div>
+<div class="it2"><div class="bf" id="mon"></div><div class="cap"><span class="f"><b>unread · month</b> (today: "November 2026" over October's grid for ~560 ms, 34 cells muted)</span> · <span class="f">November's cells, dates and outside-month shading at once; each cell washed below its date</span> · <span class="f">never "+N more" before the read; the overlap count's slot held</span></div></div>
+<div class="it2"><div class="bf" id="monf"></div><div class="cap"><span class="f"><b>failed · month</b>: the read failed; the cells keep their dates and outside-month shading, and stay blank</span> · <span class="f">the reason and Retry said once, at the top-left of the grid body, as the Schematic's; the footer line carries the same reason with Retry</span> · <span class="f">October's events are never shown under November</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Timeline · rows one lane tall until their lanes land</div>
+<div class="duo">
+<div class="it2"><div class="bf rel" id="tl1"></div><div class="cap"><span class="f"><b>unread · timeline</b>: ruler, group, "2 resources" and heads real; "· N h booked" a bar</span> · <span class="f">each row one lane tall, washed</span></div></div>
+<div class="it2"><div class="bf rel" id="tl2"></div><div class="cap"><span class="f"><b>landed · growth below</b>: Press A's lanes stack to 3</span> · <span class="f">the row in view holds (the guide); Press B moves down</span></div></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Stale · a narrowing of the same day</div>
+<div class="it2"><div class="bf" id="stl"></div><div class="cap"><span class="f"><b>stale</b>: Kind = Job was just set; Friday's events stay under Friday's labels, --ink-3, the column rules dashed</span> · <span class="f">drag and resize off while pending</span> · <span class="f">the footer line says "Filtering jobs…"</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Empty · only after a completed read</div>
+<div class="it2"><div class="bf" id="emp"></div><div class="cap"><span class="f"><b>empty</b>: the read for Sat 3 completed with nothing in it</span> · <span class="f">only now "0 events" and "No backlog events"</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Agenda · narrow, at 360</div>
+<div class="duo">
+<div class="it2"><div class="bf" style="width:100%" id="ag1"></div><div class="cap"><span class="f"><b>unread · agenda</b>: real day groups, each with one placeholder event card</span> · <span class="f">cards grow below the row in view as they land</span></div></div>
+<div class="it2"><div class="bf" style="width:100%" id="ag2"></div><div class="cap"><span class="f"><b>landed</b>: Fri 2 holds three events; Sat 3 moves down</span></div></div>
+</div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>&lt;Calendar&gt; · Day · Week · Resources · Month · Timeline · Agenda · LoadingWash · BuilderFrame busy</b> · <span class="f">cold: the skeleton at the Day view's 48 an hour, toolbar slots at their footprints, the day column washed</span> · <span class="f">a step draws the new period's layer 1 at once, never over the old events; the swap is atomic (CL7)</span> · <span class="f">time grid: columns, dates, hours, half hours, off-hours --paper-2, the now line real; each column washed; "N events" an 8 bar</span> · <span class="f">resources: "· N h booked" an 8 bar</span> · <span class="f">month: each cell washed below its date, no "+N more"</span> · <span class="f">timeline: rows one 36 lane until lanes land, grow below the row in view</span> · <span class="f">agenda: one placeholder card per day group</span> · <span class="f">backlog: "…" and Item card placeholders</span> · <span class="f">toolbar count "…", never "0 events"</span> · <span class="f">stale: column or cell rules dashed --rule-strong, events --ink-3</span> · <span class="f">failed: the grid's geometry kept, its cells blank; one message with Retry at the top-left of the grid body; the footer line the same</span> · <span class="f">time grid keeps its offset; Today goes to the now line</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,W,bar,rect,fmsg,leg,line,foot,tb,it,seg,nav,sum,flt,held,$,tgrid,month}=L;
+const LG=leg([['Job','']]).replace('<span class="li">','<span class="li">'+I('print'));
+const lib=(c,cards)=>`<div class="lib"><div class="tabs"><span class="tab on" role="tab" aria-selected="true"><span class="nm">Backlog</span><span class="tc">${c}</span></span><span class="tab" role="tab" aria-selected="false"><span class="nm">Templates</span><span class="tc">4</span></span></div><div class="pb"><span class="srch">${I('magnifying-glass')}<span class="q ph">Search backlog…</span></span>${cards}</div></div>`;
+const phc=()=>`<div class="ic" aria-hidden="true"><div class="icb"><div class="ihd"><div class="l20">${bar(112)}</div><div class="l16">${bar(72,8)}</div></div></div></div>`;
+const TB=(v,p,c)=>tb([it(flt()),it(seg(['Day','Week','Month'],v)),it(nav(p)),it(c,'end')]);
+$('cold',tb([it(rect(28,22,1)),it(rect(148,24)),it(rect(192,24)),it(rect(50,12,1),'end')])+`<div class="vw"><div class="lib"><div class="tabs"><span class="tab on" role="tab" aria-selected="true"><span class="nm">Backlog</span><span class="tc">…</span></span><span class="tab" role="tab" aria-selected="false"><span class="nm">Templates</span><span class="tc">…</span></span></div><div class="pb">${rect(183,32)}${phc()}${phc()}</div></div><div class="main" aria-hidden="true">${tgrid({from:7,to:13,now:9.5,off:[[7,8]],cols:[{h:'Fri 2',today:1,meta:bar(40,8),wash:1}]})}</div></div>`+foot(LG,line('load','Loading <b>Fri 2 Oct</b>')));
+$('day',TB(0,'Sat, Oct 3, 2026',sum('<b>…</b> events'))+`<div class="vw">${lib('…',phc()+phc())}<div class="main" aria-busy="true">${tgrid({from:9,to:15,off:[[13,14]],cols:[{h:'Sat 3',meta:bar(40,8),wash:1}]})}</div></div>`+foot(LG,line('load','Loading <b>Sat 3 Oct</b>')));
+$('res',tb([it(flt()),it(seg(['Calendar','Resources','Timeline'],1)),it(nav('Fri, Oct 2, 2026')),it(sum('<b>…</b> events'),'end')])+`<div class="main" aria-busy="true">${tgrid({from:8,to:12,now:9.5,cols:[{h:'Press A',meta:bar(48,8),wash:1},{h:'Press B',meta:bar(48,8),wash:1},{h:'Unassigned',meta:bar(48,8),wash:1}]})}</div>`+foot(LG,line('load','Loading <b>Fri 2 Oct</b>')));
+const nov=[['26',1],['27',1],['28',1],['29',1],['30',1],['31',1],['Nov 1',0],['2',0],['3',0],['4',0],['5',0],['6',0],['7',0],['8',0]];
+const warn=`<span class="ch">${I('triangle-exclamation','ic')}<span>…</span></span>`.replace('class="fa-solid fa-triangle-exclamation ic"','class="fa-solid fa-triangle-exclamation ic" style="color:var(--warn)"');
+$('mon',TB(2,'November 2026',warn)+`<div aria-busy="true">${month(nov.map(d=>({n:d[0],out:d[1],wash:1})))}</div>`+foot(LG,line('load','Loading <b>November 2026</b>')));
+$('monf',TB(2,'November 2026',warn)+`<div style="position:relative">${month(nov.map(d=>({n:d[0],out:d[1]})))}${fmsg('Couldn\'t read <span class="num">November 2026</span>',16,60)}</div>`+foot(LG,line('err','Couldn\'t read <b>November 2026</b>')));
+const days=['Thu 22','Fri 23','Sat 24','Sun 25','Mon 26'],D=48;
+const ruler=w=>`<div class="lrow tlg" style="border-bottom:0"><div class="lh" style="justify-content:flex-end;padding-bottom:6px"><span class="hk">Resources</span></div><div><div class="tier ctx"><span style="width:100%;border-right:0">October 2026</span></div><div class="tier">${days.map((d,i)=>`<span style="width:${D}px">${d}</span>`).join('')}</div></div></div>`;
+const plot=(wash,ev)=>`<i class="oh" style="top:0;bottom:0;left:${D*2}px;width:${D*2}px"></i>${wash?'<i class="wl wash" style="inset:0"></i>':''}<i class="vl" style="left:${D*4}px"></i>${ev||''}`;
+const res=(nm,h,m,wash,ev)=>`<div class="lrow tlg" style="height:${h}px"><div class="lh" style="justify-content:flex-start;padding-top:10px"><span class="nm">${nm}</span>${m}</div><div class="pl2">${plot(wash,ev)}</div></div>`;
+const gband=`<div class="gband" style="border-top:1px solid var(--rule);padding:0 12px"><span class="chev open">${I('angle-right')}</span><span class="gt">Machines</span><span class="mt9">2 resources</span></div>`;
+$('tl1',ruler()+gband+res('Press A',36,bar(48,8),1)+res('Press B',36,bar(48,8),1)+foot('',line('load','Loading…'))+'<i class="guide" style="top:85px"></i>');
+const e=(l,t,w,tx)=>`<span class="ev" style="left:${l*D+2}px;top:${t*36+4}px;width:${w*D-4}px;height:28px"><span class="et">${tx}</span></span>`;
+$('tl2',ruler()+gband+res('Press A',108,'<span class="mt9">· 268 h booked</span>',0,e(0,0,1,'Produ…')+e(1,0,1,'Produ…')+e(0,1,1,'Produ…')+e(1,1,1,'Produ…')+e(4,0,1,'Produ…')+e(4,1,1,'Produ…')+e(4,2,1,'Produ…'))+res('Press B',36,'<span class="mt9">· 96 h booked</span>',0,e(0,0,2,'October brochures'))+foot('',line('idle'))+'<i class="guide" style="top:85px"></i>');
+const fri=[[7,9,'Overnight run','07:00–09:00'],[9,12,'October brochures','09:00–12:00 · Press A']];
+$('stl',TB(0,'Fri, Oct 2, 2026',sum('<b>…</b> events')).replace(I('filter','ic'),I('filter','ic')+'<span>Kind = Job</span>').replace('class="ch"','class="ch br"')+`<div class="vw">${lib('1',`<div class="ic stl"><div class="icb"><div class="ihd"><div class="l20"><span class="itt" style="color:var(--ink-3)">Unscheduled posters</span></div><div class="l16"><span class="imt">Job · 3 h · Press B</span></div></div></div></div>`)}<div class="main" aria-busy="true">${tgrid({from:7,to:13,now:9.5,off:[[7,8]],cols:[{h:'Fri 2',today:1,meta:'<span class="mt9">2 events</span>',stl:1,ev:fri}]})}</div></div>`+foot(LG,line('load','Filtering jobs…')));
+$('emp',TB(0,'Sat, Oct 3, 2026',sum('<b>0</b> events'))+`<div class="vw">${lib('0',`<div class="es" style="padding:20px 0"><span class="gy">☐</span><span class="ttl">No backlog events</span></div>`)}<div class="main">${tgrid({from:9,to:15,off:[[13,14]],cols:[{h:'Sat 3',meta:'<span class="mt9">0 events</span>'}]})}</div></div>`+foot(LG));
+const agTB=tb([it(nav('Oct 2 – 8')),it(sum('<b>…</b>'),'end')]).replace('class="band"','class="band" style="padding:0 12px"');
+const dg=(d,body)=>`<div class="dh"><span class="hk">${d}</span></div>${body}`;
+$('ag1',agTB+`<div class="ag" aria-busy="true">${dg('Fri 2 Oct',phc())}${dg('Sat 3 Oct',phc())}</div>`+foot('',line('load','Loading…')));
+const evc=(t,m)=>`<div class="ic"><div class="icb"><div class="ihd"><div class="l20"><span class="itt">${t}</span></div><div class="l16"><span class="imt">${m}</span></div></div></div></div>`;
+$('ag2',agTB.replace('<b>…</b>','<b>3</b> events')+`<div class="ag">${dg('Fri 2 Oct',evc('Overnight run','06:00–09:00 · Press B')+evc('October brochures','09:00–12:00 · Press A')+evc('Weekend prep','14:00–16:00 · Press B'))}${dg('Sat 3 Oct',evc('Weekend posters','10:00–13:00 · Press A'))}</div>`+foot('',line('idle')));
+})();
+</script>
+</body></html>

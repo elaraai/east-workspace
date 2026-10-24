@@ -12,7 +12,8 @@
  * button is disabled: a template is not saved again.
  *
  * Its button is the `button` recipe's outline, as its neighbours in the
- * toolbar are; its popover is the shared {@link NamePopover}, in the Studio's
+ * toolbar are, and as tall as every control in the row (`sm`, 28px, ruled 23
+ * Oct 2026); its popover is the shared {@link NamePopover}, in the Studio's
  * words.
  *
  * On a row short of room the button folds into the toolbar's ⋯ chip (#1229),
@@ -64,7 +65,7 @@ export const StudioSaveTemplate = memo(function StudioSaveTemplate(props: Studio
     const setOpen = props.anchor === undefined ? setOwn : props.onOpenChange;
     const onSave = value.onSave;
     const button = (
-        <ChakraButton variant="outline" disabled={!value.enabled} data-studio-save-template=""
+        <ChakraButton variant="outline" size="sm" disabled={!value.enabled} data-studio-save-template=""
             {...(value.enabled ? {} : { title: m.templateOpen() })}>
             {m.saveAsTemplate()}
         </ChakraButton>

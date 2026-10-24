@@ -1,11 +1,17 @@
 /**
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * No DOM is under test: the locale's formatters are east-ui-components',
+ * whose entry needs one as it loads.
  */
 
 import { expect, test } from "vitest";
 import { decodeBeast2For, encodeBeast2For, none, some, variant } from "@elaraai/east";
-import { calendarRange, DAY, inputInstant, inWindow, navigate, type CalendarValue, type CalendarView } from "./model.js";
+import { formatters } from "@elaraai/east-ui-components";
+import { calendarAhead, calendarRange, DAY, inputInstant, inWindow, navigate, periodWords, type CalendarValue, type CalendarView } from "./model.js";
 import { shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
 import { ScheduleItemType } from "@elaraai/e3-ui/internal";
 const settings: CalendarValue["settings"] = { layout: variant("calendar", null), period: variant("week", null), date: none,
@@ -18,6 +24,32 @@ test("UTC week/month/day windows and weekends, including a year boundary", () =>
     const month = calendarRange({ ...view, period: "month", date: Date.UTC(2026, 11, 31) }, settings);
     expect(month.from.toISOString()).toBe("2026-11-30T00:00:00.000Z"); expect(month.to.toISOString()).toBe("2027-01-04T00:00:00.000Z");
     expect(navigate({ ...view, period: "month", date: Date.UTC(2026, 0, 31) }, 1).date).toBe(Date.UTC(2026, 1, 28));
+});
+test("the periods read ahead are the ones a step either way reads; the timeline, whose step follows its scroll, reads none ahead (#1398, CL7)", () => {
+    const [next, previous] = calendarAhead(view, settings);
+    expect([next!.from.toISOString(), next!.to.toISOString()]).toEqual(["2026-10-05T00:00:00.000Z", "2026-10-12T00:00:00.000Z"]);
+    expect([previous!.from.toISOString(), previous!.to.toISOString()]).toEqual(["2026-09-21T00:00:00.000Z", "2026-09-28T00:00:00.000Z"]);
+    expect(calendarAhead(view, settings)).toHaveLength(2);
+    const month = calendarAhead({ ...view, period: "month" }, settings);
+    expect(month.map(range => range.from.toISOString())).toEqual([calendarRange(navigate({ ...view, period: "month" }, 1), settings).from.toISOString(),
+        calendarRange(navigate({ ...view, period: "month" }, -1), settings).from.toISOString()]);
+    expect(calendarAhead({ ...view, layout: "timeline" }, settings)).toEqual([]);
+});
+test("the loading line names a window as the view names its period: a day or a month by its name, else its days (#1398, CL3)", () => {
+    const en = formatters("en-US");
+    const day = { ...view, period: "day" as const };
+    expect(periodWords(day, calendarRange(day, settings), settings, en)).toBe(en.weekdayDate(new Date("2026-10-01T00:00:00Z")));
+    const resources = { ...view, layout: "resources" as const };
+    expect(periodWords(resources, calendarRange(resources, settings), settings, en)).toBe(en.weekdayDate(new Date("2026-10-01T00:00:00Z")));
+    const month = { ...view, period: "month" as const };
+    expect(periodWords(month, calendarRange(month, settings), settings, en)).toBe(en.monthYear(new Date("2026-10-01T00:00:00Z")));
+    expect(periodWords(view, calendarRange(view, settings), settings, en)).toBe(en.range(new Date("2026-09-28T00:00:00Z"), new Date("2026-10-04T00:00:00Z")));
+    // A range the slice holds, not the view's own period: its days.
+    const held = { from: new Date("2026-10-03T00:00:00Z"), to: new Date("2026-10-05T00:00:00Z"), days: [] };
+    expect(periodWords(day, held, settings, en)).toBe(en.range(new Date("2026-10-03T00:00:00Z"), new Date("2026-10-04T00:00:00Z")));
+    // The timeline's window: its days, whatever its period.
+    const timeline = { ...view, layout: "timeline" as const, period: "day" as const };
+    expect(periodWords(timeline, calendarRange(day, settings), settings, en)).toBe(en.range(new Date("2026-10-01T00:00:00Z"), new Date("2026-10-01T00:00:00Z")));
 });
 test("invalid UTC input never rolls into another day", () => {
     expect(inputInstant("2026-02-30", "09:00")).toBeUndefined(); expect(inputInstant("2026-10-01", "24:30")).toBeUndefined();

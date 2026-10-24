@@ -58,14 +58,14 @@ const NO_EDITS = { drop: false, move: none };
 
 /** An event kind's events in the window, by key. */
 function keysIn(kind: EventKind): string[] {
-    const read = kind.planItems(FIRST, LAST, NO_DRAFTS);
+    const read = kind.planItems(FIRST, LAST, NO_DRAFTS, none);
     if (read.type !== "some") assert.fail("expected the window read");
     return read.value.map((item) => item.key);
 }
 
 /** An event kind's backlog, by key. */
 function backlogOf(kind: EventKind): string[] {
-    const read = kind.planUnscheduled(FIRST, LAST, NO_DRAFTS);
+    const read = kind.planUnscheduled(FIRST, LAST, NO_DRAFTS, none);
     if (read.type !== "some") assert.fail("expected the backlog");
     return read.value.map((item) => item.key);
 }

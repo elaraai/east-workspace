@@ -27,6 +27,9 @@
  * - The presses are paged: a window of them at a time, the next as the page
  *   scrolls to it, the key search seeking one; the presses are never read
  *   whole. The Plan's own rows after them are read again with their dataset.
+ *   A window that cannot be read is a band where its rows would be, asked
+ *   once; one refused for a reason a retry can fix is said on the footer's
+ *   loading line too, whose Retry asks e3 again at once (#1398).
  * - A kind with no rail reads the jobs through their day index and their
  *   backlog index, and is edited without its record read whole: every
  *   gesture's event read where the canvas holds it, or by its key; a template
@@ -65,6 +68,7 @@ import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
+import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-windows": ex, "plan/plan": rowDrop, "plan/plan-events": events });
@@ -367,46 +371,6 @@ describe("the backlog read through the rail's interval index (PB54, #1344)", () 
 // The presses, paged (PB55)
 // ============================================================================
 
-/**
- * What the unbounded canvas reads from the page it scrolls in (#812), for a
- * jsdom that lays nothing out: the canvas sits at the top of a tall document,
- * `window.scrollTo` moves `scrollY` and fires `scroll`, and the rows' top
- * moves with it — as `plan-paged-seek.dom.test.tsx` stands in for it.
- *
- * @returns The restore
- */
-function emulateWindowScroll(): () => void {
-    let y = 0;
-    const html = document.documentElement;
-    const saved = {
-        scrollY: Object.getOwnPropertyDescriptor(window, "scrollY"),
-        scrollTo: Object.getOwnPropertyDescriptor(window, "scrollTo"),
-        rect: Element.prototype.getBoundingClientRect,
-    };
-    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
-    Object.defineProperty(window, "scrollTo", {
-        configurable: true,
-        writable: true,
-        value: (arg: ScrollToOptions | number) => {
-            y = Math.max(0, typeof arg === "number" ? arg : (arg.top ?? y));
-            window.dispatchEvent(new Event("scroll"));
-        },
-    });
-    Object.defineProperty(html, "scrollHeight", { configurable: true, get: () => 100_000_000 });
-    Element.prototype.getBoundingClientRect = function (this: Element) {
-        if (this.hasAttribute("data-virtual-extent")) {
-            return { x: 0, y: -y, top: -y, left: 0, right: 1024, bottom: -y, width: 1024, height: 0, toJSON: () => ({}) } as DOMRect;
-        }
-        return saved.rect.call(this);
-    };
-    return () => {
-        if (saved.scrollY !== undefined) Object.defineProperty(window, "scrollY", saved.scrollY);
-        if (saved.scrollTo !== undefined) Object.defineProperty(window, "scrollTo", saved.scrollTo);
-        delete (html as { scrollHeight?: number }).scrollHeight;
-        Element.prototype.getBoundingClientRect = saved.rect;
-    };
-}
-
 /** A press's row height, at the default density: a two-line gutter, its hall the second line. */
 const ROW_PX = PLAN_GEOMETRY.default.rowStacked;
 
@@ -456,7 +420,7 @@ describe("the presses paged (PB55)", () => {
 });
 
 describe("a window of presses that cannot be read (PB55)", () => {
-    test("is a band where its rows would be, saying why, with its Retry — read once", async () => {
+    test("is a run where its rows would be that says so once, with its Retry — the footer's line saying why — read once", async () => {
         // The presses' first window refused, as a request no retry can help is.
         h.e3.fail((request) => servedOf(request) === "presses" && askedOf(request) === "page 0+200",
             { status: 400, type: "bad_request", message: "the first window of presses is refused" });
@@ -464,9 +428,10 @@ describe("a window of presses that cannot be read (PB55)", () => {
         await settle();
         const band = container.querySelector<HTMLElement>('[data-plan-failed="0"]');
         expect(band).not.toBeNull();
-        expect(band!.textContent).toContain("Elements 1–200 could not be read");
-        expect(band!.textContent).toContain("bad_request");
-        expect(band!.querySelector('[data-plan-retry="0"]')).not.toBeNull();
+        // Said once, in its first row in view, in the rows' noun (#1398, CL11); why is the footer line's to say.
+        expect([...band!.querySelectorAll("[data-loading-failed-message]")].map((said) => said.textContent)).toEqual(["Couldn't read rows 1–200"]);
+        expect(band!.querySelector("[data-loading-retry]")).not.toBeNull();
+        expect(slot(container, "footer")!.querySelector("[data-footer-line] [data-line-reason]")!.textContent).toContain("bad_request");
         expect(draws(container, "P-1001")).toBe(false);
         // Asked once: a refusal no retry can help is not asked again while the presses hold the same content.
         expect(of("presses").filter((r) => r === "page 0+200")).toHaveLength(1);
@@ -475,6 +440,37 @@ describe("a window of presses that cannot be read (PB55)", () => {
         expect(failed).toContain("[Plan] paged source page 0 failed:");
         expect(failed.every((line) => line.includes("page 0") || line.includes(`${PRESSES}@`))).toBe(true);
         errors.mockClear();
+    });
+
+    test("for a reason a retry can fix: the footer's loading line says so with Retry, which asks e3 again at once — inside the gap a read alone waits after a failure — and the rows land (#1398)", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { container } = await h.mount(windowsPlan);
+            await settle();
+            const line = () => slot(container, "footer")!.querySelector<HTMLElement>("[data-footer-line]")!;
+            // The window past those read so far refused, as a server that fell over refuses: a reason a retry can fix.
+            const refused = (request: E3Request) => servedOf(request) === "presses" && askedOf(request) === "page 600+200";
+            const stop = h.e3.fail(refused, { status: 500, type: "internal", message: "the store is down" });
+            act(() => { window.scrollTo({ top: 600 * ROW_PX }); });
+            await waitFor(() => expect(line().hasAttribute("data-failed")).toBe(true), { timeout: 10_000 });
+            expect(draws(container, "P-1601")).toBe(false);
+            // What failed is said, by the paged runtime and the Plan, and only that.
+            const failed = errors.mock.calls.map((call) => String(call[0]))
+                .filter((said) => said.startsWith("[Plan]") || said.startsWith("Data.bindPaged"));
+            expect(failed).toContain("[Plan] paged source page 3 failed:");
+            expect(failed.every((said) => said.includes("page 3") || said.includes(`${PRESSES}@`))).toBe(true);
+            errors.mockClear();
+            // The store is back, and Retry is pressed at once: the window is asked again, and its rows draw.
+            stop();
+            const asked = h.requests().filter(refused).length;
+            await act(async () => { fireEvent.click(line().querySelector("[data-line-retry]")!); });
+            await settle();
+            await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
+            expect(h.requests().filter(refused).length).toBeGreaterThan(asked);
+            await waitFor(() => expect(draws(container, "P-1601")).toBe(true), { timeout: 10_000 });
+        } finally {
+            restore();
+        }
     });
 });
 

@@ -22,6 +22,12 @@
  *   patches, library tabs and types it is written with on `Flowchart`
  *   (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
  *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
+ * - `<Schematic>` — the 2D world-coordinate drawing of the app's own records:
+ *   items, zones, links and nets, each record's fields mapped to its roles,
+ *   with its kinds, details, templates, layers, library tabs, pattern and
+ *   geometry helpers and types on `Schematic` (`Schematic.items`,
+ *   `Schematic.details`, `Schematic.layers`, `Schematic.library.*`,
+ *   `Schematic.hatch()`, …, `Schematic.Types`).
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`), and what a builder
  *   publishes (`Schedule.periods`).
@@ -185,6 +191,23 @@ export {
     type FlowchartStateInput, type FlowchartLinkInput, type FlowchartEvidenceInput, type FlowchartTriggerInput, type FlowchartLinkKindLiteral,
     type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput,
 } from './flowchart/index.js';
+
+// The Schematic (#1381): the 2D world-coordinate drawing a solution mounts,
+// `<Schematic>` — its kinds over the app's own records (items, zones, links
+// and nets, each by slot), their details and templates, its layers read from
+// the app's record, its library's tabs, the pattern and geometry helpers and
+// the East types it is written with (`Schematic.items`, `Schematic.details`,
+// `Schematic.layers`, `Schematic.library.*`, `Schematic.hatch()`,
+// `Schematic.Types`), and its props.
+export {
+    Schematic, type SchematicNamespace, type SchematicTypes, type SchematicProps, type SchematicLayers, type SchematicLayersConfig,
+    type SchematicNarrowedOptions,
+    type SchematicItemsConfig, type SchematicZonesConfig, type SchematicLinksConfig, type SchematicNetsConfig, type SchematicDetailsConfig,
+    type SchematicItems, type SchematicZones, type SchematicLinks, type SchematicNets, type SchematicDetails, type SchematicRecord,
+    type SchematicEnd, type SchematicSide, type SchematicStatusConfig, type SchematicValuesOf, type SchematicTemplates, type SchematicTemplatesConfig,
+    type SchematicLibrary, type SchematicLibraryTab, type SchematicLibraryTabConfig,
+    type SchematicPatternConfig, type SchematicPolylineConfig, type SchematicVertexInput, type SchematicVertices, type SchematicToneLiteral,
+} from './schematic/index.js';
 
 // Schedule (#1218, #1190): the event and resource kinds the Calendar and
 // Plan's builder share — `Schedule.events`, `Schedule.resources`,

@@ -49,8 +49,9 @@
  * does not is a diagnostic ROW, never a misplacement.
  *
  * A failure stays where it happened (#811): a row that cannot be placed
- * renders in place as its diagnostic, a window whose read failed renders as
- * an error band with a Retry, and a part that throws while rendering (a row's
+ * renders in place as its diagnostic, a window whose read failed is a run of
+ * its rows' placeholders that says so once, with Retry (#1398, CL11), and a
+ * part that throws while rendering (a row's
  * plot, an overlay body, the expand render, the links layer) shows its own
  * one-line fallback. The frame's toolbar counts what it can — skipped rows, a
  * source or search failure, a truncated axis. Nothing a row or a source does
@@ -83,14 +84,14 @@ import {
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
-    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore,
+    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun,
 } from "@elaraai/east-ui-components/internal";
 import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
     type PlanResolvers,
 } from "./context.js";
 import { planGeometry, planGeometryStyle } from "./geometry.js";
-import { WindowBand, WindowFailureBand } from "./rows/WindowBand.js";
+import { PlanRunRow } from "./rows/RunRow.js";
 import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
 import type { PlanEvent } from "./plan-state.js";
@@ -110,6 +111,7 @@ import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { linkedElement, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
+import type { PagedLoading } from "../shared/loading.js";
 import {
     createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf, elementRowsOf,
     type PlanReconcileModel, type PlanSnapshot,
@@ -123,6 +125,7 @@ import {
     ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
+import { cellSpanOf, createCellSpanStore } from "./root/cells.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -350,7 +353,14 @@ export function usePlanCanvas({
         () => (editing.enabled ? [{ key: editing.historyKey, session: editing.session }] : NO_JOINED),
         [editing.enabled, editing.historyKey, editing.session]);
     const eventRange = useMemo(() => eventReadRange(scale), [scale]);
-    const eventEditing = usePlanEventEditing({ kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices });
+    // The event kinds' rows as last read (#1192): read by a component of their own below, which hands them over as they move.
+    const standIn = useMemo(() => initialEventLead(events), [events]);
+    const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
+    const lead = readLead ?? standIn;
+    // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold.
+    const eventEditing = usePlanEventEditing({
+        kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: lead.cells?.held,
+    });
     const history = eventEditing.history;
     historyRef.current = history;
 
@@ -360,9 +370,8 @@ export function usePlanCanvas({
     // rail narrows the resources it shows (#1344): they lead every other row
     // as fixed blocks. Read by a component of their own (`PlanEventsReader`,
     // in `provide`), which hands them over only when they move.
-    const standIn = useMemo(() => initialEventLead(events), [events]);
-    const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
-    const lead = readLead ?? standIn;
+    // The paged kind's rows in view, as the body reports them at rest (#1039): what the reader of its kinds' cells reads.
+    const [cellSpans] = useState(createCellSpanStore);
     // The event kinds' rows ahead of the drafted root's own, and its links'
     // event ends named where the events draw — over a paged resource kind's
     // windows when a kind pages (#1199).
@@ -456,25 +465,39 @@ export function usePlanCanvas({
     // ── Chrome: transport, search ─────────────────────────────────────────
     // The series library (#590) is the library pane's Series tab (#1195): the
     // Plan feeds ITSELF the picked series, and the frame has no Series button.
-    // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
-    // the number `total()` reports — never canvas rows, since a series can
-    // emit any number of rows per element; the count is the block the
-    // viewport is in (#823: each block pages on its own). `partial` says some
+    // What the chrome tells the truth with (#567 D9). `partial` says some
     // block does not hold every element: counts across the canvas cover the
     // loaded windows, and so does a top-level section's member count and
     // strip. Every other parent derives from one entry's subtree, which a
     // window holds whole, so its numbers are exact (`spansWindows`, #822).
+    // The footer's loading line (#1398, CL3) says, in ELEMENTS, which of the
+    // source's are read — the span nearest the viewport — that a new
+    // narrowing's rows are, or which read failed; never how many have landed.
+    const failures = paging.failures;
+    const pagingError = paging.sourceError;
+    // Its Retry asks every failed window and the source's own failed reads again, at once — never after the
+    // runtime's retry gap, which a read alone waits out.
+    const retryFailed = useCallback(() => controller.retry(), [controller]);
+    // Whether a read the view waits for is in flight (#1398): a window the view shows — never one read ahead of it,
+    // which nothing on screen waits for. The driver settles it with the rest, from the windows the frame's range
+    // shows, so a landing says it in the commit that draws it; the narrow layout, which reports no range, any.
+    const waits = paged && paging.viewLoading;
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
-        return {
-            loaded: paging.resident?.elements ?? 0,
-            from: paging.resident?.from ?? 0,
-            to: paging.resident?.to ?? 0,
-            total: paging.total,
-            loading: paging.loading,
-            partial: !paging.complete,
-        };
-    }, [paged, paging.resident, paging.total, paging.loading, paging.complete]);
+        const failed = failures[0];
+        const loading: PagedLoading | undefined = failed !== undefined ? { kind: "failed", from: failed.from, to: failed.to, reason: failed.error }
+            : pagingError !== undefined ? { kind: "failed", from: undefined, to: undefined, reason: pagingError }
+                : paging.replacing ? { kind: "filtering" }
+                    : waits ? { kind: "loading", from: paging.reading?.from, to: paging.reading?.to }
+                        : undefined;
+        return { partial: !paging.complete, loading, retry: retryFailed };
+    }, [paged, failures, pagingError, paging.replacing, waits, paging.reading, paging.complete, retryFailed]);
+    const partial = transport?.partial;
+    // Cold load (#1398, CL5): nothing of a paged source landed yet, and no failure to say — the frame's skeleton
+    // covers the Plan. After it, a read the view waits for — a window, a resource kind's narrowing — leaves it live
+    // and busy.
+    const cold = paged ? paging.rows.length === 0 && paging.total === undefined && failures.length === 0 && pagingError === undefined : undefined;
+    const frameBusy = cold !== true && (busy || waits);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
     // positions on the first row that element placed, since a row's id starts
@@ -630,6 +653,21 @@ export function usePlanCanvas({
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
     const target = usePlanScrollTarget(body.items, index, derived, scroll);
+    // The rows' pitch where a run stands for rows not read yet (#1398, CL2): the height most resident rows draw at —
+    // a two-line row's 42, a span row's 32 — else the default row's.
+    const runPitch = useMemo(() => {
+        const seen = new Map<number, number>();
+        let pitch = geometry.row;
+        let most = 0;
+        body.items.forEach((item, i) => {
+            const h = body.heights[i];
+            if (item.kind !== "row" || h === undefined) return;
+            const n = (seen.get(h) ?? 0) + 1;
+            seen.set(h, n);
+            if (n > most) { most = n; pitch = h; }
+        });
+        return pitch;
+    }, [body.items, body.heights, geometry.row]);
     // ── The links layer (R1, #818) ────────────────────────────────────────
     // Its ribbons are laid out from THIS body — the heights the frame lays the
     // rows out at — and drawn in the rows' own coordinates, so they follow a
@@ -652,7 +690,21 @@ export function usePlanCanvas({
     // What a bounded frame's view is read from — its scroll element and the
     // sticky chrome above its rows.
     const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
-    const reportRange = usePlanRangeReport(body.items, controller);
+    // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them.
+    const pagingOrigin = paging.origin;
+    const reportRange = usePlanRangeReport(body.items, controller, pagingOrigin);
+    const onRangeChange = useCallback((
+        range: { startIndex: number; endIndex: number }, isScrolling: boolean, center?: { index: number; withinPx: number },
+    ) => {
+        reportRange(range, isScrolling, center);
+        if (isScrolling) return;
+        const inView: { key: string; path: readonly string[] }[] = [];
+        for (let i = range.startIndex; i <= range.endIndex; i++) {
+            const item = body.items[i];
+            if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: item.row.row.id.value.path });
+        }
+        cellSpans.set(cellSpanOf(inView, pagingOrigin));
+    }, [reportRange, body.items, pagingOrigin, cellSpans]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing
@@ -769,9 +821,9 @@ export function usePlanCanvas({
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
-        canExpand, expandBody, expandGutterBody, partial: transport?.partial, rowDrop, marks, groupEnds,
+        canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
-        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, rowDrop, marks,
+        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, partial, rowDrop, marks,
         groupEnds]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
@@ -987,8 +1039,13 @@ export function usePlanCanvas({
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
     const densityTag = style !== undefined ? getSomeorUndefined(style.density)?.type : undefined;
+    // The reader takes the root's own links, their event ends as the author named them: the canvas's are named where
+    // the events draw, which is what the reader's cells decide (#1039).
     const eventsReader = events !== undefined
-        ? <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources} onLead={setLead} />
+        ? (
+            <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources}
+                kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} onLead={setLead} />
+        )
         : null;
     const provide = (children: ReactNode): ReactNode => {
         const provided = (
@@ -1025,6 +1082,9 @@ export function usePlanCanvas({
     };
     // What the rail counts each source in (#1344).
     const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
+    // What the loading line and a failed run name the rows by: what the rail counts them in (#1398).
+    const rowsSource = slices?.slice.parts.find((part) => stringEqual(part.source, ROWS_SOURCE));
+    const rowsNoun = rowsSource !== undefined ? recordSliceNoun(rowsSource, nouns, words.locale) : words.m.saveNoticeNoun({ kind: undefined, n: 2 });
     const bound = declaredBound ? { height, maxHeight } : undefined;
 
     // A source that cannot be READ no longer replaces the canvas (#811): its
@@ -1272,10 +1332,10 @@ export function usePlanCanvas({
             data-plan-narrow={narrow ? "" : undefined}
             // The source is not exhausted: the counts across this body
             // cover the loaded windows (`PlanTransport.partial`).
-            data-plan-partial={transport?.partial === true ? "" : undefined}
+            data-plan-partial={partial === true ? "" : undefined}
             // A resource kind's narrowing resolving (#1344): the rows it
-            // showed stay, busy, and take no gesture until it lands.
-            aria-busy={busy ? true : undefined}
+            // showed stay and take no gesture until it lands — busy, as the
+            // frame's main says (#1398).
             inert={busy ? true : undefined}
             // Bounded, the canvas fills the frame's main and scrolls its
             // own rows. Grown with its rows, it keeps its own height —
@@ -1291,9 +1351,9 @@ export function usePlanCanvas({
                     styles={styles} index={index} derived={derived} view={view}
                     dense={dense} storageKey={storageKey}
                     expandBody={expandBody} expandGutterBody={expandGutterBody}
-                    canExpand={canExpand} partial={transport?.partial} fill={frameFills}
+                    canExpand={canExpand} partial={partial} fill={frameFills}
                     failures={paging.failures} onRetry={controller.retry}
-                    paging={narrowPaging} marks={marks}
+                    paging={narrowPaging} marks={marks} noun={rowsNoun}
                 />
             ) : (
                 <VirtualRows
@@ -1325,7 +1385,7 @@ export function usePlanCanvas({
                         tabIndex: 0,
                         onFocus: onGridFocus,
                     }}
-                    onRangeChange={paged ? reportRange : undefined}
+                    onRangeChange={paged ? onRangeChange : undefined}
                     // Unbounded, a large canvas mounts only what its
                     // scrolling ancestor shows (#812) — the same threshold
                     // whatever the source. A smaller paged canvas mounts
@@ -1367,10 +1427,11 @@ export function usePlanCanvas({
                             case "gap":
                                 return <PlanGapBand gap={item.gap} h={body.heights[i] ?? 0} styles={styles}
                                     gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
+                            // A run of rows not drawn yet (#1398, CL2): an unloaded run, or a failed window.
                             case "band":
-                                return <WindowBand band={item.band} styles={styles} />;
                             case "failed":
-                                return <WindowFailureBand failure={item.failure} styles={styles} onRetry={controller.retry} />;
+                                return <PlanRunRow band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
+                                    styles={styles} gridTemplate={gridTemplate} pitch={runPitch} noun={rowsNoun} onRetry={controller.retry} />;
                             case "row":
                                 return renderPlanRow(item.row, rowCtx);
                         }
@@ -1398,14 +1459,16 @@ export function usePlanCanvas({
         bound,
         main,
         chrome: {
-            words, styles, storageKey, scale, slices, windowParts, lead: windowLead, rowsPart, eventParts, nouns, windowError, affordances, resolutions,
+            words, styles, storageKey, scale, slices, windowParts, lead: windowLead, rowsPart, eventParts, nouns, rowsNoun, windowError, affordances, resolutions,
             // The grain folds the canvas's root groups (#632); below 480px the
             // narrow layout's Groups · Rows tabs own them, so nothing is left
             // for the segment to do there.
             grain: hasRootGroup && !narrow ? grain : undefined,
             transport, search, diagnostics,
+            cold, busy: frameBusy, pitch: geometry.row,
             history: historyProps, sessions, where,
             events: kinds.length > 0 ? eventEditing : undefined,
+            cells: lead.cells,
             footer: data.footer,
             id: getSomeorUndefined(data.id),
             narrow,

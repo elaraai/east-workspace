@@ -80,7 +80,7 @@ import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapsho
 import { currentScale, runPlanEffects } from "./effects.js";
 import { planPart, planSlices, ROWS_SOURCE } from "../root/sources.js";
 import type { PlanWindowHold } from "../root/window.js";
-import { announcementOf, landedText } from "../a11y.js";
+import { announcementOf } from "../a11y.js";
 import { PLAN_WORDS, type PlanWords } from "../words.js";
 
 /** A resolved overlay body (a resolver's some-value). */
@@ -259,8 +259,10 @@ export interface PlanController {
      *  `committed`). Call it after every commit: a jump hands the viewport back
      *  only once the canvas has shown — and scrolled to — its target (#812). */
     committed(paging: PlanPagingSnapshot): void;
-    /** Ask a failed window again (#811). */
-    retry(w: number): void;
+    /** Ask a failed window again (#811) — or, with none named, every failed
+     *  window and the source's own failed reads, at once (#1398: the footer
+     *  line's Retry). */
+    retry(w?: number): void;
     /** Where a paged row the body does not hold sits — its block's band, and
      *  how far down it (#823: a link into an evicted window). */
     placeOf(key: RowKey): PlanRowPlace | undefined;
@@ -484,9 +486,8 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             // collapse: seed each declared key ONCE, the first time its row
             // appears — in the same notification as the rows themselves.
             store = planStoreReducer(store, { t: "seed", declaredCollapsed: declaredCollapsedOf(landed.rows) }).store;
-            // What landed, for the live region (#819) — in the same
-            // notification too, so a landing is still one commit.
-            say(landedText(snapshot.paging.resident, landed.resident, landed.total, words));
+            // A window landing says nothing in the canvas's live region: what the source reads is the footer's
+            // loading line's to say, once a load (#1398, CL12).
             // The source's data moved off the snapshot a search was answered
             // in: its match positions index rows that may have moved (#821), so
             // the query standing is asked again there (#1199). A new revision

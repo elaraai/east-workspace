@@ -124,7 +124,7 @@ src/
   component.tsx              # Top-level variant dispatcher
   hooks/usePersistedState.ts # localStorage persistence hook
   platform/                  # East state management (UIStore, DatasetStore)
-  collections/               # Table, Matrix, TreeView, DataList (the Plan's, the Sheet's and the Flowchart's renderers are e3-ui-components')
+  collections/               # Table, Matrix, TreeView, DataList (the Plan's, the Sheet's, the Flowchart's and the Schematic's renderers are e3-ui-components')
   disclosure/                # Tabs, Accordion, Carousel
   layout/                    # Box, Flex, Grid, Stack, Splitter, Separator
   forms/                     # Input, Select, Checkbox, Switch, Slider, etc.
@@ -172,15 +172,41 @@ component, nothing in east-ui.
   the search box a key focuses); `onKeyDown` hears keys from anywhere in the
   frame, the panes included.
 - **Loading (opt-in).** `loading` covers the complete frame with shared Chakra
-  Skeletons while its active data window is unresolved. Its actual regions stay
-  mounted, measurable, inert and hidden from assistive technology. On the first
+  Skeletons for its cold load only — the first read, before anything it shows
+  has landed (#1398, CL5) — its body rows at `loadingPitch`, the component's
+  own row pitch, each a 12px bar. Its actual regions stay
+  mounted, measurable, inert and hidden from assistive technology; a
+  `liveFooter` stays live under the cover, so the footer's loading line and its
+  Retry carry the wait. On the first
   resolved window it also waits for the mounted content's fonts after layout
-  measurement; no timeout or initial pane animation. The `builderFrame` recipe
+  measurement; no timeout or initial pane animation. After cold load a read in
+  flight is `busy`: `aria-busy` on main, nothing covered, the toolbar, panes
+  and Save live. The `builderFrame` recipe
   owns these states and skeleton geometry. Existing callers that omit `loading`
   retain their own loading behavior. Keep usable cached data visible on refresh;
-  surface errors instead of leaving the skeleton indefinitely. Calendar and
-  Roster's integration and evidence are in
+  surface errors instead of leaving the skeleton indefinitely. The builders'
+  integration and evidence are in
   [`../e3-ui-components/CLAUDE.md`](../e3-ui-components/CLAUDE.md#loading-and-bounded-rendering).
+- **The footer's loading line** (#1398, CL3, `./internal`). One line in a slot
+  of its own at the footer rail's trailing end — `LoadingLine` over a
+  `LoadingLineValue` (what is read, or what failed with its reason and Retry,
+  in the builder's words), shown on the builder's one reveal clock (after
+  150 ms, held at least 300 ms; a failure at once): `LoadingReveal` around the
+  builder's frame, which the line and every placeholder read where they show
+  (`useRevealed`), so the clock's flips render them and never the frame. It is
+  a polite live region that speaks once a load. The rail fits it on one line
+  with no word cut
+  (`useFooterFit` over `fitFooter`, pure): the legend's items
+  (`data-footer-unit`, cut whole by `footerCut`, `FooterMore` ending a cut
+  legend), or a footer's hints running on in one item (`data-footer-units`),
+  stay whole; the line shows its full text, its short form or its dot alone. A
+  builder's own rail that carries the line takes `FOOTER_FIT`
+  (`builder-footer.ts`), as the Sheet's does. Nothing the fit measures may
+  move with the fit: every other item of the rail is weighed at its natural
+  width, and one the flex layout shrinks — the Sheet's message, which
+  ellipsizes — is marked `data-footer-slack`, fitted at no width, and takes
+  what the fit leaves it. An unmarked item that shrinks looped the fit on a
+  phone (the showcase's `builder-footer-line.spec.ts` holds every rail to it).
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
   `count`, when given, follows its name, the Calendar's and the Sheet
@@ -228,6 +254,13 @@ component, nothing in east-ui.
   Numeric tab counts use the same formatter's full `number()` form. The dock
   recipe bounds badges to the rail, including longer locale abbreviations;
   builders must not implement their own abbreviation or badge styles.
+- **A rail's editor** (#1393). Each known value's chip counts its own rows
+  under the other fields' choices, the chosen marked, as a faceted search
+  counts — never what a click on it would show (east-ui's
+  `RecordSliceController.values`). The editor (`SliceEditPopover`) keeps to
+  the frame's sides while it fits between them, else to the page's, and down
+  the page always to the page's, so it flips above its trigger as it did
+  (`overlays/popover/frame-bounds.ts`, read live at every placement).
 - **A tab row too narrow folds** (`DockPane`, #1210): the counts leave the
   row first, kept in each tab's name; then the trailing tabs fold into a
   `+n` menu after the last that fits, the open tab always on the row, so no
@@ -268,6 +301,12 @@ component, nothing in east-ui.
   `data-pane-mode`, `data-collapsed`, `data-scrim`) and geometry only, and a
   host's own recipe keeps what is the host's (the snap grid's canvas column,
   the query builder's status line).
+- **The row's height.** Every control in a builder's toolbar row is 28px
+  tall and centred on it (`theme/toolbar-row.ts`, ruled 23 Oct 2026): a chip,
+  a segment strip, a stepper, a tab strip, the key search's box and every
+  button (`size="sm"`), the history's and the date navigator's among them. The
+  showcase's `toolbar-row-heights.spec.ts` holds every builder to it, unfolded
+  and folded, in both themes.
 - **Shared toolbar items.** The items more than one builder's toolbar takes
   live here, each with a narrower form for a row short of room: the history
   item (`historyToolbarItem`, folding last, to its buttons; its commit reads
@@ -275,13 +314,22 @@ component, nothing in east-ui.
   (`reviewToolbarItem`, `./internal`: the summary goes, then the buttons fold
   into one menu — no builder takes it since the Plan's review went, #1260) and
   the key search over a keyed source's `seek`
-  (`useKeySearchToolbarItem`: the box folds to its icon, which opens it in the
-  edit popover, and keeps its form while a query is typed; `focusKeySearch`
-  brings a host's key for it, the Sheet's ⌘F, to it in either form). A record
+  (`useKeySearchToolbarItem`: in the row its box is 28px, the search pill's
+  height, its input filling it, while the box its popover opens stays the
+  design system's 32px field (the combobox recipe's `search` slot, ruled 23
+  Oct 2026, #1404); a pick or a step shows its match in the box — the text
+  its host gives the row, else its label — its place counted (`3 of 7`), and
+  asked again at a new snapshot the box keeps it while the snapshot holds it
+  in place; the box folds to its icon, which opens it in the edit
+  popover, and keeps its form while a query is typed; `focusKeySearch` brings
+  a host's key for it, the Sheet's ⌘F, to it in either form). A record
   rail's summary (`12 of 69 people`) folds after every step of the rail and
   before a host's own items (`SUMMARY_RANK`, ruled 18 Oct 2026, #1340). Over
   several records it names only the sources a narrowing hides rows of
-  (`2 of 30 print job events`), nothing while none does; the Filters editor
+  (`2 of 30 print job events`), nothing while none does — a source a
+  narrowing is in force over keeps its place while its count is read, the
+  count pending, so the toolbar never folds again as it lands (#1398, CL1);
+  the Filters editor
   heads each source's fields with its count, as a Library tab counts (`6`,
   `2 of 30`), and keeps a line under them only for the sources no heading
   counts (ruled 19 Oct 2026, #1358). Controls
@@ -290,7 +338,10 @@ component, nothing in east-ui.
   draws in the step that hides them, and a popover one of them opens hangs
   from the chip (`SliceEditPopover`'s `anchor`), its item `held` while it is
   open — as the SnapGrid editor's View chip and Studio's and the query
-  builder's ⋯ chips do. On a
+  builder's ⋯ chips do. An item that joins the row while its bundle is held
+  takes the bundle as it stands, folded where the bundle applies, so a
+  control appearing beside a held chip never pushes the row past its end (the
+  Schematic's steps beside the View Find's query holds, #1395). On a
   coarse pointer a control in the row is a 44px tap target by its box or by its
   halo (`coarseHitArea`, #346), never by growing the row (#1193, #1221): a
   segment whose neighbours sit edge to edge takes the halo on the block axis
@@ -328,9 +379,10 @@ input filling it, an Option's Set or Clear at its end (`data-field-line`,
 `data-field-side`) — and its help line. Each input is the design system's
 Input size, so every kind stands on one 32px line (44px on a coarse
 pointer); fields sit 16px apart, a nested struct's head 8px over its first
-field. A text or a printed value longer than its box ends in an ellipsis, its
-control titled with the whole (#1250). The showcase's `inspector-form.spec.ts`
-measures it in the Sheet's, the Plan's and the Flowchart's inspectors.
+field. A text, a choice or a printed value longer than its box ends in an
+ellipsis, its control titled with the whole (#1250). The showcase's
+`inspector-form.spec.ts` measures it in the Sheet's, the Plan's, the
+Flowchart's and the Schematic's inspectors.
 
 The shared inputs' sizes are one line each — `theme/field-chrome.ts` ›
 `fieldHeights`: `sm` 26px, `md` 32px, `lg` 44px — set on each control's
@@ -628,9 +680,33 @@ When adding persistence to Chakra components that support both
 
 Row virtualization via `@tanstack/react-virtual`:
 
-- `RowStateManager` tracks loading/loaded/unloaded per row.
-- Visible rows trigger loading with a configurable delay
-  (`loadingDelay`).
+- The Table's rows: `RowStateManager` tracks loading/loaded/unloaded per row,
+  and visible rows trigger loading with a configurable delay (`loadingDelay`)
+  — the Table's alone.
+- The Plan's and the Sheet's rows not yet read are the shared unloaded run
+  (#1398, CL2: `UnloadedRun` over `runRows`, `collections/loading/`, through
+  `./internal`): rows at the collection's real pitch, drawn only where the run
+  meets the viewport, the virtualizer counting the run as one item. `VirtualRows`
+  draws again only as its mounted range moves, so a run follows the view itself
+  through what scrolls the frame's rows (`useRowsScroll`, `rows-scroll.ts`): a
+  run the frame positions reads its part in view as it renders, from the
+  frame's scroll offset and where it placed the run (`useRowTop`,
+  `RowsScroll.viewAt`), so a window landing above it draws it there in that
+  one commit; one in flow is placed before paint. Either is drawn again only
+  as a row comes into the view or leaves it. A region whose items have no known position yet takes
+  the shared wash (`LoadingWash`). When a placeholder's fill and the footer's
+  loading line show is the builder's one reveal clock (CL4, `LoadingReveal`
+  around its frame, read where it shows with `useRevealed`): after 150 ms, held
+  at least 300 ms; geometry draws at once, and a shape keeps its footprint,
+  unseen, until then (`data-unrevealed`). A failure is said once in place
+  (`LoadingFailedLine` in a row, `LoadingFailedBox` where no row can hold
+  one, CL11), and a region its read found empty once, only after the read, in
+  the failed line's slot and shape (`LoadingEmptyLine`, CL13: one line, its
+  hint dropped whole where it does not fit). A builder's toolbar slots held
+  from cold load — its status, issues and Publish — take the loading recipe's
+  `heldToolbarSlot` (CL1).
+- A count that lands before its rows sizes the ledger at the rows' declared
+  pitch (`createLedger`'s pitch), never at its starting 32px an element (CL1).
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current
@@ -660,7 +736,7 @@ barrel export.
 Two more entries serve the sibling renderer packages, never apps:
 `src/internal.ts` (`@elaraai/east-ui-components/internal`) re-exports the
 renderers' shared building blocks a component made of the same parts needs
-(e3-ui-components' Plan, Sheet and Flowchart, #1177, #1179, #1243), and `src/testing.ts` (`/testing`) the
+(e3-ui-components' Plan, Sheet, Flowchart and Schematic, #1177, #1179, #1243, #1384), and `src/testing.ts` (`/testing`) the
 renderer tests' DOM helpers — React's `act` and the DOM, no test framework —
 and the editing words (`editingMessages`), which a browser spec names the
 history item's controls by: unlike the package's own entry, it loads in Node.

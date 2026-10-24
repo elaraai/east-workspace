@@ -14,14 +14,19 @@
  * recipe keeps in `--builder-footer-gap` while the rail wraps at a narrower
  * one, and its inline padding and borders. Measured with the wrapped gap, a
  * rail between the two would fit once wrapped, unwrap, and no longer fit —
- * a render loop. An item a host lets wrap its own words once the rail wraps
- * shrinks only when it alone is wider than the rail, and then the rail's items
- * together still are: it stays wrapped.
+ * a render loop. An item a host lets wrap its own words once the rail wraps —
+ * the Schematic's density, on a phone — shrinks only when it alone is wider
+ * than the rail, and then fills it: so a wrapped rail stays wrapped while its
+ * items fill it, and unwraps only once they fit with a pixel to spare, or one
+ * item filling the rail would unwrap it, overflow and wrap it again.
  *
  * @packageDocumentation
  */
 
 import { useLayoutEffect, useState, type RefObject } from "react";
+
+/** The room, in px, a wrapped rail's items leave before it unwraps: more than a layout's subpixel rounding. */
+const UNWRAP_ROOM_PX = 1;
 
 /**
  * Whether the rail's items need more than one line (see the module docs).
@@ -42,7 +47,8 @@ export function useRailWrap(ref: RefObject<HTMLElement | null>, items: unknown):
             const gap = px(css.getPropertyValue("--builder-footer-gap")) || px(css.columnGap);
             const required = children.reduce((n, item) => n + item.getBoundingClientRect().width, 0) + Math.max(0, children.length - 1) * gap
                 + px(css.paddingInlineStart) + px(css.paddingInlineEnd) + px(css.borderInlineStartWidth) + px(css.borderInlineEndWidth);
-            setWrap(required > rail.getBoundingClientRect().width);
+            const width = rail.getBoundingClientRect().width;
+            setWrap((wrapped) => required > (wrapped ? width - UNWRAP_ROOM_PX : width));
         };
         measure();
         const observer = new ResizeObserver(measure);

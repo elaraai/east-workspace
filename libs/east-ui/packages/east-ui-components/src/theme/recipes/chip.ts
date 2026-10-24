@@ -32,9 +32,14 @@
  * width: the caret, 5px at its 8px; the remove, at 0.8em, the mono `×`'s 0.6em
  * (the xmark is three quarters as wide as it is tall). The leading icon was
  * Font Awesome's already, and keeps its width.
+ *
+ * In a toolbar's row a chip stands as tall as every control there, 28px
+ * (`toolbar-row.ts`, ruled 23 Oct 2026): the rail's, the chip a row folds into,
+ * a count; elsewhere it keeps its own height.
  */
 
 import { defineRecipe } from "@chakra-ui/react";
+import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
 
 export const chipRecipe = defineRecipe({
     className: "elara-chip",
@@ -62,6 +67,7 @@ export const chipRecipe = defineRecipe({
         "& [data-chip-caret]": { fontSize: "8px", "--fa-width": "auto" },
         "& [data-chip-meta]": { color: "fg.muted" },
         "& [data-chip-remove]": { color: "link", cursor: "pointer", flexShrink: "0", fontSize: "0.8em", "--fa-width": "auto" },
+        [IN_TOOLBAR_ROW]: { height: TOOLBAR_CONTROL_HEIGHT },
     },
     variants: {
         tone: {

@@ -49,13 +49,26 @@ export const indexedWorkByQuantity = e3.recordIndex("by_quantity", indexedWorkOr
 export const indexedWorkByUrgent = e3.recordIndex("by_urgent", indexedWorkOrders, { on: ["urgent"] });
 export const indexedWorkByTag = e3.recordIndex("by_tag", indexedWorkOrders, { on: ["tags"] });
 
+/**
+ * The lens's benchmark record (#1349): a row of a million, in one of ten
+ * groups, and flagged or not. Empty here, so neither the showcase nor a test
+ * deploys a million rows: e3-ui-components' lens benchmark (`E3_UI_PERF=1`)
+ * fills it through its patch door, then draws two narrowings over it — the ten
+ * rows flagged, and the three groups that hold three in ten.
+ */
+export const LensBenchRow = StructType({ group: IntegerType, flag: BooleanType });
+export const lensBenchRows = e3.record("lens_bench_rows", DictType(StringType, LensBenchRow), new Map());
+export const lensBenchPatch = e3.mutation.patch(lensBenchRows);
+export const lensBenchByGroup = e3.recordIndex("lens_bench_by_group", lensBenchRows, { on: ["group"] });
+export const lensBenchByFlag = e3.recordIndex("lens_bench_by_flag", lensBenchRows, { on: ["flag"] });
+
 export const sheetRecordIndexes = example({
-    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "recordIndex", "saved views", "RecordView", "paging", "primary key", "filter"],
-    description: "50,000 work orders, narrowed by maintained record indexes through the rail's rows source, which the sheet pages its rows from. Choose Ready and Scheduled together, then a Due range: their disjoint index ranges form one paged view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing.",
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "recordIndex", "lens", "context", "saved views", "RecordView", "paging", "primary key", "filter"],
+    description: "50,000 work orders in the record's order, the rail's rows source narrowing them through maintained record indexes and the sheet drawing the narrowing over them as the lens: each match at its row number, the rows either side as the context switch says, and gaps of their size over the rest that open 1 · 3 · 10 · all. Choose Ready and Scheduled together, then a Due range: e3 places their rows from the indexes alone, and the sheet reads only the segments near the view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing, the context and the rows opened, by their keys.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
-            // One rail over the work orders: its `rows` source narrows them, and the sheet pages what it narrows to.
+            // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.
             const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexes", {
                 rows: {
                     source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
@@ -75,12 +88,12 @@ export const sheetRecordIndexes = example({
 });
 
 export const sheetRecordIndexesMobile = example({
-    keywords: ["Sheet", "Slice.bindRecords", "rows", "mobile", "record", "filters", "saved views", "RecordView"],
-    description: "The same indexed work orders in a phone-width frame, with the rail's shared Slice controls on the toolbar's responsive ladder.",
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "mobile", "record", "filters", "lens", "saved views", "RecordView"],
+    description: "The same indexed work orders and their lens in a phone-width frame, with the rail's shared Slice controls and the lens's context switch on the toolbar's responsive ladder.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
-            // One rail over the work orders: its `rows` source narrows them, and the sheet pages what it narrows to.
+            // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.
             const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexesMobile", {
                 rows: {
                     source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),

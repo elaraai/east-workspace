@@ -22,8 +22,10 @@
  * through its rail (#1345), then two view tabs of its own, named from the
  * search — the frame narrowed until the second folds the first into `+n`,
  * which picks it again — and
- * on the stress sheet another of its views picked, the active tab's × shown
- * and the others' hidden. On the phone the workshop's two views fold with the
+ * on the stress sheet another of its views picked — from the strip, or from
+ * `+n` where its lens's context switch and count line leave the strip short of
+ * room (#1349) — the active tab's × shown and the others' hidden. On the phone
+ * the workshop's two views fold with the
  * key search into its popover (#1345), and the row still fits. And a search's
  * list closes when the focus moves outside it, as on a desktop (#1228): ⏎ in
  * the workshop rail's Customer search applies its prefix, and Tab leaves the paged sheet's
@@ -39,7 +41,9 @@
  * matches and cleared, then the frame narrowed until LR · TD and find state
  * fold; over a record of flows (#1246) its row ending with the history item;
  * and over a record its `flows` source narrows (#1346), the rail and its
- * summary in the row.
+ * summary in the row. And the Schematic's frame (#1387): on the phone the
+ * rail's icon and the View, and on the wide screen its tools, every one named,
+ * its zoom and Fit and its Find's box.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test toolbar-touch --project mobile`.
@@ -195,19 +199,27 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
         ],
     },
     {
-        // Its three views on the strip, side by side: wide, the stress sheet has the room the workshop's frame has not.
+        // Its views beside its lens's context switch and count line (#1349): a strip short of room folds the views it
+        // cannot hold into `+n`, the open one kept, before the count line goes — so another view is picked from the
+        // strip or from `+n`, whichever holds it.
         name: "sheetStress", hash: "e3/sheet/sheet/sheetStress",
         wide: [{
             what: "another of its views picked",
             run: async (entry, page) => {
-                await expect(viewTabs(entry)).toHaveCount(3);
-                await viewTabs(entry).nth(1).tap();
-                await expect(viewTabs(entry).nth(1)).toHaveAttribute("data-active", "");
-                // Only the active tab's × shows: another's halo would take a tap that switches to it.
-                await expect(viewTabs(entry).nth(1).locator("[data-slot='tabClose']")).toBeVisible();
-                await expect(viewTabs(entry).first().locator("[data-slot='tabClose']")).toBeHidden();
-                await expect(viewTabs(entry).nth(2).locator("[data-slot='tabClose']")).toBeHidden();
+                const routers = entry.locator("[data-frame-slot='toolbar'] [data-slot='tab'][data-tab='routers']");
+                if (await routers.isVisible()) {
+                    await routers.tap();
+                } else {
+                    await entry.locator("[data-frame-slot='toolbar'] [data-slot='tabMore']").tap();
+                    await page.getByRole("menuitem", { name: /^ROUTERS/ }).tap();
+                    await expect(page.locator("[role='menu']")).toHaveCount(0);
+                }
+                await expect(routers).toHaveAttribute("data-active", "");
                 await settled(page);
+                // Only the active tab's × shows: another's halo would take a tap that switches to it.
+                await expect(routers.locator("[data-slot='tabClose']")).toBeVisible();
+                const others = await entry.locator("[data-frame-slot='toolbar'] [data-slot='tab']:not([data-tab='all']):not([data-active])").all();
+                for (const other of others) await expect(other.locator("[data-slot='tabClose']")).toBeHidden();
             },
         }],
     },
@@ -234,6 +246,9 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
     // Over a record its `flows` source narrows, the rail and its summary fold first, and on the phone LR · TD and find
     // state bundle into the key search's popover (#1346).
     { name: "flowchartRecordIndexes", hash: "e3/flowchart/flowchart/flowchartRecordIndexes" },
+    // The Schematic's tools, its zoom and Fit and its Find, after its rail (#1387): on the phone the rail's icon and the
+    // View; on the wide screen every tool named, edge to edge.
+    { name: "schematicDataCentre", hash: "e3/schematic/schematic/schematicDataCentre" },
 ];
 
 /** Open an example's page at rest and return its entry. */

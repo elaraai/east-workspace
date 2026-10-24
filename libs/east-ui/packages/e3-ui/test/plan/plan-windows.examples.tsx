@@ -36,7 +36,9 @@ import { PrintJob, PrintPress } from "./plan-events.examples.js";
 // (`entries`), and every edit is a draft of a session over the record's
 // revision. The day index and the backlog index a kind reads without a slice
 // (`Schedule.events`' `window` and `backlogWindow`) are declared beside them:
-// a Plan or a Calendar with no rail reads the record through them.
+// a Plan or a Calendar with no rail reads the record through them. The same
+// Plan reads the jobs a cell at a time in `planSeries` (#1039), through their
+// series index and their summary, declared here too.
 
 // ============================================================================
 // The presses — generated where data is made
@@ -106,7 +108,36 @@ export const planWindowJobsPatch = e3.mutation.patch(planWindowJobs);
  * days it runs, and a job in the backlog under its Unset start — what the
  * rail's `job` source narrows them through.
  */
-export const planWindowJobsByTime = e3.recordIndex("plan_window_jobs_by_time", planWindowJobs, { interval: { from: "start", to: "end" } });
+export const planWindowJobsByTime = e3.recordIndex.interval("plan_window_jobs_by_time", planWindowJobs, { from: "start", to: "end" });
+
+/**
+ * The jobs by the press each is on and the weeks each touches (#1039): a job
+ * is filed under every week it runs into, carrying its row, so the jobs of
+ * fifty presses over a week are one contiguous range of the index — a cell —
+ * and `planSeries` reads only the cells around the rows in view.
+ */
+export const planWindowJobsByPressWeek = e3.recordIndex.series("plan_window_jobs_by_press_week", planWindowJobs, {
+    key: "press", from: "start", to: "end", tile: "week",
+});
+
+/**
+ * How busy each press is, a month at a time (#1039): under each press and
+ * month, how many jobs touch it and the milliseconds of it they cover — what
+ * `planSeries` shades where the jobs in view are too many to draw.
+ */
+export const planWindowJobsByPressMonth = e3.recordIndex.summary("plan_window_jobs_by_press_month", planWindowJobs, {
+    key: "press", from: "start", to: "end", tile: "month",
+});
+
+/**
+ * The jobs' monthly summary declared again (#1039): no example lists it — a
+ * Plan refuses two summaries of one tile over the same fields, naming both,
+ * and the series spec lists it beside `planWindowJobsByPressMonth` to see it
+ * refused.
+ */
+export const planWindowJobsByPressMonthAgain = e3.recordIndex.summary("plan_window_jobs_by_press_month_again", planWindowJobs, {
+    key: "press", from: "start", to: "end", tile: "month",
+});
 
 /**
  * The jobs by the days each touches (`Schedule.days`): a scheduled job is
@@ -136,6 +167,35 @@ export const planWindowJobsUnscheduled = e3.recordIndex("plan_window_jobs_unsche
         const unscheduled = $.const(Schedule.unscheduled);
         return unscheduled(job.start, job.due);
     }),
+});
+
+// ============================================================================
+// The series benchmark's jobs (#1039)
+// ============================================================================
+
+/**
+ * The jobs of the series benchmark (#1039), filed as the jobs are: empty here,
+ * so neither the showcase nor a test deploys them — e3-ui-components' series
+ * benchmark (`E3_UI_PERF=1`) fills them through their patch door, twenty a
+ * week on each of the first two hundred of 50,000 presses over a quarter, and
+ * reads them a cell at a time.
+ */
+export const planBenchJobs = e3.record("plan_bench_jobs", DictType(StringType, PrintJob), new Map());
+
+/** The benchmark jobs' patch door: what the benchmark fills them through. */
+export const planBenchJobsPatch = e3.mutation.patch(planBenchJobs);
+
+/** The benchmark jobs over their interval index: the rail's window and its exact count. */
+export const planBenchJobsByTime = e3.recordIndex.interval("plan_bench_jobs_by_time", planBenchJobs, { from: "start", to: "end" });
+
+/** The benchmark jobs by the press each is on and the weeks each touches: its cells. */
+export const planBenchJobsByPressWeek = e3.recordIndex.series("plan_bench_jobs_by_press_week", planBenchJobs, {
+    key: "press", from: "start", to: "end", tile: "week",
+});
+
+/** How busy each press is, a month at a time: the benchmark's shading. */
+export const planBenchJobsByPressMonth = e3.recordIndex.summary("plan_bench_jobs_by_press_month", planBenchJobs, {
+    key: "press", from: "start", to: "end", tile: "month",
 });
 
 // ============================================================================
@@ -219,6 +279,74 @@ export const planWindows = example({
                 <Plan
                     // Named: a page holding it beside another Plan keeps each one's panes, hidden series and library its own.
                     id="windows"
+                    axis={axis}
+                    slice={{ slice }}
+                    resources={{
+                        presses: Schedule.resources(presses, {
+                            name: "Presses", icon: "print", label: p => p.name,
+                            sub: (p, key) => some(East.str`${key} · ${p.hall}`),
+                        }),
+                    }}
+                    events={{
+                        job: Schedule.events(jobs, {
+                            name: "Print job", icon: "file-lines",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "press", of: "presses" },
+                            state: "state", quantity: { field: "sheets", unit: "sheets" },
+                            backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
+                            entries: jobEntries,
+                        }),
+                    }}
+                    library={[Plan.library.backlog()]}
+                    style={{ height: "480px" }}
+                />
+            );
+        }}</Reactive>);
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planSeries — the same Plan, its jobs read a cell at a time (#1039)
+// ============================================================================
+
+/**
+ * The Plan of `planWindows`, its jobs read a cell at a time (#1039): the rail's
+ * `job` source lists the jobs' series index and their summary beside their
+ * interval index, and the Plan reads the rest itself. It reads the jobs of the
+ * fifty presses around the rows in view over the weeks the window touches —
+ * two requests however many cells: their searches, then their entries — so a
+ * pan within the weeks it holds reads nothing, and a scroll into the next
+ * fifty presses reads theirs. Its toolbar zooms from a day to a quarter, and
+ * zoomed out past what it can draw, it shades each press's months from the
+ * summary instead: the share of each month the press is booked. The rail's window and its exact count are the interval
+ * index's, as in `planWindows`, and editing is the same session over the
+ * record's revision.
+ */
+export const planSeries = example({
+    keywords: [
+        "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "range", "window",
+        "series", "series index", "summary", "summary index", "e3.recordIndex.series", "e3.recordIndex.summary", "tile", "cell",
+        "interval index", "paged", "Data.bindPaged", "zoom", "resolutions", "shading", "large record", "presses", "jobs", "#1039",
+    ],
+    description: "The Plan of planWindows, its jobs read a cell at a time — the rail's `job` source lists a series index (`e3.recordIndex.series`, the jobs by press and week) and a summary index (`e3.recordIndex.summary`, each press's busy share by month) beside the interval index, and the Plan reads only the cells around the rows in view, two requests a change, shading from the summary when zoomed out past what it can draw",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (<Reactive>{$ => {
+            const presses = $.let(Data.bindPaged(planWindowPresses));
+            const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
+            const jobEntries = $.let(Data.bindPaged(planWindowJobs));
+            // The `job` source lists the series and the summary beside the interval index: the Plan reads its cells through them.
+            const slice = $.let(Slice.bindRecords("ex.plan.series", {
+                job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),
+                    label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start" },
+            }));
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") },
+                resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: new Date("2026-10-14T09:00:00Z"),
+            }));
+            return (
+                <Plan
+                    id="series"
                     axis={axis}
                     slice={{ slice }}
                     resources={{

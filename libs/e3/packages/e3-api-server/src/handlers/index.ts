@@ -40,10 +40,39 @@ export {
   setDataset,
   getDatasetPage,
   getValuePage,
+  findDatasetKey,
+  type DatasetFindQuery,
   type DatasetPageWindow,
   type DatasetPageLimits,
   type PinnedCache,
 } from './datasets.js';
+
+export {
+  findDatasetKeys,
+  getDatasetRows,
+  getDatasetRuns,
+  DATASET_BATCH_MAX,
+  type DatasetFindKeysRequest,
+  type DatasetFindKeysResult,
+  type DatasetRowsRequest,
+  type DatasetRowsByKeys,
+  type DatasetRowsByRuns,
+  type DatasetRowsKeysOf,
+  type DatasetRunsRequest,
+  type DatasetBatchLimits,
+} from './dataset-batches.js';
+
+export {
+  placeDatasetRuns,
+  withinDatasetRuns,
+  type DatasetPlaceRequest,
+  type DatasetPlacedSegment,
+  type DatasetWithinRequest,
+} from './dataset-place.js';
+
+export { type KeySearchQuery } from './key-search.js';
+
+export { decodedSegmentStats, DECODED_SEGMENTS_MAX_WEIGHT } from './segments.js';
 
 export {
   listTasks,

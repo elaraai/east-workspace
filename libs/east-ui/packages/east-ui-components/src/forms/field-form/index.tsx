@@ -42,16 +42,17 @@
  * Every field is one column (#1220): its label, its control's line and its
  * help line, the control filling the line and an Option's Set or Clear at its
  * end, centred on it. Each input is the design system's Input size, 32px, so
- * every kind lands on one line. A text or a printed value longer than its box
- * — a description in a phone's pane — ends in an ellipsis where the box cuts
- * it, and its control carries the whole as its title (#1250).
+ * every kind lands on one line. A text, a choice or a printed value longer
+ * than its box — a description, or a reference's long name, in a phone's
+ * pane — ends in an ellipsis where the box cuts it, and its control carries
+ * the whole as its title (#1250).
  *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
- * `data-dirty`, `data-field-line`, `data-field-side`), a text's title and
- * geometry only.
+ * `data-dirty`, `data-field-line`, `data-field-side`), a text's or a choice's
+ * title and geometry only.
  *
  * @packageDocumentation
  */
@@ -519,9 +520,12 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
         readOnly: printed || readOnly ? some(true) : none,
         style: some({ ...FIELD_STYLE, schemaKey: some(key) }),
     };
-    // The text a one-line box holds, whole — a value printed, or a text field's — its control's title: an ellipsis ends it
-    // where the box cuts it short (the `fieldForm` recipe), and the title says the rest.
-    const whole = own !== undefined ? undefined : printedText ?? (editor.type === "text" ? (held ?? "") as string : undefined);
+    // The text a one-line box holds, whole — a value printed, a text field's, or the words of a choice made — its control's
+    // title: an ellipsis ends it where the box cuts it short (the `fieldForm` recipe, a select's own), and the title says
+    // the rest. A reference's choices are the host's, as long as its names are.
+    const chosen = !printed && own === undefined && held !== undefined && (editor.type === "select" || editor.type === "reference")
+        ? printOf(inner, held, editor, options, words) : undefined;
+    const whole = own !== undefined ? undefined : printedText ?? chosen ?? (editor.type === "text" ? (held ?? "") as string : undefined);
     // Beside an input that cannot show none: Set while it holds no value, and an Option's Clear while it does.
     const side = own !== undefined || printed || readOnly || editor.type === "text" || editor.type === "select" || editor.type === "reference" ? undefined
         : held === undefined ? "set" : spec.optional ? "clear" : undefined;

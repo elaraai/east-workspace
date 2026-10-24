@@ -13,7 +13,10 @@
  * open picker's weeks' through the same, and the week's targets through
  * theirs. What it reads is kept by its bytes: a row read again as it was keeps
  * its decoded row, so a render never decodes it again, and the frame is handed
- * what it reads only when that moves.
+ * what it reads only when that moves. Once the week has landed, the weeks
+ * either side are read ahead (`shared/schedule/read-ahead.ts`, #1398, CL7), in
+ * a read of their own, so a step to one shows it at once and a page of theirs
+ * landing runs the week's read no more; a step further drops their reads.
  *
  * @packageDocumentation
  */
@@ -22,6 +25,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { BlobType, DateTimeType, DictType, SortedMap, equalFor } from "@elaraai/east";
 import { RosterStatusType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
 import { compareDate, compareString, rosterDomain, weekBefore, weekSpan, weekWindow, type RosterPayload, type Status, type StoredDuty, type StoredTarget } from "./model.js";
 
 const sameBytes = equalFor(BlobType);
@@ -45,6 +49,12 @@ export interface RosterData {
     readonly loading: boolean;
     /** Whether a complete read of the week has landed. */
     readonly ready: boolean;
+    /**
+     * Whether a complete read of any week has landed: the frame's cold load is
+     * over (#1398, CL5), and a week not read yet is read with the frame live,
+     * its geometry drawn and its placeholders where its content goes.
+     */
+    readonly landed: boolean;
     /** Why the latest read failed. */
     readonly error: string | undefined;
 }
@@ -60,7 +70,7 @@ const NO_STATUSES = new SortedMap<Date, Status>([], compareDate);
  * @returns The state
  */
 export function initialRosterData(start: Date): RosterData {
-    return { start, duties: NO_DUTIES, previous: undefined, period: undefined, picker: NO_STATUSES, targets: NO_TARGETS, loading: true, ready: false, error: undefined };
+    return { start, duties: NO_DUTIES, previous: undefined, period: undefined, picker: NO_STATUSES, targets: NO_TARGETS, loading: true, ready: false, landed: false, error: undefined };
 }
 
 /** Rows read again, each kept as it was where its bytes are: the same object, its row not decoded again. */
@@ -148,6 +158,18 @@ export function useRosterData(value: RosterPayload, start: Date, pickerDates: re
         return { duties, previous, period, picker, targets, loading };
     }, [value, start, pickerDates, holds]);
     const { result } = useTrackedEvaluation(read);
+    // Once the week has landed, the weeks either side are read ahead (#1398, CL7) — in a read of their own, so a page of
+    // theirs landing runs the week's read no more: a step to one shows it at once.
+    const at = start.getTime();
+    const neighbours = useMemo(() => [weekSpan(new Date(at)).to, weekBefore(new Date(at))], [at]);
+    const readNext = useCallback((next: Date) => {
+        const around = weekWindow(next);
+        value.duty.rows(around.from, around.to);
+        const span = weekSpan(next);
+        if (value.periods.type === "some") value.periods.value.rows(span.from, span.to);
+        if (value.targets.type === "some") value.targets.value.rows(span.from, span.to);
+    }, [value]);
+    useReadAhead(result.ok && !result.value.loading && result.value.duties !== undefined, neighbours, readNext);
     // The last complete read of a week: a newer one in flight keeps it, so a page landing redraws nothing until the read is whole.
     const complete = useRef<RosterData | undefined>(undefined);
     if (result.ok) {
@@ -159,16 +181,17 @@ export function useRosterData(value: RosterPayload, start: Date, pickerDates: re
             || !Object.is(was.previous, got.previous) || !Object.is(was.targets, got.targets) || !Object.is(was.picker, got.picker)
             || (was.period === undefined ? got.period !== undefined : got.period === undefined || !sameBytes(was.period, got.period)))) {
             complete.current = { start, duties: got.duties, previous: got.previous, period: got.period, picker: got.picker, targets: got.targets,
-                loading: false, ready: true, error: undefined };
+                loading: false, ready: true, landed: true, error: undefined };
         }
     }
     const last = complete.current;
     // A week moved to holds nothing of the week before it: its read is in flight until it lands.
     const current = last !== undefined && compareDate(last.start, start) === 0 ? last : undefined;
+    const landed = last !== undefined;
     const loading = result.ok ? result.value.loading || current === undefined : false;
     const error = result.ok ? undefined : result.error instanceof Error ? result.error.message : String(result.error);
-    return useMemo(() => current === undefined ? { ...initialRosterData(start), loading, error }
-        : current.loading === loading && current.error === error ? current : { ...current, loading, error }, [current, start, loading, error]);
+    return useMemo(() => current === undefined ? { ...initialRosterData(start), loading, landed, error }
+        : current.loading === loading && current.error === error ? current : { ...current, loading, error }, [current, start, loading, landed, error]);
 }
 
 /**

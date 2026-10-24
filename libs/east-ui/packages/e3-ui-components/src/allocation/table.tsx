@@ -14,7 +14,11 @@
  * drags onto a free row's arrival cell (A47). A split or partly allocated bin lists its parts as resource chips
  * with their quantities across the Resource and Load columns, each its own
  * chevron and ×, and `+ resource` for its remainder (A71, #1332). Every
- * figure and word is e3-ui's; every size the `allocationBuilder` recipe's.
+ * figure and word is e3-ui's; every size the `allocationBuilder` recipe's. A
+ * day not read yet draws its column heads and its bands at once, each band's
+ * count a placeholder and one placeholder row in it (#1398, CL2); a day whose
+ * read failed says so once, in the first of those rows in view, with Retry
+ * (CL11).
  *
  * @packageDocumentation
  */
@@ -27,7 +31,10 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { variant, type SortedMap, type option } from "@elaraai/east";
 import { SliceEditPopover, useDragEventChip, useDropCell, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
-import { Chooser, VirtualRows, formatDatePattern, type ChooserSection } from "@elaraai/east-ui-components/internal";
+import {
+    Chooser, LoadingFailedLine, PlaceholderShape, VirtualRows, formatDatePattern, type ChooserSection, type PlaceholderKind, type RowsInView,
+} from "@elaraai/east-ui-components/internal";
+import type { PeriodRead } from "../shared/loading.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
@@ -82,6 +89,12 @@ export interface TableProps {
     highlight: string | undefined;
     /** Books the picked arrival where a click lands, as its drop would (A11). */
     book: (target: Target) => void;
+    /**
+     * What it draws of the day's read (#1398): the day as read; a day not read yet — the day without its bins handed in
+     * as `plan`, its bands real, a placeholder row in each once the reveal says so; or one whose read failed — the failure
+     * said once, in the first of those rows in view.
+     */
+    read: PeriodRead;
 }
 
 /**
@@ -95,8 +108,28 @@ export interface Open { row: string; side: "arrival" | "resource"; part?: string
 /** A Chooser's identity in its row, as a row's memo compares it: `arrival`, `resource`, `resource:K-203`, `resource:+`. */
 export const openKey = (side: Open["side"], part: Open["part"]) => part === undefined ? side : `${side}:${part ?? "+"}`;
 
-/** One flattened line of the virtualised Table: a band's head, or a row. */
-type Line = { kind: "band"; band: TableBand } | { kind: "row"; band: TableBand; row: TableRow };
+/** One flattened line of the virtualised Table: a band's head, a row, or a band's placeholder row while the day is not read (#1398). */
+type Line = { kind: "band"; band: TableBand } | { kind: "row"; band: TableBand; row: TableRow } | { kind: "unread"; band: TableBand };
+
+/** What a placeholder row draws in each of the Table's columns, in their order (#1398): Time, Lane, Arrival, Quantity, the app's, Resource, Load, Status. */
+function unreadColumns(shown: number): PlaceholderKind[] {
+    return ["date", "label", "chip", "number", ...Array.from({ length: shown }, (): PlaceholderKind => "text"), "chip", "aggregate", "enum"];
+}
+
+/**
+ * The line a failed day says so in (#1398, CL11): the first placeholder row at or below the row at the top of the view,
+ * else the last one above it.
+ *
+ * @param lines - The Table's lines
+ * @param view - Where the view is among them
+ * @returns The line's index; `undefined` with no placeholder row
+ */
+function firstUnreadInView(lines: readonly Line[], view: RowsInView): number | undefined {
+    const from = Math.max(0, view.top ?? 0);
+    for (let i = from; i < lines.length; i++) if (lines[i]!.kind === "unread") return i;
+    for (let i = Math.min(from, lines.length) - 1; i >= 0; i--) if (lines[i]!.kind === "unread") return i;
+    return undefined;
+}
 
 /**
  * The Table (see the module docs).
@@ -115,10 +148,20 @@ export function AllocationTable(props: TableProps) {
         [slots, plan, day, value.table.bands, visibleLanes, visibleResources, visibleArrivals]);
     const rows = useMemo(() => bands.flatMap(band => band.rows), [bands]);
     const { collapsed, toggle } = useGroupCollapse(`${drag.surface}.table`);
+    // A day not read yet, or whose read failed (#1398): its bands, known from its slots, and one placeholder row in each
+    // that holds a slot — how many rows it has waits on its bins.
+    const { read } = props;
+    const unread = read.state !== "held";
+    // Not read yet, a placeholder where each figure goes, unseen until the frame's reveal says so, which each reads itself (CL4).
+    const pending = read.state === "pending";
     const lines = useMemo((): Line[] => bands.flatMap(band => [{ kind: "band" as const, band },
-        ...(collapsed.includes(band.key) ? [] : band.rows.map(row => ({ kind: "row" as const, band, row })))]), [bands, collapsed]);
+        ...(collapsed.includes(band.key) ? [] : unread ? band.rows.length === 0 ? [] : [{ kind: "unread" as const, band }]
+            : band.rows.map(row => ({ kind: "row" as const, band, row })))]), [bands, collapsed, unread]);
     const sizes = useMemo(() => lines.map(l => l.kind === "band" ? BAND_H : ROW_H), [lines]);
-    const getItemKey = useCallback((index: number) => { const l = lines[index]!; return l.kind === "band" ? `band:${l.band.key}` : l.row.key; }, [lines]);
+    const getItemKey = useCallback((index: number) => {
+        const l = lines[index]!;
+        return l.kind === "band" ? `band:${l.band.key}` : l.kind === "unread" ? `unread:${l.band.key}` : l.row.key;
+    }, [lines]);
     // The app's columns shown in the Table, each bin's text and tone over its row, through its callbacks (§6).
     const shown = useMemo(() => value.columns.filter(c => c.table), [value.columns]);
     const readColumns = useCallback(() => {
@@ -175,17 +218,33 @@ export function AllocationTable(props: TableProps) {
         <Box as="span" data-align="end" title={nouns.quantity}>{nouns.quantity}</Box>
         {shown.map(c => <span key={c.key} title={c.label}>{c.label}</span>)}<span title={nouns.resource.one}>{nouns.resource.one}</span><span>Load</span><span>Status</span>
     </Box>;
-    return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind}>
-        {lines.length === 0 ? <>{head}<NarrowedEmpty styles={styles} clear={props.clearFilters} /></> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="900px" scrollElRef={pane}
+    // The narrowing's empty state only under a narrowing (#1398, CL13).
+    const narrowed = visibleLanes.type === "some" || visibleResources.type === "some" || visibleArrivals.type === "some";
+    return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind} data-allocation-unread={unread ? read.state : undefined}>
+        {lines.length === 0 ? <>{head}{narrowed && <NarrowedEmpty styles={styles} clear={props.clearFilters} />}</> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="900px" scrollElRef={pane}
             headerZIndex={4} header={head} count={lines.length} getItemKey={getItemKey} sizes={sizes} measureRows={false}
-            renderRow={index => {
+            renderRow={(index, inView) => {
                 const line = lines[index]!;
                 if (line.kind === "band") {
                     const folded = collapsed.includes(line.band.key);
+                    // A day not read yet: its band's count a placeholder, its line said once its rows land.
                     return <GroupHeading scope="allocation" group={{ key: line.band.key, label: line.band.label }} styles={styles} collapsed={folded} toggle={toggle}>
-                        <Box as="span" css={styles.bandCount} data-allocation-band-count="">{line.band.rows.length}</Box>
-                        <Box as="span" css={styles.groupMeta}>{bandLine(line.band, words.quantity(Math.round(line.band.quantity), unit), folded)}</Box>
+                        {unread ? pending && <PlaceholderShape kind="count" index={index} /> : <>
+                            <Box as="span" css={styles.bandCount} data-allocation-band-count="">{line.band.rows.length}</Box>
+                            <Box as="span" css={styles.groupMeta}>{bandLine(line.band, words.quantity(Math.round(line.band.quantity), unit), folded)}</Box>
+                        </>}
                     </GroupHeading>;
+                }
+                if (line.kind === "unread") {
+                    const failure = read.state === "failed" && index === firstUnreadInView(lines, inView) ? read : undefined;
+                    return <Box css={styles.tableRow} data-allocation-unread-row={line.band.key} data-columns={shown.length === 0 ? "none" : undefined}
+                        aria-hidden={failure === undefined ? true : undefined}>
+                        {failure !== undefined
+                            ? <Box css={styles.tableReadLine} data-allocation-read-line="failed"><LoadingFailedLine message={failure.message} retry={{ onRetry: failure.retry }} /></Box>
+                            : unreadColumns(shown.length).map((kind, i) => <Box key={i} as="span" css={styles.tableUnreadCell} data-align={kind === "number" ? "end" : undefined}>
+                                {pending && <PlaceholderShape kind={kind} index={index + i} />}
+                            </Box>)}
+                    </Box>;
                 }
                 return <Row props={props} row={line.row} columns={cells?.get(line.row.bin ?? "")} shown={shown.length} lines={resourceLines}
                     open={open?.row === line.row.key ? openKey(open.side, open.part) : undefined} setOpen={setOpen} words={choiceWords} />;

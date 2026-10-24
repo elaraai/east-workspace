@@ -55,8 +55,9 @@ export interface AllocationHarness extends E3Harness {
     readonly fits: FitCalls<FitRequest, FitResult>;
     /**
      * Fails every read of a record from now — its pages and its key searches,
-     * through any of its indexes — as e3 answers one it cannot serve
-     * (`500`, `internal`), until the returned function stops it.
+     * and its reads of rows by key and of runs (#1351), through any of its
+     * indexes — as e3 answers one it cannot serve (`500`, `internal`), until
+     * the returned function stops it.
      *
      * @param record - The record
      * @returns What stops it
@@ -76,7 +77,8 @@ export function allocationHarness(): AllocationHarness {
         fits: fitCalls(h, { request: FIT_REQUEST, result: Allocation.Types.FitResult }),
         unavailable(record: E3Dataset) {
             const dataset = record.path.map((step) => step.value).join(".");
-            return h.e3.fail((request) => (request.kind === "page" || request.kind === "find") && request.dataset === dataset,
+            const reads = new Set(["page", "find", "rows", "runs"]);
+            return h.e3.fail((request) => reads.has(request.kind) && request.dataset === dataset,
                 { status: 500, type: "internal", message: `${dataset} is unavailable` });
         },
     });

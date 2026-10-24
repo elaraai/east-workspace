@@ -5,16 +5,15 @@
  * @vitest-environment jsdom
  *
  * The localizable Sheet (#861): every word the Sheet says itself comes from ONE
- * message table — the toolbar and the view tabs, the header, the rows, bands,
- * the strip, the footer and the history bar, the insertion chips, and the
+ * message table — the toolbar and the view tabs, the header, the rows, a failed
+ * run's line, the strip, the footer and the history bar, the insertion chips, and the
  * message each gesture leaves — its numbers in the locale react-aria's
  * `I18nProvider` sets, and `SheetMessagesProvider` overrides the words for a
  * subtree. The Plan's #820 test, for the Sheet. Every sheet is built by
  * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216); the view
- * tabs over the workshop's orders, through the rail's `rows` source and the
- * harness's records on e3 itself (#1345, #1376). (The lens's words — its count
- * line, its context switch and its gap pills — went with the lens, #1345; #1349
- * restores them over records.)
+ * tabs and the lens's words — its count line, its context switch and its gap
+ * pills — over the workshop's orders, through the rail's `rows` source and the
+ * harness's records on e3 itself (#1345, #1349, #1376).
  */
 
 import { describe, test, expect, vi } from "vitest";
@@ -30,7 +29,8 @@ import { system, getRegisteredPlatformImplementations } from "@elaraai/east-ui-c
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { EastChakraSheet, type SheetValue } from "./frame/index.js";
 import { act, sheetHarness } from "./frame/harness.test-utils.js";
-import { SheetBandRow, SheetFailedBandRow, SheetRowBoundary } from "./Rows.js";
+import { SheetRowBoundary, SheetRunRow } from "./Rows.js";
+import { SheetFooter } from "./Footer.js";
 import { SheetMessagesProvider, sheetMessages, type SheetMessages } from "./messages.js";
 
 // The harness's 400px frame, its store, and the examples' records on e3
@@ -148,9 +148,14 @@ function words(root: Element): string[] {
     return out;
 }
 
+/** A message's words marked `⟦`: a string's, or the first part of a line's words, which set what they name strong (#1398). */
+function markWords(said: string | readonly (string | { readonly strong: string })[]): string | (string | { readonly strong: string })[] {
+    if (typeof said === "string") return `⟦${said}`;
+    return said.map((part, i) => (i > 0 ? part : typeof part === "string" ? `⟦${part}` : { strong: `⟦${part.strong}` }));
+}
 /** The English table with every message marked `⟦` — a word the Sheet says without the mark did not come from the table. */
 const MARKED = Object.fromEntries(Object.entries(sheetMessages).map(([k, f]) =>
-    [k, (p: never) => `⟦${(f as (p: never) => string)(p)}`])) as unknown as SheetMessages;
+    [k, (p: never) => markWords((f as (p: never) => string | readonly (string | { readonly strong: string })[])(p))])) as unknown as SheetMessages;
 const marked = (sheet: ReactNode) => <SheetMessagesProvider messages={MARKED}>{sheet}</SheetMessagesProvider>;
 
 const allMarked = (texts: readonly (string | null | undefined)[]) => {
@@ -180,9 +185,14 @@ describe("one message table (#861)", () => {
         const add = q('[data-slot="tabAdd"]')!;
         allMarked(attrs(add, "aria-label", "title"));
         expect(words(add)).toEqual(["⟦tab"]);
-        // The lens is switched off (#1349): no count line, no context switch.
-        expect(q('[data-slot="toolbarCount"]')).toBeNull();
-        expect(q('[data-slot="contextSwitch"]')).toBeNull();
+        // The lens's words (#1349): the count line, the context switch and its options, a gap's pill and its controls.
+        await waitFor(() => expect(q('[data-slot="toolbarCount"]')?.textContent).toBe("⟦4 matches"));
+        const context = q('[data-slot="contextSwitch"]')!;
+        expect(context.getAttribute("aria-label")).toBe("⟦Context rows either side of a hit");
+        allMarked(words(context));
+        const gap = q('[data-slot="band"][data-band="lens"]')!;
+        allMarked(words(gap));
+        allMarked([...gap.querySelectorAll('[data-slot="bandControl"]')].flatMap((control) => attrs(control, "aria-label", "title")));
         // A rename box's name.
         fireEvent.doubleClick(planned);
         expect(q('[data-slot="tabRename"]')!.getAttribute("aria-label")).toBe("⟦Rename tab");
@@ -245,20 +255,27 @@ describe("one message table (#861)", () => {
         expect(document.getElementById(qty().getAttribute("aria-describedby")!)!.textContent).toBe("⟦A value is required");
     });
 
-    test("the bands: an unloaded run, a window that could not be read and its Retry, a row that could not be drawn", () => {
+    test("the runs: an unloaded run says no word, a window that could not be read says so once with its Retry, a row that could not be drawn (#1398)", () => {
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        // What a run draws whatever the words: its real row numbers.
+        const said = (root: Element) => words(root).filter((w) => !/^[\d.,]+$/u.test(w));
+        const run = { gridTemplate: "80px", columns: { list: [], byKey: new Map(), totalWidth: 0 }, rowPx: 36, dense: false, noun: "rows", onRetry: () => {} };
         try {
             const { container } = render(
                 <ChakraProvider value={system}>
                     <SheetMessagesProvider messages={MARKED}>
-                        <SheetBandRow styles={{}} band={{ at: "tail", from: 600, to: 999, px: 400 }} loading={false} colCount={1} />
-                        <SheetFailedBandRow styles={{}} failure={{ w: 1, from: 200, to: 399, px: 400, error: "fetch failed: 503" }} onRetry={() => {}} colCount={1} />
+                        <SheetRunRow styles={{}} band={{ at: "tail", from: 600, to: 999, px: 400 }} loading={false} {...run} />
+                        <SheetRunRow styles={{}} failure={{ w: 1, from: 200, to: 399, px: 400, error: "fetch failed: 503" }} loading={false} {...run} />
                         <SheetRowBoundary styles={{}} rowPx={30} number={3} resetKey={0}><Thrower /></SheetRowBoundary>
                     </SheetMessagesProvider>
                 </ChakraProvider>,
             );
-            expect(words(container.querySelector('[data-band="tail"]')!)).toEqual(["⟦400 not loaded"]);
-            expect(words(container.querySelector('[data-band="failed"]')!)).toEqual(["⟦Elements 201–400 could not be read — fetch failed: 503", "⟦Retry"]);
+            const tail = container.querySelector('[data-band="tail"]')!;
+            expect(words(tail).length).toBeGreaterThan(0);
+            expect(said(tail)).toEqual([]);
+            const failed = container.querySelector('[data-band="failed"]')!;
+            expect(said(failed)).toEqual(["⟦Couldn't read rows 201–400", "⟦Retry"]);
+            expect(failed.querySelector("[data-loading-retry]")!.getAttribute("aria-label")).toBe("⟦Retry rows 201–400");
             expect(words(container.querySelector('[data-slot="rowError"]')!)).toEqual(["⟦Row 3 could not be drawn — boom"]);
         } finally {
             err.mockRestore();
@@ -282,10 +299,25 @@ describe("one message table (#861)", () => {
         expect(message()).toBe("⟦Deleted 1 row");
     });
 
-    test("paged, in German: the transport line in the locale's numbers, and the scope badge", async () => {
+    test("paged, in German: the scope badge, and the footer's loading line in the table's words and the locale's numbers (#1398)", async () => {
         const { q } = mount(PAGED(), "sheet-861-paged", (sheet) => <I18nProvider locale="de-DE">{marked(sheet)}</I18nProvider>);
-        await waitFor(() => expect(q('[data-slot="footerTransport"]')!.textContent).toMatch(/^⟦[\d.]+ loaded of 1\.000$/), { timeout: 15_000 });
+        await waitFor(() => expect(q('[data-row-id="J10000"]')).not.toBeNull(), { timeout: 15_000 });
         expect(q('[data-slot="toolbarBadge"]')!.textContent).toBe("⟦loaded rows only");
+        // A read that failed shows at once: its words, its short form and its Retry, each the table's.
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <I18nProvider locale="de-DE">
+                    <SheetMessagesProvider messages={MARKED}>
+                        <SheetFooter styles={{}} items={[]} hint="" message="" noun="rows" onRetry={() => {}}
+                            loading={{ kind: "failed", from: 8_300, to: 8_499, reason: "fetch failed: 503" }} />
+                    </SheetMessagesProvider>
+                </I18nProvider>
+            </ChakraProvider>,
+        );
+        const line = container.querySelector("[data-footer-line]")!;
+        expect(line.querySelector("[data-line-text]")!.textContent).toBe("⟦Couldn't read rows 8.301–8.500");
+        expect(line.querySelector("[data-line-short]")!.textContent).toBe("⟦Couldn't read");
+        expect(line.querySelector("[data-line-retry]")!.textContent).toBe("⟦Retry");
     });
 });
 

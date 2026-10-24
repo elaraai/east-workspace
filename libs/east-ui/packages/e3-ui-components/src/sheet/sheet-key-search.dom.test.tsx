@@ -9,7 +9,8 @@
  * its row, and next steps to the following match — the value built by
  * `<Sheet>`'s factory and COMPILED, and the Sheet rendered in its frame
  * (#1216). (The lens and the view tabs over a local Slice that this suite held
- * went with the local Slice, #1345; #1349 restores the lens over records.)
+ * went with the local Slice, #1345; the lens over records, #1349, and its key
+ * search are `sheet-lens.dom.test.tsx`'s.)
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -125,7 +126,7 @@ describe("the paged arm's key search (§3.13)", () => {
         // The frame shows what it can of the rows that land, and scrolls to the ring (#856).
         restoreScroll = frameScrolls();
         const { container } = mount(buildKeyed());
-        await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
+        await waitFor(() => expect(cellOf(container, "J10000", "activity")).toBeTruthy(), { timeout: 15_000 });
         const search = container.querySelector('[data-part="dataset-key-search"]')!;
         expect(search).toBeTruthy();
         const input = search.querySelector("input") as HTMLInputElement;

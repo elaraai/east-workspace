@@ -31,7 +31,11 @@
  * a switch's options — takes `{ axis: "block" }`: only its height grows, so
  * its halo never takes a tap meant for the segment beside it (#1221). An
  * ancestor that clips its overflow clips the halo too: a strip that rounds
- * its corners rounds its end segments rather than clipping them.
+ * its corners rounds its end segments rather than clipping them, and a
+ * control near the foot of a box that clips — a footer's Retry, at its
+ * frame's foot (#1398) — takes `{ foot }`, the distance from its bottom edge
+ * down to that foot, and its halo rises from there rather than standing
+ * centred on it, so none of it passes the edge.
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
@@ -50,29 +54,39 @@ export interface CoarseHitAreaOptions {
      * sit edge to edge.
      */
     axis?: "both" | "block";
+    /**
+     * For a control near the foot of an ancestor that clips its overflow: how
+     * far, in px, that foot is below the control's bottom edge. The halo rises
+     * from there, centred across the control, rather than standing centred on
+     * it, so none of it passes the edge. Absent, the halo is centred.
+     */
+    foot?: number;
 }
 
 /**
  * Style fragment inflating a transparent tap halo to `size`×`size` px under
- * the `_coarse` condition — or to `size` px tall alone, on the `block` axis.
+ * the `_coarse` condition — or to `size` px tall alone, on the `block` axis —
+ * centred on the control, or rising from a clipping ancestor's `foot`.
  * Layout and paint are unchanged; only hit-testing grows.
  *
- * @param options - pseudo-element, positioning, size and axis overrides
+ * @param options - pseudo-element, positioning, size, axis and foot overrides
  * @returns a recipe-spreadable style fragment
  */
 export function coarseHitArea(options?: CoarseHitAreaOptions): SystemStyleObject {
     const pseudo = options?.pseudo ?? "_before";
     const size = options?.size ?? 44;
     const block = options?.axis === "block";
+    const foot = options?.foot;
+    const place = foot === undefined
+        ? { top: "50%", left: "50%", transform: "translate(-50%, -50%)" }
+        : { bottom: `${-foot}px`, left: "50%", transform: "translateX(-50%)" };
     return {
         ...(options?.position ? { position: "relative" } : {}),
         _coarse: {
             [pseudo]: {
                 content: '""',
                 position: "absolute",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
+                ...place,
                 width: block ? "100%" : `max(100%, ${size}px)`,
                 height: `max(100%, ${size}px)`,
             },

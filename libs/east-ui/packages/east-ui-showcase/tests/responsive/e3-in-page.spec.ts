@@ -6,12 +6,13 @@
 /**
  * The e3 the showcase runs in its page (#849), measured in a real browser.
  * The e3 examples read, write, page and call through e3-web — e3's storage,
- * runner and API on the page's own workers, the showcase's package deployed
- * and its dataflow run once — and nothing stands in for it:
+ * runner and API on the page's own workers, each area's package deployed in a
+ * workspace of its own and its dataflow run once, as the area's first example
+ * shows (#1397) — and nothing stands in for it:
  *
  * - a bound paged Plan lands its first units in key order, stands the units
- *   it has not read in one tail band, and lands the next windows where the
- *   band began, nothing on screen moving;
+ *   it has not read in one tail run, and lands the next windows where the
+ *   run began, nothing on screen moving;
  * - an input written through one binding re-renders every reader of it;
  * - a function's result comes back from a unit worker;
  * - a record mutation commits, and every reader of the record follows;
@@ -19,8 +20,10 @@
  * - a doc row the list mounts again shows its example at once, on every e3
  *   category's page;
  * - the isolated-file route starts the same e3;
- * - the page fetches its package at the URL the bundle carries, named by its
- *   content;
+ * - the page fetches an area's package at the URL the bundle carries, named by
+ *   its content, as the area's first example shows, and another area's only
+ *   once one of its examples shows; an area shown again runs against the
+ *   workspace it kept;
  * - an e3 that cannot start says why in the e3 examples' place, and the rest
  *   of the showcase is untouched; a Retry starts it again.
  *
@@ -77,9 +80,10 @@ function rowsOf(entry: Locator): Promise<{ id: string; top: number }[]> {
     });
 }
 
-/** Every mounted unloaded band of a Plan entry: which end of its block, the
+/** Every mounted unloaded run of a Plan entry: which end of its block, the
  *  units it stands for, its height as the ledger gives it and as it renders,
- *  where it starts in the extent, and what it says. */
+ *  where it starts in the extent, and what it says — nothing: no caption sits
+ *  in a gap (#1398, CL3). */
 function bandsOf(entry: Locator): Promise<{ at: string; elements: number; px: number; height: number; top: number; caption: string }[]> {
     return entry.evaluate((root) => {
         const origin = root.querySelector("[data-virtual-extent]")!.getBoundingClientRect().top;
@@ -100,7 +104,7 @@ function bandsOf(entry: Locator): Promise<{ at: string; elements: number; px: nu
 test.describe("the showcase's e3, in the page (#849)", () => {
     test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "measured once, at the desktop width");
 
-    test("a bound paged Plan lands its first units in key order, stands the rest in one tail band, and lands the next windows where the band began", async ({ page }) => {
+    test("a bound paged Plan lands its first units in key order, stands the rest in one tail run, and lands the next windows where the run began", async ({ page }) => {
         // `dataBindPagedBlocks`: the 3,000 units an e3 task generates, two
         // series over them — two blocks of 3,000 32px rows, read 200 units a
         // window.
@@ -108,41 +112,43 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         const BLOCK = 3_000 * ROW;
         const entry = await openExample(page, "dataBindPagedBlocks", "e3/bind/data/data");
         const frame = entry.locator('[data-virtual-rows="bounded"]');
-        const transport = entry.locator('[data-slot="footerTransport"]');
+        const footer = entry.locator('[data-frame-slot="footer"]');
         const scrollTo = async (top: number) => {
             await frame.evaluate((el, at) => { el.scrollTop = at; }, top);
             await settled(page);
         };
 
         // The first landing: three windows, the units in key order from the
-        // top of the canvas, a row each.
-        await expect(transport).toHaveText("600 loaded of 3,000");
+        // top of the canvas, a row each — nothing in flight once they have
+        // landed, so the footer's loading line says nothing, and the footer
+        // counts nothing of what has (#1398, CL3).
+        await expect(entry.locator('[data-frame-slot="main"]')).toHaveAttribute("aria-busy", "false");
+        await expect(footer.locator("[data-footer-line]")).toHaveAttribute("data-idle", "");
+        await expect(footer).not.toContainText("loaded");
         await expect(entry.locator("[data-virtual-extent]")).toHaveAttribute("data-virtual-extent", String(2 * BLOCK));
         const first = Array.from({ length: 10 }, (_, i) => ({ id: rowId("jobs", `U${10_000 + i}`), top: i * ROW }));
         await expect.poll(async () => (await rowsOf(entry)).slice(0, 10)).toEqual(first);
 
         // The loads block's first row at the top of the frame: the jobs block's
-        // tail band sits just above it — the 2,400 units it has not read, a
+        // tail run sits just above it — the 2,400 units it has not read, a
         // row's height each, from where its landed rows end to where the next
         // block begins.
         await scrollTo(BLOCK);
         await expect.poll(() => bandsOf(entry)).toEqual([{
-            at: "tail", elements: 2_400, px: 2_400 * ROW, height: 2_400 * ROW, top: 600 * ROW,
-            caption: "2,400 more elements — scroll to load",
+            at: "tail", elements: 2_400, px: 2_400 * ROW, height: 2_400 * ROW, top: 600 * ROW, caption: "",
         }]);
 
-        // Up to where the band begins: the next windows land there, unit 600's
-        // row exactly where the band's top was, and the frame does not move.
+        // Up to where the run begins: the next windows land there, unit 600's
+        // row exactly where the run's top was, and the frame does not move.
         await scrollTo(600 * ROW);
-        await expect(transport).toHaveText("1,200 loaded of 3,000");
         await expect.poll(async () => (await rowsOf(entry)).find((r) => r.id === rowId("jobs", "U10600"))?.top).toBe(600 * ROW);
+        await expect(footer.locator("[data-footer-line]")).toHaveAttribute("data-idle", "");
         expect(await frame.evaluate((el) => el.scrollTop)).toBe(600 * ROW);
 
-        // The band gave up exactly the units that landed.
+        // The run gave up exactly the units that landed.
         await scrollTo(BLOCK);
         await expect.poll(() => bandsOf(entry)).toEqual([{
-            at: "tail", elements: 1_800, px: 1_800 * ROW, height: 1_800 * ROW, top: 1_200 * ROW,
-            caption: "1,800 more elements — scroll to load",
+            at: "tail", elements: 1_800, px: 1_800 * ROW, height: 1_800 * ROW, top: 1_200 * ROW, caption: "",
         }]);
     });
 
@@ -294,17 +300,37 @@ test.describe("the showcase's e3, in the page (#849)", () => {
         });
     }
 
-    test("the page fetches its package at the URL the bundle carries — the zip named by its content", async ({ page }) => {
+    test("the page fetches an area's package as its first example shows — the zip named by its content — another area's only as one of its examples shows, and an area shown again runs against the workspace it kept", async ({ page }) => {
         const fetched: { path: string; status: number }[] = [];
         page.on("response", (response) => {
             const url = new URL(response.url());
             if (url.pathname.includes("e3-showcase")) fetched.push({ path: url.pathname, status: response.status() });
         });
-        const status = await openEntry(page, "e3/bind/func/func", "funcBindStatus");
+        const file = "e3/bind/func/func";
+        const status = await openEntry(page, file, "funcBindStatus");
         await expect(status.getByText("IDLE", { exact: true })).toBeVisible();
-        expect(fetched).toHaveLength(1);
-        expect(fetched[0]!.path).toMatch(/^\/assets\/e3-showcase-[\w-]{8,}\.zip$/);
-        expect(fetched[0]!.status).toBe(200);
+        expect(fetched).toEqual([{ path: expect.stringMatching(/^\/assets\/e3-showcase-bind-[\w-]{8,}\.zip$/), status: 200 }]);
+
+        // Another area's example: its own package, deployed as it shows, and its example runs.
+        const ontology = "e3/ontology/ontology";
+        await page.evaluate(hash => { location.hash = hash; }, `#${ontology}/supplyChainOntology`);
+        const supply = entryOf(page, ontology, "supplyChainOntology");
+        await supply.scrollIntoViewIfNeeded();
+        await settled(page);
+        await expect(supply.locator("[data-e3-start]")).toHaveCount(0);
+        expect(fetched).toEqual([
+            { path: expect.stringMatching(/^\/assets\/e3-showcase-bind-[\w-]{8,}\.zip$/), status: 200 },
+            { path: expect.stringMatching(/^\/assets\/e3-showcase-ontology-[\w-]{8,}\.zip$/), status: 200 },
+        ]);
+
+        // The first area again: nothing fetched, and its function runs against the workspace it kept.
+        await page.evaluate(hash => { location.hash = hash; }, `#${file}/funcBindStatus`);
+        const again = entryOf(page, file, "funcBindStatus");
+        await again.scrollIntoViewIfNeeded();
+        await settled(page);
+        await again.getByRole("button", { name: "Run forecast" }).click();
+        await expect(again.getByText(".some 1.05", { exact: true })).toBeVisible();
+        expect(fetched).toHaveLength(2);
     });
 
     test("an e3 that cannot start says why in the e3 examples' place, and the rest of the showcase is untouched", async ({ page }) => {

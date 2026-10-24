@@ -314,9 +314,34 @@ export interface RecordIndexDef<
    *  `from`; the generated key inserts an internal interval node before it.
    *  Authoring metadata only: ordinary maintained index programs store it. */
   readonly interval?: { readonly from: string; readonly to: string } | undefined;
-  /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi}. Kept as the
-   *  expression so export can compose it into the generated programs, which
-   *  reach it through its IR alone — so no call signature is claimed here. */
+  /** The box an area index files rows by: its fields, whether `x`, `y` is its
+   *  centre or its minimum corner, and the finest cell's side, a power of two.
+   *  Its final logical field is `__area`, the generated key. Authoring metadata
+   *  only: ordinary maintained index programs store it. */
+  readonly area?: {
+    readonly x: string;
+    readonly y: string;
+    readonly width?: string;
+    readonly height?: string;
+    readonly at: 'corner' | 'centre';
+    readonly cell: number;
+  } | undefined;
+  /** What a series index files a record's events by (#1039): the field naming
+   *  the key an event is on, its start and end fields, and the time tile. Its
+   *  key is `{ …on, __tile, <key> }`, an entry per tile an event touches,
+   *  carrying the row. Authoring metadata only: ordinary maintained index
+   *  programs store it. */
+  readonly series?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
+  /** What a summary index totals a record's events by (#1039): the same
+   *  fields and tile as a series index's. It holds, under each key, how many
+   *  rows touch its tile and the milliseconds of it they cover; its
+   *  {@link keyFn} is a row's contributions, `(K, V) -> Dict<IK, Totals>`, and
+   *  its value type `Totals`. */
+  readonly summary?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
+  /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
+   *  summary, `(K, V) -> Dict<IK, Totals>`. Kept as the expression so export
+   *  can compose it into the generated programs, which reach it through its IR
+   *  alone — so no call signature is claimed here. */
   readonly keyFn: { toIR(): unknown };
   /** `(K, V) -> P`, the covering projection; absent when the index carries no
    *  value. */

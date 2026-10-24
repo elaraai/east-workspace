@@ -869,6 +869,7 @@ describe('gc', () => {
     const KEY_IR = '1'.repeat(64);
     const VALUE_IR = '2'.repeat(64);
     const BUILD_IR = '3'.repeat(64);
+    const MERGE_IR = '4'.repeat(64);
     const index = {
       keyIr: KEY_IR,
       multi: false,
@@ -877,6 +878,7 @@ describe('gc', () => {
       valueType: toEastTypeValue(StringType),
       buildIr: BUILD_IR,
       runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
+      form: variant('entries', null),
     };
 
     it('keeps every IR bundle an index object names reachable', async () => {
@@ -886,6 +888,22 @@ describe('gc', () => {
       const reachable = await markReachable(trace(objects), new Set([root]));
       for (const [label, hash] of [
         ['the key function', KEY_IR], ['the covering projection', VALUE_IR], ['the build program', BUILD_IR],
+      ] as const) {
+        assert.ok(reachable.has(hash), `${label} must survive`);
+      }
+    });
+
+    it('keeps the merge a summary\'s build sums its pieces by reachable (#1039)', async () => {
+      // Swept, a reindex at any commit the state is read at could not sum the
+      // summary's pieces.
+      const root = 'a-summary'.padEnd(64, '0');
+      const objects = new Map([[root, encodeBeast2For(RecordIndexObjectType)({
+        ...index, valueIr: none, form: variant('summary', { mergeIr: MERGE_IR }),
+      })]]);
+
+      const reachable = await markReachable(trace(objects), new Set([root]));
+      for (const [label, hash] of [
+        ['the contributions', KEY_IR], ['the build program', BUILD_IR], ['the merge', MERGE_IR],
       ] as const) {
         assert.ok(reachable.has(hash), `${label} must survive`);
       }
@@ -1102,6 +1120,7 @@ describe('gc', () => {
           valueType: toEastTypeValue(StringType),
           buildIr: '5'.repeat(64),
           runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
+          form: variant('entries', null),
         })],
       ]);
 

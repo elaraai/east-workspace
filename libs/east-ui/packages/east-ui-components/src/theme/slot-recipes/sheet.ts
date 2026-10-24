@@ -48,23 +48,35 @@
  *     brandTint + inset ring); the chips page rather than
  *     scroll or clip: `‹ 1/3 ›` ghost chevrons at the row's end, the count
  *     mono 10.5 tabular; meta mono 11 (ellipsis past a third of the band).
- *   - Footer: 8/20; counts mono 11; key hint mono 10; message mono 10.5
- *     right-aligned; transport mono 10.
- *   - Tabs: 30 px mono 10.5/600/.12em uppercase; active `inset 0 -2px 0`
- *     ink; counts `fg.subtle`; dirty dot 5 px brand; × 14 px → neg;
- *     `+ TAB` 22 px r-sm 1 px `border.strong` mono 9.5/600. A tab, `+n` and
- *     `+ TAB` reached by the keyboard take a 2 px brand ring inside
- *     themselves — the strip clips its overflow sideways (#860). Folded into
- *     one chip (#1221), the strip is the open view's tab with a caret.
- *   - Context switch: r-md, options mono 10, active brandTint; a focused
- *     option a 2 px brand ring (#860).
- *   - Bands: 22 px; 1 px dashed `border.strong` at 50 %; pill mono 9
- *     `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; the lens band's
- *     pill opens on hover with brand controls (no shadow). A failed
- *     window's band (#853) is the same band with its reason in `fg.danger`
- *     and a brand Retry, the pill kept in view while the band scrolls past;
- *     a row that could not be drawn is one row of `fg.danger` mono on the
- *     invalid row's wash.
+ *   - Footer: the shared rail's 28 px, 12 px side padding, as every builder's
+ *     (ruled 23 Oct 2026, #1398), so the loading line, coming and going, never
+ *     moves it; counts mono 11; key hint mono 10, each of its hints whole — a
+ *     rail too narrow ends them at a whole hint, then "…"; message mono 10.5
+ *     right-aligned, the shared loading line after it.
+ *   - Tabs: 28 px — as tall as every control in the toolbar's row
+ *     (`toolbar-row.ts`, ruled 23 Oct 2026) — mono 10.5/600/.12em uppercase;
+ *     active `inset 0 -2px 0` ink; counts `fg.subtle`; dirty dot 5 px brand;
+ *     × 14 px → neg; `+ TAB` 28 px r-sm 1 px `border.strong` mono 9.5/600. A
+ *     tab, `+n` and `+ TAB` reached by the keyboard take a 2 px brand ring
+ *     inside themselves — the strip clips its overflow sideways (#860).
+ *     Folded into one chip (#1221), the strip is the open view's tab with a
+ *     caret.
+ *   - Context switch: 28 px, r-md, options mono 10 filling it, active
+ *     brandTint; a focused option a 2 px brand ring (#860).
+ *   - Bands: the lens's gap, 22 px; 1 px dashed `border.strong` at 50 %;
+ *     pill mono 9 `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; it
+ *     opens on hover with brand controls (no shadow). A row that could not be
+ *     drawn is one row of `fg.danger` mono on the invalid row's wash.
+ *   - Runs (#1398, CL2): rows not drawn yet — a paged source's unloaded run,
+ *     a stretch the lens is reading, a window whose read failed — are the
+ *     shared `UnloadedRun` on the rows' own geometry: rows at the density's
+ *     pitch on the surface, each with its 1 px rule (`runRow`); the gutter
+ *     as a row's — rail · number · actions, sticky, the gutter edge
+ *     `border.strong`, the real row number in the number column
+ *     (`runGutter`); each column's cell with its right rule and the cells'
+ *     padding (`runCell`); a grouped run's band on the band's panel, past the
+ *     gutter as a group band's chevron is (`runBand`). A failed run's line
+ *     stays beside the gutter as the columns scroll sideways.
  *   - A group's band (#740, G1): 40 px `bg.panel`, no extra top rule,
  *     `border.subtle` below (`border.strong` when folded); Font Awesome's
  *     chevron-right in a 10 px square (#1263), ink-3; count mono 10; title
@@ -91,7 +103,7 @@
  *     ink-2); and the ID pinned right, mono 11 ink-4. Every line box in the
  *     well is whole pixels (a chip 19, a line of text 18), so a sub row, one
  *     line or wrapped, is whole pixels tall and the rows under it stay on the
- *     pixel grid. A search hit lights the index and the name in brand. While
+ *     pixel grid. While
  *     an open line's sub rows scroll under the group's band, a copy of the line
  *     sticks under the band, `border.strong` below like the band's own copy,
  *     and its last sub row pushes it up as it leaves.
@@ -144,6 +156,8 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fieldInRingedControl } from "../field-chrome.js";
+import { TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
+import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
 export const sheetSlotRecipe = defineSlotRecipe({
@@ -165,11 +179,12 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "editorTime",
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
         "band", "bandRule", "bandPill", "bandControl", "bandCount", "retry", "rowError",
+        "run", "runRow", "runGutter", "runCell", "runBand",
         "gutterAction", "groupSummary",
         "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
         "strip", "stripLabel", "stripChips", "stripChip", "stripChipOn", "stripChipFlat", "stripMeta", "stripKeys",
         "stripPager", "stripPage", "stripPageCount", "stripMeasure",
-        "footer", "footerCounts", "footerHint", "footerMessage", "footerTransport",
+        "footer", "footerCounts", "footerHint", "footerHintSep", "footerMessage",
         "diagnostic",
         "subRow", "subRowGutter", "subRowIndex", "subRowStem", "subRowWell", "subRowContent", "subRowLead", "subRowCode", "subRowName",
         "subRowDetail", "subRowChip", "subRowFacet", "subRowFacetLabel", "subRowFacetValue", "subRowId", "subRowChevron",
@@ -319,7 +334,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             lineHeight: "1",
             gap: "7px",
-            height: "30px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             flex: "none",
@@ -383,7 +398,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             lineHeight: "1",
             gap: "4px",
             alignSelf: "center",
-            height: "22px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             paddingX: "7px",
             paddingY: "0",
             borderWidth: "1px",
@@ -411,7 +426,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             lineHeight: "1",
             gap: "5px",
-            height: "30px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             paddingY: "0",
@@ -438,7 +453,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             lineHeight: "1",
             gap: "6px",
-            height: "30px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             paddingY: "0",
@@ -492,15 +507,17 @@ export const sheetSlotRecipe = defineSlotRecipe({
             gap: "1",
         },
         // the switch is the `+ TAB` button's size and idiom
-        // (22 px, r-sm, `border.strong`, mono 9.5/600 uppercase), not a taller
-        // box of its own — on a coarse pointer too, where its options take
-        // their touch target from their halos (#1221).
+        // (28 px, as tall as every control in the row; r-sm, `border.strong`,
+        // mono 9.5/600 uppercase), not a taller box of its own — on a coarse
+        // pointer too, where its options take their touch target from their
+        // halos (#1221). Its options fill it, 2 px inside its border.
         contextSwitch: {
             display: "flex",
             alignItems: "center",
             gap: "2px",
-            height: "22px",
+            height: TOOLBAR_CONTROL_HEIGHT,
             paddingX: "3px",
+            paddingY: "2px",
             flex: "none",
             borderWidth: "1px",
             borderColor: "border.strong",
@@ -508,9 +525,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
         },
         // the label and the options share ONE line box (the
-        // same font size, a 20 px line, no vertical padding) so their
+        // same font size, a 16 px line, no vertical padding) so their
         // baselines coincide and every box lands on a whole pixel inside the
-        // 30 px switch; before, a 9 px label in a 13.5 px line sat beside
+        // 28 px switch; before, a 9 px label in a 13.5 px line sat beside
         // 10 px options in 19 px boxes, and the half-pixel offsets showed.
         contextLabel: {
             display: "inline-flex",
@@ -525,11 +542,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             textTransform: "uppercase",
         },
-        // An option sits two pixels from the next: its halo grows its height alone.
+        // An option sits two pixels from the next, and fills the switch's height inside its padding: its halo grows its height alone.
         contextOption: {
             display: "inline-flex",
             alignItems: "center",
-            height: "16px",
+            height: "100%",
             lineHeight: "16px",
             paddingX: "6px",
             paddingY: "0",
@@ -1365,10 +1382,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // Where nothing can hover they stay open.
             _hoverNone: { "&[data-lens] [data-slot=bandControl]": { display: "inline-flex" } },
             _coarse: { paddingY: "4px", gap: "10px" },
-            // A failed window's pill (#853): the reason in the danger ink, kept in view while its band scrolls past, the Retry beside it.
-            "&[data-failed]": { position: "sticky", top: "60px", alignSelf: "flex-start", color: "fg.danger", cursor: "default" },
         },
-        // The one Retry (#853) — a failed window's band, the transport line, the whole-sheet message: the band controls' brand, a button.
+        // The whole-sheet message's Retry (#853): the band controls' brand, a button.
         retry: {
             display: "inline-flex",
             alignItems: "center",
@@ -1399,6 +1414,52 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "color-mix(in oklch, var(--chakra-colors-status-neg) 8%, var(--chakra-colors-bg-surface))",
             borderBottomWidth: "1px",
             borderBottomColor: "border.subtle",
+        },
+        // ── A run of rows not drawn yet (#1398, CL2): the shared `UnloadedRun`, its rows the sheet's own ──
+        // The run's box, the virtual row it is.
+        run: {
+            position: "relative",
+        },
+        // A run's row: a row's surface and its 1 px rule — the pitch includes it, as a row's does — and a grouped run's
+        // band on the band's panel.
+        runRow: {
+            background: "bg.surface",
+            borderBottomWidth: "1px",
+            borderBottomStyle: "solid",
+            borderBottomColor: "border.subtle",
+            "&[data-run-band]": { background: "bg.panel" },
+        },
+        // Its gutter, as a row's: rail · number · actions, sticky while the columns scroll sideways, the gutter edge;
+        // the number in the number column, right-aligned.
+        runGutter: {
+            display: "grid",
+            gridTemplateColumns: "28px var(--sheet-number, 36px) 1fr",
+            alignItems: "center",
+            gap: "0",
+            position: "sticky",
+            left: "0",
+            zIndex: "5",
+            background: "bg.surface",
+            borderRightWidth: "1px",
+            borderRightStyle: "solid",
+            borderRightColor: "border.strong",
+            "& > [data-shape]": { gridColumn: "2", justifySelf: "end", marginRight: "10px" },
+            // A row number set as the gutter sets it.
+            "& > [data-shape=rowNumber]": { fontSize: "11px" },
+        },
+        // A column's cell: the cells' padding and their right rule. A failed run's line stays beside the gutter as the
+        // columns scroll sideways: its cell lets it out, and it sticks there.
+        runCell: {
+            paddingX: "10px",
+            borderRightWidth: "1px",
+            borderRightStyle: "solid",
+            borderRightColor: "border.subtle",
+            "&[data-run-failed]": { overflow: "visible", borderRightWidth: "0" },
+            "&[data-run-failed] > [data-loading-failed]": { position: "sticky", left: "calc(var(--sheet-gutter, 128px) + 10px)" },
+        },
+        // A grouped run's band: its chevron past the gutter, where a group band's sits.
+        runBand: {
+            paddingLeft: "calc(var(--sheet-gutter, 128px) + 12px)",
         },
         bandControl: {
             display: "inline-flex",
@@ -1663,16 +1724,22 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             width: "max-content",
         },
+        // The footer fits its hints and the shared loading line on one line, cutting a hint whole (#1398, CL3); the
+        // line follows the message, which takes the rail's slack. It is the shared rail's 28 px, 12 px side padding
+        // (ruled 23 Oct 2026): taller than anything it holds, the line among them, so nothing it shows moves it.
         footer: {
+            ...FOOTER_FIT,
             display: "flex",
             alignItems: "center",
             gap: "18px",
-            paddingX: "20px",
-            paddingY: "8px",
+            minHeight: "28px",
+            paddingX: "12px",
+            paddingY: "0",
             background: "bg.surface",
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",
             minWidth: "0",
+            "& > [data-footer-line]": { marginInlineStart: "0" },
         },
         footerCounts: {
             fontFamily: "mono",
@@ -1686,14 +1753,18 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "& [data-tone=warning]": { color: "status.warn" },
             "& [data-tone=info]": { color: "status.info" },
         },
+        // The key hint: its hints run on, each whole — the fit ends them at a whole hint rather than cut a word.
         footerHint: {
+            flex: "none",
             fontFamily: "mono",
             fontSize: "10px",
             color: "fg.subtle",
             letterSpacing: "0.04em",
             whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
+        },
+        // The ` · ` before a hint: its spaces kept wherever the hint is laid out, so a hint measures the same cut or shown.
+        footerHintSep: {
+            whiteSpace: "pre",
         },
         footerMessage: {
             marginLeft: "auto",
@@ -1703,14 +1774,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
-        },
-        footerTransport: {
-            fontFamily: "mono",
-            fontSize: "10px",
-            color: "fg.subtle",
-            whiteSpace: "nowrap",
-            // A source that could not be read (#853): its reason in the danger ink, the Retry beside it.
-            "& [data-slot=transportError]": { color: "fg.danger" },
         },
         diagnostic: {
             padding: "20px",
@@ -1759,7 +1822,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&::before": { content: '""', position: "absolute", left: "8px", top: "0", bottom: "-1px", borderLeftWidth: "1px", borderLeftStyle: "solid", borderLeftColor: "border.strong", pointerEvents: "none" },
             "&::after": { content: '""', position: "absolute", left: "8px", width: "10px", top: "50%", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.strong", pointerEvents: "none" },
             "[data-sub-row][data-last] &": { "&::before": { bottom: "50%" } },
-            "[data-sub-row][data-hit] &": { color: "brand.solid", fontWeight: "600" },
         },
         // The stem's start on an open line: just under its chevron, down to the line's foot.
         subRowStem: {
@@ -1821,7 +1883,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             fontSize: "12.5px",
             lineHeight: "18px",
             color: "fg.strong",
-            "[data-sub-row][data-hit] &": { color: "brand.solid", fontWeight: "600" },
         },
         // The detail: chips, then facets; it wraps and grows the row, never truncated.
         subRowDetail: {
@@ -1906,9 +1967,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
+            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px" }, runCell: { paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
             md: {},
-            lg: { cell: { minHeight: "calc({sizes.density.row.lg} - 1px)", paddingY: "9px", paddingX: "12px" }, headerCell: { paddingY: "9px", paddingX: "12px" }, strip: { minHeight: "{sizes.density.row.lg}" } },
+            lg: { cell: { minHeight: "calc({sizes.density.row.lg} - 1px)", paddingY: "9px", paddingX: "12px" }, runCell: { paddingX: "12px" }, headerCell: { paddingY: "9px", paddingX: "12px" }, strip: { minHeight: "{sizes.density.row.lg}" } },
         },
     },
     defaultVariants: { size: "md" },

@@ -16,6 +16,9 @@
  *  - `spec-pulse-live`     — pattern_spec `.dot.live` (2.4 s ring pulse).
  *  - `spec-pulse-run`      — pattern_spec `.dot.run`  (1.6 s pulse).
  *  - `spec-blink`          — pattern_spec blink (cursor / pending marker).
+ *  - `elara-live-pulse`    — the design system's live dot (`.dot.live::after`,
+ *    `east-pulse`): a ring that grows from the dot and fades, the footer's
+ *    loading line's one motion (#1398).
  *
  * @packageDocumentation
  */
@@ -74,6 +77,12 @@ export const keyframes = defineKeyframes({
     },
     "spec-blink": {
         "50%": { opacity: 0 },
+    },
+    // The design system's live dot (`slice-parts.css` `east-pulse`): the dot's
+    // copy grows to 2.5× and fades in its first quarter, then rests.
+    "elara-live-pulse": {
+        "0%":        { transform: "scale(1)",   opacity: 0.6 },
+        "25%, 100%": { transform: "scale(2.5)", opacity: 0 },
     },
     // Map area pulses — drive a choropleth area's stroke / fill between a rest
     // state and a peak; the recipe delays the success pulse so two clusters

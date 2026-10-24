@@ -461,10 +461,12 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property instant - Whether each of its events is one instant (`at`), its start and its end the same
  * @property overlaps - Whether two of its events on one resource at once are a conflict
  * @property roles - The fields its roles read
- * @property planItems - Its events overlapping `[from, to)` as Plan draws them, the drafts in place; `none` while a read is in flight
- * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place, over the window `[from, to)` the canvas reads, as `unscheduled` takes it
- * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row; `none` when there is no such event. A kind read a window at a time (#1199) looks for it first among the rows its windows hold over `[from, to)` — the range the canvas reads, where a gesture's event is drawn — and its backlog's, then reads it by its key, `none` while that read is in flight; a kind read whole takes no notice of the range
+ * @property planItems - Its events overlapping `[from, to)` as Plan draws them, the drafts in place; `none` while a read is in flight. Given the entries a reader read by the kind's series index's cells (#1039) — beast2 of `cellsType`, a key given twice held once — it draws those and never reads the window: every draft given in place, one of an entry not given drawn as drafted, for the reader gives a draft of an entry it did not read only where its narrowing holds the entry, or the record does not
+ * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place, over the window `[from, to)` the canvas reads, as `unscheduled` takes it. Given the entries a reader read by its cells (#1039), it reads its backlog alone, never the window, those entries held beside it: a draft moves an event between them by its times alone, and every draft given shows, as `planItems`' do
+ * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row; `none` when there is no such event. A kind read a window at a time (#1199) looks for it first among the rows its windows hold over `[from, to)` — the range the canvas reads, where a gesture's event is drawn — and its backlog's, then reads it by its key, `none` while that read is in flight; a kind read whole takes no notice of the range. A kind a reader reads by its cells (#1039) is given the event's row as the reader holds it, or `some(none)` for one it does not hold: it looks there, then in its backlog, then reads it by its key, and never reads the window
  * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
+ * @property seriesKey - The `.east` text of the value its resource field holds for a resource, or for no resource (#1039): what a series or a summary index of its record files that resource's events under, the key a reader's cells search for; `none` where the field cannot hold it — a resource of a kind it does not take, or no resource for a field that must name one
+ * @property cellsType - What a reader encodes the entries it read by cells in for `planItems` and `planUnscheduled` (#1039): an Array of `{ key, row }`, at the record's key and row types
  */
 export const PlanEventKindType = StructType({
     ...ScheduleKindType.fields,
@@ -472,10 +474,12 @@ export const PlanEventKindType = StructType({
     instant: BooleanType,
     overlaps: ScheduleOverlapsType,
     roles: PlanEventRolesType,
-    planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
-    planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType))),
-    planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(PlanEventReadType)),
+    planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
+    planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
+    planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(PlanEventReadType)),
     inspector: OptionType(RowInspectorType),
+    seriesKey: FunctionType([OptionType(ScheduleResourceRefType)], OptionType(StringType)),
+    cellsType: EastTypeType,
 });
 
 /** Type representing {@link PlanEventKindType}. */

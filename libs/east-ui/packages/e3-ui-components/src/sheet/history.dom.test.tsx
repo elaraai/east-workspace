@@ -5,7 +5,7 @@
  */
 
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, IntegerType, StringType, StructType, decodeBeast2For, some, variant } from "@elaraai/east";
 import { Sheet, SheetPayloadType, SheetReadyBatchType } from "@elaraai/e3-ui/internal";
@@ -46,7 +46,9 @@ function mount(sheet = view()) {
             fireEvent.click(button);
         });
     };
-    return { ...utils, cell, input, edit, press, refresh: () => utils.rerender(component(view())) };
+    /** The status the history item shows while a Save's revision loads — the footer's loading line is a status of its own. */
+    const saveStatus = () => within(utils.container.querySelector<HTMLElement>('[data-slot="history"]')!).queryByRole("status");
+    return { ...utils, cell, input, edit, press, saveStatus, refresh: () => utils.rerender(component(view())) };
 }
 
 let restoreFrame: () => void = () => {};
@@ -62,7 +64,7 @@ test("Save commits the open editor before writing the checked batch; a saved Und
     expect(quantity()).toBe(9n);
     ui.refresh();
     expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(ui.queryByRole("status")).toBeNull();
+    expect(ui.saveStatus()).toBeNull();
     await ui.press("Undo");
     expect(ui.cell().textContent).toBe("1");
     expect(quantity()).toBe(9n);
@@ -70,7 +72,7 @@ test("Save commits the open editor before writing the checked batch; a saved Und
     expect(quantity()).toBe(1n);
     ui.refresh();
     expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(ui.queryByRole("status")).toBeNull();
+    expect(ui.saveStatus()).toBeNull();
 });
 
 test("Undo first commits an open editor, then undoes that gesture; Redo restores it without writing", async () => {
@@ -119,7 +121,7 @@ test("an acknowledgement lost after persistence freezes mutations and retries th
     expect(requests[1]).toEqual(requests[0]);
     ui.refresh();
     expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(ui.queryByRole("status")).toBeNull();
+    expect(ui.saveStatus()).toBeNull();
 });
 
 test("a missing required field blocks Save and the issue button focuses its cell", async () => {

@@ -10,17 +10,21 @@
  * day the board's own navigation, never a chip of the rail (#1372) — the
  * issues chip, the shared history and Publish — each folding by its rank,
  * history last, and in the narrowest frame the date, the layout, Save and
- * Publish reachable through the combined View fold.
+ * Publish reachable through the combined View fold. The status, the issues and
+ * Publish keep their slots from cold load, whatever the day's read (#1398,
+ * CL1): unread, the status and the issues are placeholders, the issues slot
+ * empty at none, and Publish in its slot, off, wherever it cannot publish.
  *
  * @packageDocumentation
  */
 
+import { useState } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarDay, faChartGantt, faLink, faTable, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap } from "@elaraai/east";
 import { ChipMenu, historyToolbarItem, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
-import { HOST_RANK, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { AllocationCommands } from "./actions.js";
@@ -80,6 +84,12 @@ interface ToolbarArgs extends AllocationWindow {
     words: EditingWords;
     /** The day's status chip's words (A3): Not started, Draft, Published, or the app's own case; `undefined` without periods. */
     status: string | undefined;
+    /**
+     * Whether the day is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
+     * placeholder — never "Not started" before its row is read — and the issues one too, each unseen at its footprint
+     * until the frame's reveal says so.
+     */
+    unread: boolean;
     /** Whether Publish is under way. */
     publishing: boolean;
     /** The open picker's days' statuses, by day: their marks. */
@@ -114,11 +124,17 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     const chip = useRecipe({ key: "chip" });
     const summary = issueSummary(issues);
     const status = args.publishing ? "Publishing" : args.status;
-    // Publish: only over periods, on a day that takes edits.
+    const unread = args.unread;
+    // Publish: only over periods, on a day that takes edits; its slot held wherever the board publishes and edits at all.
     const canPublish = value.periods.type === "some" && commands.canEdit() && !args.publishing;
-    // The history: wherever the day takes edits, and wherever a draft of another day waits to be saved.
+    const heldPublish = value.periods.type === "some" && !value.settings.readOnly;
+    // The history: wherever the day takes edits, and wherever a draft of another day waits to be saved. A day not read yet
+    // keeps it as the last day read had it, so a read landing never shifts the toolbar nor folds it again (#1398, CL1).
     const history = editing?.history;
-    const showHistory = history !== undefined && !value.settings.readOnly && (commands.canEdit() || history.pending > 0 || history.status !== "idle");
+    const historyNow = history !== undefined && !value.settings.readOnly && (commands.canEdit() || history.pending > 0 || history.status !== "idle");
+    const [historyHeld, setHistoryHeld] = useState(historyNow);
+    if (!unread && historyHeld !== historyNow) setHistoryHeld(historyNow);
+    const showHistory = history !== undefined && (historyNow || (unread && historyHeld));
     const layout = (key: "table" | "timeline") => setView({ ...view, layout: key });
     const layoutSeg = (name: string) => <Seg label="Layout" scope="allocation" name={name} items={LAYOUTS} active={view.layout} onPick={layout} />;
     const focus = args.focus;
@@ -128,17 +144,17 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         {layoutSeg("compact-layout")}
         {timeline && focus !== undefined && focusChip(false)}
         {value.inspector && summary.count > 0 && <Button size="xs" variant="ghost" onClick={args.onIssues}>{summary.label}</Button>}
-        {canPublish && <Button size="xs" variant="solid" onClick={() => commands.publish()}>Publish</Button>}
+        {heldPublish && <Button size="xs" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>}
     </Box>;
     const menu = <ChipMenu label="View" icon={faCalendarDay} onSelect={key => {
         if (key === "table" || key === "timeline") layout(key);
         else if (key === "previous") args.step(-1); else if (key === "next") args.step(1);
-        else if (key === "issues") args.onIssues(); else if (key === "publish") commands.publish();
+        else if (key === "issues") args.onIssues(); else if (key === "publish" && canPublish) commands.publish();
     }}>
         {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous day</ChakraMenu.Item><ChakraMenu.Item value="next">Next day</ChakraMenu.Item>
         {value.inspector && summary.count > 0 && <ChakraMenu.Item value="issues">{summary.label}</ChakraMenu.Item>}
-        {canPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish">Publish</ChakraMenu.Item></>}
+        {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!canPublish}>Publish</ChakraMenu.Item></>}
     </ChipMenu>;
     // The focus chip (A13, A81): `K-203 · 3 bins · 31 m³`, `· hidden by Filters` when its row is narrowed out; × or Esc clears it.
     function focusChip(compact: boolean) {
@@ -166,15 +182,22 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         // past its end at 294px.
         timeline && focus !== undefined && { key: "allocation.focus", side: "start", rank: [HOST_RANK + 2, HOST_RANK + 6], bundle: [undefined, "allocation.controls"],
             forms: [focusChip(false), focusChip(true), null] },
-        status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [
-            <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
-        summary.count > 0 && value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [
-            <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues}
+        // The status, the issues and Publish keep their slots from cold load, whatever the day's read (#1398, CL1): a read
+        // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
+        status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [unread
+            ? <Box css={[styles.status, styles.heldSlot]} data-allocation-status="" data-pending="" title="Plan status">
+                <PlaceholderShape kind="enum" index={0} /></Box>
+            : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
+        value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
+            ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
+            : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues}
                 aria-label={summary.aria} title={summary.tip} data-allocation-issues="">
                 <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
-            </chakra.button>, null] },
+            </chakra.button>
+                : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />, null] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
-        canPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="xs" variant="solid" onClick={() => commands.publish()}>Publish</Button>, null] },
+        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish.
+        heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];
 }
 

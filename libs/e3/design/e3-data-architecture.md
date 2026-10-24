@@ -66,7 +66,11 @@ e3.mutation.reduce(name, record, fn, config?)
 e3.mutation.edit(name, record, fn, config?)
 e3.mutation.patch(record, name?, config?)
 e3.mutation.editType(recordType)
-e3.recordIndex(name, record, spec, config?)
+e3.recordIndex(name, record, spec, config?)      // spec: { on | key | keys, value? }, an order to page in
+e3.recordIndex.interval(name, record, { on?, from, to }, config?)                      // the events overlapping a time window
+e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell }, config?)  // the rows whose box meets a 2D window, carrying each row
+e3.recordIndex.series(name, record, { on?, key, from, to, tile }, config?)    // the events on a block of keys over a span of time tiles, carrying each row
+e3.recordIndex.summary(name, record, { on?, key, from, to, tile }, config?)   // under each key and tile, how many rows touch it and the time of it they cover
 e3.migration.value(name, record, fn, config?)    // (Old) => New; config: { after?, runner? }
 e3.migration.rows(name, record, fn, config?)     // a Dict's rows (K, V1) => V2, or an Array's elements (T1) => T2
 e3.migration.rekey(name, record, fn, config?)    // a Dict's (K1, V1) => { key, value }, or a Set's elements (T1) => T2
@@ -304,15 +308,16 @@ A driver passes the owner the task's own execution is recorded under. `taskExecu
 
 **Records run on the engine:**
 - **Index builds** are split tasks over the record's primary.
-  - e3-core writes an index's build task from its index object: the build program as the body, on the index's runner, over one input, the primary, partitioned with no `by`, into a `dict` output with no merge.
+  - e3-core writes an index's build task from its index object: the build program as the body, on the index's runner, over one input, the primary, partitioned with no `by`, into a `dict` output.
   - It runs as any task does, so a rebuild over an unchanged primary is served from the execution cache. A larger one runs as pieces and merges with the engine's plan, logs, budget and cancellation.
-  - The build program emits each row's entries as it reads them. An index object carries no merge function: two pieces never emit one entry, since an entry's `k` is in one piece.
+  - The build program emits each row's entries as it reads them. An index whose entries name their row takes no merge: two pieces never emit one entry, since an entry's `k` is in one piece. A summary's entry (#1039) stands for every row of its key, its `k` Null, so every piece holding a row of the key emits it: its index object's `form` names the merge that sums the pieces' totals (`summary { mergeIr }`), and the output takes it. Integer addition is associative, so a summary built in any pieces sums to the totals one unit sums.
 - **Mutations** run as one unit through the same executor as tasks, with its execution records, logs, cancellation and a timeout.
   - e3-core writes a mutation's task from its mutation object: the mutation's program, or an unkeyed record's reducer, as the body; the state and each argument as its inputs; and a `dict` output, the delta, or a `value`, the reducer's new state.
   - The mutation API runs it outside the dataflow graph, and one that ran over the same state and arguments before is served from the execution cache.
   - The state reaches the runner as the primary's manifest, its segments linked, and the program reads it lazily. It emits the delta's entries as it computes them, in any order.
   - A stale write is a `$conflict` entry in the delta, keyed by what went stale, which sorts before every target.
   - The delta is applied over the touched segments inside the compare-and-swap loop, one target segment at a time: the apply holds that segment and its changes, and re-cuts through Recut. The Merger does not apply a delta, since a change can delete a row.
+  - A summary's arm (#1039) carries what to add to each of its totals (`add { count, ms }`). The program reads the record, never the summary, so it sums the change the write's rows make under each key — what each touched row's old version took away and its new one gave — and emits none that is nothing. The apply adds each to the total held: a key the summary lacks is inserted, and one whose count reaches zero deleted. A change that would leave a total no rebuild sums — a count or time below zero, time with no row, or past the largest Integer — fails the write, naming the total and `e3 reindex` (`SummaryIntegrityError`); it is no stale write, so nothing retries it.
   - A mutation's output is stored as segments and never read whole, so it has no result-size cap.
 - **Migrations** run on the engine too (§3.18): a `value` step as one unit, and a `rows` or `rekey` step as a task split over the state.
 
@@ -566,7 +571,7 @@ A lock is shared or exclusive, on a resource. It records what took it and who ho
 
 ### 3.17 The API's data contracts
 
-e3-api-server exposes e3-core over HTTP with BEAST2 bodies, and e3-api-client is its client; the routes are in the server's README. The contracts of it that belong to this layer are how a large value goes up, how a collection comes down, whose budget a run gets, and the seams a host runs a dataflow through.
+e3-api-server exposes e3-core over HTTP with BEAST2 bodies, and e3-api-client is its client; the routes are in the server's README. The contracts of it that belong to this layer are how a large value goes up, how a collection comes down, how a window of one is read, whose budget a run gets, and the seams a host runs a dataflow through.
 
 #### Dataset transfer
 
@@ -656,6 +661,27 @@ The objects route answers an object over 1 MB as the dataset route does, with JS
 
 Pages (`?page=true`) are decoded on the server from the segments they touch, and capped by `pageByteBudget` (default 4 MiB).
 
+#### Reads in batches
+
+A window of a collection is a few requests, never one a search, a run or a row (#1351). Each batch is a `POST` to the dataset's path whose JSON body names what it reads, at one content hash: `hash=` pins it, and a stale pin is refused 409 naming the content the dataset holds now, as a pinned page's is. A batch answers `Cache-Control: no-store`.
+
+| Read | Query | Body | Answer |
+|---|---|---|---|
+| Key searches | `?findKeys=true[&index=]` | `{ queries: [...] }`, each in one of `?find=true`'s forms | JSON `{ results: [{ found, row, count }] }`, in order |
+| Rows by key | `?rows=true` | `{ keys: [<.east>, …] }` of a Dict | BEAST2 of `datasetRowsType(K, V)`: each key, its row or none, and its position in the Dict's order |
+| Rows by runs | `?rows=true` | `{ keysOf: { path: ".<record>", index, hash, runs: [[row, count], …] } }`: runs of another record's index, pinned to that record's content | as rows by key, of the keys the runs' entries name, in the runs' order (#1393) |
+| Runs | `?runs=true&hash=[&index=][&join=true]` | `{ runs: [[row, count], …] }`, ascending and disjoint | one window of the dataset's type, or the index's window type, holding the runs' entries in order |
+| Placement | `?place=true&hash=` | `{ index, runs: [[row, count], …], offset?, limit? }`: a narrowing's runs of one of the record's indexes, and a window of their entries | JSON `{ segments: [{ segment, offset, count, rows }], placed }`: each record segment the window's entries fall in, its first row and row count, and how many of them it holds |
+| Membership | `?within=true&hash=` | `{ index, runs: [[row, count], …], keys: ["(ik=…, k=…)", …] }`: the runs, and index entry keys | JSON `{ within: [boolean, …] }`: whether each key lies in one of the runs, in order |
+
+- **Bounds.** A batch takes at most 10,000 queries, keys or runs. A rows answer holds the first `X-Page-Count` keys the page budget reaches — read by runs, of the runs' `X-Run-Entries`, a page's 10,000 at most — and a runs answer the first `X-Page-Count` of its runs' `X-Run-Entries` entries a page's bounds reach (10,000, and the budget).
+- **Rows by runs** (#1393). A view that holds a window of an index reads another record's rows for it — a drawing's details for the cells of its area index — by the runs it already has: the server reads each run's entries from the index's own segments, each touched once, and looks each entry's key up in the Dict as a key asked would be, so no key travels. The runs are pinned to their record's content (`keysOf.hash`), apart from the Dict's (`hash`): a stale one is refused 409 `runs_hash_mismatch`, naming the record's content now (`X-Content-SHA256`), which e3-api-client raises as `RunsHashMismatchError`, so a client knows which of the two moved. The index's entries must name the record's keys, of the Dict's key type, East deciding (`isTypeValueEqual`): a summary's entries name none, and are refused, as a joined read of one is. A placement places the first `placed` entries of its window a covering index page of them would hold, by the same bounds. The client asks again for the rest, and e3-ui-components' paged runtime does so before it answers.
+- **Where a narrowing's rows sit** (#1349). A placement and a membership read read the index alone, never a record segment, and evaluate nothing over a row: the index holds what its maintained key functions emitted. A placement places each entry's row in the record segment that holds it by the record's fences, which its manifest carries, and a narrowing's runs name each row once, so a segment's counts over every window add up to the narrowing's rows in it. A membership read reads each run's first and last entries — at most two index segments a run — and places each key among them by the index entry key's order. A renderer lays a narrowing out over the record by them (the Sheet's lens), and asks which of the rows it draws a narrowing holds (the Schematic's window).
+- **Reading.** A batch places its bounds, keys or rows by the manifest's fences and counts, which reads nothing, then reads every segment they touch once, eight at a time, and binary-searches its keys. So a window's searches decode the window's few segments, never a segment a search.
+- **Decoded segments are kept.** The API process keeps decoded segments by the backend, the repository and the segment's hash, bounded by their decoded weight (64 MiB, east's `decodedWeightFor`, the measure a runner's pager keeps by), and every page, search and batch reads through them. A pan, or a window read again, decodes nothing a process kept; a host whose processes are short-lived gains on its warm ones. A segment that does not hold what its manifest says of it — another count, a first key that is not its fence, a last key at or past the next fence — refuses the read `dataset_not_canonical`.
+- **Mounting.** The batches are routes of the dataset routes. A host mounts them after the transfer routes, at the same prefix: the transfer routes pass a `POST` that is no upload on to them.
+- **Who reads them.** e3-ui-components' paged runtime asks each batch as one request and one channel, which re-fires its readers once (`seekAll`, `rowsAll`, `joinAll`, `runsAll`, `withinAll`) — a read by runs' channel both records', so a move of either drops it — a placement as its windows, four at a time, its channel re-firing as each lands (`placeAll`), and a record Slice over an indexed binding reads a plan's searches, a window across several runs, its narrowing's placement, which rows it holds and another record's rows for a window's cells through them.
+
 #### What holds a workspace
 
 `GET /api/repos/:repo/workspaces/:ws/lock` answers `Option<LockStatus>`: `none` when nothing holds the workspace exclusively, else the lock's state and what its holder last reported, `{ state: LockState, progress: Option<LockProgress> }` (§3.16). A workspace deployed for the first time answers `workspace_not_deployed` to its status until the deploy ends, so this is where a client reads how far that deploy has got; e3-ui's TUI reads it whenever the status names a lock or nothing is deployed yet.
@@ -711,7 +737,7 @@ const pkg = e3.package('planning', '3.0.0', roster, plans, m1, m2, m3, …);
   - A mint or a reset names its `$init` or `$reset` commit for every step. A migration names each step it runs by its own `$migrate:<name>` commit, and keeps the entries of the steps applied before.
   - A compaction rewrites the slot, keeping each step's time and dropping its commit, which the chain no longer holds. Deploy and compaction are its only writers.
   - A step a record applied before e3 kept the slot has no entry, and no upgrade step fills one in: the slot is a new key of the ref's version vector, whose type is unchanged.
-- **Describe reads them.** A record's describe (`RecordSignatureType`) lists the chain the package declares, each step with its form and types and, once applied, the time and commit `$migrations` names, `none` for what it names none of. It says of each index whether the head's state holds it built under the package's declaration (`built`). It reads the ref and the state object, and nothing of the history.
+- **Describe reads them.** A record's describe (`RecordSignatureType`) lists the chain the package declares, each step with its form and types and, once applied, the time and commit `$migrations` names, `none` for what it names none of. It says of each index whether the head's state holds it built under the package's declaration (`built`), and whether it is a summary (`summary`, #1039), whose window's `key` is Null and which a read never joins. It reads the ref and the state object, and nothing of the history.
 
 **Deploy plans before it writes** (`record-deploy.ts`). For each record, it compares the stored `$schema` and the stored state's type with the package's chain:
 

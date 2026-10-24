@@ -20,17 +20,17 @@
  */
 
 import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { Box, chakra, Menu as ChakraMenu, Portal } from "@chakra-ui/react";
+import { Box, chakra, Menu as ChakraMenu, Portal, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleDown, faAngleUp, faArrowRight, faCheck, faChevronRight, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import {
     getSomeorUndefined, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
 } from "@elaraai/east-ui-components";
-import { EastErrorBoundary } from "@elaraai/east-ui-components/internal";
+import { EastErrorBoundary, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell } from "@elaraai/east-ui-components/internal";
 import {
-    TITLE_KEY, cellIsBlank, cellText, driverKeyOf, isLinePosition, lineNumberOf, resolveMember,
-    type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetRegisterIndex, type SheetWindowFailure,
+    BAND_MIN_PX, TITLE_KEY, cellIsBlank, cellText, driverKeyOf, resolveMember,
+    type LineGroup, type SheetBand, type SheetColumnIndex, type SheetColumnMeta, type SheetGroupIndex, type SheetKind, type SheetRegisterIndex, type SheetWindowFailure,
 } from "./model.js";
 import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
 import { cellDetail } from "./detail.js";
@@ -551,8 +551,6 @@ export interface SheetSubRowProps {
     /** Its index under the line, and how many the line has (the last ends the tree). */
     index: number;
     count: number;
-    /** A lens hit through this row's own text. */
-    hit: boolean;
     /** The gutter's width (px) — the well starts at its edge. */
     gutterPx: number;
     /** The width of the view (px): the well's content stays inside it while the columns scroll sideways. */
@@ -578,7 +576,7 @@ export interface SheetSubRowProps {
  * at the view's left edge as the columns scroll sideways. Read-only, and
  * outside the row space: the ring never lands on it.
  */
-export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow, parent, index, count, hit, gutterPx, viewPx, membership, entering, ariaRowIndex, colCount }: SheetSubRowProps) {
+export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow, parent, index, count, gutterPx, viewPx, membership, entering, ariaRowIndex, colCount }: SheetSubRowProps) {
     const last = index === count - 1;
     const detail = subRow.chips.length > 0 || subRow.facets.length > 0;
     const self = useRef<HTMLDivElement | null>(null);
@@ -592,7 +590,6 @@ export const SheetSubRow = memo(function SheetSubRow({ styles, subRowPx, subRow,
             data-sub-row=""
             data-detail={detail ? "" : undefined}
             data-last={last ? "" : undefined}
-            data-hit={hit ? "" : undefined}
             role="row"
             aria-rowindex={ariaRowIndex}
         >
@@ -760,32 +757,106 @@ export interface SheetBandAria {
     colCount: number;
 }
 
-export interface SheetBandRowProps extends SheetBandAria {
+/** A recipe slot's styles, as the shared run merges them over its own. */
+const slot = (styles: Styles, name: string): SystemStyleObject | undefined => styles[name] as SystemStyleObject | undefined;
+
+/** What a column's cells hold before their rows land (#1398): the issue's shape by the column's kind. */
+const RUN_KINDS: Readonly<Record<SheetKind, PlaceholderKind>> = {
+    text: "text", lookup: "text", reference: "text", custom: "text",
+    date: "date", stamped: "date",
+    quantity: "number", integer: "number",
+    enum: "enum", set: "chip", link: "link",
+};
+
+export interface SheetRunRowProps {
     styles: Styles;
-    band: SheetBand;
+    /** The run's place among the grid's rows, the header first: where its first element would be (#860). */
+    ariaRowIndex?: number | undefined;
+    /** A paged source's unloaded run, or a stretch of the record the lens is still reading (#1349). */
+    band?: SheetBand | undefined;
+    /** A window whose read failed (#853): the run said once, with its Retry (CL11). */
+    failure?: SheetWindowFailure | undefined;
+    /** Whether the run's rows are in flight: it is the region being read (`aria-busy`). */
     loading: boolean;
+    /** The rows' grid tracks: the gutter, then each column's. */
+    gridTemplate: string;
+    /** The columns the grid draws. */
+    columns: SheetColumnIndex;
+    /** A row's height, px: the density's pitch. */
+    rowPx: number;
+    /** A grouped sheet's band height, px: each element a band, then its lines at the row's pitch; absent, a flat sheet. */
+    bandPx?: number | undefined;
+    /** Compact rows. */
+    dense: boolean;
+    /** What the rail counts the rows in — `work orders`: what a failed run's line names them by. */
+    noun: string;
+    /** Ask a failed window again. */
+    onRetry: (w: number) => void;
 }
 
-/** A paged source's unloaded run — one band sized by the ledger. */
-export const SheetBandRow = memo(function SheetBandRow({ styles, band, loading, ariaRowIndex, colCount }: SheetBandRowProps) {
-    const n = Math.max(0, band.to - band.from + 1);
-    // The element count, in the app's locale and the sheet's words (#850, #861).
+/**
+ * A run of the sheet's rows not drawn yet (#1398, CL2) — a paged source's
+ * unloaded run, a stretch of the record the lens is still reading or placing
+ * (#1349), or a window whose read failed (#853) — as the shared
+ * `UnloadedRun`: rows at the density's pitch where the run meets the view,
+ * with the sheet's own gutter, columns and rules, each cell its column kind's
+ * placeholder. A flat sheet's runs keep their real row numbers — a lens
+ * stretch's rows are not known yet, so its numbers are short bars, as a
+ * grouped sheet's lines are, under a band of the band's height. A failed
+ * window is said once, in its first row in view, with Retry; its other rows
+ * keep their numbers and rules and carry nothing else (CL11). Its height is
+ * the ledger's slot, so the rows that replace it take the same space. To the
+ * grid it is one row at its first element's place, its one cell across the
+ * grid (#860), busy while its rows are read; its placeholders are
+ * `aria-hidden`, and a failed run's line is the cell instead (CL12).
+ */
+export const SheetRunRow = memo(function SheetRunRow({
+    styles, band, failure, loading, gridTemplate, columns, rowPx, bandPx, dense, noun, onRetry, ariaRowIndex,
+}: SheetRunRowProps) {
     const words = useSheetWords();
+    const { m } = words;
+    const from = failure?.from ?? band?.from ?? 0;
+    const to = failure?.to ?? band?.to ?? -1;
+    const n = Math.max(0, to - from + 1);
+    const px = Math.max(BAND_MIN_PX, failure?.px ?? band?.px ?? 0);
+    // The gutter, then each column's cells: the column kind's shape on the sheet's own cell rules.
+    const cells = useMemo((): RunCell[] => [
+        { kind: "rowNumber", css: slot(styles, "runGutter") },
+        ...columns.list.map((meta): RunCell => ({ kind: RUN_KINDS[meta.kind], css: slot(styles, "runCell") })),
+    ], [styles, columns]);
+    // A grouped sheet's elements: a band each, then the lines the ledger's rate says an element draws.
+    const group = useMemo(() => {
+        if (bandPx === undefined) return undefined;
+        const each = n > 0 ? px / n : px;
+        return { band: bandPx, lines: Math.max(0, Math.round((each - bandPx) / rowPx)), css: slot(styles, "runBand") };
+    }, [bandPx, n, px, rowPx, styles]);
+    // A flat run's rows are the source's positions; a lens stretch's are not known until the lens draws them. Each is
+    // numbered as the gutter numbers the row that lands in its place: 24994, never 24,994.
+    const numbered = bandPx === undefined && band?.at !== "reading";
+    const rowNumber = useCallback((index: number) => String(index + 1), []);
+    const range = { from: words.number(from + 1), to: words.number(to + 1) };
+    const w = failure?.w;
+    const failed = useMemo(() => (w === undefined ? undefined : {
+        message: loadingLineText(m.lineFailed({ noun, ...range })),
+        retry: { onRetry: () => onRetry(w), label: m.retry(), name: m.retryRange({ noun, ...range }) },
+        from: 1,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the range is its two formatted ends
+    }), [w, m, noun, range.from, range.to, onRetry]);
+    // To the grid the run is one row, its one cell across the gutter and every column (#860).
+    const cell = useMemo(() => ({ colIndex: 1, colSpan: columns.list.length + 1 }), [columns]);
     return (
         <Box
-            css={styles.band}
-            style={{ height: `${Math.max(1, band.px)}px` }}
+            css={styles.run}
             data-slot="band"
-            data-band={band.at}
+            data-band={failure !== undefined ? "failed" : band?.at}
+            data-failed={w}
             data-elements={n}
             role="row"
             aria-rowindex={ariaRowIndex}
+            aria-busy={loading && failure === undefined ? "true" : undefined}
         >
-            <Box css={styles.bandRule} aria-hidden="true" />
-            <Box as="span" css={styles.bandPill} role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}
-                style={{ position: "sticky", top: "60px", alignSelf: "flex-start", marginTop: "0" }}>
-                {words.m.bandUnloaded({ n, count: words.number(n), loading })}
-            </Box>
+            <UnloadedRun height={px} pitch={rowPx} columns={gridTemplate} cells={cells} first={from}
+                rowNumber={numbered ? rowNumber : undefined} rowCss={slot(styles, "runRow")} group={group} failed={failed} cell={cell} dense={dense} />
         </Box>
     );
 });
@@ -796,7 +867,7 @@ export interface SheetRetryProps {
     onRetry: () => void;
 }
 
-/** The one Retry control (#853) — a failed window's band, the transport line and the whole-sheet message all ask again through it. */
+/** The whole-sheet message's Retry (#853): a source that failed before any row landed asks again through it. */
 export function SheetRetry({ styles, onRetry }: SheetRetryProps) {
     const { m } = useSheetWords();
     return (
@@ -807,44 +878,6 @@ export function SheetRetry({ styles, onRetry }: SheetRetryProps) {
         </chakra.button>
     );
 }
-
-export interface SheetFailedBandRowProps extends SheetBandAria {
-    styles: Styles;
-    failure: SheetWindowFailure;
-    /** Ask the window again. */
-    onRetry: (w: number) => void;
-}
-
-/**
- * A resident window whose read failed (#853) — one band where its rows would
- * be, sized by the ledger like an unloaded band, saying which source elements
- * could not be read (1-based, like the transport line) and why, with a Retry.
- * Every other window keeps landing around it: a failure belongs to its
- * window, never to the sheet. Its Retry is the one control inside the grid in
- * the tab order (#860): nothing else asks that window again.
- */
-export const SheetFailedBandRow = memo(function SheetFailedBandRow({ styles, failure, onRetry, ariaRowIndex, colCount }: SheetFailedBandRowProps) {
-    // The element numbers, in the app's locale and the sheet's words (#850, #861).
-    const words = useSheetWords();
-    return (
-        <Box
-            css={styles.band}
-            style={{ height: `${Math.max(1, failure.px)}px` }}
-            data-slot="band"
-            data-band="failed"
-            data-failed={failure.w}
-            data-elements={failure.to - failure.from + 1}
-            role="row"
-            aria-rowindex={ariaRowIndex}
-        >
-            <Box css={styles.bandRule} aria-hidden="true" />
-            <Box as="span" css={styles.bandPill} data-failed="" role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}>
-                <Box as="span" role="alert">{words.m.windowFailed({ from: words.number(failure.from + 1), to: words.number(failure.to + 1), reason: failure.error })}</Box>
-                <SheetRetry styles={styles} onRetry={() => onRetry(failure.w)} />
-            </Box>
-        </Box>
-    );
-});
 
 export interface SheetRowBoundaryProps {
     styles: Styles;
@@ -889,9 +922,9 @@ export interface SheetGapRowProps extends SheetBandAria {
 }
 
 /**
- * A run the lens hides (B§8): 22 px, a dashed rule, the `n hidden` pill —
- * hover opens `⌃ +1 · n hidden · +1 ⌄ · all`, each press reaching further
- * from the top, the bottom, or both.
+ * A run of the record's rows the lens hides (B§8, #1349): 22 px, a dashed
+ * rule, the `n hidden` pill — hover opens `⌃ +1 · n hidden · +1 ⌄ · all`,
+ * each press reaching further from the top, the bottom, or both.
  */
 export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onReveal, ariaRowIndex, colCount }: SheetGapRowProps) {
     const press = (where: "top" | "bottom" | "both" | "all") => (e: MouseEvent) => {
@@ -901,9 +934,9 @@ export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onRev
         onReveal(gap, where);
     };
     const middle = gap.first ? "bottom" : gap.last ? "top" : "both";
-    // A run inside a group (#740) is bounded by line numbers, not sheet rows.
-    const above = isLinePosition(gap.from) ? lineNumberOf(gap.from) - 1 : gap.from;
-    const below = isLinePosition(gap.to) ? lineNumberOf(gap.to) + 1 : gap.to + 2;
+    // The rows either side of it, by their numbers: the run's positions are the record's.
+    const above = gap.from;
+    const below = gap.to + 2;
     // The gap's words, its counts in the app's locale (#850, #861).
     const words = useSheetWords();
     const { m } = words;

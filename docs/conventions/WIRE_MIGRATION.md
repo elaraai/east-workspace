@@ -319,3 +319,123 @@ Each wire changed under this rule, with the kind it is.
   Plan's kinds on the wire (`ScheduleKindType`, `PlanEventKindType`) are
   unchanged. The Allocation's extension, which takes them too, is new in this
   release: no earlier release wrote it, so no form of it moves.
+- **east-ui's `UIComponentType` loses its `Schematic` arm, and the schematic
+  draws the app's records (#1384, #1386)** — package-borne. The schematic is
+  e3-ui's `<Schematic>`, carried as the `Schematic` extension. Its payload is
+  not the root the arm carried, the host's rows mapped to items, zones, links
+  and nets: it carries a kind over the app's record for each
+  (`SchematicItemKindType`, `SchematicZoneKindType`, `SchematicLinkKindType`,
+  `SchematicNetKindType`), each closed over beast2 bytes as Schedule's kinds
+  are, so the payload is one type whatever the app's rows hold; its layers;
+  the chrome of a Slice over several records (`slice`) and each source's keys
+  (`shown`); how a row the narrowing leaves out draws (`narrowed`); and its
+  library's tabs. A prop the root took that the payload does not is refused at
+  build, naming what replaces it. As with the Plan's, the Sheet's and the
+  Flowchart's arms, every case after `Schematic` moves down one, so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.
+- **e3 gains the area index, and the interval index a constructor of its own
+  (#1385)** — package-borne, and no wire changes. `e3.recordIndex.area` builds
+  an index object as every index's is: its key function, which the SDK
+  generates as it generates an interval index's, and its projection, the whole
+  row. A deploy builds an index its state lacks, so no upgrade step ships.
+  `e3.recordIndex.interval` builds the object the `interval` option built, so
+  no interval index changes form, and a package already exported deploys as it
+  did; `e3.recordIndex` now refuses the option, naming the constructor, so a
+  package's source that wrote it moves to the constructor before its next
+  export.
+- **east-ui's record Slice gains the `window` choice and the `area` index
+  metadata (#1385)** — package-borne, and an application's saved views change
+  type with it. `RecordSliceIndexType` gains `area` after `interval`, built
+  only from a package's declarations, and `RecordSliceChoiceType` gains
+  `window`, which a read gives an area index's `__area` and a rail never holds.
+  A UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it. `window` is named to sort after every
+  case before it, so its tag is the last and theirs are kept — but a narrowing
+  is a `Dict` of choices, and beast2 reads a collection's elements as exactly
+  the asked type (east's `checkDecodeType`): a variant there holds every case
+  of the asked type or does not read. So a narrowing an earlier release wrote
+  does not decode under the new type. One a browser kept for a rail
+  (`enableSlicePersistence`) is set aside, and the rail starts from its slice's
+  `initial`. An application's own record of saved views
+  (`Array<Sheet.Types.RecordView>`, whose `narrowing` is each source's state)
+  changes type with it: a deploy resets an input that holds them to its
+  package's value, since its type changed, and refuses a record that holds them
+  until the record declares the migration that carries them across, as with any
+  record whose type an application changes.
+- **e3-ui's `Schematic` takes the Plan's props, and its layers and shapes from
+  the app's rows (#1401)** — package-borne. The `Schematic` extension's
+  payload trades `name` for `id`; its `inspector` is off unless given, a
+  kind's own Details being its kind's `inspector`, which the kinds' wire
+  already carried; it loses `selectZoomFocus` and the five callbacks —
+  `onSelectionChange`, `onZoneSelectionChange`, `onSelectLink`,
+  `onViewportChange` and `onItemOpen` — and gains `onSelect`, the whole
+  selection as an `Array<Schematic.Types.Ref>`; and its `canConnect` takes a
+  `Schematic.Types.Candidate`, `{ kind, from, to }`, and answers an
+  `Option<String>`, where it took two references and answered a Boolean.
+  `Schematic.Types.Layer` gains `color`, after `tone`, and the library's tabs
+  on the wire (`SchematicLibraryTabType`) trade `templates` and `unplaced`,
+  each naming a slot, for `templates` and `backlog`, each over every kind and
+  holding `Null`. The selection, zone selection and viewport event types are
+  removed. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it. An application's record whose rows
+  held a `Schematic.Types.Geometry` for a footprint or a zone's shape keeps
+  its own fields instead — a radius, an outline's corners — from which an
+  accessor makes the shape; rewriting its rows is that record's own migration,
+  as with any record whose type an application changes.
+- **e3-ui's `Sheet` draws its `rows` source's narrowing over the record's rows
+  as the lens (#1349)** — package-borne, and an application's saved views
+  change type with it. A sheet over the rows of its slice's `rows` source takes
+  that source's record, every row in the record's order — a `pinned` arm over
+  the record's own rows — where it took the narrowing's rows in a `live` arm,
+  and draws the narrowing over them, placed by e3 from the source's index.
+  `Sheet.Types.RecordView`'s `reveals` holds the runs of rows the planner
+  opened by their first and last rows' keys (`Sheet.Types.Reveal`), where it
+  held row positions. A UI value encoded under either type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. A UI task's output is not stored
+  state, so no repository upgrade step ships with it. An application's own
+  record of saved views (`Array<Sheet.Types.RecordView>`) changes type with
+  it, as with `window` above: a deploy resets an input that holds them to its
+  package's value, and refuses a record that holds them until the record
+  declares the migration that carries them across.
+- **e3 gains the series and summary indexes: an index object gains `form`, and
+  a record's describe each index's `summary` (#1039)** — package-borne, and the
+  describe route's answer. `RecordIndexObjectType` gains `form`, after
+  `runner`: `entries` for an index as every package declared one before, or
+  `summary`, naming the IR of the merge a summary's build sums its pieces by.
+  An index object an earlier SDK exported does not decode under the new type:
+  a read through it, or a reindex, is refused, naming the fix — re-export the
+  package — and gc, which knows an index object by its current shape, no
+  longer walks it, so the programs only it names are swept. A deploy of the
+  re-exported package builds each index under its new object, so no upgrade
+  step ships, and a record's state, its commits and its deltas keep their
+  forms: a summary's arm of a delta (`RecordSummaryOpType`'s `add`) and its
+  collection, `Dict<{ik, k: Null}, RecordSummaryTotals>`, are new, and no
+  earlier release wrote either. `e3.recordIndex.series` builds an index object
+  as the area index's does: its key function, which the SDK generates — an
+  entry per time tile an event touches — and its projection, the whole row.
+  The describe route's index entries (`RecordSignatureType`) gain `summary`,
+  after `multi`, which tells a client to decode a summary's window with its
+  `key` Null and never to join it: an answer of either release does not decode
+  as the other's, and a client refuses an earlier server's answer, naming both
+  types, as it refuses any type it does not read.
+- **east-ui's record Slice gains the `series` and `summary` index metadata
+  (#1039)** — package-borne. `RecordSliceIndexType` gains `series` and
+  `summary`, after `area`: how a series or a summary index files a record's
+  events (`RecordSliceTilingType` — its key field, its start and end fields,
+  and its tile, `RecordSliceTileType`), built only from a package's
+  declarations, which a binding marks a series or a summary index's `__tile`
+  with, as it marks an area index's `__area`. Neither index serves the rail's
+  narrowing, so `RecordSliceChoiceType` and `RecordSliceStateType` keep their
+  forms, and no narrowing, kept or saved, changes type. A UI value encoded
+  under either index type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.

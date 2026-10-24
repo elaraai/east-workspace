@@ -208,11 +208,12 @@ describe("the event kinds' rows over the range the canvas draws (#1192)", () => 
         } finally {
             errors.mockRestore();
         }
-        // New rows move, and the failure is gone.
+        // New rows move, and the failure is gone; no kind is read by its cells, so nothing is shaded (#1039).
         const next = blocksOf("a2");
         answer = () => some(next);
         rerender({ events: seam() });
-        expect(result.current).toEqual({ blocks: next, version: 2, error: undefined });
+        expect(result.current.blocks).toBe(next);
+        expect([result.current.version, result.current.error, result.current.cells, result.current.shading.size]).toEqual([2, undefined, undefined, 0]);
     });
 });
 
@@ -220,7 +221,9 @@ describe("the snapshot of a paged source's data, apart from the revision its win
     /** A root whose own rows are `rows`. */
     const rootOf = (rows: unknown) => ({ rows, links: [] }) as unknown as PlanRootValue;
     /** The event kinds' rows, at a version: no blocks, no events placed. */
-    const leadAt = (version: number): PlanEventLead => ({ blocks: [], placed: placedOn([]), version, error: undefined });
+    const leadAt = (version: number): PlanEventLead => ({
+        blocks: [], placed: placedOn([]), shading: new SortedMap([], compareString), cells: undefined, version, error: undefined,
+    });
     /** The canvas's source the hook hands it. */
     const sourceOf = (root: PlanRootValue) => (root.rows as unknown as { value: PlanPagedSourceValue }).value;
 

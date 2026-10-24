@@ -54,12 +54,6 @@ export {
 
 
 export {
-    EastChakraSchematic,
-    type SchematicValue,
-    type SchematicItemValue,
-    type EastChakraSchematicProps,
-} from "./schematic";
-export {
     EastChakraMap,
     type MapValue,
     type MapAreaValue,

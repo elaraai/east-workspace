@@ -25,10 +25,13 @@ describe("Roster in the shared record-backed frame", () => {
         expect(slot(container, "main").textContent).toContain("Inbound");
         expect(slot(container, "main").textContent).toContain("Early");
         expect(weekDuties(await h.read(ex.rosterDuties), START).size).toBe(316);
-        // The legend's five coverage marks: no overtime, which is the app's pay's to say.
+        // The legend's five coverage marks: no overtime, which is the app's pay's to say. Beside them the footer holds only the
+        // "…" a cut legend ends with and the one shared loading line (#1398), which says nothing once the week has landed.
         expect(container.querySelectorAll("[data-roster-legend]")).toHaveLength(5);
         const footer = container.querySelector("[data-roster-footer]")!;
-        expect([...footer.children].every(item => item.hasAttribute("data-roster-legend"))).toBe(true);
+        expect([...footer.children].every(item => item.hasAttribute("data-roster-legend") || item.hasAttribute("data-footer-more")
+            || item.hasAttribute("data-footer-line"))).toBe(true);
+        expect(footer.querySelector("[data-footer-line]")!.hasAttribute("data-idle")).toBe(true);
         // The week's cost is the warehouse's own pay, in its currency.
         expect(stat(container, "Cost")).toMatch(/^A\$[\d,]+\.\d\d$/);
         await press(within(slot(container, "main")).getByRole("button", { name: "N. Ochre" }));

@@ -168,7 +168,7 @@ export type { IconPayload } from "./buttons/button/types.js";
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Schematic, Map, Blend } from "./runtime/collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";

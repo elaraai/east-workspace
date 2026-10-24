@@ -280,19 +280,18 @@ examples are under the slot budget already and are exempt.)
    - **A static enumeration panel** (`VStack` of
      `<Separator label>`-bounded groups) ONLY where seeing every row at
      once is the point — the per-kind Plan panels (`planSpanRows`,
-     `planBucketRows`), the slice-effect pair (`schematicSlice`) and
-     the slice rails. Everything else — status grammars, event/lifecycle
+     `planBucketRows`) and the slice rails. Everything else — status grammars, event/lifecycle
      grammars, data-shape enumerations, canvas-content variants, sizing
      contracts — is a configurator axis (a preset/data axis swaps whole
      fixtures or component subtrees; `fill`/`scroll` are presets): see
      `planVariants`, `bannerStatusVariants`,
-     `mapOverlayVariants`, `schematicVariants`, `columnBarVariants`.
+     `mapOverlayVariants`, `columnBarVariants`.
      Control lanes carry controls ONLY — no hint strings, no caption
      `Text` beside switches; scope notes live in short label
      parentheticals (`"Movable (move)"`).
 3. **`<name>Configurator`** — a SEPARATE interactive combo-configurator
    only when a behavioral space needs its own surface beside the
-   Variants slot (exemplar: `schematicInteractions`). A probe-referenced name that becomes a configurator
+   Variants slot. A probe-referenced name that becomes a configurator
    keeps its name so the probe stays valid; probes that need a specific
    combination on screen retarget in the same PR.
 4. **`<name><Behavior>`** — one example per behavioral contract needing
@@ -303,7 +302,7 @@ examples are under the slot budget already and are exempt.)
    referencing script is updated in the same PR — never silently
    broken).
 5. **`<name>Stress`** — perf/scale demonstrations (virtualized rows,
-   500-unit schematic). Keep.
+   the Sheet's `sheetStress`). Keep.
 
 ### Panel construction
 

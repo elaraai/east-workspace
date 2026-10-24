@@ -12,10 +12,11 @@ import {
 import type { PlatformFunction } from "@elaraai/east/internal";
 import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
-    RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType,
-    recordSliceReadPlatform, type RecordSliceBinding,
+    RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType, tilingOf,
+    recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry, type RecordSlicePlacement,
+    type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceJoined,
 } from "@elaraai/east-ui/internal";
-import { SeekQueryType } from "@elaraai/east-ui";
+import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
 import { getStore, trackKey } from "../state-runtime.js";
 import type { UIStoreInterface } from "../state-store.js";
@@ -82,6 +83,41 @@ function activeScan(key: string): PagedScan<unknown, unknown[]> {
 }
 
 
+/**
+ * The reads a host's runtime batches for a record Slice's binding (#1351):
+ * several searches of one source in one request, the entries of several runs
+ * in one, where a narrowing's runs sit in the record and which entries they
+ * hold (#1349), the rows of several of the record's own keys (#1039), and
+ * another Dict's rows under the keys several runs' entries name (#1393).
+ */
+export type RecordSliceBatches = Required<Pick<RecordSliceReader<RecordSliceEntry>, "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll" | "joinAll">>;
+
+/** How the host's runtime batches a binding's reads, when it does. */
+let batchesOf: ((binding: RecordSliceBinding) => RecordSliceBatches | undefined) | undefined;
+
+/**
+ * Register how a record Slice's bindings have their reads batched: the host's
+ * paged runtime gives a binding it serves its batched searches and runs
+ * (#1351), which the Slice reads a plan's searches and its windows through. A
+ * binding it gives none reads them one at a time. The binding's East handle is
+ * unchanged: the batches are the runtime's.
+ *
+ * @param resolve - The batches of a binding, by the binding; `undefined` for
+ *   one the runtime does not serve
+ */
+export function registerRecordSliceBatches(resolve: (binding: RecordSliceBinding) => RecordSliceBatches | undefined): void {
+    batchesOf = resolve;
+}
+
+/** A binding with the reads its runtime batches beside its own. */
+function batched(source: RecordSliceBinding): RecordSliceBinding {
+    const batches = batchesOf?.(source);
+    return batches === undefined ? source : {
+        ...source, seekAll: batches.seekAll, runsAll: batches.runsAll, placeAll: batches.placeAll, withinAll: batches.withinAll,
+        rowsAll: batches.rowsAll, joinAll: batches.joinAll,
+    };
+}
+
 function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     const [key, source, config, initial] = descriptor;
     const store = getStore();
@@ -108,7 +144,7 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
     };
     const write = (state: State) => { getStore().write(key, encodeState(state)); scheduleSlicePersist(key); };
     const metadata = types[0]?.type === "Struct" ? types[0].fields.indexes : undefined;
-    const controller = new RecordSliceController(source, config, row, read, write, collection.value.fields.key!,
+    const controller = new RecordSliceController(batched(source), config, row, read, write, collection.value.fields.key!,
         metadata?.type === "Struct" ? metadata : undefined);
     if (!store.has(key)) {
         controller.write(initial);
@@ -252,6 +288,284 @@ export function recordSliceSeeded(slice: Pick<ValueTypeOf<RecordSliceBindType>, 
     const store = getStore();
     const seed = seeds.get(store)?.get(slice.key);
     return seed !== undefined && store.read(slice.key) === seed;
+}
+
+/**
+ * The controller a record Slice's handle reads through, in the page's store:
+ * the one its binding made, by the handle's key — the latest, should a
+ * redeployed binding have made another.
+ *
+ * @param slice - The record Slice
+ * @returns Its controller
+ * @throws {Error} When no binding of it lives in the page's store
+ */
+function controllerOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): RecordSliceController {
+    let found: RecordSliceController | undefined;
+    for (const entry of bindings.get(getStore())?.values() ?? []) if (entry.descriptor[0] === slice.key) found = entry.controller;
+    if (found === undefined) throw new Error(`The record Slice '${slice.key}' is bound in no store this page holds`);
+    return found;
+}
+
+/**
+ * Where a record Slice's narrowing sits in its record (#1349): how many of the
+ * narrowing's rows each record segment holds, read from the index alone, as far
+ * as they are placed — what a renderer lays a narrowing out over the record by
+ * (the Sheet's lens). A tracked read: the evaluation that reads it runs again as
+ * each window of the placement lands, and when the narrowing or the record moves.
+ * The handle's East type is unchanged; this is the runtime's.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing; the one the Slice holds when absent
+ * @returns The placement so far; none while its bounds or its first window are pending
+ * @throws {Error} With no narrowing, or when its binding reads no placements
+ */
+export function recordSlicePlace(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where?: Where): option<RecordSlicePlacement> {
+    return controllerOf(slice).place(where);
+}
+
+/**
+ * Which of some rows a record Slice's narrowing holds (#1349): each row's
+ * maintained entry keys asked of the narrowing's runs in one read, the server
+ * deciding by the runs. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing
+ * @param rows - The rows, each its primary key and row, as the record holds them at its current revision
+ * @returns Whether the narrowing holds each row, in order; none while pending
+ * @throws {Error} When its binding reads no memberships
+ */
+export function recordSliceWithin(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
+    return controllerOf(slice).within(where, rows);
+}
+
+/**
+ * Which of a record Slice's record's own rows `[offset, offset + limit)`, in
+ * the record's order, its narrowing holds (#1349): the rows read from the
+ * record's own pages — the window a view of the record reads them in, so a
+ * view drawing them reads nothing more — and asked of the narrowing's runs in
+ * one read. What the Sheet's lens asks of each record segment it draws. A
+ * tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing
+ * @param offset - The first row, in the record's order
+ * @param limit - How many rows: a page's, at most 2,048 of them read
+ * @returns Whether the narrowing holds each row read, in order; none while the rows or the read are pending
+ * @throws {Error} When its binding reads no memberships, or reads its record's own rows without joining them
+ */
+export function recordSliceWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+    return controllerOf(slice).withinAt(where, offset, limit);
+}
+
+/**
+ * The rows a record Slice's record holds under several of its own keys
+ * (#1039): in one request when the binding's runtime batches its reads — each
+ * key's row, or `none` for a key the record does not hold. What a reader asks
+ * of rows it names by key and has not read: the Plan's link ends and its
+ * drafts outside the cells it draws. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param keys - The keys, East values of the record's key type
+ * @returns Each key's row, in order; none while the read is pending
+ */
+export function recordSliceRows(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, keys: readonly unknown[]): option<option<unknown>[]> {
+    return controllerOf(slice).rows(keys);
+}
+
+/**
+ * Where a key query lands in a record Slice's narrowing of its record — with
+ * no narrowing, in the record's own order (#1349): the rows a view over the
+ * whole record addresses, which the Sheet's lens and its key search seek and
+ * reveal by. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing; empty, the record's own rows
+ * @param query - The key query, in the narrowing's index's order — its primary key's with no narrowing
+ * @returns Where it lands, in the narrowing's rows; none while pending
+ */
+export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, query: Query): option<ValueTypeOf<typeof SeekRangeType>> {
+    const controller = controllerOf(slice);
+    return controller.windows.seek(controller.plan(where), query);
+}
+
+/**
+ * A window of a record Slice's narrowing of its record — with no narrowing, of
+ * the record's own rows in their order (#1404): the entries `[offset, offset +
+ * limit)`, each as its binding reads it, its key and its row joined. What a key
+ * search over a whole record lists the matches {@link recordSliceSeek} placed
+ * by: the Schematic's Find. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing; empty, the record's own rows
+ * @param offset - The window's first row, in the narrowing's order
+ * @param limit - How many rows it holds at most
+ * @returns The window's entries, in order; none while pending
+ */
+export function recordSlicePage(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, offset: bigint, limit: bigint): option<unknown[]> {
+    const controller = controllerOf(slice);
+    return controller.windows.page(controller.plan(where), offset, limit);
+}
+
+/**
+ * The revision a record Slice's record is read at now (#1039): what a reader
+ * keeps what it read under, so a commit — a Save's, another session's — reads
+ * it again. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @returns The record's revision; none while it is not yet known
+ */
+export function recordSliceRevision(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): option<string> {
+    return controllerOf(slice).source.revision();
+}
+
+/**
+ * A record Slice's controller, refusing a series, a summary or an area index its binding does not list (#1039, #1393).
+ *
+ * @param slice - The record Slice
+ * @param index - The index a reader reads cells of
+ * @returns The controller
+ * @throws {Error} When the binding lists no series, summary or area index of that name
+ */
+function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordSliceController {
+    const controller = controllerOf(slice);
+    const listed = controller.config.indexes.find(candidate => candidate.name === index);
+    if (listed === undefined || (tilingOf(listed) === undefined && listed.area.type !== "some")) {
+        throw new Error(`The record Slice '${slice.key}' lists no series, summary or area index '${index}' to read cells of: list it in Data.bindPaged's indexes`);
+    }
+    return controller;
+}
+
+/**
+ * Find some cells of a series, a summary or an area index a record Slice's
+ * binding lists (#1039, #1393): each cell's searches' bounds, and how many
+ * entries they hold, exact before one is read — every cell not yet found asked
+ * in one request, and one found kept for its revision. What a reader of cells
+ * decides by whether to read them: the Plan's events, and the Schematic's
+ * window, a cell a search of `areaQueries`. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The series, summary or area index
+ * @param cells - The cells, each its searches (`tileCellQueries`, `areaQueries`) under the reader's name for it
+ * @returns Each cell's runs, by its name; none while any is pending
+ * @throws {Error} When the binding lists no such index, or two cells share a name
+ */
+export function recordSliceCellRuns(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceCellRuns>> {
+    return cellsOf(slice, index).windows.cellRuns(index, cells);
+}
+
+/**
+ * Read some cells' entries of a series, a summary or an area index a record
+ * Slice's binding lists (#1039, #1393): every cell's runs in one request, each
+ * run once, handed back cell by cell — a series or an area index's entries
+ * carrying their rows, a summary index's their totals. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The series, summary or area index
+ * @param cells - The cells, as {@link recordSliceCellRuns} takes them
+ * @returns Each cell's entries, by its name, in its searches' order; none while pending
+ * @throws {Error} As {@link recordSliceCellRuns} does, and when the entries read disagree with their bounds
+ */
+export function recordSliceCellEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceEntry[]>> {
+    return cellsOf(slice, index).windows.cellEntries(index, cells);
+}
+
+/**
+ * Read the rows another Dict holds under the keys some cells' entries of a
+ * series or an area index a record Slice's binding lists name (#1393): every
+ * cell's runs in one request, each run once, the keys read by the server
+ * where the index keeps them — none sent — handed back cell by cell, each
+ * entry's key and the Dict's row under it: a Schematic's details, for the
+ * cells its window reads. A tracked read, as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The series or area index
+ * @param cells - The cells, as {@link recordSliceCellRuns} takes them
+ * @param dict - The Dict read: the `id` of its paged read, `Data.bindPaged` over it
+ * @returns Each cell's rows of the Dict, by its name, in its searches' order; none while pending
+ * @throws {Error} As {@link recordSliceCellEntries} does, and when the binding's runtime reads no Dict by runs
+ */
+export function recordSliceCellJoins(
+    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[], dict: string,
+): option<Map<string, RecordSliceJoined[]>> {
+    return cellsOf(slice, index).windows.cellJoins(index, cells, dict);
+}
+
+/**
+ * A record Slice's controller, refusing an index its binding does not list (#1393).
+ *
+ * @param slice - The record Slice
+ * @param index - The index a reader searches or reads
+ * @returns The controller
+ * @throws {Error} When the binding lists no index of that name
+ */
+function listing(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordSliceController {
+    const controller = controllerOf(slice);
+    if (!controller.config.indexes.some(candidate => candidate.name === index)) {
+        throw new Error(`The record Slice '${slice.key}' lists no index '${index}' to read: list it in Data.bindPaged's indexes`);
+    }
+    return controller;
+}
+
+/**
+ * Find the bounds of some searches of an index a record Slice's binding lists
+ * (#1393): where each one's entries sit and how many it holds, every search in
+ * one request when the binding's runtime batches its reads, no entry read and
+ * nothing kept — the Schematic's density raster, the counted ranges of an area
+ * index's cells and the coarser levels' keys (`areaRaster`). A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The index searched
+ * @param queries - The searches
+ * @returns Each search's bounds, in order; none while any is pending
+ * @throws {Error} When the binding lists no index of that name, or the source answers a search with bounds no search has
+ */
+export function recordSliceBounds(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, queries: readonly ValueTypeOf<typeof SeekQueryType>[]): option<ValueTypeOf<typeof SeekRangeType>[]> {
+    return listing(slice, index).windows.bounds(index, queries);
+}
+
+/**
+ * Read the entries of some runs of an index a record Slice's binding lists
+ * (#1393): the runs as {@link recordSliceBounds} found them at the record's
+ * revision now — ascending, disjoint and none empty — in one read however many
+ * there are, nothing kept: the rows of the coarser levels of the Schematic's
+ * density raster, while they are few. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The index read
+ * @param runs - The runs
+ * @returns Their entries, run after run; none while the read is pending
+ * @throws {Error} When the binding lists no index of that name, the runs are not ascending, disjoint and each non-empty, or
+ *   the entries read disagree with them
+ */
+export function recordSliceRunEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[]): option<RecordSliceEntry[]> {
+    return listing(slice, index).windows.runEntries(index, runs);
+}
+
+/**
+ * Read the rows another Dict holds under the keys the entries of some runs of
+ * an index a record Slice's binding lists name (#1393): the runs as
+ * {@link recordSliceRunEntries} takes them, in one request however many there
+ * are, the keys read by the server where the index keeps them — none sent —
+ * each entry's key and the Dict's row under it, run after run: the details of
+ * the coarser levels' rows of the Schematic's density raster. A tracked read,
+ * as {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param index - The index read
+ * @param runs - The runs
+ * @param dict - The Dict read: the `id` of its paged read, `Data.bindPaged` over it
+ * @returns Each entry's key and its row there, run after run; none while the read is pending
+ * @throws {Error} As {@link recordSliceRunEntries} does, and when the binding's runtime reads no Dict by runs
+ */
+export function recordSliceRunJoins(
+    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[], dict: string,
+): option<RecordSliceJoined[]> {
+    return listing(slice, index).windows.runJoins(index, runs, dict);
 }
 
 /** Persist through the same store-key mechanism as local Slice, validating

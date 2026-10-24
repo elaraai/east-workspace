@@ -30,6 +30,11 @@
  *     theme's `overlay.backdrop`, the Drawer's — taking the pointer.
  *   - Probe: an unseen box at a pane's width, measured when that width is
  *     not a plain px length (`min(480px, 52%)`).
+ *   - Loading: the cold-load skeleton over the regions — its toolbar's
+ *     slots, and its body's rows at the component's own pitch
+ *     (`--builder-loading-pitch`, the frame's `loadingPitch`) with a 12px
+ *     body bar each: the Skeleton's static `--paper-3`, nothing moving
+ *     (#1398). A live footer (`data-frame-live`) stays out from under it.
  *
  * @packageDocumentation
  */
@@ -50,10 +55,18 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
         loading: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "bg.surface", overflow: "hidden" },
         loadingBar: { gap: "{spacing.4}", "& > :last-child": { marginInlineStart: "auto" } },
         loadingBody: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: "{spacing.2} {spacing.4}", overflow: "hidden" },
-        // Loading rows keep the density of the builders; spare height stays empty.
-        loadingRow: { flex: "0 0 40px", display: "flex", alignItems: "center", gap: "{spacing.4}", borderBottomWidth: "1px", borderColor: "border.subtle" },
-        loadingLine: { flex: "0 1 160px", minWidth: 0, width: "100%", maxWidth: "160px", "&:nth-child(2)": { flexGrow: 1, maxWidth: "320px" }, _motionReduce: { animation: "none" } },
-        loadingCell: { height: "24px" },
+        // Loading rows at the component's own pitch (#1398), so the skeleton matches what it covers; the body clips the rest.
+        loadingRow: {
+            flex: "0 0 var(--builder-loading-pitch, 40px)", display: "flex", alignItems: "center", gap: "{spacing.4}",
+            boxSizing: "border-box", borderBottomWidth: "1px", borderColor: "border.subtle",
+        },
+        // The Skeleton's static `--paper-3`: no shimmer, no pulse — the footer line's dot is the only motion (#1398).
+        loadingLine: {
+            flex: "0 1 160px", minWidth: 0, width: "100%", maxWidth: "160px", "&:nth-child(2)": { flexGrow: 1, maxWidth: "320px" },
+            background: "bg.subtle", animation: "none",
+        },
+        // A body value's bar: 12px, square-ended.
+        loadingCell: { height: "12px", borderRadius: "0" },
         loadingFooter: { ...builderFooter },
         root: {
             position: "relative",
@@ -67,7 +80,7 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             minHeight: "0",
             background: "bg.surface",
             overflow: "hidden",
-            "&[data-loading] > [data-frame-slot]": { opacity: 0 },
+            "&[data-loading] > [data-frame-slot]:not([data-frame-live])": { opacity: 0 },
             "&[data-loading] [data-frame-slot]": { transition: "none" },
         },
         /* The one toolbar band: the shared toolbar's row. */

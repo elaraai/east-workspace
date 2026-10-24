@@ -48,22 +48,33 @@ export type ScheduleGestureValue = ValueTypeOf<typeof ScheduleGestureType>;
  * One event a gesture changes, and how: through its kind's `write` (a move,
  * a resize, a drop, a schedule or an unschedule, a field edited), its new row
  * whole (an author's `update`, a duplicate — `created`, an event under a new
- * key), or deleted. A row of a record beside the kinds is given whole, or
- * deleted.
+ * key), or deleted. A row of a record beside the kinds is given whole,
+ * rewritten from the row as the gesture finds it (#1388: the Schematic's
+ * gestures, each through its kind's own `write`), or deleted.
  */
 export type ScheduleChange =
     | { readonly kind: string; readonly id: string; readonly gesture: ScheduleGestureValue }
     | { readonly kind: string; readonly id: string; readonly row: Uint8Array; readonly created?: true | undefined }
+    | {
+        readonly kind: string; readonly id: string;
+        /**
+         * The row as the gesture leaves it, from the row as it finds it — drafted, else as the record holds it: the
+         * row the session's original is, so a rewrite never rests on a copy older than it. `undefined` refuses
+         * it, and the gesture records nothing.
+         */
+        readonly rewrite: (row: Uint8Array) => Uint8Array | undefined;
+    }
     | { readonly kind: string; readonly id: string; readonly remove: true };
 
 /**
  * A record a builder writes beside its event kinds, a whole row at a time
  * (#1369): the Roster's weeks (`Schedule.periods`) and targets
- * (`Roster.targets`). Its session joins the history as a kind's does; a
- * change names it by its key, and gives its new row whole or removes it.
+ * (`Roster.targets`), and each of the Schematic's kinds and their details
+ * (#1388). Its session joins the history as a kind's does; a change names it
+ * by its key, and gives its new row whole, rewrites it, or removes it.
  */
 export interface ScheduleEditingRecord {
-    /** What a change names it by (`periods`, `targets`): distinct from every kind's slot. */
+    /** What a change names it by (`periods`, `targets`, a Schematic kind's slot): distinct from every other's. */
     readonly key: string;
     /** What its banners call it. */
     readonly name: string;
@@ -71,6 +82,8 @@ export interface ScheduleEditingRecord {
     readonly editing: ValueTypeOf<typeof ScheduleKindType>["editing"];
     /** The record read by key, for one read a window at a time; `none` for one read whole. */
     readonly entries: ValueTypeOf<typeof ScheduleKindType>["entries"];
+    /** The app's check over its drafted rows, which holds Save, naming the row; none unless given. */
+    readonly ready?: ValueTypeOf<typeof ScheduleKindType>["ready"] | undefined;
 }
 
 /**
@@ -154,12 +167,13 @@ export interface ScheduleEditing<I extends Item = Item> {
     /**
      * Record one gesture as one step of the history: each event it changes,
      * in its kind's session, and each row of a record, in the record's — a
-     * record's row given whole, or removed.
+     * record's row given whole, rewritten from the row as it stands, or
+     * removed.
      *
      * @param changes - Each event or row it changes, and how; one changed twice composes, in order
      * @param origin - The gesture
      * @param label - Its label in the history
-     * @returns Whether anything changed
+     * @returns Whether anything changed; nothing is, when a rewrite refuses or finds no row
      */
     record(changes: readonly ScheduleChange[], origin: Origin, label: string): boolean;
 }
@@ -279,8 +293,8 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
     // Each kind, then each record: a session each, in that order.
     const parts = useMemo((): EditedPart<I>[] => [
         ...kinds.map((kind) => ({ key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, kind, read: reads?.[kind.key] })),
-        ...records.map((record) => ({ key: record.key, name: record.name, editing: record.editing, entries: record.entries, ready: none, kind: undefined,
-            read: reads?.[record.key] })),
+        ...records.map((record) => ({ key: record.key, name: record.name, editing: record.editing, entries: record.entries, ready: record.ready ?? none,
+            kind: undefined, read: reads?.[record.key] })),
     ], [kinds, records, reads]);
     const codecs = useMemo(() => parts.map((kind): KindCodecs => {
         const entryType = fromEastTypeValue(kind.editing.entryType) as EastType;
@@ -537,6 +551,20 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
                     continue;
                 } else if ("row" in change) {
                     row = codec.decodeRow(change.row);
+                } else if ("rewrite" in change) {
+                    // The row as the gesture finds it, rewritten whole: one it finds none of, or a rewrite that
+                    // refuses, records nothing of the gesture.
+                    const current = rowOf(now);
+                    if (current === undefined) return false;
+                    let rewritten: Uint8Array | undefined;
+                    try {
+                        rewritten = change.rewrite(codec.encodeRow(current));
+                    } catch (err) {
+                        console.error(`[Schedule] ${part.name}'s rewrite of ${change.id} failed:`, err);
+                        return false;
+                    }
+                    if (rewritten === undefined) return false;
+                    row = codec.decodeRow(rewritten);
                 } else {
                     // The kind's own write of the gesture into the entry as it stands; a create writes none. A record's
                     // row is given whole: it has no gestures of its own.

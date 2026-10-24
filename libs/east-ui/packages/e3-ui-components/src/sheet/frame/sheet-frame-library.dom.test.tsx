@@ -14,7 +14,8 @@
  * columns with their kind and eye, a column hidden and shown, kept per viewer
  * across a remount, and none hidden without a Columns tab; and the empty
  * states. (That a hidden column is still what the lens matches went with the
- * lens, #1345; #1349 restores it over records.)
+ * local lens, #1345: the lens over records, #1349, draws the narrowing e3
+ * places through the rail's indexes, whatever columns the grid shows.)
  */
 
 import { test, expect } from "vitest";

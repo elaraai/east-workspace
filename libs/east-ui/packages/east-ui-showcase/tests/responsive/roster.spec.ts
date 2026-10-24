@@ -5,6 +5,7 @@
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { frameAt, toolbarFaults } from "./builder-frame";
+import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 const FILE = "e3/roster/roster";
 async function open(page: Page, name = "rosterWarehouse", theme: "light" | "dark" = "light") {
@@ -48,9 +49,9 @@ const railFields = (frame: Locator) => frame.locator(RAIL).first().evaluate(rail
     const trigger = rail.querySelector("button[aria-label^='Filters:']")?.getAttribute('aria-label') ?? '';
     return { fields: [...live, ...folded].sort(), named: ['Group', 'Position', 'Trainer', 'Agency', 'Skill', 'Name'].every(label => trigger.includes(label)) };
 });
+/** The Roster's example unmounted and mounted again, what it shows read back from e3. */
 async function remount(page: Page, name: string) {
-    await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
-    await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
+    await leaveBuilder(page);
     await page.evaluate(({ file, name }) => { location.hash = `#${file}/${name}`; }, { file: FILE, name });
     const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${FILE}/${name}"]`) });
     await entry.scrollIntoViewIfNeeded(); await expect(entry.locator('[data-roster-frame]').first()).toBeVisible();
@@ -107,7 +108,10 @@ for (const theme of ['light', 'dark'] as const) {
                     return b.left < p.left - 1 || b.right > p.right + 1 ? [card.getAttribute('data-roster-card')] : [];
                 }))).toEqual([]);
             } else await expect(main.locator('[data-roster-grid="shifts"]')).toBeVisible();
-            expect(await frame.locator('[data-roster-footer]').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+            // The footer stays one 28px line at every width, nothing past its edge (#1398, CL3).
+            const footer = frame.locator('[data-roster-footer]');
+            expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+            expect(await footer.evaluate(el => el.getBoundingClientRect().height), `${width}px footer`).toBe(28);
         }
         // Essential domain commands survive the folded form, alongside the shared Save.
         await expect(frame.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
@@ -445,9 +449,11 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(proposal.getByRole('button', { name: 'Accept proposal for N. Ochre' })).toHaveCount(1);
         await expect(proposal.getByRole('button', { name: 'Reject proposal for N. Ochre' })).toHaveCount(1);
         const footer = frame.locator('[data-roster-footer]');
-        // Permanent, agency staff, requested, open and hours needed: overtime is the app's pay's to say.
+        // Permanent, agency staff, requested, open and hours needed: overtime is the app's pay's to say. Beside them only the
+        // "…" a cut legend ends with, and the one loading line, saying nothing once the week has landed (#1398).
         await expect(footer.locator(':scope > [data-roster-legend]')).toHaveCount(5);
-        await expect(footer.locator(':scope > :not([data-roster-legend])')).toHaveCount(0);
+        await expect(footer.locator(':scope > :not([data-roster-legend]):not([data-footer-more]):not([data-footer-line])')).toHaveCount(0);
+        await expect(footer.locator(':scope > [data-footer-line]')).toHaveAttribute('data-idle', '');
         const actual = await railStyle(footer); expect(actual.height).toBe(28);
         const groupBands = () => frame.locator('[data-roster-group]').evaluateAll(groups => groups.map(el => {
             const b = el.getBoundingClientRect(), grid = el.parentElement!.getBoundingClientRect();

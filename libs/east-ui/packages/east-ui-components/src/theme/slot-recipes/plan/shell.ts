@@ -5,8 +5,8 @@
 
 /**
  * The Plan recipe's CHROME — the frame, the horizon brush, the ruler, the
- * footer, the focus bar, the diagnostics, the paged window bands, and the
- * canvas-wide overlays (the cursor hairline and chip, the element overlay
+ * footer, the focus bar, the diagnostics, the runs of rows not drawn yet, and
+ * the canvas-wide overlays (the cursor hairline and chip, the element overlay
  * body). The toolbar band is the Plan's `BuilderFrame`'s (#1193); its items
  * wear the shared parts' recipes — the record rail's summary its own (#1344).
  * The library's tabs over a source of the rail take the shared Library
@@ -28,10 +28,10 @@ import { planElementFocus, planRowFocus } from "./focus.js";
 /** The slots this part styles. */
 export const shellSlots = [
     "root", "frame", "body", "header", "brushTrack", "brushRow",
-    "brushCaption", "horizonLens", "ruler", "rulerTrack", "rulerRow", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
+    "brushCaption", "brushPending", "horizonLens", "ruler", "rulerTrack", "rulerRow", "rulerTick", "rulerLabel", "footer", "footerItem", "focusBar",
     "focusBack", "focusCaption", "diagnostic", "rowDiagnostic", "partError", "diagnostics",
-    "diagnosticChip", "chipIcon", "windowBand", "windowBandCaption", "windowRetry",
-    "cursorLine", "cursorChip", "elementOverlay", "libraryPane",
+    "diagnosticChip", "chipIcon", "runBand", "runRow", "runGutter", "runPlot", "windowRetry",
+    "cursorLine", "cursorChip", "elementOverlay", "libraryPane", "libraryPending",
 ] as const;
 
 /** Their base styles. */
@@ -79,6 +79,15 @@ export const shellBase = {
         borderRightColor: "border.subtle",
         whiteSpace: "nowrap",
         overflow: "hidden",
+    },
+    // The horizon's track while its sources' span is read (#1398, CL1): the
+    // Skeleton's static fill in the strip's place, inset as the strip's bars
+    // are — the row holds its height, so nothing below moves as the span lands.
+    brushPending: {
+        alignSelf: "center",
+        height: "18px",
+        marginInline: "12px",
+        background: "bg.subtle",
     },
     // The horizon's lens (#949): two hairlines from the window the strip has
     // selected, on the strip's own scale, down to the plot's edges — the grid
@@ -245,62 +254,36 @@ export const shellBase = {
         color: "{colors.status.warn}",
         "&[data-tone='danger']": { color: "{colors.status.neg}" },
     },
-    // A run of source elements that is not resident (#577). Sized by the
-    // ledger, so replacing it with rows — or putting it back — moves
-    // nothing below it. The repeating rule reads as ROWS without asserting
-    // how many there are: the canvas cannot know that, and drawing one
-    // skeleton per element would be a claim it cannot support.
-    windowBand: {
+    // ── A run of rows not drawn yet (#1398, CL2): the shared `UnloadedRun`,
+    // its rows the canvas's own — an unloaded run of a paged block (#577), or
+    // a window whose read failed (#811). Sized by the ledger, so replacing it
+    // with rows — or putting it back — moves nothing below it. ──
+    // The run: one row of the grid, which the keyboard lands on (#819).
+    runBand: {
         position: "relative",
-        background: "bg.panel",
-        overflow: "hidden",
-        borderBottomWidth: "1px",
-        borderBottomColor: "border.subtle",
-        backgroundImage:
-            "repeating-linear-gradient(to bottom, transparent 0 calc(var(--plan-row-h) - 1px), {colors.border.subtle} calc(var(--plan-row-h) - 1px) var(--plan-row-h))",
-        // A window whose read FAILED (#811) — the same slab, the rule
-        // replaced by a faint negative wash: rows belong here and could
-        // not be read.
-        "&[data-plan-failed]": {
-            backgroundImage: "none",
-            background: "color-mix(in srgb, {colors.status.neg} 5%, {colors.bg.panel})",
-        },
-        // A band is a row of the grid — the keyboard lands on it (#819).
         ...planRowFocus,
     },
-    // Sticky, so it stays legible wherever you are inside a band that may
-    // be thousands of pixels tall.
-    windowBandCaption: {
-        position: "sticky",
-        top: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "6px",
-        height: "22px",
-        background: "bg.panel",
-        borderBottomWidth: "1px",
+    // A run's row, as a body row: the surface and the rule inside its height.
+    runRow: {
+        background: "bg.surface",
+        borderBottomWidth: "var(--plan-rule-h)",
+        borderBottomStyle: "solid",
         borderBottomColor: "border.subtle",
-        fontFamily: "mono",
-        fontSize: "9.5px",
-        fontWeight: "semibold",
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-        color: "fg.subtle",
-        // The failure caption wraps its reason (a message is not a count)
-        // and wears the negative ink.
-        "[data-plan-failed] &": {
-            height: "auto",
-            minHeight: "22px",
-            padding: "4px 12px",
-            flexWrap: "wrap",
-            textTransform: "none",
-            letterSpacing: "0.02em",
-            color: "{colors.status.neg}",
-            background: "transparent",
-        },
     },
-    // The failed window's Retry — a mono pill in the band's caption.
+    // Its gutter cell, as a row's: its padding and its rule; a label bar, and a sub line's under it on two-line rows.
+    runGutter: {
+        padding: "4px 12px",
+        borderRightWidth: "1px",
+        borderRightStyle: "solid",
+        borderRightColor: "border.subtle",
+    },
+    // Its plot, as a row's: the wash under the bucket grid and the now line, each placed in it; a failed run's
+    // line across it, inset as a row's diagnostic is.
+    runPlot: {
+        padding: "0",
+        "&[data-run-failed]": { paddingInline: "12px" },
+    },
+    // The horizon brush's Retry (#1344) — a mono pill beside its reason.
     windowRetry: {
         fontFamily: "mono",
         fontSize: "9.5px",
@@ -317,9 +300,6 @@ export const shellBase = {
         cursor: "pointer",
         flexShrink: 0,
         "&:hover": { background: "bg.panel" },
-        // The narrow layout's failure card: the reason on the left, the
-        // Retry at the card head's right edge.
-        "[data-plan-narrow] &": { marginLeft: "auto" },
         ...planElementFocus,
     },
     // ── Overlays ──
@@ -368,4 +348,12 @@ export const shellBase = {
     // tab, and takes no gesture while its source resolves — the shared
     // Library pane's part, as the Calendar's and the Sheet's tabs take it.
     libraryPane: schedulePaneBase.pane,
+    // A library tab whose read has not landed (#1398, CL13): placeholder cards
+    // at a card's height, as the tab's cards stack — never its empty state.
+    libraryPending: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        padding: "12px",
+    },
 } satisfies Record<(typeof shellSlots)[number], SystemStyleObject>;

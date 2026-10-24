@@ -164,10 +164,15 @@ function words(root: Element): string[] {
     return out;
 }
 
+/** A message's words marked `⟦`: a string's, or the first part of a line's words, which set what they name strong (#1398). */
+function markWords(said: string | readonly (string | { readonly strong: string })[]): string | (string | { readonly strong: string })[] {
+    if (typeof said === "string") return `⟦${said}`;
+    return said.map((part, i) => (i > 0 ? part : typeof part === "string" ? `⟦${part}` : { strong: `⟦${part.strong}` }));
+}
 /** The English table with every message marked `⟦` — a word the canvas says
  *  without the mark did not come from the table. */
 const MARKED = Object.fromEntries(Object.entries(planMessages).map(([k, f]) =>
-    [k, (p: never) => `⟦${(f as (p: never) => string)(p)}`])) as unknown as PlanMessages;
+    [k, (p: never) => markWords((f as (p: never) => string | readonly (string | { readonly strong: string })[])(p))])) as unknown as PlanMessages;
 const marked = (plan: ReactNode) => <PlanMessagesProvider messages={MARKED}>{plan}</PlanMessagesProvider>;
 
 const allMarked = (texts: readonly string[]) => {
@@ -223,7 +228,7 @@ describe("one message table (#820)", () => {
         allMarked(tags.flatMap(words));
     });
 
-    test("paged: a failed window's reason and its Retry", async () => {
+    test("paged: a failed window's line and its Retry, said once (#1398, CL11)", async () => {
         const state = { failing: true };
         const source = {
             id: "plan-820-failing",
@@ -242,20 +247,25 @@ describe("one message table (#820)", () => {
             const { container } = renderPlan(planRoot([], { source }), "plan-820-failed", marked);
             await waitFor(() => expect(container.querySelector("[data-plan-failed='1']")).toBeTruthy());
             const band = container.querySelector("[data-plan-failed='1']")!;
-            expect(words(band)).toEqual(["⟦Elements 201–400 could not be read — fetch failed: 503", "⟦Retry"]);
+            // In the rows' noun, the table's too; its Retry named by what it asks again.
+            expect(words(band)).toEqual(["⟦Couldn't read ⟦rows 201–400", "⟦Retry"]);
+            expect(band.querySelector("[data-loading-retry]")!.getAttribute("aria-label")).toBe("⟦Retry ⟦rows 201–400");
         } finally {
             err.mockRestore();
         }
     });
 
-    test("paged: the footer's transport line, the unloaded band, and what the live region says", async () => {
+    test("paged: the footer's loading line — its words, its short form — and the unloaded run, which says nothing (#1398)", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-820-paged", marked);
         await waitFor(() => expect(container.querySelector(itemSel("w0r15"))).toBeTruthy());
-        allMarked(words(container.querySelector("[data-slot='footerTransport']")!));
-        allMarked(words(container.querySelector("[data-plan-window-band]")!));
-        // The controller speaks the table too — the landing it announced.
-        allMarked(words(container.querySelector("[data-plan-announce]")!));
+        // Windows 1 and 2 are on the wire, the run they stand in in view: once the wait passes its reveal, the line
+        // says so in the table's words — the rows' noun the table's too.
+        const line = () => container.querySelector("[data-frame-slot='footer'] [data-footer-line]")!;
+        await waitFor(() => expect(line().querySelector("[data-line-text]")?.textContent).toBe("⟦Loading ⟦rows 201–600"));
+        expect(line().querySelector("[data-line-short]")!.textContent).toBe("⟦Loading…");
+        // No caption in the gap (CL3): the run draws its rows' placeholders, and no word.
+        expect(words(container.querySelector("[data-plan-window-band]")!)).toEqual([]);
     });
 
     // A canvas that edits (#880) — the factory's, compiled over a source the

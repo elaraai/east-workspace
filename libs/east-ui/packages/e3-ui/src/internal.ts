@@ -4,10 +4,10 @@
  */
 
 /**
- * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Diff` / `Ontology`
- * **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`, `Flowchart.Payload(…)`,
- * `Diff.Root(…)`, `Diff.Component`) plus `Data`, the manifest type and
- * derivation, and types.
+ * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` / `Diff` /
+ * `Ontology` **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`,
+ * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Diff.Root(…)`,
+ * `Diff.Component`) plus `Data`, the manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -262,11 +262,13 @@ export {
 } from './plan/index.js';
 // The resources' rows a Plan of event kinds draws over a window (#1192): the
 // `blocks` seam its payload carries, made inside the payload's assembly, and
-// the drafts it reads, by kind, and the resources the rail shows (#1344); and a
+// the drafts it reads, by kind, and the resources the rail shows (#1344); a
 // paged resource kind's rows, a window of its resources at a time, with the
-// events placed on them (#1199).
+// events placed on them (#1199); and what a reader read of a kind by its
+// series index's cells, and the resources' shading past the budget (#1039).
 export {
-    createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventShownType,
+    createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventReadsType,
+    PlanEventShadeType, PlanEventShadingType, PlanEventShownType,
 } from './plan/event-rows.js';
 // The Plan's library pane on the wire (#1195): its tabs, an author's tab's
 // cards, the Series tab's lines and what hiding each hides, and the ids a
@@ -461,6 +463,98 @@ export {
     type FlowchartPatchInput,
 } from './flowchart/index.js';
 export * from './flowchart/types.js';
+// The Schematic (#1381): `<Schematic>` with its namespace, the payload the
+// renderer takes through the `Schematic` carrier — its kinds over the app's
+// records, each closed behind East functions over bytes, its library's tabs,
+// its rail and each source's shown keys — its shared keys, which index and
+// searches a kind read by area reads a window through, and its density's
+// raster and the cells of it that hold rows (#1393), and the types a Schematic is written with. `Schematic` here
+// is the internal namespace — the public one, `Schematic.Payload`,
+// `Schematic.Component` and the payload's types.
+export {
+    SchematicInternal as Schematic,
+    SchematicTag,
+    SchematicComponent,
+    SchematicPayloadType,
+    SchematicShapes,
+    SchematicLibraryFactories,
+    SchematicLibraryTabType,
+    SchematicLibraryCardType,
+    SCHEMATIC_DEF,
+    SCHEMATIC_TEMPLATES,
+    SCHEMATIC_WINDOW_READ_ROWS,
+    SCHEMATIC_WINDOW_ROWS,
+    buildSchematicLibrary,
+    checkedSchematicTemplates,
+    createSchematicPayload,
+    isSchematicKind,
+    isSchematicLayers,
+    isSchematicTemplates,
+    schematicAreaIndexes,
+    schematicDensityCells,
+    schematicDetails,
+    schematicItems,
+    schematicKeys,
+    schematicLayers,
+    schematicLinks,
+    schematicNets,
+    schematicRaster,
+    schematicSourceRows,
+    schematicTabSources,
+    schematicTemplates,
+    schematicUnplacedPlan,
+    schematicWholeRows,
+    schematicWindowPlan,
+    schematicZones,
+    type SchematicAreaIndexes,
+    type SchematicDensityCell,
+    type SchematicRaster,
+    type SchematicUnplacedPlan,
+    type SchematicWindowPlan,
+    type SchematicTagType,
+    type SchematicNamespace,
+    type SchematicInternalNamespace,
+    type SchematicTypes,
+    type SchematicProps,
+    type SchematicLayers,
+    type SchematicLayersConfig,
+    type SchematicNarrowedOptions,
+    type SchematicItemsConfig,
+    type SchematicZonesConfig,
+    type SchematicLinksConfig,
+    type SchematicNetsConfig,
+    type SchematicDetailsConfig,
+    type SchematicItems,
+    type SchematicZones,
+    type SchematicLinks,
+    type SchematicNets,
+    type SchematicDetails,
+    type SchematicRecord,
+    type SchematicEnd,
+    type SchematicEndField,
+    type SchematicSide,
+    type SchematicStatusConfig,
+    type SchematicStringField,
+    type SchematicFloatField,
+    type SchematicPlaceField,
+    type SchematicViaField,
+    type SchematicMembersField,
+    type SchematicValuesOf,
+    type SchematicTemplates,
+    type SchematicTemplatesConfig,
+    type SchematicKindPart,
+    type SchematicLibrary,
+    type SchematicLibraryContext,
+    type SchematicLibraryKind,
+    type SchematicLibraryTab,
+    type SchematicLibraryTabConfig,
+    type SchematicPatternConfig,
+    type SchematicPolylineConfig,
+    type SchematicVertexInput,
+    type SchematicVertices,
+    type SchematicToneLiteral,
+} from './schematic/index.js';
+export * from './schematic/types.js';
 // Schedule (#1218, #1190): the kinds the Calendar and Plan's builder share,
 // the checks a builder makes across its slots, and the kinds' wire, the
 // Calendar's and Plan's. `Schedule` here is the internal namespace — the

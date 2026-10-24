@@ -412,7 +412,8 @@ describe("paged data beside event kinds", () => {
         const { container } = await h.mount(program);
         await settle();
         expect(drawn(container)).toEqual([...presses, ...units].map(rowKeyOf));
-        expect(container.querySelector('[data-slot="footerTransport"]')?.textContent).toBe("3 loaded of 3");
+        // Every unit is in: the body marks no prefix of its numbers.
+        expect(container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
         expect(container.querySelector(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
         // A commit moves a job: the windows are read again, and the rows they
         // lead with are the commit's — once each, the units' unchanged.

@@ -8,7 +8,9 @@
  * follows its source of the slice (#1343): the Templates tab each templates
  * list's, by template key; the Backlog its kinds' own narrowing; an app's tab
  * the source it names, by its rows' keys — each counting what it shows and
- * saying so, with Clear filters, when the rail leaves it none.
+ * saying so, with Clear filters, when the rail leaves it none. While its
+ * period is read, the Backlog counts "…" and draws pending cards, never "No
+ * backlog events" before its read (#1398, CL13).
  */
 import { useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
@@ -18,6 +20,7 @@ import { narrowedCount, type CountWords } from "@elaraai/east-ui-components/inte
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { dueGroupOf, durationMinutes } from "../shared/schedule/due.js";
 import type { FollowedSources } from "../shared/schedule/follow-sources.js";
+import { PendingCards } from "../shared/schedule/pending-cards.js";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../shared/schedule/source-tab.js";
 import { PlacementAction, type CalendarShownResources } from "./controls.js";
 import type { CalendarCommands, CalendarSource } from "./actions.js";
@@ -59,6 +62,8 @@ export function templatesTab(value: CalendarValue, followed: FollowedSources, wo
 
 interface LibraryArgs {
     value: CalendarValue; backlog: readonly CalendarItem[]; selection: readonly CalendarItem[]; key: string;
+    /** Whether the backlog is read for the period shown: until it is, the tab counts "…" and draws pending cards. */
+    backlogRead: boolean;
     narrow: boolean; now: Date; day: Date; styles: CalendarStyles; commands: CalendarCommands | undefined;
     activeTemplate: string | undefined; onTemplate: (key: string) => void;
     /** The Templates tab, as the sources narrow it. */
@@ -70,11 +75,17 @@ interface LibraryArgs {
     /** Each resource kind's rows the rail shows: what a placement's Chooser offers. */
     shown: CalendarShownResources;
 }
-/** What a tab is, as its pane takes it: its cards, its count (none while it is read), and what it says empty. */
-interface TabFacts { cards: readonly LibraryItemValue[]; count: string | number | undefined; empty: LibraryEmpty | undefined; narrowing: LibraryNarrowing | undefined; pane: { "aria-busy"?: true; inert?: true } }
+/**
+ * What a tab is, as its pane takes it: its cards, its count (none while it is read), what it says empty, and whether its
+ * cards are read at all.
+ */
+interface TabFacts {
+    cards: readonly LibraryItemValue[]; count: string | number | undefined; empty: LibraryEmpty | undefined; narrowing: LibraryNarrowing | undefined;
+    pane: { "aria-busy"?: true; inert?: true }; pending?: boolean;
+}
 /** The author-listed tabs, populated from the current bound reads. */
 export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefined {
-    const { value, backlog, key, narrow, day, now, styles, commands, selection, activeTemplate, onTemplate, templates, backlogNarrowing, followed, shown } = args;
+    const { value, backlog, backlogRead, key, narrow, day, now, styles, commands, selection, activeTemplate, onTemplate, templates, backlogNarrowing, followed, shown } = args;
     const format = useFormatters();
     const [chosen, setChosen] = useState<Record<string, string>>({});
     if (value.library.length === 0) return undefined;
@@ -110,10 +121,11 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
             const { narrowing, hidden, clear } = backlogNarrowing;
             const narrows = narrowing.length > 0;
             const held = backlog.filter(item => narrowing.some(({ kind }) => kind.key === item.kind)).length;
-            facts = { cards, empty: { title: "No backlog events" }, pane: {},
-                count: !narrows ? cards.length : hidden === undefined ? undefined : narrowedCount(format, cards.length, cards.length + hidden, true),
-                narrowing: !narrows || clear === undefined ? undefined : { empty: { title: "No backlog events match the filters", description: "Change or clear the filters to see more backlog events." },
-                    onClear: clear, emptied: held === 0 } };
+            facts = !backlogRead ? { cards: [], count: "…", empty: undefined, narrowing: undefined, pane: { "aria-busy": true }, pending: true }
+                : { cards, empty: { title: "No backlog events" }, pane: {},
+                    count: !narrows ? cards.length : hidden === undefined ? undefined : narrowedCount(format, cards.length, cards.length + hidden, true),
+                    narrowing: !narrows || clear === undefined ? undefined : { empty: { title: "No backlog events match the filters", description: "Change or clear the filters to see more backlog events." },
+                        onClear: clear, emptied: held === 0 } };
         } else {
             const cards = tab.value.cards.map(card => ({ ...baseCard(card.key, card.label, card.meta.type === "some" ? card.meta.value : "",
                 tab.value.icon.type === "some" ? tab.value.icon.value : undefined, card.group.type === "some" ? card.group.value : "", card.key === chosen[tabKey]), draggable: draggable && tab.value.drop.type === "some" }));
@@ -132,14 +144,14 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         const targetKind = author?.drop.type === "some" ? author.drop.value : undefined;
         const targets = selection.filter(item => item.kind === targetKind);
         return { key: tabKey, label, ...(facts.count === undefined ? {} : { count: facts.count }), shownCount: facts.cards.length, body: <Box css={styles.pane} {...facts.pane}>
-            <EastChakraLibrary value={library} storageKey={calendarLibraryId(key, tabKey)} empty={facts.empty} narrowing={facts.narrowing} />
+            {facts.pending === true ? <PendingCards /> : <EastChakraLibrary value={library} storageKey={calendarLibraryId(key, tabKey)} empty={facts.empty} narrowing={facts.narrowing} />}
             {commands !== undefined && (source !== undefined || patch !== undefined) && <Box css={styles.paneFoot}>
                 {source !== undefined && <PlacementAction label={"template" in source ? "Create" : "Schedule"} source={source} value={value} shown={shown} day={day} commands={commands} styles={styles} />}
                 {patch !== undefined && <Button size="xs" variant="outline" disabled={targets.length === 0 || targets.some(item => !commands.editing.available(item.kind))} onClick={() => commands.patch(targets, patch.sets)}>Apply to selected events</Button>}
             </Box>}
         </Box> };
     });
-    // The collapsed pane's badge: what the backlog shows, else what the first tab shows.
-    const badge = value.library.some(tab => tab.type === "backlog") ? backlog.length : tabs[0]?.shownCount ?? 0;
+    // The collapsed pane's badge: what the backlog shows — "…" while it is read — else what the first tab shows.
+    const badge = value.library.some(tab => tab.type === "backlog") ? backlogRead ? backlog.length : "…" : tabs[0]?.shownCount ?? 0;
     return { label: "Library", icon: "layer-group", size: "272px", tabs: tabs.map(({ shownCount: _shown, ...tab }) => tab), persist: "local", badge: String(badge) };
 }

@@ -180,10 +180,12 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
     const styles = useSlotRecipe({ key: "plan" })() as unknown as Record<string, Record<string, unknown>>;
     const chrome: PlanChrome = {
         words: PLAN_WORDS, styles, storageKey: "plan.toolbar", scale: WEEKLY,
-        slices: undefined, windowParts: [], lead: undefined, rowsPart: undefined, eventParts: [], nouns: {}, windowError: undefined,
+        slices: undefined, windowParts: [], lead: undefined, rowsPart: undefined, eventParts: [], nouns: {}, rowsNoun: "rows", windowError: undefined,
         affordances: [], resolutions: [], grain: undefined, transport: undefined, search: undefined,
+        // How the frame shows the source being read (#1398): the toolbar never reads it.
+        cold: undefined, busy: false, pitch: 42,
         diagnostics: { skipped: 0 },
-        history: undefined, sessions: [], events: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        history: undefined, sessions: [], events: undefined, cells: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
         // The inspector's reads: the toolbar takes none.
         inspect: { row: () => undefined, valueAt: () => undefined },
         // The overlaps chip's selection (#1198): its own test hears it.

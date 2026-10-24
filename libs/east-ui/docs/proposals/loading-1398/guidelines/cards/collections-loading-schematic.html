@@ -1,0 +1,57 @@
+<!-- @dsCard group="Components · Collections" name="Schematic · loading" viewport="700x1820" subtitle="The window's reads (#1393) on the loading model: the unread area as the wash · items landing with real titles, their details placeholders · the density raster real from the counts · the inspector's fields · failed with Retry in place" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.nd{position:absolute;z-index:3;width:152px;box-sizing:border-box;display:grid;gap:8px;padding:8px 12px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.nd .t{font-size:var(--fs-body);font-weight:600;line-height:20px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nd .mr{display:flex;align-items:center;gap:8px;height:16px}
+.nd .tk{flex:1;height:6px;background:var(--paper-3)}
+.nd .tk i{display:block;height:6px;background:var(--brand-d)}
+.nd .pc{width:32px;text-align:right;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-lg);font-weight:600;color:var(--ink)}
+.nd .mv{display:flex;align-items:baseline;gap:4px;height:16px;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-body);font-weight:600;color:var(--ink)}
+.nd .mv .u{font-size:var(--fs-label-md);font-weight:500;color:var(--ink-4)}
+.hc2{position:absolute;z-index:1;box-sizing:border-box}
+.ins{flex:none;width:200px;box-sizing:border-box;border-left:1px solid var(--rule);background:var(--paper)}
+.ins .hd2{display:grid;gap:4px;padding:12px;border-bottom:1px solid var(--rule)}
+.ins .hd2 .t{font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;letter-spacing:-0.01em;color:var(--ink)}
+.kv{height:32px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;border-bottom:1px solid var(--rule)}
+.kv .kk{font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-4)}
+.flt2{position:absolute;z-index:4;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">A pan into cells not yet read</div>
+<div class="it2"><div class="bf" id="s1"></div><div class="cap"><span class="f"><b>unread · the window's new cells</b>: the wash over the unread area, clipped to the cells being read</span> · <span class="f">the canvas grid draws over it; items already read stay, real, until replaced</span> · <span class="f">no item shape in the area: nothing implies a position</span> · <span class="f">fetched on intent: once the view rests 100 ms over it, or slows below a viewport per 200 ms</span></div></div>
+<div class="it2"><div class="bf" id="s2"></div><div class="cap"><span class="f"><b>landed · items, details pending</b>: the window's rows place the items with their real titles</span> · <span class="f">status a dot and a short bar · the meter's track a 6 rect and its percent a bar · the metric a short bar, until the details land (D3)</span> · <span class="f">the inspector: a real head, its fields bars until the details record lands</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Zoomed out · the density raster (D25)</div>
+<div class="it2"><div class="bf" id="s3"></div><div class="cap"><span class="f"><b>real before any rows</b>: the raster comes from the counts, so it draws at once, in the heat ramp, with no wash</span> · <span class="f">a cell with no count yet is --paper, blank, and takes the wash until its count lands</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Failed · Retry in place</div>
+<div class="it2"><div class="bf" id="s4"></div><div class="cap"><span class="f"><b>failed</b>: the area's read failed; the wash goes and the reason and Retry sit at the area's top-left, in view</span> · <span class="f">what was read stays; the footer line carries the same reason</span></div></div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>&lt;Schematic&gt; window reads (#1393) · LoadingWash · BuilderFrame busy</b> · <span class="f">canvas and grid real; the previous window's items kept until replaced</span> · <span class="f">the window's new cells: the wash, under the 1px --rule grid, no item shapes</span> · <span class="f">density raster: --heat-1 … --heat-5 from the counts, real</span> · <span class="f">cards: titles real; status an 8 dot + 8 bar, meter a 6 rect + bar, metric a 12 bar until details land</span> · <span class="f">inspector: real head, fields bars</span> · <span class="f">footer: Loading items in view · Couldn't read items in view · Retry</span> · <span class="f">fetch on intent; whatever leaves the window is aborted</span> · <span class="f">reveal 150 ms, hold 300 ms</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,bar,rect,enm,leg,line,foot,tb,it,sum,flt,$}=L;
+const LG=leg([['Running','sw'],['Idle','sw mu'],['Fault','sw dw']]);
+const TB=c=>tb([it(flt()),it(`<span class="sp" role="combobox" aria-label="Search"><span class="q ph">Search…</span><span class="kh">/</span></span>`),it(sum(c),'end')]);
+const grid=(w,h)=>{let g='';for(let x=40;x<w;x+=40)g+=`<i class="gl" style="left:${x}px;top:0;bottom:0;width:1px"></i>`;for(let y=40;y<h;y+=40)g+=`<i class="gl" style="top:${y}px;left:0;right:0;height:1px"></i>`;return g;};
+const real=(x,y,t,s,p,m)=>`<span class="nd" style="left:${x}px;top:${y}px"><span class="t">${t}</span><span class="stt"><span class="dot ${s[1]}"></span>${s[0]}</span><span class="mr"><span class="tk"><i style="width:${p}%"></i></span><span class="pc">${p}%</span></span><span class="mv">${m}<span class="u">u/h</span></span></span>`;
+const pend=(x,y,t)=>`<span class="nd" style="left:${x}px;top:${y}px"><span class="t">${t}</span><span class="mr">${enm(48,8)}</span><span class="mr">${rect(88,6,1)}${bar(28,8)}</span><span class="mr">${bar(40)}</span></span>`;
+const known=real(16,16,'Press A',['Running','pos'],82,'1,240')+real(16,136,'Press B',['Idle','neu'],0,'0')+real(184,56,'Dryer 2',['Running','pos'],64,'910');
+const cv=(inner,w)=>`<div class="cvs" style="height:256px">${inner}${grid(w||660,256)}</div>`;
+$('s1',TB('<b>18</b> of 2,400 items')+cv(`<i class="wl wash" style="left:360px;top:0;right:0;bottom:0"></i>`+known)+foot(LG,line('load','Loading items in view')));
+const ins=`<div class="ins"><div class="hd2"><span class="t">Kiln 4</span><span class="mt9">Line 2 · cell 14</span></div>${['Status','Throughput','Temperature','Last fault'].map(k=>`<div class="kv"><span class="kk">${k}</span>${bar(48)}</div>`).join('')}</div>`;
+$('s2',TB('<b>24</b> of 2,400 items')+`<div class="vw"><div class="main">${cv(real(16,16,'Press A',['Running','pos'],82,'1,240')+real(16,136,'Press B',['Idle','neu'],0,'0')+pend(200,16,'Kiln 4')+pend(200,136,'Kiln 5'),460)}</div>${ins}</div>`+foot(LG,line('load','Loading details for <b>6</b> items')));
+const heat=[[2,1,0,3],[4,5,3,1],[1,2,4,2],[0,1,1,3],[3,2,0,0]];
+let r='';heat.forEach((row,j)=>row.forEach((v,i)=>{r+=`<i class="hc2" style="left:${i*80+40}px;top:${j*40+28}px;width:80px;height:40px;background:${v?`var(--heat-${v})`:'var(--paper)'}"></i>`;}));
+r+=`<i class="wl wash" style="left:360px;top:28px;width:80px;height:200px"></i>`;
+$('s3',TB('<b>2,400</b> items')+cv(r)+foot(LG,line('load','Loading counts')));
+$('s4',TB('<b>18</b> of 2,400 items')+cv(known+`<span class="flt2" style="left:376px;top:16px"><span class="fail">${I('circle-exclamation')}<span class="msg">Couldn't read this area</span></span><span class="bt md" role="button">Retry</span></span>`)+foot(LG,line('err','Couldn\'t read items in view')));
+})();
+</script>
+</body></html>

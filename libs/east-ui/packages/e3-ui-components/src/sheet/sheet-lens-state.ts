@@ -13,27 +13,31 @@
  * the views and the slice's narrowing arrive with the context, and every
  * write leaves as an effect (`emit.views`, `slice.write`).
  *
+ * The reveals are runs of the record's rows by position (#1349); a view keeps
+ * them by their rows' keys, which the context names (`nameReveals`), and a
+ * view that opens hands them to the sheet to place (`named`), each joining the
+ * reveals where its keys land in the record (`lens.placed`).
+ *
  * @packageDocumentation
  */
 
+import { ArrayType, equalFor } from "@elaraai/east";
+import { Sheet } from "@elaraai/e3-ui/internal";
 import { clearSearch, narrowingQuery } from "./view-state.js";
-import { revealStep, viewName } from "./lens.js";
+import { mergeRuns, revealStep, viewName, type LensRun } from "./lens.js";
 import {
     EMPTY_LENS, clamp, same,
     type LensContext, type LensState, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SheetUiState, type Transition,
 } from "./sheet-types.js";
-import type { SheetSavedView } from "./values.js";
+import type { SheetRevealValue, SheetSavedView } from "./values.js";
 
 const noop = (s: SheetUiState): Transition => ({ state: s, effects: [] });
+const revealsEqual = equalFor(ArrayType(Sheet.Types.Reveal));
 
-/** The reveals as the wire carries them — sorted positions. */
-function wireReveals(reveals: ReadonlySet<number>): bigint[] {
-    return [...reveals].sort((a, b) => a - b).map((p) => BigInt(p));
-}
-
-/** Whether two wire reveal lists are the same. */
-function sameReveals(a: readonly bigint[], b: readonly bigint[]): boolean {
-    return a.length === b.length && a.every((x, i) => x === b[i]);
+/** The reveals as a view keeps them: the runs the sheet can name by their rows' keys, then those still to be placed. */
+function wireReveals(lens: LensState, ctx: SheetMachineCtx): SheetRevealValue[] {
+    const named = lens.reveals.length === 0 ? [] : ctx.nameReveals?.(lens.reveals) ?? [];
+    return [...named, ...lens.named];
 }
 
 /** The fold overrides as the wire carries them (#740). */
@@ -48,11 +52,11 @@ function sameFolds(a: ReadonlyMap<string, boolean>, b: ReadonlyMap<string, boole
     return true;
 }
 
-/** A view's lens — its context clamped to the switch's stops, its reveals as positions, its folds, no presses yet. */
+/** A view's lens — its context clamped to the switch's stops, its reveals to be placed, its folds, no presses yet. */
 function lensOf(view: SheetSavedView): LensState {
     const n = Number(view.context);
     const context: LensContext = n >= 3 ? 3 : n >= 1 ? 1 : 0;
-    return { context, reveals: new Set(view.reveals.map((p) => Number(p))), steps: new Map(), folds: new Map(view.folds) };
+    return { context, reveals: [], named: view.reveals, steps: new Map(), folds: new Map(view.folds) };
 }
 
 /** The active view, if any. */
@@ -64,15 +68,20 @@ function activeView(s: SheetUiState, ctx: SheetMachineCtx): SheetSavedView | und
  * The views with the active tab's lens persisted — its context and reveals;
  * an unsaved narrowing is discarded on leave (B§8). The same array comes back
  * when nothing changed.
+ *
+ * @param s - The state
+ * @param views - The views
+ * @param ctx - The context, which names the reveals by their rows' keys
+ * @returns The views, the active one's lens as it stands
  */
-export function persistLens(s: SheetUiState, views: readonly SheetSavedView[]): readonly SheetSavedView[] {
+export function persistLens(s: SheetUiState, views: readonly SheetSavedView[], ctx: SheetMachineCtx): readonly SheetSavedView[] {
     const a = s.tabs.active;
     if (a === null) return views;
     let changed = false;
     const context = BigInt(s.lens.context);
-    const reveals = wireReveals(s.lens.reveals);
+    const reveals = wireReveals(s.lens, ctx);
     const out = views.map((v) => {
-        if (v.id !== a || (v.context === context && sameReveals(v.reveals, reveals) && sameFolds(v.folds, s.lens.folds))) return v;
+        if (v.id !== a || (v.context === context && revealsEqual(v.reveals, reveals) && sameFolds(v.folds, s.lens.folds))) return v;
         changed = true;
         return { ...v, context, reveals, folds: wireFolds(s.lens.folds) };
     });
@@ -83,17 +92,33 @@ export function persistLens(s: SheetUiState, views: readonly SheetSavedView[]): 
 
 /** The context switch — reveals and presses reset; the folds stay. */
 export function setContext(s: SheetUiState, context: LensContext): SheetUiState {
-    if (s.lens.context === context && s.lens.reveals.size === 0) return s;
-    return { ...s, lens: { context, reveals: new Set(), steps: new Map(), folds: s.lens.folds } };
+    if (s.lens.context === context && s.lens.reveals.length === 0 && s.lens.named.length === 0) return s;
+    return { ...s, lens: { context, reveals: [], named: [], steps: new Map(), folds: s.lens.folds } };
 }
 
 /** A band control pressed — the run opens a little further (1 · 3 · 10 · all). */
 export function bandReveal(s: SheetUiState, e: Extract<SheetEvent, { t: "band.reveal" }>): SheetUiState {
-    const { positions, steps } = revealStep(s.lens.steps, e.key, e.from, e.to, e.where);
-    if (positions.length === 0) return s;
-    const reveals = new Set(s.lens.reveals);
-    for (const p of positions) reveals.add(p);
-    return { ...s, lens: { ...s.lens, reveals, steps } };
+    const { runs, steps } = revealStep(s.lens.steps, e.key, e.from, e.to, e.where);
+    if (runs.length === 0) return s;
+    return { ...s, lens: { ...s.lens, reveals: mergeRuns(s.lens.reveals, runs), steps } };
+}
+
+/** Runs opened outright (#1349): the row a key search lands on. */
+export function lensReveal(s: SheetUiState, runs: readonly LensRun[]): SheetUiState {
+    const reveals = mergeRuns(s.lens.reveals, runs);
+    return reveals === s.lens.reveals ? s : { ...s, lens: { ...s.lens, reveals } };
+}
+
+/** The record moved (#1349): the reveals, named by their rows' keys, wait to be placed at its new revision — the presses keep. */
+export function lensNamed(s: SheetUiState, named: readonly SheetRevealValue[]): SheetUiState {
+    if (s.lens.reveals.length === 0 && named.length === 0) return s;
+    return { ...s, lens: { ...s.lens, reveals: [], named: [...named, ...s.lens.named] } };
+}
+
+/** Named runs placed (#1349): when they are still the lens's to place, they join the reveals where they landed. */
+export function lensPlaced(s: SheetUiState, named: readonly SheetRevealValue[], runs: readonly LensRun[]): SheetUiState {
+    if (named !== s.lens.named) return s;
+    return { ...s, lens: { ...s.lens, reveals: mergeRuns(s.lens.reveals, runs), named: [] } };
 }
 
 /** The narrowing changed underneath: reveals and presses reset, the range and the proposal pick drop, the ring returns to the top. */
@@ -101,7 +126,8 @@ export function narrowed(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const sel = clamp({ r: 0, c: s.sel.c }, ctx);
     const effects: SheetEffect[] = [];
     if (!same(sel, s.sel)) effects.push({ t: "emit.select", r: sel.r, c: sel.c });
-    const lens = s.lens.reveals.size === 0 && s.lens.steps.size === 0 ? s.lens : { ...s.lens, reveals: new Set<number>(), steps: new Map<string, number>() };
+    const untouched = s.lens.reveals.length === 0 && s.lens.named.length === 0 && s.lens.steps.size === 0;
+    const lens = untouched ? s.lens : { ...s.lens, reveals: [], named: [], steps: new Map<string, number>() };
     return { state: { ...s, lens, sel, selEnd: null, gsel: null, armed: null }, effects };
 }
 
@@ -120,7 +146,7 @@ export function narrowed(s: SheetUiState, ctx: SheetMachineCtx): Transition {
  */
 export function switchTab(s: SheetUiState, ctx: SheetMachineCtx, id: string | null, persist = true): Transition {
     const views = ctx.views ?? [];
-    const kept = persist ? persistLens(s, views) : views;
+    const kept = persist ? persistLens(s, views, ctx) : views;
     const view = id === null ? undefined : kept.find((v) => v.id === id);
     if (id !== null && view === undefined) return noop(s);
     const effects: SheetEffect[] = [];
@@ -145,13 +171,13 @@ export function switchTab(s: SheetUiState, ctx: SheetMachineCtx, id: string | nu
 export function createTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const narrowing = ctx.narrowing;
     if (narrowing === undefined) return noop(s);
-    const kept = persistLens(s, ctx.views ?? []);
+    const kept = persistLens(s, ctx.views ?? [], ctx);
     const query = narrowingQuery(narrowing);
     let seq = s.tabs.seq;
     let id = `view-${seq}`;
     while (kept.some((v) => v.id === id)) { seq += 1; id = `view-${seq}`; }
     const name = viewName(query, seq, ctx.viewName);
-    const view: SheetSavedView = { id, name, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals), folds: wireFolds(s.lens.folds) };
+    const view: SheetSavedView = { id, name, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens, ctx), folds: wireFolds(s.lens.folds) };
     return {
         state: { ...s, tabs: { ...s.tabs, active: id, seq: seq + 1, renaming: null, renameVal: "" }, msg: { id: "tabSaved", name, query: query.trim() !== "" } },
         effects: [{ t: "emit.views", views: [...kept, view] }],
@@ -178,7 +204,8 @@ export function updateTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const t = activeView(s, ctx);
     const narrowing = ctx.narrowing;
     if (t === undefined || narrowing === undefined) return noop(s);
-    const views = (ctx.views ?? []).map((v) => (v.id === t.id ? { ...v, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens.reveals), folds: wireFolds(s.lens.folds) } : v));
+    const reveals = wireReveals(s.lens, ctx);
+    const views = (ctx.views ?? []).map((v) => (v.id === t.id ? { ...v, narrowing, context: BigInt(s.lens.context), reveals, folds: wireFolds(s.lens.folds) } : v));
     return { state: { ...s, msg: { id: "tabUpdated", name: t.name } }, effects: [{ t: "emit.views", views }] };
 }
 

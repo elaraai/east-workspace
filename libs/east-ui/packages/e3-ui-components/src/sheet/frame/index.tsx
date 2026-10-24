@@ -41,7 +41,12 @@
  *   own rows, the strip docked under it;
  * - **the footer** — the sheet's, and over a record its last save, from the
  *   record's commits, which the inspector also says with who made it; over
- *   the slice's `rows` source, the rows a Save took out of the narrowing.
+ *   the slice's `rows` source, the rows a Save took out of the narrowing; and
+ *   over a paged source the shared loading line, saying what is read (#1398).
+ *
+ * A paged source's cold load is the frame's skeleton, its rows at the sheet's
+ * pitch and its footer live; after it, a read in flight — a window, a
+ * narrowing's rows — covers nothing, and main, the grid, is busy (#1398, CL5).
  *
  * ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the frame — a pane, the
  * toolbar — as the history item does (#1185, SB26): the grid answers its own,
@@ -65,11 +70,12 @@ import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
+import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import { sourcePart, type KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
 import { SheetFooter } from "../Footer.js";
-import { SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../index.js";
+import { SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetLoading, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../index.js";
 import { todayUtc } from "../parse/date.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
 import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
@@ -234,6 +240,7 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     const items = useSheetToolbarItems();
     const toolbarRef = useSheetToolbarRef();
     const footer = useSheetFooter();
+    const loading = useSheetLoading();
     const { session, onAction } = useSheetHistory();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
@@ -273,21 +280,32 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
             )}
         </>
     );
+    // The sheet's one reveal clock (#1398, CL4): the footer's line and the runs' placeholders show once a read the view
+    // waits for has passed the delay, and are held once shown — a flip renders them, never the frame.
+    const waiting = footer.loading !== undefined && footer.loading.kind !== "failed";
     return (
-        <BuilderFrame
-            storageKey={keys.frame}
-            toolbar={toolbar}
-            toolbarRef={toolbarRef}
-            banners={banners}
-            start={library}
-            end={inspector}
-            footer={<SheetFooter {...footer} saved={saved} recordSlice={rowsPart} />}
-            onKeyDown={onKeyDown}
-        >
-            <SheetRoot>
-                <SheetGrid />
-            </SheetRoot>
-        </BuilderFrame>
+        <LoadingReveal waiting={waiting}>
+            <BuilderFrame
+                storageKey={keys.frame}
+                toolbar={toolbar}
+                toolbarRef={toolbarRef}
+                banners={banners}
+                start={library}
+                end={inspector}
+                footer={<SheetFooter {...footer} saved={saved} recordSlice={rowsPart} />}
+                // A paged source's cold load is the frame's skeleton at the rows' pitch, its footer live and saying what
+                // is read; after it, a read the view waits for leaves everything live and the grid busy (#1398).
+                loading={loading.cold}
+                busy={loading.busy}
+                loadingPitch={loading.pitch}
+                liveFooter
+                onKeyDown={onKeyDown}
+            >
+                <SheetRoot>
+                    <SheetGrid />
+                </SheetRoot>
+            </BuilderFrame>
+        </LoadingReveal>
     );
 }
 

@@ -371,7 +371,8 @@ describe("<Query.Library> — opening queries (#1063 L5, L6)", () => {
 describe("<Query.Library> — what it reads, and its drag source (#1063 L7)", () => {
     test("L7: opening the library, and a query from it, reads the saved queries alone — no data source's value, bound or paged", async () => {
         // A bound value and the record are read from the dataset cache, which also reads itself to say what it holds
-        // (`has`) — the page's polls of what the surface reads; a paged source's rows are read from e3, by page or by key.
+        // (`has`) — the page's polls of what the surface reads; a paged source's rows are read from e3, by page or by key,
+        // or several runs or keys at once (#1351).
         const read = Object.getOwnPropertyDescriptor(ReactiveDatasetCache.prototype, "read")!.value as ReactiveDatasetCache["read"];
         const has = Object.getOwnPropertyDescriptor(ReactiveDatasetCache.prototype, "has")!.value as ReactiveDatasetCache["has"];
         let holding = 0;
@@ -390,7 +391,7 @@ describe("<Query.Library> — what it reads, and its drag source (#1063 L7)", ()
         await show("recent");
         await click(card("recent:0"));
         expect(surfaceReads).toEqual(new Set([`.records.${ex.queries.name}`]));
-        expect([h.requests("page"), h.requests("find")]).toEqual([[], []]);
+        expect([h.requests("page"), h.requests("find"), h.requests("runs"), h.requests("rows")]).toEqual([[], [], [], []]);
     });
 
     test("L7: under a drag layer a saved query's card drags, from the library's id — its builder's — and a recent run's does not", async () => {

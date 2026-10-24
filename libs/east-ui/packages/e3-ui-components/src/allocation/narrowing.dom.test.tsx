@@ -65,8 +65,10 @@ const total = (bands: readonly { rows: number; bins: number; free: number }[]) =
 });
 const summary = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-record-slices-summary]")?.textContent;
 const HALL_A = ["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"];
-const bayPages = () => h.requests("page", "records.yard_bays").filter(r => r.query.get("index") === ex.yardBaysByArea.name);
-const kilnPages = () => h.requests("page", "records.kilns").filter(r => r.query.get("index")?.startsWith("kilns_by_") === true);
+/** The reads of a record's rows through its indexes: its pages, and its reads of several runs in one (#1351). */
+const indexReads = (dataset: string) => [...h.requests("page", dataset), ...h.requests("runs", dataset)];
+const bayPages = () => indexReads("records.yard_bays").filter(r => r.query.get("index") === ex.yardBaysByArea.name);
+const kilnPages = () => indexReads("records.kilns").filter(r => r.query.get("index")?.startsWith("kilns_by_") === true);
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("one rail over the lanes, the resources and the arrivals", () => {
@@ -256,6 +258,25 @@ describe("the Timeline, narrowed", () => {
         await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
         await waitFor(() => expect(links()).toEqual(["3126|K-202"]));
         expect(c.querySelector('[data-allocation-resource="K-202"]')!.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    test("a narrowing read while the day stands in keeps the day's bins in their cells, retained — stale, taking no gesture — until it lands (#1398, CL5)", async () => {
+        const { c, store } = await open(ex.allocationKilnYard);
+        await waitFor(() => expect(cards(c)).toHaveLength(26));
+        const board = () => slot(c, "main").querySelector<HTMLElement>("[data-allocation-main]")!;
+        expect(board().hasAttribute("data-allocation-stale")).toBe(false);
+        // The bays' reads held on their way to e3: the lanes' new membership is in flight.
+        const held = h.e3.hold(request => request.dataset === "records.yard_bays");
+        await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
+        expect(board().hasAttribute("data-allocation-stale")).toBe(true);
+        expect(board().hasAttribute("inert")).toBe(true);
+        // The day stands in, whole: its lanes and its bins as they were, never a cover.
+        expect([laneHeads(c), cards(c).length]).toEqual([["B-1", "B-2", "B-3"], 26]);
+        expect(c.querySelector("[data-builder-loading]")).toBeNull();
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
+        expect([board().hasAttribute("data-allocation-stale"), board().hasAttribute("inert")]).toEqual([false, false]);
     });
 
     test("a failed lane read keeps the last lanes, says `Lane results unavailable`, and Retry reads the lanes again", async () => {

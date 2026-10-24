@@ -162,7 +162,10 @@ once the cancel is recorded, before the run's tasks in other processes or
 machines have stopped, has its store's summary say so (`cancelRequested`): the
 poll answers the run `stopping` until it has stopped, and a start, a deploy or
 a workspace's removal the workspace's lock refuses meanwhile is answered
-`workspace_locked` with a `Retry-After`. The dataset transfer routes
+`workspace_locked` with a `Retry-After`. A run that has ended is answered
+`stopping` too while it still holds the dataflow lock it took as it started,
+which the poll asks the storage backend's lock service, so a run answered
+ended has let its workspace go. The dataset transfer routes
 (`createTransferRoutes`) take the transfer backend, whose upload store takes a
 delivery in on the runner it was given: an init adopts only what takes nothing
 in, and answers at once. A poll reads the latest run's summary from the store
@@ -257,7 +260,13 @@ immutable`: the caller's own cache keeps it for good, and no cache between
 keeps a workspace's rows for whoever asks next. A host whose data any caller may
 read lets those caches keep it too, a CDN's among them, with the dataset
 routes' `cache: 'public'`; `getDatasetPage`, `getValuePage` and
-`findDatasetKey` take the same. An answer not pinned is `no-store`.
+`findDatasetKey` take the same. An answer not pinned is `no-store`, and so is a
+batch read's (`findKeys`, `rows`, `runs`, `place`, `within`), a POST whose body
+names what it reads.
+
+A batch read is a POST to a dataset's own path, as an upload's init is to its
+`/upload`: a host mounts the dataset routes after the transfer routes, at the
+same prefix, and the transfer routes pass a POST that is no upload on to them.
 
 ```typescript
 app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend, {
@@ -361,6 +370,13 @@ and a copy onto itself `invalid_name`.
 | GET | `/api/repos/:repo/workspaces/:ws/datasets` | List root datasets |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Get dataset value (BEAST2); a value over 1 MB that is not a collection answers JSON `{ url }` to download it from |
 | GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?segments=true` | A collection answers JSON `{ manifest }`, the manifest to download it by; any other value as above |
+| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?page=true` | A window of a collection (`offset`, `limit`, or a writer's `segment`), or of one of a record's indexes (`index`, `join`), as BEAST2 of its type, placed by its `X-*` headers; pinned with `hash` |
+| GET | `/api/repos/:repo/workspaces/:ws/datasets/*path?find=true` | Locate a key (`key`), a prefix (`prefix`), leading fields (`field`, repeated) or a range (`from`, `to`) in a Set's or a Dict's order, or an index's (`index`): JSON `{ found, row, count }`; pinned with `hash` |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?findKeys=true` | Several key searches of one collection or index (`index`), `{ queries: [...] }`, each in one of `find`'s forms, at most 10,000: JSON `{ results: [{ found, row, count }, …] }`, in order; pinned with `hash` |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?rows=true` | The rows of several keys of a Dict, `{ keys: [<.east>, …] }`, at most 10,000 — or of the keys the entries of some runs of another record's index name, `{ keysOf: { path: ".<record>", index, hash, runs: [[row, count], …] } }`, which the server reads from the index, so none is sent: BEAST2 of `datasetRowsType(K, V)` — each key, its row or none, and its position in the Dict's order, in the order asked or the runs' — for the first `X-Page-Count` keys the page budget and a page's 10,000 entries reach (read by runs, of the `X-Run-Entries` the runs hold); pinned with `hash`, the runs with `keysOf.hash`, a stale one refused 409 `runs_hash_mismatch` naming the record's content (`X-Content-SHA256`) |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?runs=true&hash=` | The entries of several runs of a collection's rows, or of an index's (`index`, `join`), `{ runs: [[row, count], …] }`, ascending and disjoint, at most 10,000: one window of the dataset's type, or the index's window type, holding the first `X-Page-Count` of the runs' `X-Run-Entries` entries a page's bounds reach |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?place=true&hash=` | Where a narrowing's rows sit in a record: `{ index, runs: [[row, count], …], offset?, limit? }`, the runs of one of its indexes, at most 10,000, a window of their entries from `offset`: JSON `{ segments: [{ segment, offset, count, rows }], placed }` — each record segment the window's entries fall in, its first row, its row count and how many of them it holds — for the first `placed` entries a page's bounds reach; `X-Total-Elements` the record's rows, `X-Run-Entries` the runs' |
+| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?within=true&hash=` | Which of some index entries a narrowing's runs hold: `{ index, runs: [[row, count], …], keys: ["(ik=…, k=…)", …] }`, each key an entry's index key beside its row's key, at most 10,000 runs and 10,000 keys: JSON `{ within: [boolean, …] }`, in order |
 | PUT | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Set dataset value (BEAST2) |
 
 A collection is streamed as the splice of its segments. A client whose host
@@ -368,6 +384,34 @@ buffers responses downloads the manifest, the header it names and its segments
 through the objects route and splices them itself, as e3-api-client's
 `datasetGet` does; see
 [`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-download).
+
+A window's reads are a few requests, never one a search, a run or a row: its
+key searches in one `findKeys`, the runs they select in one `runs`, the rows of
+the keys it names in one `rows`, and another record's rows for its runs — a
+drawing's details — in one `rows` by `keysOf`, the keys read from the index
+where the runs' entries are kept, never sent. Each batch places its bounds,
+keys or rows by the manifest's fences and counts, which reads nothing, then
+reads every segment it touches once, several at a time. The server keeps decoded segments
+by content hash, bounded by their decoded weight (64 MiB), and every page,
+search and batch reads through them — so a window read again, or a pan over
+the same segments, decodes none. A value read whole is streamed as its
+segments' bytes, and decodes none of them.
+
+A summary index's entry stands for every row of its key — its `key` Null, its
+value the rows' totals — so it names no row to join: a `page` or `runs` read of
+one with `join` is refused 400 `bad_request`, naming the index, and so is a
+`rows` read by its runs (`keysOf`). A read by runs also refuses an index whose
+entries name keys of another type than the Dict's, East deciding.
+
+Where a narrowing's rows sit among a record's is two reads of its index alone,
+never of a record segment. `place` reads the window's entries from the
+index's own segments and places each entry's row in the record segment that
+holds it by the record's fences, which its manifest carries: a narrowing's runs
+name each row once, so a segment's counts over every window add up to the
+narrowing's rows in it. `within` reads each run's first and last entries — at
+most two index segments a run — and places every key it is asked of among them
+by the index entry key's order. Neither evaluates anything over a row: the index
+holds what its maintained key functions emitted, and both use only that.
 
 ### Objects
 
@@ -451,7 +495,7 @@ grant polls only a platform-free call, or one such a caller launched.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/repos/:repo/workspaces/:ws/records/:rec` | The record's mutations, indexes and migrations, with their types: whether each index is built for the head's state, and when each migration was applied and by which commit, read from the record's ref and state, never its history |
+| GET | `/api/repos/:repo/workspaces/:ws/records/:rec` | The record's mutations, indexes and migrations, with their types: whether each index is a summary and whether it is built for the head's state, and when each migration was applied and by which commit, read from the record's ref and state, never its history |
 | GET | `/api/repos/:repo/workspaces/:ws/records/:rec/history` | Its commits, newest first: `?limit=` of them from `?from=`, the head when absent; with no limit, the whole chain, or the host's page (`historyLimit`). Each previews its arguments: the arguments' object, and each argument's type, size and East text, cut at 256 characters, the text of one over 64 KiB left out, and no argument of an object over 1 MiB, which the objects route serves whole |
 | POST | `/api/repos/:repo/workspaces/:ws/records/:rec/mutations/:mut` | Apply a mutation: `committed`, `invalid`, `failed`, `timed_out` or `conflict`; with an `Idempotency-Key`, a retry answers the first call's commit |
 | POST | `/api/repos/:repo/workspaces/:ws/records/:rec/compact` | Collapse the history to a `$compact` root, the state kept (an elevated role when auth is on) |
@@ -462,7 +506,7 @@ grant polls only a platform-free call, or one such a caller launched.
 |--------|----------|-------------|
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow` | Start a run of the dataflow (answers 202 once it has started) |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow` | Get workspace status (for polling), with the `ETag` and `304 Not Modified` of `/workspaces/:ws/status` |
-| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state, its id (`runId`) and the sequence number of its last event (`lastSeq`), and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them, and never more than 1,000, the default: a `nextSeq` before `lastSeq` left some for the next poll), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them. A run asked to stop that has not yet stopped is `stopping` |
+| GET | `/api/repos/:repo/workspaces/:ws/dataflow/execution` | The latest run's state, its id (`runId`) and the sequence number of its last event (`lastSeq`), and its events past the poll's cursor (`since`, the `nextSeq` the poll before answered; at most `limit` of them, and never more than 1,000, the default: a `nextSeq` before `lastSeq` left some for the next poll), with the server's budget in use; while the run is in flight, the tasks and units waiting for room and each split task's progress, as the orchestrator running it answers them. A run asked to stop that has not yet stopped is `stopping`, and so is one that has ended — its summary given — until it has let its workspace go: a run answered `completed`, `failed` or `aborted` holds nothing, so a gc, a deploy or a run asked of next takes the workspace |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/budget` | The budget a run gets: the server's cores and memory, and what its runners hold now (`none` from a host whose runners hold none) |
 | POST | `/api/repos/:repo/workspaces/:ws/dataflow/cancel` | Cancel the run in progress: this server answers once the run has ended; a host whose run's tasks run elsewhere may answer once the cancel is recorded, the poll answering the run `stopping` until it has stopped. e3-api-client's `dataflowCancel` follows the run until it has |
 | GET | `/api/repos/:repo/workspaces/:ws/dataflow/graph` | Get dependency graph |

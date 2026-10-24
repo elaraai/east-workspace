@@ -20,8 +20,12 @@ import {
     DateTimeType, East, Expr, OptionType, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordSliceWhereType, bindRecord } from "@elaraai/east-ui/internal";
+import { SeekQueryType } from "@elaraai/east-ui";
+import { AREA_UNPLACED, RecordSliceWhereType, areaQueries, bindRecord, type RecordSliceJoined } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
+import {
+    recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSlicePlace, recordSliceWithin,
+} from "@elaraai/east-ui-components/internal";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { Data, deriveManifest } from "@elaraai/e3-ui/internal";
@@ -319,5 +323,192 @@ test("interval Slice pages and counts overlapping original records once, includi
     assert.equal(await h.ready(() => backlog.count()), 1n);
     assert.deepEqual((await h.ready(() => backlog.data.page(0n, 2n))).map(row => row.key), ["backlog"]);
     assert.equal(h.requests("read", `records.${events.name}`).length, 0, "the record is never read whole");
+    runtime.clear();
+});
+
+test("a window over an area index reads the racks whose box meets it from the index alone, each with its row, once (#1385)", async () => {
+    const racks = ex.indexedRacks;
+    const stored = await h.read(racks);
+    const source = Data.bindPaged(racks, { indexes: [ex.racksByArea, ex.racksByHallArea, ex.racksByHall] });
+    const sliced = bindRecord("test.racks", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } });
+    const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(program, slicePlatform(runtime))();
+    // The binding marks each area index's `__area` with its box, which the slice reads back; the rail is offered the
+    // leading fields alone.
+    assert.deepEqual(handle.config.fields.map(field => field.fieldId), ["hall"]);
+    const area = (name: string) => handle.config.indexes.find(index => index.name === name)!.area;
+    const box = { x: "x", y: "y", width: some("w"), height: some("h"), centre: true, cell: 2 ** -7, optional: true };
+    assert.deepEqual([area("racks_by_area"), area("racks_by_hall_area"), area("racks_by_hall")], [some(box), some(box), none]);
+    const rowOf = equalFor(ex.IndexedRack);
+    const keyOrder = compareFor(StringType);
+    /** A window's racks, by key, each read once and carrying the row the record holds. */
+    const windowed = async (where: ValueTypeOf<typeof RecordSliceWhereType>) => {
+        const rows = await h.ready(() => handle.pageWhere(where, 0n, 100n));
+        assert.equal(await h.ready(() => handle.countWhere(where)), BigInt(rows.length), "the count is the rows the window reads");
+        for (const row of rows) {
+            assert.ok(row.row.type === "some" && rowOf(row.row.value, stored.get(row.key)!), `${row.key} carries its row`);
+            assert.deepEqual(row.value, some(null), "beside an index that carries nothing, the binding's projection is Null (D29)");
+        }
+        const keys = rows.map(row => row.key).sort(keyOrder);
+        assert.equal(new Set(keys).size, keys.length, "each rack once");
+        return keys;
+    };
+    // Hall A's row of racks: every rack whose box meets the window is read, and the far one and the unplaced one never.
+    type Choice = ValueTypeOf<typeof RecordSliceWhereType> extends Map<string, infer C> ? C : never;
+    const rowWindow: Choice = variant("window", { minX: 0.5, minY: 0.4, maxX: 3.5, maxY: 1.6 });
+    const row = await windowed(new Map<string, Choice>([["__area", rowWindow]]));
+    assert.ok(["r1", "r2", "r3"].every(key => row.includes(key)), `the row's racks: ${row.join(", ")}`);
+    assert.ok(!row.includes("far") && !row.includes("unplaced"));
+    // The rail's hall beside the window reads through the area index it leads: hall B's rack across the aisle.
+    const across = new Map<string, Choice>([["hall", variant("values", ['"B"'])], ["__area", variant("window", { minX: 1.5, minY: 3.0, maxX: 2.5, maxY: 4.0 })]]);
+    assert.deepEqual(await windowed(across), ["r4"]);
+    assert.deepEqual(await windowed(new Map<string, Choice>([["__area", variant("values", [AREA_UNPLACED])]])), ["unplaced"]);
+    // A window's membership seeks each rack's maintained key against the window's searches.
+    const captured = new Map<string, Choice>([["__area", rowWindow]]);
+    assert.equal(await h.ready(() => handle.contains(captured, "r2")), true);
+    assert.equal(await h.ready(() => handle.contains(captured, "far")), false);
+    // From the index alone: no page and no run of the record is joined, and the record is never read whole.
+    const reads = [...pagesOf(racks), ...h.requests("runs", `records.${racks.name}`)].filter(request => request.query.has("index"));
+    assert.ok(reads.length > 0 && reads.every(request => !request.query.has("join")), "an area index's reads join nothing");
+    assert.equal(h.requests("read", `records.${racks.name}`).length, 0, "the record is never read whole");
+    runtime.clear();
+});
+
+test("a window's details are read by the runs its area index's cells are — the keys read by e3, none sent — pinned to both records, and read again as either moves (#1393)", async () => {
+    const racks = ex.indexedRacks;
+    const loads = ex.indexedRackLoads;
+    const source = Data.bindPaged(racks, { indexes: [ex.racksByArea, ex.racksByHallArea, ex.racksByHall] });
+    const sliced = bindRecord("test.racks.details", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } });
+    const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
+    const loadsBinding = Data.bindPaged(loads);
+    const loadsProgram = East.function([], Expr.type(loadsBinding), $ => $.return(loadsBinding));
+    const { runtime, clock } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const implementations = slicePlatform(runtime);
+    const handle = East.compile(program, implementations)();
+    // The loads' paged read: the details a Schematic's kind names by its `id`.
+    const dict = East.compile(loadsProgram, [runtime.buildPinnedPlatform(null), ...runtime.buildPrimitives()])().id;
+    const loadEqual = equalFor(OptionType(ex.IndexedRackLoad));
+    const printSeek = printFor(SeekQueryType);
+    /** A window's cells, a search each, as the Schematic's window reads them. */
+    const cellsOf = (box: { minX: number; minY: number; maxX: number; maxY: number }) =>
+        areaQueries([], box, 2 ** -7).map((query) => ({ id: printSeek(query), queries: [query] }));
+    /** What a read of the loads holds, by its rack's key: each a load as the loads' record types it. */
+    const byKey = (read: ReadonlyMap<string, readonly RecordSliceJoined[]>) =>
+        new Map([...read.values()].flat().map((joined) => [joined.key as string, joined.row as ValueTypeOf<OptionType<typeof ex.IndexedRackLoad>>] as const));
+    const joins = () => h.requests("rows", `records.${loads.name}`);
+    const row = cellsOf({ minX: 0.5, minY: 0.4, maxX: 3.5, maxY: 1.6 });
+    const R1 = await h.ready(() => handle.data.revision());
+    const L1 = await hashOf(loads.path);
+
+    const read = await h.ready(() => recordSliceCellJoins(handle, "racks_by_area", row, dict));
+    const entries = await h.ready(() => recordSliceCellEntries(handle, "racks_by_area", row));
+    for (const cell of row) {
+        assert.deepEqual(read.get(cell.id)!.map((joined) => joined.key), entries.get(cell.id)!.map((entry) => entry.key),
+            `${cell.id}: each entry's key, in the cell's order`);
+    }
+    const first = byKey(read);
+    assert.ok(loadEqual(first.get("r1")!, some({ kw: 4.2, alarm: "ok" })) && loadEqual(first.get("r2")!, some({ kw: 9.9, alarm: "warm" })));
+    assert.ok(loadEqual(first.get("r3")!, none), "a rack with no load reads none");
+    assert.ok(!first.has("far") && !first.has("unplaced") && !first.has("gone"), "only the window's racks");
+    // One request of the loads, naming the area index's runs: no key travels, pinned to both records' content.
+    assert.equal(joins().length, 1, "every cell in one request");
+    const body = JSON.parse(new TextDecoder().decode(joins()[0]!.body)) as { keys?: unknown; keysOf: { path: string; index: string; hash: string } };
+    assert.equal(body.keys, undefined, "no key travels");
+    assert.deepEqual([body.keysOf.path, body.keysOf.index, body.keysOf.hash, joins()[0]!.query.get("hash")],
+        [".records.indexed_racks", "racks_by_area", R1, L1]);
+    assert.equal(h.requests("read", `records.${loads.name}`).length, 0, "the loads are never read whole");
+    // Read again, the runtime holds the answer: nothing is asked.
+    assert.ok(recordSliceCellJoins(handle, "racks_by_area", row, dict).type === "some");
+    assert.equal(joins().length, 1);
+
+    // Another session loads r3: the next poll moves the loads, and the read asks again, pinned to their new content.
+    await h.patch(loads, new Map([...await h.read(loads), ["r3", { kw: 3.0, alarm: "ok" }]]));
+    const L2 = await hashOf(loads.path);
+    clock.tickAll();
+    await h.settle();
+    const again = byKey(await h.ready(() => recordSliceCellJoins(handle, "racks_by_area", row, dict)));
+    assert.ok(loadEqual(again.get("r3")!, some({ kw: 3.0, alarm: "ok" })), "r3's new load");
+    assert.deepEqual(joins().slice(1).map((request) => request.query.get("hash")), [L2]);
+
+    // The racks move under a read whose runs were found before: a commit no poll has reported. The read pinned to their old
+    // content is refused, naming their new content; the runtime moves them there at once, and the read asks again there.
+    // The far rack's window: a cell no read has joined yet (the row's racks and the one across the aisle share theirs).
+    const distant = cellsOf({ minX: 39.5, minY: 39.5, maxX: 40.5, maxY: 40.5 });
+    await h.ready(() => recordSliceCellRuns(handle, "racks_by_area", distant));
+    const refused = h.e3.answers((request) => request.kind === "rows" && request.dataset === `records.${loads.name}`);
+    await h.patch(racks, new Map([...await h.read(racks), ["r4", { hall: "B", x: some(2.1), y: some(3.5), w: 0.6, h: 1.2 }]]));
+    const R2 = await hashOf(racks.path);
+    const moved = byKey(await h.ready(() => recordSliceCellJoins(handle, "racks_by_area", distant, dict)));
+    assert.ok(loadEqual(moved.get("far")!, some({ kw: 1.0, alarm: "ok" })), "the far rack's load, read by its runs at the racks' new content");
+    assert.deepEqual(refused.map((answer) => answer.status), [409, 200], "refused at the old content, answered at the new");
+    assert.ok(revisionEqual(handle.data.revision(), some(R2)), "the refusal moved the racks, with no poll");
+    runtime.clear();
+});
+
+test("a record Slice places its narrowing's rows in the record, and asks which of some rows it holds, from the index alone (#1349)", async () => {
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(sliceProgram, slicePlatform(runtime))();
+    const R1 = await h.ready(() => handle.data.revision());
+    const where = handle.read().where;
+    // Skill b: Ada and Amy, two of the record's three people, all in its one segment.
+    const placement = await h.ready(() => recordSlicePlace(handle));
+    assert.deepEqual(placement, { segments: [{ offset: 0n, count: 3n, rows: 2n }], placed: 2n, total: 2n, records: 3n, complete: true });
+    const stored = await h.read(people);
+    const rows = [...stored].map(([key, row]) => ({ key, row }));
+    assert.deepEqual(rows.map(row => row.key), ["p1", "p2", "p3"]);
+    assert.deepEqual(await h.ready(() => recordSliceWithin(handle, where, rows)), [true, false, true]);
+    // One placement and one membership read, pinned to the revision the narrowing's runs are at, and no page of the
+    // record's own rows: Ada's two skills are two entries, Abe's none, Amy's one.
+    assert.deepEqual(h.requests("place", `records.${people.name}`).map(request => [request.method, request.query.get("hash")]), [["POST", R1]]);
+    const within = h.requests("within", `records.${people.name}`);
+    assert.deepEqual(within.map(request => [request.method, request.query.get("hash")]), [["POST", R1]]);
+    const body = JSON.parse(new TextDecoder().decode(within[0]!.body)) as { index: string; keys: string[] };
+    assert.equal(body.index, ex.peopleBySkill.name);
+    assert.equal(body.keys.length, 3);
+    assert.deepEqual(pagesOf(people).filter(request => !request.query.has("index")), [], "no page of the record's own rows");
+    // Asked again, both answer from what the runtime holds.
+    const before = h.requests("place", `records.${people.name}`).length + within.length;
+    assert.deepEqual(recordSlicePlace(handle), some(placement));
+    assert.deepEqual(recordSliceWithin(handle, where, rows), some([true, false, true]));
+    assert.equal(h.requests("place", `records.${people.name}`).length + h.requests("within", `records.${people.name}`).length, before);
+    // A narrowing of no field holds every row, and has nothing to place.
+    assert.deepEqual(recordSliceWithin(handle, new Map(), rows), some([true, true, true]));
+    assert.throws(() => recordSlicePlace(handle, new Map()), /nothing narrows this record/);
+    runtime.clear();
+});
+
+test("a window over an interval index is two requests — its searches in one, the runs they select in one — and its count's readers re-fire once (#1351)", async () => {
+    const events = ex.indexedIntervals;
+    const source = Data.bindPaged(events, { indexes: [ex.intervalsByStart, ex.intervalsByStatusTime, ex.intervalsByTime] });
+    const from = new Date("2026-10-02T00:00:00Z");
+    const to = new Date("2026-10-03T00:00:00Z");
+    const sliced = bindRecord("test.intervals.batched", source, { range: "start", initial: { status: ["Ready"], start: { from, to } } });
+    const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(program, slicePlatform(runtime))();
+    const R1 = await h.ready(() => handle.data.revision());
+    // The count, read as a view reads it: under tracking, its reader subscribed to what it read.
+    runtime.enableTracking();
+    assert.equal(handle.count().type, "none", "its searches are in flight");
+    let fired = 0;
+    const reader = () => { fired += 1; };
+    for (const key of runtime.disableTracking()) runtime.subscribe(key, reader);
+    await h.settle();
+    assert.equal(fired, 1, "the count's reader re-fires once, as every search lands together");
+    const searches = findsOf(events);
+    assert.deepEqual(searches.map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
+        [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the window's searches");
+    assert.ok(searches[0]!.searches.length > 50, "the start range and the carry-in ranges at each span");
+    assert.deepEqual(handle.count(), some(4n));
+    const rows = await h.ready(() => handle.data.page(0n, 4n));
+    assert.deepEqual(rows.map(row => row.key).sort(compareFor(StringType)), ["carry", "inside", "instant-at-from", "span"]);
+    assert.deepEqual(h.requests("runs", `records.${events.name}`).map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
+        [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the runs the searches select");
+    assert.deepEqual([pagesOf(events).length, findsOf(events).length], [0, 1], "no run is paged, and no search asked, on its own");
     runtime.clear();
 });

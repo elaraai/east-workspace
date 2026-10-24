@@ -10,8 +10,8 @@
  * sheet's `Slice.bindRecords`, each source's fields in source order, the
  * presets, and one summary counting each source (#1345) — the paged scope
  * badge *loaded rows only* while nothing narrows the rows, and the history
- * controls. The lens is switched off until #1349: its context switch and its
- * count line are never given.
+ * controls. The context switch and the count line are the lens's (#1349):
+ * they show while the `rows` source's narrowing narrows the rows.
  *
  * ONE row, always — nothing wraps and nothing scrolls. They are the frame's
  * toolbar's items, the shared toolbar (#952), folded on one ladder, in this
@@ -95,7 +95,7 @@ export interface SheetToolbarProps {
     chrome?: ValueTypeOf<RecordSlicesChromeType> | undefined;
     /** What each source is counted in on the rail's summary, by its name — `rows`, `orders`, `templates`. */
     nouns?: Readonly<Record<string, string>> | undefined;
-    /** The lens count line — empty without a narrowing. */
+    /** The lens count line — `3 matches · 2 context`; empty without a narrowing. */
     count: string;
     /** The paged scope badge: the rows still to load, and nothing narrowing them. */
     partial: boolean;

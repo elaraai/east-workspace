@@ -15,7 +15,7 @@
 
 import { describe, test, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, act, waitFor } from "@testing-library/react";
-import { some, none, variant } from "@elaraai/east";
+import { some, none, variant, type option } from "@elaraai/east";
 import { useSheetPaging, SHEET_PAGE_SIZE, type SheetViewport } from "./paging.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
@@ -214,7 +214,7 @@ describe("sheet paging — a window loading beside the run never hides it (#876)
         expect(text("head")).toBe("-");
     });
 
-    test("a report near the run's top extends it upward, and while that window loads the rows stay — even when the window above it lands first; landing, both windows' rows join above", async () => {
+    test("a report near the run's top extends it upward — two windows ahead the way it travels — and while that window loads the rows stay, even when the windows above it land first; landing, all their rows join above", async () => {
         const inFlight = new Set<number>();
         const { value, asked } = source(50_000, { inFlight });
         const { rerender } = render(<Harness src={value} />);
@@ -223,19 +223,20 @@ describe("sheet paging — a window loading beside the run never hides it (#876)
         await waitFor(() => expect(latest!.jump).toEqual({ window: 200, settled: true }));
         act(() => { latest!.clearJump(); });
         expect(text("rows")).toBe("39800+800");
-        // Window 198 stays on the wire; 197, above it, lands at once.
+        // Window 198 stays on the wire; 197 and 196 above it — the two the viewport reads ahead as it travels up
+        // (#1398, CL6) — land at once.
         inFlight.add(198);
         // The viewport is centred ten rows above the run, in window 198's slot.
         report({ kind: "band", at: "head", px: latest!.head!.px - 10 * 36 });
-        await waitFor(() => expect(asked).toContain(197));
-        expect(asked).toContain(198);
+        await waitFor(() => expect(asked).toContain(196));
+        expect(asked).toEqual(expect.arrayContaining([197, 198]));
         expect(text("rows")).toBe("39800+800");
         expect(text("head")).toBe("0-39799");
         expect(latest!.loading).toBe(true);
         inFlight.delete(198);
         rerender(<Harness src={{ ...value }} />);
-        await waitFor(() => expect(text("rows")).toBe("39400+1200"));
-        expect(text("head")).toBe("0-39399");
+        await waitFor(() => expect(text("rows")).toBe("39200+1400"));
+        expect(text("head")).toBe("0-39199");
     });
 
     test("scrolling down into a window still loading keeps the rows above it, and a report from the tail band is measured from the band's own top", async () => {
@@ -477,6 +478,38 @@ describe("sheet paging — a failure belongs to its window (#853)", () => {
             expect(asked.filter((w) => w === 1)).toHaveLength(asks + 1);
             expect(latest!.rows).toHaveLength(600);
             expect(latest!.positions[200]).toBe(200);
+            expect(latest!.rows[200]!.id).toBe("r00200");
+        } finally {
+            logged.mockRestore();
+        }
+    });
+
+    test("a Retry has a source that refreshes rearm what failed before it reads again (#1398): one still holding the failure — the gap a read alone waits — gives the rows once rearmed", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            // Window 1 keeps failing from what the source holds until it is refreshed, as the paging runtime's does
+            // inside its retry gap; its refresh rearms it as the runtime's does, a microtask on.
+            const faults: Faults = { windows: new Map([[1, "gateway timeout"]]) };
+            const { value, asked } = source(1_000, { faults });
+            const refreshed: string[] = [];
+            const refreshing = {
+                ...value,
+                refresh: (target: option<string>) => {
+                    refreshed.push(target.type);
+                    queueMicrotask(() => { faults.windows.clear(); });
+                    return null;
+                },
+            } as SheetPagedSourceValue;
+            render(<Harness src={refreshing} />);
+            await waitFor(() => expect(latest!.failures).toHaveLength(1));
+            const asks = asked.filter((w) => w === 1).length;
+            // The footer's Retry names no window: the source, and every failed window.
+            act(() => { latest!.retry(); });
+            expect(refreshed).toEqual(["none"]);
+            await waitFor(() => expect(latest!.failures).toHaveLength(0));
+            // Asked once more, after the rearm, and it lands in place.
+            expect(asked.filter((w) => w === 1)).toHaveLength(asks + 1);
+            expect(latest!.rows).toHaveLength(600);
             expect(latest!.rows[200]!.id).toBe("r00200");
         } finally {
             logged.mockRestore();

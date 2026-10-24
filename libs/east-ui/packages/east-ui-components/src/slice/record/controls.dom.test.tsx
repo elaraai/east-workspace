@@ -33,7 +33,7 @@ const field = (overrides: Partial<Field>): Field => ({ fieldId: "status", label:
 function fixture(fields: Field[]) {
     initializeStore(new UIStore());
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
-        fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set(f.set ? [f.fieldId] : []), structured: false, interval: none })),
+        fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set(f.set ? [f.fieldId] : []), structured: false, interval: none, area: none, series: none, summary: none })),
         range: fields.some(f => f.kind === "datetime") ? some(fields.find(f => f.kind === "datetime")!.fieldId) : none,
         search: fields.filter(f => f.kind === "string").map(f => f.fieldId), presets: [],
     }));

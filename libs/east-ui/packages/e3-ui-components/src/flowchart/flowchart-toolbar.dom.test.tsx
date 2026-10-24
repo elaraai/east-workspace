@@ -97,7 +97,7 @@ function flowsPart(): Bind {
     const key = "flowchart.toolbar.ladder.flows";
     const fields = [field("name", "Name", []), field("lane", "Lane", ["intake", "review"])];
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
-        fields, indexes: fields.map((f) => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none })),
+        fields, indexes: fields.map((f) => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none })),
         range: none, search: ["name"], presets: [],
     }));
     getStore().write(key, encodeState({ where: new Map(), preset: none, resolution: none }));

@@ -14,7 +14,10 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import e3, { type PackageDef } from '@elaraai/e3';
-import { ArrayType, DictType, FunctionType, IntegerType, NullType, StringType, StructType, OptionType, East, variant, some, none } from '@elaraai/east';
+import {
+  ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, SetType, StringType, StructType, OptionType, East, variant,
+  some, none,
+} from '@elaraai/east';
 import { Console, Time } from '@elaraai/east-node-std';
 
 /**
@@ -253,6 +256,279 @@ export async function createKeyedRecordPackageZip(
   const byGroupName = e3.recordIndex('by_group_name', contacts, { on: ['group', 'name'] });
   const pkg = e3.package(name, version, plans, seed, retitle, e3.mutation.patch(plans), byStatus,
     contacts, byName, byGroupName);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** The row of the batch-read fixture's record. */
+export const ItemRowType = StructType({ group: StringType, rank: IntegerType, label: StringType });
+/** The batch-read fixture's record: a Dict of items. */
+export const ItemsType = DictType(StringType, ItemRowType);
+/** The `by_group` index key: a group, then a rank inside it. */
+export const ItemGroupKeyType = StructType({ group: StringType, rank: IntegerType });
+/** The row of the batch-read fixture's second record: a note on an item. */
+export const ItemNoteRowType = StructType({ note: StringType });
+/** The batch-read fixture's second record: notes, keyed as the items are. */
+export const ItemNotesType = DictType(StringType, ItemNoteRowType);
+
+/**
+ * Create a package whose record a dataset's batch reads are run over (#1351):
+ * several key searches in one request, the rows of several keys — or of the
+ * keys some runs of another record's index name (#1393) — the entries of
+ * several runs.
+ *
+ * Creates a package with:
+ * - Record: "items" (Dict<String, {group, rank, label}>, empty), and Mutation
+ *   "seed" (rows) => `rows` items keyed `item-<i>`, in five groups
+ *   (`g0`…`g4`, by `i` mod 5), each ranked `i`
+ * - Index: "by_group" on `group` then `rank`, one entry per row, so a group is
+ *   one run of it
+ * - Record: "item_notes" (Dict<String, {note}>, empty), keyed as the items
+ *   are, and Mutation "seed_notes" (rows) => a note on every third of `rows`
+ *   items, `item-<i>` for `i` a multiple of 3, `Note <i>`
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createBatchReadsPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const items = e3.record('items', ItemsType, new Map());
+  const seed = e3.mutation.reduce('seed', items,
+    East.function([ItemsType, IntegerType], ItemsType, ($, _state, rows) => {
+      const out = $.let(new Map(), ItemsType);
+      $.for(East.Array.range(0n, rows), ($, i) => {
+        $(out.insert(East.str`item-${i}`, { group: East.str`g${i.remainder(5n)}`, rank: i, label: East.str`Item ${i}` }));
+      });
+      return out;
+    }));
+  const byGroup = e3.recordIndex('by_group', items, { on: ['group', 'rank'] });
+  const notes = e3.record('item_notes', ItemNotesType, new Map());
+  const seedNotes = e3.mutation.reduce('seed_notes', notes,
+    East.function([ItemNotesType, IntegerType], ItemNotesType, ($, _state, rows) => {
+      const out = $.let(new Map(), ItemNotesType);
+      $.for(East.Array.range(0n, rows), ($, i) => {
+        $.if(East.equal(i.remainder(3n), 0n), ($) => {
+          $(out.insert(East.str`item-${i}`, { note: East.str`Note ${i}` }));
+        });
+      });
+      return out;
+    }));
+  const pkg = e3.package(name, version, items, seed, byGroup, notes, seedNotes);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** The row of the area fixture's record: a rack's hall, where it stands — by its centre — if anywhere yet, and its footprint. */
+export const RackRowType = StructType({ hall: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
+/** The area fixture's record: racks by key. */
+export const RacksType = DictType(StringType, RackRowType);
+/** The finest cell of the area fixture's indexes: their declared 0.01, rounded down to a power of two. */
+export const RACK_CELL = 2 ** -7;
+/** The key of the area fixture's `racks_by_area`: a rack's cell and level, led by no field. */
+export const RackAreaKeyType = StructType({ __area: IntegerType });
+/** The key of its `racks_by_hall_area`: a rack's hall, then its cell and level. */
+export const RackHallAreaKeyType = StructType({ hall: StringType, __area: IntegerType });
+
+/**
+ * Create a package whose record is read by area (#1385): a window over a
+ * floor's racks, read through an area index from the index alone.
+ *
+ * Creates a package with:
+ * - Record: "racks" (Dict<String, {hall, x, y, w, h}>, empty), its patch door,
+ *   and Mutation "seed" (count) => `count` racks keyed `rack-<i>`: in three
+ *   halls (`H0`…`H2`, by `i` mod 3), centred on a grid of 37 columns 1.7 apart
+ *   from x = −30 and rows 1.3 apart from y = −20, some a cell or two off their
+ *   column; of footprints from 0.3 × 0.2 to 1.9 × 2.0; every eleventh not yet
+ *   placed
+ * - Index: "racks_by_area", each rack's box by its centre, at a 0.01 cell, led
+ *   by no field ({@link RackAreaKeyType}); and "racks_by_hall_area", the same
+ *   led by the hall ({@link RackHallAreaKeyType}). Each carries its rows whole
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createAreaRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const racks = e3.record('racks', RacksType, new Map());
+  const seed = e3.mutation.reduce('seed', racks,
+    East.function([RacksType, IntegerType], RacksType, ($, _state, count) => {
+      const out = $.let(new Map(), RacksType);
+      $.for(East.Array.range(0n, count), ($, i) => {
+        const hall = $.let(East.str`H${i.remainder(3n)}`);
+        const x = $.let(i.remainder(37n).toFloat().multiply(1.7).subtract(30.0).add(i.remainder(3n).toFloat().multiply(RACK_CELL)));
+        const y = $.let(i.divide(37n).toFloat().multiply(1.3).subtract(20.0));
+        const w = $.let(i.remainder(5n).toFloat().multiply(0.4).add(0.3));
+        const h = $.let(i.remainder(7n).toFloat().multiply(0.3).add(0.2));
+        $.if(East.equal(i.remainder(11n), 0n), ($) => {
+          $(out.insert(East.str`rack-${i}`, { hall, x: none, y: none, w, h }));
+        }).else(($) => {
+          $(out.insert(East.str`rack-${i}`, { hall, x: some(x), y: some(y), w, h }));
+        });
+      });
+      return out;
+    }));
+  const byArea = e3.recordIndex.area('racks_by_area', racks, { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
+  const byHallArea = e3.recordIndex.area('racks_by_hall_area', racks, { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
+  const pkg = e3.package(name, version, racks, seed, e3.mutation.patch(racks), byArea, byHallArea);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** When the place fixture's first order starts: midnight UTC on 1 January 2026. */
+export const ORDERS_FROM = new Date(Date.UTC(2026, 0, 1));
+/** The row of the place fixture's record: an order's status, its name, its due rank, its tags, and when it runs. */
+export const OrderRowType = StructType({
+  status: StringType, name: StringType, due: IntegerType, tags: SetType(StringType), start: DateTimeType, end: DateTimeType,
+});
+/** The place fixture's record: orders by key. */
+export const OrdersType = DictType(StringType, OrderRowType);
+
+/**
+ * Create a package whose record a narrowing's rows are placed in (#1349): in
+ * which of the record's segments the rows of a narrowing sit, from its runs of
+ * one of the record's indexes, and which index entries those runs hold.
+ *
+ * Creates a package with:
+ * - Record: "orders" (Dict<String, {status, name, due, tags, start, end}>,
+ *   empty), and Mutation "seed" (count) => `count` orders keyed `order-<i>`:
+ *   `open`, `late`, `done` or `held` by `i` mod 4; named `Ash`, `Birch`,
+ *   `Cedar` or `Fir` by `i` div 3 mod 4, then `i`; due `i` × 7919 mod `count`,
+ *   a rank of its own whenever `count` shares no factor with 7919; tagged
+ *   `t<i mod 5>` and `t<i mod 7>`; starting `i` mod 97 hours after
+ *   {@link ORDERS_FROM}, and running 30 days when `i` is a multiple of 13, else
+ *   `i` mod 5 hours, which is no time at all when it is 0
+ * - Indexes: "orders_by_status", "orders_by_name", "orders_by_due" and
+ *   "orders_by_tag", each on its one field (the tags' files an order under each
+ *   of its tags), and "orders_by_time", the interval index from `start` to
+ *   `end`
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createPlaceRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const orders = e3.record('orders', OrdersType, new Map());
+  const seed = e3.mutation.reduce('seed', orders,
+    East.function([OrdersType, IntegerType], OrdersType, ($, _state, count) => {
+      const statuses = $.const(['open', 'late', 'done', 'held'], ArrayType(StringType));
+      const names = $.const(['Ash', 'Birch', 'Cedar', 'Fir'], ArrayType(StringType));
+      const from = $.const(ORDERS_FROM, DateTimeType);
+      const out = $.let(new Map(), OrdersType);
+      $.for(East.Array.range(0n, count), ($, i) => {
+        const tags = $.let(new Set<string>(), SetType(StringType));
+        $(tags.tryInsert(East.str`t${i.remainder(5n)}`));
+        $(tags.tryInsert(East.str`t${i.remainder(7n)}`));
+        const start = $.let(from.addHours(i.remainder(97n)));
+        const end = $.let(start.addHours(i.remainder(5n)));
+        $.if(East.equal(i.remainder(13n), 0n), ($) => {
+          $.assign(end, start.addDays(30n));
+        });
+        $(out.insert(East.str`order-${i}`, {
+          status: statuses.get(i.remainder(4n)),
+          name: East.str`${names.get(i.divide(3n).remainder(4n))} ${i}`,
+          due: i.multiply(7919n).remainder(count),
+          tags,
+          start,
+          end,
+        }));
+      });
+      return out;
+    }));
+  const byStatus = e3.recordIndex('orders_by_status', orders, { on: ['status'] });
+  const byName = e3.recordIndex('orders_by_name', orders, { on: ['name'] });
+  const byDue = e3.recordIndex('orders_by_due', orders, { on: ['due'] });
+  const byTag = e3.recordIndex('orders_by_tag', orders, { on: ['tags'] });
+  const byTime = e3.recordIndex.interval('orders_by_time', orders, { from: 'start', to: 'end' });
+  const pkg = e3.package(name, version, orders, seed, byStatus, byName, byDue, byTag, byTime);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** When the series fixture's first job may start: midnight UTC on Monday 5 October 2026, a week's start. */
+export const JOBS_FROM = new Date(Date.UTC(2026, 9, 5));
+/** The row of the series fixture's record: a print job's press, when it runs, and its title. */
+export const JobRowType = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, title: StringType });
+/** The series fixture's record: jobs by key. */
+export const JobsType = DictType(StringType, JobRowType);
+/** The key of the series fixture's two indexes: a week's start, then a press. */
+export const JobWeekPressKeyType = StructType({ __tile: DateTimeType, press: StringType });
+
+/**
+ * Create a package whose record is read in two dimensions (#1039): a block of
+ * presses over a span of weeks, through a series index from the index alone,
+ * and, zoomed out, through a summary index's totals.
+ *
+ * Creates a package with:
+ * - Record: "jobs" (Dict<String, {press, start, end, title}>, empty), its patch
+ *   door, and Mutation "seed" (count) => `count` jobs keyed `job-<i>`: on one of
+ *   forty presses (`P-1001`…`P-1040`, by `i` mod 40), starting `i` × 7 mod 1,680
+ *   hours after {@link JOBS_FROM} — over ten weeks — and running `i` mod 50 + 1
+ *   hours, so many run into the next week
+ * - Index: "jobs_by_press_week", each job under each week it touches and its
+ *   press, carrying its row; and "jobs_by_press_week_totals", how many jobs
+ *   touch each week on each press and the time of it they cover. Both are keyed
+ *   {@link JobWeekPressKeyType}
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createSeriesRecordPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const jobs = e3.record('jobs', JobsType, new Map());
+  const seed = e3.mutation.reduce('seed', jobs,
+    East.function([JobsType, IntegerType], JobsType, ($, _state, count) => {
+      const from = $.const(JOBS_FROM, DateTimeType);
+      const out = $.let(new Map(), JobsType);
+      $.for(East.Array.range(0n, count), ($, i) => {
+        const start = $.let(from.addHours(i.multiply(7n).remainder(1_680n)));
+        const end = $.let(start.addHours(i.remainder(50n).add(1n)));
+        $(out.insert(East.str`job-${i}`, { press: East.str`P-${i.remainder(40n).add(1_001n)}`, start, end, title: East.str`Job ${i}` }));
+      });
+      return out;
+    }));
+  const byPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' });
+  const totals = e3.recordIndex.summary('jobs_by_press_week_totals', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' });
+  const pkg = e3.package(name, version, jobs, seed, e3.mutation.patch(jobs), byPressWeek, totals);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);

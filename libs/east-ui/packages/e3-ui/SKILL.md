@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with one Slice.bindRecords rail (its rows, each event kind, resource kind and templates record a source, one window), key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search), or the `rows` source of its one Slice.bindRecords rail, paged from it, the rail narrowing its templates records too; typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, saved-view tabs over every source's narrowing, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply). (14) Calendar — the record-backed scheduling builder in e3-ui: Calendar, Resources and Timeline layouts, bound resource and template records, the event record’s unscheduled backlog, one Slice.bindRecords rail — a source per event kind, resource kind and templates record, one date window — shared Toolbar/Library/FieldForm/EditSession behavior, and explicit agenda/card actions below 480px. BuilderFrame remains internal. (15) Roster — weekly staffing over the app's own records: its duties a Schedule.events kind (start, end, resource, shift, group, position?, activity?, hours?), its people and agencies Schedule.resources kinds, its weeks Schedule.periods for Publish, its cover Roster.targets, and its shifts, groups, positions, activities and proposals read through Roster.* accessors; Shifts and People layouts; pure coverage/rules over the duty row type; the app's pay in its own codes, asked a person at a time; Find fixes on the app's fit e3.function (Func.bind, Roster.fit(R)); the week's duties read through the slice's duty source; one Slice.bindRecords rail over the duties, targets, people and activities; one history over a session per record, Save per record and Publish saving first, then the week's status; and explicit mobile actions. (16) The Flowchart — <Flowchart>, the state-transition flowchart, always in its builder frame — one toolbar (find state, LR · TD, the freshness chip, the rail of its one Slice.bindRecords, and where it edits the history item), the canvas filling main, the footer's counts: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers); its library pane's Flows tab (Flowchart.library.flows()) lists the flows by name — over a record those its rail's `flows` source narrows it to, counted — and opens one, the open flow kept under the flowchart's name, and '+ New flow' starts one, beside state and transition templates, templates records (Flowchart.library.states / transitions), and the author's own cards (Flowchart.library.tab), each following the source of the rail it names, and each card dropped on the canvas — a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says, ⏎ on a card onto the selection; every gesture on the canvas — '+ LANE', a lane renamed (a double-click on its header) or deleted, a state added, edited, moved or deleted, a handle dragged to connect, Del on the selection — one transaction of the open flow's editing session, each flow keeping its own drafts, with Undo / Redo and one checked Save through the record's patch mutation or the host's onApply; its inspector pane, on by default (inspector={false} takes it away) — Details for the state, transition, decision, lane (a click on its header) or several states selected, or the open flow, each through the shared form, a state's or a transition's own Details in its place with inspector={{ state, transition }}, and Issues, each selecting what it names; with selection and path tracing — its types on Flowchart.Types, a row patch from Flowchart.patch. (17) The Allocation — <Allocation>, a day's arrivals booked into timed lane slots and each bin's quantity allocated to resources with room and time for its hold, always in its builder frame, as a Timeline (lanes, links, resource rows) or a Table (a row per slot), over the app's own records: its bins an instant Schedule.events kind (at, resource, arrival, quantity, parts, hold, kind?), its lanes and resources Schedule.resources kinds (offset; min, max, note, hold, jobs), what it books from Allocation.arrivals (each arrival's values a booked bin's own fields), and its days Schedule.periods for Publish — one history over the bins' and the days' sessions, every gesture a draft, Save per record and Publish saving first, then the day's status — the app's fit an e3.function bound with Func.bind (a place or a take question about the drafted day, FitRequest(R) over the bin row type, built on Allocation.answer / fit / lookahead), split loads and Find a fit, the app's bin fields as columns and its own check over CheckContext(R), one Slice.bindRecords rail over the day's bins, its lanes, resources and arrivals, the shared Library, Inspector and session, explicit-action cards below 480px, and pure loads / candidates / check / slots over Day(R) a task runs too."
+description: "e3 + UI bridge — build interactive, reactive decision surfaces as e3 tasks, authored as JSX. Use when: (1) Declaring UI tasks with ui() (e3 tasks of kind 'ui' producing a UIComponentType), (2) Binding reactive workspace data with Data.bind (read/write/has/commit/discard/status against e3.input / task defs) inside a <Reactive>{$ => …}</Reactive> block, (3) Staged vs direct edit modes and reviewing pending changes with the <Diff> tag, (4) Graph/ontology editing with the <Ontology> tag, (5) Calling named package functions (e3.function) RPC-style with Func.bind (call/read/status/error/pending/cancel), (6) Wiring a manifest (reads/writes + bound functions auto-derived from a UI task's IR), (7) Interactive causal-experiment surfaces ('did X change Y?') with the <Experiment> tag, generic over a bound dataset's row and driven by e3.function estimators, (8) The Decide loop — Decision.bind unions reasoning-task decision outputs into one handle (shared selection + commit gate), <DecisionQueue> (urgency-sorted queue with evidence/options/judgement/modify facets, Apply/Reject, grouping, an author-bound Slice scope) and <DecisionJournal> (the resolved read-back), (9) The Studio — Studio.component declares a self-contained East UI function (written exactly like a ui() body) with what the palette shows; the pages operators build are one record of Studio.Types.Pages with one patch write; <Studio.Builder> is the builder — the open page's canvas under one toolbar (its status, the history, Desktop · Tablet, Save as template, Preview and Publish), the palette of the listed components and the project's pages before it, the inspector of the selected placement after it, and the publish preview in its place — every gesture a draft, Save one patch on the page, and a publish stamping each placement with the code it goes live with; <Studio.Library> is a project's templates and pages and where new pages start, opening pages in the builder; <Studio.Page> draws one page's live or draft layout with no chrome, (10) Rendering deployed surfaces in a React app with @elaraai/e3-ui-components — <E3Provider> (E3Config: apiUrl, repo, workspace, token, fetch), <ReactiveDatasetProvider> and <UITaskPreview> — over a server, or over an e3 running in the page (e3-web's createWebE3 and its e3.fetch), (11) Queries — operators build typed jq queries over the datasets a surface binds and save them to one record of Query.Types.Saved with one patch write; <Query.Builder> edits the open query as plain-word steps or as jq, checks it as it is edited, runs it on e3 as a one-shot call — or as a split call over the pieces of a dataset larger than one piece, its plan explained — and shows the result as a Table or a tree; <Query.Library> is the saved queries as a gallery of wireframes and where new queries start, opening them in the builder, (12) The Plan — <Plan>, the one planning canvas, always in its builder frame — one toolbar holding every control it has, the banners, the canvas, the footer's counts: heterogeneous rows on ONE shared { time | number | ordinal } axis from three sources — event kinds over records (Schedule.events placed on Schedule.resources, the kinds a Calendar takes), rows laid out by a series list over local data or a Data.bindPaged source and nested from the data's own structure, and read-only rows (Plan.over a dataset, hand-built rows) — its panes optional props — a library (every event kind's templates, the backlog by when it is due, the series a viewer shows and hides, and cards of the author's own whose drop sets a Schedule.patch) and an inspector of what is selected (one event, several, a row at a bucket, or the window's counts; an event kind's own inspector in place of its form) — with one Slice.bindRecords rail (its rows, each event kind, resource kind and templates record a source, one window; an event kind on paged resources read a cell at a time through a series index and shaded from a summary index zoomed out), key search, links between runs or events, and an editing session — dropped cards and moved or resized runs, chips, tiles and marks as drafts with Undo / Redo and one checked Save — its authoring vocabulary on `Plan` (Plan.axis, Plan.series.*, Plan.over, Plan.eventRef, Plan.library.*, the value builders), (13) The Sheet — <Sheet>, the one planning spreadsheet, always in its builder frame — one toolbar holding every control it has, the banners, the grid with its docked strip, the footer — its panes optional props: a library (templates, columns, the author's cards) and an inspector of the selected row's every field or the author's own; its rows from an e3 record bound with its patch door (the record's entries, one entry's rows or groups with loose rows between them, or a large record a window at a time — Save one patch commit through the record) or the host's (an array, a bind handle, a Data.bindPaged source with a key search), or the `rows` source of its one Slice.bindRecords rail — the record's rows, the source's narrowing drawn over them as the lens (each match at its row number, context rows either side, gaps of their size over the rest, e3 placing the matches from the index) — the rail narrowing its templates records too; typed columns (dates, quantities with units, register lookups, a directed link between register members, stamped codes), a blank tail that invites the next row, an East-function copilot that fills cells and proposes rows, saved-view tabs over every source's narrowing, groups with loose rows between them and read-only sub rows, drag and drop, Excel round-trip, and an editing session — drafts checked as they are made, Undo / Redo and one checked Save — its authoring vocabulary on `Sheet` (Sheet.column.*, Sheet.register.*, Sheet.driver, Sheet.group, Sheet.subRows, Sheet.library.*, Sheet.field, Sheet.apply). (14) Calendar — the record-backed scheduling builder in e3-ui: Calendar, Resources and Timeline layouts, bound resource and template records, the event record’s unscheduled backlog, one Slice.bindRecords rail — a source per event kind, resource kind and templates record, one date window — shared Toolbar/Library/FieldForm/EditSession behavior, and explicit agenda/card actions below 480px. BuilderFrame remains internal. (15) Roster — weekly staffing over the app's own records: its duties a Schedule.events kind (start, end, resource, shift, group, position?, activity?, hours?), its people and agencies Schedule.resources kinds, its weeks Schedule.periods for Publish, its cover Roster.targets, and its shifts, groups, positions, activities and proposals read through Roster.* accessors; Shifts and People layouts; pure coverage/rules over the duty row type; the app's pay in its own codes, asked a person at a time; Find fixes on the app's fit e3.function (Func.bind, Roster.fit(R)); the week's duties read through the slice's duty source; one Slice.bindRecords rail over the duties, targets, people and activities; one history over a session per record, Save per record and Publish saving first, then the week's status; and explicit mobile actions. (16) The Flowchart — <Flowchart>, the state-transition flowchart, always in its builder frame — one toolbar (find state, LR · TD, the freshness chip, the rail of its one Slice.bindRecords, and where it edits the history item), the canvas filling main, the footer's counts: states as nodes in ordered phase lanes (the layout derived, no coordinates), H/V-routed transitions, decision triggers and evidence-weighted links, over an e3 record of flows by name (Flowchart.Types.Flows, its value written with Flowchart.values and checked at build — a lone flow is a record of one entry) or the host's flows or one flow (data, the value's type picking the arm — Flowchart.over builds one flow from the host's own tables with row mappers); its library pane's Flows tab (Flowchart.library.flows()) lists the flows by name — over a record those its rail's `flows` source narrows it to, counted — and opens one, the open flow kept under the flowchart's name, and '+ New flow' starts one, beside state and transition templates, templates records (Flowchart.library.states / transitions), and the author's own cards (Flowchart.library.tab), each following the source of the rail it names, and each card dropped on the canvas — a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says, ⏎ on a card onto the selection; every gesture on the canvas — '+ LANE', a lane renamed (a double-click on its header) or deleted, a state added, edited, moved or deleted, a handle dragged to connect, Del on the selection — one transaction of the open flow's editing session, each flow keeping its own drafts, with Undo / Redo and one checked Save through the record's patch mutation or the host's onApply; its inspector pane, on by default (inspector={false} takes it away) — Details for the state, transition, decision, lane (a click on its header) or several states selected, or the open flow, each through the shared form, a state's or a transition's own Details in its place with inspector={{ state, transition }}, and Issues, each selecting what it names; with selection and path tracing — its types on Flowchart.Types, a row patch from Flowchart.patch. (17) The Allocation — <Allocation>, a day's arrivals booked into timed lane slots and each bin's quantity allocated to resources with room and time for its hold, always in its builder frame, as a Timeline (lanes, links, resource rows) or a Table (a row per slot), over the app's own records: its bins an instant Schedule.events kind (at, resource, arrival, quantity, parts, hold, kind?), its lanes and resources Schedule.resources kinds (offset; min, max, note, hold, jobs), what it books from Allocation.arrivals (each arrival's values a booked bin's own fields), and its days Schedule.periods for Publish — one history over the bins' and the days' sessions, every gesture a draft, Save per record and Publish saving first, then the day's status — the app's fit an e3.function bound with Func.bind (a place or a take question about the drafted day, FitRequest(R) over the bin row type, built on Allocation.answer / fit / lookahead), split loads and Find a fit, the app's bin fields as columns and its own check over CheckContext(R), one Slice.bindRecords rail over the day's bins, its lanes, resources and arrivals, the shared Library, Inspector and session, explicit-action cards below 480px, and pure loads / candidates / check / slots over Day(R) a task runs too. (18) The Schematic — <Schematic>, the 2D world-coordinate drawing of the app's own records: a kind per record, keyed by String, its fields mapped to the Schematic's roles and its shapes made by accessors over the row's own fields — items (Schematic.items: a centre, a box, a footprint drawn about the centre, a label, a status, a meter, a figure), zones (Schematic.zones: a box, outlined or hatched, a geometry about its centre), links between two items (Schematic.links: from and to naming item slots) and nets joining many to many (Schematic.nets: sources and destinations) — each kind editable bound with its patch door (Record.bind) or read only (Data.bind), read whole or complete through its source of one Slice.bindRecords rail (entries: Data.bindPaged) — a window at a time where that source lists an area index (e3.recordIndex.area), its density shaded past 5,000 rows in view — its details a record keyed as it is (Schematic.details), its templates a record (Schematic.templates), its layers the app's rows (Schematic.layers), the library's tabs over every kind (Schematic.library.templates() / backlog() / index() / layers() / tab), each card dropped on the canvas — an item template adds an item at the point, a backlog row is placed there, a link or net template gives a link or a net of its kind its values, an author's card sets its Schematic.patch's fields, ⏎ onto the selection or at the view's centre — the inspector opted into: Details through the shared form over each kind's fields and its details', an item's position, a link's ends and a net's sides, and Issues, each selecting what it names; below 480px of main nothing drags, Details' Connect to… and the Backlog card's Place taking the gestures' place; a camera with a minimap, selection by a tap, Shift and the marquee, and every gesture — Move, Connect and a Shift session growing a net, an end retargeted, a net extended, Del — one step of one history over a session per record it writes, with Undo / Redo and Save sending each record's changes through its patch door, canConnect answering each pair with none or the refusal's words; onSelect hears the whole selection, each entity by its kind's slot and its key — its shapes and types on Schematic (Schematic.circle / polyline / polygon / rect about the anchor, outline / hatch, solid / dashed, Schematic.patch, Schematic.Types)."
 ---
 
 # e3-ui — e3 + UI Bridge
@@ -13,7 +13,7 @@ and commit / discard, a view becomes a place a user commits a decision with its
 evidence — not a read-only report.
 
 The public surface is **JSX tags + platform helpers**, all from one import
-(`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan>`, `<Sheet>`, `<Calendar>`, `<Roster>`, `<Allocation>` and `<Flowchart>`, the `Data` and `Func`
+(`@elaraai/e3-ui`): the e3-specific tags `<Diff>`, `<Ontology>`, `<Experiment>`, `<Plan>`, `<Sheet>`, `<Calendar>`, `<Roster>`, `<Allocation>`, `<Flowchart>` and `<Schematic>`, the `Data` and `Func`
 binding helpers, `Studio` and `Query` components, and the `ui()` task factory. Base UI tags (`<VStack>`, `<Text>`,
 `<Stat>`, …) come from `@elaraai/east-ui`. The factories (`Diff.Root(…)`) are an
 implementation detail under `@elaraai/e3-ui/internal` (also the e3-free,
@@ -135,6 +135,7 @@ Task → What do you need?
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
     │   ├─ Narrow its rows, event kinds, resources, templates → slice={{ slice: Slice.bindRecords(key, { rows?, job?, presses?, jobTemplates? }) }} (one window; Schedule.templates(rows, { …, source }))
     │   ├─ Event kinds over records too large to read whole   → a kind's source over its interval index (range: "start") + Schedule.events(record, { entries }); with no rail, { window, backlogWindow, entries }; Schedule.resources(Data.bindPaged(record), {…})
+    │   ├─ …read a cell at a time, shaded when zoomed out     → the kind's source lists e3.recordIndex.series + e3.recordIndex.summary beside its interval index (its resources paged)
     │   ├─ A link between two runs, or two events             → Plan.link({ from: Plan.ref(…), fromRun, … }) / Plan.link({ from: Plan.eventRef(kind, key), … })
     │   ├─ Its library pane: templates, backlog, series, cards → library={[Plan.library.events(), Plan.library.backlog(), Plan.library.series(), Plan.library.tab(rows, {…})]}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
@@ -148,7 +149,7 @@ Task → What do you need?
     │   │   ├─ One entry's rows, groups or loose rows          → entry={{ key, rows: "field", id: "id" }} (+ group)
     │   │   └─ A large record, a window at a time             → window={Data.bindPaged(r)}
     │   ├─ The host's rows                                    → <Sheet data={…} id="id" columns={{…}} />
-    │   ├─ Narrow its rows and templates — one rail          → slice={{ slice: Slice.bindRecords(key, { rows, rowTemplates, … }) }} (rows paged from `rows`; Sheet.templates(rows, { …, source }))
+    │   ├─ Narrow its rows and templates — one rail          → slice={{ slice: Slice.bindRecords(key, { rows, rowTemplates, … }) }} (the record's rows, `rows`' narrowing drawn over them as the lens; Sheet.templates(rows, { …, source }))
     │   ├─ Its panes, each optional                           → library={[Sheet.library.rows(), Sheet.library.columns(), Sheet.library.tab(…)]} · inspector (+ fields)
     │   ├─ Its columns, registers and the driver               → Sheet.column.* / Sheet.register.* / Sheet.driver
     │   ├─ Groups, loose rows between them, read-only sub rows → Sheet.group / Sheet.Types.Entry / Sheet.subRows
@@ -169,6 +170,22 @@ Task → What do you need?
     │   ├─ State and transition templates, the author's own cards     → library={[…, Flowchart.library.states(templates.read(), {…, source }), Flowchart.library.transitions(templates.read(), {…, source }), Flowchart.library.tab(rows, {…})]} (templates records, each naming its source of the rail)
     │   ├─ A card dropped on the canvas, or ⏎ on it                   → a state template onto a lane, a transition template onto a transition, an author's card where its drop's type says; ⏎ onto the selection
     │   └─ Edit a flow: lanes, states, transitions — Undo, one Save   → record={…}, or data={…} + onApply (every canvas gesture a draft; canConnect vetoes a pair)
+    │
+    ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic (see The Schematic below)
+    │   ├─ A kind per record, under its slot                   → <Schematic extent={{ width, height }} items={{ racks: Schematic.items(record, { name, icon, x, y, label, … }) }} zones={{ … }} links={{ … }} nets={{ … }} />
+    │   ├─ Editable, or read only                              → Record.bind(record, [e3.mutation.patch(record)]) · Data.bind(record)
+    │   ├─ Every gesture one step: Undo, Save per record       → built in over an editable kind: Move, Connect (Shift grows a net), an end retargeted, a net extended, Del
+    │   ├─ Narrow its kinds and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { <a kind's slot>: { source: Data.bindPaged(record, { indexes }) }, … }) }} (+ the kind's entries: Data.bindPaged(record)) · narrowed="dim"
+    │   ├─ A floor too large to read whole: a window at a time → its source lists e3.recordIndex.area(name, record, { x, y, width, height, at: "centre", cell }) (+ ones led by the rail's fields); past 5,000 rows in view, their density
+    │   ├─ Find an item by its key, wherever it stands         → built in: Find seeks every item kind's record; a pick flies to the item and selects it
+    │   ├─ On a phone: below 480px of main, nothing drags      → built in: Details' Connect to… and the Backlog card's Place, beside an item's x and y, a link's ends, a net's sides and Delete
+    │   ├─ Shapes from the row's own fields                    → footprint: (u) => some(Schematic.circle(u.radius)) · a zone's geometry: (a) => some(Schematic.polygon(a.corners))
+    │   ├─ What a card draws from another record               → Schematic.items(…, { details: Schematic.details(record, { status, meter, metric, sublabel }) })
+    │   ├─ The layers, from the app's record                   → layers={Schematic.layers(systems.read(), { label, order?, tone?, color?, visible?, locked?, opacity? })}
+    │   ├─ Templates, the backlog, the index, the layers       → Schematic.templates(rows, { …, source }) · library={[Schematic.library.templates(), .backlog(), .index(), .layers()]}
+    │   ├─ A card dropped on the canvas, or ⏎ on it            → an item template adds an item at the point, a backlog row is placed there, a link or net template onto one of its kind; an author's card onto an entity: Schematic.library.tab(rows, { …, drop: (r) => Schematic.patch(R, { … }) }); ⏎ onto the selection
+    │   ├─ The inspector, a kind's form and its own Details    → inspector · Schematic.items(record, { …, fields?: { f: Fields.* }, ready?: (row, key) => Readiness, inspector?: East.function([R, FunctionType([R], NullType)], UIComponentType, …) })
+    │   └─ What the host hears, and the connect veto           → onSelect={fn(Array<Schematic.Types.Ref>)} · canConnect={fn(Schematic.Types.Candidate) → Option<String>}
     │
     ├─ Staff a week's shifts from the app's own duties — the Roster (see Roster below)
     │   ├─ The duties: the app's record, a span kind                 → events={{ duty: Schedule.events(Record.bind(duties, [dutiesPatch]), { start, end, resource: { field, of }, shift, group, position?, activity?, hours? }) }}
@@ -321,7 +338,10 @@ key order. `keys` accepts a scalar or a single-field Struct and permits one
 exact member, keeping pages and counts unique by primary ID. Arbitrary
 compound fan-out remains available through `{ index }`; Slice refuses it.
 `Data.bindPaged(record, { indexes: [declarations...] })` carries their field/key
-types and joins rows by default.
+types and joins rows by default. The indexes a binding lists carry one
+projection, or each carries the whole row — as an area index does — or
+nothing: one that carries the row is read without a join, the others with one,
+and any other mix is refused at build, naming the index.
 
 **A builder narrows through `Slice.bindRecords` alone** (#1340): one rail on
 its toolbar, `Slice.bindRecords(key, { [source]: { source:
@@ -329,7 +349,9 @@ Data.bindPaged(record, { indexes }), label?, icon?, fields, range?, search?,
 initial? } }, { presets? })`, passed as `slice={{ slice, affordances?,
 persist? }}`. Each source is named after what it narrows and filters every
 place its records appear — the main area, the Choosers and the Library tab
-that lists them — and the builder reads each source's keys itself. Every
+that lists them; the Sheet's `rows` source draws its narrowing over the
+record's rows as the lens instead (#1349) — and the builder reads each
+source's keys itself. Every
 source with a `range` shares the builder's one time window. Calculations —
 coverage, costs, loads, checks, totals — read every record, whatever the
 rail hides. Refused at build, each naming the change: `Slice.bind`, a single
@@ -337,7 +359,7 @@ rail hides. Refused at build, each naming the change: `Slice.bind`, a single
 `data={Slice.rows(slice)}` or `window={Slice.rows(slice)}`, the Roster's
 `visiblePeople`, and an event kind's own `slice` or `filter`. Every
 builder has moved: the Allocation, the Roster, the Calendar, the Plan, the
-Sheet and the Flowchart.
+Sheet, the Flowchart and the Schematic.
 
 Templates are records: each templates list reads a templates record and names
 its source of the rail (`source`), and a list written in the code is refused.
@@ -345,7 +367,7 @@ A record a builder reads whole beside its pages — a templates list, the
 resources a check reads — binds with `Data.bind`: a UI task's manifest
 preloads it, but never a record `Record.bind` reads beside `Data.bindPaged`,
 whose `read()` then fails on e3. `Record.bind` stays the mutation door a Save
-commits through. east-ui's own Table, Library, charts and Schematic keep
+commits through. east-ui's own Table, Library and charts keep
 `Slice.bind`. Existing single-index `Data.bindPaged(record, { index, join })`
 remains separate.
 
@@ -362,15 +384,38 @@ Local arrays use `Slice.bind(key, rows, options?)`; neither arm needs a type
 argument for `Slice.rows(slice)`.
 
 Calendar event windows preserve overlap with `[from, to)`, including carry-in
-and whole-window spans. Declare `interval: { from: "start", to: "end" }` on an
-index (optional leading `on` fields), name the event kind's source after its
-slot with `range: "start"` (`job: { source: Data.bindPaged(jobs, { indexes:
-[jobsByTime] }), range: "start" }`), and give the kind `entries:
-Data.bindPaged(jobs)` for its original-key reads. A kind narrowed through its
-source takes no `window` or `backlogWindow`. Do not replace it with a
-start-only query or guessed lookback. Optional missing ends are instants;
-an instant at `from` is included and one at `to` is excluded. Backlog remains
-part of the same authoritative record.
+and whole-window spans. Declare an interval index, `e3.recordIndex.interval(name,
+record, { on?, from: "start", to: "end" })` (optional leading `on` fields), name
+the event kind's source after its slot with `range: "start"` (`job: { source:
+Data.bindPaged(jobs, { indexes: [jobsByTime] }), range: "start" }`), and give
+the kind `entries: Data.bindPaged(jobs)` for its original-key reads. A kind
+narrowed through its source takes no `window` or `backlogWindow`. Do not
+replace it with a start-only query or guessed lookback. Optional missing ends
+are instants; an instant at `from` is included and one at `to` is excluded.
+Backlog remains part of the same authoritative record.
+
+A **window over a drawing** — the rows whose box meets a viewport — reads
+through an area index (`e3.recordIndex.area`, the **e3** skill) listed in a
+source's binding: `Data.bindPaged(racks, { indexes: [racksByArea,
+racksByHallArea] })`. The Schematic reads a kind so wherever the kind's source
+of its rail lists one, the window its view shows (see The Schematic below,
+`schematicRecordIndexes`). A read of the source takes the viewport as a `window`
+choice, `variant("window", { minX, minY, maxX, maxY })` in world units, under
+the index's `__area` field of its `where` (a source's `pageWhere` and
+`countWhere`), beside exact choices of the fields the index leads with. The
+record slice plans it as at most 266 searches a combination of those choices,
+sent in one request, and reads every row whose box meets the viewport grown by
+an eighth of its larger side, each once — beside rows of the searched cells
+that it misses, which the reader draws or not. `variant("values", ["-1"])`
+under `__area` is the unplaced clause: the rows not yet placed, on an index
+whose `x` and `y` are Options. The window is the reader's, never the rail's:
+`Slice.bindRecord` offers no `__area` field, and a window under any other
+field is refused. A read no listed area index serves — choices beside the
+window no area index is led by exactly, a range or a prefix beside it, or more
+than one value of a Set field, which would read a row twice — is refused,
+naming why. An area index carries its rows,
+so a window reads the index alone, without a join, each entry's `value` its
+row.
 
 Sessions retain original-key drafts across paging, narrowing and remount in the
 same UI store. Save includes hidden edits and confirms primary rows at the
@@ -380,11 +425,15 @@ unsaved drafts. The Roster and the Allocation keep a session for each record
 they write — the Roster's duties, weeks and targets, the Allocation's bins and
 days — under one history: Save sends each record's drafts as its own request,
 and their figures read every person, resource and event of the period,
-whatever the rail shows.
+whatever the rail shows. The Schematic keeps one for each kind it writes, and
+a kind read by area keeps its drafts by key wherever the window goes: a row
+moved off the window draws where its draft places it, and Save writes it
+through the kind's patch door.
 
 Search examples: `planRecordIndexes`, `sheetRecordIndexes`,
-`calendarRecordIndexes`, `rosterRecordIndexes`, their Mobile counterparts,
-and `flowchartRecordIndexes` (scalar, compound and membership computed keys).
+`calendarRecordIndexes`, `rosterRecordIndexes`, `schematicRecordIndexes` (a
+window read by area), their Mobile counterparts, and `flowchartRecordIndexes`
+(scalar, compound and membership computed keys).
 Each shows its full reactive bindings and JSX inline.
 
 ### `Func.bind(fn)`
@@ -950,10 +999,10 @@ return <Plan axis={axis} data={rows} series={series} />;
 
 ```
 <Plan axis={Plan.axis({…})} data={rows} series={[Plan.series.span(Row, {…}), …]} /> — the planning canvas: ONE shared axis — { time | number | ordinal } (#631): a UTC window ÷ resolution, a numeric window ÷ step, or an ordinal list = n bucket columns — over heterogeneous rows — the eight row kinds: span state-runs, bucket allocation lanes, chart measures, heat cells, bucketed table numerals, cards shift chips, event marks, and group strips — sliced, searched and picked as one surface. Rows derive from `data` through `series` as an ordered STREAM (#822): the series list IS the layout (one contiguous block per series, top to bottom), a parent is followed by its subtree, and hierarchy comes only from the data's own nesting — never from a field value. Every row carries a typed id, `Plan.Types.RowId` = { series, path } (the series that made it and the entry keys that lead to it; `Plan.ref` builds one), which every callback reports and `links` address. Nothing behaves differently because `data` is inline or paged
-├─ The frame (#1193): ONE toolbar holding every control the Plan draws outside its canvas, in this order — the rail of its one `Slice.bindRecords` (each source's field chips and the presets, #1344), the key search, Expand/Collapse all, the shared date navigator (on a number axis the leading source's range is a chip of the rail), the configured resolution, the diagnostics; at its end the rail's summary, naming each source a narrowing hides rows of in its own words (#1358), the overlaps chip and the history item (a Plan with none of them has no toolbar). It is one row at every width: the rail folds first, its summary after every step of it, then the date navigator compacts, the resolution folds into a menu and Expand/Collapse all keeps its icon, the key search folds into its icon (which opens the box in a popover, the focus in it), then the time-axis view controls — the fold toggle, the resolution and the overlaps chip — share the date popover, one move, and the history item folds last, to its buttons; on a touch screen every control there is a 44px tap target. The banners — each session's, an event kind's titled with its name (#1194): a Save's conflict, a refusal, an unknown outcome with Retry, a source out of date with Discard. Main — the canvas: the horizon, the ruler, pinned rows and the rows. The footer — the counts: the event kinds' events in the window, their backlog, the changes pending and when an event kind's record was last saved; then the author's `footer`, the transport line, and after a Save what left each source's narrowing (`1 print job event left this view`). ⌘Z undoes and ⇧⌘Z redoes from anywhere in the frame; a field being typed into keeps its own undo. The Plan draws no border
+├─ The frame (#1193): ONE toolbar holding every control the Plan draws outside its canvas, in this order — the rail of its one `Slice.bindRecords` (each source's field chips and the presets, #1344), the key search, Expand/Collapse all, the shared date navigator (on a number axis the leading source's range is a chip of the rail), the configured resolution, the diagnostics; at its end the rail's summary, naming each source a narrowing hides rows of in its own words (#1358), the overlaps chip and the history item (a Plan with none of them has no toolbar). It is one row at every width: the rail folds first, its summary after every step of it, then the date navigator compacts, the resolution folds into a menu and Expand/Collapse all keeps its icon, the key search folds into its icon (which opens the box in a popover, the focus in it), then the time-axis view controls — the fold toggle, the resolution and the overlaps chip — share the date popover, one move, and the history item folds last, to its buttons; on a touch screen every control there is a 44px tap target. The banners — each session's, an event kind's titled with its name (#1194): a Save's conflict, a refusal, an unknown outcome with Retry, a source out of date with Discard. Main — the canvas: the horizon, the ruler, pinned rows and the rows. The footer — the counts: the event kinds' events in the window, their backlog, the changes pending and when an event kind's record was last saved; then the author's `footer`, the one loading line — what the view waits for (`Loading rows 201–400`), a source's new narrowing, or a read that failed with its reason and Retry; nothing while nothing is in flight — and after a Save what left each source's narrowing (`1 print job event left this view`). ⌘Z undoes and ⇧⌘Z redoes from anywhere in the frame; a field being typed into keeps its own undo. The Plan draws no border
 ├─ Props:
 │   ├─ axis (required) — ONE of three kinds; every element instant on the canvas must ride its arm. The kind is also a TYPE: `Plan.axis.number(…)` fixes the tag's `K`, every builder result carries the kind its instants' STATIC types imply (a `DateTimeType` accessor ⇒ `"time"`, a `FloatType` field ⇒ `"number"`, `Plan.at.ordinal(…)` ⇒ `"ordinal"`), a series collects its elements' kinds, and a series (or literal row) on another arm FAILS TO COMPILE at the tag — no wire change, the brand is phantom. Kind-erased values (a stored record, an `Expr<Plan.Types.Instant>`, an East-mapped element list, a `$.let`-bound axis or `$.const`-bound series list, chart rows) constrain nothing at compile time and are held to the axis at render — a row on another arm is a render-time diagnostic naming the row and the arm, never a silent misplacement. Plan.axis({ window?, resolution, resolutions?, now?, format? }) — the TIME shorthand (= Plan.axis.time): half-open [min, max) UTC window; omit window ⇒ the range the sources of its `slice` hold — there is NO fit to the data (#822): a canvas that neither states a window nor has a source holding a range is refused, at build when the axis is written in the tag, else as the render-time NO WINDOW diagnostic (a bound or stored axis); `resolutions` lists the WEEK/DAY segment options; `now` draws the observed/plan divider; `format` overrides tick labels (date tokens; defaults: week ⇒ "W27", day ⇒ "MON"); at a resolution coarser than a row's data a bucket shows ONE value per row — the fold of those in it (#824) · Plan.axis.number({ window?, step, now?, format? }) — a numeric window ÷ `step` (bucket edges on whole steps; omit window ⇒ the leading source's float / integer range, under the same no-fit rule; `format` a Chart.format.* spec; no resolution segment — step IS the declaration) · Plan.axis.ordinal({ values, now? }) — the declared values ARE the buckets, in order (the list is the window: no source's range holds it, no brush, the window keys idle; an unlisted value positions nowhere; an interval END names its LAST bucket, inclusive)
-│   ├─ data (required unless `events`, `rows` or `slice`'s `rows` source, which gives the rows and refuses `data` beside it — a Plan with no rows from any source is refused at build) — a KEYED collection: a `Dict<K, R>` value/expression for the inline arm, or a `$.let`-bound `Data.bindPaged(…)` handle for a WINDOWED arm, recognised by its East type: `pinned` when it names its snapshot, which `editing.onApply` needs; `paged` when it is the shape a UI exported before `revision` / `refresh`, which names none. Any key type `K` — a row's path starts with its entry's key, a String as it is, any other key as its `.east` text (`3`, `(hall="H1", bin=3)`) — and any entry type `R`: a struct, a `RecursiveType` node, or a collection (a `groupToDicts` group). A positional collection is refused — key it at the call site with `rows.toDict((_$, r) => r.id)`. A paged canvas pages by PARENTS (#823): a window is N top-level entries, each with its whole subtree, so a parent never straddles two windows and its bands, means, subtotals and member count are exact — nest children in the source, and group a flat paged source in its dataflow (a group is one entry holding its members; a parent is bounded by a page). Each top-level series is a BLOCK, exactly as inline: a paged canvas pages every block on its own over the same windows (its own bands and resident run; one read of a window serves every block), draws a section's header and hand-built rows once (FIXED blocks), and rebases only the block a far jump lands in; a window landing above the rows in view at a height its estimate missed moves the scroll, never the rows. A paged source may serve SHORT windows (e3 trims pages of wide entries to a byte budget) and the canvas still reads WHOLE ones — its derived source re-requests what a trimmed page left out. When the source's `revision()` moves (`Data.bindPaged` follows each write to its dataset), the canvas re-reads its resident windows at the new snapshot IN PLACE: the rows on screen stay until theirs land (no remount, no empty frame), the scroll position holds, and a standing key search is asked again at the new snapshot, its text kept and the view where it is (its matches named rows of the old one, #1199)
+│   ├─ data (required unless `events`, `rows` or `slice`'s `rows` source, which gives the rows and refuses `data` beside it — a Plan with no rows from any source is refused at build) — a KEYED collection: a `Dict<K, R>` value/expression for the inline arm, or a `$.let`-bound `Data.bindPaged(…)` handle for a WINDOWED arm, recognised by its East type: `pinned` when it names its snapshot, which `editing.onApply` needs; `paged` when it is the shape a UI exported before `revision` / `refresh`, which names none. Any key type `K` — a row's path starts with its entry's key, a String as it is, any other key as its `.east` text (`3`, `(hall="H1", bin=3)`) — and any entry type `R`: a struct, a `RecursiveType` node, or a collection (a `groupToDicts` group). A positional collection is refused — key it at the call site with `rows.toDict((_$, r) => r.id)`. A paged canvas pages by PARENTS (#823): a window is N top-level entries, each with its whole subtree, so a parent never straddles two windows and its bands, means, subtotals and member count are exact — nest children in the source, and group a flat paged source in its dataflow (a group is one entry holding its members; a parent is bounded by a page). Each top-level series is a BLOCK, exactly as inline: a paged canvas pages every block on its own over the same windows (its own bands and resident run; one read of a window serves every block), draws a section's header and hand-built rows once (FIXED blocks), and rebases only the block a far jump lands in; a window landing above the rows in view at a height its estimate missed moves the scroll, never the rows. A paged source may serve SHORT windows (e3 trims pages of wide entries to a byte budget) and the canvas still reads WHOLE ones — its derived source re-requests what a trimmed page left out. When the source's `revision()` moves (`Data.bindPaged` follows each write to its dataset), the canvas re-reads its resident windows at the new snapshot IN PLACE: the rows on screen stay until theirs land (no remount, no empty frame), the scroll position holds, and a standing key search is asked again at the new snapshot, the view where it is (its matches named rows of the old one, #1199) — a match its box shows kept while the new snapshot holds it in place, else its query shown again
 │   ├─ series (required unless `pick`) — the row recipes over `data`; the list IS the layout (#822): each series contributes one contiguous block, top to bottom in declared order, its rows in source order, each parent followed by its subtree. Data series: Plan.series.span/buckets/chart/heat/table/cards/events(Row, { key, title, subtitle?, icon?, keyType?, match?, label, id?, stacked?, sub?, value?, status?, expand?, children?, collapsed?, edit?, …kind fields }) — every accessor receives (entry, key); a `RecursiveType` entry arrives as its node. What a gesture WRITES is declared on the series (#880): `edit: { items: "jobs", create: (drop, entry, key) => item }` (span / buckets / cards / events) names the entry's `Array` field a dropped card joins and builds the item from the `Plan.Types.Drop` — see `editing`. Naming the item's `String` key field and its instant fields as well — `edit: { items: "jobs", key: "key", start: "start", end: "end" }` (span / cards) or `{ items, key, at }` (buckets / events) — makes its runs, chips, tiles and marks MOVE, and its runs and chips RESIZE (#825): an element's key is its item's key — its identity across every row it can move to, since a row's list keeps its keys unique (a card or a move that would repeat one is refused, the drag showing ⊘) — an instant field is a `DateTime`, a `Float` / `Integer` (number axis), a `String` (ordinal) or a `Plan.Types.Instant`, and `create` becomes optional. `children` nests, to any depth: a bare accessor `(r) => r.children` walks more of THIS series (a recursive entry's own children), `Plan.children(of, [series…])` steps down to a child collection of another entry type (an `Array` in data order, a `Dict` in key order — its series laid out like a top-level list), an array of step-downs gives several child collections in order (a gesture on a nested row writes back through them, so where a series below takes gestures they read a FIELD of the entry — `r => r.children`, `Plan.children(r => r.presses, …)` — or are the entry itself, `g => g`; a computed collection is refused at build); `collapsed: true | (r, k) => …` is a parent's initial state. A parent derives exactly, because its whole subtree rides in its entry: span bands over the subtree's runs (`rollup` "union" | "byStatus" | "sum"; a band sums its runs' quantities unit by unit — the unit rides each `Plan.quantity`), a heat parent with no cells of its own the children's per-bucket `aggregate` (default "mean") painted on its `scale` ({ min?, max?, warnAt? }; default the scale its members share), a table parent with no values per-position subtotals (`aggregate` default "sum", `format`) — each summarising what its children SHOW, their values already folded to the resolution · Plan.series.group(Row, { key, title, label, children, summaryAggregate?, summary?, collapsed? }) — one strip PER ENTRY, its members the entry's children (derived member count; collapsed it rests as its summary strip — explicit `summary` cells OR a `summaryAggregate` of the members' heat cells, never both) · Plan.series.section(Row, { key, title, collapsed?, meta?, value?, status?, summary?, summaryAggregate? }, [series…]) — a fixed titled block over series (it adds no path segment; its header's id is `Plan.sectionRef(key, …parentPath)`) · Plan.series.views(Row, { key, title, match?, children?, collapsed? }, [series…]) — ONE entity shown several ways: one row per member series per entry, ADJACENT and in declared order (a member's own `match` decides whether its row shows; members declare no `children`), the entry's children following its view rows under the first — more of the views' own entries too (a bare accessor), each drawn as the members' rows, to any depth, a span member's `rollup` rolling them up — and a seek on the entry landing on its first view row · Plan.series.rows(Row, identity, rows) — hand-built rows (the kind factories below) placed as one block. Series keys are unique across the WHOLE series tree — a repeat is a build-time Error naming both sites (a list bound as an East value is checked at render: a repeated id draws as a row diagnostic, never a silent drop). There is no `groupBy`: to group a flat source, reshape it first — inline, one `groupToDicts` in the canvas function (`rows.groupToDicts(($, r) => r.hall, ($, _r, k) => k)`, entries `Dict<String, Row>` whose key is the group); a paged source in the dataflow. A source keyed by another type (`Dict<Integer, R>`) works with series whose accessors ignore the key; one that reads it declares `keyType` and, bound as a list, types it `Plan.Types.Series(R, KeyType)`
 │   ├─ pick (optional, exclusive with `series`) — Plan.pick(key, allSeries, { hidden? }): the bound series library — the toolbar has no Series button (#1193): the library pane's Series tab (#1195, when `library` lists `Plan.library.series()`) lists the series by title, subtitle and kind icon in the list's order (that order is the canvas layout); hidden series drop from the canvas (a hidden section, group or views takes its whole block); there are no row counts (#822 — a count means something only with every entry in hand); a pick is STATE, so the Plan must sit inside a <Reactive>
 │   ├─ resources + events (optional) — event kinds over records (#1191), `Schedule`'s — the very values a Calendar takes: `resources={{ presses: Schedule.resources(rows, { name, icon, label, … }) }}` are the rows events are placed on, in this order — `rows` a `Dict`, or a `Data.bindPaged` read of one, which pages the kind (#1199, see Large records, a window at a time) — and `events={{ job: Schedule.events(Record.bind(jobs, [jobsPatch]), { name, icon, title, start, end | at, resource: { field, of }, … }) }}` the kinds, each a record of its own committed through its patch mutation. Their rows come first, then `data`'s, then `rows`'. Each resource kind is a block (#1192): every resource a row per way the kinds placed on it draw — bars, tiles, chips, marks, in that order — then its `measures`, under its `group` strips and nested by its `parent`; a row's id is `entry { series: "<slot>.<draw>", path: [group?, …parents, key] }`, an element's key its event's `Schedule.Types.EventRef` as East prints it, and an event no resource holds draws on its kind's Unassigned row after every resource kind. The rows are read over the window the canvas draws, and read again when a record commits. Each kind is a session over its record, under ONE history with `data`'s (#1194): every gesture one transaction, drawn as Save would leave it; Undo and Redo (the history item, ⌘Z / ⇧⌘Z / ⌘Y anywhere in the frame but a field being typed into) step through the gestures in the order they were made, whatever their kind; Discard drops every kind's drafts; Save commits each kind with a change as one patch through its patch mutation, checked against what its drafts began from — one kind's conflict, refusal or unanswered write (Save turns into Retry, the same request) leaving the others' commits, each kind's banner titled with its name. Their events drag (#1196), each gesture one step of that history: a template from the library's Events tab, or an unscheduled event from its Backlog tab, drops on a resource's row at the bucket under the pointer — the template's event made under a new key for its duration (from its `at` on a day or longer) and selected, the backlog event scheduled for its own; an element moves along its row or onto another resource's row, writing the resource field, a selected element moving the selection with it, and a bar's or a chip's edge resizes it, never shorter than one snap; an event dropped on the Backlog tab is unscheduled (a kind whose times are Options); the ghost says what lands where (`Brochure run · Press A1 · Mon, Oct 12, 2026`) or, in red, why not (`Needs presses`, `canDrop`'s message); and an element of an event its drafts changed wears the brand tint in a brand border. An event is scheduled in time, so event kinds on a number or ordinal axis are refused at build, naming the axis and the kinds (an axis held in a variable is refused in the same words as the Plan is evaluated); `resources` without `events`, and a kind's `resource` naming a slot `resources` has not, are refused too. `applyMode` ("batch" default | "auto") says when the kinds' drafts go — on Save, or each ready gesture as it lands; `data`'s session takes `editing.mode` — and `date` the date brought into view first
@@ -964,16 +1013,16 @@ return <Plan axis={axis} data={rows} series={series} />;
 │   ├─ popover / hover (optional) — generalized element resolvers fn(Plan.Types.ElementRef) => Option<UIComponent> over EVERY element (run / event / chip / mark / cell refs, each carrying the row's id — compare with `East.equal(ev.row, Plan.ref(…))` — and link refs { key, from, to }, a ribbon belonging to no one row); resolved lazily at click/hover time — a `none` result opens nothing
 │   ├─ expandRender / expandGutter (optional) — the R2 expand-in-place renders fn(Plan.Types.RowId) => UIComponent for rows declaring `expand` (per-row DATA: `{ height?: "168px", axis?: "keep" | "dim" | "off" }` — the render's height, and whether the shared grid + now-line run through it, wash to 40%, or hide inside that row); the focused row GROWS to hold the render (its marks keep their band at the top, its gutter cell grows with it and takes `expandGutter`); every other data row compresses to a 16px strip — never removed: bars / tiles / chips shrink to 7px marks, chart and table rows re-encode as a tone strip, event marks keep their silhouette; a strip click or Esc returns
 │   ├─ editing (optional) — the editing session (#880), the Sheet's (#879) over the source's TOP-LEVEL entries: { onApply? | onUpdate?, onPatch?, mode?, ready? }. Every dropped card, move and resize drafts the entry its row came from (a gesture on a nested row drafts the entry its whole subtree rides in), drawn at once where it was made — the entry's rows derived again, marked pending, or incomplete / invalid while a check refuses that entry — each gesture ONE undoable transaction. The history item (issues · Undo · Redo · Discard · Save, and its status line) ends the frame's toolbar; ⌘Z / Ctrl+Z undo, ⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y redo. `onApply` fn(Editing.Types.ChangeSet(R, K)) => Editing.Types.ApplyResult (sync or async) commits one checked batch against the base the drafts began from — the inline `Dict`'s snapshot, or a paged source's revision (a paged `onApply` needs the source's `revision` and `refresh`): a batch against a source that moved is refused, never rebased, and a banner says "Source changed — review or discard these drafts"; a Save that throws leaves the outcome unknown, and the banner's "Retry request" resends the SAME request (dedupe by its `requestId`); drafts retire only when the source reads back at the committed revision. `onUpdate` fn(Dict<K, R>) => Null is the inline adapter instead (exclusive with `onApply`): pass `data={handle}` and `onUpdate={handle.write}`, and each batch applies with `Editing.apply` over the handle's LATEST `Dict` and writes the whole result once — idempotent across retries. `onPatch` fn(Plan.Types.PatchEvent(R)) => Null hears every gesture (origin drop / move / resize / undo / redo / discard). `mode` "batch" (default — Save sends) | "auto" (each ready gesture goes at once). `ready` fn(R, K) => Editing.Types.Readiness checks a drafted entry — a refusal names the entry and holds Save (a check that throws refuses its own entry only). Without `editing` the canvas takes no gesture
-│   ├─ slice (optional, #1344) — slice={{ slice: Slice.bindRecords(key, { rows?, <an event kind's slot>?, <a resource kind's slot>?, <a templates list's or a tab's source>? }, { presets? }), affordances?, persist? }}: ONE rail on the toolbar (affordances default ["fields","presets","summary","brush"]), each source named after what it narrows. `rows` gives the canvas its rows, paged from it in its index's order — `data` beside it is refused — edits reaching the record through `editing.onApply` (`Record.onApply(record, { keyed: true })`), the session the record's, a Save that takes rows out of the narrowing said in the footer. A source named after an event kind's slot reads that kind's events in the window and its backlog through its interval index (`e3.recordIndex(name, jobs, { on?, interval: { from: "start", to: "end" } })`, `range: "start"`), the kind giving `entries: Data.bindPaged(record)` for its reads by key; a draft of an event its narrowing does not hold never shows, and Save sends it. One named after a resource kind's slot narrows that kind's rows and the bulk edit's Chooser, which keeps the resources the selected events are on — over resources read whole and keyed by String. One a templates list (`Schedule.templates(rows, { …, source })`) or a library tab names narrows that tab's cards: each tab counts what it shows (`Customers 6 of 16`) and, emptied, says so with Clear filters; the Backlog counts `N of M`, its Clear filters keeping the window. Every source holding a range of the axis's arm holds ONE window — on a time axis the date navigator's, the leading source's range editor its Range panel and every source's range out of the rail; on a number axis the leading source's range a chip of the rail: the date navigator, the horizon brush, `[` / `]` / `n` and the resolution write each source, and a record's resolution only re-buckets, fetching nothing. `brush` mounts the horizon band on time and number axes: an OVERVIEW of the sources' range in whole periods, with a lens joining its window to the plot's edges (drag its body to slide the window, an edge to resize it, empty track to draw one), committing once a gesture, with no histogram; `resolution` the WEEK/DAY segment (time axis); `summary` the rail's counts. Calculations — the footer's counts, the overlaps — read every event the kinds read. Refused at build, each naming the change: the bare handle, `Slice.bind`, a single `Slice.bindRecord`, a source nothing names, `data` beside `rows`, a paged resource kind or one keyed otherwise than by String as a source, a kind's own `slice` or `filter`, and a templates list written in the code or naming no source. With a `rows` source there is no key search: the rail narrows the rows. On a PAGED `data` the toolbar's KEY SEARCH seeks over the source's `seek` — the box, folding to its icon on a row short of room; the jump REBASES residency at the match (windows in between are never fetched); the query is a whole-key literal, a prefix, leading struct fields, or a `from..to` RANGE over a leading prefix of the key's flattened fields (`late, 3..ok`), which is what a time window or a status band asks for — quoting is the escape: a quoted value is exact and a `..` inside it is text (`"../config"`)
+│   ├─ slice (optional, #1344) — slice={{ slice: Slice.bindRecords(key, { rows?, <an event kind's slot>?, <a resource kind's slot>?, <a templates list's or a tab's source>? }, { presets? }), affordances?, persist? }}: ONE rail on the toolbar (affordances default ["fields","presets","summary","brush"]), each source named after what it narrows. `rows` gives the canvas its rows, paged from it in its index's order — `data` beside it is refused — edits reaching the record through `editing.onApply` (`Record.onApply(record, { keyed: true })`), the session the record's, a Save that takes rows out of the narrowing said in the footer. A source named after an event kind's slot reads that kind's events in the window and its backlog through its interval index (`e3.recordIndex.interval(name, jobs, { on?, from: "start", to: "end" })`, `range: "start"`), the kind giving `entries: Data.bindPaged(record)` for its reads by key; a draft of an event its narrowing does not hold never shows, and Save sends it. Listing a series index and a summary index beside the interval index (#1039), a kind placed on a paged resource kind is read a cell at a time — the events of the resources around the rows in view over the tiles the window touches, two requests a change — and shaded from the summary past what it draws (see Large records below). One named after a resource kind's slot narrows that kind's rows and the bulk edit's Chooser, which keeps the resources the selected events are on — over resources read whole and keyed by String. One a templates list (`Schedule.templates(rows, { …, source })`) or a library tab names narrows that tab's cards: each tab counts what it shows (`Customers 6 of 16`) and, emptied, says so with Clear filters; the Backlog counts `N of M`, its Clear filters keeping the window. Every source holding a range of the axis's arm holds ONE window — on a time axis the date navigator's, the leading source's range editor its Range panel and every source's range out of the rail; on a number axis the leading source's range a chip of the rail: the date navigator, the horizon brush, `[` / `]` / `n` and the resolution write each source, and a record's resolution only re-buckets, fetching nothing. `brush` mounts the horizon band on time and number axes: an OVERVIEW of the sources' range in whole periods, with a lens joining its window to the plot's edges (drag its body to slide the window, an edge to resize it, empty track to draw one), committing once a gesture, with no histogram; `resolution` the WEEK/DAY segment (time axis); `summary` the rail's counts. Calculations — the footer's counts, the overlaps — read every event the kinds read. Refused at build, each naming the change: the bare handle, `Slice.bind`, a single `Slice.bindRecord`, a source nothing names, `data` beside `rows`, a paged resource kind or one keyed otherwise than by String as a source, a kind's own `slice` or `filter`, and a templates list written in the code or naming no source. With a `rows` source there is no key search: the rail narrows the rows. On a PAGED `data` the toolbar's KEY SEARCH seeks over the source's `seek` — the box, folding to its icon on a row short of room; the jump REBASES residency at the match (windows in between are never fetched); the query is a whole-key literal, a prefix, leading struct fields, or a `from..to` RANGE over a leading prefix of the key's flattened fields (`late, 3..ok`), which is what a time window or a status band asks for — quoting is the escape: a quoted value is exact and a `..` inside it is text (`"../config"`)
 │   ├─ grain (optional) — initial grain "resource" (default) | "group" (root groups collapse to summary strips); the `g` key cycles it, and a canvas with a root group mounts the toolbar's GROUP · RESOURCE segment for it — slice or no slice (#632; the narrow layout's tabs own the grain there); onGrainChange observes
 │   ├─ ui (optional) — the interaction state, held by the HOST (#824): State.bind([Plan.Types.UiState], key, Plan.uiState({ selected?, collapsed?, expanded?, charts?, focus? })) — the canvas draws it from its first frame, takes every outside write (a selection, rows folded or opened, charts expanded) and writes the user's own actions back, once per action; `collapsed` / `expanded` list the rows folded / opened AGAINST their declaration (a row in neither follows it; in both, folded); `focus` is a REQUEST — the canvas opens the rows it nests under, scrolls it to the top of the view, makes it the tab stop (DOM focus stays put) and writes `focus: none` back; a paged row it has not loaded is opened by its window, or sought by its entry's key where the source can seek. Bound, the canvas persists no toggles of its own under its `storageKey`
 │   ├─ id + sources + canDrop (optional) — DnD TARGET (the shared grammar): cards — an author's tab's in the Plan's own library panel (`Plan.library.tab`, #1259), or a Library's beside the Plan, which reaches it by its `id` when `sources` lists the Library — `add` onto rows whose series declares `edit` — span / buckets / events / cards only (chart / heat / table render DERIVED values, and section headers and group strips are wayfinding — they register no cell) — and only with `editing`: a drop is a DRAFT of the session (#880), its item built by the series' `create` from the `Plan.Types.Drop` ({ from: { library, key }, row, at, duplicate } — `at` the start of the bucket it landed in, on the axis arm). `canDrop` sees the drag grammar's `add`: its `into.row` is the row id's canonical TEXT — key host tables by `East.print(Plan.ref(series, …path))`, or read it back with `row.parse(Plan.Types.RowId)`; slot = the bucket start instant per the axis arm — time: Z-less ISO (`slot.parse(DateTimeType)`), number: a decimal (`slot.parse(FloatType)`), ordinal: the value; drop verdicts resolve LIVE where the drag rests — `canDrop` is asked of the event a drop there would deliver (an `add`'s `duplicate` is whether Alt is held), renders the ⊘ stage, and is asked again before the drop becomes a draft — and the landing band previews WHERE the card lands. A moved or resized element (#825) is vetoed the same way: `canDrop` sees the grammar's `move` ({ from, to } cells, `from.event` the element's key) or `resize` ({ event, edge }). The canvas's own elements, and its own panel's cards, need no `id` — only a Library beside the Plan does. A card held at a bounded canvas's edge scrolls it to the rows beyond; by keyboard (#608) → / ← step onto a row and along its buckets and ↑ / ↓ between rows, each bucket announced ("Poster run is over H1-P03, Week of Jul 6, 2026."). `onDrag` is removed (#880) and throws at build. With event kinds, `canDrop` may instead be fn(Schedule.Types.Candidate) => Option<String>, vetting an event kind's drop with its message on the ghost, as the Calendar's — the arm is read from the function's type; it is asked where a drag rests and again of the drop, `from` the template's key, the backlog event's or the moved event's (#1196)
 │   ├─ onSelect / onElementClick / onGroupToggle (optional) — row selection, ONE element callback and section toggles; payloads are row ids + element keys + instants, never indices: onSelect the `Plan.Types.RowId`; onElementClick a `Plan.Types.ElementRef` — the SAME ref the popover resolver receives, its arm the element kind (run { row, run } · event { row, event } · mark { row, mark } · chip { row, chip } · cell { row, at } — `at` a Plan.Types.Instant on the axis arm, a folded bucket's start · link { key, from, to }), so `ref.match({ run: …, link: … }, …)` handles the kinds it cares about; onGroupToggle { row, expanded } for any row with children
-│   ├─ footer (optional) — [{ text, tone?, end? }] status-footer items, in the frame's footer after its counts; a paged canvas adds the transport line ("N loaded of M · Loading…", counted in source ELEMENTS); until the source is exhausted a TOP-LEVEL section's member count prints `~`-marked (its members are entries the windows share out) — every other parent's numbers are exact, its subtree riding whole in one entry
+│   ├─ footer (optional) — [{ text, tone?, end? }] status-footer items, in the frame's footer after its counts; a paged canvas adds the one loading line (what the view waits for, or why a window could not be read, with Retry); rows not read draw as the shared run — label bars and the plot washed, at the rows' pitch — and until the source is exhausted a TOP-LEVEL section's member count is a placeholder bar (its members are entries the windows share out) — every other parent's numbers are exact, its subtree riding whole in one entry
 │   └─ style (optional) — { height ("fill" fills the parent) and maxHeight — the whole Plan's, its frame's, the canvas filling main and scrolling its own rows; with neither, a host that gives the Plan a height bounds it the same way, and one that gives none lets it grow with its rows — density ("compact" ⇒ dense 24px rows), gutterWidth ("168px", CSS px) }; a bounded canvas pins the PARENT of the rows in view under its header — with its ancestors' path on a deep tree — once the parent's own row scrolls off, inline and paged (a click goes to it, #823)
 ├─ Narrow (below 480px of CONTAINER width — a phone, a splitter pane, a task preview; §10): the same definition reflows to a review tool — the frame's toolbar keeps its items, folded to fit (the GROUP · RESOURCE segment leaves: the tabs own the grain), no horizon brush, and Groups · Rows · Measures tabs (the `<Tabs>` line grammar, counts as plain numerals) over ONE slice, then the card list with the shared ruler as its sticky first row (a separator per bucket, labels thinned to what fits): Groups = the group grain as hottest-first strip cards (tap opens its rows) — the LANDING only when it is a map (three or more groups, or any strip); Rows = every data row as a card SECTIONED by group (a section header scopes to that group; `← All rows` returns) with the gutter identity as the card head and the row's plot — the same kind renderer — as the body on the shared window; Measures = chart rows full-width at expanded density; tap selects, a second tap on an `expand` row drills it in place (~148px; neighbours keep their size), a two-finger horizontal drag pans the window; a bounded `height` pins the header and scrolls the list; a paged source shows its resident prefix. Wrap a Plan in `<Box width="360px">` to see it on a desktop page
 ├─ Keyboard (#819): the body is a TREEGRID with ONE tab stop that roves between its rows — every row, group band, ⋯ gap band and paged-window band (loading or failed) is a `row` with aria-level / aria-expanded / aria-selected and an `aria-rowindex` that stays exact under virtualization, collapse and paging · ↑ / ↓ step, Home / End go to the first / last, PgUp / PgDn move a viewport · → opens a closed section (a group band, a nesting parent, an `expandable` chart) and steps into an open one's first child; ← closes an open one, else steps to the parent · Enter does the row's click (select; a group band toggles; a rail, strip or ⋯ band returns from the row focus) · Space toggles the section / chart · a step onto an UNLOADED band asks the source for that window and moves on to the row once it lands (Home / End reach the source's own first / last row) · Tab walks the row's widgets — its controls, its elements in time order, tabbables in the expand render — then leaves the canvas; ← / → (Home / End) step between elements in time order; Enter / Space on an element does its click (the popover, the selection — an event kind's element selects its event, Shift+Enter adds it, #1197 — the element callback) · Esc ladder, one rung per press: popover → element back to its row → brush → focus → deselect (the row, its bucket and the events at once) · n recenters the window on `now` · [ / ] pan one period · g cycles the grain — window keys write the window into the sources holding it, so a canvas whose slice holds no range idles them · with `editing`, ⌘Z / Ctrl+Z undo the last gesture and ⌘⇧Z / Ctrl+Shift+Z / Ctrl+Y redo it (#880) · with `editing`, Space on a movable element picks it up (#825): ← / → move it one bucket, Shift+← / → its end and Alt+← / → its start, ↑ / ↓ carry it to the nearest row above / below that takes it, Space / Enter drop it, Esc / Tab cancel — each step said in the canvas's live region; an event kind's element is carried the same way (#1196), ↑ / ↓ along the rows its kind draws on, a refusal said with why · the toolbar's GROUP · RESOURCE and WEEK · DAY segments are radio groups: one tab stop each, ← / → (Home / End) move and pick
-├─ Screen readers (#819): a polite live region says what changed — a selection, a section or chart opening / closing, a row focus coming or going, the grain, the resolution, each window a paged source lands ("Loaded elements 201–400 of 5,000", counted in source elements like the transport line); every element is named in words — label, span or bucket ("Week of Jul 6, 2026"), state, tone — a chart row reads as an image with a min / max / last summary per layer, and colour-only cells (heat depth, booked weight, segment composition, compressed strips) carry their value as text; narrow, the Groups · Rows · Measures tabs are a real tablist (arrow keys, one tabpanel each)
+├─ Screen readers (#819): a polite live region says what changed — a selection, a section or chart opening / closing, a row focus coming or going, the grain, the resolution; what a paged source reads is the footer's loading line, a polite live region that speaks once a load; every element is named in words — label, span or bucket ("Week of Jul 6, 2026"), state, tone — a chart row reads as an image with a min / max / last summary per layer, and colour-only cells (heat depth, booked weight, segment composition, compressed strips) carry their value as text; narrow, the Groups · Rows · Measures tabs are a real tablist (arrow keys, one tabpanel each)
 ├─ Localization (#820): every word the canvas says itself — toolbar, ruler, footer, diagnostics, bands, narrow tabs and cards, the history bar (the table carries the editing session's words, #880), element names, live-region announcements — comes from ONE typed message table, and every number and date it prints is in the LOCALE: react-aria's `<I18nProvider locale="de-DE">` above the app sets it (the browser's language otherwise), and derived numbers ("2.234,5 k sheets"), ruler ticks ("MO · DI"), the words a reader hears ("29. Juni 2026") and a Chart.format.* axis all follow it. Host React code overrides any subset of the words for a subtree with `<PlanMessagesProvider messages={GERMAN}>` (@elaraai/e3-ui-components; `planMessages` is the English table — each message a function of named, already-formatted parameters, plus the raw `n` for plurals; define the overrides ONCE, not per render — providers nest). What the AUTHOR wrote is data and never translated: labels, footer items, and a date `format` pattern on the axis (East tokens, as written); the label a patch event carries to the host stays in English, as the Sheet's does
 └─ Factories:
     ├─ Plan.axis({ … }) = Plan.axis.time / Plan.axis.number({ window?, step, now?, format? }) / Plan.axis.ordinal({ values, now? }) — the shared axis declaration, one of three kinds (Plan.Types.Axis); Plan.at.time(d) / Plan.at.number(n) / Plan.at.ordinal(s) build ONE INSTANT explicitly (Plan.Types.Instant) — needed only for element RECORDS written as data (a Plan.Types.HeatCell array, a stored Plan.Types.Run): every element builder below takes a Date / number / string, or a DateTime / Float / Integer / String expression, and wraps it to the arm by its type, so a `start: r.start` DateTime accessor and a `day: FloatType` field both need nothing written
@@ -1292,7 +1341,8 @@ unmapped fields hold their type's default.
 
 A period whose status is the published case is read-only in every layout,
 phones included, and so is one in a case that is neither, its chip naming the
-case; a period with no row is Not started. Publish saves the period's drafts
+case; a period with no row is Not started once its read lands; until then the
+status chip is a placeholder in its slot. Publish saves the period's drafts
 first, and once every record reads back as saved writes the published case —
 the time in `at` when the case holds one — and saves the period: a Save that
 fails leaves the period a draft with its drafts kept, so a published period
@@ -1419,7 +1469,7 @@ places it bare.
 | --- | --- | --- |
 | the toolbar | Every control the Plan draws outside its canvas, one row at every width: the rail of its one `Slice.bindRecords` folds first, its summary after every step of it, then the Plan's own steps and the key search into its icon; the fold toggle, the resolution and the overlaps chip into the date navigator's View, one move; the history item folds last. | `planTargetState`, `planRowDrop`, `planPrintWorks` |
 | the banners | Each session's — `data`'s, and each event kind's titled with its name (#1194): a Save's conflict, a refusal, an unknown outcome with Retry, a source out of date with Discard; each leaves when what it reports does, and one kind's leaves the other kinds' commits standing. | `planRowDrop`, `planPrintWorks` |
-| the footer | The counts — the event kinds' events in the window, their backlog, the changes pending and the last save of an event kind's record — then the author's `footer` and the transport line. | `planPrintWorks` |
+| the footer | The counts — the event kinds' events in the window, their backlog, the changes pending and the last save of an event kind's record — then the author's `footer` and the one loading line. | `planPrintWorks` |
 | `style={{ height: "fill" }}` / `maxHeight` | The whole Plan's: the canvas fills main and scrolls its own rows. | `planTargetState` |
 | a host's height, and no `style.height` | The canvas fills main and scrolls there; a host that gives none lets it grow with its rows. | — |
 
@@ -1602,6 +1652,43 @@ to the jobs reads the presses' windows again over the same snapshot, and the
 search keeps its text, its matches and the view. Only a new snapshot of the
 presses asks it again, there.
 
+#### A cell at a time, shaded zoomed out (#1039)
+
+An event kind placed on a paged resource kind reads only the events of the
+resources around the rows in view when its source lists a **series index** of
+its record beside the interval index, and a **summary index** with it
+(`planSeries`). A series index files each event under its resource and each
+time tile it touches, carrying its row; a summary holds, under each resource
+and tile, how many events touch it and the milliseconds of it they cover (the
+**e3** skill). Nothing else in the Plan changes:
+
+```tsx
+// Package side, beside the interval index:
+// export const jobsByPressWeek = e3.recordIndex.series("jobs_by_press_week", jobs, { key: "press", from: "start", to: "end", tile: "week" });
+// export const jobsByPressMonth = e3.recordIndex.summary("jobs_by_press_month", jobs, { key: "press", from: "start", to: "end", tile: "month" });
+const slice = $.let(Slice.bindRecords("ops.plan", {
+    job: { source: Data.bindPaged(jobs, { indexes: [jobsByTime, jobsByPressWeek, jobsByPressMonth] }), range: "start" },
+}));
+```
+
+A **cell** is the events of a block of fifty of the paged kind's resources in
+one tile. The Plan wants the blocks meeting the rows in view and twenty-five
+resources either side, by the tiles the range it reads touches — its window
+and the periods laid out beyond each edge — and one tile either side: every
+wanted cell's searches in one request, which counts its entries before one is
+read, and the entries of the cells it does not hold in one more. A pan or a
+scroll within the cells it holds reads nothing, and a commit reads the wanted
+cells again, the old standing in until they land. The rail's window and its
+exact count stay the interval index's.
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| a source listing `e3.recordIndex.series` + `e3.recordIndex.summary` beside the interval index **❗** | The kind read a cell at a time, two requests a change. A long event is in every tile it touches and draws once; the drafts draw where they place their events, read or not; a link's event end the cells do not hold is read by its key, in one read. | `planSeries` |
+| past 10,000 events in the cells wanted | The summary's cells instead, at the largest of its tiles that divides the canvas's bucket — a day, an ISO week (which divides no month), a month, a quarter or a year — each resource's share of each bucket booked for bars and chips, how many events touch it for tiles and marks. With none that divides it, the events over the window while the rail's exact count of them is within the budget; past it the rows are hatched, and a banner names how many events there are and the resolution that shades them. A kind placed on resources read whole whose source lists a summary shades past the budget the same way, the rail's exact count deciding. | `planSeries` |
+| a narrowing | A series index led by the narrowed fields serves it exactly; any other field is asked of the cells' events in one read. A summary shades a narrowing only when led by its fields. | `planSeries` |
+| the footer and the inspector | The window's events counted exactly from the source, as the rail counts them; their hours and overlaps over the rows drawn — "Hours in view" — and the backlog read whole through the source's unset start. | `planSeries` |
+| a series index without a summary; an index filed by another field than the kind's resource field, or over other times than its own; a series index for a kind placed on resources read whole, or on none; two series or two summaries of one tile over the same fields **❗** | Refused as the payload builds, each naming the change. | — |
+
 ### The Sheet — `<Sheet>`
 
 `<Sheet>` is the planning spreadsheet, and there is one: it renders in its
@@ -1619,8 +1706,11 @@ sources:
   through `onApply`, `onUpdate` and `onPatch`; with none of them the sheet is
   read only.
 - the **`rows` source of its `slice`** — `slice={{ slice: Slice.bindRecords(key,
-  { rows, … }) }}` (#1345): the rows that source narrows to, paged from it in
-  its index's order, each row's id its record key. Save commits through
+  { rows, … }) }}` (#1345): the source's record's rows, every one in the
+  record's order, each row's id its record key. While the source narrows them
+  the sheet draws the narrowing over them as the **lens** (#1349): each match
+  at its row number, the rows either side of it, and a gap of its exact size
+  over every other run of rows. Save commits through
   `onApply={Record.onApply(record, { keyed: true })}` by original primary key.
 
 Its columns are typed — a date, a quantity with its unit, an integer, text, a
@@ -1629,9 +1719,9 @@ register lookup, reference or enum, a set of register members, a directed
 read-only code, a custom parse / print pair — with a blank tail that invites
 the next row, typed parsing with a docked candidate strip, a copilot that
 fills cells and proposes whole rows from author East functions, one rail over
-its `Slice.bindRecords` — its rows, its templates records and the tabs that
-name a source — with saved-view tabs, drag and drop, Excel round-tripping, and
-a key search over a paged source. Every change is a draft
+its `Slice.bindRecords` — its rows, whose narrowing it draws as the lens, its
+templates records and the tabs that name a source — with saved-view tabs, drag
+and drop, Excel round-tripping, and a key search over a paged source. Every change is a draft
 of an editing session, checked as it is made and applied as one checked
 batch. Where east-ui's `<Table>` displays rows, the Sheet is where a planner
 types them: reach for it when the rows are authored in place and written back.
@@ -1667,12 +1757,12 @@ import { Record, Sheet } from '@elaraai/e3-ui';
 ```
 
 ```
-<Sheet record={Record.bind(r, [patch])} | data={rows} id="id" | slice={{ slice: Slice.bindRecords(key, { rows, … }) }} columns={{ start: Sheet.column.date(Row, {…}), qty: Sheet.column.quantity(Row, Driver, {…}), … }} library?={[…]} inspector? /> — the planning SPREADSHEET in its builder frame: typed columns over its rows (date · quantity + unit · integer · text · register lookup / reference / enum · a set of register members · a directed `from > to` LINK between register members as a TYPED value · stamped read-only codes · a custom parse / print pair), a blank tail that invites the next row, typed parsing with a docked candidate strip (nothing ever floats over the grid), a copilot that fills cells and proposes whole rows from author East functions, one rail over its Slice.bindRecords with saved-view tabs over every source's narrowing (the lens, which drew a narrowing over the resident rows, is off until #1349), drag and drop, Excel round-tripping, and a key search over a paged source. Declared the way east-ui's Table and the Plan are: every per-row fact is an accessor, the builders take the row type FIRST, and nothing at the author's side is addressed by a string name
-├─ The frame: ONE toolbar holding every control the sheet has, in this order — the view tabs, the key search, the rail over its `Slice.bindRecords` and its summary (each source a narrowing hides rows of, named in its own words, #1358), the scope badge and the history item (a sheet with none of them, read only with no slice, has no toolbar). It is one row at every width: the rail folds first, then its summary, then the sheet's own steps — the tabs into `+n`, the strip closing up — then the key search into its icon (which opens the box in a popover, the focus in it) and the view tabs into one chip naming the open view, its menu every view, `+ TAB` and the open view's close (#1221); where the sheet has a key search, the chip folds last into the search's popover, its views over the box (#1345); and the history item last, to its buttons; on a touch screen every control there is a 44px tap target. The banners — a Save's conflict naming its rows and who changed the record last, a refusal with its reason, an unknown outcome and a failed confirmation read each with Retry, the out-of-date notice with Discard, each source the library follows whose narrowing could not be read, with Retry, and an `entry` the record does not hold; main — the grid, filling the room the panes leave and scrolling its own rows, the strip docked under it; the footer — the sheet's, over a record its last save, and over the slice's `rows` source the rows a Save took out of the narrowing. ⌘Z undoes and ⇧⌘Z / ⌘Y redo from anywhere in the frame; a field being typed into keeps its own undo. The sheet fills its parent and draws no border: give it a box of its own height
+<Sheet record={Record.bind(r, [patch])} | data={rows} id="id" | slice={{ slice: Slice.bindRecords(key, { rows, … }) }} columns={{ start: Sheet.column.date(Row, {…}), qty: Sheet.column.quantity(Row, Driver, {…}), … }} library?={[…]} inspector? /> — the planning SPREADSHEET in its builder frame: typed columns over its rows (date · quantity + unit · integer · text · register lookup / reference / enum · a set of register members · a directed `from > to` LINK between register members as a TYPED value · stamped read-only codes · a custom parse / print pair), a blank tail that invites the next row, typed parsing with a docked candidate strip (nothing ever floats over the grid), a copilot that fills cells and proposes whole rows from author East functions, one rail over its Slice.bindRecords with the LENS — the `rows` source's narrowing drawn over the record's rows, each match at its row number (#1349) — and saved-view tabs over every source's narrowing, drag and drop, Excel round-tripping, and a key search over a paged source. Declared the way east-ui's Table and the Plan are: every per-row fact is an accessor, the builders take the row type FIRST, and nothing at the author's side is addressed by a string name
+├─ The frame: ONE toolbar holding every control the sheet has, in this order — the view tabs, the lens's context switch and its count line (while the `rows` source narrows the rows, #1349), the key search, the rail over its `Slice.bindRecords` and its summary (each source a narrowing hides rows of, named in its own words, #1358), the scope badge and the history item (a sheet with none of them, read only with no slice, has no toolbar). It is one row at every width: the rail folds first, then its summary, then the sheet's own steps — the tabs into `+n`, the count line, the context switch's label, the strip closing up as the context switch goes — then the key search into its icon (which opens the box in a popover, the focus in it) and the view tabs into one chip naming the open view, its menu every view, `+ TAB` and the open view's close (#1221); where the sheet has a key search, the chip folds last into the search's popover, its views over the box (#1345); and the history item last, to its buttons; on a touch screen every control there is a 44px tap target. The banners — a Save's conflict naming its rows and who changed the record last, a refusal with its reason, an unknown outcome and a failed confirmation read each with Retry, the out-of-date notice with Discard, each source the library follows whose narrowing could not be read, with Retry, and an `entry` the record does not hold; main — the grid, filling the room the panes leave and scrolling its own rows, the strip docked under it; the footer — the sheet's, over a record its last save, and over the slice's `rows` source the rows a Save took out of the narrowing. ⌘Z undoes and ⇧⌘Z / ⌘Y redo from anywhere in the frame; a field being typed into keeps its own undo. The sheet fills its parent and draws no border: give it a box of its own height
 ├─ Rows — ONE of three sources (two, or none, is refused):
 │   ├─ record — `Record.bind(r, [e3.mutation.patch(r)])` over a `Dict` record: its entries are the rows, in key order, each row's id its key's text (any key type: a non-String key by its `.east` text). `window={Data.bindPaged(r)}` reads the same record a window at a time. `entry={{ key, rows: F, id: I }}` is one entry's Array field `F`, in its own order, each row identified by the `String` field `I`; each entry keeps its own drafts, and a key the record does not hold opens empty and read only, named in a banner. With `group`, the entry's field holds groups, or `Sheet.Types.Entry(P, "lines")` entries with loose rows between them (`id` then names a field of both types); a record of groups is grouped the same way. Save is ONE patch commit, checked against what each row was when its edit began, confirmed by the rows the record reads back. Over a record `id`, `onApply` and `onUpdate` are refused (the record identifies and commits its rows); `entry` and `window` need a record
-│   ├─ data — the host's rows: an `Array<R>` value / expression or a `$.let`-bound whole-value handle (`State.bind` / `Data.bind`) for the INLINE arm; a paged source for a WINDOWED arm — a `$.let`-bound `Data.bindPaged(…)` handle, recognised by its East type: `pinned` when it names its snapshot, which `onApply` needs, `paged` when it is the shape a UI exported before `revision` / `refresh`, which names none — positional (`Array<R>` windows) or keyed (`Dict<String, R>` windows; the key is the row id). When a pinned source's `revision()` moves (`Data.bindPaged` follows each write to its dataset), the sheet re-reads its resident windows at the new snapshot IN PLACE: the rows on screen stay until theirs land (no remount, no empty frame), the scroll position and row heights hold, and a standing key search is cleared. A failure stays where it happened: a window the source cannot read is ONE band where its rows would be — the elements it covers, the reason and a Retry — while the windows around it keep working and the rows after it keep their numbers; a `total()` or `revision()` that throws is said on the footer's transport line with a Retry while the rows stay; only a source that fails before anything lands replaces the grid, with a Retry. A row that throws while it draws is a one-row diagnostic. A `Dict` inline is refused (a sorted map would sit rows in key order, not the planner's) — a record's entries come through `record`. `id` (required on a positional source) names the `String` field that identifies a row; over entries of groups and loose rows, a field of BOTH types
-│   └─ the `rows` source of `slice` — slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(r, { indexes }), fields, range?, search? }, … }) }} (#1345): the rows that source narrows to, paged from it in its index's order, each row's id its record key, a grouped sheet's groups its records; edits through `onApply={Record.onApply(record, { keyed: true })}`, a Save that takes rows out of the narrowing said in the footer; the key search seeks in the source's order. `record`, `data`, `window` and `entry` beside it are refused, each naming the change
+│   ├─ data — the host's rows: an `Array<R>` value / expression or a `$.let`-bound whole-value handle (`State.bind` / `Data.bind`) for the INLINE arm; a paged source for a WINDOWED arm — a `$.let`-bound `Data.bindPaged(…)` handle, recognised by its East type: `pinned` when it names its snapshot, which `onApply` needs, `paged` when it is the shape a UI exported before `revision` / `refresh`, which names none — positional (`Array<R>` windows) or keyed (`Dict<String, R>` windows; the key is the row id). When a pinned source's `revision()` moves (`Data.bindPaged` follows each write to its dataset), the sheet re-reads its resident windows at the new snapshot IN PLACE: the rows on screen stay until theirs land (no remount, no empty frame), the scroll position and row heights hold, and a standing key search is cleared. Rows not read draw as the shared run — the sheet's own rows at its pitch, a flat sheet's real row numbers — and a failure stays where it happened: a window the source cannot read is said once, in its run's first row in view (`Couldn't read rows 201–400`, Retry), its reason on the footer's loading line, while the windows around it keep working and the rows after it keep their numbers; a `total()` or `revision()` that throws is said on the footer's loading line with a Retry while the rows stay; only a source that fails before anything lands replaces the grid, with a Retry. A row that throws while it draws is a one-row diagnostic. A `Dict` inline is refused (a sorted map would sit rows in key order, not the planner's) — a record's entries come through `record`. `id` (required on a positional source) names the `String` field that identifies a row; over entries of groups and loose rows, a field of BOTH types
+│   └─ the `rows` source of `slice` — slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(r, { indexes }), fields, range?, search? }, … }) }} (#1345): the source's record's rows, every one in the record's order, each row's id its record key, a grouped sheet's groups its records; while the source narrows them, the sheet draws the narrowing over them as the LENS (#1349) — each match at its row number, its number marked; `context` rows either side of it, the toolbar's context switch (0 · 1 · 3); and every other run of rows a gap of its exact size, whose controls open 1 · 3 · 10 · all from its top, its bottom or both. e3 places the narrowing's rows from its index alone, and the lens reads only the record's segments that hold matches near the view — a page and one ask of which of its rows the narrowing holds, each — so a gap over rows with no match reads nothing, whatever the record's size; a stretch still being read or placed is one band that says so. The count line says `n matches · m context`, n e3's count. A segment whose rows disagree with where e3 placed the narrowing's is one failed band saying the record changed, with a Retry — never a match the index does not hold. The rows the planner opened stay open across a revision that moves them, found again by their rows' keys. A grouped sheet's lens narrows its groups: a matching group's every line shows. Edits through `onApply={Record.onApply(record, { keyed: true })}`, a Save that takes rows out of the narrowing said in the footer; the key search seeks in the record's order, and under the lens opens the row it lands on. `record`, `data`, `window` and `entry` beside it are refused, each naming the change
 ├─ Props:
 │   ├─ columns (required) — keyed by the row's fields and checked per key (a key that is not a field, a date under a `String` field, a builder over another row type: type errors): Sheet.column.text(R, cfg) · date(R, { base?, format?, level?, actual? }) — the common date field (`dd / mm / yyyy` segments); pasted text takes the B§3 grammar (`+3d`, `4d` from `base`, `fri`, ISO, `d/m[/yy]`); `level: r => …` reads each row's date at a Sheet.Types.DateLevel ("week" | "day" | "range" | "time" — no shifts: a host with shifts uses a `custom` kind) and `actual: r => Option<DateTime>` is when the work really happened (the cell then prints it with its difference, the wanted date becoming the cell's detail) · quantity(R, cfg) or quantity(R, D, { uom: d => d.uom, format? }) — a float with the DRIVER row's unit in the common number field, in the viewer's language (#852): the cell groups (1,234.5 — German 1.234,5; through `format` when declared), the edit box and copy are bare (1234.5 — German 1234,5), typed and pasted text reads the viewer's separators (pasted `1.2k` / `1.2m`, German `1,5k`, still parse; a typed quantity rounds to a whole number), and ⏎ on an unchanged edit box writes nothing · integer(R, cfg) · lookup(R, { options? }) — the DRIVER column only (scored candidates from its register) · reference(R, register, cfg) — a lookup over a flat member list · enum(R, register, { options? }) — an upper-cased register word with a valence dot · set(R, register, { members?, multiple?, store? }) — comma members, the link grammar without an arrow · link(R, D, register, { to? | from?, members, multiple?, sides?, arity?, check?, store?, options? }) — `from > to`, the split cell; `members: [{ kind, identified?, countable?, resolvesTo?, ranged? }]` — `ranged` offers and prints runs of consecutive codes as one range. `options` (enum / lookup / link) is fn(Sheet.Types.DraftContext(R, D)) => Option<Array<String>> — the member keys the row is OFFERED (`none` = the whole register; typed text still resolves against the whole register) · stamped(R, { owner? }) — read-only, skipped by paste and clear · custom(R, { accepts, parse, print }) — an author parse / print pair over the field's payload. Every kind takes { header, sub, width, editable?, fill?, detail? } (`header` + `sub` are the two header lines; `fill` = providers, the first that yields wins; `detail: r => String | Option<String>` is the text the hover and the strip show beyond the value); text / date / quantity / integer also take `value: r => …` for a derived READ-ONLY projection on any field. A set / link column sits on a `Sheet.Types.Link` field, an `Array<Sheet.Types.Member>` field (the other half named by `to` / `from`), or a `String` field the grammar parses on read and prints on commit per `store` ("asTyped" | "canonical" — the register's labels)
 │   ├─ group (optional) — Sheet.group(P, "lines", { title, sub?, cells?, folded?, noun? }): the rows are GROUPS whose lines live in one `Array<L>` field; `columns` are declared over `L`; `cells` = band cells (Sheet.group.cell.*) keyed by the line column they sit under; `noun: { singular, plural }` is the word the renderer prints for a group (omitted, the sheet says its own in the viewer's language — "group" / "groups" in English, #861). LOOSE rows between the groups (#846): rows of Sheet.Types.Entry(P, "lines") entries — each `variant("group", P)` or `variant("row", L)` — and a row entry draws as a plain row: no band or rail, numbered in the groups' sequence, its own cells. The seam above a band or beside a loose row inserts a loose row (a line's seam and a group's blank line still insert a line); loose rows delete, paste and count on their own ("2 groups · 3 lines · 3 loose rows"), fold-all passes them by and no band sticks over them. A new line there gets its `id` field minted unless `newRow` supplies one; drafts, checks and the change set carry the entry (a draft is `variant("group", …)` or `variant("row", …)`, a loose row's DraftContext has `group: none`)
@@ -1681,8 +1771,8 @@ import { Record, Sheet } from '@elaraai/e3-ui';
 │   ├─ registers (optional) — { name: Sheet.register.members(rows, { kind, key, label, aliases?, meta?, parent?, tone? }) | Sheet.register.concat([…]) }: the lookup tables reference / enum / set / link columns resolve against; accessors receive `(value, key)` (a `Dict<String, T>` register reads its key as the second argument; an Array's key is its index); duplicate keys fold, first wins — so a family kind ("CNC router" from every router) declares one member per distinct value
 │   ├─ owned (optional) — accessor r => Bool: rows the upstream system owns — no copilot, stamped columns read-only
 │   ├─ suggest (optional) — { ahead?, triggers?, ghost?, propose: [fn] }: the copilot's row proposers — East functions (sync, or async for a model call) over Sheet.Types.DraftContext(R, D) — current draft row and neighbours, rowIndex, driver: Option<D> and today; draft fields are missing | value(T) | invalid(String), so guard with hasTag("value") before unwrap("value") — returning Array<Sheet.Types.Proposal(R)> ({ patch: Sheet.patch(R, { … }), meta }); a column's `fill` providers are the same shape returning Option<Sheet.Types.Fill(T)> ({ value, meta }). The first that yields wins; fills CHAIN in column order (a later column sees the earlier fills as if taken); an async one shows a pending chip in the strip and the newest context wins; a rejected fill / proposal is remembered for the session
-│   ├─ slice (optional) — slice={{ slice: Slice.bindRecords(key, { rows?, <a templates list's source>…, <a tab's source>… }, { presets? }), affordances?, persist? }} (#1345): ONE rail on the toolbar over its sources — `rows` narrows the sheet's rows (above), each templates list's source its cards in the Rows tab, and an author's tab's source that tab's cards; a sheet over `record` or `data` takes a slice of templates sources alone. The bare handle, `Slice.bind`, a single `Slice.bindRecord`, a source nothing names, `affordances` / `persist` outside `slice` and the `brush` affordance (the sheet has no axis) are refused, each naming the change. The lens is off until e3 can place a narrowing's rows (#1349): the rail filters the rows. Over a keyed paged source the key search seeks over `seek` (the jump rebases residency and, once the match's window is in, lands the ring on the match and scrolls to it — until then the jump owns the viewport, so a scroll report from where the sheet was cannot undo it; a match whose window cannot be read shows its failed band instead). The ring, a range and an open editor stay on their rows as windows land around them
-│   ├─ views / activeView (optional) — `views` is a whole-value bind handle of Array<Sheet.Types.RecordView> (`State.bind` keeps them per viewer, `Data.bind` shares them): saved views, each every source's narrowing by the source's name (#1345), as TABS — the pinned whole-sheet tab, which clears every source, `+ TAB` snapshot (named from the sources' searches), each tab's count its `rows` narrowing's through the record's index, the dirty dot when the rail drifts from the tab, × or middle-click close, double-click rename, drag reorder — on a row short of room, one chip naming the open view, its menu every view, `+ TAB` and the open view's close (#1221), and with a key search last folded into its popover (#1345); every change lands at once and is written back through the handle (`onViewsChange` is refused); `activeView` opens a tab and is followed when the host moves it. The tabs show on a sheet with a `rows` source; a sheet without one takes `views` and shows none
+│   ├─ slice (optional) — slice={{ slice: Slice.bindRecords(key, { rows?, <a templates list's source>…, <a tab's source>… }, { presets? }), affordances?, persist? }} (#1345): ONE rail on the toolbar over its sources — `rows` narrows the sheet's rows (above), each templates list's source its cards in the Rows tab, and an author's tab's source that tab's cards; a sheet over `record` or `data` takes a slice of templates sources alone. The bare handle, `Slice.bind`, a single `Slice.bindRecord`, a source nothing names, `affordances` / `persist` outside `slice` and the `brush` affordance (the sheet has no axis) are refused, each naming the change. While `rows` narrows the rows, the sheet draws the narrowing over the record's rows as the lens (above, #1349). Over a keyed paged source the key search seeks over `seek` (the jump rebases residency and, once the match's window is in, lands the ring on the match and scrolls to it — until then the jump owns the viewport, so a scroll report from where the sheet was cannot undo it; a match whose window cannot be read shows its failed band instead). The ring, a range and an open editor stay on their rows as windows land around them
+│   ├─ views / activeView (optional) — `views` is a whole-value bind handle of Array<Sheet.Types.RecordView> (`State.bind` keeps them per viewer, `Data.bind` shares them): saved views, each every source's narrowing by the source's name (#1345), with the lens's context and the rows the planner opened, by their first and last rows' keys (`Sheet.Types.Reveal`, #1349), as TABS — the pinned whole-sheet tab, which clears every source, `+ TAB` snapshot (named from the sources' searches), each tab's count its `rows` narrowing's through the record's index, the dirty dot when the rail drifts from the tab, × or middle-click close, double-click rename, drag reorder — on a row short of room, one chip naming the open view, its menu every view, `+ TAB` and the open view's close (#1221), and with a key search last folded into its popover (#1345); every change lands at once and is written back through the handle (`onViewsChange` is refused); `activeView` opens a tab and is followed when the host moves it. The tabs show on a sheet with a `rows` source; a sheet without one takes `views` and shows none
 │   ├─ onUpdate (optional, `data` only, INLINE arm) — fn(Array<R>) => Null over a LIVE data bind handle: reads the latest collection, checks the batch base and writes the complete result once. Hidden fields survive. Pass data={rows} and onUpdate={rows.write}; a captured array is refused for this adapter
 │   ├─ onPatch / onApply (optional) — onPatch: fn(Sheet.Types.PatchEvent(E)) => Null observes one draft gesture including incomplete values (either source); onApply (`data` only): sync/async fn(Sheet.Types.ChangeSet(E)) => Sheet.Types.ApplyResult persists a complete checked batch. Paged writes require revision/refresh, atomic host application and request-id deduplication
 │   ├─ applyMode (optional) — "batch" (default: the history item's Save sends the batch) | "auto" (each ready gesture goes at once, through the same acknowledgement path)
@@ -1691,7 +1781,7 @@ import { Record, Sheet } from '@elaraai/e3-ui';
 │   ├─ onSelect / selection (optional) — the ring reported as { rowId, line, key }; give `selection` and the ring is CONTROLLED (follows the value, scrolls into view, every move still reports)
 │   ├─ newRowId (optional) — fn() => String minting inserted rows' ids (else the renderer mints one); over a record keyed by a non-String key, the new row's key as its `.east` text — required there unless `edits` inserts no row
 │   ├─ readOnly / blanks / density (optional) — the whole sheet read-only · padding rows below the last real one (default 18; typing into one INSERTS a row after the last real one — blanks are padding, never rows) · row rhythm
-│   ├─ footer (optional) — [{ text, tone? }] counts; a paged source adds the transport line ("N loaded of M · Loading…")
+│   ├─ footer (optional) — [{ text, tone? }] counts; a paged source adds the one loading line (what the view waits for, or why a read failed, with Retry)
 │   ├─ style (optional) — { gutterWidth } — the sheet fills the box it is given and scrolls its own rows there
 │   └─ name (optional) — names the sheet when a surface holds two: its panes' open tab and collapsed state, the columns a viewer hides, its library's drag source and its drop target are kept under it
 ├─ Panes — optional props, each its own; the examples show every combination (none, a library, an inspector, both):
@@ -1709,7 +1799,7 @@ import { Record, Sheet } from '@elaraai/e3-ui';
     ├─ Sheet.subRows(R, sources) / Sheet.subRow({ code?, name, chips?, facets?, id? }) — sub rows (see `subRows`); a left-out `code` / `id` is "", `chips` / `facets` []
     ├─ Sheet.library.rows() / columns() / tab(data, config) — the library's tabs; Sheet.templates(rows, { name, group?, values, source }) — a templates record's cards for the Rows tab (#1345); Sheet.field.* — the inspector's hints (east-ui's `Fields`)
     ├─ Sheet.apply(E, idField) — the checked batch applier as an East function: fn(entries, Sheet.Types.ChangeSet(E), revision: Option<String>) => Sheet.Types.Applied(E) — the base (snapshot or revision) is checked first, then the whole batch applies or none of it does (`conflict` says why); `E` is the row struct or a Sheet.Types.Entry(G, "rows") union of groups and ungrouped rows. Request deduplication stays with the host's `onApply`. It IS east-ui's shared `Editing.apply` (#879); a keyed Dict source applies with `Editing.apply(DictType(K, E))` — entries addressed by key, placed `keyOrder`
-    └─ Sheet.Types.DraftContext(R, D) / Draft(R) / Fill(T) / Patch(R) / Proposal(R) / PatchEvent(E) / ChangeSet(E) / Applied(E) / Entry(G, "rows") / ApplyResult / Readiness / CheckContext(R) — typed contracts for providers, drafts, checked application and checks; grouped contexts use (G, "rows", D). The transaction and draft types are east-ui's shared editing contract's (`Editing.Types.*`, #879) under their Sheet names — the same values. Sheet.Types.Link / Member / Cell / Row / Line / SubRow / Facet / DateLevel / Noun / RecordView / Selection / Counted / Sides / RegisterMember are shared value and wire types.
+    └─ Sheet.Types.DraftContext(R, D) / Draft(R) / Fill(T) / Patch(R) / Proposal(R) / PatchEvent(E) / ChangeSet(E) / Applied(E) / Entry(G, "rows") / ApplyResult / Readiness / CheckContext(R) — typed contracts for providers, drafts, checked application and checks; grouped contexts use (G, "rows", D). The transaction and draft types are east-ui's shared editing contract's (`Editing.Types.*`, #879) under their Sheet names — the same values. Sheet.Types.Link / Member / Cell / Row / Line / SubRow / Facet / DateLevel / Noun / RecordView / Reveal / Selection / Counted / Sides / RegisterMember are shared value and wire types.
 ```
 
 #### Drafts and checked application
@@ -1816,7 +1906,8 @@ the row projection, so they follow the host's rows, not an open edit.
 | `entry` + `group: Sheet.group(P, "lines", …)` | `F` holds groups, or `Sheet.Types.Entry(P, "lines")` entries, loose rows between the groups. | `sheetBatches`, `sheetLoose` |
 | `group` over the record's entries | Each entry a group, its lines its Array field. | `sheetWorkshop` |
 | `data` + `id` (+ `onApply` / `onUpdate`) | The host's rows: an array, a bind handle or a paged source. | `sheetVariants` |
-| `slice={{ slice: Slice.bindRecords(key, { rows, … }) }}` + `onApply={Record.onApply(record, { keyed: true })}` **❗** | The rows the `rows` source narrows to, paged from it, each row's id its record key (#1345); `record`, `data`, `window` and `entry` beside it are refused. | `sheetWorkshop`, `sheetStress`, `sheetRecordIndexes` |
+| `slice={{ slice: Slice.bindRecords(key, { rows, … }) }}` + `onApply={Record.onApply(record, { keyed: true })}` **❗** | The `rows` source's record's rows, in the record's order, each row's id its record key (#1345); `record`, `data`, `window` and `entry` beside it are refused. | `sheetWorkshop`, `sheetStress`, `sheetRecordIndexes` |
+| the lens: the `rows` source narrowed **❗** | Its narrowing drawn over the record's rows (#1349): each match at its row number, `context` rows either side (0 · 1 · 3), a gap of its exact size over every other run, opening 1 · 3 · 10 · all, and the count line — e3 placing the matches from the index, the lens reading only the segments near the view. The rows opened are kept by their keys, in a view too. | `sheetRecordIndexes` |
 | `record` with `data`, or neither; `id` / `onApply` / `onUpdate` over a record; `entry` / `window` with `data` **❗** | Refused, naming the prop and the fix. | — |
 | **The panes** | | |
 | `library: [Sheet.library.rows(), Sheet.library.columns(), Sheet.library.tab(data, { name, key, label, drop?, … })]` **❗** | The start pane's tabs, in order; none, no pane. A tab's `drop` patch over the row type lands on rows, over the group type on bands. | `sheetLibrary`, `sheetWorkshop` |
@@ -1838,8 +1929,14 @@ Removed with #1345: the bare `slice={slice}`, `data={Slice.rows(slice)}` and
 `affordances` and `persist` outside `slice`, `Slice.bind` and a single
 `Slice.bindRecord` (`Slice.bindRecords`), `Sheet.Types.View`
 (`Sheet.Types.RecordView`) and templates written in the code (`Sheet.templates`
-over a record) — each refused at build, naming the change. The lens's context
-switch, count line and bands are off until #1349.
+over a record) — each refused at build, naming the change.
+
+Changed with #1349: the `rows` source's rows are its record's, every one in the
+record's order, the source's narrowing drawn over them as the lens — where they
+were the narrowing's rows alone, in its index's order — and a saved view's
+`reveals` are `Sheet.Types.Reveal`s, the rows the planner opened by their
+first and last rows' keys, where they were row positions. An application's own
+record of saved views changes type with it.
 
 ### The Flowchart — `<Flowchart>`
 
@@ -1848,10 +1945,9 @@ phase lanes — its layout derived from the lanes and the links, never from
 coordinates — H/V-routed transition arrows, optional per-link decision
 triggers (lettered diamonds) and evidence-weighted strokes. The dim-ladder
 highlight and the selection grammar are built in, and what is selected shows
-in its inspector. Where east-ui's
-`<Schematic>` places items at
-world coordinates, the Flowchart lays its states out itself, for reading a
-process flow.
+in its inspector. Where the Schematic (below) places items at world
+coordinates, the Flowchart lays its states out itself, for reading a process
+flow.
 
 There is one Flowchart, and it renders in its builder frame wherever it is
 used (#1245): one toolbar — find state, LR · TD, the freshness chip, the rail
@@ -2105,6 +2201,537 @@ Removed with #1346: `window={Slice.rows(slice)}` (the `flows` source of
 read from an Array or an input (templates records) and a templates list's
 `key` — each refused at build, naming the change.
 
+### The Schematic — `<Schematic>`
+
+`<Schematic>` is the 2D world-coordinate drawing of the app's own records:
+placed items (racks, cooling units, power distribution units), zones (halls,
+cages, hot and cold aisles), links between two items (fibre runs) and nets
+joining many to many (a power distribution unit feeding a row of racks), each
+where its row places it and the canvas scaled to fit the extent. Where the
+Flowchart lays its states out itself, the Schematic draws what the records
+place.
+
+It stores nothing in a shape of its own (#1386): each kind is a record of the
+app's, keyed by String, its fields mapped to the Schematic's roles —
+`Schematic.items`, `zones`, `links` and `nets`, each under a slot of its
+sort's prop. A role names a field of the row: its type is checked when the
+code compiles and again at build, refused naming the role, the field and its
+type (`` `x` names a Float field, or an Option of one — "name" holds .String ``).
+A role the app computes — a second line, a meter, a tone — is an accessor
+`(row, key) => …`, reified once and called per row. A shape is one too
+(#1401): a footprint, or a zone's geometry, is built from the row's own fields
+with `Schematic.circle`, `polygon`, `polyline` or `rect`, so no field of the
+app's record holds a type of the Schematic's — a shape role naming a field is
+refused, naming the accessor to write. The layers are the app's rows as well,
+read through `Schematic.layers` as the Roster reads its lists, an entity's
+`layer` field naming one by its record's key. A gesture writes only the
+fields its roles map: every other field of the row reads back as it was.
+
+A kind's binding says whether it is editable and how it is read; any other
+binding is refused, naming the one to use:
+
+| Read | Editable | Read only |
+| --- | --- | --- |
+| whole | `Record.bind(record, [e3.mutation.patch(record)])` | `Data.bind(record)` |
+| complete, through its source of the slice | `Record.bind(…)` + `entries: Data.bindPaged(record)` | `Data.bindPaged(record)` |
+| a window at a time, by area — its source lists an area index | the same, its source `Data.bindPaged(record, { indexes: [byArea, …] })` | the same |
+
+A source of `slice={{ slice: Slice.bindRecords(key, { … }) }}` named after a
+kind's slot reads that kind through it — `Data.bindPaged(record, { indexes })`
+over the kind's record — every row of its narrowing; an indexed read is the
+source, never the kind's record. A kind's details (`Schematic.details`) are
+bound as their kind is read: whole beside a kind read whole, by key beside one
+read through its source — and beside one read by area, by the runs its
+window's cells are of the area index, e3 reading the keys from the index so
+none is sent, each cell's once, at every zoom, so a dot draws its item's
+status as a card does. Bound with their patch door —
+`Record.bind(record, [e3.mutation.patch(record)])`, with `entries:
+Data.bindPaged(record)` beside a kind read through its source — the inspector
+edits them beside their kind's row; `Data.bind` or `Data.bindPaged` alone
+reads them only.
+
+A kind whose source lists an area index — `e3.recordIndex.area(name, record,
+{ x, y, width, height, at: "centre", cell })`, the **e3** skill — is read by
+area (#1393), a window at a time: the rows whose box meets the view and a
+margin about it, read from the index alone. Past 5,000 rows in the view it
+draws their density from the index's counts, in the theme's heat steps, the
+footer saying how many it shades; zoomed in, the rows themselves, their
+details read by the runs the window's cells are of the area index. A choice
+of the rail reads through an area index led by its fields, else through the
+one led by none, the rest asked of the window's rows in one request; a source
+whose area indexes are all led by fields, or box the rows otherwise than the
+kind's roles place them, is refused as the kind is read: its read fails, with
+Retry, the reason naming what to declare. Its
+Backlog reads the index's rows with no position, and the Index tab a zone's
+items by the zone's box. Every edit is a draft by the row's key, whatever the
+window: a row moved off the window it was read in draws where its draft
+places it, and Save writes it through the kind's patch door — the index moving
+it, so a window there reads it back (`schematicRecordIndexes`,
+`schematicRecordIndexesMobile`).
+
+The canvas draws each kind's rows: an item at its centre, as a card, a
+labelled pin or a dot by the zoom, its footprint about its centre; a zone in
+its box, outlined or hatched, its shape about the box's centre; a link routed
+between its ends, two of one pair fanning into lanes; a net as a bus. An item
+draws as its card only where the card draws whole — one held to the item's
+`width` once that width holds its words — and clear of its neighbours, else as
+a pin, its dot on the item and its words after it, clear of every other
+item's mark, else as a dot (ruled 23 Oct 2026): what an item draws as follows
+where the items stand, never a pan. Fit frames the drawing inside a margin,
+centred, and the zoom reaches in until its smallest item held to its own
+width draws as its card. A kind drawn as its density shades it in the theme's
+five heat steps. Its links and
+nets draw in the Plan's and the Allocation's links look (#1403): cased in the
+paper, in the muted ink or their style's tone, each ending on the edges of the
+items it joins where they draw at the zoom — a card's side, a labelled pin's
+edge, a dot's rim — a link's head where it arrives at its `to` item and a
+net's on each of its destination legs, a caption — its `label` and its
+`metric`, `uplink · 100G` — on a knockout at its middle from the label zoom;
+the one under the pointer lit, and a selected one, in the strong ink, their
+ends ringed. An item kind
+whose `x` and `y` are Options keeps its rows with no position as its backlog,
+drawn nowhere. A record another session commits is drawn again. `onSelect`
+hears the whole selection after each change — items, zones, links and nets
+alike, each a `Schematic.Types.Ref`, `{ kind, key }`, and `[]` once it is
+cleared — one call a change, however many entities it selects, and none for a
+change that leaves the selection as it was. Its frame came with #1387: one
+toolbar — the rail of its `slice`, the tools, the zoom and Fit, Find, the
+steps and, where it edits, the history item — over the canvas, and the
+footer, which says only what is live (below); its library pane with #1389, its
+inspector with #1391, its
+narrowing with #1392 and Find over every item kind's record with #1404
+(below).
+
+Its narrowing (#1392) is the one rail of its `slice`, each source narrowing
+its kind wherever the kind appears: on the canvas, in the library's Backlog,
+its Index and the templates the source names, in the inspector's Choosers and
+what an item is joined to, and in the drawing's counts; a link or a net draws
+only while its ends do. By default a row the narrowing leaves out is hidden:
+its kind reads only what its narrowing holds. With `narrowed="dim"`, or
+`{ show: "dim", … }`, the kind reads every row through its source, never the
+narrowing, so a choice reads no row again, and a row the narrowing leaves out
+draws as context — faded to `opacity` (0.35), drained of colour while
+`desaturate` (on by default), a bare marker with `dot` — as do a link to one
+and a net whose members on a side are all context. Context takes no tap, no
+marquee, no step and no drop, and leaves every list and count but Find's.
+Whatever `show` is, `emphasis` rings each match — `halo`, or `pulse`, which
+breathes — `frame` boxes the matches, and `fit` flies the camera to them as
+they change. Which rows match is each source's shown keys, never a predicate
+over the rows, and a choice builds the Schematic no more.
+
+Find (#1404) seeks every item kind's record by key, never what the canvas
+draws, as the Sheet's Search Records seeks its record: a kind read through
+its source is sought through e3 in its record's own order — a find of its keys
+and a page of the rows its list shows, never the record read whole — and a
+kind read whole in its rows. Its box takes a key's start, a quoted key or a
+range, keys case-sensitive, and asks again as what its lines say moves — a
+record, a narrowing, the layers — never as the canvas reads a window. A pick
+shows the item's key in the box and its place among the matches (`3 of 7`),
+and Next and Previous step on from it, each showing its match; asked again,
+the box keeps a match wherever the matches still hold it. Each line reads
+the item's key, its label where it is not its key, its kind's name and what
+keeps it off the canvas: `hidden` (`dimmed` under `narrowed="dim"`) where the
+rail's filters leave it out, `on a hidden layer`, or `no position`. A pick
+flies to an item drawn as itself and selects it; to one the canvas doesn't
+show as itself it flies to where it stands, selects nothing, and the footer
+says why — `A07 is hidden by the filters`, with Clear filters, which clears
+its kind's source's choices and selects it once it draws; `A06 has no
+position: it is in the Backlog`. In a toolbar's row the box is 28px, as every
+builder's key search is there.
+
+The footer says only what is live, and nothing while nothing is (ruled 23 Oct
+2026): a kind drawn as its density in place of items — a kind read by area
+(#1393) past the rows a window draws — how many rows it shades in the view and
+that zooming in draws them (`Density: 20,000 racks — zoom in to draw them`,
+`about` that many where the view cuts a cell, `the filters not applied` under a
+narrowing its area index doesn't lead); why the last gesture was refused; each
+Save's notice of what left a source's narrowing; and where Find's last pick
+landed off the canvas. The drawing's counts and each record's last save are the
+inspector's Details', and whether changes wait on Save the history's.
+
+The library (#1389) is the frame's start pane, 272px open, holding the tabs
+`library` lists, in its order, each with its count; its open tab and whether
+it is collapsed are kept per viewer under the Schematic's `id`, collapsed it
+is a rail counting the backlog (else the first tab's cards), and below 560px
+of frame it opens from its rail over the canvas:
+
+- **Templates** — every kind's templates, item, link and net kinds alike, each
+  card its template's name over its kind's, grouped by its kind and then its
+  template's `group`. Each kind's list follows the source its templates record
+  names: the tab counts what it shows (`3 of 5`) and, when the rail leaves a
+  list none, says so above the rest, with Clear filters.
+- **Backlog** — every item kind's rows with no position, the drafts in place,
+  each card its label, its kind's name and its second line, grouped by its
+  kind. A kind read through its source lists the rows its narrowing holds, and
+  a narrowing that leaves none says so, with Clear filters.
+- **Index** — the zones nested by containment, each counting the items it
+  holds, its nested zones' among them; an open zone lists its items, then its
+  nested zones, and the items in no zone come last; a hatched zone is an
+  annotation, holding none. A zone's row flies to the zone, selects it and
+  opens it; an item's flies to the item and selects it; the zone the viewport
+  is in is marked. Its search keeps the items whose label, key or kind's name
+  holds it, under their zones. The tree is one tab stop — ↑ ↓ Home End move,
+  → opens a zone or goes in, ← closes it or goes up, Enter does a row's click
+  — and only the rows in view are mounted.
+- **Layers** — each layer in its order: its swatch in its colour token, else
+  its tone, its name and how many entities it holds, with Isolate, Lock and
+  Show or Hide, and Show all while a layer is hidden (the layers its author
+  hides at first among them; the locks stay). The viewer's choices are kept
+  under the Schematic's `id`, over the author's defaults: a hidden layer's
+  entities never draw, and a locked one's never select — a tap, the marquee
+  and the steps pass them by, and Find and the Index fly to them and select
+  nothing — and locking a layer lets go of what is selected on it.
+- **An author's tab** — its cards, each its label and its meta, grouped by its
+  `group`, following the source of the rail it names (`Racks 2 of 7`).
+
+A card tab's search finds within that tab alone, never writing the rail; a
+click picks a card and a second lets it go.
+
+The cards drop on the canvas (#1390) through the shared drag engine, as the
+Flowchart's do, each drop one step of the history and the ghost's caption
+saying where the card lands, or why it can't:
+
+- **An item template** lands at the drop point: a new item, its key minted
+  unique, its `x` and `y` the point's and every other field the template's
+  `values`. The point is written at the screen's resolution, so the caption
+  says what is written, after the zone holding it (`Cage A · 12.00, 1.00 m`).
+  The item is selected.
+- **A backlog row** lands at the drop point, its `x` and `y` written, and is
+  selected.
+- **A link or a net template** lands on a link or a net of its kind: its
+  `values` over the row, never its ends, its sides or its key (`onto A03 →
+  ODF-1`).
+- **An author's card** — a tab whose `drop` is `(row) => Schematic.patch(R, {
+  … })` — lands on an entity of the kind whose row type is `R` and sets those
+  fields (`onto A03`). A tab without `drop` doesn't drag.
+- **⏎ on a card** drops it on the selection — an author's card on every
+  selected entity of its kind, one step — or a template or a backlog row at
+  the view's centre; on a touch screen, a tap on the selected card does the
+  same and leaves it selected. Refused, the footer says why.
+
+A drop is refused — the caption red, the cursor not allowed — outside the
+drawing (`Outside the drawing`), with no entity of the card's kind under it
+(`Drop onto a rack`), or on a kind bound read only (`Racks are read only`); a
+locked layer's entities and a hatched zone take no drop, and an item's card
+covers the zones and links beneath it. The canvas marks where a card lands:
+the zone holding the point tinted, a link's or a net's line washed, a ring
+round the marker or the point, and a card in the brand. A drop that changes
+nothing records nothing. While a link or net template is picked in the
+library, Connect draws that kind's links with its values.
+
+Every gesture is one step of one history over a session per record it writes
+(#1388) — each kind bound with its patch door, and each such kind's details —
+as the Roster's and the Allocation's are:
+
+- **Move** — the tool, over an editable item kind — drags the item under the
+  pointer, or the selection with it when the item is selected, by the mouse
+  or a touch, every centre kept within the extent; Esc mid-drag puts it back.
+- **Connect** — the tool, over an editable link kind, its menu picking the
+  kind (the first, until the viewer picks) — drags from an item onto another:
+  a link of that kind between them. Shift held on the next drag grows them
+  into a net of the first editable net kind whose sides take their items —
+  the first drag's two items one each side, an item joined from a member
+  downstream, one joined into a member upstream, a member never changing side
+  — which absorbs the links the drags drew; with no such kind, each drag adds
+  a link. A Shift-drag from a selected link's end starts the session with
+  that link.
+- A selected link's **end** drags onto another item, retargeting that end;
+  with Connect, a Shift-drag from a selected net's member onto an item
+  **extends** the net's destinations.
+- **Del** (or Backspace) deletes the selection: a link or a net; a net's leg,
+  its item taken off that side, the net deleted once a side holds none; and
+  items, with every link and every net leg naming one. Refused, in the
+  footer's words, when a link or a net bound read only names an item it
+  would delete (`A01 isn't deleted: Fibre run u1 names it, and is read only`).
+
+`canConnect` is asked of each pair a draft would join, as a
+`Schematic.Types.Candidate` — the slot of the link or net kind the gesture
+writes, and its two items — and answers `none`, which allows it, or the
+refusal's words; a pair whose end or side holds no item of that slot is
+refused the same way (`Fibre run can't end at PDU-B`). A refused draft never
+snaps: the item rings danger, the draft says why in the drag caption, and
+letting go records nothing. A gesture writes only the fields its roles map —
+an item's `x` and `y`, a link's ends, a net's sides — every other field of the
+row as it was; a new link or net is made under a key minted unique
+(`crypto.randomUUID()`), its other fields its type's default. The canvas draws
+the drafts where Save would leave them; a draft of a row the rail's narrowing
+leaves out waits in its session until the rail lets it back, and a new row
+draws always. Undo and Redo — the history item, or ⌘Z, ⇧⌘Z and ⌘Y anywhere in
+the frame but a field being typed into — step through the gestures in the
+order they were made, whatever their kind; Discard drops every draft; Save
+sends each record's changes as its own request through its patch door,
+checked against what its drafts began from: one record's conflict or refusal
+keeps its drafts under a banner titled with its kind's name, the others'
+commits standing, and a write with no answer turns Save into Retry, which
+resends the same request. After a Save the footer says what left each kind's
+narrowing. A kind bound read only, and every
+kind under `readOnly`, takes no gesture; with nothing editable there is no
+history item.
+
+The inspector (#1391), given `inspector`, is the frame's end pane, 320px open:
+its tabs Details and Issues, Issues with its count; collapsed, a rail counting
+the issues and naming what is selected. Whether it is collapsed, and its open
+tab, are kept per viewer under the Schematic's `id`, and below 560px of frame
+it opens from its rail over the canvas. Enter, or a double-click on an
+entity, opens what is selected in Details. Details draws each field through
+the shared form, by the input its type takes — a field the drafts changed
+tinted, the head's chip Pending (New for a row its record holds none of):
+
+- **An item** — its kind's form over the fields no role writes (the kind's
+  `fields`, `Fields` hints over its row), or the kind's own `inspector` in its
+  place; its details record's form, or the details' own; its position, `x`
+  and `y`, with Unplace where the kind keeps a backlog; Delete; and what it is
+  joined to, each link and net a control that selects it.
+- **A zone** — its form.
+- **A link** — its ends, each a Chooser over the items of the slots its role
+  names, and its form; Delete.
+- **A net** — its sides, each tags over its slot's items' keys, a side never
+  emptied (Delete takes the net), and its form; Delete. **A net's leg** — the
+  stub a tap selected — its item, and Remove, which takes it off its side.
+- **Several** — how many of each kind, and Delete.
+- **Nothing** — the drawing's counts, and each record's last save with who
+  made it.
+
+Every edit is one step of the history: a field through its record, an own
+Details' `update(edited)` with the whole row, a position, the ends or the
+sides through the kind's roles, and Delete as Del. Read only — a kind bound
+read only, or `readOnly` — every field is printed and none edits, an own
+Details giving way to the form. Issues lists the drawing's issues — an item
+outside the drawing, a shape reaching past its box, a colour naming no theme
+colour, a link or a net naming an item no kind holds — and its sessions': a
+drafted row the kind's `ready` refuses, which holds Save, and a Save refused
+or in conflict. Each issue selects what it names and flies to it.
+
+Below 480px of main (#1394) — a phone, or a narrow pane in a wide window — the
+canvas pans with one finger, pinches with two and selects with a tap, and
+nothing drags: the View's tools hold no Move or Connect, no library card
+drags, the canvas is no drop cell and a selected link draws no handles.
+Details takes the gestures' place, beside an item's `x` and `y`, a link's
+ends, a net's sides and Delete:
+
+- **Connect to…** — on an item, a Chooser of the items a link may end at,
+  beside the link kind while more than one editable kind starts at the item:
+  a choice records the link as a drag of Connect would, a picked template's
+  values with it.
+- **Place** — a Backlog card picked shows its row in Details, `Not placed`,
+  and Place puts it at the view's centre, selected; a tap on the selected card
+  does the same.
+
+Every route that connects — Connect to…, a link's ends, a net's sides — is
+held to `canConnect`, its words said in the footer. The layout follows main's
+width, not the window's: a box narrowed and widened again keeps its selection
+and its drafts (`schematicRecordIndexesMobile`; `schematicDataCentre` on a
+phone).
+
+```tsx
+/** @jsxImportSource @elaraai/e3-ui */
+import { DictType, East, FloatType, StringType, StructType } from '@elaraai/east';
+import { Box, Reactive, UIComponentType } from '@elaraai/east-ui';
+import { Data, Schematic } from '@elaraai/e3-ui';
+import e3 from '@elaraai/e3';
+
+// The app's racks: a record keyed by String — each rack's centre, box, name, model and power.
+export const FloorRack = StructType({ name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType, model: StringType, kw: FloatType, capacity: FloatType });
+export const floorRacks = e3.record("floor_racks", DictType(StringType, FloorRack), new Map([
+    ["A01", { name: "A01", x: 2.4, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 5.2, capacity: 8.0 }],
+    ["A02", { name: "A02", x: 6.0, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 7.4, capacity: 8.0 }],
+]));
+
+const floor = East.function([], UIComponentType, (_$) => (
+    <Reactive>{$ => {
+        const racks = $.let(Data.bind(floorRacks));   // read only, and read whole
+        return (
+            <Box height="440px">
+                <Schematic id="floor" extent={{ width: 18, height: 12 }} scaleUnit="m"
+                    items={{ racks: Schematic.items(racks, {
+                        name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name",
+                        sublabel: (r) => r.model,
+                        meter: (r) => ({ value: r.kw, max: r.capacity }),
+                    }) }} />
+            </Box>
+        );
+    }}</Reactive>
+));
+```
+
+A floor over several records, its racks editable and read through their
+source of the rail, their loads a details record keyed as they are, edited in
+the inspector, their templates a record of their own, its cooling units round by their own radius,
+its fibre trunks a net kind a Shift session grows runs into, its layers a
+record of systems, its tenants an author's tab whose cards set a rack's owner,
+what is selected kept by the host and a run between two frames refused in the
+veto's words (`schematicDataCentre`):
+
+```tsx
+// Inside Reactive: the racks through their patch door, read by key beside their source of the rail.
+const racks = $.let(Record.bind(dcRacks, [dcRacksPatch]));
+const rackEntries = $.let(Data.bindPaged(dcRacks));            // one rack by its key
+const loads = $.let(Record.bind(dcRackLoads, [dcRackLoadsPatch]));  // the racks' loads, edited in the inspector
+const loadEntries = $.let(Data.bindPaged(dcRackLoads));        // by key, beside a kind read through its source
+const frames = $.let(Data.bind(dcFrames));
+const cooling = $.let(Record.bind(dcCooling, [dcCoolingPatch]));
+const areas = $.let(Data.bind(dcAreas));                       // read only, and read whole
+const fibre = $.let(Record.bind(dcFibre, [dcFibrePatch]));
+const trunks = $.let(Record.bind(dcTrunks, [dcTrunksPatch]));  // none yet: a Shift session grows one
+const systems = $.let(Data.bind(dcSystems));                   // the layers: a record of the app's
+const rackTemplates = $.let(Data.bind(dcRackTemplates));
+const owners = $.let(Data.bind(dcOwners));                     // the tenants: an author's tab whose cards set a rack's owner
+// coolingDetails: a cooling unit's own Details — East.function([DcCooling, FunctionType([DcCooling], NullType)], UIComponentType, …)
+// The whole selection after each change, each entity by its kind's slot and key, kept where the app reads it.
+const selected = $.let(State.bind([ArrayType(Schematic.Types.Ref)], "ops.floor.selected", []));
+const onSelect = $.const(East.function([ArrayType(Schematic.Types.Ref)], NullType, ($2, refs) => { $2(selected.write(refs)); }));
+// Two frames are joined by a cross-connect, never a fibre run: the veto's words refuse the pair.
+const canConnect = $.const(East.function([Schematic.Types.Candidate], OptionType(StringType), ($2, candidate) => {
+    const reason = $2.let(none, OptionType(StringType));
+    $2.if(candidate.from.kind.equal("network").and(() => candidate.to.kind.equal("network")), ($3) => {
+        $3.assign(reason, some("Two frames are joined by a cross-connect"));
+    });
+    return reason;
+}));
+// One rail: the racks by name, hall and owner, and their templates by group.
+const slice = $.let(Slice.bindRecords("ops.floor", {
+    racks: { source: Data.bindPaged(dcRacks, { indexes: [racksByName, racksByHall, racksByOwner] }), search: ["name", "owner"],
+        fields: { name: { label: "Rack" }, hall: { label: "Hall", hints: ["Cage A"] }, owner: { label: "Owner", hints: ["Harbour Labs"] } } },
+    rackTemplates: { source: Data.bindPaged(dcRackTemplates, { indexes: [rackTemplatesByGroup] }), fields: { group: { label: "Group", hints: ["Racks"] } } },
+}));
+<Schematic id="floor" inspector extent={{ width: 28, height: 14 }} scaleUnit="m" slice={{ slice }} narrowed="dim"
+    onSelect={onSelect} canConnect={canConnect}
+    items={{
+        racks: Schematic.items(racks, {
+            name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system", entries: rackEntries,
+            details: Schematic.details(loads, {                   // what each card draws from the rack's load
+                entries: loadEntries,
+                meter: (l) => ({ value: l.kw, max: l.capacity }),
+                status: { field: "alarm", cases: {
+                    ok: { label: "OK", tone: variant("success", null), ring: false },
+                    hot: { label: "Hot", tone: variant("danger", null), ring: false },
+                } },
+            }),
+            templates: Schematic.templates(rackTemplates.read(), {  // every field of a rack but x and y
+                name: (t) => t.name, group: (t) => some(t.group), values: (t) => t.values, source: "rackTemplates",
+            }),
+        }),
+        network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system" }),
+        cooling: Schematic.items(cooling, {
+            name: "Cooling unit", icon: "fan", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system",
+            footprint: (c) => some(Schematic.circle(c.radius)),    // a circle of the unit's own radius, about its centre
+            inspector: coolingDetails,                             // its own Details, in place of its form
+        }),
+    }}
+    zones={{ areas: Schematic.zones(areas, {
+        name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name", layer: "system",
+        pattern: (a) => a.kind.match({                             // outlined or hatched by what the area is
+            room: (_$) => Schematic.outline(), cold: (_$) => Schematic.hatch({ tone: "brand" }), hot: (_$) => Schematic.hatch({ tone: "warning" }),
+        }),
+    }) }}
+    links={{ fibre: Schematic.links(fibre, {
+        name: "Fibre run", icon: "bolt", layer: "system", via: "path",   // an Array of { x, y } Floats field
+        from: { field: "from", of: { rack: "racks", frame: "network" } }, to: { field: "to", of: { rack: "racks", frame: "network" } },
+        label: (f) => f.label,
+        style: (f) => f.cable.match({ fibre: (_$) => Schematic.solid(), logical: (_$) => Schematic.dashed() }),
+    }) }}
+    nets={{ trunks: Schematic.nets(trunks, {                      // racks to a frame: what a Shift session grows its runs into
+        name: "Fibre trunk", icon: "diagram-project", layer: "system",
+        sources: { field: "racks", of: "racks" }, destinations: { field: "frames", of: "network" },   // Array<String> fields of keys
+        label: (t) => t.label,
+    }) }}
+    layers={Schematic.layers(systems.read(), {                    // a layer per system, an entity's `layer` naming it by key
+        label: (s) => s.label, color: (s) => some(s.colour), order: (s) => s.order, locked: (s) => s.fixed, opacity: (s) => s.dim,
+    })}
+    library={[Schematic.library.templates(), Schematic.library.backlog(), Schematic.library.index(), Schematic.library.layers(),
+        Schematic.library.tab(owners.read(), {                     // a card dropped on a rack sets its owner
+            name: "Owners", icon: "building", label: (o) => o.name, meta: (o) => some(o.contact),
+            drop: (o) => Schematic.patch(DcRack, { owner: o.name }),
+        })]} />
+```
+
+```
+<Schematic extent={{ width, height }} items={{ <slot>: Schematic.items(record, { … }) }} /> — the 2D world-coordinate drawing of the app's own records: a kind per record, under its slot
+├─ Props:
+│   ├─ extent (required) — the drawing's world bounds, { width, height }, each a positive number of world units; the canvas fits them
+│   ├─ items (required) — the item kinds, by slot, one at least: Schematic.items(record, { name, icon, x, y, label, width?, height?, footprint?, layer?, sublabel?, metric?, meter?, status?, tone?, color?, weight?, fillOpacity?, details?, templates?, entries?, fields?, inspector?, ready? }) — `x` and `y` Float fields, the item's centre, or both Options of Float: a row with neither has no position, the kind's backlog, drawn nowhere; `width` and `height` Float fields, its box about its centre; `footprint` an accessor `(row, key) => Option<Schematic.Types.Geometry>` built from the row's own fields with Schematic.circle / polygon / polyline / rect, drawn about its centre, refused without the box or naming a field; `label` a String field, or an accessor; `icon` a Font Awesome solid icon, or an accessor; `layer` a String field naming a layer by its record's key; `status: { field, cases }` a variant field, a Status per case; `fields` the inspector form's hints over the fields no role writes (`Fields`); `inspector` the kind's own Details, fn(R, fn(R) => Null) => UIComponentType, in place of its form; `ready` the app's check of a drafted row, fn(R, String) => Editing.Types.Readiness, its refusal listed in Issues and holding Save — each typed over the kind's own row; the rest accessors `(row, key) => …`
+│   ├─ zones (optional) — the zone kinds, by slot: Schematic.zones(record, { name, icon, x, y, width, height, label, pattern?, geometry?, layer?, tone?, color?, fillOpacity?, weight?, details?, entries?, fields?, inspector?, ready? }) — `x`, `y`, `width` and `height` the Float fields of its box, its top-left corner and its size; `pattern` an accessor, outline (the default) or hatch — a hatched zone is an annotation, holding no items and taking no tap; `geometry` an accessor `(row, key) => Option<Schematic.Types.Geometry>` built from the row's own fields, drawn about its box's centre, refused naming a field. A zone takes no templates and no gesture on the canvas
+│   ├─ links (optional) — the link kinds, by slot: Schematic.links(record, { name, icon, from: { field, of }, to: { field, of }, via?, label?, metric?, style?, route?, layer?, details?, templates?, entries?, fields?, inspector?, ready? }) — an end is a String field holding a key of the item slot `of` names, or a variant of String cases with an item slot per case (`of: { rack: "racks", frame: "network" }`) — never an Option: a link has both its ends; `via` an `Array` of `{ x, y }` Floats field, its waypoints
+│   ├─ nets (optional) — the net kinds, by slot: Schematic.nets(record, { name, icon, sources: { field, of }, destinations: { field, of }, via?, label?, metric?, style?, route?, layer?, details?, templates?, … }) — each side a `Set<String>` or `Array<String>` field of keys of the item slot `of` names; drawn as a bus — a header bar over each side of many members, a stub per member, the trunk between them, a dot only where a tap joins a bar
+│   ├─ scaleUnit (optional) — the scale bar's unit
+│   ├─ slice (optional) — slice={{ slice: Slice.bindRecords(key, { <a kind's slot>?, <a templates list's or a tab's source>? }, { presets? }), affordances?, persist? }}: ONE rail, each source named after what it narrows — a kind's slot, that kind, read complete through it, or a window at a time where it lists an area index; a templates list's or a tab's, its cards. The brush is refused: a 2D canvas has no axis
+│   ├─ narrowed (optional) — how a row the narrowing leaves out draws: "hide" (the default — its kind reads only what its narrowing holds), "dim" (its kind reads every row; what the narrowing leaves out draws as context), or { show, opacity? (0.35), desaturate? (on), dot?, emphasis?: "halo" | "pulse", frame?, fit? } — `emphasis`, `frame` and `fit` take the matches whatever `show` is
+│   ├─ layers (optional) — Schematic.layers(rows, { label, order?, tone?, color?, visible?, locked?, opacity? }): the app's own rows, a `Dict` keyed by String (a record's `read()`), each row a layer under its key, through accessors `(row, key) => …` as the Roster's lists are — in their `order`, lowest first, then key order; `color` an Option of a theme colour token over `tone`; `visible`, `locked` and `opacity` the author's defaults, which the viewer's choices in the Layers tab override. An entity's `layer` field names one by its key; a locked layer's entities never select, a hidden one's never draw
+│   ├─ library (optional) — the library pane's tabs, in order, each over every kind as the Calendar's are: Schematic.library.templates() (every kind's templates, each kind's under its name) · backlog() (every item kind's rows with no position, each kind's under its name) · index() (the zones, with zone kinds) · layers() (with layers) · tab(rows, { name, icon?, label, meta?, group?, drop?, source? }) (`drop` a `Schematic.patch(R, …)` over one kind's row type: the fields a card dropped on an entity of that kind sets); each listed once
+│   ├─ inspector (optional) — `inspector` (true) shows the end pane, 320px: Details of what is selected and Issues (below); left out, or `false`, no pane, as the Plan's. A kind's own Details is its kind's `inspector`, its details' their own `inspector`
+│   ├─ readOnly / grid / minimap / id (optional) — every kind read only, taking no gesture; the metric grid (on); the minimap (from 25 items); `id` keeps the Schematic's panes, layers and tools apart when one surface holds two, as the Plan's does
+│   ├─ canConnect (optional) — fn(Schematic.Types.Candidate) => Option<String>: asked of each pair a connect drag would join — `{ kind, from, to }`, the slot of the link or net kind it writes and its two items, each a `Schematic.Types.Ref` — before the draft snaps; `none` allows it, and words refuse it — the draft says them in its caption, and letting go records nothing; a veto that throws allows the pair and logs it
+│   └─ onSelect (optional) — fn(Array<Schematic.Types.Ref>) => Null: the whole selection after each change — items, zones, links and nets alike, each { kind: its slot, key: its row's key }, `[]` once cleared — one call a change, none for a change that leaves it as it was
+├─ Editing (#1388) — every gesture ONE step of one history over a session per record it writes, each kind bound with its patch door and each such kind's details: Move (the tool, over an editable item kind) drags the item under the pointer, or the selection with it, every centre kept within the extent, Esc mid-drag putting it back; Connect (the tool, over an editable link kind, its menu picking the kind) drags from an item onto another, a link of that kind, and Shift held on the next drag grows the drags into a net of the first editable net kind whose sides take their items, absorbing their links (with none, each drag adds a link); a selected link's end drags onto another item; with Connect, a Shift-drag from a selected net's member extends its destinations; Del or Backspace deletes the selection — a link, a net, a net's leg, items with every link and net leg naming one — refused in the footer's words where a link or a net bound read only names an item it would delete. An end or a side holding no item of a slot refuses the pair as `canConnect` does (`Fibre run can't end at PDU-B`). A gesture writes only the fields its roles map; a new link's or net's key is minted unique (`crypto.randomUUID()`), its other fields their type's defaults. The canvas draws the drafts where Save would leave them; a draft of a row the narrowing leaves out waits in its session, and a new row draws always. The history item ends the toolbar — Undo, Redo, Discard and Save, and ⌘Z, ⇧⌘Z and ⌘Y anywhere in the frame but a field being typed into; Save sends each record's changes as its own request through its patch door, one record's conflict or refusal kept under a banner titled with its kind's name while the others' commits stand, a write with no answer turning Save into Retry, the same request. After a Save the footer says what left each kind's narrowing
+├─ Drops (#1390) — each card dropped on the canvas ONE step of the history, the ghost's caption saying where it lands or why it can't: an item template adds an item at the point (its key minted, its `x` and `y` the point's at the screen's resolution, every other field the template's `values`), selected; a backlog row is placed at the point, selected; a link or net template gives a link or a net of its kind its `values`, never its ends, sides or key; an author's card sets its `drop`'s `Schematic.patch` on an entity of that patch's kind. ⏎ on a card — on a touch screen a tap on the selected card — drops it on the selection (an author's card on every selected entity of its kind) or a template or backlog row at the view's centre, refused in the footer's words. Refused outside the drawing, with no entity of the card's kind under it, or on a kind bound read only; a locked layer's entities and a hatched zone take none, and an item's card covers the zones and links beneath it. A picked link or net template gives Connect its values
+├─ Inspector (#1391) — the end pane, its tabs Details and Issues (Issues with its count), opened on Details by Enter or a double-click on an entity: Details through the shared form, each field by the input its type takes, a field the drafts changed tinted and the head's chip Pending (New for a row its record holds none of) — an item's kind's form over the fields no role writes, or the kind's own `inspector`, its details' form or own Details, its position (`x`, `y`) and Unplace (a kind with a backlog), Delete, and what it is joined to, each selecting it; a zone's form; a link's ends as Choosers over the items of their slots, its form, Delete; a net's sides as tags over its slot's keys (a side never emptied: Delete takes the net), its form, Delete; a net's leg, its item and Remove; several, how many of each kind, and Delete; nothing, the drawing's counts and each record's last save with who made it — each edit ONE step of the history; read only, every field printed. Issues: an item outside the drawing, a shape past its box, a colour naming no theme colour, a link or net naming an item no kind holds, a drafted row `ready` refuses (holding Save), a Save refused or in conflict — each selecting what it names
+├─ Narrowing (#1392) — each source of the rail narrows its kind on the canvas, in the Backlog, the Index and the templates it names, in the inspector's Choosers and what an item is joined to, and in the drawing's counts; a link or a net draws only while its ends do. Hidden by default; dimmed, its kind reads every row and draws what the narrowing leaves out as context — faded, greyed or a bare marker, a link to it and a net all of whose members on a side are it among it — which selects by no path and counts nowhere. A match — a row its source's shown keys hold — wears `emphasis` (a ring on its card or marker, an edge on a zone, a halo under a link's or a net's line), `frame` boxes two or more, and `fit` flies the camera to them as they change. A draft the narrowing leaves out waits in its session, hidden, or draws where its draft has it, dimmed; Save sends it either way
+├─ Reading by area (#1393) — a kind whose source lists e3.recordIndex.area(name, record, { x, y, width, height, at: "centre", cell }): a window at a time, the rows whose box meets the view and its margin, read from the index alone; past 5,000 rows in view their density from the index's counts, the footer saying how many it shades (`Density: 20,000 racks — zoom in to draw them`); its details by the runs the window's cells are of the index; a choice of the rail through an area index led by its fields, else the one led by none, the rest asked of the window's rows; its Backlog through the index's rows with no position. Refused as the kind is read, its read failing with Retry: area indexes all led by fields, or one boxing the rows otherwise than the kind's roles place them, the reason naming what to declare. A draft is kept by the row's key whatever the window, drawn where it places its row, and Save writes it through the kind's patch door
+├─ Narrow (#1394) — below 480px of main: one finger pans, two pinch, a tap selects, and nothing drags — no Move or Connect among the View's tools, no library card drags, no drop cell, no link handles. Details takes the gestures' place: an item's Connect to… (a Chooser of the items a link may end at, the link kind beside it while several editable kinds start at the item) and a Backlog card's Place (at the view's centre), beside x and y, a link's ends, a net's sides and Delete, every route that connects held to `canConnect`; a resize keeps the selection and the drafts
+└─ Factories:
+    ├─ Schematic.items / zones / links / nets(record, config) — the kinds · Schematic.details(record, { status?, meter?, metric?, sublabel?, fields?, inspector?, entries? }) — a kind's details · Schematic.templates(rows, { name, group?, icon?, values, source }) — a kind's templates record, `values` every field but what a drop places · Schematic.layers(rows, config) — the layers
+    ├─ Schematic.circle(r) / .polyline(verts, { width? }) / .polygon(verts) / .rect() — geometry about the entity's anchor, each vertex an offset from it: the row's own points, `{ x, y }` (no bulge) or `{ x, y, bulge }`; a radius and a width a Float of the row's
+    ├─ Schematic.outline() / .hatch() — zone patterns · Schematic.solid() / .dashed() — link and net styles
+    └─ Schematic.patch(R, { … }) — a patch over a kind's row type, what an author's card dropped on an entity sets · Schematic.Types.* — the value types the accessors return, and what the host hears (Ref, Candidate)
+```
+
+| Signature | Description | Example |
+| --- | --- | --- |
+| `items={{ racks: Schematic.items(Data.bind(racks), { name, icon, x, y, width?, height?, label, … }) }}` **❗** | An item kind over the app's record, read only and read whole; its card's second line and bar from accessors. A role naming a field the row lacks, or one of another type, is refused, naming the role, the field and its type. | `schematicFloor` |
+| `Schematic.items(Record.bind(r, [patch]), { …, entries: Data.bindPaged(r) })` + a source of `slice` named after its slot **❗** | Editable, read complete through its source. `Data.bind` there, or a `Record.bind` without `entries`, is refused, naming the binding to use. | `schematicDataCentre` |
+| `x` / `y` Options of Float | The rows with no position are the kind's backlog: drawn nowhere, and listed by `Schematic.library.backlog()`. | `schematicDataCentre` |
+| `slice={{ slice: Slice.bindRecords(key, { racks: { source: Data.bindPaged(racks, { indexes }) }, … }) }}` · `narrowed="dim"` **❗** | One rail (#1392): each source narrows its kind everywhere it appears — the canvas, the Backlog, the Index, the templates it names, the inspector's Choosers and the drawing's counts — a link or a net only while its ends draw. Hidden by default, the kind reading only its narrowing; `dim` reads every row and draws what the narrowing leaves out as context, faded and greyed, never selected. `emphasis`, `frame` and `fit` take the matches whatever `show` is. | `schematicDataCentre` |
+| a kind's source listing `e3.recordIndex.area(…)`, beside area indexes led by the rail's fields **❗** | Read by area, a window at a time from the index alone; past 5,000 rows in view their density, the footer saying how many; drafts kept by key wherever the window goes, and Save read back through the index. Area indexes all led by fields, or one boxing the rows otherwise than the kind's roles, are refused, naming what to declare. | `schematicRecordIndexes` |
+| below 480px of main | Nothing drags; Details' Connect to… and the Backlog card's Place take the gestures' place, beside an item's `x` and `y`, a link's ends and a net's sides, each held to `canConnect`. | `schematicRecordIndexesMobile`, `schematicDataCentre` |
+| an editable kind, and no `library` or `inspector` | The frame is its toolbar — the tools, Move among them, and the history — its canvas and its footer; every gesture still one step Save writes. | `schematicHandover` |
+| `footprint: (u) => some(Schematic.circle(u.radius))` + `width` / `height`; `Schematic.polygon` / `.circle` / `.polyline` **❗** | An accessor over the row's own fields, returning an `Option<Schematic.Types.Geometry>`: geometry about the item's centre, or a zone's `geometry` about its box's centre, each vertex an offset from it — the row's own `{ x, y }` points, or `{ x, y, bulge }`. A footprint without the box, and a shape role naming a field, are refused, naming the accessor to write. | `schematicShapes`, `schematicDataCentre` |
+| `zones={{ areas: Schematic.zones(…, { x, y, width, height, label, pattern?, geometry? }) }}`, `pattern: (a) => a.kind.match({ … })`, `Schematic.outline()` / `.hatch()` | Zones in their boxes under the items, outlined or hatched by what the row says it is. | `schematicShapes`, `schematicDataCentre` |
+| `links={{ fibre: Schematic.links(…, { from: { field, of }, to: { field, of }, via? }) }}`, `Schematic.solid()` / `.dashed()` | Links between items, routed orthogonally, two of one pair fanning into lanes, in the shared links look: each from its `from` item's edge to its `to` item's, its head there, in the links' muted ink or its style's tone; an end of a variant field takes its slot from its case. | `schematicDataCentre` |
+| `nets={{ feeds: Schematic.nets(…, { sources: { field, of }, destinations: { field, of } }) }}` | A bus joining many items to many. | `schematicDataCentre` |
+| a kind bound with its patch door — `Record.bind(record, [e3.mutation.patch(record)])` **❗** | Every gesture one step of one history over a session per record (#1388): Move, Connect, Shift growing a net of the first editable net kind that takes its items, an end retargeted, a net extended, Del; Undo, Redo and Discard; Save sending each record's changes through its patch door, one refused leaving the others' commits standing. A gesture writes only the fields its roles map, a new row under a minted key. | `schematicDataCentre` |
+| `details: Schematic.details(record, { status?, meter?, metric?, sublabel?, fields?, inspector?, entries? })` **❗** | A record keyed as its kind is, its roles drawn on the cards; a role given by the kind too is refused. Bound with its patch door — `entries` beside it where the kind is read through its source — the inspector edits it beside the kind's row. | `schematicDataCentre` |
+| `templates: Schematic.templates(rows, { name, group?, values, source })` **❗** | A templates record, its `source` one of the slice's; `values` gives every field but what a drop places — an item's `x` and `y`, a link's ends, a net's sides. A list written in the code is refused. | `schematicDataCentre` |
+| `library={[Schematic.library.templates(), .backlog(), .index(), .layers(), .tab(rows, {…})]}` **❗** | The library pane's tabs, each over every kind as the Calendar's are, each checked against the kinds: Templates and Backlog are refused when no kind has any, naming the change. The frame's start pane draws them, each with its count, each card tab following its source of the rail (#1389). | `schematicDataCentre` |
+| the Layers tab's Isolate, Lock, Show or Hide and Show all | The viewer's layer choices, kept under the Schematic's `id` over the author's defaults: a hidden layer's entities never draw, a locked one's never select. | `schematicDataCentre` |
+| a template's or a backlog row's card dropped on the canvas **❗** | One step (#1390): an item template adds an item at the point, its key minted, selected; a backlog row is placed there, selected; a link or net template gives a link or a net of its kind its values, never its ends, sides or key. The caption says where (`Cage A · 12.00, 1.00 m`, `onto A03 → ODF-1`), or why not (`Outside the drawing`, `Drop onto a fibre run`, `Racks are read only`). | `schematicDataCentre` |
+| `Schematic.library.tab(owners.read(), { name, label, meta?, drop: (o) => Schematic.patch(DcRack, { owner: o.name }) })` **❗** | An author's card dropped on an entity of the patch's kind sets those fields, one step; ⏎ — on a touch screen a tap on the selected card — sets them on every selected entity of that kind. A tab without `drop` doesn't drag. | `schematicDataCentre` |
+| `layers={Schematic.layers(rows, { label, order?, tone?, color?, visible?, locked?, opacity? })}` **❗** | The layers, the app's own rows in their `order`, then key order, each keyed by its row's key; an accessor of another type, and a list written in the code, are refused, naming them. | `schematicShapes`, `schematicDataCentre` |
+| `color` / `tone` / `fillOpacity` / `weight` | Colour overrides on an item's footprint, a zone and a layer — a theme colour token or a tone. | `schematicShapes` |
+| `inspector` · a kind's `fields`, `ready` and own `inspector` **❗** | The inspector pane, opted into as the Plan's is (#1391): Details — an item's form and its details', its position and Unplace, what it is joined to; a zone's form; a link's ends as Choosers; a net's sides as tags, a leg's Remove; several and Delete; with nothing selected the drawing's counts and saves — each edit one step; and Issues, each selecting what it names. `fields` hints a kind's form, `ready` checks a drafted row, and a kind's own `inspector` is its Details in place of its form. `inspector={{ <slot>: … }}` is refused, naming the kind's `inspector`. | `schematicDataCentre` |
+| `onSelect={fn(Array<Schematic.Types.Ref>) => Null}` | The whole selection after each change, items, zones, links and nets alike, each `{ kind, key }`; `[]` once cleared. | `schematicDataCentre` |
+| `canConnect={fn(Schematic.Types.Candidate) => Option<String>}` | A connect drag's candidate, `{ kind, from, to }`: `none` lets it snap, and words refuse it — the draft says them in its caption, and letting go records nothing; a veto that throws allows the pair. | `schematicDataCentre` |
+| `id="floor"` | Keeps the Schematic's panes, layers and tools apart when one surface holds two. | every example |
+
+Removed with #1401, each still written refused at build, naming its
+replacement: `name` (`id`); `inspector={{ <slot>: Details }}` (the kind's own
+`inspector`); `Schematic.library.templates(slot)` and `unplaced(slot)`
+(`templates()` and `backlog()`, over every kind); `onSelectionChange`,
+`onZoneSelectionChange` and `onSelectLink` (`onSelect`, the whole selection);
+`onViewportChange` (the canvas reads its own window); `onItemOpen` (Enter or a
+double-click opens the selection in the inspector's Details); `selectZoomFocus`
+(a tap selects in place; Find, the Index tab and the arrow keys fly); a
+`layers` list written in the code (`Schematic.layers` over the app's rows);
+and a `footprint` or a `geometry` naming a field that holds
+`Schematic.Types.Geometry` (an accessor over the row's own fields). The
+selection, zone selection and viewport event types are gone, and
+`canConnect` hears a `Schematic.Types.Candidate` where it heard two
+references.
+
+Removed with #1386, each still written refused at build, naming its
+replacement: rows and their mappers — `items` as rows with `item`, and `zone`,
+`link` and `net` — (kinds over the app's records, by slot); `onMoveItem`,
+`onCreateLink`, `onEditLink`, `onDeleteLink` and `onEditNet` (the editing
+session's gestures: bind a kind with its patch door to edit it); `linkMode`;
+`readOnlyLinks` and `readOnlyItems` (a kind bound read only); the hover cards
+`itemHover`, `zoneHover` and `linkHover` (the inspector); `affordances`
+outside `slice`; the slice's effect props `sliceHidden`, `sliceOpacity`,
+`sliceDesaturate`, `sliceDot`, `sliceEmphasis`, `sliceFrame` and
+`sliceFrameFit` (`narrowed`); `sliceSelectField`; `selectionMode` (a tap
+selects, Shift extends it, and the marquee boxes); `navigator` (the library's
+Index tab); `height` and `maxHeight` (the Schematic fills the box it is given);
+and `onSelectZone` (`onSelect`, over the whole selection since #1401). A prop
+the Schematic doesn't take is refused, naming those it does.
+
 ## Rendering surfaces in an app — `<E3Provider>`
 
 A deployed `ui()` task renders in a React app through
@@ -2243,7 +2870,9 @@ Tested examples live in `test/*.examples.tsx`:
   whole (`planWindows`): 2,000 presses a task generates, paged as the canvas
   scrolls, and the jobs narrowed through the rail's `job` source over their
   interval index — the window and the backlog — and read by key through their
-  own entries, edited and saved without the record read whole.
+  own entries, edited and saved without the record read whole; and the same
+  Plan reading its jobs a cell at a time through their series index, shaded
+  from their summary zoomed out (`planSeries`).
 - `plan/plan-records.examples.tsx` — the Sheet's 50,000 work orders on a Plan
   (`planRecordIndexes`, `planRecordIndexesMobile`): the `rows` source of its
   one rail gives the canvas its rows, paged from it, its Due range the window,
@@ -2251,8 +2880,8 @@ Tested examples live in `test/*.examples.tsx`:
 - `sheet/sheet.examples.tsx` — `<Sheet>`, each in its frame, its rows bound
   from e3: the smallest sheet over a record; the configurator over the host's
   rows, committed through `onApply`; two thousand jobs of a record, read only,
-  paged through the indexes its rail narrows them by, with saved views; a
-  library of the author's own cards; the workshop's orders, the flagship
+  the narrowing its rail makes through the record's indexes drawn over them as
+  the lens, with saved views; a library of the author's own cards; the workshop's orders, the flagship
   (groups, the driver and registers, the link grammar, the copilot's fills and
   proposers, readiness, one rail over the orders and two templates records,
   the library, the inspector and views); one week's rows with every column
@@ -2262,6 +2891,11 @@ Tested examples live in `test/*.examples.tsx`:
   every pane combination: none, a library, an inspector, and both. A sheet
   paged from a dataset is `data.examples.tsx`'s, and one over a record's own
   entries through `Record.onApply` `record.examples.tsx`'s `recordSheetApply`.
+- `sheet/sheet-records.examples.tsx` — the lens over 50,000 work orders
+  (`sheetRecordIndexes`, `sheetRecordIndexesMobile`): the `rows` source of the
+  sheet's rail narrows them through the record's indexes, and the sheet draws
+  the narrowing over the record's rows, read a segment at a time near the view,
+  each Save through `Record.onApply` by the order's key.
 - `sheet/sheet-link.examples.ts` — the link grammar: `Sheet.link.parse` and
   `Sheet.link.print`.
 - `sheet/sheet-transactions.examples.ts` — `Sheet.apply` over rows, and over
@@ -2286,6 +2920,36 @@ Tested examples live in `test/*.examples.tsx`:
   commit, a `canConnect` veto — with a state's and a transition's own Details
   (`flowchartDetail`). Between them, every pane combination: none, a library,
   an inspector, and both.
+- `schematic/schematic.examples.tsx` — `<Schematic>` over the app's records:
+  one hall's racks, read only and read whole, each card's second line and
+  power meter from its row (`schematicFloor`); the same hall handed over to
+  its install crew, its racks moved and deleted, with no pane — the toolbar,
+  the canvas and the footer (`schematicHandover`); footprints and zone shapes
+  built by accessors from the rows' own fields and drawn about their anchors
+  — a unit's outline corners and a tower's radius about each unit's centre,
+  a hall's corners and a duct bank's arcing band about each area's box centre
+  — with theme colour tokens, tones and layers from a systems record
+  (`schematicShapes`); and a data centre floor over several records — racks
+  editable and read through their source of the rail, their loads as details
+  on each card, edited in the inspector, network frames, round cooling units with their own Details,
+  power distribution units, halls, cages and aisles outlined or hatched by
+  what they are, fibre runs between racks and frames, solid or dashed by
+  their cable, a run between two frames refused in the veto's words, power
+  feeds and fibre trunks as nets — no trunk until a Shift session grows one —
+  every gesture a step of one history and Save per record, rack and fibre
+  templates records, the racks with no position, the whole selection kept by
+  the host, the inspector, and the library's tabs over every kind
+  (`schematicDataCentre`).
+- `schematic/schematic-records.examples.tsx` — a floor of 20,000 racks in ten
+  halls read a window at a time (`schematicRecordIndexes`): the racks bound
+  with their patch door and read through their source of the rail by area, an
+  area index at a 1 cm cell beside one led by the hall and an index of their
+  models; their density past 5,000 racks in view; their loads read by the runs
+  of the window's cells; a rack moved, a draft kept wherever the window goes
+  and saved through the door. The same floor in a phone-width frame with its
+  inspector, a rack found by its key and moved by its `x` and `y`
+  (`schematicRecordIndexesMobile`). Its records are seeded by the pure
+  generator that also runs as an e3 task.
 - `query/query.examples.tsx` — queries as a solution writes them: the shared
   fixture's datasets; the saved queries record, its value seven queries from
   `Query.value`; the builder open on three of them and over an empty record; an
@@ -2329,7 +2993,7 @@ index, with `range: "start"`, and the kind gives `entries`, the record's own
 entries, beside it:
 
 ```tsx
-// Package side: jobsByTime = e3.recordIndex("jobs_by_time", jobs, { interval: { from: "start", to: "end" } }),
+// Package side: jobsByTime = e3.recordIndex.interval("jobs_by_time", jobs, { from: "start", to: "end" }),
 // jobsByStatusTime the same `on: ["status"]`, machinesByArea `on: ["area"]`, jobTemplatesByGroup `on: ["group"]`.
 // Inside Reactive: jobs has optional start/end and a machine reference.
 const machines = $.let(Data.bind(d.machines));
@@ -2440,7 +3104,7 @@ its check, Publish, one rail and its fit (`rosterWarehouse`):
 // Inside Reactive: what the Roster writes, each through its patch door.
 const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
 const entries = $.let(Data.bindPaged(rosterDuties));                                     // one duty by its key
-const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));   // interval: { from: "start", to: "end" }
+const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));   // e3.recordIndex.interval(…, { from: "start", to: "end" })
 const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
 const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
 // What it reads whole — every person and activity is the calculation scope — and their indexes for the rail.
@@ -2701,7 +3365,7 @@ own fields, one rail and its library (`allocationKilnYard`):
 // Inside Reactive: what the board writes, each through its patch door.
 const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
 const entries = $.let(Data.bindPaged(kilnBins));                                   // one bin by its key
-const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));     // interval: { from: "at", to: "at" }
+const byTime = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));     // e3.recordIndex.interval(…, { from: "at", to: "at" })
 const days = $.let(Record.bind(yardDays, [yardDaysPatch]));
 // What it reads whole — every bay, kiln and load is the calculation scope — and their indexes for the rail.
 const yard = $.let(Data.bind(kilns));

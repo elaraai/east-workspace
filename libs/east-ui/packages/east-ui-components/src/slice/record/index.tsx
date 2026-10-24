@@ -71,9 +71,15 @@ function sourceHeading(part: Part, nouns: Readonly<Record<string, string>> | und
 /**
  * The noun a source is counted in: the host's, else its label as running text
  * writes it — in lower case unless it is written in capitals (`SKU`) — else
- * its name.
+ * its name. The rail's summary counts in it, and a builder's footer says what
+ * it reads of the source in it (#1398: `Loading work orders 8,301–8,500`).
+ *
+ * @param part - The source's part of the slice
+ * @param nouns - The host's noun for each source, by its name
+ * @param locale - The locale the label is written in
+ * @returns The noun
  */
-function sourceNoun(part: Part, nouns: Readonly<Record<string, string>> | undefined, locale: string): string {
+export function recordSliceNoun(part: Part, nouns: Readonly<Record<string, string>> | undefined, locale: string): string {
     const noun = nouns?.[part.source];
     if (noun !== undefined) return noun;
     if (part.label.type === "none") return part.source;
@@ -84,15 +90,21 @@ function sourceNoun(part: Part, nouns: Readonly<Record<string, string>> | undefi
 /** Whether a narrowed count is under its record's total: what a narrowing hides rows of. */
 const lessCount = lessFor(IntegerType);
 
-/** One source's exact counts as a summary reads them: each `none` while it is read; or that they could not be read. */
-type SourceCounts = { ok: true; count: option<bigint>; total: option<bigint> } | { ok: false };
+/**
+ * One source's exact counts as a summary reads them — each `none` while it is
+ * read — and whether a narrowing is in force over it; or that they could not
+ * be read.
+ */
+type SourceCounts = { ok: true; count: option<bigint>; total: option<bigint>; narrowed: boolean } | { ok: false };
 
 /**
  * The sources a narrowing hides rows of, counted on one line (#1358):
  * `2 of 30 print job events · 6 of 16 customers`, each exact; nothing while
- * none does. A count still being read is left out until it lands, so pending
- * is never a zero; one that could not be read says so, with its source's
- * Retry.
+ * none does. A source a narrowing is in force over keeps its place while its
+ * count is read — a new period's, a new choice's — the count pending, never a
+ * zero, so the toolbar holds its slots and never folds again as the count
+ * lands (#1398, CL1); once counted, it stays only if the narrowing hides rows
+ * of it. One that could not be read says so, with its source's Retry.
  *
  * @param slices - The product's handle
  * @param nouns - The host's noun counting each source, by its name
@@ -111,16 +123,18 @@ export function RecordSlicesSummary({ slices, nouns, except }: {
     }, [slices.parts, skipped]);
     // Each source read on its own: one failing leaves the others counted.
     const read = useCallback(() => parts.map((part): SourceCounts => {
-        try { return { ok: true, count: part.slice.count(), total: part.slice.total() }; } catch { return { ok: false }; }
+        try { return { ok: true, count: part.slice.count(), total: part.slice.total(), narrowed: part.slice.read().where.size > 0 }; } catch { return { ok: false }; }
     }), [parts]);
     const { result } = useTrackedEvaluation(read);
-    const named: ({ part: Part; failed: true } | { part: Part; failed: false; count: bigint; total: bigint })[] = [];
+    const named: ({ part: Part; failed: true } | { part: Part; failed: false; count: bigint | undefined; total: bigint | undefined })[] = [];
     if (result.ok) {
         parts.forEach((part, i) => {
             const counts = result.value[i]!;
             if (!counts.ok) named.push({ part, failed: true });
-            else if (counts.count.type === "some" && counts.total.type === "some" && lessCount(counts.count.value, counts.total.value)) {
-                named.push({ part, failed: false, count: counts.count.value, total: counts.total.value });
+            else if (counts.count.type === "some" && counts.total.type === "some") {
+                if (lessCount(counts.count.value, counts.total.value)) named.push({ part, failed: false, count: counts.count.value, total: counts.total.value });
+            } else if (counts.narrowed) {
+                named.push({ part, failed: false, count: counts.count.type === "some" ? counts.count.value : undefined, total: counts.total.type === "some" ? counts.total.value : undefined });
             }
         });
     }
@@ -130,7 +144,7 @@ export function RecordSlicesSummary({ slices, nouns, except }: {
             {i > 0 && <Box as="span" css={styles.choiceCountsGap} aria-hidden="true">·</Box>}
             <span data-record-slice-source={shown.part.source}>{shown.failed
                 ? <RecordSliceFailure slice={shown.part.slice} message="Could not load count" />
-                : <SliceCountSummary count={shown.count} total={shown.total} noun={sourceNoun(shown.part, nouns, locale)} />}</span>
+                : <SliceCountSummary count={shown.count} total={shown.total} noun={recordSliceNoun(shown.part, nouns, locale)} />}</span>
         </Fragment>)}
     </Box>;
 }

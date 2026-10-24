@@ -54,6 +54,12 @@ function fixture(count: number, shortPages = false) {
             const offset = ids.indexOf(parsed.value);
             return { found: offset >= 0, row: Math.max(0, offset), count: offset < 0 ? 0 : 1, hash };
         },
+        // The binding below reads a search and a page at a time: no batch reaches this service.
+        async findKeys() { throw new Error("This fixture's binding reads no batch"); },
+        async getRows() { throw new Error("This fixture's binding reads no batch"); },
+        async getRuns() { throw new Error("This fixture's binding reads no batch"); },
+        async place() { throw new Error("This fixture's binding reads no batch"); },
+        async within() { throw new Error("This fixture's binding reads no batch"); },
         async getPage(_workspace, _path, window) {
             requests.push({ offset: window.offset, limit: window.limit, hash: window.hash });
             if (requests.length > 400) throw new Error("The reader repeatedly refetched evicted pages");
@@ -88,7 +94,7 @@ function fixture(count: number, shortPages = false) {
     };
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
         fields: [{ fieldId: "status", label: "Status", kind: "string", optional: false, multiple: true, set: false, values: [], format: none }],
-        indexes: [{ name: "by_status", fields: ["status"], sets: new Set(), structured: false, interval: none }], range: none, search: [], presets: [],
+        indexes: [{ name: "by_status", fields: ["status"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none }], range: none, search: [], presets: [],
     }));
     const stateKey = "record-cache.query";
     const read = () => { trackKey(stateKey); return decodeState(store.read(stateKey)!); };

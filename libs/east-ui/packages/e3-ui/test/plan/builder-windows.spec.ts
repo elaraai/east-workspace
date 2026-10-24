@@ -5,7 +5,9 @@
 
 /**
  * A Plan read a window at a time (#1199, `Plan Builder Spec.md` §9.11,
- * PB54–PB55) — what is checked of it without e3: the windows example runs;
+ * PB54–PB55) — what is checked of it without e3: the windows example runs,
+ * and the series example (#1039), the same Plan reading its jobs a cell at a
+ * time, reads what it does;
  * the windows' types and their refusals at build — a window that is not an
  * index window of the kind's own record, a kind read by day whose backlog has
  * no window, a `window` without `entries`, `entries` without a `window` or
@@ -32,8 +34,8 @@ import e3 from "@elaraai/e3";
 import * as ex from "./plan-windows.examples.js";
 import { PrintPress } from "./plan-events.examples.js";
 
-describeEast("Plan read a window at a time — the example (#1199)", (test) => {
-    Assert.examples(test, { planWindows: ex.planWindows });
+describeEast("Plan read a window at a time — the examples (#1199, #1039)", (test) => {
+    Assert.examples(test, { planWindows: ex.planWindows, planSeries: ex.planSeries });
 }, { platformFns: TestImpl });
 
 const at = (text: string): Date => new Date(text);
@@ -213,6 +215,15 @@ describe("the windows example's manifest: what a ui() task preloads and polls wh
         assert.ok(!texts(manifest.paths).includes(JOBS_PATH), "the jobs record is never preloaded");
         assert.ok(!texts(manifest.paths).includes(PRESSES_PATH), "the presses are never preloaded");
         assert.deepEqual(texts(manifest.paths), []);
+    });
+
+    test("the series example reads as the windows example does: the jobs record and the presses paged alone (#1039)", () => {
+        const texts = (paths: readonly unknown[]) => paths.map(pathText);
+        const read = (fn: unknown) => {
+            const manifest = deriveManifest(fn as never);
+            return [manifest.records, texts(manifest.paths), texts(manifest.pages)];
+        };
+        assert.deepEqual(read(ex.planSeries.fn), read(ex.planWindows.fn));
     });
 
     test("a record bound alone with Record.bind is preloaded and polled, as it was", () => {

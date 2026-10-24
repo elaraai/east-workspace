@@ -116,7 +116,8 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(slot(c, "toolbar").querySelector("[data-roster-status]")?.textContent).toBe("Published");
         expect(c.querySelector("[data-roster-grip], [data-roster-chip-action], [data-roster-action]")).toBeNull();
         expect(toolbar.queryByRole("button", { name: editingMessages.apply() })).toBeNull();
-        expect(toolbar.queryByRole("button", { name: "Publish" })).toBeNull();
+        // Publish keeps its slot, as on every week of a Roster that publishes and edits (#1398, CL1): there, and off.
+        expect(toolbar.getByRole("button", { name: "Publish" }).hasAttribute("disabled")).toBe(true);
         await press(toolbar.getByRole("radio", { name: "People" }));
         expect(within(slot(c, "main")).queryAllByRole("button", { name: /assign/i })).toEqual([]);
         await width(390);

@@ -3,12 +3,18 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** The Roster mock's grid, using shared builder text, draft states and footer. */
+/**
+ * The Roster mock's grid, using shared builder text, draft states and footer. A week's read (#1398): a week not read
+ * yet draws its slots with placeholders (`readLine`, `heldSlot`, `unreadValue`), and while a narrowing is read the week
+ * stands in, retained (`data-roster-stale` on main, CL5): its people's rows and its slots' rules dashed, its duties' and
+ * cards' words in the third ink — the shared retained parts.
+ */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
+import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
 import { scheduleAgenda, scheduleAgendaGroup, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
@@ -21,7 +27,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "rowHead", "eyebrow", "title", "detail", "requirement", "coverageHead", "metric", "coverageBar", "coverageSegment", "coverageTick", "skillLine", "skillCode",
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
-        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions"],
+        "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
+        "readLine", "heldSlot", "unreadValue"],
     base: {
         ...moveGhostBase,
         ...scheduleGroupBase,
@@ -30,7 +37,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", "&[data-roster-grid=people]": { "--roster-columns": "8", "--roster-people-width": "1100px" } },
         scroll: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain" },
         grid: { minWidth: "832px", "&[data-period=week]": { minWidth: "862px" } },
-        row: { display: "grid", gridTemplateColumns: "148px repeat(var(--roster-columns), minmax(0, 1fr))", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        row: { display: "grid", gridTemplateColumns: "148px repeat(var(--roster-columns), minmax(0, 1fr))", borderBottomWidth: "1px", borderColor: "border.subtle",
+            // A person's row retained while a narrowing is read (#1398, CL5): the shared retained row.
+            "&[data-roster-person-row]": { "[data-roster-stale] &": retainedRow } },
         gutter: { position: "sticky", left: 0, zIndex: 3, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle" },
         headerGutter: { display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", gap: "2px", padding: "4px 12px",
             "&[data-week]": { minHeight: "28px", padding: "0 12px", flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: "8px" } },
@@ -54,7 +63,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         coverageTick: { position: "absolute", top: "-2px", bottom: "-2px", borderLeft: "1px solid", borderColor: "fg", pointerEvents: "none" },
         skillLine: { display: "grid", gridTemplateColumns: "22px minmax(0, 1fr) auto auto", alignItems: "baseline", gap: "6px", textStyle: "body.sm", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=success]": { color: "fg.success" } },
         skillCode: { textStyle: "mono.xs", color: "fg.subtle" },
-        cell: { position: "relative", minWidth: 0, padding: "8px 8px 10px", borderLeftWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "& [data-roster-landing]": { display: "none" }, "&[data-drop-active]": { background: "brand.subtle", "& [data-roster-landing]": { display: "flex" } }, "&[data-drop-active][data-roster-landing-tone=warning]": { background: "bg.warning.subtle", outlineColor: "fg.warning" }, "&[data-drop-invalid] [data-roster-landing]": { display: "flex" } },
+        cell: { position: "relative", minWidth: 0, padding: "8px 8px 10px", borderLeftWidth: "1px", borderColor: "border.subtle", display: "flex", flexDirection: "column", gap: "4px", "& [data-roster-landing]": { display: "none" }, "&[data-drop-active]": { background: "brand.subtle", "& [data-roster-landing]": { display: "flex" } }, "&[data-drop-active][data-roster-landing-tone=warning]": { background: "bg.warning.subtle", outlineColor: "fg.warning" }, "&[data-drop-invalid] [data-roster-landing]": { display: "flex" },
+            // Retained while a narrowing is read (#1398, CL5): the shared retained column.
+            "[data-roster-stale] &": retainedColumn },
         cellHead: { textStyle: "mono.xs", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "5px", textAlign: "left", marginBottom: "2px", color: "fg.muted", "&[data-open]": { color: "fg.warning" } },
         chips: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
         assignment: { display: "flex", alignItems: "center", gap: "5px", minHeight: "26px", padding: "0 6px", minWidth: 0, border: "1px solid", borderColor: "border.subtle", borderRadius: "3px", background: "bg.surface", cursor: "pointer",
@@ -63,7 +74,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             ...planElementDrafted, ...planElementSelected, ...planElementFocus,
             "&[data-tone=warning]": { borderColor: "fg.warning" }, "&[data-tone=danger]": { borderColor: "fg.danger", background: "bg.danger.subtle" },
             "&[data-removed]": { textDecoration: "line-through", background: "bg.warning.subtle", color: "fg.subtle" }, "&[data-dragging]": { opacity: 0.4 },
-            "&:hover [data-roster-grip], &:focus-within [data-roster-grip]": { opacity: 0.45 }, "&:hover [data-roster-chip-action], &:focus-within [data-roster-chip-action]": { opacity: 1 } },
+            "&:hover [data-roster-grip], &:focus-within [data-roster-grip]": { opacity: 0.45 }, "&:hover [data-roster-chip-action], &:focus-within [data-roster-chip-action]": { opacity: 1 },
+            // Retained while a narrowing is read (#1398, CL5): its words in the third ink, its own edge kept.
+            "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         assignmentName: { textStyle: "body.sm", fontWeight: "medium", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         badge: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.muted", flexShrink: 0, "&[data-lead]": { color: "brand.fg", fontWeight: "bold" } },
         flag: { "& svg": fontAwesomeSize("9px"), maxWidth: "70px", overflow: "hidden", textOverflow: "ellipsis", flexShrink: 1, textStyle: "mono.xs", fontSize: "label.xs", whiteSpace: "nowrap", color: "fg.warning", "&[data-tone=danger]": { color: "fg.danger" } },
@@ -79,16 +92,21 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         proposalName: { fontStyle: "italic", color: "fg.muted", textAlign: "left", ...planRowFocus },
         proposalReason: { whiteSpace: "nowrap", flexShrink: 0, fontSize: "label.xs" },
         proposalAction: { opacity: 1, width: "18px", height: "18px", borderRadius: "3px", "&[data-accept]": { border: "1px solid", borderColor: "border.emphasized", background: "bg.surface", color: "fg.success", _hover: { borderColor: "fg.success" } }, _hover: { background: "bg.panel" } },
-        weekCell: { padding: "5px 2px", textAlign: "center", borderLeftWidth: "1px", borderColor: "border.subtle", minWidth: 0, ...planRowFocus, "&[data-drop-active]": { background: "brand.subtle" } },
+        weekCell: { padding: "5px 2px", textAlign: "center", borderLeftWidth: "1px", borderColor: "border.subtle", minWidth: 0, ...planRowFocus, "&[data-drop-active]": { background: "brand.subtle" },
+            "[data-roster-stale] &": retainedColumn },
         delta: { textStyle: "mono.xs", marginLeft: "auto", whiteSpace: "nowrap", color: "fg.success", "&[data-tone=warning]": { color: "fg.warning" } },
         weekFill: { height: "3px", background: "bg.subtle", marginTop: "4px", overflow: "hidden" },
         weekFillValue: { height: "100%", background: "brand.solid" },
         issueDot: { width: "4px", height: "4px", borderRadius: "50%", background: "fg.warning", margin: "4px auto 0" },
         weekValue: { textStyle: "mono.xs", "&[data-tone=warning]": { color: "fg.warning" }, "&[data-tone=danger]": { color: "fg.danger" } },
         peopleHead: { padding: "6px 12px", display: "flex", flexDirection: "column", gap: "3px", minHeight: "50px", justifyContent: "center", textAlign: "left", ...planRowFocus, "&[data-tone=warning]": { color: "fg.warning" } },
-        peopleCell: { display: "flex", flexDirection: "column", justifyContent: "center", gap: "3px", padding: "6px", borderLeftWidth: "1px", borderColor: "border.subtle", minWidth: 0, "&[data-selected]": { background: "bg.panel" }, "&[data-drop-active]": { background: "brand.subtle" } },
+        peopleCell: { display: "flex", flexDirection: "column", justifyContent: "center", gap: "3px", padding: "6px", borderLeftWidth: "1px", borderColor: "border.subtle", minWidth: 0, "&[data-selected]": { background: "bg.panel" }, "&[data-drop-active]": { background: "brand.subtle" },
+            // Retained while a narrowing is read (#1398, CL5): the shared retained column, as a shifts cell is.
+            "[data-roster-stale] &": retainedColumn },
         // The phone's cards: the shared part the Calendar and the Allocation take too.
-        agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, card: scheduleCard, cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
+        agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
+        // Retained while a narrowing is read (#1398, CL5): a card's words in the third ink, its own edge kept.
+        card: { ...scheduleCard, "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         section: { ...INSPECTOR_SECTION, gap: "12px" },
         status: INSPECTOR_STATUS,
         footer: builderFooter, footerItem: builderFooterItem,
@@ -103,5 +121,15 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         stat: { display: "flex", flexDirection: "column", gap: "4px" }, statValue: { textStyle: "num-lg" }, statLabel: { textStyle: "caption.eyebrow" },
         issue: { ...INSPECTOR_SECTION, gap: "6px", borderLeft: "2px solid", borderLeftColor: "fg.warning", "&[data-tone=danger]": { borderLeftColor: "fg.danger" }, "&[data-tone=info]": { borderLeftColor: "brand.solid" } },
         issueTitle: { textStyle: "body.sm", fontWeight: "semibold", textAlign: "left" }, issueDetail: { textStyle: "mono.xs", color: "fg.muted" }, issueActions: { display: "flex", gap: "8px", flexWrap: "wrap" },
+        // A week whose read failed says so once, in its first row in view (#1398, CL11): one line across that row's
+        // cells — a person's seven days, or every column of a shifts row — its head kept, the rest blank.
+        readLine: { gridColumn: "2 / -1", display: "flex", alignItems: "center", minWidth: 0, padding: "6px 12px", borderLeftWidth: "1px", borderColor: "border.subtle",
+            "&[data-days]": { gridColumn: "2 / span 7" } },
+        // A toolbar slot held while what fills it is unread, or empty (#1398, CL1): the shared part, so the toolbar never
+        // shifts as the week lands.
+        heldSlot: heldToolbarSlot,
+        // A figure the week's read has not given yet beside what is known without it — a person's worked hours beside
+        // their contract's: the placeholder, then the known words, on one line (#1398).
+        unreadValue: { display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0, textStyle: "mono.xs", color: "fg.muted", whiteSpace: "nowrap" },
     },
 });

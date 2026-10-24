@@ -6,6 +6,7 @@
 /** Calendar against the real in-page e3: responsive geometry, explicit phone edits and desktop drag. */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { frameAt, toolbarFaults } from "./builder-frame";
+import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 const FILE = "e3/calendar/calendar";
 async function open(page: Page, name = "calendarOperations", theme: "light" | "dark" = "light") {
@@ -110,8 +111,7 @@ for (const theme of ["light", "dark"] as const) {
         await frame.getByRole("button", { name: "Save", exact: true }).click();
         await expect(card).not.toHaveAttribute("data-drafted", "");
         // A route remount retains the record commit in the in-page e3, independently of the old DOM.
-        await page.evaluate(() => { location.hash = "#e3/plan/plan/planTargetState"; });
-        await expect(page.locator("[data-plan-frame]").first()).toBeVisible();
+        await leaveBuilder(page);
         await page.evaluate(file => { location.hash = `#${file}/calendarMobile`; }, FILE);
         await entry.scrollIntoViewIfNeeded();
         await settled(page);
@@ -195,8 +195,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(job).toHaveAttribute('aria-label', /6:15|06:15/);
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(created).not.toHaveAttribute('data-drafted', ''); await expect(job).not.toHaveAttribute('data-drafted', '');
-        await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
-        await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
+        await leaveBuilder(page);
         await page.evaluate(file => { location.hash = `#${file}/calendarOperations`; }, FILE);
         await entry.scrollIntoViewIfNeeded();
         await settled(page);
@@ -229,13 +228,19 @@ for (const theme of ["light", "dark"] as const) {
         });
         const calendarFooter = await railStyle(frame.locator('[data-calendar-footer]'));
         await expect(frame.locator('[data-calendar-footer] > [data-calendar-legend]')).toHaveCount(3);
-        await expect(frame.locator('[data-calendar-footer] > :not([data-calendar-legend])')).toHaveCount(0);
+        // Beside the legend only the "…" a cut legend ends with, and the one loading line, saying nothing at rest (#1398).
+        await expect(frame.locator('[data-calendar-footer] > :not([data-calendar-legend]):not([data-footer-more]):not([data-footer-line])')).toHaveCount(0);
+        await expect(frame.locator('[data-calendar-footer] > [data-footer-line]')).toHaveAttribute('data-idle', '');
         expect(calendarFooter.height).toBe(28);
         expect(calendarFooter.background).not.toBe('rgba(0, 0, 0, 0)');
         await size(page, entry, 390);
+        // The rail never wraps (CL3): one 28px line at 390px, nothing past its edge, no legend item cut inside a word.
         const footer = frame.locator('[data-calendar-footer]');
-        await expect(footer).toHaveAttribute('data-builder-narrow', '');
+        expect(await footer.evaluate(el => ({ wrap: getComputedStyle(el).flexWrap, height: el.getBoundingClientRect().height }))).toEqual({ wrap: 'nowrap', height: 28 });
         expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+        expect(await footer.evaluate(el => [...el.querySelectorAll<HTMLElement>(':scope > [data-calendar-legend]:not([data-footer-cut])')]
+            .filter(item => item.scrollWidth > item.clientWidth + 1 || item.getBoundingClientRect().right > el.getBoundingClientRect().right + 0.5)
+            .map(item => item.textContent))).toEqual([]);
         await page.evaluate(() => { location.hash = '#e3/plan/plan-events/planPrintWorks'; });
         const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan-events/planPrintWorks"]') });
         await planEntry.scrollIntoViewIfNeeded();
@@ -256,8 +261,7 @@ for (const theme of ["light", "dark"] as const) {
         await customer.fill('Windowed customer'); await customer.press('Enter');
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(frame.locator('[data-calendar-event][data-drafted]')).toHaveCount(0);
-        await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
-        await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
+        await leaveBuilder(page);
         await page.evaluate(file => { location.hash = `#${file}/calendarWindowed`; }, FILE);
         await entry.scrollIntoViewIfNeeded();
         await settled(page);

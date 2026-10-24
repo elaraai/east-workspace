@@ -11,7 +11,7 @@ import {
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import { planRecordSlice, recordChoiceWhere, recordPlanIndex, type RecordSlicePlan } from "../platform/slice/record-plan.js";
 import type { RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType, RecordSliceChoiceType, RecordSliceCountType, RecordSliceDomainType } from "../platform/slice/record-types.js";
-import { RecordSliceSource, type RecordSliceReader } from "./record-slice-source.js";
+import { RecordSliceSource, type RecordSliceEntryKey, type RecordSlicePlacement, type RecordSliceReader } from "./record-slice-source.js";
 import type { SeekQueryType } from "../contracts/source.js";
 
 type Config = ValueTypeOf<RecordSliceConfigType>;
@@ -24,8 +24,10 @@ type Count = ValueTypeOf<RecordSliceCountType>;
 export interface RecordSliceEntry {
     /** Tagged key of the index that served the entry. */
     ik: variant<string, unknown>;
-    /** Original key, inspected only by editing confirmation. */
+    /** Original key, inspected only by editing confirmation; Null for a summary index's entry, which names no row. */
     key?: unknown;
+    /** The entry's value: the binding's projection, or a summary index's totals, `{ count, ms }` (#1039). */
+    value?: option<unknown>;
     /** Joined row, encoded whole only for editing confirmation. */
     row?: option<unknown>;
 }
@@ -52,6 +54,8 @@ export class RecordSliceController {
     readonly windows: RecordSliceSource<RecordSliceEntry>;
     private readonly encodeRow: ReturnType<typeof encodeBeast2For>;
     private readonly decodeRow: ReturnType<typeof decodeBeast2For>;
+    /** A primary key's `.east` text, as a search names it. */
+    private readonly printKey: (key: unknown) => string;
     private readonly schemas = new Map<string, RecordSliceFieldSchema>();
     private readonly parse = new Map<string, ReturnType<typeof parseFor>>();
     private readonly print = new Map<string, ReturnType<typeof printFor>>();
@@ -69,6 +73,7 @@ export class RecordSliceController {
         readonly readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType, indexes?: StructType) {
         this.encodeRow = encodeBeast2For(row);
         this.decodeRow = decodeBeast2For(row);
+        this.printKey = printFor(primaryKey);
         this.windows = new RecordSliceSource(source);
         const fieldTypes = recordSliceFieldTypes(row, indexes);
         for (const field of config.fields) {
@@ -106,6 +111,8 @@ export class RecordSliceController {
             if (schema.kind !== "string" || schema.set) throw new Error("Choose an exact value for this field");
             return choice;
         }
+        // A window is a read's, under an area index's `__area`, never a field's choice (#1385).
+        if (choice.type === "window") throw new Error("A window is given to a read by area, never chosen for a field");
         if (schema.set || !["datetime", "integer", "float"].includes(schema.kind)) throw new Error("This field does not support a range");
         const from = this.readValue(field, choice.value.from);
         const to = this.readValue(field, choice.value.to);
@@ -227,11 +234,24 @@ export class RecordSliceController {
 
     /** Confirm a saved entry without confusing a filtered-out row with a deletion. */
     readEntry(id: string): option<option<Uint8Array>> {
-        const revision = this.source.revision();
-        if (revision.type === "none") return none;
         const text = this.primaryKey.type === "String" ? printFor(StringType)(id) : id;
         const key = parseFor(this.primaryKey)(text);
         if (!key.success) throw new Error("Invalid record identity");
+        return this.entryAt(text, key.value);
+    }
+
+    /**
+     * One entry of the record by its key, read at one revision: its key sought,
+     * then a one-row page at its row.
+     *
+     * @param text - The key's `.east` text, as a search names it
+     * @param key - The key, an East value of the record's key type
+     * @returns Its row as bytes, `none` for a key the record does not hold; none while either read is pending
+     * @throws {Error} When the row found is another key's: the record changed between the two reads
+     */
+    private entryAt(text: string, key: unknown): option<option<Uint8Array>> {
+        const revision = this.source.revision();
+        if (revision.type === "none") return none;
         const found = this.source.seek("primary", variant("key", text));
         if (found.type === "none") return none;
         let result: option<Uint8Array> = none;
@@ -239,13 +259,45 @@ export class RecordSliceController {
             const page = this.source.page("primary", found.value.row, 1n);
             if (page.type === "none") return none;
             const entry = page.value[0];
-            if (entry === undefined || entry.row?.type !== "some" || compareFor(this.primaryKey)(entry.key, key.value) !== 0) {
+            if (entry === undefined || entry.row?.type !== "some" || compareFor(this.primaryKey)(entry.key, key) !== 0) {
                 throw new Error("The record changed while confirming the edit; retry");
             }
             result = some(this.encodeRow(entry.row.value));
         }
         const current = this.source.revision();
         return current.type === "some" && current.value === revision.value ? some(result) : none;
+    }
+
+    /**
+     * The rows the record holds under several of its own keys, at its current
+     * revision (#1039): in one request when the binding batches its reads, else
+     * each read by its key, all started together — what a reader asks of rows
+     * it names by key and has not read, as the Plan does of the events a link
+     * names and those drafted outside the cells it draws.
+     *
+     * @param keys - The keys, East values of the record's key type
+     * @returns Each key's row, `none` for a key the record does not hold, in order; none while any read is pending
+     */
+    rows(keys: readonly unknown[]): option<option<unknown>[]> {
+        const revision = this.source.revision();
+        if (revision.type === "none") return none;
+        if (keys.length === 0) return some([]);
+        let read: option<option<unknown>[]>;
+        if (this.source.rowsAll !== undefined) {
+            read = this.source.rowsAll(keys);
+        } else {
+            const rows: option<unknown>[] = [];
+            let pending = false;
+            for (const key of keys) {
+                const entry = this.entryAt(this.printKey(key), key);
+                if (entry.type === "none") pending = true;
+                else rows.push(entry.value.type === "some" ? some(this.decodeRow(entry.value.value)) : none);
+            }
+            read = pending ? none : some(rows);
+        }
+        if (read.type === "some" && read.value.length !== keys.length) throw new Error("The record answered a different number of rows than it was asked");
+        const current = this.source.revision();
+        return read.type === "some" && current.type === "some" && current.value === revision.value ? read : none;
     }
 
     /**
@@ -299,6 +351,75 @@ export class RecordSliceController {
         return some(included);
     }
 
+    /**
+     * Where a narrowing's rows sit in the record (#1349): how many of them each
+     * record segment holds, read from the index alone, as far as they are
+     * placed. With no narrowing every row is the record's own, and there is
+     * nothing to place.
+     *
+     * @param where - The narrowing; the one the Slice holds when absent
+     * @returns The placement so far, or none while the narrowing's bounds or its first window are pending
+     * @throws {Error} With no narrowing, or when the binding reads no placements
+     */
+    place(where: Where = this.readState().where): option<RecordSlicePlacement> {
+        const plan = this.plan(where);
+        if (plan.queries.length === 0) throw new Error("A placement places a narrowing's rows, and nothing narrows this record");
+        return this.windows.place(plan);
+    }
+
+    /**
+     * Which of some rows a narrowing holds (#1349), each row's maintained entry
+     * keys asked of the narrowing's runs in one read: the server decides by the
+     * runs, and no predicate runs over a row here. A row is held when any of its
+     * entries is, as {@link RecordSliceController.contains} decides it one row at a time.
+     *
+     * @param where - The narrowing
+     * @param rows - The rows asked of, each its primary key and its row as the record holds them at its current revision
+     * @returns Whether the narrowing holds each row, in order; none while its bounds or the read are pending
+     * @throws {Error} When the binding reads no memberships
+     */
+    within(where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
+        const plan = this.plan(where);
+        // No narrowing holds every row.
+        if (plan.queries.length === 0) return some(rows.map(() => true));
+        const entries: RecordSliceEntryKey[] = [];
+        const owners: number[] = [];
+        for (const [i, { key, row }] of rows.entries()) {
+            for (const ik of this.source.entryKeys(plan.index, key, row)) {
+                entries.push({ ik, key });
+                owners.push(i);
+            }
+        }
+        const answers = this.windows.within(plan, entries);
+        if (answers.type === "none") return none;
+        const held = rows.map(() => false);
+        for (const [j, inside] of answers.value.entries()) if (inside) held[owners[j]!] = true;
+        return some(held);
+    }
+
+    /**
+     * Which of the record's own rows `[offset, offset + limit)`, in its order,
+     * a narrowing holds (#1349): those rows read from the record's own pages —
+     * the very window a view over the record reads them in, so a view that
+     * draws them asks for nothing more — and their maintained keys asked of the
+     * narrowing's runs, as {@link RecordSliceController.within} asks them.
+     *
+     * @param where - The narrowing
+     * @param offset - The first row, in the record's order
+     * @param limit - How many rows: a page's, at most 2,048 of them read
+     * @returns Whether the narrowing holds each row read, in order; none while the rows or the read are pending
+     * @throws {Error} When the binding reads its own rows without joining them, or reads no memberships
+     */
+    withinAt(where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+        const page = this.windows.page(this.plan(new Map()), offset, limit);
+        if (page.type === "none") return none;
+        const rows = page.value.map((entry) => {
+            if (entry.row?.type !== "some") throw new Error("Asking which of a record's own rows a narrowing holds reads them with their rows: bind the record with its rows joined");
+            return { key: entry.key, row: entry.row.value };
+        });
+        return this.within(where, rows);
+    }
+
     /** Labels a typical exact choice would replace, for advance explanation. */
     replaces(field: string): string[] {
         const state = this.readState();
@@ -307,23 +428,30 @@ export class RecordSliceController {
         return this.config.fields.filter(value => state.where.has(value.fieldId) && !where.has(value.fieldId)).map(value => value.label);
     }
 
-    private counted(field: string, value: string, label: string, toggle = false): Count {
+    /**
+     * A value's own count under the other fields' choices — the rows the
+     * narrowing holds with that value alone chosen for its field, as a faceted
+     * search counts (#1393, ruled 23 Oct 2026) — and whether it is chosen; or
+     * why the narrowing cannot take it.
+     */
+    private counted(field: string, value: string, label: string): Count {
         const selected = this.readState().where.get(field);
         const base = { value, label, selected: selected?.type === "values" && selected.value.includes(value) };
         try {
-            const active = selected?.type === "values" ? selected.value : [];
-            const multiple = this.config.fields.find(candidate => candidate.fieldId === field)!.multiple;
-            const values = !toggle ? [value] : base.selected ? active.filter(candidate => candidate !== value) : multiple ? [...active, value] : [value];
-            return { ...base, count: this.count(this.proposed(field, values.length === 0 ? undefined : variant("values", values))), error: none };
+            return { ...base, count: this.count(this.proposed(field, variant("values", [value]))), error: none };
         } catch (error) {
             return { ...base, count: none, error: some(error instanceof Error ? error.message : "Could not load the count") };
         }
     }
 
-    /** Known choices with exact prospective counts; one failure does not hide others. */
+    /**
+     * Known choices, each with its own exact count under the other fields'
+     * choices, the chosen marked — never what a click on it would show; one
+     * failure does not hide others.
+     */
     values(field: string): Count[] {
         this.schema(field);
-        return this.config.fields.find(value => value.fieldId === field)!.values.map(value => this.counted(field, value.value, value.label, true));
+        return this.config.fields.find(value => value.fieldId === field)!.values.map(value => this.counted(field, value.value, value.label));
     }
 
     /**
@@ -344,7 +472,7 @@ export class RecordSliceController {
         leading.set(field, variant("prefix", text));
         // Suggestion bounds may include fan-out entries; each displayed value
         // gets its count from a separately validated exact-membership path.
-        const searchPlan = planRecordSlice([{ ...index, sets: new Set(), interval: none }], leading, this.source.defaultIndex)!;
+        const searchPlan = planRecordSlice([{ ...index, sets: new Set(), interval: none, area: none }], leading, this.source.defaultIndex)!;
         const ranges = this.windows.resolve(searchPlan);
         if (ranges.type === "none") return none;
         const values: Count[] = [];

@@ -809,8 +809,75 @@ export const indexedIntervals = e3.record('indexed_intervals', DictType(StringTy
 export const indexedIntervalsPatch = e3.mutation.patch(indexedIntervals);
 // The start alone is listed first: a declared overlap must never be read as a start range because its index came first.
 export const intervalsByStart = e3.recordIndex('by_start', indexedIntervals, { on: ["start"] });
-export const intervalsByStatusTime = e3.recordIndex('by_status_time', indexedIntervals, { on: ["status"], interval: { from: "start", to: "end" } });
-export const intervalsByTime = e3.recordIndex('by_time', indexedIntervals, { interval: { from: "start", to: "end" } });
+export const intervalsByStatusTime = e3.recordIndex.interval('by_status_time', indexedIntervals, { on: ["status"], from: "start", to: "end" });
+export const intervalsByTime = e3.recordIndex.interval('by_time', indexedIntervals, { from: "start", to: "end" });
+
+/** A rack on a data centre floor, in metres: its hall, where it stands — by its centre — if anywhere yet, and its footprint. */
+export const IndexedRack = StructType({ hall: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
+/**
+ * Racks on a floor: three in hall A along a row, one in hall B across the
+ * aisle, one in hall B far down the floor, and one in hall A not yet placed —
+ * what a window over the row takes, what its margin takes, and what it leaves.
+ */
+export const indexedRacks = e3.record('indexed_racks', DictType(StringType, IndexedRack), new Map([
+    ["r1",       { hall: "A", x: some(1.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+    ["r2",       { hall: "A", x: some(2.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+    ["r3",       { hall: "A", x: some(3.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+    ["r4",       { hall: "B", x: some(2.0),  y: some(3.5),  w: 0.6, h: 1.2 }],
+    ["far",      { hall: "B", x: some(40.0), y: some(40.0), w: 0.6, h: 1.2 }],
+    ["unplaced", { hall: "A", x: none,       y: none,       w: 0.6, h: 1.2 }],
+]));
+export const indexedRacksPatch = e3.mutation.patch(indexedRacks);
+// The window whatever the rail chooses, and beside it a choice of halls and the window in one read; both carry their rows.
+export const racksByArea = e3.recordIndex.area('racks_by_area', indexedRacks, { x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
+export const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', indexedRacks, { on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
+export const racksByHall = e3.recordIndex('racks_by_hall', indexedRacks, { on: ["hall"] });
+
+/** A rack's load: what its card's figure and its dot draw. */
+export const IndexedRackLoad = StructType({ kw: FloatType, alarm: StringType });
+/**
+ * The racks' loads, keyed as the racks are: two of the row's three, the rack
+ * across the aisle's and the far one's — none for `r3`, nor for the rack not
+ * yet placed, and one for a rack the floor does not hold — what a window's
+ * racks read their details by, through the runs the area index files them in
+ * (#1393).
+ */
+export const indexedRackLoads = e3.record('indexed_rack_loads', DictType(StringType, IndexedRackLoad), new Map([
+    ["far",    { kw: 1.0,  alarm: "ok" }],
+    ["gone",   { kw: 2.0,  alarm: "ok" }],
+    ["r1",     { kw: 4.2,  alarm: "ok" }],
+    ["r2",     { kw: 9.9,  alarm: "warm" }],
+    ["r4",     { kw: 11.1, alarm: "hot" }],
+]));
+export const indexedRackLoadsPatch = e3.mutation.patch(indexedRackLoads);
+
+/** A print job: the press it runs on, if any yet, its state, and when it runs, if it is scheduled. */
+export const IndexedJob = StructType({ press: OptionType(StringType), state: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+/**
+ * Jobs on three presses about the week of Monday 5 October 2026: one carried in
+ * from the week before, one across the week's end into the next, one the whole
+ * month, two inside the week, an instant at its start, one on no press yet and
+ * one in the backlog — what a cell of some presses in a week holds, and what a
+ * month's totals count (#1039).
+ */
+export const indexedJobs = e3.record('indexed_jobs', DictType(StringType, IndexedJob), new Map([
+    ["carry",   { press: some("P-1"), state: "running", start: some(new Date("2026-10-02T20:00:00Z")), end: some(new Date("2026-10-05T04:00:00Z")) }],
+    ["across",  { press: some("P-1"), state: "planned", start: some(new Date("2026-10-11T18:00:00Z")), end: some(new Date("2026-10-12T06:00:00Z")) }],
+    ["month",   { press: some("P-2"), state: "planned", start: some(new Date("2026-10-01T00:00:00Z")), end: some(new Date("2026-11-01T00:00:00Z")) }],
+    ["inside",  { press: some("P-2"), state: "running", start: some(new Date("2026-10-06T08:00:00Z")), end: some(new Date("2026-10-06T16:00:00Z")) }],
+    ["late",    { press: some("P-3"), state: "late",    start: some(new Date("2026-10-07T09:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")) }],
+    ["instant", { press: some("P-3"), state: "late",    start: some(new Date("2026-10-05T00:00:00Z")), end: none }],
+    ["unpressed", { press: none,      state: "planned", start: some(new Date("2026-10-06T00:00:00Z")), end: some(new Date("2026-10-06T02:00:00Z")) }],
+    ["backlog", { press: some("P-1"), state: "planned", start: none, end: none }],
+]));
+export const indexedJobsPatch = e3.mutation.patch(indexedJobs);
+// The jobs a window overlaps, by state or not; their cells, some presses in a week, by state or not; and their totals,
+// a press in a month.
+export const jobsByTime = e3.recordIndex.interval('jobs_by_time', indexedJobs, { from: "start", to: "end" });
+export const jobsByStateTime = e3.recordIndex.interval('jobs_by_state_time', indexedJobs, { on: ["state"], from: "start", to: "end" });
+export const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', indexedJobs, { key: "press", from: "start", to: "end", tile: "week" });
+export const jobsByStatePressWeek = e3.recordIndex.series('jobs_by_state_press_week', indexedJobs, { on: ["state"], key: "press", from: "start", to: "end", tile: "week" });
+export const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', indexedJobs, { key: "press", from: "start", to: "end", tile: "month" });
 
 /** A step of a flow: its lane, and who owns it, if anyone. */
 export const ComputedStep = StructType({ lane: StringType, owner: OptionType(StringType) });

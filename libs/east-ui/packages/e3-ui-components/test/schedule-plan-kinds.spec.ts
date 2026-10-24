@@ -129,7 +129,7 @@ const rolesEqual = equalFor(Schedule.Types.PlanRoles);
 
 /** A kind's events on 5 October, as Plan draws them. */
 function onTheFifth(kind: PlanKind): PlanItem[] {
-    const read = kind.planItems(at(DAY[0]), at(DAY[1]), NO_DRAFTS);
+    const read = kind.planItems(at(DAY[0]), at(DAY[1]), NO_DRAFTS, none);
     if (read.type !== "some") assert.fail("expected the window read");
     return read.value;
 }
@@ -159,7 +159,7 @@ describe("Schedule.events — Plan's options (PB5)", () => {
     });
 
     test("draws its backlog the same way, each row sized by its duration", async () => {
-        const read = (await built(jobProgram)).planUnscheduled(...RANGE, NO_DRAFTS);
+        const read = (await built(jobProgram)).planUnscheduled(...RANGE, NO_DRAFTS, none);
         if (read.type !== "some") assert.fail("expected the backlog");
         assert.deepEqual(read.value.map((i) => i.key), ["j2"]);
         const [waiting] = read.value;
@@ -180,12 +180,12 @@ describe("Schedule.events — Plan's options (PB5)", () => {
     test("reads one event by its key — as Plan draws it, and its row — with its draft in place; none for a key there is no event of (#1197)", async () => {
         const jobKind = await built(jobProgram);
         const j1 = (await h.read(sx.schedulePrintJobs)).get("j1")!;
-        const read = jobKind.planEvent("j1", NO_DRAFTS, ...RANGE);
+        const read = jobKind.planEvent("j1", NO_DRAFTS, ...RANGE, none);
         if (read.type !== "some") assert.fail("expected the job read");
         const [run] = onTheFifth(jobKind);
         assert.ok(itemEqual(read.value.item, run!));
         assert.ok(equalFor(sx.SchedulePrintJob)(decodeBeast2For(sx.SchedulePrintJob)(read.value.row), j1));
-        assert.equal(jobKind.planEvent("j9", NO_DRAFTS, ...RANGE).type, "none");
+        assert.equal(jobKind.planEvent("j9", NO_DRAFTS, ...RANGE, none).type, "none");
         // A draft in place: an edited job reads as drafted, a deleted one as none, and one drafted new as itself.
         const encodeDraft = encodeBeast2For(EditingDraftFieldType(sx.SchedulePrintJob));
         const reprint = { ...j1, title: "Brochure reprint" };
@@ -194,12 +194,12 @@ describe("Schedule.events — Plan's options (PB5)", () => {
             ["j2", encodeDraft(variant("missing", null))],
             ["j3", encodeDraft(variant("value", { ...reprint, title: "Leaflet run" }))],
         ], compareFor(StringType));
-        const edited = jobKind.planEvent("j1", drafts, ...RANGE);
+        const edited = jobKind.planEvent("j1", drafts, ...RANGE, none);
         if (edited.type !== "some") assert.fail("expected the drafted job");
         assert.equal(edited.value.item.title, "Brochure reprint");
         assert.ok(equalFor(sx.SchedulePrintJob)(decodeBeast2For(sx.SchedulePrintJob)(edited.value.row), reprint));
-        assert.equal(jobKind.planEvent("j2", drafts, ...RANGE).type, "none");
-        const added = jobKind.planEvent("j3", drafts, ...RANGE);
+        assert.equal(jobKind.planEvent("j2", drafts, ...RANGE, none).type, "none");
+        const added = jobKind.planEvent("j3", drafts, ...RANGE, none);
         if (added.type !== "some") assert.fail("expected the job drafted new");
         assert.deepEqual([added.value.item.key, added.value.item.title], ["j3", "Leaflet run"]);
     });

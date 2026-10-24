@@ -378,11 +378,12 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(container.querySelector("[data-plan-tab]")).toBeNull();
     });
 
-    test("over a partial paged prefix only a top-level SECTION's count is `~`-marked — a group per entry's is exact (#822)", async () => {
+    test("over a partial paged prefix only a top-level SECTION's count is a placeholder — a group per entry's is exact (#822, #1398 CL13); the Rows count is \"…\"", async () => {
         // The cards say what the desktop bands say: a section's members are
         // its series' entries, which the windows share out, so its count is an
-        // understatement until the source is exhausted; a group strip's
-        // members ride in its own entry, which its window holds whole.
+        // understatement until the source is exhausted — a short bar, never a
+        // count the read has not finished; a group strip's members ride in its
+        // own entry, which its window holds whole.
         const groupKind = variant("group", { summary: variant("aggregate", variant("mean", null)) });
         const sec = sectionId("sec");
         // The canvas as the IR derives it (#823): the section's header is a
@@ -413,14 +414,22 @@ describe("Plan narrow layout (§10 / #570)", () => {
             "plan-822-narrow-partial");
         // The strips make Groups the landing: one card per group.
         await waitFor(() => expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))).toBeTruthy());
-        expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))!.textContent).toContain("~2 rows");
+        const section = container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))!;
+        expect(section.querySelector('[data-shape="aggregate"]')).not.toBeNull();
+        expect(section.textContent).not.toMatch(/\brows?\b/);
         const strip = container.querySelector(rowSel("g1", "data-plan-groupcard"))!.textContent;
         expect(strip).toContain("2 rows");
         expect(strip).not.toContain("~");
+        // The tabs: the groups counted, the rows not yet — "…" until the read completes.
+        const counts = Object.fromEntries([...container.querySelectorAll("[data-plan-tab]")]
+            .map((tab) => [tab.getAttribute("data-plan-tab"), tab.querySelector("[data-plan-tabcount]")!.textContent]));
+        expect(counts).toEqual({ groups: "2", rows: "…" });
         // The Rows tab's section headers say the same.
         fireEvent.click(container.querySelector("[data-plan-tab='rows']")!);
         await waitFor(() => expect(container.querySelector(sectionSel("sec", [], "data-plan-section"))).toBeTruthy());
-        expect(container.querySelector(sectionSel("sec", [], "data-plan-section"))!.textContent).toContain("~2 rows");
+        const head = container.querySelector(sectionSel("sec", [], "data-plan-section"))!;
+        expect(head.querySelector('[data-shape="aggregate"]')).not.toBeNull();
+        expect(head.textContent).not.toMatch(/\brows?\b/);
         const header = container.querySelector(rowSel("g1", "data-plan-section"))!.textContent;
         expect(header).toContain("2 rows");
         expect(header).not.toContain("~");

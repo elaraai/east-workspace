@@ -15,27 +15,30 @@
  * @packageDocumentation
  */
 
-import type { ValueTypeOf } from "@elaraai/east";
-import type { Slice } from "@elaraai/east-ui/internal";
 import type { SheetKind } from "./model.js";
 import type { SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
-import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetSavedView } from "./values.js";
-
-/** The slice's narrowing — the decoded `Slice.Types.State` a view snapshots. */
-export type SliceStateValue = ValueTypeOf<typeof Slice.Types.State>;
+import type { LensRun } from "./lens.js";
+import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetRevealValue, SheetSavedView } from "./values.js";
 
 /** The lens's context band width (B§8): rows shown either side of every hit. */
 export type LensContext = 0 | 1 | 3;
 
-/** The lens over the slice's narrowing (§6.1) — the QUERY itself is slice state, never held here. */
+/** The lens over the `rows` source's narrowing (§6.1, #1349) — the QUERY itself is slice state, never held here. */
 export interface LensState {
     /** Rows shown either side of every hit. */
     context: LensContext;
-    /** Revealed row POSITIONS — a set, so overlapping bands merge and a band keeps its anchor. */
-    reveals: ReadonlySet<number>;
+    /** The runs of rows the planner opened, by their positions in the record — sorted and disjoint, so overlapping runs merge and a band keeps its anchor. */
+    reveals: readonly LensRun[];
+    /**
+     * Runs named by their rows' keys and still to be placed (#1349): a view's,
+     * as it opens, or the reveals a new revision of the record moved. The
+     * sheet seeks their keys in the record's order and they join `reveals`
+     * where they land (`lens.placed`).
+     */
+    named: readonly SheetRevealValue[];
     /** How far each band control has reached (`${band}:${where}` → presses) — the 1 · 3 · 10 · all escalation. */
     steps: ReadonlyMap<string, number>;
     /** A grouped sheet's fold overrides (#740): group id → folded. Persist into views like the reveals. */
@@ -260,6 +263,12 @@ export type SheetEvent =
     | { t: "lens.context"; context: LensContext }
     /** A band control: reveal rows of the hidden run at positions `from`…`to` (inclusive) from its top, its bottom, both ends, or all of it — each press reaching further (1 · 3 · 10 · all). */
     | { t: "band.reveal"; key: string; from: number; to: number; where: "top" | "bottom" | "both" | "all" }
+    /** Runs of rows opened outright (#1349) — the row a key search lands on. */
+    | { t: "lens.reveal"; runs: readonly LensRun[] }
+    /** The record moved to a new revision (#1349): the reveals, named by their rows' keys at the revision they were opened at, wait to be placed at the new one. */
+    | { t: "lens.named"; named: readonly SheetRevealValue[] }
+    /** Named runs placed (#1349): `named`, still the lens's, found at `runs` — they join the reveals. */
+    | { t: "lens.placed"; named: readonly SheetRevealValue[]; runs: readonly LensRun[] }
     /** The slice's narrowing changed underneath the lens: reveals reset, the ring returns to the top. */
     | { t: "lens.narrowed" }
     /** A tab is picked (`null` = the whole sheet): the leaving tab keeps its context and reveals, an unsaved query is discarded. */
@@ -340,7 +349,7 @@ export interface SheetMachineCtx {
     rowCount: number;
     /** Declared columns. */
     colCount: number;
-    /** Grouped sheets have source key search and fold controls, without local lenses or views. */
+    /** A grouped sheet: its rows are groups — the records a lens narrows — with fold controls. */
     grouped?: boolean;
     /** A lens narrows the sheet — ↓ on the last row must not append. */
     lensActive: boolean;
@@ -387,6 +396,8 @@ export interface SheetMachineCtx {
     viewName?: ((seq: number) => string) | undefined;
     /** The saved views, in order — the component's local layer over `views`. */
     views?: readonly SheetSavedView[];
+    /** The reveals as a view keeps them (#1349): each run by its first and last rows' keys, where the sheet has read them; absent ⇒ none can be named. */
+    nameReveals?: ((runs: readonly LensRun[]) => SheetRevealValue[]) | undefined;
     /** The slice's current narrowing (`undefined` without a bound slice). */
     narrowing?: SheetSavedView["narrowing"] | undefined;
     /** The narrowing with nothing active — what the whole-sheet tab writes. */
@@ -439,7 +450,7 @@ export interface Transition {
 export const NO_REJECTIONS: Rejections = { fills: new Set(), follows: new Set() };
 
 /** The lens with nothing revealed and no fold overridden. */
-export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: new Map(), folds: new Map() };
+export const EMPTY_LENS: LensState = { context: 0, reveals: [], named: [], steps: new Map(), folds: new Map() };
 
 /** The initial UI state — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens with (#857). */
 export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null, folds?: ReadonlyMap<string, boolean>): SheetUiState {

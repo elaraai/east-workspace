@@ -23,6 +23,7 @@ import type { PlanWords } from "../words.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
 import type { PlanDiagnostics } from "../shell/Diagnostics.js";
 import type { PlanTransport } from "../shell/transport.js";
+import type { PlanCellsRead } from "./cells.js";
 import type { PlanCanvasInspect } from "./inspect.js";
 import type { PlanEventPart, PlanSlicesChrome, PlanSourcePart } from "./sources.js";
 import type { PlanWindowPart } from "./window.js";
@@ -67,6 +68,8 @@ export interface PlanChrome {
     eventParts: readonly PlanEventPart[];
     /** What the rail counts each source in, and heads it with folded, where the source has no label of its own. */
     nouns: Readonly<Record<string, string>>;
+    /** What the rail counts the rows in — `work orders`, `rows`: what the loading line and a failed run name them by (#1398). */
+    rowsNoun: string;
     /** Why the window could not be written into a source. */
     windowError: string | undefined;
     /** The rail's affordance kinds. */
@@ -77,6 +80,16 @@ export interface PlanChrome {
     grain: PlanGrain | undefined;
     /** A paged source's transport state; `undefined` on an inline canvas. */
     transport: PlanTransport | undefined;
+    /**
+     * Cold load (#1398, CL5): a paged source with nothing landed yet, and no
+     * failure to say — the frame's skeleton covers the Plan at its rows'
+     * pitch, its footer live; `undefined` on an inline canvas, which has none.
+     */
+    cold: boolean | undefined;
+    /** After cold load, a read the view needs in flight — a window, a narrowing's rows, a resource kind's narrowing: main, the canvas, is busy. */
+    busy: boolean;
+    /** The rows' pitch, in px: the cold-load skeleton's rows draw at it. */
+    pitch: number;
     /** Key search over the source, when a paged source declares `seek` (#574). */
     search: PlanSearch | undefined;
     /** What the canvas carried on past (#811). */
@@ -92,13 +105,19 @@ export interface PlanChrome {
     sessions: readonly PlanSessionBanner[];
     /** The event kinds' editing (#1194): their drafts, and their gestures; `undefined` for a Plan without event kinds. */
     events: PlanEventEditing | undefined;
+    /**
+     * The kinds' cells (#1039): what a kind read by its cells draws from — what the footer counts over the rows drawn, and
+     * the inspector's row reads — every kind's drafts as the seams take them, and the kinds drawing the notice;
+     * `undefined` for a Plan reading no kind by its cells.
+     */
+    cells: PlanCellsRead | undefined;
     /** Where one of the session's issues is: its entry's first row on the canvas, by name. */
     where: (issue: EditIssue) => string;
     /** The author's footer items, in order. */
     footer: readonly PlanFooterItemValue[];
     /** The root's `id`: what the Plan's viewer state is kept under (`planKeys`). */
     id: string | undefined;
-    /** Whether the canvas draws its narrow layout (§10): the footer's items then wrap. */
+    /** Whether the canvas draws its narrow layout (§10). */
     narrow: boolean;
     /** What the inspector reads of the rows (#1197): a row by its key, and what a measure draws at a bucket. */
     inspect: PlanCanvasInspect;
