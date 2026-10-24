@@ -144,7 +144,11 @@ exports. Keep workflows independent
 under `fullyParallel`; dependent steps belong inside one test.
 
 Batch related read-only catalog routes in one browser context and use hash
-navigation so e3 starts once per batch. Use named `test.step` blocks for every
+navigation so e3 starts once per batch. Each area deploys a workspace of its
+own the first time one of its examples shows (#1397), so a batch saves starts
+only within an area: a check over several areas' examples — one of each
+builder, say — is a test an area, never one test walking them all under a
+longer timeout (`toolbar-row-heights.spec.ts`). Use named `test.step` blocks for every
 route and retain its full error/containment assertions. Keep mutation workflows
 isolated. Test geometry at several widths on one mounted example instead of
 repeating a cold e3 deployment for each width. Group inspector selections and

@@ -31,7 +31,8 @@
  * over its tables, read only, a transition with its evidence, an end no state
  * stands for and the Issues tab — a chip in its ink — and over the
  * Schematic's data centre floor (#1391): nothing selected, a rack — its own
- * fields, its load's and its position — the fibre run and the power feed it is
+ * fields, its load's and its position, and on a phone its Connect to… (#1394)
+ * — the fibre run and the power feed it is
  * joined to, their ends as Choosers and their sides as tags, a cooling unit's
  * own Details, two racks, an area read only, a field changed, and a rack typed
  * off the floor, listed in Issues. Pinned beside main on a desktop, overlaid
@@ -860,9 +861,12 @@ for (const phone of [false, true]) {
                     const tops = await pane.locator("[data-inspector-counts] [data-count]").evaluateAll((cells) => cells.map((cell) => Math.round(cell.getBoundingClientRect().top)));
                     expect([tops.length, tops[0] === tops[1], tops[1]! < tops[2]!, tops[2] === tops[3], tops[4] === tops[5], tops[5]! < tops[6]!]).toEqual([7, true, true, true, true, true]);
                 });
-                await test.step(`a rack: its own fields, its load's and its position, each on one column and one line; what it is joined to inside the pane (${theme})`, async () => {
+                await test.step(`a rack: its own fields, its load's and its position${phone ? " and its Connect to…" : ""}, each on one column and one line; what it is joined to inside the pane (${theme})`, async () => {
                     await selectAt(page, root, ...A03, phone);
-                    await expect(pane.locator("[data-schematic-inspector='item'] [data-field]")).toHaveCount(8);
+                    // Below 480px of main its Connect to… joins them (#1394): one field, the item a fibre run ends at — the
+                    // rack starts runs of one kind, so no kind's field beside it.
+                    await expect(pane.locator("[data-schematic-inspector='item'] [data-field]")).toHaveCount(phone ? 9 : 8);
+                    await expect(pane.locator("[data-schematic-inspector='item'] [data-inspector-fields='connect'] [data-field]")).toHaveCount(phone ? 1 : 0);
                     await expect(pane.locator("[data-inspector-join]")).toHaveCount(2);
                     await expect.poll(() => formFaults(pane, phone)).toEqual([]);
                     expect(await paneFaults(pane)).toEqual([]);

@@ -12,9 +12,9 @@
  * search pill's — and centred on the row. In every builder laid out in a
  * `BuilderFrame`: the Sheet, the Plan, the Roster, the Calendar, the
  * Allocation, the Flowchart, Studio's builder, the query builder and the
- * Schematic; with room for every item at its widest, and in a box narrow
- * enough to fold some into their chips; both themes. On a touch screen a
- * control keeps its size and takes its 44px target from its halo
+ * Schematic, each a test of its own; with room for every item at its widest,
+ * and in a box narrow enough to fold some into their chips; both themes. On a
+ * touch screen a control keeps its size and takes its 44px target from its halo
  * (`toolbar-touch.spec.ts`).
  *
  * Run: `make test-responsive` (libs/east-ui), or
@@ -90,23 +90,23 @@ async function sizeFrame(page: Page, entry: Locator, width: number): Promise<voi
 test.describe("Every control in a builder's toolbar row", () => {
     test.skip(({ isMobile }) => isMobile, "a fine pointer's row: on a touch screen a control keeps its size and its halo (toolbar-touch.spec.ts)");
 
+    // A test a builder: each lives in a showcase area of its own, whose workspace the page deploys the first time it
+    // shows (#1397), so each test waits on its own area's start alone, unfolded and folded on the one mount.
     for (const theme of ["light", "dark"] as const) {
-        test(`is 28px tall and centred on the row, in every builder, unfolded and folded (${theme})`, async ({ page }) => {
-            await page.setViewportSize({ width: 1700, height: 1000 });
-            await page.goto(`/?theme=${theme}#${BUILDERS[0]![1]}`);
-            await page.waitForSelector("header", { timeout: 20_000 });
-            const faults: Record<string, string[]> = {};
-            for (const [name, hash] of BUILDERS) {
-                await test.step(name, async () => {
-                    const entry = await openEntry(page, hash);
-                    for (const width of [1600, 768]) {
-                        await sizeFrame(page, entry, width);
-                        const off = await offControls(entry);
-                        if (off.length > 0) faults[`${name} at ${width}px`] = off;
-                    }
-                });
-            }
-            expect(faults).toEqual({});
-        });
+        for (const [name, hash] of BUILDERS) {
+            test(`is 28px tall and centred on the row in the ${name}'s, unfolded and folded (${theme})`, async ({ page }) => {
+                await page.setViewportSize({ width: 1700, height: 1000 });
+                await page.goto(`/?theme=${theme}#${hash}`);
+                await page.waitForSelector("header", { timeout: 20_000 });
+                const entry = await openEntry(page, hash);
+                const faults: Record<string, string[]> = {};
+                for (const width of [1600, 768]) {
+                    await sizeFrame(page, entry, width);
+                    const off = await offControls(entry);
+                    if (off.length > 0) faults[`at ${width}px`] = off;
+                }
+                expect(faults).toEqual({});
+            });
+        }
     }
 });
