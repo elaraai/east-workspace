@@ -41,7 +41,8 @@
  * A responsive spec that asks for it before the page loads gets a fault hook
  * over the e3's `fetch` (`showcase-e3-faults.ts`, #1398), which holds, fails
  * and releases the page's requests by what they ask and the dataset they
- * name; no page a person opens has it.
+ * name, and applies a record's mutation of the spec's own, as another session
+ * would; no page a person opens has it.
  *
  * @packageDocumentation
  */
@@ -325,7 +326,7 @@ async function startPage(): Promise<WebE3> {
     // Its fetch goes through the responsive suite's fault hook when a spec asked for it before the page loaded
     // (`showcase-e3-faults.ts`); a page a person opens has none.
     const e3 = withFaults(await step("start its e3 worker", () =>
-        createWebE3(new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" }))));
+        createWebE3(new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_REPO);
     try {
         await step("create its repository", () => repoCreate(e3.apiUrl, SHOWCASE_REPO, { token: null, fetch: e3.fetch }));
         return e3;

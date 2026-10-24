@@ -52,7 +52,9 @@ the flag `showcase-e3-faults.ts` looks for): the page's e3 `fetch` then goes
 through it, and the spec holds, fails and releases the page's requests by
 their kind and dataset (`holdE3`, `failE3`, `releaseE3`, `e3Requests`, which
 also gives what each batch read sent: the JSON naming its keys, or the runs
-that name them). A
+that name them), and applies a record's mutation of the spec's own as another
+session would (`mutateE3`: what the Schematic's budget run fills its floor
+of 50,000 racks through, past the hook's holds and its log). A
 page a person opens never has it, and no published package does. While a
 spec holds a read on purpose it waits with `settled(page, { holding: true })`,
 which does not wait on the busy main the hold keeps;

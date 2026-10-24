@@ -15,6 +15,9 @@
  * editing session's drafts in place (`drafted.ts`, #1388); what its layers
  * hide, lock and dim is the frame's (`layers.ts`). Every colour and font it
  * draws is the design system's, read through the theme bridge (`theme.tsx`).
+ * Each card is a component of its own (`card.tsx`), told how it stands in
+ * values, so a camera move — which renders the canvas a frame at a time —
+ * renders no card whose standing holds (#1393).
  * Every gesture that writes — Move, Connect and its Shift session, Retarget,
  * Extend and Del — is one step of the editing's history: the gesture's edits
  * (`edits.ts`) recorded through the frame's editing, nothing held here but a
@@ -64,16 +67,13 @@
 import { memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from "react";
 import { flushSync } from "react-dom";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { findIconDefinition, library, type IconName } from "@fortawesome/fontawesome-svg-core";
-import { fas } from "@fortawesome/free-solid-svg-icons";
 import RBush from "rbush";
 import { ArrayType, StringType, compareFor, equalFor, type ValueTypeOf, type option } from "@elaraai/east";
 import { SCHEMATIC_WINDOW_ROWS, Schematic } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload, type DropCellOptions, type Origin,
 } from "@elaraai/east-ui-components";
-import { LoadingFailedBox, LoadingWash, PlaceholderShape, useRevealed } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedBox, LoadingWash, useRevealed } from "@elaraai/east-ui-components/internal";
 import {
     linkRoutes, markerHit, markerHitbox, netRoutes, paintSchematic, parallelLanes as paintParallelLanes, placedVertices, routeEnv,
     zoneAnchor, type EdgeGeometry, type RGB, type SchematicPaintEffect, type SchematicPalette,
@@ -82,13 +82,14 @@ import { EMPTY_STRING_SET, type ItemBox, linkAt, linkIndex, marqueeHits } from "
 import {
     type LodTier, type NavZone, type WorldBox, SCHEMATIC_CARD_MAX_PX, buildCenterTree, buildNavTree, byLabel, cardContentWidth, declutterTiers, matchesExtent, tierSize,
 } from "./model";
-import { entityId, refOfId, statusUnread, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
+import { entityId, refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
-    FLY_DURATION_MS, IDENTITY, boxCss, cancelsFly, cardTranslateCss, cardWidthCss, fitView, flyStep, makeRafCoalescer, nextMode, zoomAbout,
+    FLY_DURATION_MS, IDENTITY, boxCss, cancelsFly, cardTranslateCss, fitView, flyStep, makeRafCoalescer, nextMode, zoomAbout,
 } from "./camera";
+import { SchematicCard } from "./card";
 import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
-import { entityTints, itemTint, tintAttributes, tintsOf } from "./tints";
+import { entityTints, tintsOf } from "./tints";
 import type { SchematicLayerState } from "./layers";
 import { minimapSize, paintMinimap } from "./minimap";
 import { densityInView, type SchematicDensity, type SchematicViewportStore } from "../area.js";
@@ -104,8 +105,6 @@ import {
 import type { SchematicStep, SchematicWords } from "../messages.js";
 import type { SchematicNarrowedLook } from "../narrowing.js";
 import type { SchematicTool } from "../tools.js";
-
-library.add(fas);
 
 /** What `onSelect` hears: the whole selection, each entity by its kind and key. */
 const SelectedType = ArrayType(Schematic.Types.Ref);
@@ -254,26 +253,6 @@ function capturePointer(el: Element, pointerId: number): void {
 /** Lets go of a pointer the element holds: one it never captured, or no longer active, it lets be. */
 function releasePointer(el: Element, pointerId: number): void {
     if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId);
-}
-
-/** Whether an item's status shows as an open ring, as a tentative one does. */
-function statusRing(status: DrawnItem["status"]): boolean {
-    return status.type === "some" && status.value.ring;
-}
-
-/** Whether an item's card draws its dot: it has a status, or a colour of its own (D14). */
-function hasDot(item: DrawnItem): boolean {
-    return item.status.type === "some" || item.color.type === "some" || item.tone.type === "some";
-}
-
-/**
- * An item's placeholders' index, from its id (#1398): what keys their bars' widths, the same however the view moves, so
- * the pattern never crawls as cards come and go.
- */
-function placeholderIndex(key: string): number {
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) % 9973;
-    return hash;
 }
 
 /**
@@ -2606,74 +2585,27 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                             // Rich cards are DOM; dots / pins / footprints / zones /
                             // links are painted on the canvas above.
                             if ((tiers.get(item.key) ?? lod) !== "card") return null;
-                            const isSelected = renderSelected.has(item.key);
-                            // Layer treatment: dim + lock (non-selectable — clicks fall
-                            // through to entities beneath, matching the pickAt lock skip).
-                            const isLockedCard = lockedKeys.has(item.key);
-                            const cardOpacity = layerAlpha.get(item.key);
                             // The narrowing's (#1392): context fades — greyed, as the look says — and takes no pointer, as
-                            // a locked card; a match wears its emphasis's ring.
+                            // a locked card; a match wears its emphasis's ring. Each card a component of its own, told how it
+                            // stands in values, so a frame the camera moves renders none whose standing holds (#1393).
                             const isContextCard = context.has(item.key);
-                            const emphasis = look.emphasis !== undefined && matches.has(item.key) ? look.emphasis : undefined;
-                            const sublabel = getSomeorUndefined(item.sublabel);
-                            const icon = getSomeorUndefined(item.icon);
-                            const meter = getSomeorUndefined(item.meter);
-                            const metric = getSomeorUndefined(item.metric);
-                            const width = getSomeorUndefined(item.width);
-                            // While its details are read, each role they give holds its place: a placeholder, never a value (#1398).
-                            const pending = getSomeorUndefined(item.pending);
-                            const shape = pending === undefined ? 0 : placeholderIndex(item.key);
-                            const iconDef = icon !== undefined
-                                ? findIconDefinition({ prefix: "fas", iconName: icon as IconName })
-                                : undefined;
                             return (
-                                <Box
+                                <SchematicCard
                                     key={item.key}
-                                    ref={observeCard}
-                                    css={styles.item}
-                                    data-card-key={item.key}
-                                    // At its item's own width, a box in the world: the recipe holds it to no widest card (#1393).
-                                    {...(width !== undefined ? { "data-boxed": "" } : {})}
-                                    {...(isSelected ? { "data-selected": "" } : {})}
-                                    {...(isLockedCard ? { "data-locked": "" } : {})}
-                                    {...(isContextCard ? { "data-context": "", ...(look.desaturate ? { "data-desaturate": "" } : {}) } : {})}
-                                    {...(emphasis !== undefined ? { "data-emphasis": emphasis } : {})}
-                                    {...(connectDraft?.forbidden === item.key ? { "data-forbidden": "" } : {})}
-                                    {...(dropMark?.kind === "entity" && stringEqual(dropMark.id, item.key) ? { "data-drop-target": "" } : {})}
-                                    style={{
-                                        left: 0, top: 0,
-                                        transform: `${cardTranslateCss(item.x, item.y)} translate(-50%, -50%)`,
-                                        ...(width !== undefined ? { width: cardWidthCss(width) } : {}),
-                                        ...(cardOpacity !== undefined ? { "--schematic-layer-opacity": String(cardOpacity) } : {}),
-                                        ...(isContextCard ? { "--schematic-context-opacity": String(look.opacity) } : {}),
-                                    }}
-                                >{/* No onClick / stopPropagation: a drag-pan can start on a
-                                    card, and a tap is resolved by the canvas pickAt (pointerup). */}
-                                    <Box css={styles.itemHead}>
-                                        {iconDef !== undefined && (
-                                            <Box as="span" css={styles.itemIcon}><FontAwesomeIcon icon={iconDef} /></Box>
-                                        )}
-                                        <Box as="span" css={styles.itemLabel} data-card-label="">{item.label}</Box>
-                                        {/* Its colour: its colour token, else its tone, else its status's — its markers' on the canvas (D14, SC26);
-                                            its status unread, the dot's place a placeholder. */}
-                                        {statusUnread(item)
-                                            ? <Box as="span" css={styles.statusDot} data-pending=""><PlaceholderShape kind="fill" index={shape} /></Box>
-                                            : hasDot(item) && <Box as="span" css={styles.statusDot} {...tintAttributes(itemTint(item))} {...(statusRing(item.status) ? { "data-ring": "" } : {})} />}
-                                    </Box>
-                                    {pending?.sublabel === true
-                                        ? <Box css={styles.itemSublabel} data-pending=""><PlaceholderShape kind="text" index={shape} /></Box>
-                                        : sublabel !== undefined && <Box css={styles.itemSublabel}>{sublabel}</Box>}
-                                    {pending?.meter === true ? (
-                                        <Box css={styles.meterTrack} data-meter="" data-pending=""><PlaceholderShape kind="fill" index={shape} /></Box>
-                                    ) : meter !== undefined && (
-                                        <Box css={styles.meterTrack} data-meter="">
-                                            <Box css={styles.meterFill} style={{ width: `${meter.max > 0 ? Math.min(100, (meter.value / meter.max) * 100) : 0}%` }} />
-                                        </Box>
-                                    )}
-                                    {pending?.metric === true
-                                        ? <Box css={styles.itemMetric} data-pending=""><PlaceholderShape kind="number" index={shape} /></Box>
-                                        : metric !== undefined && <Box css={styles.itemMetric}>{metric}</Box>}
-                                </Box>
+                                    item={item}
+                                    styles={styles}
+                                    observe={observeCard}
+                                    selected={renderSelected.has(item.key)}
+                                    // Layer treatment: dim + lock (non-selectable — clicks fall
+                                    // through to entities beneath, matching the pickAt lock skip).
+                                    locked={lockedKeys.has(item.key)}
+                                    layerOpacity={layerAlpha.get(item.key)}
+                                    contextOpacity={isContextCard ? look.opacity : undefined}
+                                    desaturate={isContextCard && look.desaturate}
+                                    emphasis={look.emphasis !== undefined && matches.has(item.key) ? look.emphasis : undefined}
+                                    forbidden={connectDraft?.forbidden === item.key}
+                                    dropTarget={dropMark?.kind === "entity" && stringEqual(dropMark.id, item.key)}
+                                />
                             );
                         })}
                         {/* A refused connection's words under the item its draft would end at (SC9), in the shared

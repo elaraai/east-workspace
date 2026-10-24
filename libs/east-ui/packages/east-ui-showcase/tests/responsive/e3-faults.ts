@@ -8,7 +8,9 @@
  * installed before the page loads, then holds, faults and releases over the
  * page's requests of its e3, by what they ask and the dataset they name. A
  * spec that holds a read reads the page at rest with `settled(page, {
- * holding: true })`, since the builder's main stays busy over it.
+ * holding: true })`, since the builder's main stays busy over it. A spec's own
+ * mutation of a record goes through it too, as another session's
+ * ({@link mutateE3}).
  */
 
 import { expect, type Page } from "playwright/test";
@@ -76,4 +78,23 @@ export async function heldE3(page: Page, id: number): Promise<number> {
 export async function e3Requests(page: Page): Promise<readonly FaultRequest[]> {
     await installed(page);
     return page.evaluate((name) => (window as unknown as Scope)[name]!.requests(), FAULTS_CONTROLS);
+}
+
+/**
+ * Applies a record's mutation in the page's e3 as another session would — the
+ * spec's own request, which no hold or fault takes and the log never lists —
+ * and holds that e3 committed it.
+ *
+ * @param page - The page
+ * @param workspace - The workspace: an area's, by its name (`schematic`)
+ * @param record - The record's name
+ * @param mutation - The mutation's name
+ * @param args - Its arguments, each its type's beast2
+ */
+export async function mutateE3(page: Page, workspace: string, record: string, mutation: string, args: readonly Uint8Array[]): Promise<void> {
+    await installed(page);
+    const encoded = args.map((arg) => Buffer.from(arg).toString("base64"));
+    const outcome = await page.evaluate(({ name, workspace, record, mutation, encoded }) => (window as unknown as Scope)[name]!.mutate(workspace, record, mutation, encoded),
+        { name: FAULTS_CONTROLS, workspace, record, mutation, encoded });
+    expect(outcome, `e3 committed the ${mutation} of ${record}`).toBe("committed");
 }
