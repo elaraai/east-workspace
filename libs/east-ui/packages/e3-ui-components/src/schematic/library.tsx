@@ -53,7 +53,9 @@
  * or at the view's centre — and on a touch screen a tap on the selected card
  * does the same, so no drop needs a precise drag (SC13); the tap leaves it
  * selected, for the next. Below 480px of main (#1394, D15) no card drags, and
- * a tap on the selected card drops it whatever the pointer.
+ * a tap on the selected card drops it whatever the pointer. While a tab's
+ * source reads again its cards are retained (#1398, CL8): aria-disabled,
+ * selectable, and taking no drag, ⏎ or tap that drops.
  *
  * The pane is the frame's start pane, 272px open, its open tab and its
  * collapsed state kept under the Schematic's `id`; collapsed, its rail counts
@@ -260,19 +262,29 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
         const id = schematicLibraryId(keys, tabKey);
         return [[tabKey, (key: string) => enter(id, key)]];
     })), [library, keys, enter]);
+    // What each tab that follows a source shows: the Templates tab its kinds' templates records', an author's tab its own.
+    const templatesFollow = useMemo(() => templatesTab(value, followed, words), [value, followed, words]);
+    const authorTabs = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tab.value] : [])), [library]);
+    const authorFollows = useMemo(() => new Map(authorTabs.map((tab): [string, SourceTab<AuthorCardValue>] => {
+        const source = getSomeorUndefined(tab.source);
+        const shown = source === undefined ? WHOLE : followed.get(source)?.shown ?? WHOLE;
+        return [`tab:${tab.name}`, sourceTab({ cards: tab.cards, keyOf: (card) => card.key, shown, noun: tab.name.toLocaleLowerCase(words.locale), words })];
+    })), [authorTabs, followed, words]);
+    // A tab its source reads again holds its cards retained (#1398, CL8): a tap on one selects it, and drops nothing.
+    const held = useMemo(() => new Set([...(templatesFollow.pane["aria-disabled"] === true ? ["templates"] : []),
+        ...[...authorFollows].flatMap(([tabKey, follow]) => (follow.pane["aria-disabled"] === true ? [tabKey] : []))]), [templatesFollow, authorFollows]);
     // A click on a card selects it, or lets the selected one go; on a touch screen, or below 480px of main, a tap on the
-    // selected card is its ⏎ (SC13, #1394).
+    // selected card is its ⏎ (SC13, #1394) — never in a tab held while its source reads again.
     const onCard = useCallback((tabKey: string, key: string) => {
-        const onEnter = enters.get(tabKey);
+        const onEnter = held.has(tabKey) ? undefined : enters.get(tabKey);
         if (tapDrops && onEnter !== undefined && isPicked(tabKey, key)) onEnter(key);
         else onPick(tabKey, key);
-    }, [enters, tapDrops, isPicked, onPick]);
+    }, [enters, held, tapDrops, isPicked, onPick]);
     const groupBy = useMemo(() => [{ key: "group", label: m.libraryGroupBy() }], [m]);
     const noun = useCallback((tab: SchematicLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
     const empty = useCallback((tab: SchematicLibraryTabWord, name: string): LibraryEmpty => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
 
     // ── Templates: every kind's, under its name, then their group ────────
-    const templatesFollow = useMemo(() => templatesTab(value, followed, words), [value, followed, words]);
     const templates = useMemo((): LibraryValue => scheduleLibrary({
         id: schematicLibraryId(keys, "templates"),
         items: templatesFollow.cards.map(({ kind, template }) => {
@@ -325,12 +337,6 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
     }), [backlogNarrowing, m]);
 
     // ── An author's tabs: their cards, each following the source it names ─
-    const authorTabs = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tab.value] : [])), [library]);
-    const authorFollows = useMemo(() => new Map(authorTabs.map((tab): [string, SourceTab<AuthorCardValue>] => {
-        const source = getSomeorUndefined(tab.source);
-        const shown = source === undefined ? WHOLE : followed.get(source)?.shown ?? WHOLE;
-        return [`tab:${tab.name}`, sourceTab({ cards: tab.cards, keyOf: (card) => card.key, shown, noun: tab.name.toLocaleLowerCase(words.locale), words })];
-    })), [authorTabs, followed, words]);
     const authorLibraries = useMemo(() => new Map(authorTabs.map((tab): [string, LibraryValue] => {
         const tabKey = `tab:${tab.name}`;
         const icon = getSomeorUndefined(tab.icon);
