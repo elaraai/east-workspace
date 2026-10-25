@@ -53,6 +53,11 @@
  * what was picked up ({@link ghostRect}); a draggable may be an SVG element, a
  * link's line or its caption (#1328).
  *
+ * Retained content — a region `aria-disabled` while what it shows is read
+ * again (#1398, CL8, {@link inRetained}) — takes no drag: nothing in it is
+ * picked up, and no cell or sink in it is a destination, by the pointer or the
+ * keyboard; a drag over it rests over nothing.
+ *
  * @packageDocumentation
  */
 
@@ -102,6 +107,7 @@ import {
 } from "./sensor.js";
 import { dragMessages, type DragMessages } from "./messages.js";
 import { EdgeScroller, scrollStep } from "./auto-scroll.js";
+import { inRetained } from "./retained.js";
 
 /** A completed drag, as delivered to a target's `onDrag`. */
 export type DragEventValue = ValueTypeOf<DragEventType>;
@@ -661,7 +667,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         // A cell can register DURING a drag — a virtualizer scrolls its row
         // into view. The drag-start sweep has already run, so mark it here.
         const d = drag.current;
-        if (d !== null && connected(cell.current, d.payload) && allows(cell.current, d.payload, undefined)) {
+        if (d !== null && connected(cell.current, d.payload) && !inRetained(el) && allows(cell.current, d.payload, undefined)) {
             el.setAttribute("data-drop-valid", "");
         }
         return () => {
@@ -680,7 +686,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         ids.current.set(el, id);
         el.setAttribute("data-drag-sink", "");
         const d = drag.current;
-        if (d !== null && sinkValid(reg, d.payload)) el.setAttribute("data-drop-valid", "");
+        if (d !== null && sinkValid(reg, d.payload) && !inRetained(el)) el.setAttribute("data-drop-valid", "");
         return () => {
             sinks.current.delete(el);
             el.removeAttribute("data-drag-sink");
@@ -690,11 +696,14 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
 
     // ── Hit testing ───────────────────────────────────────────────────────
 
-    /** The registered destination under a point — the ghost is `pointer-events: none`, so it is never hit. */
+    /**
+     * The registered destination under a point — the ghost is `pointer-events: none`, so it is never hit — and none in
+     * retained content.
+     */
     const hit = useCallback((point: Point): HTMLElement | null => {
         const under = document.elementFromPoint(point.x, point.y);
         const dest = under?.closest<HTMLElement>("[data-drag-cell], [data-drag-sink]") ?? null;
-        return dest !== null && (cells.current.has(dest) || sinks.current.has(dest)) ? dest : null;
+        return dest !== null && (cells.current.has(dest) || sinks.current.has(dest)) && !inRetained(dest) ? dest : null;
     }, []);
 
     /** Mark the destination a drag rests over, at a point: active if it takes the drag, ⊘ if it refuses it. */
@@ -811,8 +820,8 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             const score = along + 4 * across;
             if (best === undefined || score < best.score) best = { el, score };
         };
-        for (const [el, cell] of cells.current) if (connected(cell.current, d.payload)) consider(el);
-        for (const [el, reg] of sinks.current) if (sinkValid(reg, d.payload)) consider(el);
+        for (const [el, cell] of cells.current) if (connected(cell.current, d.payload) && !inRetained(el)) consider(el);
+        for (const [el, reg] of sinks.current) if (sinkValid(reg, d.payload) && !inRetained(el)) consider(el);
         if (best === undefined) {
             // Nothing that way on screen: scroll the container the drag rests
             // in a step, so a virtualizer mounts what lies beyond; the next
@@ -893,12 +902,12 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         lastHit.current = undefined;
         restPoint.current = undefined;
         caption.set(undefined);
-        // Candidates precede the drop — mark every valid destination now.
+        // Candidates precede the drop — mark every valid destination now, none in retained content.
         for (const [el, cell] of cells.current) {
-            if (connected(cell.current, payload) && allows(cell.current, payload, undefined)) el.setAttribute("data-drop-valid", "");
+            if (connected(cell.current, payload) && !inRetained(el) && allows(cell.current, payload, undefined)) el.setAttribute("data-drop-valid", "");
         }
         for (const [el, reg] of sinks.current) {
-            if (sinkValid(reg, payload)) el.setAttribute("data-drop-valid", "");
+            if (sinkValid(reg, payload) && !inRetained(el)) el.setAttribute("data-drop-valid", "");
         }
         setDragged(payload);
     }, [hit, rest, connected, allows, sinkValid, caption]);

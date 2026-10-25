@@ -15,8 +15,9 @@
  * to show (#1186), the shared empty state: the host's words for no items, or
  * `No matches` for a search or a filter that hides every card, its mark Font
  * Awesome's open box (#1263). A host that takes a draggable card's ⏎ (#1187)
- * gets it, while Space still picks the card up. A compact Library's add action
- * is Font Awesome's plus beside its words (#1263).
+ * gets it, while Space still picks the card up — in retained content (#1398,
+ * CL8) neither, nor a card's × or the add, while a click still selects. A
+ * compact Library's add action is Font Awesome's plus beside its words (#1263).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -533,6 +534,42 @@ describe("Library — a host's ⏎ (#1187)", () => {
         await act(async () => { fireEvent.keyDown(pinned, { key: "Enter" }); });
         expect(clicked).toEqual(["pinned"]);
         expect(entered).toEqual(["edge"]);
+    });
+
+    test("in retained content (#1398, CL8) a card stays focusable and its click still selects, but ⏎ places nothing, no key picks it up, its × takes nothing back and the add adds nothing", async () => {
+        const entered: string[] = [], clicked: string[] = [], removed: string[] = [];
+        let added = 0;
+        const value: LibraryValue = { ...palette(clicked), addLabel: some("New template"), onAdd: some(() => { added += 1; return null; }) };
+        const extras = (item: LibraryItemValue) => ({ remove: { label: `Take ${item.key} back`, onRemove: () => { removed.push(item.key); } } });
+        const page = (held: boolean) => (
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <div aria-disabled={held ? true : undefined}>
+                        <EastChakraLibrary value={value} storageKey="library-test" onCardEnter={key => { entered.push(key); }} extras={extras} />
+                    </div>
+                </DragLayerProvider>
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(page(true));
+        const edge = cardOf(container, "edge");
+        expect(edge.tabIndex).toBe(0);
+        edge.focus();
+        expect(document.activeElement).toBe(edge);
+        press("Enter");
+        press("Space");
+        await tick();
+        expect([entered, edge.hasAttribute("data-dragging")]).toEqual([[], false]);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Take edge back" })); });
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New template" })); });
+        await act(async () => { fireEvent.click(edge); });
+        expect([removed, added, clicked]).toEqual([[], 0, ["edge"]]);
+        // Landed: each does what it does.
+        rerender(page(false));
+        cardOf(container, "edge").focus();
+        press("Enter");
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Take edge back" })); });
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New template" })); });
+        expect([entered, removed, added]).toEqual([["edge"], ["edge"], 1]);
     });
 
     test("without a host's ⏎, Enter picks a draggable card up, as it always has", async () => {
