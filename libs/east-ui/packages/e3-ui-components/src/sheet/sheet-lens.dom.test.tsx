@@ -30,6 +30,7 @@ import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { frameScrolls } from "./frame.test-utils.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
+import { setSheetRowRenderProbe } from "./Rows.js";
 import { LENS_BUDGET } from "./use-lens.js";
 
 const h = sheetHarness({ modules: { "sheet/sheet-records": ex }, frame: 2000 });
@@ -276,7 +277,7 @@ test("a key search lands on a row the lens hides: it opens it, at its number, an
     }
     await waitFor(() => expect(search.textContent).toMatch(/1 match/), { timeout: 5_000 });
     fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(ui.row("JOB-10001")?.querySelector('[data-slot="cell"][data-selected]')).not.toBeNull(), { timeout: 5_000 });
+    await waitFor(() => expect(ui.row("JOB-10001")?.querySelector('[data-slot="cell"][data-selected]') ?? null).not.toBeNull(), { timeout: 5_000 });
     // Opened at its place in the record, no match: the gap before the first match is split around it.
     expect(ui.row("JOB-10001")!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("2");
     expect(ui.row("JOB-10001")!.querySelector('[data-slot="gutterNumber"]')!.hasAttribute("data-hit")).toBe(false);
@@ -290,6 +291,153 @@ test("a key search lands on a row the lens hides: it opens it, at its number, an
     const fresh = ui.container.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
     expect(fresh.querySelector<HTMLInputElement>("input")!.value).toBe("");
     expect(fresh.textContent).not.toMatch(/\d+ of \d+/);
+});
+
+/** The orders scheduled: every third, from the second. */
+const SCHEDULED: Where = new Map([["status", variant("values", [printString("Scheduled")])]]);
+
+/** The toolbar's Search Records box, the text typed into it a key at a time, and the lines its list shows. */
+function searchRecords(container: HTMLElement) {
+    const box = () => container.querySelector<HTMLElement>('[data-part="dataset-key-search"]')!;
+    const input = () => box().querySelector<HTMLInputElement>("input")!;
+    const type = async (text: string) => {
+        for (const key of text) {
+            const typed = input().value + key;
+            await userEvent.type(input(), key);
+            await waitFor(() => expect(input().value).toBe(typed));
+        }
+    };
+    const clear = async () => { await act(async () => { fireEvent.click(box().querySelector("button[aria-label='Clear search']")!); }); };
+    // The box's list: the listbox its input controls, its lines as they read.
+    const lines = () => {
+        const list = document.getElementById(input().getAttribute("aria-controls") ?? "");
+        return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+    };
+    return { box, input, type, clear, lines };
+}
+
+test("Search Records lists the rows its key finds wherever they are — on screen, far off, and those the narrowing hides, marked — and takes the ring to a far one the narrowing holds (#1398, CL10)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.ids().slice(0, 3)).toEqual(["JOB-10000", "JOB-10003", "JOB-10006"]));
+    await settle();
+    const search = searchRecords(ui.container);
+    // On screen: the head of the thousand orders it finds, each a line — the ones Ready drawn, the others marked.
+    await search.type("JOB-10");
+    await waitFor(() => expect(search.box().textContent).toMatch(/1,000 matches/), { timeout: 5_000 });
+    await waitFor(() => expect(search.lines().slice(0, 4)).toEqual(["JOB-10000", "JOB-10001 · hidden by the filters", "JOB-10002 · hidden by the filters", "JOB-10003"]), { timeout: 5_000 });
+    expect(search.lines()).toHaveLength(20);
+    // Far off, where the lens has read nothing: its lines all the same.
+    await search.clear();
+    await search.type("JOB-2");
+    await waitFor(() => expect(search.box().textContent).toMatch(/10,000 matches/), { timeout: 5_000 });
+    await waitFor(() => expect(search.lines().slice(0, 3)).toEqual(["JOB-20000 · hidden by the filters", "JOB-20001 · hidden by the filters", "JOB-20002"]), { timeout: 5_000 });
+    // A far one the narrowing holds: the ring lands on it, at its number.
+    await search.clear();
+    await search.type("JOB-20002");
+    await waitFor(() => expect(search.lines()).toEqual(["JOB-20002"]), { timeout: 5_000 });
+    fireEvent.keyDown(search.input(), { key: "Enter" });
+    await waitFor(() => expect(ui.row("JOB-20002")?.querySelector('[data-slot="cell"][data-selected]') ?? null).not.toBeNull(), { timeout: 10_000 });
+    expect(ui.row("JOB-20002")!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("10003");
+    // Never the record whole.
+    expect(h.requests("read", ORDERS)).toEqual([]);
+});
+
+/** Where the view rests as the sheet saved it, under its storage key: the row at its top, by its key, and the px into it. */
+const restedAt = (): { key: string; offset: number } | undefined => {
+    for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith("sheet-lens-test")) continue;
+        const stored = JSON.parse(localStorage.getItem(key)!) as { anchor?: { key: string; offset: number } | null };
+        if (stored.anchor !== undefined && stored.anchor !== null) return { key: stored.anchor.key, offset: stored.anchor.offset };
+    }
+    return undefined;
+};
+
+test("a narrowing keeps the row at the top of the view where it was, by its key — drawn already, or read where it is — when the narrowing holds it, and else starts at the top (#1398, CL8)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.ids().slice(0, 3)).toEqual(["JOB-10000", "JOB-10003", "JOB-10006"]));
+    await settle();
+    const frame = () => ui.main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    /** Where a row is drawn among the rows: its virtual row's place. */
+    const topOf = (id: string) => Number(/translateY\(([-\d.]+)px\)/.exec((ui.row(id)!.closest<HTMLElement>("[data-index]")!).style.transform)![1]);
+    /** The view at rest with a row at its top, `px` into it. */
+    const rest = async (id: string, px: number) => {
+        await act(async () => { frame().scrollTop = topOf(id) + px; frame().dispatchEvent(new Event("scroll")); });
+        await waitFor(() => expect(restedAt()).toEqual({ key: `row:${id}`, offset: px }), { timeout: 5_000 });
+        await settle();
+    };
+    // JOB-10054 is Ready and of quantity 700: at the top, 5 px into it.
+    await rest("JOB-10054", 5);
+    await narrow(QUANTITY_700);
+    await waitFor(() => expect(ui.ids().slice(0, 3)).toEqual(["JOB-10006", "JOB-10030", "JOB-10054"]));
+    await settle();
+    // Drawn already under the new narrowing: where it was, the px into it kept.
+    await waitFor(() => expect(frame().scrollTop - topOf("JOB-10054")).toBe(5), { timeout: 5_000 });
+    expect(restedAt()).toEqual({ key: "row:JOB-10054", offset: 5 });
+    // Ready again holds it too: it stays where it was, the Ready row after it — of another quantity — drawn below it.
+    await narrow(READY);
+    await waitFor(() => expect(ui.ids()).toContain("JOB-10057"));
+    await settle();
+    await waitFor(() => expect(frame().scrollTop - topOf("JOB-10054")).toBe(5), { timeout: 5_000 });
+    // Far down, where a new narrowing's lens reads nothing at first: JOB-35014 — Ready, of quantity 700 — sought and put
+    // at the top, 7 px into it.
+    const search = searchRecords(ui.container);
+    await search.type("JOB-35014");
+    await waitFor(() => expect(search.lines()).toEqual(["JOB-35014"]), { timeout: 5_000 });
+    fireEvent.keyDown(search.input(), { key: "Enter" });
+    await waitFor(() => expect(ui.row("JOB-35014")).not.toBeNull(), { timeout: 10_000 });
+    await settle();
+    await search.clear();
+    await rest("JOB-35014", 7);
+    const pages = h.requests("page", ORDERS).length;
+    await narrow(QUANTITY_700);
+    // The lens reads where the row is, and puts it back where it was.
+    await waitFor(() => expect(ui.row("JOB-35014")).not.toBeNull(), { timeout: 10_000 });
+    await settle();
+    await waitFor(() => expect(frame().scrollTop - topOf("JOB-35014")).toBe(7), { timeout: 5_000 });
+    expect(restedAt()).toEqual({ key: "row:JOB-35014", offset: 7 });
+    expect(h.requests("page", ORDERS).length).toBeGreaterThan(pages);
+    // A narrowing that does not hold it — the orders scheduled — starts at the top.
+    await narrow(SCHEDULED);
+    await waitFor(() => expect(ui.ids().slice(0, 2)).toEqual(["JOB-10001", "JOB-10004"]));
+    await settle();
+    await waitFor(() => expect(frame().scrollTop).toBe(0));
+    expect(h.requests("read", ORDERS)).toEqual([]);
+});
+
+test("a window landing beside the rows in view draws none of them again: a landing draws only the rows it brings (#1398, CL9)", async () => {
+    // The record's own rows, its All tab, read a segment at a time: every segment past the first held on the wire.
+    const isLater = (request: E3Request) => request.kind === "page" && request.dataset === ORDERS && Number(request.query.get("offset") ?? 0) > 0;
+    const later = h.e3.hold(isLater);
+    const ui = await setup();
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.ids().slice(0, 3)).toEqual(["JOB-10000", "JOB-10001", "JOB-10002"]));
+    // Down to the first segment's last whole window — elements 800–999 — the window after it, which the second segment
+    // holds, on the wire below them.
+    const frame = ui.main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    const rowPx = parseFloat(ui.row("JOB-10000")!.style.minHeight);
+    await act(async () => { frame.scrollTop = 1000 * rowPx - 2000 + 3 * rowPx; frame.dispatchEvent(new Event("scroll")); });
+    await waitFor(() => expect(ui.row("JOB-10999")).not.toBeNull(), { timeout: 10_000 });
+    await later.holding;
+    await settle();
+    expect(ui.row("JOB-11000")).toBeNull();
+    const drawn = new Set(ui.rows().map((row) => Number(row.getAttribute("data-row"))));
+    const rendered: number[] = [];
+    setSheetRowRenderProbe((r, copy) => { if (!copy) rendered.push(r); });
+    try {
+        const landed = h.e3.answers(isLater);
+        await act(async () => { later.release(); });
+        // The second segment lands, and the window below the rows in view with it: its rows join below them.
+        await waitFor(() => expect(landed.length).toBeGreaterThan(0), { timeout: 10_000 });
+        await waitFor(() => expect(ui.row("JOB-11000")).not.toBeNull(), { timeout: 10_000 });
+        await settle();
+        // None of the rows that were drawn is drawn again: the landing drew only the rows it brought.
+        expect(drawn.size).toBeGreaterThan(0);
+        expect(rendered.length).toBeGreaterThan(0);
+        expect(rendered.filter((r) => drawn.has(r))).toEqual([]);
+    } finally {
+        setSheetRowRenderProbe(undefined);
+    }
 });
 
 test("the runs the planner opened are kept by their rows' keys: a revision that moves them finds them again, and a saved view opens them where its keys are", async () => {

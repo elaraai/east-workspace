@@ -13,7 +13,7 @@
  * rule (#844) narrows the candidates, never the resolution of typed text.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { none, some, variant } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { driverKeyOf, type SheetBodyItem, type SheetColumnIndex, type SheetColumnMeta, type SheetRegisterIndex } from "./model.js";
@@ -120,17 +120,32 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
         byKey.set(meta.key, flags);
         return flags;
     }, [linkColumns, drafts, flagCache, messages]);
+    // The body as it is now, and its real items by their rows, made once a body as a cell first asks: what a cell's link
+    // context finds its row's item in. Read through a ref, so the context is the same function while what it is made
+    // of holds — a window landing draws no row again for it (#1398, CL9); a row that moves is drawn again for its
+    // place, and reads the body it is in.
+    const items = useRef<{ body: readonly SheetBodyItem[]; byRow: WeakMap<SheetRowValue, SheetBodyItem> | undefined }>({ body, byRow: undefined });
+    if (items.current.body !== body) items.current = { body, byRow: undefined };
     const linkCellCtx = useCallback((row: SheetRowValue | undefined, meta: SheetColumnMeta): LinkCellContext | undefined => {
         const lc = linkColumns.get(meta.key);
         if (lc === undefined) return undefined;
-        const item = row !== undefined ? body.find((it) => it.kind === "real" && Object.is(it.row, row)) : undefined;
+        let item: SheetBodyItem | undefined;
+        if (row !== undefined) {
+            const held = items.current;
+            if (held.byRow === undefined) {
+                // The first real item of each row, as a scan of the body finds it.
+                held.byRow = new WeakMap();
+                for (const it of held.body) if (it.kind === "real" && !held.byRow.has(it.row)) held.byRow.set(it.row, it);
+            }
+            item = held.byRow.get(row);
+        }
         return {
             halves: halvesFor(lc.sides, driverKeyOf(row, driverColumn)),
             vocab: lc.vocab,
             flags: item !== undefined ? flagsFor(item, meta) : NO_FLAGS,
             driverName: driverName(row),
         };
-    }, [linkColumns, body, driverColumn, flagsFor, driverName]);
+    }, [linkColumns, driverColumn, flagsFor, driverName]);
     const linkCtxFor = useCallback((r: number, c: number): LinkEditCtx | undefined => {
         const meta = columns.list[c];
         if (meta === undefined) return undefined;

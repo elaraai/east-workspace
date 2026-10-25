@@ -327,9 +327,13 @@ export type SheetEffect =
     /**
      * ↓ past the last resident row, or ↑ above the first, on a paged sheet
      * whose source goes on (#860): the component asks for the window beyond,
-     * and the ring moves `dir` onto its row, at column `c`, once it lands.
+     * and the ring moves `dir` onto its row, at column `c`, once it lands. A
+     * page (#1398, CL10) — PageDown past the last resident row, PageUp above
+     * the first — says the row it pages from and how many rows a page moves:
+     * the window a page on is asked for, and the ring lands there — fetch,
+     * then move.
      */
-    | { t: "seek.step"; dir: 1 | -1; c: number }
+    | { t: "seek.step"; dir: 1 | -1; c: number; page?: { from: number; rows: number } | undefined }
     /** ⌘Home / ⌘End on a paged sheet not at that end (#860): the component jumps the source there, and the ring lands on its first or last row, at column `c`. */
     | { t: "seek.edge"; edge: "first" | "last"; c: number }
     /** Move the ring to a row by ID once the body has re-formed (a fold-all keeps the ring on its group's band). */

@@ -15,6 +15,11 @@
  * element, so the k-th match is the row at `range.row + k` — the control's
  * prev / next step exactly.
  *
+ * The box lists the match run's rows wherever they are (#1398, CL10): each
+ * read through the source by its position, a far match's as well as one on
+ * screen, never only the rows the sheet has drawn — and, under a narrowing of
+ * the record's rows, each the narrowing hides marked so, which a pick opens.
+ *
  * The bridge from the tracked `seek` read (`none` while searching, re-fires
  * when it lands) to the control's promise is the Plan's: the query goes into
  * state, the read runs inside {@link useTrackedEvaluation}, and the pending
@@ -24,14 +29,21 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
+import { StringType, toEastTypeValue, type EastTypeValue, type option } from "@elaraai/east";
 import { type DatasetKeyMatchRange, type DatasetKeyQuery, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "./paged-snapshot.js";
-import { toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 /** A sheet's keys are Strings — the search input parses against that. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
+
+/** A row the box lists: its place in the source, its line, and what the box shows once it is picked — its key. */
+export interface SheetListed {
+    readonly row: number;
+    readonly label: string;
+    readonly text: string;
+}
 
 /** What the toolbar's key search drives — the shared item's source (`useKeySearchToolbarItem`, #1221). */
 export interface SheetSearch {
@@ -40,8 +52,8 @@ export interface SheetSearch {
     keyType: EastTypeValue;
     /** Locate a query — resolves when the tracked search lands. */
     find: (query: DatasetKeyQuery) => Promise<DatasetKeyMatchRange>;
-    /** Label the popup from the resident head of the match run (the row ids). */
-    listRange: (row: number, limit: number) => Promise<string[]>;
+    /** Label the popup's rows of the match run, each read through the source by its position — its row's id, and whether a narrowing hides it. */
+    listRange: (row: number, limit: number) => Promise<SheetListed[]>;
     /** Jump to the match at source position `row`. */
     jump: (row: number) => void;
     /** Drop the query and its jump target. */
@@ -58,28 +70,34 @@ export interface SheetSeekState {
 }
 
 /**
+ * Which of the source's rows `[from, from + count)` a narrowing of them holds — a tracked read, `none` while pending:
+ * the `rows` source's narrowing drawn over its record's rows as the lens (#1349).
+ */
+export type SheetSeekHeld = (from: number, count: number) => option<readonly boolean[]>;
+
+/**
  * Wire a paged source's `seek` to the sheet.
  *
  * @param source - The decoded `paged` arm (undefined ⇒ inline sheet)
- * @param rows - The resident rows, in stream order
- * @param positions - Each resident row's source position — a failed window leaves a hole (#853)
  * @param jumpToElement - Ask the driver to rebase residency on a position
  * @param clearJump - Drop the driver's pending jump pin
+ * @param held - Under a narrowing of the source's rows that hides some of them, which of a run of them it holds; else `undefined`
+ * @param hiddenLine - A listed row the narrowing hides, as the box lists it, by its key
  * @returns The search mount and the landing target
  */
 export function useSheetSeek(
     source: SheetPagedSourceValue | undefined,
-    rows: readonly SheetRowValue[],
-    positions: readonly number[],
     jumpToElement: (element: number) => void,
     clearJump: () => void,
+    held: SheetSeekHeld | undefined,
+    hiddenLine: (key: string) => string,
 ): SheetSeekState {
     const [query, setQuery] = useState<unknown>(null);
     const [target, setTarget] = useState<number | undefined>(undefined);
     // What `listRange` reads — refs: the control awaits `onFind` and then calls
     // the `onListRange` it captured before the state committed (#614).
-    const residentRef = useRef({ rows, positions });
-    useLayoutEffect(() => { residentRef.current = { rows, positions }; });
+    const latest = useRef({ source, held, hiddenLine });
+    useLayoutEffect(() => { latest.current = { source, held, hiddenLine }; });
     const pending = useRef<{ resolve: (r: DatasetKeyMatchRange) => void; reject: (e: unknown) => void } | null>(null);
 
     const seekFn = useMemo(() => {
@@ -121,17 +139,15 @@ export function useSheetSeek(
         setQuery(toSeekQuery(q));
     }), []);
 
-    const listRange = useCallback(async (row: number, limit: number): Promise<string[]> => {
-        // The head of the match run, by POSITION: the resident rows at
-        // `row` onward, as far as they have landed (a far match lists nothing
-        // until its window arrives; the count still shows) — and stopping at
-        // a failed window's hole (#853).
-        const { rows: resident, positions } = residentRef.current;
-        const out: string[] = [];
-        let i = positions.indexOf(row);
-        if (i < 0) return out;
-        for (let p = row; p < row + limit && i < resident.length && positions[i] === p; p++, i++) out.push(resident[i]!.id);
-        return out;
+    const listRange = useCallback(async (row: number, limit: number): Promise<SheetListed[]> => {
+        // The head of the match run, by POSITION: its rows read through the source — on screen, far off, or hidden by
+        // the narrowing, whose window the sheet has not drawn (#1398, CL10) — each its row's id.
+        const { source: from, held: holds, hiddenLine: hidden } = latest.current;
+        if (from === undefined || limit <= 0) return [];
+        const rows = await awaitTracked(() => from.page(BigInt(row), BigInt(limit))) as readonly SheetRowValue[];
+        const shown = holds === undefined || rows.length === 0 ? undefined : await awaitTracked(() => holds(row, rows.length));
+        // A pick shows the row's key in the box: what its query is typed against.
+        return rows.map((r, i) => ({ row: row + i, label: shown !== undefined && shown[i] === false ? hidden(r.id) : r.id, text: r.id }));
     }, []);
 
     const jump = useCallback((row: number) => {
