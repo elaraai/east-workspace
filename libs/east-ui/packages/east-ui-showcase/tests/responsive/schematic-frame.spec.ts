@@ -301,11 +301,12 @@ test.describe("The Schematic's frame (#1387)", () => {
             await collapseInspector(page, root);
             await expect(root.locator("[data-card-key]").first()).toBeVisible();
             const read = await root.evaluate((el) => {
-                // Geometry: positions and sizes, the grid's pattern — its size, and its position, which the page lists as its two
-                // longhands — and the camera's, a layer's and the widest card's custom properties.
+                // Geometry: positions and sizes, and the camera's, the grid's cells', a layer's and the widest card's custom
+                // properties — the grid's rules are the recipe's, drawn from its cells and the camera (#1398), as the frame's
+                // DOM test holds them.
                 const geometry = new Set([
-                    "left", "top", "width", "height", "transform", "background-size", "background-position-x", "background-position-y",
-                    "--cam-ppu", "--cam-tx", "--cam-ty", "--schematic-layer-opacity", "--schematic-card-max",
+                    "left", "top", "width", "height", "transform",
+                    "--cam-ppu", "--cam-tx", "--cam-ty", "--schematic-grid-major", "--schematic-grid-minor", "--schematic-layer-opacity", "--schematic-card-max",
                 ]);
                 const styled = [...el.querySelectorAll<HTMLElement>("[data-schematic-canvas], [data-schematic-canvas] [style], [data-schematic-footer], [data-schematic-footer] [style]")];
                 return {
