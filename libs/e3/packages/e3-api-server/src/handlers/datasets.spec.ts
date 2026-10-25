@@ -42,8 +42,8 @@ import { createTransferRoutes } from '../routes/transfer.js';
 import { findDatasetKey, getDataset, setDataset, type DatasetFindQuery } from './datasets.js';
 // The page and batch handlers through the handlers entry, as a host reaches them.
 import {
-  decodedSegmentStats, findDatasetKeys, getDatasetPage, getDatasetRows, getDatasetRuns, getValuePage, placeDatasetRuns, withinDatasetRuns,
-  type DatasetPageWindow, type DatasetPlacedSegment, type KeySearchQuery, type PinnedCache,
+  decodedSegmentStats, findDatasetKeys, getDatasetPage, getDatasetRows, getDatasetRuns, getValuePage, nearDatasetRuns, placeDatasetRuns,
+  withinDatasetRuns, type DatasetPageWindow, type DatasetPlacedSegment, type KeySearchQuery, type PinnedCache,
 } from './index.js';
 
 /**
@@ -1829,6 +1829,161 @@ describe('withinDatasetRuns (which entries a narrowing\'s runs of an index hold)
   });
 });
 
+/** Spans of rows, `[from, to)`, merged: sorted, and those that overlap or touch joined. */
+function unionOf(spans: readonly (readonly [number, number])[]): [number, number][] {
+  const out: [number, number][] = [];
+  for (const [from, to] of [...spans].sort((a, b) => a[0] - b[0])) {
+    const last = out[out.length - 1];
+    if (last !== undefined && from <= last[1]) last[1] = Math.max(last[1], to);
+    else out.push([from, to]);
+  }
+  return out;
+}
+
+/** The rows near some rows, worked out from their keys' places in the record: each row and the `distance` rows either side, merged. */
+function nearOf(keys: readonly string[], rows: SortedMap<string, PlanRow>, distance: number): [number, number][] {
+  const positions = new Map([...rows.keys()].map((key, i) => [key, i]));
+  return unionOf(keys.map((key): [number, number] => {
+    const at = positions.get(key)!;
+    return [Math.max(0, at - distance), Math.min(rows.size, at + distance + 1)];
+  }));
+}
+
+type Near = { spans: [number, number][]; placed: number };
+
+describe('nearDatasetRuns (the record\'s rows near a narrowing\'s rows)', () => {
+  it('reaches each entry\'s row and the rows within the distance of it, merged, reading each segment it touches once', async () => {
+    const storage = new InMemoryStorage();
+    const { rows, primarySegments, dueSegments } = await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    // `by_due` scatters the record: a run's rows land all over it.
+    const runs: [number, number][] = [[0, 400], [3000, 300], [9000, 600]];
+    const read = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, index: 'by_due' });
+    const keys = decodeDueWindow(new Uint8Array(await read.arrayBuffer())).map((entry) => entry.key);
+    for (const distance of [1, 3]) {
+      const fresh = new InMemoryStorage();
+      await seedIndexedRecord(fresh, 12_000);
+      const spy = spyReadsByObject(fresh, [...primarySegments, ...dueSegments]);
+      let answer: Near;
+      try {
+        const response = await nearDatasetRuns(fresh, REPO, WS, plansPath, { index: 'by_due', runs, distance, hash: await stateOf(fresh) });
+        assert.equal(response.headers.get('Cache-Control'), 'no-store', 'a POST is no cache\'s to keep');
+        assert.equal(response.headers.get('X-Run-Entries'), '1300');
+        assert.equal(response.headers.get('X-Total-Elements'), '12000', 'the record\'s rows');
+        answer = await batchJson<Near>(response);
+        assert.deepEqual([...spy.reads.values()].filter((n) => n !== 1), [], 'each segment touched is read once');
+        assert.ok([...spy.reads.keys()].some((hash) => primarySegments.includes(hash)), 'each row is found in its record segment');
+        assert.ok([...spy.reads.keys()].some((hash) => dueSegments.includes(hash)), 'the runs read the index');
+      } finally {
+        spy.restore();
+      }
+      assert.equal(answer.placed, 1300, 'one window reads every entry');
+      assert.deepEqual(answer.spans, nearOf(keys, rows, distance), `within ${distance}: the rows the runs' rows reach, theirs among them`);
+      assert.ok(answer.spans.every(([from, to], i) => from < to && (i === 0 || answer.spans[i - 1]![1] < from)),
+        'the spans are ascending, disjoint and never touching');
+    }
+  });
+
+  it('reaches the record\'s first and last rows clipped to it', async () => {
+    const storage = new InMemoryStorage();
+    const { rows } = await seedIndexedRecord(storage, 3000);
+    const state = await stateOf(storage);
+    // The first and the last plans, by their `due`.
+    const ends = [...rows].filter(([key]) => key === 'p-000000' || key === 'p-002999').map(([, row]) => Number(row.due)).sort((a, b) => a - b);
+    const answer = await batchJson<Near>(await nearDatasetRuns(storage, REPO, WS, plansPath,
+      { index: 'by_due', runs: ends.map((row): [number, number] => [row, 1]), distance: 3, hash: state }));
+    assert.deepEqual(answer.spans, [[0, 4], [2996, 3000]], 'three rows on, from the first row; three back, to the last');
+  });
+
+  it('stops a window before the record segments it reads pass the segment budget, the first entry\'s segment always, and the windows join into the whole', async () => {
+    const storage = new InMemoryStorage();
+    const { rows, primary } = await seedIndexedRecord(storage, 12_000);
+    const state = await stateOf(storage);
+    const cumulative = await cumulativeOf(storage, primary);
+    // `by_due` scatters the record: each next entry's row is almost always in another segment.
+    const runs: [number, number][] = [[0, 40], [3000, 30], [9000, 60]];
+    const read = await getDatasetRuns(storage, REPO, WS, plansPath, { runs, hash: state, index: 'by_due' });
+    const keys = decodeDueWindow(new Uint8Array(await read.arrayBuffer())).map((entry) => entry.key);
+    const positions = new Map([...rows.keys()].map((key, i) => [key, i]));
+    const segmentOf = (key: string) => cumulative.findIndex((end) => positions.get(key)! < end);
+    // A segment budget of a byte: each window reads the one record segment its first entry's row is in.
+    const spans: [number, number][] = [];
+    let windows = 0;
+    for (let offset = 0; offset < keys.length;) {
+      const answer = await batchJson<Near>(await nearDatasetRuns(storage, REPO, WS, plansPath,
+        { index: 'by_due', runs, distance: 1, offset, hash: state }, { segmentBudget: 1 }));
+      assert.ok(answer.placed >= 1, `a window reads its first entry, at ${offset}`);
+      const taken = keys.slice(offset, offset + answer.placed);
+      assert.deepEqual(new Set(taken.map(segmentOf)).size, 1, `the window at ${offset} reads one record segment`);
+      if (offset + answer.placed < keys.length) {
+        assert.notEqual(segmentOf(keys[offset + answer.placed]!), segmentOf(keys[offset]!), `the window at ${offset} stops at the entry in another segment`);
+      }
+      spans.push(...answer.spans);
+      offset += answer.placed;
+      windows++;
+    }
+    assert.ok(windows > 10, `the scattered rows take many windows, took ${windows}`);
+    assert.deepEqual(unionOf(spans), nearOf(keys, rows, 1), 'the windows\' spans join into the whole\'s');
+
+    // Unset, the segment budget is the page byte budget, which a host sets for every read.
+    const largest = Math.max(...decodeCollectionManifest(await storage.objects.read(REPO, primary)).entries.map((entry) => Number(entry.bytes)));
+    const windowsOf = async (limits: { byteBudget?: number; segmentBudget?: number }): Promise<number[]> => {
+      const placed: number[] = [];
+      for (let offset = 0; offset < keys.length;) {
+        const answer = await batchJson<Near>(await nearDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_due', runs, distance: 1, offset, hash: state }, limits));
+        placed.push(answer.placed);
+        offset += answer.placed;
+      }
+      return placed;
+    };
+    const bySegments = await windowsOf({ segmentBudget: 2 * largest });
+    assert.ok(bySegments.length > 1, `two segments' bytes take several windows, took ${bySegments.length}`);
+    assert.deepEqual(await windowsOf({ byteBudget: 2 * largest }), bySegments, 'a byte budget alone cuts the windows a segment budget of it does');
+    assert.deepEqual(await batchJson<Near>(await nearDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_due', runs, distance: 1, offset: keys.length, hash: state })),
+      { spans: [], placed: 0 }, 'past the runs\' end, nothing');
+    assert.equal((await batchJson<Near>(await nearDatasetRuns(storage, REPO, WS, plansPath,
+      { index: 'by_due', runs: [[0, 12_000]], distance: 1, hash: state }))).placed, 10_000, 'a window reads a page\'s 10,000 entries at most');
+  });
+
+  it('refuses a distance that is no whole number of rows at least 1, runs not of the index, more than 10,000 of them, a bad window, an index the record lacks, and a stale pin', async () => {
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const state = await stateOf(storage);
+    const refused = async (request: Partial<Parameters<typeof nearDatasetRuns>[4]>) =>
+      refusalOf(await nearDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_status', runs: [[0, 1]], distance: 1, hash: state, ...request }));
+    for (const distance of [0, -1, 1.5, Number.NaN]) {
+      const refusal = await refused({ distance });
+      assert.deepEqual([refusal.status, refusal.type], [400, 'bad_request'], `distance ${distance}`);
+      assert.match(refusal.message, /^distance .+ is not a whole number of rows at least 1$/);
+    }
+    assert.match((await refused({ runs: [[10, 5], [12, 3]] })).message, /run 1 starts at row 12, before the run before it ends \(15\)/);
+    assert.match((await refused({ runs: [[290, 20]] })).message, /run 0 ends at row 310, past the collection's 300 rows/);
+    assert.match((await refused({ runs: Array.from({ length: 10_001 }, (_, i) => [i, 1] as [number, number]) })).message, /at most 10000 runs; this one has 10001/);
+    assert.match((await refused({ offset: -1 })).message, /offset -1 is not a row at least 0/);
+    assert.match((await refused({ limit: 1.5 })).message, /limit 1.5 is not a count at least 0/);
+    assert.deepEqual(await refused({ index: 'nope' }).then((r) => [r.status, r.type]), [404, 'index_not_found']);
+    const stale = await refused({ hash: '0'.repeat(64) });
+    assert.deepEqual([stale.status, stale.type, stale.sha], [409, 'dataset_hash_mismatch', state]);
+  });
+
+  it('refuses an index that names a row its record does not hold, naming the entry\'s row in the index', async () => {
+    const storage = new InMemoryStorage();
+    const { rows } = await seedIndexedRecord(storage, 3000);
+    // The record's indexes over the record a plan short: `p-001500`, whose `due`, 1500, is its `by_due` entry's row.
+    assert.ok(equalFor(IntegerType)(rows.get('p-001500')!.due, 1500n));
+    const fewer = new SortedMap([...rows].filter(([key]) => key !== 'p-001500'), compareFor(StringType));
+    const held = await readRecordState(storage, REPO, await stateOf(storage));
+    const state = await writeRecordState(storage, REPO, { primary: await datasetWrite(storage, REPO, fewer, PlansType), indexes: held.indexes });
+    await storage.datasets.write(REPO, WS, 'records/plans', variant('value', { hash: state, versions: new Map() }));
+
+    const refused = await refusalOf(await nearDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_due', runs: [[10, 5], [1499, 3]], distance: 1, hash: state }));
+    assert.deepEqual([refused.status, refused.type], [400, 'dataset_not_canonical']);
+    assert.equal(refused.message, 'row 1500 of index \'by_due\' names a row its record does not hold — the index and its record disagree');
+    const around = await batchJson<Near>(await nearDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_due', runs: [[10, 5], [1501, 3]], distance: 1, hash: state }));
+    assert.equal(around.placed, 8, 'the entries whose rows the record holds read as ever');
+  });
+});
+
 describe('the batch routes', () => {
   /** An app mounting the dataset routes behind the transfer routes, as every server does. */
   function serverOf(storage: InMemoryStorage, options: Parameters<typeof createDatasetRoutes>[3] = {}): Hono {
@@ -1885,7 +2040,7 @@ describe('the batch routes', () => {
     assert.equal(other.status, 404, 'a POST naming no batch is no route');
   });
 
-  it('answer a placement and a membership read as their handlers do, and refuse their bodies\' wrong forms', async () => {
+  it('answer a placement, a membership read and a read of nearby rows as their handlers do, and refuse their bodies\' wrong forms', async () => {
     const storage = new InMemoryStorage();
     await seedIndexedRecord(storage, 3000);
     const state = await stateOf(storage);
@@ -1897,6 +2052,10 @@ describe('the batch routes', () => {
     const key = '(ik=(status="done", week=0), k="p-000000")';
     const within = await batchJson<{ within: boolean[] }>(await post(app, `within=true&hash=${state}`, { index: 'by_status', runs: [[0, 100]], keys: [key] }));
     assert.deepEqual(within, await batchJson(await withinDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_status', runs: [[0, 100]], keys: [key], hash: state })));
+    const near = await batchJson<Near>(await post(app, `near=true&hash=${state}`, { index: 'by_status', runs: [[0, 100], [1000, 50]], distance: 3, offset: 20, limit: 70 }));
+    assert.deepEqual(near, await batchJson<Near>(await nearDatasetRuns(storage, REPO, WS, plansPath,
+      { index: 'by_status', runs: [[0, 100], [1000, 50]], distance: 3, offset: 20, limit: 70, hash: state })));
+    assert.equal(near.placed, 70);
 
     const refused = async (query: string, body: unknown) => refusalOf(await post(app, query, body));
     assert.match((await refused('place=true', { index: 'by_status', runs: [] })).message, /A placement names the content hash its runs are positions at/);
@@ -1907,6 +2066,17 @@ describe('the batch routes', () => {
     assert.match((await refused(`place=true&hash=${state}`, { index: 'by_status', runs: [], offset: '1' })).message, /offset is a number/);
     assert.match((await refused(`within=true&hash=${state}`, { index: 'by_status', runs: [] })).message, /A membership read is \{ "index"/);
     assert.match((await refused(`place=true&within=true&hash=${state}`, {})).message, /Ask for one batch/);
+    assert.match((await refused('near=true', { index: 'by_status', runs: [], distance: 1 })).message, /^A read of nearby rows names the content hash its runs are positions at/);
+    assert.match((await refused(`near=true&hash=${state}`, { runs: [], distance: 1 })).message, /^A read of nearby rows names the index its runs are rows of/);
+    for (const distance of [undefined, '1']) {
+      assert.match((await refused(`near=true&hash=${state}`, { index: 'by_status', runs: [], ...(distance !== undefined && { distance }) })).message,
+        /^A read of nearby rows names how near: \{ "index"/, `distance ${distance}`);
+    }
+    assert.match((await refused(`near=true&hash=${state}`, { index: 'by_status', runs: [], distance: 1, limit: '7' })).message,
+      /^A read of nearby rows' limit is a number: how many of the runs' entries it reads/);
+    assert.match((await refused(`place=true&hash=${state}`, { index: 'by_status', runs: [], limit: '7' })).message,
+      /^A placement's limit is a number: how many of the runs' entries it places/);
+    assert.match((await refused(`near=true&place=true&hash=${state}`, {})).message, /Ask for one batch: .* or near=true/);
   });
 
   it('answer a read of rows by runs as its handler does, the record named by its keypath, and refuse its body\'s wrong forms', async () => {

@@ -65,9 +65,11 @@ export {
 export {
   placeDatasetRuns,
   withinDatasetRuns,
+  nearDatasetRuns,
   type DatasetPlaceRequest,
   type DatasetPlacedSegment,
   type DatasetWithinRequest,
+  type DatasetNearRequest,
 } from './dataset-place.js';
 
 export { type KeySearchQuery } from './key-search.js';

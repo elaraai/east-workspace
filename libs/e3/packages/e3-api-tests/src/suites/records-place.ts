@@ -6,17 +6,20 @@
 /**
  * Where a narrowing's rows sit in a record (#1349): `place`, how many of a
  * narrowing's rows each record segment holds, from its runs of one of the
- * record's indexes, and `within`, which of some index entries those runs hold.
+ * record's indexes; `within`, which of some index entries those runs hold;
+ * and `near`, the record's rows within a distance of those rows.
  *
  * Each plan form a record Slice resolves to runs — one value, several values,
  * a prefix, a range, a Set field's one value, and an interval index's start
  * and carry-in runs — is planned here as a client plans it, its runs found in
  * one request, and held to the record read whole: the rows its choices match,
- * counted in the segments pages by segment say the record holds. Then the
- * windows a placement is read in, `within` against a search by each entry's
- * key intersected with the runs, the bounds a page holds a window to, the most
+ * counted in the segments pages by segment say the record holds, and the rows
+ * within one and three of them. Then the windows a placement and a read of
+ * nearby rows are read in, `within` against a search by each entry's key
+ * intersected with the runs, the bounds a page holds a window to, the most
  * runs a request takes, and the refusals: a stale pin, runs that are no runs
- * of the index and a key that is no entry key.
+ * of the index, a key that is no entry key and a distance that is no whole
+ * number of rows.
  */
 
 import { describe, it } from 'node:test';
@@ -39,6 +42,7 @@ import {
   datasetGetPage,
   datasetGetRuns,
   datasetGetStatus,
+  datasetNear,
   datasetPlace,
   datasetWithin,
   type DatasetKeySearch,
@@ -183,6 +187,17 @@ function entriesOf(index: string, key: string, order: Order): Entry[] {
   }
 }
 
+/** Spans of rows, `[from, to)`, merged: sorted, and those that overlap or touch joined. */
+function union(spans: readonly (readonly [number, number])[]): [number, number][] {
+  const out: [number, number][] = [];
+  for (const [from, to] of [...spans].sort((a, b) => a[0] - b[0])) {
+    const last = out[out.length - 1];
+    if (last !== undefined && from <= last[1]) last[1] = Math.max(last[1], to);
+    else out.push([from, to]);
+  }
+  return out;
+}
+
 /** Adds placements up, segment by segment. */
 function sum(placements: readonly DatasetPlacedSegment[][]): DatasetPlacedSegment[] {
   const held = new Map<number, DatasetPlacedSegment>();
@@ -257,6 +272,37 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
     return { windows, placed: offset, segments: sum(windows) };
   };
 
+  /** Every window of a read of nearby rows, each read on from where the last stopped until the runs are read, its spans merged. */
+  const nearAll = async (ctx: TestContext, index: string, runs: readonly Run[], hash: string, distance: number, limit?: number) => {
+    const opts = await ctx.opts();
+    const spans: [number, number][] = [];
+    let windows = 0;
+    let offset = 0;
+    for (;;) {
+      const window = await datasetNear(ctx.config.baseUrl, ctx.repoName, WS, ordersPath,
+        { index, runs, distance, offset, hash, ...(limit !== undefined && { limit }) }, opts);
+      assert.equal(window.hash, hash, 'every window is read at the content pinned');
+      assert.equal(window.totalElements, Number(ORDERS), 'the record\'s rows');
+      if (window.placed === 0) break;
+      windows++;
+      spans.push(...window.spans);
+      offset += window.placed;
+      if (offset === window.runEntries) break;
+    }
+    return { windows, read: offset, spans: union(spans) };
+  };
+
+  /** The rows near the orders a plan matches, worked out from the record read whole: each one's row and the rows within the distance of it. */
+  const nearOf = (orders: Orders, matches: (order: Order) => boolean, distance: number): [number, number][] => {
+    const spans: [number, number][] = [];
+    let position = 0;
+    for (const order of orders.values()) {
+      if (matches(order)) spans.push([Math.max(0, position - distance), Math.min(Number(ORDERS), position + distance + 1)]);
+      position++;
+    }
+    return union(spans);
+  };
+
   /** The record's segments, as pages by segment answer them: each one's first row and its rows. */
   const segmentsOf = async (ctx: TestContext, hash: string): Promise<{ offset: number; count: number }[]> => {
     const opts = await ctx.opts();
@@ -312,6 +358,32 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
       assert.deepEqual([past.segments, past.placed], [[], 0], 'past the runs\' end, nothing is placed');
     });
 
+    it('reads the rows near each plan form\'s rows, within one and within three, as the record read whole has them, a window at a time', async (t) => {
+      const { ctx, hash, orders } = await withOrders(t);
+      for (const plan of PLANS) {
+        const runs = await runsOf(ctx, plan, hash);
+        const matched = runs.reduce((total, [, count]) => total + count, 0);
+        for (const distance of [1, 3]) {
+          const near = await nearAll(ctx, plan.index, runs, hash, distance);
+          const expected = nearOf(orders, plan.matches, distance);
+          assert.deepEqual(near.spans, expected, `${plan.name} within ${distance}: the rows its rows reach, theirs among them`);
+          assert.equal(near.read, matched, `${plan.name} within ${distance}: each of the runs' entries read once`);
+          const reached = expected.reduce((total, [from, to]) => total + to - from, 0);
+          assert.ok(reached > matched, `${plan.name} within ${distance}: some rows lie near its rows and are none of them`);
+        }
+      }
+      // A window of 333 entries at a time reaches what one window does.
+      const plan = PLANS[1]!;
+      const runs = await runsOf(ctx, plan, hash);
+      const whole = await nearAll(ctx, plan.index, runs, hash, 1);
+      const windows = await nearAll(ctx, plan.index, runs, hash, 1, 333);
+      assert.ok(windows.windows > 10, `333 at a time takes many windows, took ${windows.windows}`);
+      assert.deepEqual(windows.spans, whole.spans, 'the windows\' spans join into the whole\'s');
+      const past = await datasetNear(ctx.config.baseUrl, ctx.repoName, WS, ordersPath,
+        { index: plan.index, runs, distance: 1, offset: whole.read, hash }, await ctx.opts());
+      assert.deepEqual([past.spans, past.placed], [[], 0], 'past the runs\' end, nothing is read');
+    });
+
     it('holds a window to a page\'s bounds, and takes as many as 10,000 runs, refusing more', async (t) => {
       const { ctx, hash } = await withOrders(t);
       const opts = await ctx.opts();
@@ -334,6 +406,7 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
       for (const read of [
         () => datasetPlace(...base, { index: 'orders_by_due', runs: [...most, [10_000, 1]], hash }, opts),
         () => datasetWithin(...base, { index: 'orders_by_due', runs: [...most, [10_000, 1]], keys: [], hash }, opts),
+        () => datasetNear(...base, { index: 'orders_by_due', runs: [...most, [10_000, 1]], distance: 1, hash }, opts),
       ]) {
         await assert.rejects(read, (err: unknown) => {
           assert.ok(err instanceof ApiError && err.code === 'bad_request', `more than 10,000 runs are refused, got ${String(err)}`);
@@ -380,7 +453,7 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
       assert.ok(isTypeEqual(IntervalWindowType, indexWindowType(StringType, IntervalKeyType, NullType, OrderRowType)), 'the interval index\'s window is e3-types\' index window');
     });
 
-    it('refuses a stale pin, runs that are no runs of the index, a key that is no entry key, and an index the record lacks', async (t) => {
+    it('refuses a stale pin, runs that are no runs of the index, a key that is no entry key, a distance that is no whole number of rows, and an index the record lacks', async (t) => {
       const { ctx, hash } = await withOrders(t);
       const opts = await ctx.opts();
       const base = [ctx.config.baseUrl, ctx.repoName, WS, ordersPath] as const;
@@ -389,6 +462,7 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
       for (const read of [
         () => datasetPlace(...base, { index: 'orders_by_status', runs: [[0, 1]], hash: stale }, opts),
         () => datasetWithin(...base, { index: 'orders_by_status', runs: [[0, 1]], keys: [key], hash: stale }, opts),
+        () => datasetNear(...base, { index: 'orders_by_status', runs: [[0, 1]], distance: 1, hash: stale }, opts),
       ]) {
         await assert.rejects(read, (err: unknown) => {
           assert.ok(err instanceof DatasetHashMismatchError, `expected a refused pin, got ${String(err)}`);
@@ -407,7 +481,11 @@ export function placeRecordTests(setup: TestSetup<TestContext>): void {
       await refusal(() => datasetPlace(...base, { index: 'orders_by_status', runs: [[Number(ORDERS), 1]], hash }, opts), 'bad_request', /past the collection's/);
       await refusal(() => datasetWithin(...base, { index: 'orders_by_status', runs: [[0, 0]], keys: [], hash }, opts), 'bad_request', /run 0 is \[0, 0\]/);
       await refusal(() => datasetWithin(...base, { index: 'orders_by_status', runs: [[0, 1]], keys: [key, printString('late')], hash }, opts), 'key_parse_error', /^key 1: /);
+      await refusal(() => datasetNear(...base, { index: 'orders_by_status', runs: [[0, 1]], distance: 0, hash }, opts), 'bad_request', /^distance 0 is not a whole number of rows at least 1/);
+      await refusal(() => datasetNear(...base, { index: 'orders_by_status', runs: [[0, 1]], distance: 1.5, hash }, opts), 'bad_request', /^distance 1\.5 is not a whole number of rows at least 1/);
+      await refusal(() => datasetNear(...base, { index: 'orders_by_status', runs: [[12, 3], [10, 5]], distance: 1, hash }, opts), 'bad_request', /run 1 starts at row 10/);
       await refusal(() => datasetPlace(...base, { index: 'nope', runs: [[0, 1]], hash }, opts), 'index_not_found', /has no index 'nope'/);
+      await refusal(() => datasetNear(...base, { index: 'nope', runs: [[0, 1]], distance: 1, hash }, opts), 'index_not_found', /has no index 'nope'/);
     });
   });
 }
