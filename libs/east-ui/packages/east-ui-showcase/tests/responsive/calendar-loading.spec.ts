@@ -12,8 +12,9 @@
  *   Each day column is washed edge to edge between its rules, the ink at 6%,
  *   its hour rules drawn over the wash; each day's count an 8px bar on its
  *   line's middle (CL2, CL13). A month's cell is washed below its date, the
- *   date line clear, and says no "+N more". The Backlog counts "…" and draws
- *   the Library's pending rows, never "No backlog events".
+ *   date line clear, and says no "+N more". The Backlog never blinks (ruled 25
+ *   Oct 2026): its count and its cards as they were, retained (CL8) — never
+ *   "…", never the Library's pending rows, never "No backlog events".
  * - A period whose read failed keeps its grid and says so once (CL11): in a
  *   box just inside its body's top-left in view — under the sticky head,
  *   beside the hour column — its Retry whole inside it.
@@ -63,7 +64,7 @@ function unreadGrid(frame: Locator) {
 }
 
 for (const theme of ["light", "dark"] as const) {
-    test(`a period not read yet draws its own grid at once, washed, its counts placeholders and its Backlog pending; a period whose read failed says so once at its grid's top-left (#1398, CL2, CL5, CL11, CL13) (${theme}) @desktop`, async ({ page }) => {
+    test(`a period not read yet draws its own grid at once, washed, its counts placeholders and its Backlog as it was; a period whose read failed says so once at its grid's top-left (#1398, CL2, CL5, CL11, CL13) (${theme}) @desktop`, async ({ page }) => {
         await installE3Faults(page);
         await page.setViewportSize({ width: 2560, height: 1200 });
         const entry = await visitBuilder(page, ROUTE, ROOT, theme);
@@ -73,6 +74,22 @@ for (const theme of ["light", "dark"] as const) {
         const next = toolbar.getByRole("button", { name: /^Next (day|week|month)$/ }).first();
         await toolbar.getByRole("radio", { name: "Week", exact: true }).click();
         await settled(page);
+        // The Backlog as the week read shows it: its tab's words, with its count, and its cards.
+        const start = frame.locator('[data-frame-slot="start"]');
+        await start.getByRole("tab", { name: /Backlog/ }).click();
+        await settled(page);
+        const backlog = () => start.evaluate((pane) => {
+            const library = pane.querySelector('[data-library$=".library.backlog"]');
+            return {
+                tab: [...pane.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent?.startsWith("Backlog"))?.textContent,
+                cards: [...library?.querySelectorAll("[data-library-item]") ?? []].map((card) => card.getAttribute("data-library-item")),
+                pending: library?.querySelector("[data-library-pending]") !== null,
+                retained: [library?.parentElement?.getAttribute("aria-busy"), library?.parentElement?.getAttribute("aria-disabled")],
+            };
+        });
+        const shown = await backlog();
+        expect(shown.cards.length, "the Backlog's cards").toBeGreaterThan(0);
+        expect(shown.tab).toMatch(/^Backlog \d/);
 
         await test.step("a week not read yet", async () => {
             const held = await holdE3(page, { kinds: [...RECORD_READS] });
@@ -87,13 +104,9 @@ for (const theme of ["light", "dark"] as const) {
             expect(unread.washes.every((wash) => wash !== null && wash.under && wash.sides.every((side) => side === 0)), `each column washed edge to edge, under its rules: ${JSON.stringify(unread.washes)}`).toBe(true);
             expect(unread.ink).toBe(await washInk(page));
             expect(unread.counts.every((count) => count !== null && count.height === 8 && Math.abs(count.offset) <= 1), `each day's count: ${JSON.stringify(unread.counts)}`).toBe(true);
-            // The Backlog: "…", and the Library's pending rows where its cards go, never empty before its read.
-            await frame.locator('[data-frame-slot="start"]').getByRole("tab", { name: /Backlog/ }).click();
-            const start = frame.locator('[data-frame-slot="start"]');
-            await expect(start.locator("[data-library-pending]")).toBeVisible();
+            // The Backlog never blinks: its count and its cards as they were, retained while the week is read — never "…".
+            expect(await backlog(), "the Backlog, the week read").toEqual({ ...shown, retained: ["true", "true"] });
             await expect(start).not.toContainText("No backlog events");
-            const rows = await start.locator("[data-library-pending] > *").evaluateAll((all) => all.map((row) => Math.round(row.getBoundingClientRect().height)));
-            expect(new Set(rows).size, `the pending rows: ${JSON.stringify(rows)}`).toBe(1);
             // A month not read yet: each cell washed below its date, the date line clear; no "+N more".
             await toolbar.getByRole("radio", { name: "Month", exact: true }).click();
             await settled(page, { holding: true });

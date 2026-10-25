@@ -124,7 +124,7 @@ const PENDING_CARDS = [0, 1, 2] as const;
 const PENDING_CARD_PX = 64;
 
 /** The rail hides nothing of the backlog. */
-const NO_BACKLOG_NARROWING: BacklogNarrowing<PlanEventPart> = { narrowing: [], hidden: undefined, clear: undefined };
+const NO_BACKLOG_NARROWING: BacklogNarrowing<PlanEventPart> = { narrowing: [], hidden: undefined, counting: false, clear: undefined };
 
 /** No source of the slice the tabs follow. */
 const NONE_FOLLOWED: FollowedSources = new Map();

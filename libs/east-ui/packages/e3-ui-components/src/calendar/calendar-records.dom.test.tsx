@@ -9,10 +9,12 @@
  * while the next window of the grid is read, the window a re-centre the way
  * the view travels goes to is read ahead — none after Prev/Next, which places
  * the view — the Backlog is never read again for it, and a reload opens the
- * window again where the view was. A step to a day not read yet shows the
- * Backlog's pending rows, its Library mounted, its search box keeping its
- * query and its focus. jsdom lays nothing out: the timeline's scroll box is
- * given its width.
+ * window again where the view was. The view is the page's own: another page
+ * keeping one moves neither its date nor its window. The Backlog never blinks:
+ * a step, a layout, a period, a re-centre or a narrowing keeps its count and
+ * its cards, retained, until what it reads lands, its Library mounted and its
+ * search box keeping its query and its focus. jsdom lays nothing out: the
+ * timeline's scroll box is given its width.
  */
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
@@ -430,8 +432,26 @@ describe("the view is the page's own (#1398)", () => {
     });
 });
 
-describe("a Backlog that follows the window (#1398)", () => {
-    test("a step to a day not read yet shows its pending rows until the day's land — its Library mounted, its search box keeping its query and the focus — and its own search is asked no more", async () => {
+/**
+ * What the Backlog shows: its tab's words — its name and its count — its cards, whether pending rows follow them, and its
+ * pane's state: busy and aria-disabled while what it shows stands in for a read in flight (#1398, CL8).
+ */
+function backlogShown(container: HTMLElement) {
+    const start = slot(container, "start");
+    const library = start.querySelector<HTMLElement>('[data-library$=".library.backlog"]')!;
+    const pane = library.parentElement!;
+    return {
+        tab: within(start).getByRole("tab", { name: /Backlog/ }).textContent,
+        cards: [...library.querySelectorAll("[data-library-item]")].map(card => card.getAttribute("data-library-item")),
+        pending: library.querySelector("[data-library-pending]") !== null,
+        retained: [pane.getAttribute("aria-busy"), pane.getAttribute("aria-disabled")],
+    };
+}
+/** A Backlog standing in for a read in flight: what it showed, retained. */
+const RETAINED = ["true", "true"];
+
+describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
+    test("a step, a layout and a period to windows not read yet keep the Backlog's count and its cards, retained while they are read, never \"…\" and no pending rows, its search box keeping its query and the focus; landed, nothing moves and its own search is asked no more", async () => {
         StateRuntime.initializeStore(new UIStore());
         const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "backlog-steps" });
         await waitFor(() => expect(event(container, "job")).not.toBeNull());
@@ -440,26 +460,73 @@ describe("a Backlog that follows the window (#1398)", () => {
         const input = within(start).getByRole("textbox", { name: "Search library" }) as HTMLInputElement;
         await act(async () => { input.focus(); fireEvent.change(input, { target: { value: "post" } }); });
         await settle();
-        expect(start.querySelectorAll("[data-library-item]")).toHaveLength(1);
+        const before = backlogShown(container);
+        expect(before.tab).toMatch(/^Backlog \d/);
+        expect([before.cards.length, before.pending, before.retained]).toEqual([1, false, [null, null]]);
         const backlog = backlogReads();
         const held = h.e3.hold(eventsRead);
+        const toolbar = within(slot(container, "toolbar"));
         // Past the day read ahead, to one not read: two days on — pressed as a shortcut presses it, the focus kept where it is.
-        const next = within(slot(container, "toolbar")).getByRole("button", { name: "Next day" });
-        await act(async () => { fireEvent.click(next); });
-        await settle();
-        await act(async () => { fireEvent.click(next); });
-        await settle();
-        // Its pending rows, its count "…", never "No backlog events" — over the same Library, its box as it was.
-        expect(start.querySelector("[data-library-pending]")).not.toBeNull();
-        expect(within(start).getByRole("tab", { name: /Backlog/ }).textContent).toContain("…");
-        expect(start.textContent).not.toContain("No backlog events");
+        for (let press = 0; press < 2; press++) {
+            await act(async () => { fireEvent.click(toolbar.getByRole("button", { name: "Next day" })); });
+            await settle();
+        }
+        expect(backlogShown(container), "a step").toEqual({ ...before, retained: RETAINED });
         expect(within(start).getByRole("textbox", { name: "Search library" })).toBe(input);
         expect([input.value, document.activeElement === input]).toEqual(["post", true]);
+        // Onto the timeline, then a period, each a window not read.
+        await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: "Timeline" })); });
+        await settle();
+        expect(backlogShown(container), "a layout").toEqual({ ...before, retained: RETAINED });
+        await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: "Month" })); });
+        await settle();
+        expect(backlogShown(container), "a period").toEqual({ ...before, retained: RETAINED });
         await act(async () => { held.release(); });
         await settle();
-        await waitFor(() => expect(start.querySelector("[data-library-pending]")).toBeNull());
-        expect(start.querySelectorAll("[data-library-item]")).toHaveLength(1);
+        expect(backlogShown(container), "landed").toEqual(before);
         expect([input.value, document.activeElement === input]).toEqual(["post", true]);
         expect(backlogReads()).toBe(backlog);
+    });
+
+    test("a Day step on the timeline across its window's boundary keeps the Backlog's count and its cards, retained, until the window lands", async () => {
+        const { container } = await openTimeline("day", "backlog-day-boundary");
+        const before = backlogShown(container);
+        expect([before.cards.length, before.retained]).toEqual([1, [null, null]]);
+        const timeline = container.querySelector<HTMLElement>("[data-calendar-timeline]")!;
+        const shown = windowOf(timeline);
+        const held = h.e3.hold(eventsRead);
+        // On a day at a time until a day another window opens: one not read yet.
+        for (let press = 0; press < 7 && windowOf(timeline).from.getTime() === shown.from.getTime(); press++) {
+            await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Next day" })); });
+            await settle();
+        }
+        expect(windowOf(timeline).from.getTime()).toBeGreaterThan(shown.from.getTime());
+        expect(backlogShown(container)).toEqual({ ...before, retained: RETAINED });
+        await act(async () => { held.release(); });
+        await settle();
+        expect(backlogShown(container)).toEqual(before);
+    });
+
+    test("a narrowing keeps the Backlog's count and its cards, retained, until the new narrowing's land: then its own", async () => {
+        const store = new UIStore();
+        StateRuntime.initializeStore(store);
+        const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "backlog-narrowing" });
+        await waitFor(() => expect(event(container, "job")).not.toBeNull());
+        await settle();
+        const before = backlogShown(container);
+        expect([before.cards.length, before.retained]).toEqual([1, [null, null]]);
+        const held = h.e3.hold(eventsRead);
+        // The rail chooses Done for Ready: the backlog's one row, Ready, is not among it.
+        const state = decodeBeast2For(RecordSliceStateType)(store.read(scope)!);
+        const where = new Map(state.where);
+        where.set("status", variant("values", ['"Done"']));
+        await act(async () => { store.write(scope, encodeBeast2For(RecordSliceStateType)({ ...state, where, preset: none })); });
+        await settle();
+        expect(backlogShown(container)).toEqual({ ...before, retained: RETAINED });
+        await act(async () => { held.release(); });
+        await settle();
+        const after = backlogShown(container);
+        expect([after.cards, after.pending, after.retained]).toEqual([[], false, [null, null]]);
+        expect(after.tab).not.toBe(before.tab);
     });
 });

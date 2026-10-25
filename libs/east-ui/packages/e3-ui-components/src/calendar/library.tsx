@@ -8,12 +8,14 @@
  * follows its source of the slice (#1343): the Templates tab each templates
  * list's, by template key; the Backlog its kinds' own narrowing; an app's tab
  * the source it names, by its rows' keys — each counting what it shows and
- * saying so, with Clear filters, when the rail leaves it none. While what it
- * lists is read — a step's period, for a kind whose backlog follows its window
- * — the Backlog counts "…" and draws the Library's pending rows after the cards
- * it holds, never "No backlog events" before its read (#1398, CL13); its
- * Library stays mounted throughout, so its search box keeps its query and its
- * focus.
+ * saying so, with Clear filters, when the rail leaves it none. The Backlog
+ * never blinks (#1398, ruled 25 Oct 2026): while a kind whose backlog follows
+ * its window reads it again — a step's period, a re-centre's, a layout's, a
+ * narrowing's — it keeps its last cards and its count, retained (CL8); only
+ * before its first read, under the cold load's cover, does it count "…" and draw
+ * the Library's pending rows, never "No backlog events" before its read (CL13).
+ * Its Library stays mounted throughout, so its search box keeps its query and
+ * its focus.
  */
 import { useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
@@ -68,6 +70,8 @@ interface LibraryArgs {
     backlog: readonly CalendarItem[];
     /** Whether all of the backlog is read for what is shown: until it is, the tab counts "…" and draws pending rows after `backlog`'s cards. */
     backlogRead: boolean;
+    /** Whether `backlog` stands in for a read in flight (#1398): its pane busy and its cards retained, aria-disabled (CL8). */
+    backlogRetained: boolean;
     narrow: boolean; now: Date; day: Date; styles: CalendarStyles; commands: CalendarCommands | undefined;
     activeTemplate: string | undefined; onTemplate: (key: string) => void;
     /** The Templates tab, as the sources narrow it. */
@@ -90,7 +94,7 @@ interface TabFacts {
 }
 /** The author-listed tabs, populated from the current bound reads. */
 export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefined {
-    const { value, backlog, backlogRead, key, narrow, day, now, styles, commands, selection, activeTemplate, onTemplate, templates, backlogNarrowing, followed, shown } = args;
+    const { value, backlog, backlogRead, backlogRetained, key, narrow, day, now, styles, commands, selection, activeTemplate, onTemplate, templates, backlogNarrowing, followed, shown } = args;
     const format = useFormatters();
     const [chosen, setChosen] = useState<Record<string, string>>({});
     if (value.library.length === 0) return undefined;
@@ -127,7 +131,7 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
             const narrows = narrowing.length > 0;
             const held = backlog.filter(item => narrowing.some(({ kind }) => kind.key === item.kind)).length;
             facts = !backlogRead ? { cards, count: "…", empty: undefined, narrowing: undefined, pane: { "aria-busy": true }, pending: true }
-                : { cards, empty: { title: "No backlog events" }, pane: {},
+                : { cards, empty: { title: "No backlog events" }, pane: backlogRetained ? { "aria-busy": true, "aria-disabled": true } : {},
                     count: !narrows ? cards.length : hidden === undefined ? undefined : narrowedCount(format, cards.length, cards.length + hidden, true),
                     narrowing: !narrows || clear === undefined ? undefined : { empty: { title: "No backlog events match the filters", description: "Change or clear the filters to see more backlog events." },
                         onClear: clear, emptied: held === 0 } };

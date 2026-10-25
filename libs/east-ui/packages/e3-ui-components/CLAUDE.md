@@ -272,9 +272,13 @@ date back at its first day, and the timeline, centred there, re-centred a window
 back, which the other tab heard in turn: both ran back a window at a time. A
 narrowed kind reads its window
 and its backlog as one, so a draft moves an event between them by its times
-alone: its backlog follows the window — kept through the timeline's re-centre,
-the Library's pending rows after the cards it holds on a step until the
-period's land. Every other kind's backlog, read whole or through its backlog
+alone: its backlog follows the window, and never blinks (ruled 25 Oct 2026). The
+last complete read of it, and what the rail hides of it counted with it, are held
+as one (`calendar/index.tsx`' `HeldBacklog`): they stand in, retained (CL8), while
+a step's, a re-centre's, a layout's, a period's or a narrowing's window or count
+is read, and are swapped whole once both have landed — never `…`, never emptied,
+so a count is never shown against another read's cards; only its first read
+draws the Library's pending rows, under the cold load's cover. Every other kind's backlog, read whole or through its backlog
 index, follows no window: the Calendar reads it apart from the window, once,
 and no date change empties it or reads it again (`calendar/data.ts`, #1398).
 The Backlog's Library stays mounted throughout, so its search box keeps its
