@@ -530,6 +530,17 @@ add_executable(test_value_compare tests/test_value_compare.c)
 target_link_libraries(test_value_compare east-c)
 add_test(NAME value_compare COMMAND test_value_compare)
 
+# Array diff gate (#1425): an Array's diff trims the common start and end, and
+# searches the middle for a shortest edit script by Myers' algorithm, to a
+# bound past which it pairs the middle by position. Its work is pinned by the
+# element comparisons it makes (east_diff_array_compares), never by a clock,
+# and each case's patch operation by operation: the patches the compliance
+# corpus pins on every runtime. Run under ASan/LSan for the search's trace and
+# the alignment's lifetimes.
+add_executable(test_patch_diff tests/test_patch_diff.c)
+target_link_libraries(test_patch_diff east-c)
+add_test(NAME patch_diff COMMAND test_patch_diff)
+
 # East text gate (#964): what no IR reaches, the host entry points over East
 # text. The plain parse refuses what the one that says why refuses — an escape
 # the grammar has no meaning for, once read with its backslash dropped — and a

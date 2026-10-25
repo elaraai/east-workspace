@@ -16,7 +16,7 @@ import { equalFor, isFor, compareFor } from "../comparison.js";
 import { SortedMap } from "../containers/sortedmap.js";
 import { SortedSet } from "../containers/sortedset.js";
 import type { ref } from "../containers/ref.js";
-import { type DiffContext, computeLCS } from "./types.js";
+import { type DiffContext, alignArrays } from "./types.js";
 
 export function diffFor(type: EastTypeValue, ctx?: DiffContext): (before: any, after: any) => any;
 export function diffFor<T extends EastType>(type: T): (before: ValueTypeOf<T>, after: ValueTypeOf<T>) => any;
@@ -49,36 +49,45 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
   } else if (t.type === "Array") {
     let elementEqual: (a: any, b: any) => boolean;
     let elementDiff: (a: any, b: any) => any;
-    let is: (a: any, b: any) => boolean;
 
     const ret = (before: any[], after: any[]) => {
-      if (is(before, after)) {
+      // The very same array is unchanged. Any other two are aligned, and the
+      // alignment's trim finds two equal arrays unchanged in one pass.
+      if (Object.is(before, after)) {
         return variant("unchanged", null);
       }
 
-      const { beforeIndices, afterIndices } = computeLCS(before, after, elementEqual);
+      // The common start and end, kept whole, and the middle's matches: a
+      // shortest edit script's, or the middle paired by position past the
+      // search's bound (#1425).
+      const { start, end, beforeIndices, afterIndices } = alignArrays(before, after, elementEqual);
+      const beforeEnd = before.length - end;
+      const afterEnd = after.length - end;
 
+      // The walk covers the middle alone. The common start emits nothing and
+      // counts no delete or insert, so starting at `start` with none counted is
+      // where a walk over it would be, and every key is the whole array's.
       const operations: any[] = [];
-      let beforePtr = 0;
-      let afterPtr = 0;
-      let lcsPtr = 0;
+      let beforePtr = start;
+      let afterPtr = start;
+      let matchPtr = 0;
       let deleteCount = 0;   // emitted (unpaired) deletes only
       let insertCount = 0;   // emitted (unpaired) inserts only — pairs preserve length
 
-      while (beforePtr < before.length || afterPtr < after.length) {
-        const nextBeforeLCS = lcsPtr < beforeIndices.length ? beforeIndices[lcsPtr]! : before.length;
-        const nextAfterLCS = lcsPtr < afterIndices.length ? afterIndices[lcsPtr]! : after.length;
+      while (beforePtr < beforeEnd || afterPtr < afterEnd) {
+        const nextBeforeMatch = matchPtr < beforeIndices.length ? beforeIndices[matchPtr]! : beforeEnd;
+        const nextAfterMatch = matchPtr < afterIndices.length ? afterIndices[matchPtr]! : afterEnd;
 
         // Collect this chunk's would-be deletes and inserts. We don't decide
         // until both lists are gathered whether each is part of a pair (→
         // emitted as a single `update`) or stands alone.
         const chunkDeletes: Array<{ beforePtr: number; value: any }> = [];
-        while (beforePtr < nextBeforeLCS) {
+        while (beforePtr < nextBeforeMatch) {
           chunkDeletes.push({ beforePtr, value: before[beforePtr]! });
           beforePtr++;
         }
         const chunkInserts: Array<{ afterPtr: number; value: any }> = [];
-        while (afterPtr < nextAfterLCS) {
+        while (afterPtr < nextAfterMatch) {
           chunkInserts.push({ afterPtr, value: after[afterPtr]! });
           afterPtr++;
         }
@@ -125,10 +134,10 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
           insertCount++;
         }
 
-        if (lcsPtr < beforeIndices.length) {
+        if (matchPtr < beforeIndices.length) {
           beforePtr++;
           afterPtr++;
-          lcsPtr++;
+          matchPtr++;
         }
       }
 
@@ -141,7 +150,6 @@ export function diffFor(type: EastTypeValue | EastType, ctx: DiffContext = { dif
 
     ctx.diff.push(ret);
     ctx.types.push(t);
-    is = isFor(t, undefined, ctx.equal);
     elementEqual = equalFor(t.value as EastTypeValue, ctx.equal);
     elementDiff = diffFor(t.value as EastTypeValue, ctx);
     ctx.diff.pop();
