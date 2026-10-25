@@ -38,6 +38,7 @@ import {
     type ScheduleCellsRead,
 } from "../../shared/schedule/cells.js";
 import type { ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
+import { hides } from "../frame/hidden.js";
 import { timeInstant } from "../instant.js";
 import type { PlanRootValue } from "../model.js";
 import type { PlanScale } from "../scale.js";
@@ -118,9 +119,6 @@ function linkEnds(links: Links, slot: string): string[] {
     }
     return out;
 }
-
-/** Whether the viewer hides an id of the library's Series tab. */
-const hides = (hidden: readonly string[], id: string): boolean => hidden.some((hiddenId) => stringEqual(hiddenId, id));
 
 /**
  * The kinds' cells and counts (see the module docs), read in the component

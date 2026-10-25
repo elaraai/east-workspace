@@ -62,7 +62,9 @@
  * `id` too (`planKeys(id).series`, PB29, `hidden.ts`), and only while the
  * library lists that tab, as nothing else could show it again: the event
  * kinds' rows leave it out through the `blocks` seam, and the canvas leaves
- * out the Plan's own `rows` it hides.
+ * out the Plan's own `rows` it hides. An event kind hidden there is in none of
+ * the canvas's figures — the footer's counts and the inspector's — and nothing
+ * says so (#1039).
  *
  * The narrowing is the Plan's one `Slice.bindRecords` (#1344): the canvas
  * reads its `rows` source and each event kind's through their parts
@@ -390,7 +392,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     // What is selected, and the selected events, read by a component of their own (#1344).
     const selection = usePlanInspectorSelection(inspector);
     const [selected, setSelected] = useState<readonly PlanInspectedEvent[]>(NO_INSPECTED);
-    const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words, selection, events: selected, shownResources: shown });
+    const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words, selection, events: selected, shownResources: shown, hidden });
     // The Plan's one history (#1194): the history item reads it as one session.
     const history = chrome?.history;
     const session = history?.session;
@@ -482,7 +484,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
             style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }}>
             {kinds.length > 0 && (
                 <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} cells={chrome?.cells}
-                    onRead={setKindsRead} />
+                    hidden={hidden} onRead={setKindsRead} />
             )}
             {inspector && (
                 <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events}

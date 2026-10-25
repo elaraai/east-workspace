@@ -53,11 +53,12 @@
  * which reads it over the range as it reads a kind no reader names; past it,
  * its events are never read or drawn, and the reader names it among the kinds
  * past the cap (`capped`): a host counts none of its events on a resource's
- * row, and says so. Its host's other readers, which read it over the range or
- * within it — a footer's counts, an inspector's — read it only once the same
- * count over the range says it is within the cap ({@link scheduleWithinCap}),
- * never by what the reader last decided, which a new narrowing outruns; past
- * it they wait for the reader, which gives it no cells.
+ * row, nor its hours anywhere, and says so. Its host's other readers, which
+ * read it over the range or within it — a footer's counts, an inspector's —
+ * read it only once the same count over the range says it is within the cap
+ * ({@link scheduleWithinCap}), never by what the reader last decided, which a
+ * new narrowing outruns; past it they wait for the reader, which gives it no
+ * cells.
  *
  * # The cap
  *
@@ -73,9 +74,8 @@
  * banner naming how many events there are — or, where the count is no number
  * of them (a day index's), that they are not counted — and the resolution its
  * smallest summary shades at, or none. A hidden kind is read for nothing:
- * given no cells, it draws nothing, and is counted for its host's figures
- * alone — past the cap, among the kinds past it, so no host counts one of its
- * events on a row.
+ * given no cells, it draws nothing, and a host leaves it out of every figure
+ * of its own — the kinds past the cap name none.
  *
  * # The narrowing, the drafts and the link ends
  *
@@ -312,9 +312,10 @@ export interface ScheduleCellsRead {
     /** The kinds giving the notice in place of their events. */
     readonly notices: readonly ScheduleCellNotice[];
     /**
-     * The kinds past the cap, by their slots, hidden or not: none of their events is read or drawn, so a host counts none
-     * of them on a resource's row — it says they are not counted, never 0. A count of them over the window that counts
-     * the events themselves still counts them there.
+     * The kinds past the cap the viewer shows, by their slots: none of their events is read or drawn, so a host counts
+     * none of them on a resource's row, nor their hours anywhere — it says they are not counted, never 0. A count of them
+     * over the window that counts the events themselves still counts them there. A hidden kind is in no host's figure,
+     * and none of them.
      */
     readonly capped: ReadonlySet<string>;
     /**
@@ -326,8 +327,9 @@ export interface ScheduleCellsRead {
      * The paged kind's resources whose rows draw what is known of them (#1398, CL2): those whose cells the last read
      * landed for — while a read over another range is in flight, less those it reads again, whose cells there never
      * landed; a read over the same range — a commit, another narrowing — leaves its cells standing in. Any other
-     * resource's rows are unread and draw the region wash under what they hold, never an empty row. `undefined` where no
-     * kind is read by its cells over a paged kind.
+     * resource's rows are unread and draw the region wash under what they hold, never an empty row, and a host's
+     * figures of such a resource — an inspector's row facts — are placeholders until its cells land, never 0.
+     * `undefined` where no kind is read by its cells over a paged kind.
      */
     readonly drawn: ReadonlySet<string> | undefined;
 }
@@ -741,13 +743,10 @@ class CellsReader {
         let byCells = false;
         for (const kind of kinds) {
             let read: KindRead | typeof READING;
-            // A kind read by its cells that the viewer hides: none of its events is read because it draws nothing, past no cap.
-            let hiddenCells = false;
             if (readByCells(kind, paged)) {
                 if (kind.hidden) {
                     // Hidden: it draws nothing, so no cell of it is read — and given none, nothing reads its range.
                     read = { mode: "shade", cells: this.codecOf(kind).empty, notice: undefined, paged: false };
-                    hiddenCells = true;
                 } else {
                     const blocks = blocksOfPaged();
                     read = blocks === READING ? READING : this.cellsKind(kind, kind.part!, kind.part!.read().where, blocks, range, buckets, resolution, drafts, totals);
@@ -770,9 +769,9 @@ class CellsReader {
                     held.set(kind.key, NO_ROWS);
                     if (read.notice !== undefined) notices.push(read.notice);
                     if (read.paged) byCells = true;
-                    // Past the cap, hidden or not: none of its events is read, so no host counts one of them on a row. A
-                    // hidden kind read by its cells is past no cap: it is read for nothing because it draws nothing.
-                    if (!hiddenCells) capped.add(kind.key);
+                    // Past the cap: none of its events is read, so no host counts one of them on a row. A hidden kind is in
+                    // no host's figure at all, so it is named here by none.
+                    if (!kind.hidden) capped.add(kind.key);
                     break;
             }
         }

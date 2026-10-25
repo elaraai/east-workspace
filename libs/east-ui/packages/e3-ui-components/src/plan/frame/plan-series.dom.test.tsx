@@ -29,6 +29,12 @@
  *   hatched and the banner names how many events there are and the
  *   resolution that shades them; at that resolution, each press's share of
  *   each month booked draws, from the summary.
+ * - A press selected while the reader holds none of its cells — before its
+ *   first read lands, or scrolled out of the blocks read — shows its figures
+ *   in the inspector as placeholders, never 0, until they land.
+ * - A kind hidden in the Series tab, read by its cells, is in no figure — the
+ *   footer's, the pane's, a row's — none of its cells is read, and nothing
+ *   says so.
  */
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
@@ -193,6 +199,49 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
     });
 }))) };
 
+/**
+ * The series Plan with the presses' checks beside the jobs — a kind of their
+ * own on the paged presses, read a cell at a time through their own source —
+ * and its library the Series tab, where a viewer hides a kind.
+ */
+const checkedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
+    const checks = $.const(Record.bind(ex.planBenchJobs, [ex.planBenchJobsPatch]));
+    const checkEntries = $.const(Data.bindPaged(ex.planBenchJobs));
+    const slice = $.const(Slice.bindRecords("plan.series.checked.dom", {
+        job: {
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            fields: { start: { label: "Dates" } }, range: "start",
+        },
+        check: {
+            source: Data.bindPaged(ex.planBenchJobs, { indexes: [ex.planBenchJobsByTime, ex.planBenchJobsByPressWeek, ex.planBenchJobsByPressMonth] }),
+            fields: { start: { label: "Dates" } }, range: "start",
+        },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
+        inspector: true, slice: { slice },
+        resources: {
+            presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
+        },
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state",
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                entries: jobEntries,
+            }),
+            check: Schedule.events(checks, {
+                name: "Press check", icon: "screwdriver-wrench", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, entries: checkEntries,
+            }),
+        },
+        library: [Plan.library.series()],
+    });
+}))) };
+
 /** The series Plan with a link from the brochure run on Press 1001 to the magazine run on Press 1460, which no cell in view holds. */
 const linkedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
@@ -321,6 +370,24 @@ async function press(node: Element) {
 
 /** A press's row height, at the default density: a two-line gutter, its hall the second line. */
 const ROW_PX = PLAN_GEOMETRY.default.rowStacked;
+
+/** The inspector pane. */
+const pane = (c: HTMLElement) => slot(c, "end")!;
+/** One of a row's facts in the inspector, by its name: its value's words; `null` where it shows none. */
+const fact = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-fact=${JSON.stringify(name)}]`)?.textContent ?? null;
+/** A row's fact drawn as a placeholder while its cells are on their way; `null` where it is drawn otherwise, or not at all. */
+const placeholder = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-inspector-window] [data-fact=${JSON.stringify(name)}] [data-shape]`);
+/** One of the counts the inspector shows with nothing selected, by its name: its value's words; `null` where it shows none. */
+const stat = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-count=${JSON.stringify(name)}]`)?.firstElementChild?.textContent ?? null;
+/** The inspector's line naming what it does not count; `null` with none. */
+const notCounted = (c: HTMLElement) => pane(c).querySelector("[data-inspector-not-counted]")?.textContent ?? null;
+
+/** Selects a press's row by its head, as a planner does: the inspector shows the row. */
+async function selectPress(c: HTMLElement, press: string) {
+    fireEvent.click(c.querySelector(`${rowAt(pressRow(press))} [role="rowheader"]`)!);
+    await settle();
+    expect(pane(c).querySelector('[data-plan-inspector="row"]')).not.toBeNull();
+}
 
 // ============================================================================
 // The cells in view, two requests (#1039)
@@ -534,6 +601,81 @@ describe("the cells on their way (#1398, CL2)", () => {
         await settle();
         await waitFor(() => expect(plot("P-1001")!.querySelector("[data-loading-wash]")).toBeNull());
         expect(plot("P-1001")!.hasAttribute("aria-busy")).toBe(false);
+    });
+
+    test("a press selected before its first cells land shows its figures as placeholders in the inspector, never 0; landed, its figures", async () => {
+        const entries = h.e3.hold((request) => through(SERIES)(request) && request.kind === "runs");
+        const { container: c } = await h.mount(seriesPlan);
+        await entries.holding;
+        await settle();
+        // Press 1003, whose course handbooks run in the fortnight: none of its cells landed yet.
+        await selectPress(c, "P-1003");
+        expect(placeholder(c, "events")).not.toBeNull();
+        expect(placeholder(c, "hours")).not.toBeNull();
+        expect(fact(c, "events")).toBe("");
+        expect(fact(c, "hours")).toBe("");
+        // Landed: the course handbooks, from Wednesday 7 October 06:00 to Friday 9 October 18:00.
+        await act(async () => { entries.release(); });
+        await settle();
+        await waitFor(() => expect(fact(c, "events")).toBe("1"));
+        expect(fact(c, "hours")).toBe("60");
+        expect(placeholder(c, "events")).toBeNull();
+    });
+
+    test("a press selected, then scrolled out of the blocks read — its cells let go — shows its figures as placeholders, never 0; scrolled back, its figures once its cells land again", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { container: c } = await h.mount(seriesPlan);
+            await settle();
+            await selectPress(c, "P-1003");
+            expect(fact(c, "events")).toBe("1");
+            expect(fact(c, "hours")).toBe("60");
+            // Down to Press 1141: the blocks of the presses from 1101 to 1200 read, the first block's cells let go.
+            act(() => { window.scrollTo({ top: 140 * ROW_PX }); });
+            await waitFor(() => expect(bar(c, "W-0007", "P-1150")).not.toBeNull(), { timeout: 10_000 });
+            await settle();
+            expect(placeholder(c, "events")).not.toBeNull();
+            expect(placeholder(c, "hours")).not.toBeNull();
+            expect(fact(c, "events")).toBe("");
+            expect(fact(c, "hours")).toBe("");
+            // Back to the top: the first block's entries read again, and the press's figures with them.
+            act(() => { window.scrollTo({ top: 0 }); });
+            await waitFor(() => expect(fact(c, "events")).toBe("1"), { timeout: 10_000 });
+            expect(fact(c, "hours")).toBe("60");
+            expect(placeholder(c, "events")).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+});
+
+// ============================================================================
+// A kind hidden in the Series tab (#1039)
+// ============================================================================
+
+describe("a kind hidden in the Series tab (#1039)", () => {
+    test("read by its cells, it is in no figure: the footer, the pane and a press's row count the checks alone, none of its cells is read, and nothing says the jobs are not counted", async () => {
+        // A check of Press 1003 on Monday 12 October, two hours: the shown kind's one event.
+        const proof = (await readJobs()).get("W-0004")!;
+        await h.patch(ex.planBenchJobs, new Map([["C-1", {
+            ...proof, title: "Plate check", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T08:00:00Z")),
+        }]]));
+        // The viewer hides the jobs in the Series tab, kept as it keeps them.
+        localStorage.setItem("plan.series", JSON.stringify(["events.job"]));
+        const { container: c } = await h.mount(checkedPlan);
+        await settle();
+        // The check alone, counted through its own source; its hours over the rows drawn.
+        expect(counted(c)).toBe("1 event");
+        expect(stat(c, "events")).toBe("1");
+        expect(stat(c, "hoursInView")).toBe("2");
+        expect(notCounted(c)).toBeNull();
+        // Press 1003's row, the course handbooks on it hidden: the check's figures alone.
+        await selectPress(c, "P-1003");
+        expect(fact(c, "events")).toBe("1");
+        expect(fact(c, "hours")).toBe("2");
+        expect(notCounted(c)).toBeNull();
+        // Hidden, the jobs draw nothing: none of their cells is read.
+        expect(askedOf(SERIES)).toEqual([]);
     });
 });
 

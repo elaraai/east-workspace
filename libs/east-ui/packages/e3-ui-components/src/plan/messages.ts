@@ -77,7 +77,9 @@ export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "
 /**
  * What the inspector pane counts when nothing is selected (#1197, PB41): the
  * hours over the rows drawn (#1039), where a kind read by its cells counts
- * its events exactly and its hours over the rows on screen.
+ * its events exactly and its hours over the rows on screen. The hours are those
+ * of the kinds read — none where no kind's are, a kind past the cap named
+ * among those not counted.
  */
 export type PlanInspectorStat = "events" | "hours" | "hoursInView" | "backlog";
 
@@ -258,10 +260,13 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** What a count says it counts when nothing is selected. */
     inspectorStat: (p: { stat: PlanInspectorStat; n: number }) => string;
     /**
-     * The kinds a row's facts, or the window's, count none of (#1039): too many of their events in view, none of them
-     * read — `Print jobs not counted: too many to draw at this resolution`; `kinds` are their names.
+     * What a row's facts, or the window's, leave out (#1039), as one line: the kinds they count none of, too many of
+     * their events in view, none of them read — `Print jobs not counted: too many to draw at this resolution` — and the
+     * kinds whose events they count but whose hours they do not, none of them read — `Print job hours not counted: too
+     * many to draw at this resolution`; both, `Print jobs and Press check hours not counted: …`. `kinds` and `hours` are
+     * the kinds' names.
      */
-    inspectorNotCounted: (p: { kinds: readonly string[] }) => string;
+    inspectorNotCounted: (p: { kinds: readonly string[]; hours: readonly string[] }) => string;
     /** A hint when nothing is selected — three of them. */
     inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
     /** One event's overlaps banner (#1198, PB53) — `Overlaps 2 events on Press B2`: `on` is its resource's name. */
@@ -642,7 +647,8 @@ export const planMessages: PlanMessages = {
     inspectorStat: ({ stat, n }) => ({
         events: plural(n, "Event", "Events"), hours: "Hours", hoursInView: "Hours in view", backlog: "In backlog",
     })[stat],
-    inspectorNotCounted: ({ kinds }) => `${joined(kinds.map(pluralName), "and")} not counted: too many to draw at this resolution`,
+    inspectorNotCounted: ({ kinds, hours }) =>
+        `${joined([...kinds.map(pluralName), ...hours.map((kind) => `${kind} hours`)], "and")} not counted: too many to draw at this resolution`,
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
             : "Esc clears what is selected."),
