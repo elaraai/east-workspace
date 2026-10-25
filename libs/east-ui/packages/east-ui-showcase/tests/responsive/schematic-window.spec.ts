@@ -299,13 +299,16 @@ test.describe("Reading by area (#1398)", () => {
         await expect(notice(root)).toHaveCount(0);
         const unread = root.locator("[data-schematic-unread]");
         await expect(unread).toHaveAttribute("data-schematic-unread", "0");
-        // The racks' window reads held: a pan of most of the canvas's width brings in cells the window has not read.
+        // The racks' window reads held: a pan of most of the canvas's width brings in cells the window has not read — in
+        // one move, so the window read is the one for where the view stops, however fast the machine. The canvas tells its
+        // reader where its view stands as it moves, a viewport or less 200 ms on, and else as it rests: a drag of several
+        // moves, each a while on a slow machine, is told partway, and its window planned for a view a move short.
         const hold = await holdE3(page, { kinds: ["find", "runs"], dataset: RACKS });
         const canvas = (await root.locator("[data-schematic-canvas]").boundingBox())!;
         const y = canvas.y + canvas.height / 2;
         await page.mouse.move(canvas.x + canvas.width * 0.85, y);
         await page.mouse.down();
-        await page.mouse.move(canvas.x + canvas.width * 0.15, y, { steps: 8 });
+        await page.mouse.move(canvas.x + canvas.width * 0.15, y);
         await page.mouse.up();
         await expect.poll(() => heldE3(page, hold), "the window's read, held").toBeGreaterThan(0);
         await expect.poll(async () => Number(await unread.getAttribute("data-schematic-unread")), "boxes washed").toBeGreaterThan(0);
@@ -329,13 +332,16 @@ test.describe("Reading by area (#1398)", () => {
             };
         });
         expect(look).toEqual({ under: true, raised: "auto", pointer: "none", clipped: "hidden", visible: "visible", painted: true, shapes: 0 });
-        // It moves with the camera, as a card does: a further pan of 50px left moves it 50px left, the window still read.
+        // It moves with the camera, as a card does: a further pan of 50px left, inside the window's margin — an eighth of its
+        // larger side — moves it 50px left, the window still read and no more of the view washed.
+        const boxes = (await unread.getAttribute("data-schematic-unread"))!;
         const before = (await wash.boundingBox())!;
         await page.mouse.move(canvas.x + canvas.width / 2, y);
         await page.mouse.down();
         await page.mouse.move(canvas.x + canvas.width / 2 - 50, y, { steps: 5 });
         await page.mouse.up();
         await expect.poll(async () => Math.round(((await wash.boundingBox())!.x - before.x) * 10) / 10, "the wash's move").toBe(-50);
+        await expect(unread).toHaveAttribute("data-schematic-unread", boxes);
         // Released, the window lands, and nothing is washed.
         await releaseE3(page, hold);
         await settled(page);
