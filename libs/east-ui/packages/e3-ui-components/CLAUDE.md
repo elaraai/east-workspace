@@ -994,7 +994,12 @@ row in view, with Retry (CL11). No caption sits in a gap. They read on intent
 slowed below a viewport per 200 ms — by how far it travelled, never where it
 ended, so a view sent far and straight back is still on its way
 (`VirtualRows` reports such a scroll at rest) — two windows ahead the way it
-travels and one behind (`travelOf`). The
+travels and one behind (`travelOf`). Both drivers, the Sheet's
+(`sheet/paging.ts`) and the Plan's (`plan/controller/paging.ts`), do it through
+one windowed part (`shared/windowed.ts`): the windows read once each, their
+failures and the revision's stand-in, the run around the view and the bands
+either side of it, the element a band's report names, a failed window's span,
+the demand at rest, the first window, a jump's pin and Retry. The
 footer's line and the frame's `busy` follow the windows the view shows, never
 those read ahead of it. An empty message, a zero count, `No rows`, `Backlog
 clear` or the Sheet's insert strip shows only once a completed read says so

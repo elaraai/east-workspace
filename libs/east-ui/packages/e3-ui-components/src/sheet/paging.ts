@@ -6,6 +6,10 @@
 /**
  * The paged sheet's driver (`Sheet Spec.md` §3.13) — the Plan's stack
  * (#577: the window ledger, the residency policy) over a POSITIONAL source.
+ * The run, its bands, the stand-in, the demand and the jump's pin are the
+ * windowed logic it shares with the Plan's driver (`shared/windowed.ts`,
+ * #1398); what is the Sheet's own is its React state, the rows' positions,
+ * what the view waits for and a family's stand-in.
  *
  * A sheet window is an `Array<SheetRow>` in stream order, so windows
  * concatenate at their offsets (the Table rule). The resident rows are the
@@ -71,14 +75,18 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StringType, equalFor, equivalentFor, none } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { pagedSnapshot, pagedSourceEqual } from "./paged-snapshot.js";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import {
-    createLedger, observeWindow, documentHeight, elementAtOffset, offsetOfWindow, slotHeight, type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY,
-    advance, isEmpty, residentWindows, pin, travelOf, unpinAll, type Residency, type ResidencyOptions, type Travel,
+    createLedger, observeWindow, type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY,
+    isEmpty, residentWindows, unpinAll, type Residency, type ResidencyOptions,
 } from "@elaraai/east-ui-components/internal";
+import {
+    WindowStore, advanceAtRest, anchorAround, bandsAround, elementInBand, failedSpan, firstWindow, pinTarget, retryWindows, runAround,
+    type WindowReader, type WindowTravel,
+} from "../shared/windowed.js";
 import { BAND_MIN_PX, type SheetBand, type SheetWindowFailure } from "./model.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
@@ -195,29 +203,6 @@ function sameWindows(a: ElementSpan, b: ElementSpan): boolean {
 }
 
 /**
- * The window the run is anchored on (#876): the resident window that is in — landed, or failed (#853) — nearest the
- * element the viewport is centred on. While the viewport's own window is still loading, that is the nearer of the first
- * window in after it and the last one before it, so a window loading next to the rows on screen never takes them off
- * it, whichever way the viewport came and whatever lands beyond it first.
- *
- * @param isIn - Whether a window is in
- * @param residency - The resident windows
- * @param element - The element the viewport is centred on
- * @returns The window; `undefined` with none in
- */
-function anchorWindow(isIn: (w: number) => boolean, residency: Residency, element: number): number | undefined {
-    const at = Math.min((residency.hi + 1) * SHEET_PAGE_SIZE - 1, Math.max(residency.lo * SHEET_PAGE_SIZE, element));
-    const own = Math.floor(at / SHEET_PAGE_SIZE);
-    if (isIn(own)) return own;
-    let after: number | undefined;
-    for (let w = own + 1; w <= residency.hi && after === undefined; w++) if (isIn(w)) after = w;
-    let before: number | undefined;
-    for (let w = own - 1; w >= residency.lo && before === undefined; w--) if (isIn(w)) before = w;
-    if (after === undefined || before === undefined) return after ?? before;
-    return after * SHEET_PAGE_SIZE - at <= at - ((before + 1) * SHEET_PAGE_SIZE - 1) ? after : before;
-}
-
-/**
  * The elements being read (#1398, CL3): of the windows in flight, the
  * stretch of adjacent ones nearest the viewport's window — what the footer's
  * loading line names.
@@ -242,32 +227,35 @@ export function readingStretch(pending: readonly number[], at: number, total: nu
     return { from: best.first * SHEET_PAGE_SIZE, to: (total === undefined ? end : Math.min(total, end)) - 1 };
 }
 
-/** The caller-owned read-once cache, keyed by window index. */
-type WindowCache = Map<number, readonly SheetRowValue[]>;
-
 /** What the driver has read from a source, and at which revision. */
 interface SourceCache {
     /** The source that filled it — a source that is not EQUIVALENT drops it (#809). */
     source: SheetPagedSourceValue | undefined;
-    /** The revision `windows` hold (#851). */
-    revision: string | undefined;
-    /** The windows landed at `revision`. */
-    windows: WindowCache;
-    /** The previous revision's windows, served for a window until its own
-     *  lands at `revision` (#851). */
-    stale: WindowCache | undefined;
+    /**
+     * Its windows landed at its revision, the previous revision's standing in for each until its own lands (#851), and
+     * why each failed window's read threw (#853) — not asked again while recorded.
+     */
+    store: WindowStore<readonly SheetRowValue[]>;
     /** The source's last known `total()`, and the revision it was read at. */
     total: number | undefined;
     totalRevision: string | undefined;
-    /** Why each failed window's read threw, at `revision` (#853) — not asked again while recorded. */
-    failures: Map<number, string>;
     /** Whether any window of this source has landed — until one has, a failure is the whole sheet (#853). */
     landedOnce: boolean;
 }
 
 /** A cache holding nothing. */
 function emptyCache(source: SheetPagedSourceValue | undefined): SourceCache {
-    return { source, revision: undefined, windows: new Map(), stale: undefined, total: undefined, totalRevision: undefined, failures: new Map(), landedOnce: false };
+    return { source, store: new WindowStore(), total: undefined, totalRevision: undefined, landedOnce: false };
+}
+
+/**
+ * How the driver reads a window of its source: the rows the source serves, as it serves them.
+ *
+ * @param source - The source
+ * @returns Its window reader
+ */
+function sheetWindows(source: SheetPagedSourceValue): WindowReader<unknown, readonly SheetRowValue[]> {
+    return { page: (offset, limit) => source.page(offset, limit), decode: (rows) => rows as readonly SheetRowValue[], label: "[Sheet]" };
 }
 
 /** Whether two paged sources serve the same rows: the same id AND equivalent
@@ -307,7 +295,7 @@ export function useSheetPaging(
     // What was last asked of each of the three, rendered yet or not: a report asks again only for what moves (CL9).
     const asked = useRef<{ viewportAt: number; isScrolling: boolean; shows: ElementSpan | undefined }>({ viewportAt: 0, isScrolling: false, shows: undefined });
     // Which way the viewport travels through the windows (CL6): the demand reads ahead that way.
-    const travel = useRef<{ at: number; way: Travel }>({ at: 0, way: 1 });
+    const travel = useRef<WindowTravel>({ at: 0, way: 1 });
     const [sizeVersion, setSizeVersion] = useState(0);
     // A Retry reads again (#853): the read depends on it.
     const [retries, setRetries] = useState(0);
@@ -343,7 +331,7 @@ export function useSheetPaging(
         // own land (#851). A source that cannot say which snapshot it serves
         // has failed as a whole (#853) — its windows then say so each, where
         // their rows would be.
-        let revision = held.revision;
+        let revision = held.store.revision;
         let sourceError: string | undefined;
         try {
             const r = source.revision?.();
@@ -352,14 +340,7 @@ export function useSheetPaging(
             console.error("[Sheet] paged source revision failed:", err);
             sourceError = readFailure(err);
         }
-        if (revision !== held.revision) {
-            // A cache that holds nothing (a revision the source was still
-            // discovering) leaves the last one that had rows standing in.
-            if (held.windows.size > 0) held.stale = held.windows;
-            held.windows = new Map();
-            held.failures = new Map();
-            held.revision = revision;
-        }
+        held.store.at(revision);
         let total: number | undefined;
         try {
             const t = source.total();
@@ -378,75 +359,41 @@ export function useSheetPaging(
         // changing.
         if (total !== undefined && held.total !== undefined && total !== held.total && held.totalRevision === revision) {
             console.warn(`[Sheet] paged source "${source.id}" changed total() without a revision change; dropping cached windows.`);
-            held.windows.clear();
-            held.stale = undefined;
+            held.store.windows.clear();
+            held.store.stale = undefined;
         }
         if (total !== undefined) {
             held.total = total;
             held.totalRevision = revision;
         }
-        const landed: { w: number; rows: readonly SheetRowValue[] }[] = [];
-        const failed: { w: number; error: string }[] = [];
-        // The windows in flight, ascending: what the footer's loading line names (#1398).
-        const pending: number[] = [];
-        let loading = false;
-        let standingIn = false;
-        for (const w of residentWindows(residency)) {
-            const known = held.windows.get(w);
-            if (known !== undefined) { landed.push({ w, rows: known }); continue; }
-            // A failed window is not asked again by the reader — only by a Retry (#853).
-            const recorded = held.failures.get(w);
-            if (recorded !== undefined) { failed.push({ w, error: recorded }); continue; }
-            let win: ReturnType<SheetPagedSourceValue["page"]>;
-            try {
-                win = source.page(BigInt(w * SHEET_PAGE_SIZE), BigInt(SHEET_PAGE_SIZE));
-            } catch (err) {
-                console.error(`[Sheet] paged source page ${w} failed:`, err);
-                const reason = readFailure(err);
-                held.failures.set(w, reason);
-                failed.push({ w, error: reason });
-                continue;
-            }
-            if (win.type !== "some") {
-                // In flight — its channel is tracked, so the landing re-reads.
-                // Until then the rows it had at the previous revision stand in.
-                loading = true;
-                pending.push(w);
-                const previous = held.stale?.get(w);
-                if (previous !== undefined) {
-                    landed.push({ w, rows: previous });
-                    standingIn = true;
-                }
-                continue;
-            }
-            const rows = win.value as readonly SheetRowValue[];
-            held.windows.set(w, rows);
-            held.landedOnce = true;
-            landed.push({ w, rows });
-        }
-        // Every resident window reads at the new revision now: the old one
-        // has nothing left to stand in for.
-        if (!standingIn) held.stale = undefined;
-        return { total, landed, failed, pending, loading, sourceError, standingIn, landedOnce: held.landedOnce };
+        // Each resident window from the store, or read — one still in flight standing in for the rows it had at the
+        // previous revision; a failed one is not asked again by the reader, only by a Retry (#853).
+        const reads = held.store.read(sheetWindows(source), residentWindows(residency), SHEET_PAGE_SIZE);
+        if (reads.resident.some(({ w }) => held.store.windows.has(w))) held.landedOnce = true;
+        return {
+            total,
+            landed: reads.resident.map(({ w, read: rows }) => ({ w, rows })),
+            failed: reads.failed,
+            // The windows in flight, ascending: what the footer's loading line names (#1398).
+            pending: reads.inFlight,
+            loading: reads.inFlight.length > 0,
+            sourceError,
+            standingIn: reads.stale,
+            landedOnce: held.landedOnce,
+        };
     }, [source, residency, retries]);
 
     const { result } = useTrackedEvaluation(read);
     const value = result.ok ? result.value : undefined;
     const readError = result.ok ? undefined : readFailure(result.error);
 
+    // A Retry asks again now (#1398, `retryWindows`): the source rearms what failed, then the failure records go and
+    // the windows are read again.
     const retry = useCallback((w?: number) => {
-        const ask = () => {
-            const held = cacheRef.current;
-            if (w === undefined) held.failures.clear();
-            else held.failures.delete(w);
+        retryWindows(source, () => {
+            cacheRef.current.store.forget(w);
             setRetries((n) => n + 1);
-        };
-        // A Retry asks again now (#1398): the source rearms what failed for a reason a retry can fix — a read alone
-        // waits out the runtime's retry gap after the last failure. The rearm is deferred, so the failure records go
-        // and the windows are read again after it: a read between the two would only record the failure again.
-        if (source?.refresh === undefined) { ask(); return; }
-        source.refresh(none);
-        queueMicrotask(ask);
+        });
     }, [source]);
 
     // The source's own total — the ledger is built from it, never from the
@@ -492,23 +439,19 @@ export function useSheetPaging(
     useEffect(() => {
         if (source === undefined) return;
         if (ledger.windows === 0) {
-            if (isEmpty(residency)) setResidency((r) => ({ ...r, lo: 0, hi: 0 }));
+            if (isEmpty(residency)) setResidency(firstWindow);
             return;
         }
         if (isScrolling) return;
-        const way = travelOf(travel.current.at, viewportWindow, travel.current.way);
-        travel.current = { at: viewportWindow, way };
-        const next = advance(residency, ledger, viewportWindow, policy, way);
+        const step = advanceAtRest(residency, ledger, viewportWindow, policy, travel.current);
+        travel.current = step.travel;
+        const next = step.residency;
         if (next === residency) return;
         setResidency(next);
         // Whatever left the run leaves the cache with it, a stand-in too; a
         // failure record leaves as well, so a window demanded again later is
         // asked afresh (#853).
-        const keep = new Set(residentWindows(next));
-        const { windows, stale, failures } = cacheRef.current;
-        for (const w of [...windows.keys()]) if (!keep.has(w)) windows.delete(w);
-        if (stale !== undefined) for (const w of [...stale.keys()]) if (!keep.has(w)) stale.delete(w);
-        for (const w of [...failures.keys()]) if (!keep.has(w)) failures.delete(w);
+        cacheRef.current.store.prune(new Set(residentWindows(next)));
         setSizeVersion((v) => v + 1);
     }, [source, ledger, residency, viewportWindow, isScrolling, policy]);
 
@@ -517,60 +460,42 @@ export function useSheetPaging(
         const ins = new Set(value === undefined ? [] : [...value.landed.map((l) => l.w), ...value.failed.map((f) => f.w)]);
         return (w: number) => ins.has(w);
     }, [value]);
-    // The window the run is anchored on (#876, `anchorWindow`), from the element the viewport was last reported centred
-    // on: the state holds it only as the anchor it gives moves (#1398, CL9, `reportViewport`), and a read landing takes
-    // the element as it is now.
-    const anchor = useMemo(() => (value === undefined || isEmpty(residency) ? undefined : anchorWindow(isIn, residency, sourceChanged ? 0 : centredOn.current)),
+    // The run (#876, `runAround`): the stretch of windows that are in around the one nearest the element the viewport was
+    // last reported centred on — the state holds it only as the anchor it gives moves (#1398, CL9, `reportViewport`),
+    // and a read landing takes the element as it is now.
+    const runWindows = useMemo(() => (value === undefined ? undefined : runAround(residency, isIn, sourceChanged ? 0 : centredOn.current, SHEET_PAGE_SIZE)),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- `viewportAt` moves whenever the anchor the element gives does; the element itself is read as it is
         [value, isIn, residency, viewportAt, sourceChanged]);
 
-    // The run: the stretch of windows that are in around the anchor — the
-    // landed windows, and a failed window's band where its rows would be: its
-    // elements are known, so the run crosses it and the rows after it keep
-    // their positions (#853). A window still in flight ends it at either end.
+    // The run's rows: its landed windows, and a failed window's band where its
+    // rows would be — its elements are known, so the run crosses it and the
+    // rows after it keep their positions (#853).
     const run = useMemo(() => {
         const rows: SheetRowValue[] = [];
         const positions: number[] = [];
         const failures: SheetWindowFailure[] = [];
-        if (value === undefined || anchor === undefined) return { rows, positions, failures, from: residency.lo, to: residency.lo - 1 };
+        if (value === undefined || runWindows === undefined) return { rows, positions, failures, from: residency.lo, to: residency.lo - 1 };
         const byWindow = new Map(value.landed.map((l) => [l.w, l.rows]));
         const failedBy = new Map(value.failed.map((f) => [f.w, f.error]));
-        let from = anchor;
-        while (from > residency.lo && (byWindow.has(from - 1) || failedBy.has(from - 1))) from--;
-        const known = total !== undefined && ledger.windows > 0;
-        let w = from;
-        for (; w <= residency.hi; w++) {
+        for (let w = runWindows.from; w <= runWindows.to; w++) {
             const landedRows = byWindow.get(w);
             if (landedRows !== undefined) {
                 landedRows.forEach((row, k) => { rows.push(row); positions.push(w * SHEET_PAGE_SIZE + k); });
                 continue;
             }
             const error = failedBy.get(w);
-            if (error === undefined) break;
-            const start = w * SHEET_PAGE_SIZE;
-            const to = (known ? Math.min(total, start + SHEET_PAGE_SIZE) : start + SHEET_PAGE_SIZE) - 1;
             // Its ledger slot, so the rows that replace it take the same space; floored so the reason and the Retry stay legible.
-            failures.push({ w, from: start, to, px: Math.max(BAND_MIN_PX, known && w < ledger.windows ? slotHeight(ledger, w) : 0), error });
+            if (error !== undefined) failures.push({ w, ...failedSpan(ledger, w, total, SHEET_PAGE_SIZE, BAND_MIN_PX), error });
         }
-        return { rows, positions, failures, from, to: w - 1 };
-    }, [value, anchor, residency, ledger, total]);
+        return { rows, positions, failures, from: runWindows.from, to: runWindows.to };
+    }, [value, runWindows, residency, ledger, total]);
 
     // The bands follow the run, not the residency: the windows past a
     // loading one are theirs until it lands (#876).
     const bands = useMemo(() => {
-        if (isEmpty(residency) || ledger.windows === 0) return { head: undefined, tail: undefined };
-        const head: SheetBand | undefined = run.from > 0
-            ? { at: "head", from: 0, to: run.from * SHEET_PAGE_SIZE - 1, px: offsetOfWindow(ledger, run.from) }
-            : undefined;
-        const lastWindow = ledger.windows - 1;
-        const tail: SheetBand | undefined = run.to < lastWindow
-            ? {
-                at: "tail",
-                from: (run.to + 1) * SHEET_PAGE_SIZE,
-                to: (total ?? ledger.total) - 1,
-                px: documentHeight(ledger) - offsetOfWindow(ledger, run.to + 1),
-            }
-            : undefined;
+        const spans = bandsAround(ledger, residency, { from: run.from, to: run.to }, SHEET_PAGE_SIZE, total ?? ledger.total);
+        const head: SheetBand | undefined = spans.head === undefined ? undefined : { at: "head", ...spans.head };
+        const tail: SheetBand | undefined = spans.tail === undefined ? undefined : { at: "tail", ...spans.tail };
         return { head, tail };
     }, [residency, ledger, total, run.from, run.to]);
 
@@ -600,21 +525,16 @@ export function useSheetPaging(
         // target, a report is taken from where the sheet still IS, and moving
         // the demand there would move the run back and undo the jump.
         if (jumpingRef.current || replacingRef.current) return;
-        let next: number;
-        if (at.kind === "band") {
-            // A band's own geometry: the head starts at the top, the tail
-            // right after the run — not after the residency, whose last
-            // windows may still be loading inside the tail (#876).
-            if (at.px !== undefined && ledger.windows > 0) {
-                const bandTop = at.at === "head" ? 0 : offsetOfWindow(ledger, run.to + 1);
-                next = elementAtOffset(ledger, bandTop + Math.max(0, at.px));
-            } else next = at.at === "head" ? Math.max(0, run.from * SHEET_PAGE_SIZE - 1) : (run.to + 1) * SHEET_PAGE_SIZE;
-        } else next = at.offset >= 0 ? at.offset : centredOn.current;
+        // A band's own geometry (`elementInBand`): the head starts at the top, the tail right after the run — not after
+        // the residency, whose last windows may still be loading inside the tail (#876).
+        const next = at.kind === "band"
+            ? elementInBand(ledger, { from: run.from, to: run.to }, at.at, at.px, SHEET_PAGE_SIZE)
+            : at.offset >= 0 ? at.offset : centredOn.current;
         centredOn.current = next;
         // The element held moves only with its window or the anchor it gives.
         const { isIn: ins, residency: resident } = decided.current;
         const moves = Math.floor(was.viewportAt / SHEET_PAGE_SIZE) !== Math.floor(next / SHEET_PAGE_SIZE)
-            || (!isEmpty(resident) && anchorWindow(ins, resident, was.viewportAt) !== anchorWindow(ins, resident, next));
+            || (!isEmpty(resident) && anchorAround(resident, ins, was.viewportAt, SHEET_PAGE_SIZE) !== anchorAround(resident, ins, next, SHEET_PAGE_SIZE));
         if (!moves) return;
         was.viewportAt = next;
         setViewportAt(next);
@@ -627,7 +547,7 @@ export function useSheetPaging(
         asked.current.isScrolling = false;
         setViewportAt(at);
         setIsScrolling(false);
-        setResidency((r) => pin(unpinAll(r), Math.floor(at / SHEET_PAGE_SIZE)));
+        setResidency((r) => pinTarget(r, Math.floor(at / SHEET_PAGE_SIZE)));
     }, []);
 
     const clearJump = useCallback(() => { setResidency((r) => unpinAll(r)); }, []);
@@ -644,7 +564,7 @@ export function useSheetPaging(
     const target = pinned[0];
     let settled = false;
     if (target !== undefined && value !== undefined && !isEmpty(residency) && ledger.windows > 0) {
-        const met = advance(residency, ledger, viewportWindow, policy, travelOf(travel.current.at, viewportWindow, travel.current.way)) === residency;
+        const met = advanceAtRest(residency, ledger, viewportWindow, policy, travel.current).residency === residency;
         settled = met && run.from <= target && target <= run.to;
     }
     const jump = target === undefined ? undefined : { window: target, settled };
