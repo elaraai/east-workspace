@@ -41,6 +41,10 @@
  * counts. The window is the sources' shared `range` (`root/window.ts`): every
  * source holding one holds it with the others — the axis seeds a canvas with
  * none — and the brush, the time navigator and the keys write each of them.
+ * The canvas's rows never follow the dates: the `rows` source and a resource
+ * kind's hold no window, so the dates on screen never decide which rows are
+ * listed, and a slice with no source holding the window leaves the canvas its
+ * own, which the same gestures move.
  *
  * The axis is one of three kinds (#631) — `time`, `number`, `ordinal` — and
  * every window read / write speaks the slice arm that kind maps to
@@ -119,8 +123,9 @@ import {
 import { PlanControllerContext, useControllerSelector } from "./controller/react.js";
 import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
-import { createPlanWindowHold, usePlanWindow } from "./root/window.js";
-import { planEventParts, planNouns, planPart, ROWS_SOURCE } from "./root/sources.js";
+import { createPlanWindowHold, statedWindow, usePlanWindow } from "./root/window.js";
+import { writePlanWindow } from "./controller/effects.js";
+import { planEventParts, planNouns, planPart, planRowSources, ROWS_SOURCE } from "./root/sources.js";
 import {
     ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
@@ -312,8 +317,12 @@ export function usePlanCanvas({
     // The slice and the scale every row positions against — read from the
     // host's root, which the drafted and composed roots below share them
     // with (#1344): the sources holding the window, the `rows` source, and
-    // each event kind narrowed through its own.
-    const { chrome: slices, windowParts, lead: windowLead, affordances, scale, error: windowError } = usePlanWindow(hostValue, hostData, words, windowHold);
+    // each event kind narrowed through its own. The canvas's rows' sources —
+    // the `rows` source and each resource kind's — never hold the window.
+    const rowSources = useMemo(() => planRowSources(resources), [resources]);
+    const { chrome: slices, windowParts, lead: windowLead, affordances, scale, error: windowError } = usePlanWindow(hostValue, hostData, words, windowHold, rowSources);
+    // A date the time navigator picks moves the window as the brush and the keys do: the sources', else the canvas's own.
+    const moveWindow = useCallback((min: number, max: number) => writePlanWindow(windowParts, min, max, windowHold), [windowParts, windowHold]);
     const rowsPart = useMemo(() => planPart(slices, ROWS_SOURCE), [slices]);
     const eventParts = useMemo(() => planEventParts(slices, kinds), [slices, kinds]);
     // Each event kind's Save notice counts what leaves its own source's narrowing.
@@ -851,6 +860,8 @@ export function usePlanCanvas({
     // whichever arm the axis declares.
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
+    // What the brush spans beside the window shown while no source holds the window (#1344).
+    const stated = useMemo(() => statedWindow(data.axis), [data.axis]);
     // The history (#880, #1194): the frame's history item (#988) over the
     // Plan's one history — `data`'s session and each event kind's — and each
     // session's banners. An issue of `data`'s takes the reader to its entry's
@@ -1129,7 +1140,7 @@ export function usePlanCanvas({
 
     const header = (
         <PlanHeader styles={styles} gridTemplate={gridTemplate} headerRef={headerRef}
-            windowParts={windowParts} affordances={affordances} now={now}
+            windowParts={windowParts} stated={stated} affordances={affordances} now={now}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
             rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
             pinned={pinned.map((v) => (
@@ -1482,7 +1493,8 @@ export function usePlanCanvas({
         bound,
         main,
         chrome: {
-            words, styles, storageKey, scale, slices, windowParts, lead: windowLead, rowsPart, eventParts, nouns, rowsNoun, windowError, affordances, resolutions,
+            words, styles, storageKey, scale, slices, windowParts, lead: windowLead, moveWindow, rowsPart, eventParts, nouns, rowsNoun, windowError,
+            affordances, resolutions,
             // The grain folds the canvas's root groups (#632); below 480px the
             // narrow layout's Groups · Rows tabs own them, so nothing is left
             // for the segment to do there.

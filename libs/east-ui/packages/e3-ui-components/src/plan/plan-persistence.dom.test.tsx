@@ -138,10 +138,10 @@ const storedAt = (key: string) => JSON.parse(localStorage.getItem(key) ?? "null"
     collapse: [string, boolean][]; charts: string[]; anchor: { key: string; offset: number; index: number } | null;
 };
 
-/** A slice for the resolution segment (WEEK / DAY): its rows' source — the dated rows — holding the window W27..W39. */
+/** A slice for the resolution segment (WEEK / DAY): a source of it — the dated rows — holding the window W27..W39. */
 async function resolutionSlice(key: string): Promise<RailChrome> {
     const rail = await bindRail(() => Slice.bindRecords(key, {
-        rows: {
+        dated: {
             source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
             fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
         },

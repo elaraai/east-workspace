@@ -244,14 +244,14 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
     const numberAxis = variant("number", { window: some({ min: 1, max: 9 }), step: 1, now: some(5), format: none });
     /** The rail over the vans — leaving on day 1 and day 12 — their `FLOAT` days the window, `[1, 9)`. */
     const vansRail = (key: string, affordances: readonly RecordSliceAffordance[]): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
-        rows: {
+        vans: {
             source: Data.bindPaged(records.planDayVans, { indexes: [records.planDayVansByDay] }),
             fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1.0, to: 9.0 } },
         },
     }), affordances);
     /** The rail over the orders — one a day, day 1 to day 12 — their `INTEGER` days the window, `[1, 9)`. */
     const ordersRail = (key: string): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
-        rows: {
+        orders: {
             source: Data.bindPaged(records.planDayOrders, { indexes: [records.planDayOrdersByDay] }),
             fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1n, to: 9n } },
         },
@@ -261,7 +261,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
 
     test("a number axis rules 1 … 8 with the NOW divider, mounts no resolution segment, and brushes the source's FLOAT range, written on release", async () => {
         const rail = await vansRail("plan.631.brush", ["brush", "resolution"]);
-        const window = () => recordSliceWindow(rail.part("rows"));
+        const window = () => recordSliceWindow(rail.part("vans"));
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: numberAxis,
             slice: some(rail.chrome),
@@ -294,7 +294,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
 
     test("[ / ] and n write a number axis's window as the source's float range — half-open, and read back whole", async () => {
         const rail = await vansRail("plan.631.keys", []);
-        const window = () => recordSliceWindow(rail.part("rows"));
+        const window = () => recordSliceWindow(rail.part("vans"));
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: numberAxis, slice: some(rail.chrome),
         }), "plan-631-keys");
@@ -315,7 +315,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
     test("an INTEGER field's window is written on whole values — `[1, 9)` the eight days 1 … 8 — and read back whole", async () => {
         // The eight days 1 … 8, the window half-open as every record range is.
         const rail = await ordersRail("plan.949.integer");
-        const part = rail.part("rows");
+        const part = rail.part("orders");
         const window = () => recordSliceWindow(part);
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: variant("number", { window: none, step: 1, now: some(5), format: none }),
@@ -334,12 +334,12 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         // and W39's: the arm a time axis would brush; an ordinal axis has no
         // arm to speak, so the strip does not mount and a pan writes nothing.
         const rail = await bindRail(() => Slice.bindRecords("plan.631.ordinal", {
-            rows: {
+            dated: {
                 source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
                 fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
             },
         }), ["brush"]);
-        const part = rail.part("rows");
+        const part = rail.part("dated");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: variant("ordinal", { values: ["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"], now: some("PRINT") }),
             slice: some(rail.chrome),

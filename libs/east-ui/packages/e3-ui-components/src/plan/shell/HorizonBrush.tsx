@@ -16,12 +16,15 @@
  * (#949): a lens under it joins the window it selected to the plot's edges —
  * the grid below is that window, magnified.
  *
- * Renders only when a source holds a range domain of the AXIS's arm (#631): a
- * `datetime` domain on a time axis, a `float` / `integer` domain on a number
- * axis. The horizon spans every such source's domain: the jobs' and the
- * shifts' together. An ordinal axis has no range arm (its list is its window),
- * so the strip never mounts there; a Plan with no slice has no wider horizon
- * to brush. A record's query moves once per gesture: the strip previews its
+ * Renders only over a horizon of the AXIS's arm (#631): a `datetime` domain on
+ * a time axis, a `float` / `integer` domain on a number axis. The horizon
+ * spans every source's domain holding the window: the jobs' and the shifts'
+ * together. A slice with no source holding the window leaves the canvas its
+ * own (#1344), and the horizon then spans the axis's stated window and the
+ * window shown, so the strip moves the canvas's window as it moves a
+ * source's. An ordinal axis has no range arm (its list is its window), so the
+ * strip never mounts there; a Plan with no slice has no wider horizon to
+ * brush. A record's query moves once per gesture: the strip previews its
  * selection, and commits on release. While the sources' span is read its row
  * is held at its height, a placeholder track in the strip's place (#1398,
  * CL1), so nothing below it moves as the span lands.
@@ -52,8 +55,10 @@ type RecordSliceRange = NonNullable<ReturnType<typeof recordSliceDomain>>;
 export interface HorizonBrushProps {
     styles: Styles;
     gridTemplate: string;
-    /** The sources holding the window: the horizon spans their domains. */
+    /** The sources holding the window: the horizon spans their domains. None, the canvas holds its own window (#1344). */
     parts: readonly PlanWindowPart[];
+    /** The axis's stated window, `[from, to)` on its domain: beside the window shown, the horizon of a canvas holding its own. */
+    stated: readonly [number, number] | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
 }
@@ -75,8 +80,23 @@ function horizonOf(parts: readonly PlanWindowPart[]): RecordSliceRange | undefin
     return out;
 }
 
+/**
+ * The horizon of a canvas holding its own window (#1344): the axis's stated
+ * window and the window shown, together, half-open on the axis's domain —
+ * what the strip spans while no source's domain says where the data is.
+ *
+ * @param kind - The axis's arm, as a source's domain names it
+ * @param stated - The axis's stated window, if it states one
+ * @param shown - The window shown
+ * @returns The horizon
+ */
+function ownHorizon(kind: RecordSliceRange["kind"], stated: readonly [number, number] | undefined, shown: readonly [number, number]): RecordSliceRange {
+    return stated === undefined ? { kind, min: shown[0], max: shown[1] }
+        : { kind, min: Math.min(stated[0], shown[0]), max: Math.max(stated[1], shown[1]) };
+}
+
 /** The horizon band — caption gutter cell + the shared brush strip + its lens. */
-export function HorizonBrush({ styles, gridTemplate, parts, now }: HorizonBrushProps) {
+export function HorizonBrush({ styles, gridTemplate, parts, stated, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
@@ -88,7 +108,14 @@ export function HorizonBrush({ styles, gridTemplate, parts, now }: HorizonBrushP
     useSlicesReactivity(parts.map(({ part }) => part.key));
     const readDomain = useCallback(() => horizonOf(parts), [parts]);
     const { result: recordDomain } = useTrackedEvaluation(readDomain);
-    const domain = recordDomain.ok ? recordDomain.value : undefined;
+    // No source holding the window, the canvas holds its own (#1344): the horizon is the axis's stated window and the
+    // window shown, which nothing reads — half-open, as a window is, where a source's domain holds its last value.
+    const own = parts.length === 0;
+    const shownFrom = scale.toNumber(scale.window.min);
+    const shownTo = scale.toNumber(scale.window.max);
+    const domain = own
+        ? (scale.kind === "ordinal" ? undefined : ownHorizon(scale.kind === "time" ? "datetime" : "float", stated, [shownFrom, shownTo]))
+        : recordDomain.ok ? recordDomain.value : undefined;
     // The domain must speak the axis's arm — a datetime field on a time
     // axis, a numeric field on a number axis. An ordinal axis never fits.
     const fits = domain !== undefined && domain.max >= domain.min && (
@@ -99,11 +126,13 @@ export function HorizonBrush({ styles, gridTemplate, parts, now }: HorizonBrushP
     // the period the first value falls in to the end of the period the last
     // one falls in. Every period then counts once — the last value never
     // piles into the final bar beside the one before it — and the caption
-    // counts periods, not the gaps between them.
+    // counts periods, not the gaps between them. The canvas's own horizon is
+    // half-open: it ends at its end where that is a period's edge.
     const extent = useMemo(() => {
         if (!fits || domain === undefined) return undefined;
         const first = scale.floor(scale.fromNumber(domain.min));
-        const end = scale.offset(scale.floor(scale.fromNumber(domain.max)), 1);
+        const last = scale.floor(scale.fromNumber(domain.max));
+        const end = own && scale.toNumber(last) >= domain.max ? last : scale.offset(last, 1);
         const lo = scale.toNumber(first);
         const hi = scale.toNumber(end);
         if (!(hi > lo)) return undefined;
@@ -111,8 +140,8 @@ export function HorizonBrush({ styles, gridTemplate, parts, now }: HorizonBrushP
         for (let t = first; scale.toNumber(t) < hi && periods <= MAX_PERIODS; t = scale.offset(t, 1)) periods += 1;
         return { lo, hi, periods };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the domain's bounds are primitives; the object is new per read
-    }, [fits, domain?.min, domain?.max, scale]);
-    if (!recordDomain.ok) return <Box css={styles.partError} role="alert">
+    }, [fits, domain?.min, domain?.max, own, scale]);
+    if (!own && !recordDomain.ok) return <Box css={styles.partError} role="alert">
         Could not load date span <chakra.button type="button" css={styles.windowRetry} onClick={() => { for (const { part } of parts) part.retry(); }}>Retry</chakra.button>
     </Box>;
     // Its row is held while its span is read (#1398, CL1): the band at its height, a placeholder track in the

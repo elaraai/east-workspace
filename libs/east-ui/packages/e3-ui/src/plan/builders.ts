@@ -277,7 +277,8 @@ export const at = {
 
 /**
  * The axis values built WITHOUT a window (#822) — a canvas given one must bind
- * a slice, whose range supplies the window, or the root refuses it at build
+ * a slice a source of which holds the window in its range (an event kind's or
+ * a tab's, never the canvas's rows', #1344), or the Plan refuses it at build
  * time. An axis held in a variable (`$.const(Plan.axis(…))`) is not the value
  * recorded here, so its canvas is held to the rule at render instead.
  */
@@ -309,11 +310,13 @@ export function axisKindOf(axis: unknown): PlanAxisKindLiteral | undefined {
  * @returns An East expression of {@link PlanAxisType} (the `time` arm), branded `"time"` — the root's canvas kind
  *
  * @remarks
- * The window is half-open `[min, max)` in UTC; omit it to follow the bound
- * slice's datetime range — a canvas states one or the other (#822). There is
- * no fit to the data. `resolutions` lists the WEEK/DAY-style segment options
- * (omit ⇒ no segment). When the Plan is slice-bound, slice state supersedes
- * window + resolution after mount — the slice is the single source of truth.
+ * The window is half-open `[min, max)` in UTC; omit it to follow the datetime
+ * range a source of the bound slice holds — an event kind's or a tab's, never
+ * the canvas's rows' (#1344) — a canvas states one or the other (#822). There
+ * is no fit to the data. `resolutions` lists the WEEK/DAY-style segment
+ * options (omit ⇒ no segment). Where a source of the Plan's slice holds the
+ * window, its state supersedes the window after mount; with none holding it,
+ * the canvas holds its own, from this one. The resolution is the slice's.
  */
 export function createTimeAxis(options: PlanAxisOptions): PlanAxisExpr<"time"> {
     const axis = East.value(variant("time", {
@@ -340,8 +343,9 @@ export function createTimeAxis(options: PlanAxisOptions): PlanAxisExpr<"time"> {
  * @remarks
  * `[min, max)` ÷ `step` = `n` buckets, edges on whole multiples of `step`
  * (the `TimeResolution` rule, numerically). Omit the window to follow the
- * bound slice's `float` / `integer` range — a canvas states one or the other
- * (#822). Element instants on this canvas are numbers — a `FloatType` /
+ * `float` / `integer` range a source of the bound slice holds — never the
+ * canvas's rows' (#1344) — a canvas states one or the other (#822). Element
+ * instants on this canvas are numbers — a `FloatType` /
  * `IntegerType` accessor or a bare number wraps to the `number` arm.
  */
 export function createNumberAxis(options: PlanNumberAxisOptions): PlanAxisExpr<"number"> {

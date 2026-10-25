@@ -26,8 +26,11 @@
  * after an event kind narrows that kind's events and its backlog through its
  * interval index; one named after a resource kind narrows its rows; and one a
  * templates list or a tab names narrows its cards. Every source holding a
- * `range` holds the window with the others. Templates are records, each list
- * its own source (#1340).
+ * `range` holds the window with the others — an event kind's, a tab's that
+ * lists what is in the dates on screen. The canvas's rows never follow the
+ * dates: a `range` on the `rows` source or a resource kind's would hold the
+ * window, and is refused — a date field there is a field of the rail the
+ * viewer sets. Templates are records, each list its own source (#1340).
  *
  * The Plan is an interface. Its payload holds the canvas whole
  * ({@link PlanRootType}, its narrowing's chrome among it) beside the event
@@ -76,7 +79,7 @@ import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { PlanRootType } from "./ir.js";
 import { PlanAxisType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue } from "./types.js";
-import { axisKindOf, linkEventKinds } from "./builders.js";
+import { WINDOWLESS_AXES, axisKindOf, linkEventKinds } from "./builders.js";
 import { buildPlanRoot, type PlanConfig } from "./root.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
 import { planSeriesKeys } from "./series.js";
@@ -222,8 +225,11 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> 
      * and its backlog through the source's interval index, its `range` the kind's start field; one named after a
      * resource kind's slot narrows that kind's rows; one a templates list or a library tab names narrows its cards.
      * Every source holding a `range` holds the window with the others: the toolbar's navigation and range, the horizon
-     * brush and the resolution write them together. Calculations — the footer's counts, the overlaps — read every
-     * event. `Slice.bind`, a single `Slice.bindRecord` and a source nothing names are refused.
+     * brush and the resolution write them together. The canvas's rows never follow the dates on screen: the `rows`
+     * source and a resource kind's take no `range` — a date field there is a field of the rail the viewer sets — and a
+     * slice with no source holding the window leaves the canvas its own, which the same controls move. Calculations —
+     * the footer's counts, the overlaps — read every event. `Slice.bind`, a single `Slice.bindRecord` and a source
+     * nothing names are refused.
      */
     slice?: RecordSlicesChromeOptions;
     /** The resource kinds, by slot — `Schedule.resources(rows, { … })`, or a paged read of them: the rows events are placed on, in this order. */
@@ -486,6 +492,34 @@ function checkedTilings(
     return check(config);
 }
 
+/**
+ * A `range` on a source of the canvas's rows — the `rows` source's, or a
+ * resource kind's — checked as the Plan is evaluated, its source's controls
+ * read only then (#1344): the dates on screen never decide which rows are
+ * listed, so a range there would hold the window and narrow the rows at every
+ * pan; it is refused in words naming the change to make.
+ *
+ * @param source - The source's name: `rows`, or a resource kind's slot
+ * @param config - The source's controls, its `range` among them
+ * @returns The check, an expression run for its refusal
+ */
+function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType>): ExprType<NullType> {
+    const holds = source === ROWS
+        ? "Plan: the slice's `rows` source gives the canvas its rows, and its range \""
+        : `Plan: the slice's source "${source}" narrows resources.${source}, and its range "`;
+    const rule = source === ROWS ? "the rows never follow the dates on screen" : "a resource kind's rows never follow the dates on screen";
+    const tail = `" would hold the window — ${rule}: leave \`range\` out, and "`;
+    const check = East.function([RecordSliceConfigType], NullType, ($, held) => {
+        $.match(held.range, {
+            some: ($2, field) => {
+                $2.error(East.value(holds).concat(field).concat(tail).concat(field).concat("\" stays a field of the rail the viewer sets"));
+            },
+        });
+        return null;
+    });
+    return check(config);
+}
+
 // ============================================================================
 // The payload
 // ============================================================================
@@ -507,12 +541,14 @@ function checkedTilings(
  *   a key the Plan gives its event rows that another series has; a `slice` that is not `{ slice: Slice.bindRecords(…) }`
  *   — `Slice.bind`, a single `Slice.bindRecord`, the bare handle — or names a source nothing names, `data` beside its
  *   `rows` source, a paged resource kind or one not keyed by String its source would narrow, and a kind's own `slice` or
- *   `filter` (#1344); a templates list written in the code or naming no source of the slice (#1340); and everything the
- *   canvas refuses ({@link createPlanRoot}). An axis held in a variable, and links whose kinds are not known at build,
- *   are refused in the same words as the Plan is evaluated; so are the series and summary indexes an event kind's source
- *   lists (#1039), which the Plan reads only then: one filed by another field than the kind's resource, or over other
- *   times than its events'; a series index for a kind not placed on a paged resource kind alone; two series, or two
- *   summaries, by one tile over the same fields; and a series index with no summary beside it
+ *   `filter` (#1344); an axis stating no window beside a slice whose every source is the canvas's rows' — `rows` or a
+ *   resource kind's — which hold none; a templates list written in the code or naming no source of the slice (#1340);
+ *   and everything the canvas refuses ({@link createPlanRoot}). An axis held in a variable, and links whose kinds are
+ *   not known at build, are refused in the same words as the Plan is evaluated; so are a `range` on the `rows` source
+ *   or a resource kind's, which the dates on screen never narrow (#1344), and the series and summary indexes an event
+ *   kind's source lists (#1039), which the Plan reads only then: one filed by another field than the kind's resource,
+ *   or over other times than its events'; a series index for a kind not placed on a paged resource kind alone; two
+ *   series, or two summaries, by one tile over the same fields; and a series index with no summary beside it
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
@@ -569,6 +605,14 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     if (canvas.data === undefined && !pagesRows && events === undefined && rows === undefined) {
         throw new Error("Plan: needs its rows — `data` and its `series`, `slice`'s `rows` source, event kinds (`events` over `resources`), or read-only `rows`");
     }
+    // The canvas's rows never follow the dates (#1344): an axis stating no window takes it from a source holding it,
+    // and a slice of the rows' sources alone — `rows`, the resource kinds' — holds none.
+    const rowSources = [ROWS, ...resourceKinds.map(([slot]) => slot)];
+    if (WINDOWLESS_AXES.has(canvas.axis as object) && sources.names.length > 0 && sources.names.every((name) => rowSources.includes(name))) {
+        throw new Error("Plan: the axis states no `window`, and no source of the slice holds one — the canvas's rows never follow the dates on " +
+            "screen, so neither the `rows` source nor a resource kind's holds the window: declare it, Plan.axis({ window: { min, max }, … }), " +
+            "or name a range on an event kind's source or a tab's");
+    }
     // An event is scheduled in time. An axis Plan.axis built is checked here;
     // one held in a variable as the Plan is evaluated, in the same words.
     const axisKind = axisKindOf(canvas.axis);
@@ -623,6 +667,12 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     const picked = canvas.pick !== undefined;
     return Expr.block(($) => {
         const bound = sources.bind($);
+        // The canvas's rows never follow the dates (#1344): a range on the `rows` source or a resource kind's, which its
+        // controls name only as the Plan is evaluated, is refused then.
+        for (const name of sources.names) {
+            const part = rowSources.includes(name) ? bound.parts[name] as unknown as { config: ExprType<RecordSliceConfigType> } | undefined : undefined;
+            if (part !== undefined) $(checkedRowsRange(name, part.config));
+        }
         // Each source's narrowed keys, paged through its own data: what the renderer reads to show a source's rows.
         const narrowed = East.value(new Map(sources.names.map((name) => [name, bound.keys[name]])) as never, NarrowedType) as ExprType<typeof NarrowedType>;
         const data = bound.data[ROWS] ?? canvas.data;

@@ -232,15 +232,30 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
         const Job = ex.PrintJob;
         const series = [Plan.series.span(Job, { key: "jobs", title: "Jobs", label: (j) => j.title,
             runs: (j, k) => [Plan.run({ key: k, start: j.start.unwrap("some"), end: j.end.unwrap("some"), label: j.title, state: "confirmed" })] })];
-        const rowsSlice = () => Slice.bindRecords("spec.rows", { rows: { source: jobIndex(), fields: { start: { label: "Dates" } }, range: "start" } });
+        // The rows' dates are a field of the rail: the canvas's rows never follow the dates on screen (#1344).
+        const rowsSlice = () => Slice.bindRecords("spec.rows", { rows: { source: jobIndex(), fields: { start: { label: "Dates" } } } });
         assert.equal(refusal(() => {
             const payload = Plan.Payload({ axis, slice: { slice: rowsSlice() }, series });
             assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
         }), "");
-        // With no window of its own an axis takes the slice's: a source's range holds it.
-        assert.equal(refusal(() => Plan.Payload({ axis: Plan.axis({ resolution: "day" }), slice: { slice: rowsSlice() }, series })), "");
         assert.match(refusal(($) => Plan.Payload({ axis, slice: { slice: rowsSlice() }, series, data: $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch])) })),
             /^Plan: `slice`'s `rows` source gives the canvas its rows, paged from it — leave `data` out: data=\{Slice\.rows\(slice\)\} is gone, and the Plan reads its rows from the slice: slice=\{\{ slice \}\}$/);
+    });
+
+    test("an axis with no window of its own takes it from a source holding a range: a slice of the canvas's rows' sources alone holds none, and is refused, naming the change (#1344)", () => {
+        const Job = ex.PrintJob;
+        const series = [Plan.series.span(Job, { key: "jobs", title: "Jobs", label: (j) => j.title,
+            runs: (j, k) => [Plan.run({ key: k, start: j.start.unwrap("some"), end: j.end.unwrap("some"), label: j.title, state: "confirmed" })] })];
+        const windowless = () => Plan.axis({ resolution: "day" });
+        const refused = /^Plan: the axis states no `window`, and no source of the slice holds one — the canvas's rows never follow the dates on screen, so neither the `rows` source nor a resource kind's holds the window: declare it, Plan\.axis\(\{ window: \{ min, max \}, … \}\), or name a range on an event kind's source or a tab's$/;
+        // The rows' source alone…
+        assert.match(refusal(() => Plan.Payload({ axis: windowless(), series,
+            slice: { slice: Slice.bindRecords("spec.rows.only", { rows: { source: jobIndex(), fields: { start: { label: "Dates" } } } }) } })), refused);
+        // …and beside a resource kind's.
+        assert.match(refusal(($) => Plan.Payload({ axis: windowless(), resources: { presses: pressesOf($) }, events: { job: jobsOf($) },
+            slice: { slice: Slice.bindRecords("spec.presses.only", { presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: [ex.planPrintPressesByHall] }), fields: { hall: { label: "Hall", hints: ["Hall A"] } } } }) } })), refused);
+        // An event kind's source holds the window: a windowless axis takes it.
+        assert.equal(refusal(($) => Plan.Payload({ axis: windowless(), resources: { presses: pressesOf($) }, events: { job: narrowedJobs($) }, slice: { slice: jobSlice() } })), "");
     });
 
     test("the bare handle, Slice.bind and a single Slice.bindRecord are refused, naming Slice.bindRecords and the Plan's sources", () => {

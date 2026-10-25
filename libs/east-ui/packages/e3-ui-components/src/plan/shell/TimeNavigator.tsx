@@ -8,7 +8,6 @@ import { StringType, equalFor } from "@elaraai/east";
 import { useFormatters, useSlicesReactivity } from "@elaraai/east-ui-components";
 import { RecordSliceFieldEditor } from "@elaraai/east-ui-components/internal";
 import { TimeNavigator } from "../../shared/time/navigation.js";
-import { writePlanWindow } from "../controller/effects.js";
 import type { PlanChrome } from "../root/chrome.js";
 
 const stringEqual = equalFor(StringType);
@@ -16,11 +15,13 @@ const stringEqual = equalFor(StringType);
 /**
  * Calendar/Roster navigation over the Plan's one window (#1344): a date
  * picked writes the window, keeping its visible bucket count, into every
- * source of the slice that holds it, as the brush does; its Range panel edits
- * the leading source's range, which the others follow.
+ * source of the slice that holds it, as the brush does — else the canvas's
+ * own, which a slice with no source holding the window leaves it; its Range
+ * panel edits the leading source's range, which the others follow, and with
+ * no source holding the window it has none.
  */
 export function PlanTimeNavigator({ chrome, compact = false, controls }: { chrome: PlanChrome; compact?: boolean; controls?: ReactNode }) {
-    const { scale, windowParts, lead } = chrome;
+    const { scale, windowParts, lead, moveWindow } = chrome;
     useSlicesReactivity(windowParts.map(({ part }) => part.key));
     const words = useFormatters();
     if (scale.window.min.type !== "time" || scale.window.max.type !== "time") return null;
@@ -34,7 +35,7 @@ export function PlanTimeNavigator({ chrome, compact = false, controls }: { chrom
         // scale's calendar arithmetic, never a fixed number of milliseconds.
         const min = scale.floor(scale.fromNumber(date));
         const max = scale.offset(min, scale.n);
-        writePlanWindow(windowParts, scale.toNumber(min), scale.toNumber(max));
+        moveWindow(scale.toNumber(min), scale.toNumber(max));
     };
     const rangeEditor = lead !== undefined && field !== undefined
         ? <RecordSliceFieldEditor slice={lead.part} field={field} source={lead.source} />

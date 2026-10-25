@@ -11,7 +11,9 @@
  * out. Every action runs its own effects before it returns, and notifies once;
  * a data change reconciles the UI state exactly as the canvas's first render of
  * it already showed; the source's channels outlive a disconnect. A slice's
- * source is the Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376).
+ * source is the Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376);
+ * the canvas's rows' never holds the window, and the canvas then holds its
+ * own (#1344).
  */
 
 import { describe, test, expect, afterEach, vi } from "vitest";
@@ -22,8 +24,10 @@ import { recordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import { e3Harness } from "../../e3-web-mount.test-utils.js";
+import { timeInstant } from "../instant.js";
 import type { PlanRootValue, PlanRowId, PlanWireRow } from "../model.js";
 import type { PlanPersisted } from "../persisted.js";
+import { createPlanWindowHold } from "../root/window.js";
 import { PLAN_PAGE_SIZE } from "../use-plan-paging.js";
 import { createPlanController, reconciledUi, type PlanController, type PlanUiBindValue, type PlanUiStateValue } from "./index.js";
 import { blocksSource, oneBlock, rowId, rowIdEqual, rowItem, rowKey } from "../plan.test-utils.js";
@@ -78,20 +82,23 @@ const without = (key: string) => ROWS.filter((r) => !rowIdEqual(r.id, rowId(key)
 /** A row's test key from its id. */
 const nameOf = (id: PlanRowId) => id.value.path.join("/");
 
-/** The rows' source of a Plan's slice — the dated rows, holding the 12-week window — and what an action writes into it (#1344). */
-async function windowSlice(key: string) {
+/**
+ * A source of a Plan's slice — the dated rows, holding the 12-week window, as an event kind's or a tab's does — or, as
+ * `rows`, the canvas's rows', whose range holds none; and what an action writes into it (#1344).
+ */
+async function windowSlice(key: string, source: "dated" | "rows" = "dated") {
     const rail = await bindRail(() => Slice.bindRecords(key, {
-        rows: {
+        [source]: {
             source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
             fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
         },
     }), []);
-    const part = rail.part("rows");
+    const part = rail.part(source);
     const window = (): [number, number] => {
         const held = recordSliceWindow(part)!;
         return [held.min, held.max];
     };
-    return { chrome: some(rail.chrome), writes: () => rail.writes("rows"), state: () => part.read(), window };
+    return { chrome: some(rail.chrome), writes: () => rail.writes(source), state: () => part.read(), window };
 }
 
 /** A controller already showing `value`, with a count of its notifications. */
@@ -149,6 +156,63 @@ describe("actions run their own effects (#815)", () => {
         expect(c.getSnapshot().store).toBe(store);
         expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
         expect(notified()).toBe(1);
+    });
+});
+
+describe("the window a canvas holds itself (#1344)", () => {
+    /** A controller over a canvas whose slice's one source is its rows' — whose range holds no window — with its hold. */
+    async function overRows(key: string) {
+        const s = await windowSlice(key, "rows");
+        const hold = createPlanWindowHold();
+        let moved = 0;
+        hold.subscribe(() => { moved += 1; });
+        const c = createPlanController({ grain: "resource", collapsed: [], windowHold: hold });
+        const v = root(ROWS, { slice: s.chrome });
+        c.setValue(v, v);
+        return { s, hold, c, moved: () => moved };
+    }
+
+    test("no source holding the window, the keys and the brush move the canvas's own — its hold, which tells its render — and write nothing into the rows", async () => {
+        const { s, hold, c, moved } = await overRows("c1344-hold");
+        const where = s.state().where;
+        // Two presses in one handler pan two periods from the axis's window, each read back from the hold.
+        c.dispatch({ t: "key", key: "]" });
+        c.dispatch({ t: "key", key: "]" });
+        expect(hold.last).toEqual([W27.getTime() + 2 * WEEK, W39.getTime() + 2 * WEEK]);
+        expect(moved()).toBe(2);
+        // A brush's window, and its clear: the axis's window again.
+        c.dispatch({ t: "brush.commit", min: timeInstant(new Date(W27.getTime() + WEEK)), max: timeInstant(W39) });
+        expect(hold.last).toEqual([W27.getTime() + WEEK, W39.getTime()]);
+        c.dispatch({ t: "brush.clear" });
+        expect(hold.last).toEqual([W27.getTime(), W39.getTime()]);
+        expect(moved()).toBe(4);
+        // The rows' narrowing — their range among it — is as it was: nothing of theirs is read again.
+        expect(s.writes()).toBe(0);
+        expect(s.state().where).toEqual(where);
+    });
+
+    test("no source holding the window, the resolution is the slice's first source's: one write, of the resolution alone, the rows' narrowing standing", async () => {
+        const { s, hold, c, moved } = await overRows("c1344-res");
+        const where = s.state().where;
+        c.dispatch({ t: "resolution.set", resolution: "day" });
+        expect(s.writes()).toBe(1);
+        expect(s.state().resolution).toEqual(some(variant("day", null)));
+        expect(s.state().where).toEqual(where);
+        // A resolution moves no window: the hold stands.
+        expect(moved()).toBe(0);
+        expect(hold.last).toBeUndefined();
+        expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
+    });
+
+    test("a canvas with no slice keeps the axis's stated window: the keys move nothing", () => {
+        const hold = createPlanWindowHold();
+        const c = createPlanController({ grain: "resource", collapsed: [], windowHold: hold });
+        const v = root(ROWS);
+        c.setValue(v, v);
+        c.dispatch({ t: "key", key: "]" });
+        c.dispatch({ t: "brush.clear" });
+        expect(hold.moves).toBe(0);
+        expect(hold.last).toBeUndefined();
     });
 });
 
