@@ -130,7 +130,7 @@ import {
     ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
-import { cellKinds, cellSpanOf, createCellSpanStore } from "./root/cells.js";
+import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -718,21 +718,26 @@ export function usePlanCanvas({
     // sticky chrome above its rows.
     const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
     // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them
-    // — under the narrowing their windows are (#1344), so a choice's reads none for the last one's rows standing in.
+    // — under the narrowing their windows are (#1344), so a choice's reads none for the last one's rows standing in. They are
+    // the rows the view shows, never the overscan mounted beside them, and a view showing a run not read yet and no row read
+    // leaves the span standing (`shownCellSpan`).
     const pagingOrigin = paging.origin;
     const pagingNarrowing = paging.narrowing;
     const reportRange = usePlanRangeReport(body.items, controller, pagingOrigin);
     const onRangeChange = useCallback((
         range: { startIndex: number; endIndex: number }, isScrolling: boolean, center?: { index: number; withinPx: number },
+        shown?: { startIndex: number; endIndex: number },
     ) => {
         reportRange(range, isScrolling, center);
         if (isScrolling) return;
         const inView: { key: string; path: readonly string[] }[] = [];
-        for (let i = range.startIndex; i <= range.endIndex; i++) {
+        let unread = false;
+        for (let i = shown?.startIndex ?? 0; shown !== undefined && i <= shown.endIndex; i++) {
             const item = body.items[i];
             if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: item.row.row.id.value.path });
+            else if (item?.kind === "band" || item?.kind === "failed") unread = true;
         }
-        cellSpans.set(cellSpanOf(inView, pagingOrigin, pagingNarrowing));
+        cellSpans.set(shownCellSpan(inView, unread, cellSpans.get(), pagingOrigin, pagingNarrowing));
     }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
