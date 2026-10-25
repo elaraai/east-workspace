@@ -8,8 +8,8 @@
  * is — 15 on Day, 56 on Week, 154 on Month — on a fixed grid. Every window
  * starts a whole number of grid steps from the epoch, a step half a window in
  * whole days (`timelineStep`: 7, 28 and 77), so the window a date opens is
- * always the same one, and the window a re-centre goes to is known before the
- * view gets there: it is read ahead (`timelineAhead`). A date opens the window
+ * always the same one, and the window a re-centre or a step that way goes to is
+ * known before the view gets there: it is read ahead (`timelineAhead`). A date opens the window
  * whose middle is nearest it (`timelineRange`), so it sits at least a quarter
  * of a window in from either end.
  *
@@ -99,14 +99,15 @@ function placeOf(range: CalendarRange, period: CalendarView["period"]): number |
 }
 
 /**
- * The window a re-centre the way the view travels goes to (#1398, CL7): the
- * next window of the grid that way, read ahead once the window shown has
- * landed, so a re-centre normally finds it read.
+ * The window the view goes to next the way it moves (#1398, CL7): the next
+ * window of the grid the way its scroll travels or its last step went (ruled
+ * 25 Oct 2026), read ahead once the window shown has landed, so a re-centre or
+ * a step on normally finds it read.
  *
  * @param range - The window shown
- * @param toward - Which way the view travels along time: back (-1), on (1), or not yet (0)
+ * @param toward - Which way the view moves along time: back (-1), on (1), or not yet (0)
  * @param period - The timeline's period
- * @returns The window, or none: before the view has travelled, or for a range no window of the grid is
+ * @returns The window, or none: before the view has moved, or for a range no window of the grid is
  */
 export function timelineAhead(range: CalendarRange, toward: -1 | 0 | 1, period: CalendarView["period"]): readonly CalendarRange[] {
     const k = toward === 0 ? undefined : placeOf(range, period);

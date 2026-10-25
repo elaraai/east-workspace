@@ -87,9 +87,9 @@ const NO_RANGES: readonly CalendarRange[] = [];
 /**
  * The periods either side of the view, read ahead once its window lands
  * (#1398, CL7): the ranges a step to the next and the previous period reads.
- * The timeline's step moves from where the viewer scrolled, which nothing read
- * ahead can know: it reads none ahead of a step, only the window a re-centre
- * goes to the way its view travels (`timeline.ts`' `timelineAhead`).
+ * The timeline reads none of these: once its window lands it reads the next
+ * window of its grid the way its view last moved, by its scroll or a step
+ * (`timeline.ts`' `timelineAhead`, ruled 25 Oct 2026).
  *
  * @param view - The view
  * @param settings - The Calendar's settings: its week's first day and its weekends

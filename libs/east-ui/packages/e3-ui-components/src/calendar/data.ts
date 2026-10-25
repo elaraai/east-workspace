@@ -14,8 +14,9 @@
  *   landed, what a step goes to is read ahead (`shared/schedule/read-ahead.ts`,
  *   CL7) in a read of its own, so a step to it shows it at once and a page of
  *   it landing hands the frame nothing: the periods either side, or on the
- *   timeline the window a re-centre goes to the way its view travels
- *   (`timelineAhead`). A step further drops their reads.
+ *   timeline the next window of its grid the way its view last moved — as it
+ *   scrolls, or as a step moved its dates (`timelineAhead`, ruled 25 Oct
+ *   2026). A step further drops their reads.
  * - **The backlog apart**: each other backlog kind's — read whole, or through
  *   its backlog index — which follows no window. Read once, no date change
  *   reads it again: it stands through every re-centre and every step.
@@ -108,7 +109,7 @@ export function windowedBacklogKinds(value: CalendarValue): ReadonlySet<string> 
  * @param range - The window shown
  * @param editing - The editing whose drafts the reads hold
  * @param view - The view: what a step from it goes to is read ahead
- * @param travel - On the timeline, which way its view travels: the window a re-centre that way goes to is read ahead
+ * @param travel - On the timeline, which way its view last moved, by its scroll or a step: the next window of its grid that way is read ahead
  * @returns What the frame shows
  */
 export function useCalendarData(value: CalendarValue, range: CalendarRange, editing: ScheduleEditing | undefined, view: CalendarView,

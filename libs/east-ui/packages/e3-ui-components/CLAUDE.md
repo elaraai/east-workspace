@@ -458,11 +458,13 @@ subscriber, a microtask after the last one leaves, so a read the next render
 asks again keeps its request. A period builder's reader reads its period's
 neighbours ahead once its period has landed (`shared/schedule/read-ahead.ts`,
 CL7) — the Roster's weeks, the Allocation's days, the Calendar's days, weeks
-and months (`calendarAhead`) — and the Calendar's timeline the window a
-re-centre goes to the way its view travels (`timeline.ts`' `timelineAhead`,
-#1398), none before the view travels and none for a Prev/Next step: a step
-or a re-centre to one shows it at once, and the reads of the periods moved
-away from are aborted.
+and months (`calendarAhead`) — and the Calendar's timeline the next window of
+its grid the way its view last moved, as its scroll travels or as a step of
+its dates went — Prev/Next, Today, a date picked, a pick of Search Records
+(`timeline.ts`' `timelineAhead`, #1398, ruled 25 Oct 2026) — none before the
+view has moved, and none after a layout or a period: a step or a re-centre to
+one shows it at once, and the reads of the periods moved away from are
+aborted.
 It reads them in a tracked read of their own beside the period's
 (`useReadAhead`, called after the period's read in the same reader): a page
 of theirs landing re-runs that read alone, never the period's, which would
@@ -1120,23 +1122,30 @@ history as the last period read had it, and Publish in its slot, off,
 wherever it cannot publish; the rail's summary keeps a narrowed source's place
 while its count is read.
 
-The Calendar's timeline re-centre is no step (#1398): the timeline draws a
+The Calendar's timeline continues what it shows (#1398): the timeline draws a
 bounded window of days on a fixed grid — 15 on Day, 56 on Week, 154 on
 Month, each starting a whole number of half windows (7, 28 and 77 days) from
 the epoch (`calendar/timeline.ts`) — and as the view comes within 240px of an
 end of it, the window moves on to the grid's next one that way, the scroll by
 as much, every instant where it was on screen; the view's date becomes the
 day under its middle, so a reload opens that window again where the view was.
-The user navigated nowhere and no label changes, so until the new window lands
-the held read stands in (the frame's `continuation`): its events, their lanes —
-every row its height, so the scroll keeps its offset — its booked hours, its
-overlaps and its Backlog, stale and retained (CL5, CL8), nothing unread. Only
-the days of the window the held read does not cover are washed, which start
-off screen (the views' `covered`), and a figure over the days shown says `…`
-only where the view has passed beyond it. Landed, the rows take the new lanes
-with the row in view anchored. A step — Prev/Next from the view's middle, a
-date picked, a layout or a period, a pick of Search Records — ends it: a step
-to a window not read yet holds none of the old window's events.
+Every route that moves the timeline's dates behaves as its scroll does (ruled
+25 Oct 2026): a re-centre, Prev/Next from the view's middle, Today, a date
+picked, a pick of Search Records and a period changed on the timeline. Until
+the window it goes to lands, the held read stands in — the frame's
+`continuing`, while the held read was drawn on the timeline: its events at
+their real dates, wherever they cover the instants on screen, in the lanes the
+period they were drawn at gave them (the views' `lanesPeriod`) — every row
+its height, so the scroll keeps its offset — its booked hours, its overlaps
+and its Backlog, stale and retained (CL5, CL8), and no commit marks it unread.
+Beyond the held read, placeholders only: the days of the window it does not
+cover are washed (the views' `covered`), and a figure over the days shown says
+`…` only where the view has passed beyond it. Landed, the rows take the new
+lanes with the row in view anchored, and the next window the way the view
+moved is read ahead. The grids keep their own rule: a step of a time or month
+grid, or of the agenda, to a period not read yet — or a layout changed, into
+the timeline too — holds none of the old period's events, whose columns are
+another period's days.
 
 The Schematic (#1398) keeps what it drew while a read is in flight: its last
 complete drawing, and once it has settled once, a kind's rows as they land,
@@ -1254,9 +1263,9 @@ nothing else, and a day crossed only those. The overlaps chip counts the
 overlaps in the days shown (`shared/schedule/overlaps.ts`'
 `scheduleOverlapsIn`, #1398), so it moves as days come into view and never as
 the window re-centres; the frame hears only whether there is one to show. Its
-scroll publishes which way it travels to a store of its own, which the
-window's read alone reads, to read ahead the window a re-centre that way goes
-to.
+scroll, and a step of its dates, publish which way it travels to a store of its
+own, which the window's read alone reads, to read ahead the next window of its
+grid that way.
 
 A kind read by its cells (#1039) over a paged kind says which resources' rows
 draw what is known of them (the shared reader's `drawn`, through `usePlanCells`;

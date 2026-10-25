@@ -13,9 +13,10 @@
  *   chip, each row's booked hours and the inspector's overlaps — so a day
  *   crossed draws only those; a figure over them is said once what the
  *   timeline draws covers them (`coversShown`), and counts only what it draws;
- * - **which way it travels** along time, published only as that turns, read
- *   by the window's read alone: once the window lands, the window a re-centre
- *   that way goes to is read ahead.
+ * - **which way it travels** along time — as it scrolls, or as a step of its
+ *   dates moved it — published only as that turns, read by the window's read
+ *   alone: once the window lands, the next window of its grid that way is read
+ *   ahead (ruled 25 Oct 2026).
  *
  * @packageDocumentation
  */
@@ -151,10 +152,10 @@ export function useOverlapsShown<I extends ScheduleItemValue>(overlaps: Schedule
     return useSyncExternalStore(store?.subscribe ?? NOTHING, get, get);
 }
 
-/** Which way along time a timeline's view last travelled: back (-1), on (1), or not since a step placed it (0). */
+/** Which way along time a timeline's view last travelled: back (-1), on (1), or not since a layout or a period placed it (0). */
 export type Travel = -1 | 0 | 1;
 
-/** Which way a timeline's view travels, as a store: set by its scroll, read by what reads ahead. */
+/** Which way a timeline's view travels, as a store: set by its scroll and by a step of its dates, read by what reads ahead. */
 export interface TravelStore {
     /** Which way it travels now. */
     readonly get: () => Travel;
