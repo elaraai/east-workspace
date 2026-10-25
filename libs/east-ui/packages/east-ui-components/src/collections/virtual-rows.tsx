@@ -112,10 +112,17 @@
  * scroll is at rest once it has held still {@link INTENT_DWELL_MS} or slowed
  * below a viewport per {@link INTENT_SLOW_MS}, so a fling past an unloaded run
  * asks for the window it slows over before the gesture ends.
+ *
+ * A scroll draws again only the rows it brings into view (#1398, CL9): a row
+ * is drawn again only when its index or `renderRow` moves, so a collection
+ * that keeps `renderRow` the same function while its data holds pays for a
+ * scroll only in the rows coming into view. Which row shows at the top of the
+ * view is read by the row that needs it (`useRowsTop`), never handed to every
+ * row.
  */
 
 import {
-    Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState,
+    memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState,
     type HTMLAttributes, type MutableRefObject, type ReactNode, type RefObject,
 } from "react";
 import { Box } from "@chakra-ui/react";
@@ -246,15 +253,13 @@ function createScrollIntentFollow(): ScrollIntentFollow {
 }
 
 /**
- * Where the view is among a frame's rows, as a row is rendered (#1398): the
- * row showing at the top of the view, just under a pinned header — where a
- * collection says a failure once, in the first row in view (CL11). `top` is
- * `undefined` where the frame lays every row out in flow and watches nothing.
+ * A row's content, drawn again only when its index or its renderer moves
+ * (#1398, CL9): a scroll that keeps a mounted row mounted draws nothing of it
+ * again, whatever the frame draws around it.
  */
-export interface RowsInView {
-    /** The index of the row at the top of the view; `undefined` with no view to place it in. */
-    readonly top: number | undefined;
-}
+const RowContent = memo(function RowContent({ index, render }: { index: number; render: (index: number) => ReactNode }) {
+    return <>{render(index)}</>;
+});
 
 /** What moves a frame's rows on screen (#856) — see `onViewport`. */
 export interface RowsViewport {
@@ -360,12 +365,14 @@ interface VirtualRowsBaseProps {
      */
     measureRows?: boolean | undefined;
     /**
-     * Renders body row `index` — a full-width, self-contained row element —
-     * given where the view is among the rows ({@link RowsInView}): which row
-     * shows at the top of the view, for what a collection says once, in the
-     * first row in view.
+     * Renders body row `index` — a full-width, self-contained row element. A
+     * row is drawn again only when its index or this function moves (#1398,
+     * CL9): keep it the same function while what the rows show holds, so a
+     * scroll draws only the rows it brings into view. A row that says
+     * something once, in the first row in view, reads which row that is itself
+     * (`useRowsTop`).
      */
-    renderRow: (index: number, view: RowsInView) => ReactNode;
+    renderRow: (index: number) => ReactNode;
     /** Rows above/below the viewport to keep mounted (default 4). */
     overscan?: number | undefined;
     /**
@@ -482,6 +489,12 @@ interface VirtualRowsBaseProps {
     restoreAnchor?: { index: number; offset: number } | undefined;
     /** Extra props / styles for the outer element (root recipe styles, width). */
     rootCss?: Record<string, unknown> | undefined;
+    /**
+     * Attributes for the outer element — a bounded frame's scroll element —
+     * a collection names it by, as its tests and its own code find it (the
+     * Calendar's timeline, #1398). Omitted, the frame's DOM is unchanged.
+     */
+    rootProps?: HTMLAttributes<HTMLDivElement> | undefined;
     /**
      * Virtualize an UNBOUNDED frame once it holds at least this many rows
      * (#812): the frame still grows to its content, but only the rows its
@@ -796,7 +809,7 @@ export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
         header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, renderRow, measureRows = true,
-        overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
+        overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, rootProps, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
     } = props;
@@ -957,7 +970,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             const top = virtualizer.scrollOffset ?? 0;
             return { top, bottom: top + (virtualizer.scrollRect?.height ?? 0) - margin };
         } : undefined;
-        rowsScroll.place(bounded ? scrollRef.current : watching ? ancestor ?? null : null, bounded ? itemsOffset : 0, edges);
+        // The row at the top of the view, just under a pinned header (item starts carry the header's height as the scroll
+        // margin, so the view's top in their terms is the offset plus it) — read by the row that says something once there.
+        const topIndex = virtualized ? () => virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + margin)?.index : undefined;
+        rowsScroll.place(bounded ? scrollRef.current : watching ? ancestor ?? null : null, bounded ? itemsOffset : 0, edges, topIndex);
     });
     useLayoutEffect(() => () => rowsScroll.place(null, 0), [rowsScroll]);
 
@@ -1179,15 +1195,9 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         return () => ro.disconnect();
     }, [headerEl, bounded]);
 
-    // Where the view is among the rows, as each is rendered: the row at the top of the view, just under a pinned
-    // header (item starts carry the header's height as the scroll margin, so the view's top in their terms is the
-    // offset plus it) — none where the frame watches nothing.
-    const top = virtualized ? virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + margin)?.index : undefined;
-    const inView: RowsInView = { top };
-
     // Every row, in flow — an unbounded frame below scale mounts them all.
     const everyRow = () => Array.from({ length: count }, (_unused, i) => (
-        <Fragment key={getItemKey !== undefined ? getItemKey(i) : i}>{renderRow(i, inView)}</Fragment>
+        <RowContent key={getItemKey !== undefined ? getItemKey(i) : i} index={i} render={renderRow} />
     ));
 
     // Unbounded below scale with nothing to watch: preserve the exact
@@ -1196,7 +1206,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     if (!bounded && !watching) {
         return (
             <RowsScrollContext.Provider value={rowsScroll}>
-                <Box ref={rootRef} css={rootCss}>
+                <Box {...rootProps} ref={rootRef} css={rootCss}>
                     {header}
                     {overlay === undefined && rowsProps === undefined && rowsRef === undefined ? everyRow() : (
                         // The overlay's box: the rows, and nothing else.
@@ -1242,7 +1252,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                         width="100%"
                         style={{ transform: `translateY(${item.start - margin}px)` }}
                     >
-                        <RowTopContext.Provider value={item.start - margin}>{renderRow(item.index, inView)}</RowTopContext.Provider>
+                        <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>
                     </Box>
                 ))
             ) : items.length > 0 && (
@@ -1262,7 +1272,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 >
                     {items.map((item) => (
                         <Box key={item.key} data-index={item.index}>
-                            <RowTopContext.Provider value={item.start - margin}>{renderRow(item.index, inView)}</RowTopContext.Provider>
+                            <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>
                         </Box>
                     ))}
                     {overlay !== undefined && overlay !== null && (
@@ -1298,7 +1308,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     if (!bounded) {
         return (
             <RowsScrollContext.Provider value={rowsScroll}>
-                <Box ref={rootRef} css={rootCss} data-virtual-rows={atScale ? "ancestor" : "watched"}>
+                <Box {...rootProps} ref={rootRef} css={rootCss} data-virtual-rows={atScale ? "ancestor" : "watched"}>
                     {header !== undefined && <Box ref={setHeaderEl}>{header}</Box>}
                     {atScale ? virtualWindow() : (
                         <Box ref={setRows} position={overlay !== undefined ? "relative" : undefined}
@@ -1314,13 +1324,15 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         );
     }
 
-    // The row at the top of the view, just under the header — what the sticky
-    // strip is drawn from.
+    // The row at the top of the view, just under the header (item starts carry the header's height as the scroll
+    // margin) — what the sticky strip is drawn from.
+    const top = sticky !== undefined ? virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + margin)?.index : undefined;
     const stickyNode = sticky !== undefined && top !== undefined ? sticky(top) : null;
 
     return (
         <RowsScrollContext.Provider value={rowsScroll}>
         <Box
+            {...rootProps}
             ref={(el: HTMLDivElement | null) => {
                 scrollRef.current = el;
                 if (scrollElRef !== undefined) scrollElRef.current = el;

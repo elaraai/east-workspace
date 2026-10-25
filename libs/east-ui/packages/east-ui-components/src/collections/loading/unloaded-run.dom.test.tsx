@@ -204,6 +204,7 @@ function frameScroll(top: number, bottom: number) {
     const scroll: RowsScroll = {
         view: () => at,
         viewAt: () => undefined,
+        top: () => undefined,
         listen: (cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; },
     };
     return {
@@ -253,6 +254,7 @@ describe("a run that follows the view of its frame (CL2)", () => {
         const scroll: RowsScroll = {
             view: () => { throw new Error("a run its frame places reads no layout"); },
             viewAt: (top) => ({ top: offset - top, bottom: offset + 700 - top }),
+            top: () => undefined,
             listen: (cb) => { listeners.add(cb); return () => { listeners.delete(cb); }; },
         };
         const commits: string[] = [];

@@ -4,8 +4,9 @@
  */
 
 /** Shared Slice rail presentation: local and record adapters use one ladder. */
-import { Fragment, useState, type ReactNode } from "react";
-import { Accordion, Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Accordion, Box, chakra, useRecipe } from "@chakra-ui/react";
+import { useSlotStyles, type SlotStyles } from "../../theme/slot-styles.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFilter, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import type { IconProp } from "@fortawesome/fontawesome-svg-core";
@@ -64,7 +65,7 @@ export interface SliceRailModel {
  * control, so the keys move between the fields as they would without it.
  */
 function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly string[] }) {
-    const styles = useSlotRecipe({ key: "sliceFrame" })();
+    const styles = useSlotStyles("sliceFrame");
     const chip = useRecipe({ key: "chip" });
     const [expanded, setExpanded] = useState<string[]>([]);
     return <Accordion.Root css={styles.railAccordion} collapsible value={expanded}
@@ -143,12 +144,20 @@ interface RailForm {
 /**
  * Build one shared-toolbar item per Slice cluster. The adapters own data and
  * control actions; this hook owns folding, held anchors and editor density.
+ *
+ * The items are made again only when what they are drawn from moves (#1398,
+ * CL9): the model, the clusters' affordances, and the editor held open. A
+ * host that keeps its model the same object while its slices and its words
+ * hold — the record adapters do — hands its builder's toolbar the same items
+ * at every render, so a builder drawn again at each window landing draws its
+ * rail again only when a choice moves.
+ *
  * @param model - Display callbacks; undefined means no controls.
  * @param clusters - Affordances in each host cluster.
  * @returns Items for the host's one Toolbar.
  */
 export function useSliceRailItems(model: SliceRailModel | undefined, clusters: ReadonlyArray<SliceRailClusterSpec>): ToolbarItem[] {
-    const styles = useSlotRecipe({ key: "sliceFrame" })();
+    const styles = useSlotStyles("sliceFrame");
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     // Every slice change can move what the rail shows — the chips, their words.
@@ -158,6 +167,22 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
     // of the cluster flat, in `editor` density, complete however far the
     // cluster has folded.
     const [open, setOpen] = useState<{ key: string; chips: number } | null>(null);
+    // The clusters as what they hold: a host's new array of the same clusters makes nothing again.
+    const shape = clusters.map((cluster) => `${cluster.key}\u0001${cluster.side ?? ""}\u0001${cluster.kinds.join("\u0002")}`).join("\u0000");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the clusters are read by `shape`, what they hold
+    return useMemo(() => railItems(model, clusters, open, setOpen, styles, chip, btn), [model, shape, open, styles, chip, btn]);
+}
+
+/** The rail's items, made from its model — what {@link useSliceRailItems} keeps while they hold. */
+function railItems(
+    model: SliceRailModel | undefined,
+    clusters: ReadonlyArray<SliceRailClusterSpec>,
+    open: { key: string; chips: number } | null,
+    setOpen: (open: { key: string; chips: number } | null) => void,
+    styles: SlotStyles,
+    chip: ReturnType<typeof useRecipe>,
+    btn: ReturnType<typeof useRecipe>,
+): ToolbarItem[] {
     if (model === undefined) return [];
     const { version, activeCount } = model;
 

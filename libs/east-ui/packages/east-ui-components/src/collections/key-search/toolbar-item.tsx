@@ -89,6 +89,10 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
     const boxRef = useRef<HTMLDivElement | null>(null);
     // The popover opens with the focus in its search box.
     const initialFocusEl = useCallback(() => boxRef.current?.querySelector<HTMLElement>("input") ?? null, []);
+    // What is typed, kept with the search it was typed into — the same function while the search is, so the box,
+    // drawn again with its builder's toolbar, draws nothing again for it (#1398, CL9).
+    const resetKey = search?.resetKey ?? "";
+    const onInputChange = useCallback((text: string) => setTyped({ resetKey, text }), [resetKey]);
     if (search === undefined) return undefined;
     const label = options.label ?? "Search Records";
     const active = typed.resetKey === search.resetKey && typed.text !== "";
@@ -96,7 +100,7 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
         <DatasetKeySearch key={search.resetKey} label={options.label} keyType={search.keyType} onFind={search.find}
             browseQuery={search.browseQuery} noMatchesText={search.noMatchesText}
             onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery}
-            onInputChange={(text) => setTyped({ resetKey: search.resetKey, text })} />
+            onInputChange={onInputChange} />
     );
     const popup = (heading: string, controls?: ReactNode | ((close: () => void) => ReactNode)) => (
         <SliceEditPopover open={open} onOpenChange={setOpen} label={heading} size="lg" initialFocusEl={initialFocusEl}
