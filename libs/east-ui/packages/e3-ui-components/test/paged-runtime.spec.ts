@@ -1081,6 +1081,68 @@ describe("PagedRuntime — a burst of searches settles as one (#1360)", () => {
     });
 });
 
+describe("PagedRuntime — windows landing before a frame re-fire their readers together (#1398, CL9)", () => {
+    /** A runtime whose frames the test draws: what applies the windows landed waits for {@link FramedPagedRuntime.frame}. */
+    class FramedPagedRuntime extends PagedRuntime {
+        private frames: (() => void)[] = [];
+        protected override scheduleLanding(apply: () => void): () => void {
+            this.frames.push(apply);
+            return () => { this.frames = this.frames.filter((f) => f !== apply); };
+        }
+        /** Whether a frame waits to apply what landed. */
+        get waiting(): boolean { return this.frames.length > 0; }
+        /** Draws a frame. */
+        frame(): void { for (const apply of this.frames.splice(0)) apply(); }
+    }
+
+    test("two windows landing before a frame re-fire a reader of both once, as the frame is drawn, every version moved; one landing after it, at the next", async () => {
+        await h.write(rows, [10n, 20n, 30n, 40n, 50n, 60n]);
+        const R1 = await hashOf(rows);
+        const { runtime } = await known(new FramedPagedRuntime());
+        const keysOf = [pagedWindowKey(h.workspace, rowsPath, R1, 0, 2), pagedWindowKey(h.workspace, rowsPath, R1, 2, 2), pagedWindowKey(h.workspace, rowsPath, R1, 4, 2)];
+        // One reader of all three windows, as a sheet's is of the windows it draws.
+        const seen: number[][] = [];
+        const reader = () => { seen.push(keysOf.map((key) => runtime.getKeyVersion(key))); };
+        for (const key of keysOf) runtime.subscribe(key, reader);
+        const held = h.e3.hold(pages("inputs.preview_rows"));
+        callPage(runtime, 0n, 2n);
+        callPage(runtime, 2n, 2n);
+        callPage(runtime, 4n, 2n);
+        await held.holding;
+        await h.settle();
+
+        held.releaseOne();
+        await h.settle();
+        held.releaseOne();
+        await h.settle();
+        // Both have landed: each reads as it is, and nothing has re-fired before the frame.
+        assert.deepEqual(callPage(runtime, 0n, 2n), some([10n, 20n]));
+        assert.deepEqual(callPage(runtime, 2n, 2n), some([30n, 40n]));
+        assert.deepEqual(seen, [], "no reader re-fires before the frame");
+        assert.ok(runtime.waiting, "a frame waits to apply them");
+
+        runtime.frame();
+        assert.deepEqual(seen, [[1, 1, 0]], "once, as the frame is drawn, both windows' versions moved");
+
+        held.releaseOne();
+        await h.settle();
+        assert.deepEqual(seen, [[1, 1, 0]], "the third waits for the next frame");
+        runtime.frame();
+        assert.deepEqual(seen, [[1, 1, 0], [1, 1, 1]]);
+    });
+
+    test("a runtime with no frames to draw applies a window as it lands", async () => {
+        // Node draws no frames: a reader hears each window at once.
+        const R1 = await hashOf(rows);
+        const { runtime } = await known(new PagedRuntime());
+        let fired = 0;
+        runtime.subscribe(pagedWindowKey(h.workspace, rowsPath, R1, 0, 2), () => { fired += 1; });
+        callPage(runtime, 0n, 2n);
+        await h.settle();
+        assert.equal(fired, 1);
+    });
+});
+
 describe("PagedRuntime — a read no reader waits on any longer is aborted (#1398, CL6)", () => {
     // A window that left a list's demand ring, a period a newer navigation
     // superseded: once its last reader lets it go, its request is aborted while
