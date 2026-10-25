@@ -20,9 +20,12 @@
  * editor said so. The rows never set the window (#822).
  *
  * A canvas whose slice has no source holding the window holds its own
- * ({@link PlanWindowHold}), from the axis's stated window: the pan, the keys,
- * the now rung, the brush and the date navigator move it, and the render
- * follows. A canvas with no slice keeps the axis's stated window.
+ * ({@link PlanWindowHold}): the pan, the keys, the now rung, the brush and the
+ * date navigator move it, and the render follows. Each move is kept under the
+ * canvas's storage key, as its toggles are (#813, `persisted.ts`), and a
+ * remount opens on it from its first paint ({@link restoredWindow}) while the
+ * axis still allows it — else on the axis's stated window. A canvas with no
+ * slice keeps the axis's stated window.
  *
  * The resolution is the leading source's, written to each source holding the
  * window, else to every source (`controller/effects.ts`); a record's
@@ -39,6 +42,7 @@ import { resolveScale, type PlanAxisValue } from "../axis.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanAxisKind } from "../instant.js";
 import type { PlanRootValue } from "../model.js";
+import type { PlanOwnWindow } from "../persisted.js";
 import type { PlanWords } from "../words.js";
 import { PLAN_ROW_SOURCES, planSlices, planWindowParts, type PlanSlicesChrome, type PlanSourcePart } from "./sources.js";
 
@@ -88,13 +92,15 @@ export interface PlanWindowHold {
 /**
  * A window hold for a canvas.
  *
- * @returns An empty hold: no window shown yet, and the `rows` source the one whose range never holds it
+ * @param initial - The canvas's own window to open on: what a last session kept, as {@link restoredWindow} takes it
+ *   back (#813); left out, no window shown yet
+ * @returns The hold, showing `initial`, the `rows` source the one whose range never holds the window
  */
-export function createPlanWindowHold(): PlanWindowHold {
+export function createPlanWindowHold(initial?: readonly [number, number]): PlanWindowHold {
     const listeners = new Set<() => void>();
     let moves = 0;
     const hold: PlanWindowHold = {
-        last: undefined,
+        last: initial,
         rows: PLAN_ROW_SOURCES,
         get moves() { return moves; },
         move(min, max) {
@@ -168,6 +174,27 @@ export function statedWindow(axis: PlanAxisValue): readonly [number, number] | u
         case "ordinal":
             return undefined;
     }
+}
+
+/**
+ * The canvas's own window a last session kept under its storage key (#813), as
+ * the canvas takes it back before its first paint: only while it holds its own
+ * — its slice has no source holding the window, whose state keeps it — and only
+ * a window the axis still allows, on the arm it was written on and one the axis
+ * lays out. Anything else leaves the axis's stated window.
+ *
+ * @param kept - What the canvas's storage keeps of its own window
+ * @param value - The root the canvas mounts with: its axis and its slice
+ * @param rows - The sources whose ranges never hold the window (`planRowSources`)
+ * @returns The window to open on, `[from, to)` on the axis's domain; `undefined` to open on the stated one
+ */
+export function restoredWindow(kept: PlanOwnWindow | undefined, value: PlanRootValue, rows: readonly string[]): readonly [number, number] | undefined {
+    if (kept === undefined || value.axis.type !== kept.kind) return undefined;
+    const chrome = planSlices(value);
+    // A canvas with no slice keeps the axis's stated window, and one whose sources hold the window shows theirs.
+    if (chrome === undefined || planWindowParts(chrome, value.axis.type, rows).length > 0) return undefined;
+    const window = [kept.min, kept.max] as const;
+    return resolveScale({ axis: value.axis, sliceWindow: window, sliceResolution: undefined }) === undefined ? undefined : window;
 }
 
 /**
