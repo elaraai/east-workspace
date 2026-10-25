@@ -4,11 +4,12 @@
  */
 
 /**
- * The Calendar's timeline re-centre (#1398) on the real in-page e3: a
- * continuation, never a step. Its window is a bounded span of days on a
- * fixed grid, and as the view nears an end of it the window moves on, the
- * scroll moved by as much, every instant where it was on screen. While the
- * new window is read the held read stands in.
+ * The Calendar's timeline continuations (#1398) on the real in-page e3: its
+ * re-centre, and every step of its dates, which behaves as its scroll does
+ * (ruled 25 Oct 2026). Its window is a bounded span of days on a fixed grid,
+ * and as the view nears an end of it the window moves on, the scroll moved by
+ * as much, every instant where it was on screen. While the new window is read
+ * the held read stands in.
  *
  * The indexed Calendar's 12,000 events on its Timeline at Month, scrolled down
  * to the second press, every read of its record held through the e3 fault
@@ -17,7 +18,10 @@
  * on into it: every row's height and the scroll's offset, the events in view —
  * each where it was — the Backlog's count and the overlaps chip are as they
  * were, and no placeholder shows in view. Let go, the window lands, and the
- * row in view stays where it was on screen.
+ * row in view stays where it was on screen. And from 600px down the rows, a
+ * press of Next into a window not read yet: the rows' heights, the scroll, the
+ * Backlog's count and the held events in view stand, stale, and no commit marks
+ * the timeline unread; landed, nothing moves.
  */
 
 import { expect, test, type Locator } from "playwright/test";
@@ -105,6 +109,23 @@ function shownOf([l, r, t, b]: Box, view: Box): Box {
     return [Math.max(l, view[0]), Math.min(r, view[1]), t, b];
 }
 
+/**
+ * Hears every mark of the timeline as unread from now on, as each commit sets it — one set and cleared again within a
+ * turn too — and gives what was heard.
+ */
+async function watchUnread(frame: Locator): Promise<() => Promise<string[]>> {
+    await frame.locator("[data-calendar-timeline]").evaluate((timeline) => {
+        const seen: string[] = [];
+        (window as unknown as { __calendarUnread: string[] }).__calendarUnread = seen;
+        new MutationObserver((records) => {
+            for (const record of records) if (record.oldValue !== null) seen.push(record.oldValue);
+            const now = timeline.getAttribute("data-calendar-unread");
+            if (now !== null) seen.push(now);
+        }).observe(timeline, { attributes: true, attributeFilter: ["data-calendar-unread"], attributeOldValue: true });
+    });
+    return () => frame.page().evaluate(() => (window as unknown as { __calendarUnread: string[] }).__calendarUnread.slice());
+}
+
 /** Moves the timeline's scroll, as a person's scroll leaves it, and waits for the page at rest over the reads held. */
 async function scrollTimeline(frame: Locator, to: { left?: number; top?: number }) {
     await frame.locator("[data-calendar-timeline]").evaluate((timeline, to) => {
@@ -164,4 +185,47 @@ test(`the timeline's re-centre is no step: the next window's read held, each row
     expect({ unread: landed.unread, secondPress: landed.secondPress, placeholders: landed.placeholders, days: landed.days },
         "landed").toEqual({ unread: null, secondPress: 40, placeholders: 0, days: before.days });
     expect(inView(landed.events, landed.view).length).toBeGreaterThan(0);
+});
+
+test(`a step of the timeline continues what it shows, as its scroll does (ruled 25 Oct 2026): from 600px down its rows, Next month into a window not read yet keeps every row's height, the scroll, the Backlog's count and the held events in view, stale, no commit marking it unread; landed, nothing moves (#1398) @desktop`, async ({ page }) => {
+    await installE3Faults(page);
+    await page.setViewportSize({ width: 2560, height: 1200 });
+    const entry = await visitBuilder(page, ROUTE, ROOT, "light");
+    await sizeBuilder(page, entry, ROOT, 1440);
+    const frame = entry.locator(ROOT).first();
+    const toolbar = frame.locator('[data-frame-slot="toolbar"]');
+    await toolbar.getByRole("radio", { name: "Timeline", exact: true }).click();
+    await settled(page);
+    await toolbar.getByRole("radio", { name: "Month", exact: true }).click();
+    await settled(page);
+
+    // As the reviewer left it: 600px down the rows, the second press in view.
+    await scrollTimeline(frame, { top: 600 });
+    const before = await board(frame);
+    expect(before.scrollTop, "600px down the rows").toBe(600);
+    expect(before.secondPress, "the second press's row is mounted").toBeDefined();
+    expect(before.backlog).toMatch(/^Backlog 1 of 1$/);
+    expect(inView(before.events, before.view).length, "events in view").toBeGreaterThan(0);
+    const unread = await watchUnread(frame);
+
+    // Every read of the record held from here: the window a month on, past the one shown, is not read yet.
+    const held = await holdE3(page, { kinds: [...RECORD_READS], dataset: DATASET });
+    await toolbar.getByRole("button", { name: "Next month", exact: true }).click();
+    await settled(page, { holding: true });
+    const stepped = await board(frame);
+    expect(stepped.window, "the window moved on").not.toBe(before.window);
+    expect({ unread: stepped.unread, scrollTop: stepped.scrollTop, rows: stepped.rows, secondPress: stepped.secondPress, backlog: stepped.backlog, placeholders: stepped.placeholders },
+        "the step, its window read").toEqual({ unread: null, scrollTop: 600, rows: before.rows, secondPress: before.secondPress, backlog: before.backlog, placeholders: 0 });
+    // The held read's events in view, drawn at their dates, stale.
+    expect(inView(stepped.events, stepped.view).length, "the held events in view").toBeGreaterThan(0);
+    await expect(frame.locator("[data-calendar-main]")).toHaveAttribute("data-calendar-stale", "");
+
+    // Let go: the window lands, and nothing moves — the row in view where it was.
+    await releaseE3(page, held);
+    await settled(page);
+    const landed = await board(frame);
+    expect({ unread: landed.unread, secondPress: landed.secondPress, placeholders: landed.placeholders, days: landed.days },
+        "landed").toEqual({ unread: null, secondPress: before.secondPress, placeholders: 0, days: stepped.days });
+    await expect(frame.locator("[data-calendar-main]")).not.toHaveAttribute("data-calendar-stale", /.*/);
+    expect(await unread(), "no commit marked the timeline unread").toEqual([]);
 });

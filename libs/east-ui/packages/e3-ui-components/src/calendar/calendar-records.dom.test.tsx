@@ -5,10 +5,10 @@
  *
  * The indexed Calendar on e3 itself: its overlaps, its windows replaced
  * whole, its hidden drafts saved by key, a reload's period — and its
- * timeline's re-centre (#1398), which is no step: the held read stands in
- * while the next window of the grid is read, the window a re-centre the way
- * the view travels goes to is read ahead — none after Prev/Next, which places
- * the view — the Backlog is never read again for it, and a reload opens the
+ * timeline's continuations (#1398): a re-centre, and every step of its dates
+ * (ruled 25 Oct 2026), the held read standing in, every row its height, while
+ * the window is read; the next window the way the view went read ahead once
+ * one lands; the Backlog never read again for it, and a reload opening the
  * window again where the view was. The view is the page's own: another page
  * keeping one moves neither its date nor its window. The Backlog never blinks:
  * a step, a layout, a period, a re-centre or a narrowing keeps its count and
@@ -17,7 +17,7 @@
  * timeline's scroll box is given its width.
  */
 import { describe, expect, test, vi } from "vitest";
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DateTimeType, OptionType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
@@ -239,8 +239,38 @@ function layTimelinesOut(period: "day" | "month") {
         return isTimeline(this) ? daysOf(windowOf(this)) * timelinePixels(period) + TIMELINE_GUTTER : whole.call(this) as number;
     });
 }
+/** Each resource row's plot height, with its row: what the lanes it draws give it. */
+const rowHeights = (timeline: Element) => [...timeline.querySelectorAll<HTMLElement>("[data-calendar-resource-row]")]
+    .map(row => `${row.getAttribute("data-calendar-resource-row")} ${row.querySelector<HTMLElement>("[data-calendar-cell]")!.style.height}`);
+/**
+ * Every mark of a timeline as unread from now on, as each commit sets it — one set and cleared again in a turn too —
+ * and what stops hearing them.
+ */
+function unreadMarks(timeline: Element): { seen: string[]; stop: () => void } {
+    const seen: string[] = [];
+    const observer = new MutationObserver(records => {
+        for (const record of records) if (record.oldValue !== null) seen.push(record.oldValue);
+        const now = timeline.getAttribute("data-calendar-unread");
+        if (now !== null) seen.push(now);
+    });
+    observer.observe(timeline, { attributes: true, attributeFilter: ["data-calendar-unread"], attributeOldValue: true });
+    return { seen, stop: () => observer.disconnect() };
+}
+/** The instants a timeline's view shows by its scroll, right of its sticky column, as {@link VIEW} lays it out. */
+function shownSpan(timeline: HTMLElement, range: Span, period: "day" | "week" | "month"): { from: number; to: number } {
+    const from = range.from.getTime() + timeline.scrollLeft / timelinePixels(period) * DAY;
+    return { from, to: from + (VIEW - TIMELINE_GUTTER) / timelinePixels(period) * DAY };
+}
+/** The instants each of a timeline's washes covers, as shares of its window. */
+function washSpans(timeline: Element, range: Span): { from: number; to: number }[] {
+    const duration = range.to.getTime() - range.from.getTime();
+    return [...timeline.querySelectorAll<HTMLElement>("[data-loading-wash]")].map(wash => {
+        const left = Number.parseFloat(wash.style.left) / 100, width = Number.parseFloat(wash.style.width) / 100;
+        return { from: range.from.getTime() + left * duration, to: range.from.getTime() + (left + width) * duration };
+    });
+}
 
-describe("the timeline's re-centre is no step (#1398)", () => {
+describe("the timeline continues what it shows: its re-centre and every step of its dates (#1398, ruled 25 Oct 2026)", () => {
     test("with the next window's read held, the held read stands in: its events, booked hours, overlaps and Backlog as they were — retained, nothing unread — and only the days it does not cover washed, from its end on; once the window lands it is drawn, the Backlog read no more", async () => {
         const { container, timeline, end } = await openTimeline("month", "recentre-held");
         const shown = windowOf(timeline);
@@ -334,37 +364,116 @@ describe("the timeline's re-centre is no step (#1398)", () => {
         expect([windowOf(reopened), anchorOf(again.container)]).toEqual([next, day]);
     });
 
-    test("Prev/Next on the timeline steps from where the view is: to a window not read yet, it draws none of the old window's events — a step, never a re-centre (#1398, CL5)", async () => {
-        const { container, timeline } = await openTimeline("month", "recentre-step");
+    test("a step on the timeline to a window not read yet continues what it shows, as its scroll does (ruled 25 Oct 2026): the held read drawn, stale, where it covers the view, beyond it the wash alone, every row its height, no commit unread; landed, the new window is drawn", async () => {
+        const { container, timeline } = await openTimeline("month", "step-continues");
         const shown = windowOf(timeline);
+        const heights = rowHeights(timeline);
         expect(timeline.querySelectorAll("[data-calendar-event]").length).toBeGreaterThan(0);
+        const marks = unreadMarks(timeline);
         const held = h.e3.hold(eventsRead);
         // A month on from the view's middle, the author's day: a date another window opens, not read yet.
         await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Next month" })); });
         await settle();
-        expect(windowOf(timeline).from.getTime()).toBeGreaterThan(shown.from.getTime());
-        expect(timeline.getAttribute("data-calendar-unread")).toBe("pending");
-        expect(timeline.querySelector("[data-calendar-event]")).toBeNull();
+        const next = windowOf(timeline);
+        expect(next).toEqual(stepped(shown, 1));
+        // The held read stands in: its events at their dates, every row the height its lanes gave it, nothing unread.
+        expect(marks.seen).toEqual([]);
+        expect(timeline.querySelectorAll("[data-calendar-event]").length).toBeGreaterThan(0);
+        expect(rowHeights(timeline)).toEqual(heights);
+        // Retained while it is read (CL8): stale, aria-disabled — never inert.
+        const main = container.querySelector<HTMLElement>("[data-calendar-main]")!;
+        expect([main.hasAttribute("data-calendar-stale"), main.getAttribute("aria-disabled"), main.hasAttribute("inert")]).toEqual([true, "true", false]);
+        // Beyond the held read, the wash alone: from its end to the new window's.
+        const share = `${(shown.to.getTime() - next.from.getTime()) / (next.to.getTime() - next.from.getTime()) * 100}%`;
+        const washes = [...timeline.querySelectorAll<HTMLElement>("[data-loading-wash]")];
+        expect(washes.length).toBeGreaterThan(0);
+        expect(washes.map(wash => wash.style.left)).toEqual(washes.map(() => share));
         await act(async () => { held.release(); });
         await settle();
-        await waitFor(() => expect(timeline.hasAttribute("data-calendar-unread")).toBe(false));
+        await waitFor(() => expect(timeline.querySelector("[data-loading-wash]")).toBeNull());
+        expect(marks.seen).toEqual([]);
+        expect([main.hasAttribute("data-calendar-stale"), main.hasAttribute("aria-disabled")]).toEqual([false, false]);
         expect(timeline.querySelectorAll("[data-calendar-event]").length).toBeGreaterThan(0);
+        marks.stop();
     });
 
-    test("Prev/Next places the view, which has travelled nowhere since: from a view travelling on, a step to the window read ahead shows it at once and reads none ahead of it (#1398, CL7)", async () => {
-        const { container, timeline } = await openTimeline("month", "recentre-step-ahead");
-        const next = stepped(windowOf(timeline), 1);
-        // On: the next window is read ahead.
-        await scrollTo(timeline, timeline.scrollLeft + 100);
-        expect(windowReads(next)).toBe(1);
-        // A month on from the view's middle: a day the window read ahead opens.
-        await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Next month" })); });
+    test("once a step's window lands, the timeline reads ahead the next window the way it stepped, before the next press — as its scroll reads ahead the way it travels (#1398, CL7, ruled 25 Oct 2026)", async () => {
+        const { container, timeline } = await openTimeline("month", "step-ahead");
+        const shown = windowOf(timeline);
+        const [next, after, before] = [stepped(shown, 1), stepped(shown, 2), stepped(shown, -1)];
+        // Laid out and at rest, the view has moved nowhere: nothing read ahead.
+        expect([windowReads(next), windowReads(after), windowReads(before)]).toEqual([0, 0, 0]);
+        const toolbar = within(slot(container, "toolbar"));
+        // A month on, a day the next window opens: once it lands, the window after it is read.
+        await act(async () => { fireEvent.click(toolbar.getByRole("button", { name: "Next month" })); });
         await settle();
         expect(windowOf(timeline)).toEqual(next);
-        expect(timeline.hasAttribute("data-calendar-unread")).toBe(false);
+        expect([windowReads(next), windowReads(after), windowReads(before)]).toEqual([1, 1, 0]);
+        // Back a month, onto the window it opened on: the window before it is read, and nothing again.
+        await act(async () => { fireEvent.click(toolbar.getByRole("button", { name: "Previous month" })); });
+        await settle();
+        expect(windowOf(timeline)).toEqual(shown);
+        expect([windowReads(next), windowReads(after), windowReads(before)]).toEqual([1, 1, 1]);
+    });
+
+    test("a Day step back across its window's boundary, onto a day the held read covers: no commit marks the timeline unread, and nothing in view is blank — the events there drawn, the wash only beyond the held read (ruled 25 Oct 2026)", async () => {
+        const { container, timeline } = await openTimeline("day", "day-step-back");
+        const shown = windowOf(timeline);
+        const marks = unreadMarks(timeline);
+        const held = h.e3.hold(eventsRead);
+        // Back a day at a time until a day another window opens: one not read yet.
+        for (let press = 0; press < 7 && windowOf(timeline).from.getTime() === shown.from.getTime(); press++) {
+            await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Previous day" })); });
+            await settle();
+        }
+        const next = windowOf(timeline);
+        expect(next.from.getTime()).toBeLessThan(shown.from.getTime());
+        // The day stepped to is inside the held read, and so is what the view shows around it.
+        const view = shownSpan(timeline, next, "day");
+        expect(shown.from.getTime() <= view.from && view.to <= shown.to.getTime()).toBe(true);
+        expect(marks.seen).toEqual([]);
+        const drawn = [...timeline.querySelectorAll<HTMLElement>("[data-calendar-event]")];
+        expect(drawn.length).toBeGreaterThan(0);
+        // The days before the held read are washed — every wash off what the view shows.
+        const washes = washSpans(timeline, next);
+        expect(washes.length).toBeGreaterThan(0);
+        expect(washes.every(wash => wash.to <= view.from || wash.from >= view.to)).toBe(true);
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(timeline.querySelector("[data-loading-wash]")).toBeNull());
+        expect(marks.seen).toEqual([]);
+        marks.stop();
+    });
+
+    test("a date picked — the route Today and a pick of Search Records take too — and a period changed on the timeline each continue what it shows: the held read drawn, stale, every row the height its lanes gave it at the period it was drawn at, no commit unread (ruled 25 Oct 2026)", async () => {
+        const { container, timeline } = await openTimeline("week", "routes-continue");
+        const heights = rowHeights(timeline);
+        const main = container.querySelector<HTMLElement>("[data-calendar-main]")!;
+        const toolbar = within(slot(container, "toolbar"));
+        const marks = unreadMarks(timeline);
+        const held = h.e3.hold(eventsRead);
+        const shown = windowOf(timeline);
+        // Three weeks on, picked in the date picker's weeks: a day the next window opens, not read yet.
+        await act(async () => { fireEvent.click(toolbar.getByRole("button", { name: "Choose date" })); });
+        await settle();
+        const weeks = within(screen.getByRole("dialog")).getAllByRole("button").filter(button => button.hasAttribute("data-time-week"));
+        const at = weeks.findIndex(button => button.hasAttribute("data-selected"));
+        await act(async () => { fireEvent.click(weeks[at + 3]!); });
+        await settle();
+        expect(windowOf(timeline).from.getTime()).toBeGreaterThan(shown.from.getTime());
+        expect({ marks: marks.seen, heights: rowHeights(timeline), stale: main.hasAttribute("data-calendar-stale") }, "a date picked").toEqual({ marks: [], heights, stale: true });
         expect(timeline.querySelectorAll("[data-calendar-event]").length).toBeGreaterThan(0);
-        // Not read again, and nothing read ahead of it.
-        expect([windowReads(next), windowReads(stepped(next, 1))]).toEqual([1, 0]);
+        // A month a day: the held read's lanes kept at the week it was drawn at, every row as tall as it was.
+        await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: "Month" })); });
+        await settle();
+        expect(daysOf(windowOf(timeline))).toBe(154);
+        expect({ marks: marks.seen, heights: rowHeights(timeline), stale: main.hasAttribute("data-calendar-stale") }, "a period").toEqual({ marks: [], heights, stale: true });
+        expect(timeline.querySelectorAll("[data-calendar-event]").length).toBeGreaterThan(0);
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(timeline.querySelector("[data-loading-wash]")).toBeNull());
+        expect([marks.seen, main.hasAttribute("data-calendar-stale")]).toEqual([[], false]);
+        marks.stop();
     });
 
     test("the overlaps chip counts the overlaps in the days the view shows — moving as days come into view, never with its window — and the inspector lists an event's among the same (#1398)", async () => {
