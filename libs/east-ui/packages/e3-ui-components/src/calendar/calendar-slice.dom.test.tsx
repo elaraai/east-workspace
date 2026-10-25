@@ -118,7 +118,7 @@ describe("each source narrows every place its records appear (#1343)", () => {
         expect(card(container, "job", "job2")).toBeNull();
     });
 
-    test("an event kind's narrowing read while the week stands in keeps its events, retained — stale, taking no gesture — until it lands (#1398, CL5)", async () => {
+    test("an event kind's narrowing read while the week stands in keeps its events, retained — stale, aria-disabled, never inert: focusable and selectable, Delete refused, no drag — until it lands (#1398, CL5, CL8)", async () => {
         const { container, store } = await open(ex.calendarOperations);
         const main = () => slot(container, "main").querySelector<HTMLElement>("[data-calendar-main]")!;
         expect(main().hasAttribute("data-calendar-stale")).toBe(false);
@@ -126,14 +126,29 @@ describe("each source narrows every place its records appear (#1343)", () => {
         // The jobs' reads held on their way to e3: the kind's new narrowing is in flight.
         const held = h.e3.hold(request => request.dataset === JOBS);
         await narrow(store, EX, "job", new Map([["status", variant("values", [status(variant("active", null))])], ["start", start]]));
-        expect([main().hasAttribute("data-calendar-stale"), main().hasAttribute("inert")]).toEqual([true, true]);
+        expect([main().hasAttribute("data-calendar-stale"), main().getAttribute("aria-disabled"), main().hasAttribute("inert")]).toEqual([true, "true", false]);
         // The week stands in, whole: its jobs as they were, never a cover.
         expect([event(container, "job", "job1") !== null, event(container, "job", "job2") !== null]).toEqual([true, true]);
         expect(container.querySelector("[data-builder-loading]")).toBeNull();
+        // Readable, focusable and selectable; Delete deletes nothing, and a drag picks nothing up.
+        const job1 = event(container, "job", "job1")!;
+        job1.focus();
+        expect(document.activeElement).toBe(job1);
+        await press(job1);
+        expect(event(container, "job", "job1")!.getAttribute("aria-pressed")).toBe("true");
+        await act(async () => { fireEvent.keyDown(event(container, "job", "job1")!, { key: "Delete" }); });
+        await settle();
+        expect(event(container, "job", "job1")).not.toBeNull();
+        await act(async () => { fireEvent.pointerDown(event(container, "job", "job1")!, { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 0 });
+            fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
+        expect(event(container, "job", "job1")!.hasAttribute("data-dragging")).toBe(false);
+        await act(async () => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
         await act(async () => { held.release(); });
         await settle();
         await waitFor(() => expect(event(container, "job", "job2")).toBeNull());
-        expect([main().hasAttribute("data-calendar-stale"), main().hasAttribute("inert")]).toEqual([false, false]);
+        expect([main().hasAttribute("data-calendar-stale"), main().hasAttribute("aria-disabled"), main().hasAttribute("inert")]).toEqual([false, false, false]);
+        // The selection is kept through it.
+        expect(event(container, "job", "job1")!.getAttribute("aria-pressed")).toBe("true");
     });
 
     test("a resource kind's source narrows its columns and rows, never an event; a placement's Chooser offers the rows it shows and the event's own", async () => {

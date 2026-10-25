@@ -410,13 +410,9 @@ for (const theme of ["light", "dark"] as const) {
         });
         const expectedStyle = await groupStyle(first);
         expect(expectedStyle.height).toBe(38);
-        const rows = await first.evaluate(el => {
-            const keys: string[] = [];
-            for (let row = el.nextElementSibling; row && !row.hasAttribute('data-calendar-group'); row = row.nextElementSibling) {
-                const key = row.getAttribute('data-calendar-resource-row'); if (key !== null) keys.push(key);
-            }
-            return keys;
-        });
+        // The group's rows, each naming its group (the timeline's rows are virtualised, #1398: no row is its band's sibling).
+        const rows = await frame.locator('[data-calendar-resource-row]').evaluateAll((nodes, group) => nodes
+            .filter(node => node.getAttribute('data-calendar-row-group') === group).map(node => node.getAttribute('data-calendar-resource-row')!), key);
         expect(rows.length).toBeGreaterThan(0);
         await first.click(); await expect(first).toHaveAttribute('aria-expanded', 'false');
         for (const key of rows) expect(await frame.locator("[data-calendar-resource-row]").evaluateAll((nodes, key) => nodes.some(node => node.getAttribute("data-calendar-resource-row") === key), key)).toBe(false);
@@ -567,5 +563,46 @@ for (const theme of ["light", "dark"] as const) {
         });
         await page.keyboard.press("Escape"); await page.mouse.up(); await settled(page);
         expect(dragged).toBe("under");
+    });
+}
+
+for (const theme of ["light", "dark"] as const) {
+    test(`the time grid keeps its place across a step — the hour at its top where the viewer left it, never back to the morning — and Today brings the now line into view (#1398, CL8) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
+        const frame = entry.locator("[data-calendar-frame]").first();
+        // A frame short enough for any hour of the day to be scrolled out of view.
+        await frame.locator("xpath=..").evaluate((el) => { (el as HTMLElement).style.height = "520px"; }); await settled(page);
+        const grid = frame.locator("[data-calendar-time-grid]");
+        for (const period of ["Day", "Week"] as const) {
+            await viewChoice(page, frame, period);
+            // An hour of the viewer's own, well past where the grid first opens.
+            const at = await grid.evaluate((el) => { el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * 0.8); return el.scrollTop; });
+            await settled(page);
+            for (const step of ["Next", "Previous"] as const) {
+                await frame.getByRole("button", { name: `${step} ${period.toLowerCase()}`, exact: true }).click();
+                await settled(page);
+                const top = await grid.evaluate((el) => el.scrollTop);
+                expect(Math.abs(top - at), `${period}, ${step.toLowerCase()} ${period.toLowerCase()}: at ${top}, left at ${at}`).toBeLessThanOrEqual(1);
+            }
+        }
+        // Today: the now line brought into view below the head, wherever the grid was — scrolled from it first.
+        const now = () => grid.evaluate((el) => {
+            const line = el.querySelector("[data-calendar-now]");
+            if (line === null) return "no now line";
+            const view = el.getBoundingClientRect(), head = el.querySelector("[data-calendar-header]")!.getBoundingClientRect(), l = line.getBoundingClientRect();
+            return l.top >= head.bottom && l.bottom <= view.bottom ? "in view" : "out of view";
+        });
+        await grid.evaluate((el) => {
+            const line = el.querySelector("[data-calendar-now]");
+            const at = line === null ? 0 : line.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+            el.scrollTop = at > el.scrollHeight / 2 ? 0 : el.scrollHeight;
+        });
+        await settled(page);
+        expect(await now()).toBe("out of view");
+        await frame.locator("[data-time-navigation=calendar] [data-time-trigger]").click();
+        await page.getByRole("dialog").getByRole("button", { name: "Today", exact: true }).click();
+        await settled(page);
+        expect(await now()).toBe("in view");
     });
 }

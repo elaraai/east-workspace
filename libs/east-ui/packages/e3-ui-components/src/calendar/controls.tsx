@@ -48,8 +48,10 @@ export function PlacementFields({ source, value, shown, placement, onChange, rea
     }} />;
 }
 /** An anchored action uses the same Schedule command as a desktop drop. */
-export function PlacementAction({ label, source, value, shown, day, commands, styles }: {
+export function PlacementAction({ label, source, value, shown, day, commands, styles, held = false }: {
     label: string; source: CalendarSource; value: CalendarValue; shown: CalendarShownResources; day: Date; commands: CalendarCommands; styles: CalendarStyles;
+    /** Its card is retained — its tab's source read again (#1398, CL8): off until it lands. */
+    held?: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const [placement, setPlacement] = useState(() => initialPlacement(source, day));
@@ -59,7 +61,7 @@ export function PlacementAction({ label, source, value, shown, day, commands, st
         setOpen(next);
     };
     return <SliceEditPopover open={open} onOpenChange={changeOpen} label={`${label} · ${"template" in source ? source.template.name : source.item.title}`}
-        trigger={<Button size="xs" variant="outline" data-calendar-action={label.toLowerCase()} disabled={!commands.editing.available(source.kind.key)}>{label}</Button>}
+        trigger={<Button size="xs" variant="outline" data-calendar-action={label.toLowerCase()} disabled={held || !commands.editing.available(source.kind.key)}>{label}</Button>}
         footActions={<><Button size="xs" variant="outline" onClick={() => changeOpen(false)}>Cancel</Button><Button size="xs" variant="outline" onClick={() => {
             const refused = commands.place(source, placement, label === "Resize" ? "resize" : "typed");
             setError(refused); if (refused === undefined) setOpen(false);

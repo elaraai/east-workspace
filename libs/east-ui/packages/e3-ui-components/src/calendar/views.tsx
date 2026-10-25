@@ -12,16 +12,15 @@
  * box at their top-left in view, the timeline and the agenda in a line in their
  * first row (CL11).
  */
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
-import { LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, VirtualRows, devicePixels, useRowsTop } from "@elaraai/east-ui-components/internal";
 import type { PeriodRead } from "../shared/loading.js";
-import { useScrollTop } from "../shared/links/scroll.js";
 import { NowChip, NowLine } from "../shared/time/now-line.js";
 import { drawSpan } from "../shared/time/drag.js";
 import { timeScale, timeWords } from "../shared/time/scale.js";
@@ -29,13 +28,15 @@ import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { packLanes } from "../shared/time/lanes.js";
 import { shadeBands } from "../shared/time/shading.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
-import { shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
+import { TIMELINE_GUTTER, shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
+import { useVisibleDays, type VisibleDaysStore } from "./visible.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
+import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { EventActions, type CalendarShownResources } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
-import { DAY, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource,
+import { DAY, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey,
     type CalendarItem, type CalendarRange, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
 
 /**
@@ -44,8 +45,12 @@ import { DAY, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, on
  */
 export interface CalendarViewsProps {
     navigationRevision?: number;
-    value: CalendarValue; view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; visibleRange: CalendarRange; format: Formatters;
-    onVisible: (range: CalendarRange) => void; items: readonly CalendarItem[]; rows: readonly CalendarRow[]; shownRows: readonly CalendarRow[]; shown: CalendarShownResources;
+    value: CalendarValue; view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; format: Formatters;
+    /** Hears what the timeline shows as it scrolls, exactly. */
+    onVisible: (range: CalendarRange) => void;
+    /** The days the timeline shows, read by what says them (#1398, CL9): its rows' booked hours. */
+    visible?: VisibleDaysStore | undefined;
+    items: readonly CalendarItem[]; rows: readonly CalendarRow[]; shownRows: readonly CalendarRow[]; shown: CalendarShownResources;
     now: Date; narrow: boolean; styles: CalendarStyles;
     selected: ReadonlySet<string>; select: (item: CalendarItem, additive?: boolean) => void; clear: () => void;
     overlaps: ScheduleOverlaps<CalendarItem>; commands: CalendarCommands | undefined; drag: CalendarDrag;
@@ -55,8 +60,31 @@ export interface CalendarViewsProps {
      * failure said once, its cells blank.
      */
     read: PeriodRead;
+    /** Moves each time Today is pressed: the time grid brings the now line into view (#1398). */
+    nowRevision?: number | undefined;
+    /** Where each layout's view last rested (#1398): what it comes back to as it mounts. */
+    anchor?: CalendarAnchor | undefined;
+    /** Told where a layout's view rests as it settles. */
+    onAnchor?: ((next: Partial<CalendarAnchor>) => void) | undefined;
+    /** The event a pick asks to be shown (#1398), by its printed key: the timeline brings its row and its time into view. */
+    reveal?: string | undefined;
+    /** Told once the event to show is drawn, with its element. */
+    onRevealed?: ((element: HTMLElement) => void) | undefined;
+}
+
+/**
+ * Where each layout's view rests (#1398): the time grid's hour at its top, and the timeline's top line, by its key, with
+ * the px scrolled into it — never a pixel offset of the whole, which the rows above it would move.
+ */
+export interface CalendarAnchor {
+    readonly gridHour?: number | undefined;
+    readonly timeline?: RowAnchor | undefined;
 }
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+/** The hour the time grid opens at, the first time: half past five, the working day just above the fold. */
+const OPENING_HOUR = 5.5;
+/** How long a scroll of the time grid rests before where it rests is saved. */
+const ANCHOR_REST_MS = 150;
 
 /**
  * An hour's height in the time grid, by the Calendar's density: the pitch its cold load's cover stands at too (#1398, CL1).
@@ -108,28 +136,6 @@ function useFailureCorner(scroll: RefObject<HTMLElement | null>, failed: boolean
     return at;
 }
 
-/**
- * The first resource row in a timeline's view, under its sticky head (#1398, CL11): where a failed period says so
- * once, followed as the timeline scrolls.
- *
- * @param scroll - The timeline's scroll box
- * @param active - Whether the period's read failed
- * @returns The row's key; `undefined` while nothing failed, or with no row
- */
-function useFirstRowInView(scroll: RefObject<HTMLElement | null>, active: boolean): string | undefined {
-    const top = useScrollTop(scroll, active);
-    const [row, setRow] = useState<string>();
-    useLayoutEffect(() => {
-        const el = scroll.current;
-        if (!active || el === null) { setRow(undefined); return; }
-        const head = el.querySelector("[data-calendar-header]")?.getBoundingClientRect().bottom ?? el.getBoundingClientRect().top;
-        const first = [...el.querySelectorAll<HTMLElement>("[data-calendar-resource-row]")].find(r => r.getBoundingClientRect().bottom > head + 1);
-        const key = first?.getAttribute("data-calendar-resource-row") ?? undefined;
-        setRow(before => before === key ? before : key);
-    }, [active, scroll, top]);
-    return row;
-}
-
 /** A failed period's box at its grid's top-left in view (#1398, CL11): its words and its Retry. */
 function FailureBox({ props, at }: { props: CalendarViewsProps; at: { top: number; left: number } | undefined }) {
     if (props.read.state !== "failed" || at === undefined) return null;
@@ -143,8 +149,14 @@ function booked(items: readonly CalendarItem[], row: CalendarRow, from: Date, to
         ? hours + Math.max(0, Math.min(item.end.value.getTime(), to.getTime()) - Math.max(item.start.value.getTime(), from.getTime())) / 3_600_000 : hours, 0);
 }
 
+/**
+ * What an event and a cell read of the views' props: the same object, in the timeline, while what they draw holds (#1398,
+ * CL9) — so a scroll, or a day crossed, draws none of them again.
+ */
+type EventView = Pick<CalendarViewsProps, "styles" | "drag" | "selected" | "overlaps" | "commands" | "range" | "view" | "value" | "format" | "rows" | "select" | "clear"
+    | "reveal" | "onRevealed">;
 /** The same full event facts, in a card, a block, a month chip or a timeline bar. */
-function EventBlock({ item, props, geometry, along = "y", chip = false, window }: { item: CalendarItem; props: CalendarViewsProps; geometry?: CSSProperties; along?: "x" | "y"; chip?: boolean; window?: { from: Date; to: Date } }) {
+function EventBlock({ item, props, geometry, along = "y", chip = false, window }: { item: CalendarItem; props: EventView; geometry?: CSSProperties; along?: "x" | "y"; chip?: boolean; window?: { from: Date; to: Date } }) {
     const { styles, drag, selected, overlaps, commands } = props;
     const id = eventKey(item);
     const start = item.start.type === "some" ? item.start.value : props.range.from;
@@ -175,6 +187,10 @@ function EventBlock({ item, props, geometry, along = "y", chip = false, window }
         };
         measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
     }, [item.title, item.start, item.end, props.rows, along, chip]);
+    // The event a pick asks to be shown (#1398): drawn — as a timeline brings it into its view — it tells the frame.
+    const revealing = props.reveal !== undefined && props.reveal === id;
+    const { onRevealed } = props;
+    useLayoutEffect(() => { if (revealing && block.current !== null) onRevealed?.(block.current); }, [revealing, onRevealed]);
     const timeText = `${continued ? "↳ " : ""}${props.format.time(start)}${item.end.type === "some" ? `–${props.format.time(item.end.value)}` : ""}`;
     const resourceText = props.view.layout === "resources" ? kind?.name ?? item.kind : resourceLabel(item, props.rows);
     const label = `${item.title}, ${props.format.weekdayDate(start)} ${timeText}, ${resourceLabel(item, props.rows)}${item.status.type === "some" ? `, ${item.status.value.label}` : ""}`;
@@ -228,7 +244,7 @@ function EventEdge({ coord, edge, label, styles, along }: { coord: Required<Cell
 
 /** A continuous cell uses the shared drop grammar and the Calendar's quarter-hour snap. */
 function DropLane({ props, from, to, resource, along = "y", wholeDay = false, children, css, style, draw = true, elementRef, outside = false, unassigned = false }: {
-    props: CalendarViewsProps; from: Date; to: Date; resource: CalendarItem["resource"]; along?: "x" | "y";
+    props: EventView; from: Date; to: Date; resource: CalendarItem["resource"]; along?: "x" | "y";
     wholeDay?: boolean; children: ReactNode; css: CalendarStyles[string] | undefined; style?: CSSProperties; draw?: boolean; elementRef?: RefObject<HTMLDivElement | null>; outside?: boolean; unassigned?: boolean;
 }) {
     const ref = useRef<HTMLDivElement>(null);
@@ -301,12 +317,42 @@ function TimeGrid(props: CalendarViewsProps) {
     const hour = calendarHour(props.value.settings.density);
     const height = hour * 24;
     const scroll = useRef<HTMLDivElement>(null);
-    useEffect(() => { if (scroll.current !== null) scroll.current.scrollTop = hour * 5.5; }, [hour, props.view.layout, props.view.period, props.view.date]);
+    // Where the grid's view rests (#1398): the hour at its top — half past five the first time, then wherever it was left,
+    // across a step, a layout or a remount, never back to half past five — saved as a scroll rests. Today brings the now
+    // line into view, a third of the way down.
+    const { onAnchor } = props;
+    const topHour = useRef(props.anchor?.gridHour ?? OPENING_HOUR);
+    const resting = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const save = useRef(onAnchor);
+    save.current = onAnchor;
+    useLayoutEffect(() => { if (scroll.current !== null) scroll.current.scrollTop = topHour.current * hour; }, [hour]);
+    // A scroll still resting as the grid goes — a layout switched, the Calendar unmounted — is saved then.
+    useEffect(() => () => {
+        if (resting.current === undefined) return;
+        clearTimeout(resting.current);
+        save.current?.({ gridHour: topHour.current });
+    }, []);
+    const keep = useCallback((el: HTMLElement) => {
+        topHour.current = el.scrollTop / hour;
+        if (resting.current !== undefined) clearTimeout(resting.current);
+        resting.current = setTimeout(() => { resting.current = undefined; save.current?.({ gridHour: topHour.current }); }, ANCHOR_REST_MS);
+    }, [hour]);
+    const seenNow = useRef(props.nowRevision);
+    useLayoutEffect(() => {
+        const el = scroll.current;
+        if (props.nowRevision === seenNow.current || el === null) return;
+        seenNow.current = props.nowRevision;
+        el.scrollTop = Math.max(0, (props.now.getUTCHours() + props.now.getUTCMinutes() / 60) * hour - el.clientHeight / 3);
+        keep(el);
+        // Today pressed is the trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.nowRevision]);
     const resources = props.view.layout === "resources";
     const columns = resources ? props.shownRows.map(row => ({ row, day: dayStart(props.view.date), label: row.label }))
         : props.range.days.map(day => ({ day, label: props.format.weekdayDate(day), row: undefined }));
     const failure = useFailureCorner(scroll, props.read.state === "failed");
-    return <><Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}>
+    return <><Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}
+        onScroll={event => keep(event.currentTarget)}>
         <Box css={props.styles.timeGridContent} data-resources={resources ? "" : undefined} data-single={!resources && columns.length === 1 ? "" : undefined} style={{ "--calendar-columns": columns.length } as CSSProperties}>
             <Box css={props.styles.head} data-calendar-header="" data-resources={resources ? "" : undefined}><Box css={props.styles.timeGutter} />{columns.map((column, i) => <chakra.button type="button" key={i} css={props.styles.columnHead}
                 data-today={dateText(column.day) === dateText(props.now) ? "" : undefined} onClick={() => !resources && props.setView({ ...props.view, period: "day", date: column.day.getTime() })}>
@@ -379,83 +425,264 @@ function MonthGrid(props: CalendarViewsProps) {
     </Box><FailureBox props={props} at={failure} /></>;
 }
 
+/** A line of the timeline: a group's band, or a resource's row. */
+type TimelineLine = { kind: "group"; key: string; group: string; count: number } | { kind: "row"; key: string; row: CalendarRow; r: number };
+/** A resource row's events laid out once a read (#1398, CL9): the events, their spans, their lanes and the plot's height. */
+interface TimelineLayout {
+    readonly items: readonly CalendarItem[];
+    readonly spans: readonly { readonly start: number; readonly end: number }[];
+    readonly lanes: ReturnType<typeof packLanes>;
+    readonly height: number;
+}
+/** What a timeline row reads, the same object while what the rows draw holds (CL9). */
+interface TimelineContext {
+    readonly view: EventView;
+    readonly read: PeriodRead;
+    readonly visible: VisibleDaysStore | undefined;
+    readonly laneHeight: number;
+    readonly duration: number;
+    readonly now: Date;
+    readonly shades: ReturnType<typeof shadeBands>;
+    readonly lines: readonly TimelineLine[];
+}
+/** The elements of the timeline mounted either side of what it shows, in views: a scroll of up to half a view mounts nothing. */
+const TIMELINE_AHEAD = 1;
+/** A resource row's key among the events: the resource's, or none's — the unassigned row. */
+function rowResource(row: CalendarRow): string { return row.resource.type === "some" ? resourceKey(row.resource.value) : ""; }
+/**
+ * The resource row a failed period says so in (#1398, CL11): the first at or below the line at the top of the view,
+ * else the last above it.
+ *
+ * @param lines - The timeline's lines
+ * @param top - The line at the top of the view; `undefined` before they are placed
+ * @returns The line's index; `undefined` with no resource row
+ */
+function firstRowInView(lines: readonly TimelineLine[], top: number | undefined): number | undefined {
+    const from = Math.max(0, top ?? 0);
+    for (let i = from; i < lines.length; i++) if (lines[i]!.kind === "row") return i;
+    for (let i = Math.min(from, lines.length) - 1; i >= 0; i--) if (lines[i]!.kind === "row") return i;
+    return undefined;
+}
+/** A resource's booked hours over the days the timeline shows, read as they move (CL9); while the period is read, its meta and a placeholder. */
+function TimelineRowMeta({ ctx, row, layout, r }: { ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; r: number }) {
+    const shown = useVisibleDays(ctx.visible);
+    const { styles, format, range } = ctx.view;
+    if (ctx.read.state !== "held") {
+        return <Box css={styles.columnMeta} data-calendar-booked=""><Box as="span" css={styles.unreadMeta}>{row.meta}{ctx.read.state === "pending" && <PlaceholderShape kind="aggregate" index={r} />}</Box></Box>;
+    }
+    const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
+    return <Box css={styles.columnMeta} data-calendar-booked="">{`${row.meta} · ${format.number(booked(layout.items, row, from, to))} h booked`}</Box>;
+}
+/**
+ * A resource row's plot: its events in the timeline's mounted span — every one while the timeline has not laid out — its
+ * wash while the period is read, its shading and its now line; and, the first row in view of a failed period, the
+ * failure, which it reads itself (#1398, CL9, CL11). Drawn again only as its events or that span move.
+ */
+const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index }: {
+    ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; span: { readonly from: number; readonly to: number } | undefined; index: number;
+}) {
+    const { view, read, laneHeight, duration, now, shades, lines } = ctx;
+    const { styles, range } = view;
+    const says = useRowsTop(top => read.state === "failed" && index === firstRowInView(lines, top));
+    return <DropLane props={view} from={range.from} to={range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={styles.rowPlot} style={{ height: layout.height }} draw={view.view.period !== "month"}>
+        {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398). */}
+        {read.state === "pending" && <LoadingWash />}
+        {read.state === "failed" && says && <Box css={styles.readLine} data-calendar-read-line="">
+            <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} /></Box>}
+        {shades.map((band, i) => <Box key={i} css={styles.shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
+        {layout.items.map((item, i) => {
+            const at = layout.spans[i]!;
+            if (span !== undefined && (at.end <= span.from || at.start >= span.to)) return null;
+            return <EventBlock key={eventKey(item)} item={item} props={view} window={range} along="x" geometry={{ top: 4 + layout.lanes[i]!.lane * laneHeight, height: laneHeight - 4,
+                left: `${Math.max(0, at.start - range.from.getTime()) / duration * 100}%`, width: `${(Math.min(range.to.getTime(), at.end) - Math.max(range.from.getTime(), at.start)) / duration * 100}%` }} />;
+        })}
+        {now >= range.from && now < range.to && <NowLine styles={styles} at={(now.getTime() - range.from.getTime()) / duration} data-calendar-now="" />}
+    </DropLane>;
+});
+/** A resource's row: its head, its booked hours and its plot — drawn again only as what it shows moves (CL9). */
+const TimelineRow = memo(function TimelineRow({ ctx, row, layout, span, index, r, measure }: {
+    ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; span: { readonly from: number; readonly to: number } | undefined; index: number; r: number;
+    measure: (el: HTMLElement | null) => void;
+}) {
+    const { styles } = ctx.view;
+    return <Box ref={measure} css={styles.timelineRow} data-calendar-resource-row={row.key} data-calendar-row-group={row.group}>
+        <Box css={styles.rowHead}><Box css={styles.rowTitle} data-calendar-resource-title="">{row.label}</Box><TimelineRowMeta ctx={ctx} row={row} layout={layout} r={r} /></Box>
+        <TimelinePlot ctx={ctx} row={row} layout={layout} span={span} index={index} />
+    </Box>;
+});
+/** The estimate of a group's band before one has mounted: the shared band's height. */
+const BAND_FLOOR = 38;
+/** Every timeline line may anchor the view: none is a placeholder whose edge moves as rows land beside it. */
+const ANCHOR_EVERY_LINE = () => true;
+
+/**
+ * The timeline (#1398, CL9): its resources' rows virtualised in their groups — only those in view mounted, each drawn
+ * again only as what it shows moves — and their events by what the view shows of the period, one view either side; a
+ * scroll publishes only the days it shows, to what says them.
+ */
 function Timeline(props: CalendarViewsProps) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
-    const groups = [...new Set(props.shownRows.map(row => row.group))];
+    const { styles, range, view } = props;
     const laneHeight = props.value.settings.density.type === "compact" ? 26 : props.value.settings.density.type === "spacious" ? 40 : 32;
-    const pixelsPerDay = timelinePixels(props.view.period);
-    const scroll = useRef<HTMLDivElement>(null);
+    const pixelsPerDay = timelinePixels(view.period);
+    const duration = range.to.getTime() - range.from.getTime();
+    const width = duration / DAY * pixelsPerDay;
+    const scroll = useRef<HTMLDivElement | null>(null);
     const shifted = useRef<number | undefined>(undefined);
+    // Each resource's events, the read's events indexed by resource once — never a search of every event a row.
+    const byResource = useMemo(() => {
+        const by = new Map<string, CalendarItem[]>();
+        for (const item of props.items) {
+            const key = item.resource.type === "some" ? resourceKey(item.resource.value) : "";
+            const theirs = by.get(key);
+            if (theirs === undefined) by.set(key, [item]);
+            else theirs.push(item);
+        }
+        return by;
+    }, [props.items]);
+    // Each row's events laid out once a read: their spans, their lanes and the plot's height — however its events fall.
+    const layouts = useMemo(() => new Map(props.shownRows.map(row => {
+        const items = byResource.get(rowResource(row)) ?? [];
+        const spans = items.map(item => {
+            const start = item.start.type === "some" ? item.start.value.getTime() : 0;
+            const end = item.end.type === "some" ? item.end.value.getTime() : 0;
+            return view.period === "month" ? { start: Math.floor(start / DAY) * DAY, end: Math.ceil(end / DAY) * DAY } : { start, end };
+        });
+        // A period not read yet: one lane a row, which grows below the row in view as its events land.
+        const lanes = packLanes(spans);
+        return [row.key, { items, spans, lanes, height: lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9 }] as const;
+    })), [props.shownRows, byResource, view.period, laneHeight]);
+    // The lines: each group's band, and its rows unless it is folded.
+    const lines = useMemo((): TimelineLine[] => {
+        const groups = [...new Set(props.shownRows.map(row => row.group))];
+        let r = 0;
+        return groups.flatMap(group => {
+            const rows = props.shownRows.filter(row => row.group === group);
+            return [{ kind: "group" as const, key: `group:${group}`, group, count: rows.length },
+                ...(collapsed.includes(group) ? [] : rows.map(row => ({ kind: "row" as const, key: `row:${row.key}`, row, r: r++ })))];
+        });
+    }, [props.shownRows, collapsed]);
+    const shades = useMemo(() => shadeBands({ min: range.from, max: range.to }, { hours: view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }),
+        [range.from, range.to, view.period, props.value.settings.hours]);
+    // What an event and a cell read, held while it holds.
+    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed } = props;
+    const eventView = useMemo((): EventView => ({ styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed }),
+        [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed]);
+    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, visible: props.visible, laneHeight, duration, now: props.now, shades, lines }),
+        [eventView, props.read, props.visible, laneHeight, duration, props.now, shades, lines]);
+    // The span of the period whose events are mounted (CL9): what the view shows, one view either side, moved as the view
+    // nears its edge; every event while the timeline has not laid out.
+    const [span, setSpan] = useState<{ from: number; to: number } | undefined>(undefined);
+    const spanRef = useRef(span);
+    spanRef.current = span;
     const publish = () => {
         const element = scroll.current;
-        if (element !== null && element.clientWidth > 0) props.onVisible(timelineVisible(props.range, element.scrollLeft, element.clientWidth, props.view.period));
+        if (element === null || element.clientWidth <= 0) return;
+        const visible = timelineVisible(range, element.scrollLeft, element.clientWidth, view.period);
+        props.onVisible(visible);
+        const shows = visible.to.getTime() - visible.from.getTime();
+        const held = spanRef.current;
+        if (held !== undefined && visible.from.getTime() - held.from >= shows / 2 && held.to - visible.to.getTime() >= shows / 2) return;
+        const next = { from: visible.from.getTime() - shows * TIMELINE_AHEAD, to: visible.to.getTime() + shows * TIMELINE_AHEAD };
+        spanRef.current = next;
+        setSpan(next);
     };
     useLayoutEffect(() => {
         const element = scroll.current; if (element === null) return;
-        element.scrollLeft = shifted.current ?? Math.max(0, (props.view.date + DAY / 2 - props.range.from.getTime()) / DAY * pixelsPerDay - Math.max(0, element.clientWidth - 184) / 2);
+        element.scrollLeft = shifted.current ?? Math.max(0, (view.date + DAY / 2 - range.from.getTime()) / DAY * pixelsPerDay - Math.max(0, element.clientWidth - TIMELINE_GUTTER) / 2);
         shifted.current = undefined; publish();
         // View changes and edge replacement are the only recentering operations.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.range.from.getTime(), props.view.period, props.view.date, props.navigationRevision]);
+    }, [range.from.getTime(), view.period, view.date, props.navigationRevision]);
     useLayoutEffect(() => {
         const element = scroll.current; if (element === null) return;
         const observer = new ResizeObserver(publish); observer.observe(element); return () => observer.disconnect();
         // Rebind to the current window when it moves.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.range.from.getTime(), props.view.period]);
+    }, [range.from.getTime(), view.period]);
     const onScroll = () => {
         const element = scroll.current; if (element === null || element.clientWidth <= 0) return;
         publish();
         if (element.scrollLeft > 240 && element.scrollWidth - element.clientWidth - element.scrollLeft > 240) return;
-        const visible = timelineVisible(props.range, element.scrollLeft, element.clientWidth, props.view.period);
-        const next = { ...props.view, date: dayStart((visible.from.getTime() + visible.to.getTime()) / 2).getTime() };
+        const visible = timelineVisible(range, element.scrollLeft, element.clientWidth, view.period);
+        const next = { ...view, date: dayStart((visible.from.getTime() + visible.to.getTime()) / 2).getTime() };
         const nextRange = timelineRange(next);
-        if (nextRange.from.getTime() === props.range.from.getTime()) return;
-        shifted.current = shiftedScroll(element.scrollLeft, props.range, nextRange, props.view.period);
+        if (nextRange.from.getTime() === range.from.getTime()) return;
+        shifted.current = shiftedScroll(element.scrollLeft, range, nextRange, view.period);
         props.setView(next);
     };
-    const duration = props.range.to.getTime() - props.range.from.getTime();
-    const width = duration / DAY * pixelsPerDay;
-    const words = timeWords(props.format.locale);
-    const ticks = timeScale({ window: { min: props.range.from, max: props.range.to }, resolution: props.view.period === "day" ? "hour" : "day", words })!;
-    const units = timeRulerUnits(ticks, words, props.view.period === "day" ? "day" : props.view.period === "week" ? "week" : "month")!;
-    // A period whose read failed says so once, in the first row in view, across its plot (#1398, CL11).
-    const failedRow = useFirstRowInView(scroll, props.read.state === "failed");
-    return <Box ref={scroll} onScroll={onScroll} css={props.styles.scroll} data-calendar-timeline="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}><Box css={props.styles.timeline} style={{ minWidth: width + 184 }}>
-        <Box css={props.styles.head} data-calendar-header="" data-timeline=""><Box css={props.styles.headerCaption} data-calendar-header-caption="">Resources</Box><Box css={props.styles.ruler}>
-            <TimeRulerRow scale={units} styles={props.styles} band="units" owner="calendar" sticky />
-            <TimeRulerRow scale={ticks} styles={props.styles} band="ticks" owner="calendar" sticky />
-        </Box></Box>
-        {groups.map(group => {
-            const rows = props.shownRows.filter(row => row.group === group);
-            return <Fragment key={group}><GroupHeading scope="calendar" group={{ key: group, label: group || "Unassigned" }} styles={props.styles} collapsed={collapsed.includes(group)} toggle={toggle}>
-                <Box as="span" css={props.styles.groupMeta}>{rows.length} resources</Box>
-            </GroupHeading>{!collapsed.includes(group) && rows.map((row, r) => {
-            const items = props.items.filter(item => onResource(item, row));
-            const spans = items.map(item => {
-                const start = item.start.type === "some" ? item.start.value.getTime() : 0;
-                const end = item.end.type === "some" ? item.end.value.getTime() : 0;
-                return props.view.period === "month" ? { start: Math.floor(start / DAY) * DAY, end: Math.ceil(end / DAY) * DAY } : { start, end };
-            });
-            // A period not read yet: one lane a row, which grows below the row in view as its events land.
-            const lanes = packLanes(spans); const height = lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9;
-            return <Box key={row.key} css={props.styles.timelineRow} data-calendar-resource-row={row.key}>
-                <Box css={props.styles.rowHead}><Box css={props.styles.rowTitle} data-calendar-resource-title="">{row.label}</Box><Box css={props.styles.columnMeta} data-calendar-booked="">{props.read.state === "held"
-                    ? `${row.meta} · ${props.format.number(booked(items, row, props.visibleRange.from, props.visibleRange.to))} h booked`
-                    : <Box as="span" css={props.styles.unreadMeta}>{row.meta}<Counted props={props} index={r}>{null}</Counted></Box>}</Box></Box>
-                <DropLane props={props} from={props.range.from} to={props.range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={props.styles.rowPlot} style={{ height }} draw={props.view.period !== "month"}>
-                    {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398). */}
-                    {pendingOf(props.read) && <LoadingWash />}
-                    {props.read.state === "failed" && failedRow === row.key && <Box css={props.styles.readLine} data-calendar-read-line="">
-                        <LoadingFailedLine message={props.read.message} retry={{ onRetry: props.read.retry }} /></Box>}
-                    {shadeBands({ min: props.range.from, max: props.range.to }, { hours: props.view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }).map((band, i) => <Box key={i} css={props.styles.shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
-                    {items.map((item, i) => <EventBlock key={eventKey(item)} item={item} props={props} window={props.range} along="x" geometry={{ top: 4 + lanes[i]!.lane * laneHeight, height: laneHeight - 4,
-                        left: `${Math.max(0, spans[i]!.start - props.range.from.getTime()) / duration * 100}%`, width: `${(Math.min(props.range.to.getTime(), spans[i]!.end) - Math.max(props.range.from.getTime(), spans[i]!.start)) / duration * 100}%` }} />)}
-                    {props.now >= props.range.from && props.now < props.range.to && <NowLine styles={props.styles} at={(props.now.getTime() - props.range.from.getTime()) / duration} data-calendar-now="" />}
-                </DropLane>
-            </Box>;
-        })}</Fragment>; })}
+    // Each kind of line's estimate, from the first of it to mount: a band's own height, a row's its plot's or its head's.
+    const [rowFloor, setRowFloor] = useState(0);
+    const [bandFloor, setBandFloor] = useState(BAND_FLOOR);
+    const measured = useRef({ band: false, row: false });
+    const measureBand = useCallback((el: HTMLElement | null) => {
+        if (el === null || measured.current.band) return;
+        const px = devicePixels(el.getBoundingClientRect().height);
+        if (px <= 0) return;
+        measured.current.band = true;
+        setBandFloor(px);
+    }, []);
+    const measureRow = useCallback((el: HTMLElement | null) => {
+        if (el === null || measured.current.row) return;
+        const head = el.firstElementChild;
+        const px = head === null ? 0 : devicePixels(head.getBoundingClientRect().height);
+        if (px <= 0) return;
+        measured.current.row = true;
+        setRowFloor(px);
+    }, []);
+    const getItemKey = useCallback((i: number) => lines[i]!.key, [lines, rowFloor, bandFloor]); // eslint-disable-line react-hooks/exhaustive-deps -- a new floor re-keys the places
+    const estimateSize = useCallback((i: number) => {
+        const line = lines[i]!;
+        // A row as tall as its plot or its head, whichever is taller, and its rule.
+        return line.kind === "group" ? bandFloor : Math.max(layouts.get(line.row.key)?.height ?? laneHeight + 9, rowFloor) + 1;
+    }, [lines, layouts, laneHeight, rowFloor, bandFloor]);
+    const renderRow = useCallback((i: number) => {
+        const line = lines[i]!;
+        if (line.kind === "group") return <GroupHeading scope="calendar" group={{ key: line.group, label: line.group || "Unassigned" }} styles={styles} collapsed={collapsed.includes(line.group)} toggle={toggle} measure={measureBand}>
+            <Box as="span" css={styles.groupMeta}>{line.count} resources</Box>
+        </GroupHeading>;
+        return <TimelineRow ctx={ctx} row={line.row} layout={layouts.get(line.row.key)!} span={span} index={i} r={line.r} measure={measureRow} />;
+    }, [lines, styles, collapsed, toggle, measureBand, ctx, layouts, span, measureRow]);
+    // Where the timeline's view rests (#1398): its top line by key and the px into it, saved as a scroll settles, and
+    // brought back once its lines are laid out — the line it left, wherever the lines above it moved.
+    const { onAnchor } = props;
+    const save = useCallback((at: RowAnchor) => onAnchor?.({ timeline: at }), [onAnchor]);
+    const { restore, onAnchorChange } = useRowAnchor(lines, props.anchor?.timeline, save);
+    // An event a pick asks to be shown (#1398): its row brought into the view's middle — its group opened, if folded —
+    // and its time to the view's centre, which mounts the events there; drawn, the event tells the frame.
+    const [scrollTo, setScrollTo] = useState<{ index: number; nonce: number }>();
+    useLayoutEffect(() => {
+        if (reveal === undefined) return;
+        const item = props.items.find(event => eventKey(event) === reveal);
+        if (item === undefined || item.start.type !== "some") return;
+        const at = lines.findIndex(line => line.kind === "row" && onResource(item, line.row));
+        if (at < 0) {
+            const row = props.shownRows.find(shown => onResource(item, shown));
+            if (row !== undefined && collapsed.includes(row.group)) toggle(row.group);
+            return;
+        }
+        const element = scroll.current;
+        if (element !== null && element.clientWidth > 0) {
+            const x = (item.start.value.getTime() - range.from.getTime()) / DAY * pixelsPerDay;
+            element.scrollLeft = Math.max(0, x - Math.max(0, element.clientWidth - TIMELINE_GUTTER) / 2);
+            publish();
+        }
+        setScrollTo(was => ({ index: at, nonce: (was?.nonce ?? 0) + 1 }));
+        // A reveal asked, or the events and the lines it is found among landing, is the trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [reveal, props.items, lines]);
+    const words = useMemo(() => timeWords(format.locale), [format.locale]);
+    const ticks = useMemo(() => timeScale({ window: { min: range.from, max: range.to }, resolution: view.period === "day" ? "hour" : "day", words })!, [range.from, range.to, view.period, words]);
+    const units = useMemo(() => timeRulerUnits(ticks, words, view.period === "day" ? "day" : view.period === "week" ? "week" : "month")!, [ticks, words, view.period]);
+    const header = <Box css={styles.head} data-calendar-header="" data-timeline=""><Box css={styles.headerCaption} data-calendar-header-caption="">Resources</Box><Box css={styles.ruler}>
+        <TimeRulerRow scale={units} styles={styles} band="units" owner="calendar" sticky />
+        <TimeRulerRow scale={ticks} styles={styles} band="ticks" owner="calendar" sticky />
     </Box></Box>;
+    return <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.scroll} scrollElRef={scroll} onScroll={onScroll}
+        rootProps={{ "data-calendar-timeline": "", "data-calendar-unread": props.read.state === "held" ? undefined : props.read.state } as Record<string, string | undefined>}
+        minWidth={`${width + TIMELINE_GUTTER}px`} headerZIndex={5} header={header} count={lines.length} getItemKey={getItemKey} estimateSize={estimateSize}
+        anchorable={ANCHOR_EVERY_LINE} renderRow={renderRow} onAnchorChange={onAnchorChange} restoreAnchor={restore}
+        scrollToIndex={scrollTo?.index} scrollNonce={scrollTo?.nonce} scrollAlign="center" />;
 }
 
 /**

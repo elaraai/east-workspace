@@ -49,8 +49,8 @@ for (const theme of ["light", "dark"] as const) {
         const nav = frame.locator("[data-time-navigation=calendar]");
         await nav.locator("[data-time-trigger]").click();
         await page.getByRole("dialog").getByRole("button", { name: "Next day", exact: true }).click();
-        // The old window remains painted and inert while e3 reads the new
-        // index range. Read its rows only after aria-busy has cleared.
+        // The old window remains painted and retained (#1398, CL8: aria-disabled)
+        // while e3 reads the new index range. Read its rows only after aria-busy has cleared.
         await settled(page);
         await expect(events).toHaveCount(2);
         await expect(events.filter({ hasText: "Annual maintenance reservation" })).toHaveCount(1);
