@@ -191,57 +191,246 @@ static EastValue *do_compose(EastValue *first, EastValue *second, EastType *type
 static EastValue *do_invert(EastValue *patch, EastType *type);
 
 /* ================================================================== */
-/*  DIFF: Array (LCS-based)                                            */
+/*  DIFF: Array (trim, then a shortest edit script)                    */
 /* ================================================================== */
 
-/* Simple LCS for element indices. Returns length of LCS and fills
- * lcs_a[0..ret-1] with indices from a, lcs_b[0..ret-1] from b. */
-static size_t compute_lcs(EastValue **a, size_t na, EastValue **b, size_t nb, size_t **out_a,
-                          size_t **out_b)
+/* The comparisons an Array diff's search of its middle may spend: the search
+ * stops at ARRAY_DIFF_BUDGET / (m' + n') edits. The TypeScript reference's
+ * ARRAY_DIFF_BUDGET (libs/east/src/patch/types.ts) is the same number, so the
+ * two runtimes stop at the same bound and keep the same pairs (#1425). */
+#define ARRAY_DIFF_BUDGET ((size_t)1 << 24)
+
+/* The element comparisons the Array diffs on this thread have made: what
+ * east_diff_array_compares() reads. */
+static _Thread_local size_t s_array_diff_compares = 0;
+
+size_t east_diff_array_compares(void)
 {
-    /* DP table */
-    int *dp = calloc((na + 1) * (nb + 1), sizeof(int));
-    if (!dp) {
-        *out_a = NULL;
-        *out_b = NULL;
-        return 0;
+    return s_array_diff_compares;
+}
+
+/* The element equality an Array diff aligns by, counted. */
+static bool elements_equal(EastValue *x, EastValue *y)
+{
+    s_array_diff_compares++;
+    return east_value_equal(x, y);
+}
+
+/* The pairs of positions an Array diff keeps from `before` and `after`: the
+ * common start and end, kept whole, and the middle's matches, ascending —
+ * before[before_idx[i]] kept as after[after_idx[i]]. */
+typedef struct {
+    size_t start; /* leading positions equal in both */
+    size_t end;   /* trailing positions equal in both, after `start` */
+    size_t count; /* the middle's matches */
+    size_t *before_idx;
+    size_t *after_idx;
+} ArrayAlignment;
+
+/* The entries a search's trace holds up to step d: d+1 at each step. */
+static size_t trace_entries(int64_t d)
+{
+    return (size_t)((d + 1) * (d + 2) / 2);
+}
+
+/* The furthest x the search reached at `step` on `diagonal`, from that step's
+ * row of the trace. */
+static int64_t trace_reached(const int32_t *trace, int64_t step, int64_t diagonal)
+{
+    return trace[trace_entries(step - 1) + (size_t)((diagonal + step) / 2)];
+}
+
+/* Reads a shortest script's matches off the trace, walking back from the end
+ * of the middle, as the TypeScript reference's walkBack (types.ts) does: at
+ * step d the move is recomputed from step d-1's row by the search's own rule,
+ * the run between where the move landed and the current point is matches, and
+ * the walk goes on from the move's start; the run from (0, 0) is the last.
+ * Returns false, with the error set, when the matches cannot be allocated. */
+static bool walk_back(const int32_t *trace, int64_t steps, int64_t width, int64_t height,
+                      size_t offset, ArrayAlignment *out)
+{
+    size_t count = (size_t)((width + height - steps) / 2);
+    size_t *before_idx = count > 0 ? malloc(count * sizeof(size_t)) : NULL;
+    size_t *after_idx = count > 0 ? malloc(count * sizeof(size_t)) : NULL;
+    if (count > 0 && (!before_idx || !after_idx)) {
+        free(before_idx);
+        free(after_idx);
+        east_builtin_error("out of memory");
+        return false;
     }
 
-    for (size_t i = 1; i <= na; i++)
-        for (size_t j = 1; j <= nb; j++) {
-            if (east_value_equal(a[i - 1], b[j - 1]))
-                dp[i * (nb + 1) + j] = dp[(i - 1) * (nb + 1) + (j - 1)] + 1;
-            else
-                dp[i * (nb + 1) + j] = dp[(i - 1) * (nb + 1) + j] > dp[i * (nb + 1) + (j - 1)]
-                                           ? dp[(i - 1) * (nb + 1) + j]
-                                           : dp[i * (nb + 1) + (j - 1)];
-        }
-
-    size_t lcs_len = (size_t)dp[na * (nb + 1) + nb];
-    size_t *la = lcs_len > 0 ? malloc(lcs_len * sizeof(size_t)) : NULL;
-    size_t *lb = lcs_len > 0 ? malloc(lcs_len * sizeof(size_t)) : NULL;
-
-    /* Backtrack */
-    size_t pos = lcs_len;
-    size_t i = na, j = nb;
-    while (i > 0 && j > 0 && pos > 0) {
-        if (east_value_equal(a[i - 1], b[j - 1])) {
-            pos--;
-            la[pos] = i - 1;
-            lb[pos] = j - 1;
+    size_t i = count;
+    int64_t x = width, y = height;
+    for (int64_t d = steps; d > 0; d--) {
+        int64_t k = x - y;
+        bool down = k == -d || (k != d && trace_reached(trace, d - 1, k - 1) <
+                                              trace_reached(trace, d - 1, k + 1));
+        int64_t from = down ? k + 1 : k - 1;
+        int64_t from_x = trace_reached(trace, d - 1, from);
+        int64_t landed_x = down ? from_x : from_x + 1;
+        while (x > landed_x) {
+            x--;
+            y--;
             i--;
-            j--;
-        } else if (dp[(i - 1) * (nb + 1) + j] > dp[i * (nb + 1) + (j - 1)]) {
-            i--;
-        } else {
-            j--;
+            before_idx[i] = offset + (size_t)x;
+            after_idx[i] = offset + (size_t)y;
         }
+        x = from_x;
+        y = from_x - from;
+    }
+    while (x > 0) {
+        x--;
+        y--;
+        i--;
+        before_idx[i] = offset + (size_t)x;
+        after_idx[i] = offset + (size_t)y;
     }
 
-    free(dp);
-    *out_a = la;
-    *out_b = lb;
-    return lcs_len;
+    out->count = count;
+    out->before_idx = before_idx;
+    out->after_idx = after_idx;
+    return true;
+}
+
+/* Finds a shortest edit script over the middle of a and b — a[offset ..
+ * offset+width) and b[offset .. offset+height) — by Myers' greedy forward
+ * algorithm, to at most `bound` edits, as the TypeScript reference's
+ * shortestScript (types.ts) does, step for step.
+ *
+ * A point (x, y) has passed over the first x elements of the one and the first
+ * y of the other, on diagonal k = x - y; a move right deletes an element of a,
+ * a move down inserts one of b, and a run along the diagonal keeps each pair
+ * of equal elements. v[k] is the furthest x reached on diagonal k. At each
+ * step d, diagonal k is reached down from k+1 when k = -d, or when k != d and
+ * v[k-1] < v[k+1], and right from k-1 otherwise — the move that reaches
+ * further, and the insert where both reach as far — then runs on while its
+ * elements are equal. v keeps x as computed, even past the middle's edge; only
+ * cells inside it are compared. Each step's d+1 values are kept in the trace.
+ * Every value fits 32 bits: a bound of 1 or more means a middle of at most
+ * 2^24 elements, and with a bound of 0 the one step compares the middle's first
+ * two elements, which the trim left unequal.
+ *
+ * Returns 1 with the matches in *out, 0 when no script of `bound` edits or
+ * fewer exists, and -1, with the error set, when out of memory. */
+static int shortest_script(EastValue **a, EastValue **b, size_t offset, int64_t width,
+                           int64_t height, int64_t bound, ArrayAlignment *out)
+{
+    int64_t center = bound + 1;
+    /* v[center + 1], diagonal 1, starts at 0: the first step's move down from it
+     * starts the search at (0, 0). */
+    int32_t *v = calloc((size_t)(2 * bound + 3), sizeof(int32_t));
+    size_t capacity = trace_entries(bound);
+    size_t cap = capacity < 1024 ? capacity : 1024;
+    int32_t *trace = malloc(cap * sizeof(int32_t));
+    if (!v || !trace) {
+        free(v);
+        free(trace);
+        east_builtin_error("out of memory");
+        return -1;
+    }
+
+    for (int64_t d = 0; d <= bound; d++) {
+        size_t row = trace_entries(d - 1);
+        size_t need = row + (size_t)d + 1;
+        if (need > cap) {
+            size_t grown = 2 * cap > need ? 2 * cap : need;
+            if (grown > capacity) grown = capacity;
+            int32_t *larger = realloc(trace, grown * sizeof(int32_t));
+            if (!larger) {
+                free(v);
+                free(trace);
+                east_builtin_error("out of memory");
+                return -1;
+            }
+            trace = larger;
+            cap = grown;
+        }
+        for (int64_t k = -d; k <= d; k += 2) {
+            int64_t x = (k == -d || (k != d && v[center + k - 1] < v[center + k + 1]))
+                            ? v[center + k + 1]
+                            : v[center + k - 1] + 1;
+            int64_t y = x - k;
+            while (x < width && y < height &&
+                   elements_equal(a[offset + (size_t)x], b[offset + (size_t)y])) {
+                x++;
+                y++;
+            }
+            v[center + k] = (int32_t)x;
+            trace[row + (size_t)((k + d) / 2)] = (int32_t)x;
+            if (x >= width && y >= height) {
+                bool walked = walk_back(trace, d, width, height, offset, out);
+                free(v);
+                free(trace);
+                return walked ? 1 : -1;
+            }
+        }
+    }
+    free(v);
+    free(trace);
+    return 0;
+}
+
+/* Aligns two arrays: the pairs of positions their diff keeps, as the
+ * TypeScript reference's alignArrays (types.ts) finds them (#1425). Trims the
+ * longest common start, then the longest common end of what it leaves, so the
+ * two never overlap; over the middle between them, of m' and n' elements,
+ * finds a shortest edit script to at most min(m' + n', 2^24 / (m' + n'))
+ * edits, and past that bound pairs the middle by position, a pair whose two
+ * elements are equal being a match. The search compares each cell of the
+ * middle at most once, so the alignment makes at most 2^24 + m + n + 2
+ * comparisons, and its trace holds at most 8,394,753 entries.
+ *
+ * Returns false, with the error set, when out of memory; the caller frees
+ * out->before_idx and out->after_idx otherwise. */
+static bool align_arrays(EastValue **a, size_t na, EastValue **b, size_t nb, ArrayAlignment *out)
+{
+    size_t start = 0;
+    while (start < na && start < nb && elements_equal(a[start], b[start]))
+        start++;
+    size_t end = 0;
+    while (end < na - start && end < nb - start && elements_equal(a[na - 1 - end], b[nb - 1 - end]))
+        end++;
+
+    out->start = start;
+    out->end = end;
+    out->count = 0;
+    out->before_idx = NULL;
+    out->after_idx = NULL;
+
+    size_t width = na - start - end;
+    size_t height = nb - start - end;
+    /* Nothing in the middle matches: the other side is deleted or inserted whole. */
+    if (width == 0 || height == 0) return true;
+
+    size_t total = width + height;
+    size_t quotient = ARRAY_DIFF_BUDGET / total;
+    size_t bound = total < quotient ? total : quotient;
+    int found = shortest_script(a, b, start, (int64_t)width, (int64_t)height, (int64_t)bound, out);
+    if (found < 0) return false;
+    if (found > 0) return true;
+
+    /* Past the bound: the middle's k-th element of `before` with its k-th of `after`. */
+    size_t shorter = width < height ? width : height;
+    size_t *before_idx = malloc(shorter * sizeof(size_t));
+    size_t *after_idx = malloc(shorter * sizeof(size_t));
+    if (!before_idx || !after_idx) {
+        free(before_idx);
+        free(after_idx);
+        east_builtin_error("out of memory");
+        return false;
+    }
+    size_t count = 0;
+    for (size_t k = 0; k < shorter; k++) {
+        if (elements_equal(a[start + k], b[start + k])) {
+            before_idx[count] = start + k;
+            after_idx[count] = start + k;
+            count++;
+        }
+    }
+    out->count = count;
+    out->before_idx = before_idx;
+    out->after_idx = after_idx;
+    return true;
 }
 
 /* One `{key, offset, operation}` entry of an Array patch (consumes `op`). */
@@ -257,16 +446,21 @@ static void push_array_op(EastValue *ops, int64_t key, EastValue *op)
     east_value_release(entry);
 }
 
-/* Mirrors the TypeScript reference (diff.ts): between two LCS matches, the
+/* Mirrors the TypeScript reference (diff.ts): between two matches, the
  * i-th deleted element is paired with the i-th inserted one as a single
  * `update` carrying the inner diff — the running length is unchanged by a
  * pair, so the delete/insert counts stay frozen across it — and only the
  * excess deletes and inserts are emitted as such. (This runtime used to emit
  * every delete and insert separately: the same values after apply, but a
- * different patch value from TypeScript's; #774.) */
+ * different patch value from TypeScript's; #774.) The matches are
+ * align_arrays': the walk covers the middle alone, and starting at the common
+ * start with no delete or insert counted is where a walk over the start would
+ * be, so every key is the whole array's. */
 static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type)
 {
-    if (east_value_equal(before, after)) return mk_unchanged();
+    /* The very same array is unchanged. Any other two are aligned, and the
+     * alignment's trim finds two equal arrays unchanged in one pass. */
+    if (before == after) return mk_unchanged();
 
     EastType *elem_type = type->data.element;
     size_t na = before->data.array.len;
@@ -274,17 +468,19 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
     EastValue **a = before->data.array.items;
     EastValue **b = after->data.array.items;
 
-    size_t *lcs_a, *lcs_b;
-    size_t lcs_len = compute_lcs(a, na, b, nb, &lcs_a, &lcs_b);
+    ArrayAlignment al;
+    if (!align_arrays(a, na, b, nb, &al)) return NULL;
+    size_t end_a = na - al.end;
+    size_t end_b = nb - al.end;
 
     /* Build operations array */
     EastValue *ops = east_array_new(NULL);
-    size_t ai = 0, bi = 0;
+    size_t ai = al.start, bi = al.start;
     int64_t delete_count = 0, insert_count = 0;
 
-    for (size_t li = 0; li <= lcs_len; li++) {
-        size_t match_a = (li < lcs_len) ? lcs_a[li] : na;
-        size_t match_b = (li < lcs_len) ? lcs_b[li] : nb;
+    for (size_t li = 0; li <= al.count; li++) {
+        size_t match_a = (li < al.count) ? al.before_idx[li] : end_a;
+        size_t match_b = (li < al.count) ? al.after_idx[li] : end_b;
 
         /* Paired delete + insert before this match → one update in place */
         size_t n_del = match_a - ai;
@@ -293,6 +489,13 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
         for (size_t i = 0; i < pairs; i++) {
             int64_t key = (int64_t)(ai + i) - delete_count + insert_count;
             EastValue *inner = do_diff(a[ai + i], b[bi + i], elem_type);
+            if (!inner) {
+                /* A nested diff failed — propagate */
+                east_value_release(ops);
+                free(al.before_idx);
+                free(al.after_idx);
+                return NULL;
+            }
             EastValue *op = east_variant_new("update", inner, NULL);
             east_value_release(inner);
             push_array_op(ops, key, op);
@@ -325,14 +528,14 @@ static EastValue *diff_array(EastValue *before, EastValue *after, EastType *type
         }
 
         /* Skip the matching element */
-        if (li < lcs_len) {
+        if (li < al.count) {
             ai++;
             bi++;
         }
     }
 
-    free(lcs_a);
-    free(lcs_b);
+    free(al.before_idx);
+    free(al.after_idx);
 
     if (east_array_len(ops) == 0) {
         east_value_release(ops);
@@ -422,6 +625,11 @@ static EastValue *diff_dict(EastValue *before, EastValue *after, EastType *type)
         } else if (!east_value_equal(bval, aval)) {
             /* Updated */
             EastValue *vpatch = do_diff(bval, aval, val_type);
+            if (!vpatch) {
+                /* The value's diff failed — propagate */
+                east_value_release(ops);
+                return NULL;
+            }
             EastValue *op = east_variant_new("update", vpatch, NULL);
             east_dict_set(ops, key, op);
             east_value_release(op);
@@ -478,6 +686,14 @@ static EastValue *diff_struct(EastValue *before, EastValue *after, EastType *typ
         EastValue *bval = before->data.struct_.field_values[i];
         EastValue *aval = after->data.struct_.field_values[i];
         patches[i] = do_diff(bval, aval, ft);
+        if (!patches[i]) {
+            /* A field's diff failed — propagate */
+            for (size_t j = 0; j < i; j++)
+                east_value_release(patches[j]);
+            free(names);
+            free(patches);
+            return NULL;
+        }
         if (!is_tag(patches[i], "unchanged")) all_unchanged = false;
     }
 
@@ -520,6 +736,7 @@ static EastValue *diff_variant(EastValue *before, EastValue *after, EastType *ty
     }
 
     EastValue *vp = do_diff(before->data.variant.value, after->data.variant.value, case_type);
+    if (!vp) return NULL; /* the case's diff failed — propagate */
     if (is_tag(vp, "unchanged")) {
         east_value_release(vp);
         return mk_unchanged();
@@ -543,6 +760,7 @@ static EastValue *diff_ref(EastValue *before, EastValue *after, EastType *type)
 
     EastType *inner_type = type->data.element;
     EastValue *p = do_diff(bv, av, inner_type);
+    if (!p) return NULL; /* the referenced value's diff failed — propagate */
     if (is_tag(p, "unchanged")) {
         east_value_release(p);
         return mk_unchanged();

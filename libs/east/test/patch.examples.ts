@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from "@elaraai/east";
+import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from "@elaraai/east";
 
 // ---------------------------------------------------------------------------
 // Primitives - East.diff
@@ -123,6 +123,39 @@ export const patchInvertArray = example({
     }),
     inputs: [],
     returns: 3n,
+});
+
+export const patchDiffArrayOneChange = example({
+    keywords: ["patch", "diff", "array", "ArrayType", "large", "update", "one change", "linear"],
+    description: "Diff two 100,000-element arrays that differ in one element: the patch is one update at its position",
+    fn: East.function([], PatchType(ArrayType(IntegerType)), ($) => {
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.copy());
+        $(after.update(50000n, -1n));
+        return East.diff(before, after);
+    }),
+    inputs: [],
+    returns: variant("patch", [
+        { key: 50000n, offset: 0n, operation: variant("update", variant("replace", { before: 50000n, after: -1n })) },
+    ]),
+});
+
+export const patchDiffArrayMove = example({
+    keywords: ["patch", "diff", "array", "ArrayType", "move", "reorder", "delete", "insert", "shortest edit script"],
+    description: "Diff an array with one element moved far along it: the patch deletes it where it was and inserts it where it went",
+    fn: East.function([], PatchType(ArrayType(IntegerType)), ($) => {
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.slice(0n, 10n));
+        $(after.append(before.slice(11n, 99991n)));
+        $(after.pushLast(10n));
+        $(after.append(before.slice(99991n, 100000n)));
+        return East.diff(before, after);
+    }),
+    inputs: [],
+    returns: variant("patch", [
+        { key: 10n, offset: 0n, operation: variant("delete", 10n) },
+        { key: 99990n, offset: 0n, operation: variant("insert", 10n) },
+    ]),
 });
 
 // ---------------------------------------------------------------------------
