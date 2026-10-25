@@ -20,7 +20,7 @@ import { LINK_HIT_REACH } from "../../shared/links/look.js";
 import type { NetLeg } from "../edits.js";
 import { pointsBbox } from "./camera";
 import { type DrawnItem, type DrawnLink, type DrawnNet } from "./drawn";
-import { LINK_LANE_GAP, distanceToPolyline, edgeWeight, type EdgeGeometry } from "./paint";
+import { LINK_LANE_GAP, distanceToPolyline, edgeWeight, type EdgeGeometry } from "./routes";
 
 /** An axis-aligned world-space box over an item, as stored in the culling R-tree. */
 export interface ItemBox { minX: number; minY: number; maxX: number; maxY: number; item: DrawnItem }
