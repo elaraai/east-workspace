@@ -100,6 +100,6 @@ export function readWindow(blocks: readonly PlanWireBlock[]): WindowRead {
  * @param source - The decoded `paged` arm, at the canvas's blocks
  * @returns Its window reader, for the shared windowed read (`readWindows`, `WindowStore`)
  */
-export function planWindows(source: PlanPagedSourceValue): WindowReader<readonly PlanWireBlock[], WindowRead> {
+export function planWindowReader(source: PlanPagedSourceValue): WindowReader<readonly PlanWireBlock[], WindowRead> {
     return { page: (offset, limit) => source.page(offset, limit), decode: readWindow, label: "[Plan]" };
 }

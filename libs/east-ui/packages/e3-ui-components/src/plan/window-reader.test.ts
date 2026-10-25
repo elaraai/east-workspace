@@ -21,14 +21,14 @@ import { some, none } from "@elaraai/east";
 import type { PlanWireBlock, PlanWireRow } from "./model.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
 import { pruneWindows, readWindows as readReader } from "../shared/windowed.js";
-import { planWindows, readWindow, type WindowCache, type WindowFailures, type WindowRead } from "./window-reader.js";
+import { planWindowReader, readWindow, type WindowCache, type WindowFailures, type WindowRead } from "./window-reader.js";
 import { rowId, rowKey, testKeyOf } from "./plan.test-utils.js";
 
 const PAGE = 200;
 
 /** The canvas's read of a source's windows, as its driver reads them: the shared read through the Plan's reader. */
 const readWindows = (source: PlanPagedSourceValue, windows: readonly number[], cache: WindowCache, pageSize: number, failures: WindowFailures) =>
-    readReader(planWindows(source), windows, cache, pageSize, failures);
+    readReader(planWindowReader(source), windows, cache, pageSize, failures);
 
 /** A fresh failure record — every read below owns one, as the driver does. */
 const noFailures = (): WindowFailures => new Map();

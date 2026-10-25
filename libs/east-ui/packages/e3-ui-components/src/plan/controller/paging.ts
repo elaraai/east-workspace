@@ -145,7 +145,7 @@ import {
 } from "../../shared/windowed.js";
 import { keyAcrossBlocks, type PlanBand, type PlanRowValue, type PlanWindowFailure, type WindowSkeleton } from "../model.js";
 import type { RowKey } from "../plan-state.js";
-import { planWindows, type BlockShape, type WindowRead, type WindowRows } from "../window-reader.js";
+import { planWindowReader, type BlockShape, type WindowRead, type WindowRows } from "../window-reader.js";
 import { appendAll, maxOf, minOf } from "../reductions.js";
 import {
     PLAN_PAGE_SIZE, FAILED_BAND_MIN_PX,
@@ -663,7 +663,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 sourceError ??= readFailure(err);
             }
             // Once every demanded window reads at the new revision, the old snapshot has nothing left to stand in for.
-            const result = store.read(planWindows(src), wanted, PLAN_PAGE_SIZE);
+            const result = store.read(planWindowReader(src), wanted, PLAN_PAGE_SIZE);
             return {
                 total: t, resident: result.resident, inFlight: result.inFlight, failed: result.failed, sourceError,
                 revision: current, dataSnapshot,
