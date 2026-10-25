@@ -8,7 +8,8 @@
  * the narrowing's one rail over its bins, its lanes, its resources and its
  * arrivals, and each one's count, in both layouts (#1336, #1339) — the bins'
  * day the board's own navigation, never a chip of the rail (#1372) — the
- * issues chip, Search Records over the bins' keys (#1398), the shared history
+ * issues chip, Search Records over the bins' keys (#1398) — its box the first
+ * thing the row folds, to its icon (ruled 25 Oct 2026) — the shared history
  * and Publish — each folding by its rank,
  * history last, and in the narrowest frame the date, the layout, Save and
  * Publish reachable through the combined View fold. The status, the issues and
@@ -28,6 +29,7 @@ import {
     ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { AllocationCommands } from "./actions.js";
@@ -127,9 +129,10 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     const chip = useRecipe({ key: "chip" });
-    // Search Records (#1398): primary-key navigation over the bins' record, at the row's end; it folds to its icon, and at
-    // the row's last step into the View, beside the date and the controls.
-    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: HOST_RANK + 4 });
+    // Search Records (#1398): primary-key navigation over the bins' record, at the row's end. Its box is the first thing the
+    // row folds, to its icon, before the rail and the day's steps (ruled 25 Oct 2026); at the row's last step it goes into
+    // the View, beside the date and the controls.
+    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK });
     const summary = issueSummary(issues);
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;
@@ -204,7 +207,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
                 <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
             </chakra.button>
                 : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />, null] },
-        search !== undefined && { ...search, forms: [...search.forms, null], rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "allocation.controls"] },
+        search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "allocation.controls"] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish.
         heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>, null] },

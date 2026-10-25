@@ -12,6 +12,7 @@ import {
     ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -55,9 +56,10 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     const chip = useRecipe({ key: "chip" });
-    // Search Records (#1398): primary-key navigation over the people, at the row's end; it folds to its icon, and at the
-    // row's last step into the View, beside the week and the view controls.
-    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: HOST_RANK + 4 });
+    // Search Records (#1398): primary-key navigation over the people, at the row's end. Its box is the first thing the row
+    // folds, to its icon, before the rail and the week's steps (ruled 25 Oct 2026); at the row's last step it goes into the
+    // View, beside the week and the view controls.
+    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK });
     const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length;
     const period = (key: "day" | "week") => setView({ ...view, period: key });
     const unit = view.layout === "people" ? "week" : view.period;
@@ -127,7 +129,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
             ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
             : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
                 : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
-        search !== undefined && { ...search, forms: [...search.forms, null], rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
+        search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish.
         heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish</Button>, null] },
