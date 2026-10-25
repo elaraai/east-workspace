@@ -29,7 +29,8 @@
  * `record.ts` (a record's rows, #1182), `templates.ts` (`Sheet.templates`,
  * the Rows tab's cards from templates records, #1345), `library.ts`
  * (`Sheet.library.*`, the library pane's tabs, #1186),
- * `fields.ts` (`Sheet.field`, the inspector pane's forms, #1188) and
+ * `fields.ts` (`Sheet.field`, the inspector pane's forms, #1188),
+ * `optimise.ts` (the optimiser's request and answer over the rows, #1409) and
  * `views.ts` (the views' bind handle).
  *
  * `Sheet` is the tag and the namespace at once, as east-ui's `Table` is: one
@@ -109,6 +110,7 @@ import { SheetComponent, SheetTag, createSheetPayload, type SheetTagType } from 
 import { libraryColumns, libraryRows, libraryTab } from "./library.js";
 import { sheetTemplates } from "./templates.js";
 import { SheetField } from "./fields.js";
+import { SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor } from "./optimise.js";
 import { createSubRows, createSubRow } from "./sub-rows.js";
 import {
     createGroup,
@@ -282,6 +284,7 @@ export {
     type SheetLibraryTabConfig,
 } from "./library.js";
 export { SheetFieldType, SheetFormType, SheetFormsType } from "./fields.js";
+export { SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, type SheetOptimiseRequestType, type SheetOptimiseResultType } from "./optimise.js";
 export {
     type SheetGroupCell,
     type SheetGroupConfig,
@@ -711,6 +714,10 @@ export interface SheetNamespace extends SheetTagType {
         Proposal: typeof SheetProposalTypeFor;
         /** `CheckContext(R)` — what an author's member check sees; `CheckContext(P, "lines")` on a grouped sheet ({@link SheetCheckContextTypeFor}, {@link SheetGroupCheckContextTypeFor}). */
         CheckContext: typeof sheetCheckContextType;
+        /** `OptimiseRequest(R, K?)` — what the app's optimiser is asked (#1409): the run and the rows in view by key ({@link SheetOptimiseRequestTypeFor}). */
+        OptimiseRequest: typeof SheetOptimiseRequestTypeFor;
+        /** `OptimiseResult(R, K?)` — what it answers (#1409): the rows, complete ({@link SheetOptimiseResultTypeFor}). */
+        OptimiseResult: typeof SheetOptimiseResultTypeFor;
     };
 }
 
@@ -803,6 +810,8 @@ const SHEET_MEMBERS = {
         Patch: SheetPatchTypeFor,
         Proposal: SheetProposalTypeFor,
         CheckContext: sheetCheckContextType,
+        OptimiseRequest: SheetOptimiseRequestTypeFor,
+        OptimiseResult: SheetOptimiseResultTypeFor,
     },
 };
 

@@ -33,8 +33,10 @@
  *   - Loading: the cold-load skeleton over the regions — its toolbar's
  *     slots, and its body's rows at the component's own pitch
  *     (`--builder-loading-pitch`, the frame's `loadingPitch`) with a 12px
- *     body bar each: the Skeleton's static `--paper-3`, nothing moving
- *     (#1398). A live footer (`data-frame-live`) stays out from under it.
+ *     body bar each: static bars in `--rule`, nothing moving (#1398; the
+ *     rule rather than `--paper-3`, the darkest paper, ruled 26 Oct 2026 so
+ *     the rows read as rows on every screen). A live footer
+ *     (`data-frame-live`) stays out from under it.
  *
  * @packageDocumentation
  */
@@ -60,10 +62,11 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             flex: "0 0 var(--builder-loading-pitch, 40px)", display: "flex", alignItems: "center", gap: "{spacing.4}",
             boxSizing: "border-box", borderBottomWidth: "1px", borderColor: "border.subtle",
         },
-        // The Skeleton's static `--paper-3`: no shimmer, no pulse — the footer line's dot is the only motion (#1398).
+        // Static bars in `--rule`: no shimmer, no pulse — the footer line's dot is the only motion (#1398). The rule, not
+        // `--paper-3`, which is the darkest paper and read as blank on a bright screen (ruled 26 Oct 2026).
         loadingLine: {
             flex: "0 1 160px", minWidth: 0, width: "100%", maxWidth: "160px", "&:nth-child(2)": { flexGrow: 1, maxWidth: "320px" },
-            background: "bg.subtle", animation: "none",
+            background: "border.subtle", animation: "none",
         },
         // A body value's bar: 12px, square-ended.
         loadingCell: { height: "12px", borderRadius: "0" },

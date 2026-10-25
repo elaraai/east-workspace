@@ -216,6 +216,8 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
                 ...(timeNavigation ? [null] : []),
             ],
         },
+        // The Elara eye (#1409): the app's optimiser's item, immediately before the history item.
+        chrome.optimise?.toolbarItem,
         // The banners say the session's error, so the toolbar keeps one row.
         history !== undefined && historyToolbarItem({ ...history, showError: false }),
     ];

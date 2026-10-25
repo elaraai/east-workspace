@@ -17,7 +17,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { RosterLayoutType, RosterPeriodType } from "@elaraai/e3-ui/internal";
 import { usePageView } from "../shared/schedule/page-view.js";
 import { shiftCalendar } from "../shared/time/scale.js";
@@ -35,7 +35,11 @@ export interface RosterWindow {
     day: number;
     /** Shows a layout, with the period it last had (P1). */
     setLayout: (layout: RosterLayout) => void;
-    /** Shows a period of the layout in view (P3): Week → Month opens the month holding the week's fourth day; Month → Week the week given, else the month's first whose fourth day falls in it. */
+    /**
+     * Shows a period of the layout in view (P3): Week → Month opens the month holding the week's fourth day; Month → Week
+     * the week given, else the week Month was opened from while the month in view still holds it, else the month's first
+     * whose fourth day falls in it.
+     */
     setPeriod: (period: RosterPeriod, week?: Date) => void;
     /** Steps the span by its unit — a week, or a month in Month (P2). */
     step: (by: number) => void;
@@ -96,16 +100,21 @@ export function useRosterWindow(value: RosterValue, key: string): RosterWindow {
         // The layout's own period, as it last had it; the period in view kept for the layout left.
         setView({ ...view, layout, period: periodOf(layout, view.held?.[layout]), held: { ...view.held, [view.layout]: view.period } });
     }, [view, setView]);
+    // The week Month was opened from (P3, ruled 26 Oct 2026): what Month → Week returns to while the month in view still
+    // holds it — a viewer toggling the two keeps their place; a month stepped to opens on its own first week.
+    const left = useRef<Date | undefined>(undefined);
     const setPeriod = useCallback((period: RosterPeriod, at?: Date) => {
         const next = periodOf(view.layout, period);
         if (next === view.period) return;
         let date = view.date;
-        // Week → Month: the month holding the week's fourth day. Month → Week: the week given, else the first week of the
-        // month whose fourth day falls in it.
-        if (next === "month") date = week.getTime() + 3 * DAY;
+        // Week → Month: the month holding the week's fourth day. Month → Week: the week given, else the week left while
+        // the month holds it, else the first week of the month whose fourth day falls in it.
+        if (next === "month") { left.current = week; date = week.getTime() + 3 * DAY; }
         else if (view.period === "month") {
             const month = span.month ?? span.start;
-            const first = at ?? span.weeks.find(start => compareDate(monthOf(new Date(start.getTime() + 3 * DAY)), month) === 0) ?? span.start;
+            const back = left.current;
+            const first = at ?? (back !== undefined && span.weeks.some(start => compareDate(start, back) === 0) ? back : undefined)
+                ?? span.weeks.find(start => compareDate(monthOf(new Date(start.getTime() + 3 * DAY)), month) === 0) ?? span.start;
             date = first.getTime();
         }
         setView({ ...view, period: next, date });

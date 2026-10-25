@@ -52,20 +52,20 @@ const textSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_TEXT, DictType(StringType, JobType));
     const next = $.const(East.function([], StringType, (_$) => "J-0002"));
     const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { newRowId: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_TEXT }));
-    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, history: none, missing: none, name: none }, SheetPayloadType);
+    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 /** The jobs keyed by text, a new row's key minted by the renderer. */
 const mintedSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_TEXT, DictType(StringType, JobType));
     const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_TEXT }));
-    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, history: none, missing: none, name: none }, SheetPayloadType);
+    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 /** The jobs keyed by number, a new row's key `11`. */
 const numberSheet = East.compile(East.function([], SheetPayloadType, ($) => {
     const jobs = $.const(BY_NUMBER, DictType(IntegerType, JobType));
     const next = $.const(East.function([], StringType, (_$) => "11"));
     const sheet = $.const(createSheetRootWith(jobs, COLUMNS, { newRowId: next, blanks: 2n }, { keyOrdered: true, applyKeyed: APPLY_NUMBER }));
-    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, history: none, missing: none, name: none }, SheetPayloadType);
+    return East.value({ sheet, templates: [], library: [], narrowed: new Map(), inspector: none, optimise: none, history: none, missing: none, name: none }, SheetPayloadType);
 }), getRegisteredPlatformImplementations());
 
 const decodeBatch = decodeBeast2For(Editing.Types.ChangeSet(JobType, StringType));

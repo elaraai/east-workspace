@@ -92,7 +92,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { SortedMap, StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
@@ -283,6 +283,8 @@ export interface EastChakraPlanProps {
     canDrop?: PlanEventCanDrop | undefined;
     /** What each source of the slice the frame follows shows (#1344) — each resource kind's, templates list's and tab's; none, a Plan whose payload follows none. */
     followed?: FollowedSources | undefined;
+    /** The app's optimiser (#1409) — the payload carries its binding: what the Elara eye calls by name; none, no eye. */
+    optimise?: { readonly name: string } | undefined;
 }
 
 /**
@@ -292,7 +294,7 @@ export interface EastChakraPlanProps {
  * @returns The Plan, in its frame
  */
 export const EastChakraPlan = memo(function EastChakraPlan({
-    value, storageKey, events, kinds, resources, library: given, inspector, applyMode, canDrop, followed = NONE_FOLLOWED,
+    value, storageKey, events, kinds, resources, library: given, inspector, applyMode, canDrop, followed = NONE_FOLLOWED, optimise,
 }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
@@ -320,7 +322,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     const busy = resourceKinds.some((kind) => followed.get(kind.key)?.shown.busy === true);
     const canvas = usePlanCanvas({
         value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS, applyMode,
-        resources: resourceKinds, tabs: library, canDrop: veto, shown, busy,
+        resources: resourceKinds, tabs: library, canDrop: veto, shown, busy, optimise,
     });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resourceKinds} library={library}
@@ -330,6 +332,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     && (prev.followed ?? NONE_FOLLOWED) === (next.followed ?? NONE_FOLLOWED)
     && (prev.inspector === true) === (next.inspector === true)
     && (prev.applyMode ?? "batch") === (next.applyMode ?? "batch")
+    && (prev.optimise === undefined ? next.optimise === undefined : next.optimise !== undefined && stringEqual(prev.optimise.name, next.optimise.name))
     && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
@@ -384,7 +387,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         // A Plan with no event kinds reads no backlog: there is nothing to wait for.
         unscheduled: kinds.length === 0 ? NO_UNSCHEDULED : counts?.unscheduled,
         takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
-        followed, backlogNarrowing: kindsRead.backlog, backlogRetained: kinds.length > 0 && kindsRead.retained,
+        followed, backlogNarrowing: kindsRead.backlog, backlogRetained: kinds.length > 0 && kindsRead.retained, backlogFlash: chrome?.optimise?.backlogFlash,
     });
     // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
     const overlaps = counts?.overlaps;
@@ -420,6 +423,8 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     // Each session's banners, in the history's order: `data`'s, then each event kind's, named — then each source the
     // frame follows whose narrowing could not be read, with Retry, and a window that could not be written (#1344).
     const bannerNodes: ReactNode[] = [];
+    // A run of the optimiser's banner first (#1409).
+    if (chrome?.optimise?.banner) bannerNodes.push(<Fragment key="optimise">{chrome.optimise.banner}</Fragment>);
     if (chrome !== undefined && history !== undefined) {
         for (const held of chrome.sessions) {
             bannerNodes.push(<SessionBanners key={held.key} session={held.session} words={chrome.words} onAction={held.onAction}
@@ -475,15 +480,18 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const kindsUnread = kinds.length > 0 && kindsRead.counts === undefined;
     const footer = chrome !== undefined
         ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport} noun={chrome.rowsNoun}
-            counts={counts} unread={kindsUnread} pending={session?.pending} notices={notices} />
+            counts={counts} unread={kindsUnread} pending={session?.pending} notices={notices}
+            optimise={chrome.optimise === undefined ? undefined : { line: chrome.optimise.line, legend: chrome.optimise.legend, flash: chrome.optimise.flash }} />
         : undefined;
     // The Plan's one reveal clock (#1398, CL4): the footer's line and the runs' placeholders show once a read the view
     // waits for has passed the delay, and are held once shown — a flip renders them, never the frame.
     const loading = chrome?.transport?.loading;
     const waiting = loading !== undefined && loading.kind !== "failed";
+    // The run's landing (#1409) is measured and drawn over the whole frame — the bars and the counts alike.
+    const optimiseLanding = chrome?.optimise?.landing;
     return (
-        <Box css={styles.frame} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}
-            style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }}>
+        <Box ref={optimiseLanding?.ref} css={optimiseLanding === undefined ? styles.frame : [styles.frame, optimiseLanding.css]} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}
+            style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }} {...optimiseLanding?.attributes}>
             {kinds.length > 0 && (
                 <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} cells={chrome?.cells}
                     hidden={hidden} onRead={setKindsRead} />
@@ -555,7 +563,7 @@ export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value
             {(followed) => (
                 <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
                     resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type}
-                    canDrop={value.canDrop} followed={followed} />
+                    canDrop={value.canDrop} followed={followed} optimise={value.optimise.type === "some" ? { name: value.optimise.value.name } : undefined} />
             )}
         </FollowSources>
     );

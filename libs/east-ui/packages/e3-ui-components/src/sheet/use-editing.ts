@@ -74,6 +74,12 @@ export interface SheetEditingResult {
      * Answers whether the session recorded it.
      */
     record: (events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds) => boolean;
+    /**
+     * Record entry versions a gesture computed whole — the optimiser's answer
+     * (#1409), each entry's draft and wire row given — as one transaction of
+     * the origin and label named. Answers whether the session recorded it.
+     */
+    recordVersions: (updates: readonly EntryUpdate[], origin: Origin, label: string) => boolean;
     /** An entry's version before any gesture: the session's, else the source's, lifted into its draft. */
     original: (id: string) => EntryVersion;
     /** Each drafted entry's draft, encoded. */
@@ -158,6 +164,11 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
         return session.record([...updates.values()], gestureOrigin, label);
     }, [session, observed, original, codecs, editing, draftType, mint, replacing]);
+    const recordVersions = useCallback((updates: readonly EntryUpdate[], origin: Origin, label: string): boolean => {
+        if (replacing || updates.length === 0 || !observed || !session.writable) return false;
+        session.observeBase(observed.base);
+        return session.record(updates, origin, label);
+    }, [session, observed, replacing]);
     const layer = useMemo<LocalLayer>(() => {
         const edits = new Map<string, SheetRowValue>();
         const appended: SheetRowValue[] = [];
@@ -186,5 +197,5 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, codecs, version, rows, rowIndex]);
-    return { session, layer, record, original, drafts, available: available && !replacing, version };
+    return { session, layer, record, recordVersions, original, drafts, available: available && !replacing, version };
 }

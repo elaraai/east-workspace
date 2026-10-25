@@ -40,6 +40,7 @@ import { ApplyPatternAction, AssignmentActions, PlaceAction, PlacePopover, Requi
 import { readRosterSource } from "./identity.js";
 import { isPatternCard, rosterCoord, rosterPersonWeekCoord, type RosterDrag } from "./drag.js";
 import type { PatternDay, RosterCommands } from "./actions.js";
+import type { RosterDutyOp, RosterOptimised } from "./optimise.js";
 import {
     DAY, activityOf, costsOf, groupSkills, hourText, ownTimes, sameSlot, shiftColor, shiftHoursText, shiftOf, slotKey, weekKey, weekNumber,
     type Assignment, type Coverage, type Issue, type Pay, type Person, type PlacedProposal, type RosterDomain, type RosterSpan, type RosterStyles, type RosterValue,
@@ -70,6 +71,13 @@ export interface RosterViewsProps {
     anchor?: RosterAnchor | undefined;
     /** Told where a People view rests as its scroll settles. */
     onAnchor?: ((next: Partial<RosterAnchor>) => void) | undefined;
+    /**
+     * What the runs of the app's optimiser left on the week's duties (#1409, R23): each duty's operation, drawn on its
+     * tile and its chip alike with its provenance on hover, and the people whose hours the latest run changed.
+     */
+    optimised?: RosterOptimised | undefined;
+    /** Whether a run's highlight is on (#1409): a removed duty's tombstone is struck, and the changed people's hours flash. */
+    lit?: boolean | undefined;
     /** The person the last pick in Search Records gives the keyboard to (#1398): their name in the People view, once. */
     picked?: PeoplePick | undefined;
 }
@@ -127,6 +135,8 @@ interface ViewContext {
     readonly weeks: readonly WeekState[]; readonly openWeek: (week: Date) => void;
     /** The People layout's display settings (D7): whether a tile shows the shift's hours always, and whether a month's marks carry letters. */
     readonly tileTimes: "always" | "different"; readonly letters: boolean;
+    /** What the runs of the optimiser left on the duties (#1409), and whether the highlight is on. */
+    readonly optimised: RosterOptimised | undefined; readonly lit: boolean;
 }
 /** The views' selection, read by what it marks. */
 const SelectionContext = createContext<Selection | undefined>(undefined);
@@ -145,10 +155,28 @@ export function setPeopleDrawProbe(fn: ((part: "row" | "day", key: string) => vo
 
 /** The views' props a chip and a People row read, the same object while each of them holds. */
 function useViewContext(props: RosterViewsProps): ViewContext {
-    const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek } = props;
-    const tileTimes = value.settings.tileTimes.type, letters = value.settings.letters;
-    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters }),
-        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters]);
+    const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, optimised } = props;
+    const tileTimes = value.settings.tileTimes.type, letters = value.settings.letters, lit = props.lit === true;
+    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters, optimised, lit }),
+        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters, optimised, lit]);
+}
+
+/**
+ * What a run of the optimiser did to a duty, as its tile or its chip draws it (#1409, R7, R17, §9.5): its add or its
+ * change while it is still the run's draft, and its remove on its tombstone for the highlight alone — the tombstone
+ * is the Roster's own, restorable after it.
+ *
+ * @param ctx - The views' context
+ * @param id - The duty's key
+ * @param removed - Whether the tile or chip is the duty's tombstone
+ * @param drafted - Whether the duty is a draft still: an Undo that takes the run back leaves no mark (R17)
+ * @returns Its mark and its provenance; `undefined` for a duty no run touched, or one no longer drafted
+ */
+function dutyMark(ctx: ViewContext, id: string, removed: boolean, drafted: boolean): { op: RosterDutyOp["op"]; provenance: string } | undefined {
+    const op = drafted ? ctx.optimised?.ops.get(id) : undefined;
+    if (op === undefined) return undefined;
+    if (op.op === "del") return removed && ctx.lit ? { op: "del", provenance: op.provenance } : undefined;
+    return removed ? undefined : { op: op.op, provenance: op.provenance };
 }
 
 /**
@@ -348,9 +376,12 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
     const times = `${ctx.format.time(a.start)}–${ctx.format.time(a.end)}`;
     const skills = groupSkills(value, a.slot.group);
     const label = `${name} · ${times}${removed ? " · removed" : ""}`;
-    return <Box {...handle} ref={attach} css={styles.assignment} tabIndex={0} role="button" aria-label={label} title={label} aria-pressed={selected}
+    // What a run of the optimiser did to the duty (#1409): its mark, and its provenance on hover.
+    const mark = dutyMark(ctx, id, removed, drafted);
+    return <Box {...handle} ref={attach} css={styles.assignment} tabIndex={0} role="button" aria-label={label} title={mark === undefined ? label : `${mark.provenance} · ${label}`} aria-pressed={selected}
         data-roster-assignment={id} data-layout={short ? "people" : "shifts"} data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !sameSlot(baseline.slot, a.slot) ? "" : undefined} data-density={value.settings.density.type} data-selected={selected ? "" : undefined}
         data-drafted={drafted ? "" : undefined} data-removed={removed ? "" : undefined} data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
+        data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"}
         data-tone={issues.some(i => i.tone.type === "danger") ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }} onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
         {enabled && <Box as="span" css={styles.grip} data-roster-grip=""><FontAwesomeIcon icon={faGripVertical} /></Box>}
@@ -361,7 +392,8 @@ const AssignmentChipBody = memo(function AssignmentChipBody({ ctx, id, assignmen
         {ownTimes(value, a, ctx.start) && <Box as="span" css={styles.flag} data-roster-times="">{times}</Box>}
         {person !== undefined && !short && <><Box as="span" css={styles.activity} data-empty={activity === undefined ? "" : undefined} title={activity?.label ?? "No activity"}>{activity?.code ?? "·"}</Box>{activity !== undefined && commands.available && !removed && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={`Clear activity for ${name}`} onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); ctx.onError(commands.activity(id, none)); }}><FontAwesomeIcon icon={faXmark} /></chakra.button>}
             <Box as="span" css={styles.fit}>{value.settings.chipSkills ? `${skills.filter(s => person.skills.has(s.key)).length}/${skills.length}` : `${ctx.format.number(ctx.hours.get(person.key) ?? 0)}h`}</Box></>}
-        {commands.available && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
+        {(commands.available || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
+            disabled={commands.locked !== undefined} title={commands.locked}
             onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (removed) commands.restore(id); else commands.remove(id); }}><FontAwesomeIcon icon={removed ? faRotateLeft : faXmark} /></chakra.button>}
     </Box>;
 });
@@ -388,26 +420,30 @@ export function ProposalCard({ props, proposal }: { props: RosterViewsProps; pro
     const mark = <Box as="span" css={[styles.badge, styles.proposalMark]}>Model</Box>;
     const title = <chakra.button type="button" css={[styles.assignmentName, styles.proposalName]} onClick={select}>{name}</chakra.button>;
     const selected = props.selection?.type === "proposal" && props.selection.key === proposal.key;
+    // While a run of the optimiser holds the week (#1409, R2) the actions stay in place, inert.
+    const locked = props.commands.locked !== undefined;
     if (props.narrow) return <Box css={styles.card} data-roster-proposal={proposal.key} data-selected={selected ? "" : undefined}>
         <Box css={styles.actions}>{mark}{title}</Box><Box css={styles.detail}>{proposal.reason}</Box>
-        {props.commands.available && <Box css={styles.actions}><Button size="xs" variant="outline" onClick={accept}>Accept</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" onClick={reject}>Reject</Button>}</Box>}
+        {(props.commands.available || locked) && <Box css={styles.actions}><Button size="xs" variant="outline" disabled={locked} title={props.commands.locked} onClick={accept}>Accept</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" disabled={locked} title={props.commands.locked} onClick={reject}>Reject</Button>}</Box>}
     </Box>;
     const open = (props.coverage.get(proposal.slot)?.open ?? 0n) > 0n;
     const shift = props.value.shifts.find(s => s.key === proposal.slot.shift);
     return <Box css={[styles.assignment, styles.proposal]} data-roster-proposal={proposal.key} data-selected={selected ? "" : undefined} data-density={props.value.settings.density.type} title={`Model proposal · ${proposal.reason}`}>
         {mark}{title}<Box as="span" css={[styles.detail, styles.proposalReason]}>{open ? "fills open" : `+${props.format.number(shift?.hours ?? 0)} h`}</Box>
-        {props.commands.available && <>
-            <chakra.button type="button" css={[styles.chipAction, styles.proposalAction]} data-accept="" aria-label={`Accept proposal for ${name}`} title="Accept proposal" onClick={accept}><FontAwesomeIcon icon={faCheck} /></chakra.button>
-            {dismissible(props.value) && <chakra.button type="button" css={[styles.chipAction, styles.proposalAction]} aria-label={`Reject proposal for ${name}`} title="Reject proposal" onClick={reject}><FontAwesomeIcon icon={faXmark} /></chakra.button>}
+        {(props.commands.available || locked) && <>
+            <chakra.button type="button" css={[styles.chipAction, styles.proposalAction]} data-accept="" aria-label={`Accept proposal for ${name}`} title={props.commands.locked ?? "Accept proposal"} disabled={locked} onClick={accept}><FontAwesomeIcon icon={faCheck} /></chakra.button>
+            {dismissible(props.value) && <chakra.button type="button" css={[styles.chipAction, styles.proposalAction]} aria-label={`Reject proposal for ${name}`} title={props.commands.locked ?? "Reject proposal"} disabled={locked} onClick={reject}><FontAwesomeIcon icon={faXmark} /></chakra.button>}
         </>}
     </Box>;
 }
 /** Whether the week keeps the suggestions it rejects: without a record to keep them, a suggestion is only accepted (§5.2). */
 export function dismissible(value: RosterValue): boolean { return value.periods.type === "some" && value.periods.value.dismissible; }
 function SlotActions({ props, slot }: { props: RosterViewsProps; slot: Slot }) {
-    if (!props.commands.available) return null;
+    // While a run of the optimiser holds the week (#1409, R2) the actions stay in place, inert.
+    const locked = props.commands.locked !== undefined;
+    if (!props.commands.available && !locked) return null;
     return <Box css={props.styles.actions}><PlaceAction label="Assign person" slot={slot} value={props.value} start={props.start} commands={props.commands} styles={props.styles} />
-        {props.value.agencies.map(agency => <Button key={agency.key} size="xs" variant="outline" onClick={() => props.onError(props.commands.place({ type: "agency", key: agency.key }, slot))}>Request {agency.name}</Button>)}
+        {props.value.agencies.map(agency => <Button key={agency.key} size="xs" variant="outline" disabled={locked} title={props.commands.locked} onClick={() => props.onError(props.commands.place({ type: "agency", key: agency.key }, slot))}>Request {agency.name}</Button>)}
     </Box>;
 }
 function DayAssignments({ props, ctx, slot }: { props: RosterViewsProps; ctx: ViewContext; slot: Slot }) {
@@ -627,18 +663,22 @@ const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, perso
             : ctx.tileTimes === "always" && shift !== undefined ? { kind: "hours" as const, text: shiftHoursText(shift) } : undefined;
     const danger = issues.some(i => i.tone.type === "danger");
     const label = `${name} · ${shift?.label ?? a.slot.shift}${meta === undefined ? "" : ` · ${meta.text}`}${removed ? " · removed" : ""}`;
+    // What a run of the optimiser did to the duty (#1409, R23): its mark — the tile keeps its own fill, the ring and the glow alone — and its provenance on hover.
+    const mark = dutyMark(ctx, id, removed, drafted);
+    const words = issues.length > 0 ? `${label} · ${issues.map(i => i.title).join(" · ")}` : label;
     return <Box {...handle} ref={attach} css={styles.tile} style={removed ? undefined : fillOf(shift)} tabIndex={0} role="button" aria-label={label} aria-pressed={selected}
-        title={issues.length > 0 ? `${label} · ${issues.map(i => i.title).join(" · ")}` : label}
+        title={mark === undefined ? words : `${mark.provenance} · ${words}`} data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"}
         data-roster-assignment={id} data-roster-tile="" data-layout="people" data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !sameSlot(baseline.slot, a.slot) ? "" : undefined}
         data-density={value.settings.density.type} data-selected={selected ? "" : undefined} data-drafted={drafted ? "" : undefined} data-removed={removed ? "" : undefined}
         data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
         data-tone={danger ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
         onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }}
-        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
+        onKeyDown={event => { if (event.key === "Enter") { takeKey(event); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
         <Box as="span" css={styles.tileLabel} data-roster-assignment-name="">{a.who.type === "request" ? `AG · ${shift?.label ?? a.slot.shift}` : shift?.label ?? a.slot.shift}</Box>
         {meta !== undefined && <Box as="span" css={styles.tileMeta} data-own={meta.kind === "own" ? "" : undefined} data-group={meta.kind === "group" ? "" : undefined} data-roster-times={meta.kind === "own" ? "" : undefined}>{meta.text}</Box>}
         {issues.length > 0 && <Box as="span" css={styles.tileWarn} data-tone={danger ? "danger" : undefined} data-roster-tile-warn="" role="img" aria-label={issues[0]!.title}><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
-        {commands.available && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
+        {(commands.available || commands.locked !== undefined) && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
+            disabled={commands.locked !== undefined} title={commands.locked}
             onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (removed) commands.restore(id); else commands.remove(id); }}><FontAwesomeIcon icon={removed ? faRotateLeft : faXmark} /></chakra.button>}
     </Box>;
 });
@@ -653,21 +693,27 @@ function PreviewTile({ ctx, day }: { ctx: ViewContext; day: PatternDay }) {
 /**
  * An off day's `+ Assign` (#1406, D9, P8): a menu of the shifts, each its label, its swatch and its times, whose choice
  * places the person on it in their home group that day, one gesture; `Elsewhere…` opens the place form for another
- * group or day.
+ * group or day. While a run of the optimiser holds the week (#1409, R2) the trigger stays in place, inert and saying
+ * why, with no menu; a place form the run finds open closes, and stays closed as the run ends.
  */
 function AssignMenu({ ctx, person, group, day }: { ctx: ViewContext; person: Person; group: string; day: number }) {
     const { value, styles, commands, start, format } = ctx;
     const [elsewhere, setElsewhere] = useState(false);
+    const { locked } = commands;
+    useEffect(() => { if (locked !== undefined) setElsewhere(false); }, [locked]);
     const date = new Date(start.getTime() + day * DAY);
     const slotFor = (shift: string): Slot => ({ day: BigInt(day), group, shift });
     const usual = person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key;
+    const trigger = <chakra.button type="button" css={styles.assign} data-roster-assign={`${person.key}.${day}`} data-roster-off="" aria-label={`Assign ${person.name} · ${format.weekday(date)}`}
+        disabled={locked !== undefined} title={locked}>+ Assign</chakra.button>;
+    if (locked !== undefined) return trigger;
     if (elsewhere) return <PlacePopover label="Elsewhere…" source={{ type: "person", key: person.key }} slot={slotFor(usual)} value={value} start={start} commands={commands} styles={styles} onClose={() => setElsewhere(false)} />;
     return <ChakraMenu.Root positioning={{ placement: "bottom-start" }} onSelect={d => {
         if (d.value === "elsewhere") { setElsewhere(true); return; }
         ctx.onError(commands.place({ type: "person", key: person.key }, slotFor(d.value)));
     }}>
         <ChakraMenu.Trigger asChild>
-            <chakra.button type="button" css={styles.assign} data-roster-assign={`${person.key}.${day}`} data-roster-off="" aria-label={`Assign ${person.name} · ${format.weekday(date)}`}>+ Assign</chakra.button>
+            {trigger}
         </ChakraMenu.Trigger>
         <Portal>
             <ChakraMenu.Positioner>
@@ -688,6 +734,11 @@ function AssignMenu({ ctx, person, group, day }: { ctx: ViewContext; person: Per
  * drawn again only as the day's duties, its person or what the views show changes (#1398, CL9). A drop on it resolves to
  * the dragged person's same or usual shift; a pattern dropped on it lands on the person's week (§11), and while one
  * hovers the row the day previews what the pattern leaves it (P19); another person's duty is refused (P11).
+ *
+ * The cell is its drop hooks and its attributes alone; what it shows is {@link PersonDayBody}, its own memo. The shared
+ * drag hooks subscribe to the layer, which moves on every change of the cell a drag rests over, so a hundred cells draw
+ * again each time one is crossed: a subscriber's draw must cost next to nothing, and the tiles, the `+ Assign` and the
+ * preview draw again only as their own props change.
  */
 const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, current, weekSelected, preview, hovering, onPatternHover, onPatternLeave }: {
     ctx: ViewContext; person: Person | undefined; group: string; day: number; duties: readonly DayDuty[];
@@ -699,9 +750,8 @@ const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, cur
     preview: PatternDay | undefined; hovering: boolean;
     onPatternHover: (key: string) => void; onPatternLeave: () => void;
 }) {
-    const { drag, value, week, styles, commands, start } = ctx;
+    const { drag, value, week, styles, start } = ctx;
     const key = person?.key ?? `requests:${group}`;
-    peopleDrawProbe?.("day", `${key}.${day}`);
     const initial = useMemo(() => ({ day: BigInt(day), group, shift: person?.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }), [day, group, person, value.shifts]);
     // A pattern lands on the person's week, whatever day of it the drag rests over; the requests row refuses it in its words.
     const personWeek = useMemo(() => rosterPersonWeekCoord(drag.surface, key, start), [drag.surface, key, start]);
@@ -731,18 +781,33 @@ const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, cur
     const coord = useMemo(() => drag.enabled ? rosterCoord(drag.surface, initial) : null, [drag.enabled, drag.surface, initial]);
     const onHover = useCallback((_x: number, _y: number, payload: DragPayload) => { if (payload.kind === "item" && isPatternCard(payload, drag.surface)) onPatternHover(payload.from.key); }, [drag.surface, onPatternHover]);
     const ref = useDropCell(coord, !drag.enabled, canDrop, resolve, { accepts, caption, onHover, onLeave: onPatternLeave });
-    const { tiles, more } = dayTiles(duties);
-    const off = person !== undefined && !duties.some(duty => !duty.removed);
+    const drafted = useMemo(() => dayDrafted(ctx.domain, ctx.held, duties), [ctx.domain, ctx.held, duties]);
     // While a pattern hovers the row every day shows the pattern's day dashed, and the days it changes are tinted (P19).
     const changes = preview !== undefined && preview.kind !== "keep";
     return <Box ref={ref} css={styles.dayCell} data-roster-person-day={`${key}.${day}`} data-selected={current ? "" : undefined} data-week-selected={weekSelected ? "" : undefined}
-        data-drafted={dayDrafted(ctx.domain, ctx.held, duties) ? "" : undefined} data-pattern-hover={hovering ? "" : undefined} data-pattern-changes={changes ? "" : undefined}>
-        {preview !== undefined ? <PreviewTile ctx={ctx} day={preview} /> : <>
-            {tiles.map(({ id, a, removed }) => <Tile key={id} ctx={ctx} id={id} assignment={a} removed={removed} person={person} />)}
-            {more > 0 && <Box as="span" css={styles.tileMore} data-roster-more={more} title={`${more} more`}>+{more}</Box>}
-            {off && (commands.available ? <AssignMenu ctx={ctx} person={person} group={group} day={day} /> : <Box css={styles.detail}>Off</Box>)}
-        </>}
+        data-drafted={drafted ? "" : undefined} data-pattern-hover={hovering ? "" : undefined} data-pattern-changes={changes ? "" : undefined} data-roster-previewing={preview !== undefined ? "" : undefined}>
+        <PersonDayBody ctx={ctx} person={person} group={group} day={day} duties={duties} preview={preview} />
     </Box>;
+});
+/**
+ * What a person's day shows: its tiles, `+1`, `+ Assign` or `Off` — and, while a pattern hovers its row, the pattern's
+ * day beside them, the day's own tiles kept mounted and hidden by the cell (`data-roster-previewing`): a tile's drag
+ * hooks register with the layer and with dnd-kit, and mounting and unmounting the tiles as the hover moved had every
+ * droppable measured again and every subscriber drawn again, row after row.
+ */
+const PersonDayBody = memo(function PersonDayBody({ ctx, person, group, day, duties, preview }: {
+    ctx: ViewContext; person: Person | undefined; group: string; day: number; duties: readonly DayDuty[]; preview: PatternDay | undefined;
+}) {
+    const { styles, commands } = ctx;
+    peopleDrawProbe?.("day", `${person?.key ?? `requests:${group}`}.${day}`);
+    const { tiles, more } = dayTiles(duties);
+    const off = person !== undefined && !duties.some(duty => !duty.removed);
+    return <>
+        {preview !== undefined && <PreviewTile ctx={ctx} day={preview} />}
+        {tiles.map(({ id, a, removed }) => <Tile key={id} ctx={ctx} id={id} assignment={a} removed={removed} person={person} />)}
+        {more > 0 && <Box as="span" css={styles.tileMore} data-roster-more={more} title={`${more} more`}>+{more}</Box>}
+        {off && (commands.available || commands.locked !== undefined ? <AssignMenu ctx={ctx} person={person} group={group} day={day} /> : <Box css={styles.detail}>Off</Box>)}
+    </>;
 });
 /** A person's name cell (#1406, D8): the name, the Agency badge, and — by week — the week's hours against the contract over the meter. */
 function NameCell({ ctx, person, rowKey, weekSelected, hours, nameRef }: {
@@ -764,7 +829,8 @@ function NameCell({ ctx, person, rowKey, weekSelected, hours, nameRef }: {
 function WeekHours({ ctx, person, total, cost }: { ctx: ViewContext; person: Person; total: number; cost: number | undefined }) {
     const { styles, format, value } = ctx;
     const over = total > person.contract;
-    return <Box css={styles.hoursCell} data-roster-week-hours="" data-tone={over ? "warning" : undefined}>
+    // A run of the optimiser that changed the person's week flashes their hours and their meter (#1409, §9.5).
+    return <Box css={styles.hoursCell} data-roster-week-hours="" data-tone={over ? "warning" : undefined} data-opn={ctx.lit && ctx.optimised?.people.has(person.key) === true ? "" : undefined}>
         <Box css={styles.hoursText}>{format.number(total)} / {format.number(person.contract)} h{cost !== undefined && ` · ${money(format, value, cost)}`}</Box>
         <Box css={styles.meter} data-roster-meter="" role="img" aria-label={`${format.number(total)} of ${format.number(person.contract)} hours`}><Box css={styles.meterFill} style={{ width: `${Math.min(total / Math.max(person.contract, 1), 1) * 100}%` }} /></Box>
     </Box>;
@@ -1037,7 +1103,11 @@ function MonthGrid({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }
 function AssignmentCard({ ctx, id, assignment, removed }: { ctx: ViewContext; id: string; assignment: Assignment; removed: boolean }) {
     const selection = useContext(SelectionContext);
     const baseline = ctx.held.assignments.get(id);
-    return <Box css={ctx.styles.card} data-roster-card={id} data-selected={selection?.type === "assignment" && selection.key === id ? "" : undefined} data-drafted={removed || baseline === undefined || !ctx.domain.sameAssignment(baseline, assignment) ? "" : undefined}>
+    const drafted = removed || baseline === undefined || !ctx.domain.sameAssignment(baseline, assignment);
+    // What a run of the optimiser did to the duty (#1409, R27): its mark on the card, and its provenance on hover.
+    const mark = dutyMark(ctx, id, removed, drafted);
+    return <Box css={ctx.styles.card} data-roster-card={id} data-selected={selection?.type === "assignment" && selection.key === id ? "" : undefined} data-drafted={drafted ? "" : undefined}
+        data-op={mark?.op} data-fill={mark === undefined ? undefined : "own"} title={mark?.provenance}>
         <chakra.button type="button" css={ctx.styles.cardHead} onClick={() => ctx.select({ type: "assignment", key: id })}><Box css={ctx.styles.cardTitle}>{assignmentName(ctx.value, assignment)}{removed && " · removed"}</Box></chakra.button>
         <Box css={ctx.styles.detail}>{`${ctx.format.time(assignment.start)}–${ctx.format.time(assignment.end)}`}{assignment.activity.type === "some" && ` · ${activityOf(ctx.value, assignment.activity.value)?.label ?? assignment.activity.value}`}</Box>
         {dutyIssues(ctx.issues, id).map((issue, i) => <Box key={i} css={ctx.styles.flag} data-tone={issue.tone.type}>{issue.title}</Box>)}
@@ -1072,14 +1142,15 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
     </Box>;
     return <Box ref={measure} css={styles.card} data-roster-person-card={person?.key ?? row.key}>
         {person === undefined ? <><Box css={styles.cardHead}><Box css={styles.cardTitle}>Agency requests</Box></Box>{requests.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}</> : <>
-            <chakra.button ref={head} type="button" css={styles.cardHead} data-roster-person-head={person.key} onClick={() => ctx.select({ type: "personWeek", key: person.key, start: start.getTime() })}><Box css={styles.cardTitle}>{person.name} · {format.number(ctx.hours.get(person.key) ?? 0)} / {format.number(person.contract)} h</Box></chakra.button>
+            <chakra.button ref={head} type="button" css={styles.cardHead} data-roster-person-head={person.key} onClick={() => ctx.select({ type: "personWeek", key: person.key, start: start.getTime() })}>
+                <Box css={styles.cardTitle} data-roster-card-hours="" data-opn={ctx.lit && ctx.optimised?.people.has(person.key) === true ? "" : undefined}>{person.name} · {format.number(ctx.hours.get(person.key) ?? 0)} / {format.number(person.contract)} h</Box></chakra.button>
             {/* A phone's `Apply pattern…` (#1406, P22): the Chooser over the patterns, its choice applied as a drop is. */}
             {value.patterns.length > 0 && <Box css={styles.actions}><ApplyPatternAction person={person} start={start} value={value} commands={commands} onError={ctx.onError} /></Box>}
             {SEVEN_DAYS.map(day => {
                 const duties = days[day] ?? NO_DUTIES;
                 return <Box key={day} css={styles.agendaGroup}><Box css={styles.detail}>{format.weekday(new Date(start.getTime() + day * DAY))}</Box>
                     {duties.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}
-                    {!duties.some(duty => !duty.removed) && (commands.available ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} slot={{ day: BigInt(day), group: row.group.key, shift: person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }} value={value} start={start} commands={commands} styles={styles} /> : <Box css={styles.detail}>Off</Box>)}
+                    {!duties.some(duty => !duty.removed) && (commands.available || commands.locked !== undefined ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} slot={{ day: BigInt(day), group: row.group.key, shift: person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }} value={value} start={start} commands={commands} styles={styles} /> : <Box css={styles.detail}>Off</Box>)}
                 </Box>;
             })}
         </>}

@@ -77,6 +77,9 @@ import { viewsOf } from "./views.js";
 import type { OrderedRowSource } from "../utils/ordered-source.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
+import { FuncBindingType } from "../bind/func.js";
+import type { OptimiseHandle } from "../utils/optimise.js";
+import { sheetOptimiseBinding } from "./optimise.js";
 
 // ============================================================================
 // The sheet's shared keys
@@ -157,6 +160,7 @@ export type SheetHistoryType = typeof SheetHistoryType;
  * @property library - The library pane's tabs, in the order `library` lists them; none, no library pane
  * @property narrowed - Each source of the slice's narrowed keys, paged through its part, by the source's name (#1345): what the Rows tab and an author's tab read to show a source's rows
  * @property inspector - The inspector pane: its forms, and the author's own Details; `none`, no inspector pane
+ * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the rows in view, its result one edit of the session; `none`, no eye
  * @property history - Over a record, its commits: the last save, and who changed it; `none` over `data`
  * @property missing - With `entry`, the entry's key while the record does not hold it: what the frame's banner names
  * @property name - Names the sheet, when a surface holds two
@@ -167,6 +171,7 @@ export const SheetPayloadType = StructType({
     library: ArrayType(SheetLibraryTabType),
     narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
     inspector: OptionType(SheetInspectorPaneType),
+    optimise: OptionType(FuncBindingType),
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
     name: OptionType(StringType),
@@ -291,6 +296,16 @@ export interface SheetCommon<L extends StructType, G extends StructType = never>
      * field has a value. Left out, no inspector pane.
      */
     inspector?: true | SubtypeExprOrValue<FunctionType<[L, FunctionType<[L], NullType>], UIComponentType>>;
+    /**
+     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Sheet.Types.OptimiseRequest(R, K?)` — the run number
+     * and the rows in view by key, as the session holds them — to `Sheet.Types.OptimiseResult(R, K?)`, the rows complete. `R`
+     * is the sheet's row type — its rows' struct, a grouped sheet's group type, or its entries `Sheet.Types.Entry(P, "lines")` —
+     * and `K` its source's key type: a record's own; `String`, and left out, for an Array source, whose rows are keyed by their
+     * id field. The Elara eye in the toolbar calls it once per run; the result lands in the session as one edit, which one Undo
+     * reverts and Save commits with everything else. Omitted, no eye. The tag cannot see its source's key type in TypeScript, so
+     * it checks the handle at build, and refuses one over other rows naming both.
+     */
+    optimise?: OptimiseHandle;
     /** Hints for the inspector's form, by the row's field (a grouped sheet's line's) — `Sheet.field.*`: a label, a help line, an editor, read only or hidden; a column's kind is its field's default (SB10). */
     fields?: FieldHints<L["fields"]>;
     /** Hints for a group's own fields in the inspector, on a grouped sheet. */
@@ -321,6 +336,7 @@ type SheetAnyProps = {
     fields?: Readonly<Record<string, unknown>>;
     groupFields?: Readonly<Record<string, unknown>>;
     inspector?: unknown;
+    optimise?: unknown;
     views?: unknown;
     name?: string;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
@@ -346,11 +362,11 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  *
  * @param props - The sheet's props, as `<Sheet>` takes them
  * @returns An East expression of {@link SheetPayloadType}
- * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, and the rows of its `rows` source beside `record`, `data`, `entry` or `window`; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
+ * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R, K?)` to `OptimiseResult(R, K?)` over the sheet's rows (#1409); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, and the rows of its `rows` source beside `record`, `data`, `entry` or `window`; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
  * @internal
  */
 export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<SheetPayloadType> {
-    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, views, name, ...sheet } = props as SheetAnyProps;
+    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, name, ...sheet } = props as SheetAnyProps;
     // The narrowing's props #1345 retired, refused by name for an app that still passes them.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
         throw new Error("Sheet: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { rows }) }}: the bare handle and data={Slice.rows(slice)} are gone, and the sheet reads its rows from the slice's `rows` source");
@@ -425,7 +441,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
     return Expr.block(($) => {
         const bound = sources.bind($);
         const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
+        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
         if (pagesRows) {
             // The rows source's record, every row in its own order (#1349) — the renderer draws the source's narrowing
             // over them as the lens — and its record's identity, which names the session over them.
@@ -510,6 +526,7 @@ function payloadOf(built: SheetBuild, parts: {
     fields: SheetAnyProps["fields"];
     groupFields: SheetAnyProps["groupFields"];
     inspector: unknown;
+    optimise: unknown;
     name: string | undefined;
     newRow: unknown;
     newGroup: unknown;
@@ -523,6 +540,8 @@ function payloadOf(built: SheetBuild, parts: {
         library: buildLibrary(parts.library, built.bridge, parts.sources),
         narrowed: parts.narrowed,
         inspector: buildInspectorPane(parts.inspector, built, { fields: parts.fields, groupFields: parts.groupFields, id: parts.id }),
+        // The app's optimiser (#1409), held to the sheet's rows and their key: a record's, or the id field's String.
+        optimise: parts.optimise === undefined ? none : some(sheetOptimiseBinding(parts.optimise, built.bridge.rowType, built.keyType)),
         history: parts.history,
         missing: parts.missing,
         name: parts.name === undefined ? none : some(parts.name),

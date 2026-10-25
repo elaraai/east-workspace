@@ -344,6 +344,7 @@ export {
     EastChakraBanner,
     BannerView,
     type BannerValue,
+    type BannerTone,
     type EastChakraBannerProps,
     type BannerViewProps,
 } from "./feedback/index.js";
@@ -630,3 +631,47 @@ export {
     type SessionBannersProps,
     type TakenKey,
 } from "./editing/index.js";
+// The Optimise run's shared parts (#1409) — for the sibling renderer packages
+// whose builders take the app's optimiser: the Elara eye and its button, the
+// eye's toolbar item before the history item, the banner the result lands
+// with, the legend's `Elara change`, the footer line's words while the call
+// is out, and the words table.
+export {
+    ElaraEye,
+    ELARA_EYE_DOTS,
+    OptimiseButton,
+    OPTIMISE_BLINK_MS,
+    optimiseToolbarItem,
+    OPTIMISE_RANK,
+    OptimiseBanner,
+    OPTIMISE_BANNER_COLLAPSE_MS,
+    OptimiseLegendItem,
+    optimiseRunningLine,
+    optimiseStoppedLine,
+    optimiseSeconds,
+    optimiseMessages,
+    useLanding,
+    useLandingStyles,
+    cascadeDelays,
+    cascadeOrder,
+    cascadeStep,
+    OPTIMISE_CASCADE_MS,
+    OPTIMISE_CASCADE_STEP_MS,
+    OPTIMISE_COLUMN_PX,
+    OPTIMISE_FLARE_MS,
+    OPTIMISE_GLOW_FADE_MS,
+    OPTIMISE_HIGHLIGHT_MS,
+    OPTIMISE_TOTALS_DELAY_MS,
+    type CascadeBox,
+    type Landing,
+    type LandingAttributes,
+    type LandingStyles,
+    type ElaraEyeProps,
+    type ElaraEyeSize,
+    type OptimiseButtonProps,
+    type OptimiseButtonSize,
+    type OptimiseBannerProps,
+    type OptimiseOutcome,
+    type OptimiseLegendItemProps,
+    type OptimiseMessages,
+} from "./optimise/index.js";

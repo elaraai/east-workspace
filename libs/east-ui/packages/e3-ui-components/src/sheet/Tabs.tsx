@@ -95,6 +95,8 @@ export interface SheetTabsProps {
     panelId?: string | undefined;
     /** The strip's form, as the toolbar folds it — nothing folded by default. */
     fold?: SheetTabsFold | undefined;
+    /** Whether a run of the optimiser has just landed (#1409): the open tab's count flashes once with its cascade. */
+    flash?: boolean | undefined;
     onSwitch: (id: string | null) => void;
     onCreate: () => void;
     onClose: (id: string) => void;
@@ -107,7 +109,7 @@ export interface SheetTabsProps {
 
 /** Renders the tab strip. */
 export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
-    const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal, panelId, fold } = props;
+    const { styles, views, wholeCount, active, dirty, hasQuery, renaming, renameVal, panelId, fold, flash } = props;
     const menuStyles = useSlotRecipe({ key: "menu" })() as unknown as Styles;
     // The tabs' words and counts, in the app's locale (#850, #861).
     const words = useSheetWords();
@@ -281,7 +283,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                     onDrop={dropAt(0)}
                 >
                     {m.tabAll()}
-                    <Box as="span" css={styles.tabCount} data-slot="tabCount">{wholeCount === undefined ? "…" : words.number(wholeCount)}</Box>
+                    <Box as="span" css={styles.tabCount} data-slot="tabCount" data-opn={flash === true && active === null ? "" : undefined}>{wholeCount === undefined ? "…" : words.number(wholeCount)}</Box>
                 </Box>
                 {visible.map((v) => {
                     const on = active === v.id;
@@ -327,7 +329,7 @@ export const SheetTabs = memo(function SheetTabs(props: SheetTabsProps) {
                             onDrop={dropAt(i)}
                         >
                             <Box as="span" css={styles.tabLabel} data-slot="tabLabel">{v.name}</Box>
-                            <Box as="span" css={styles.tabCount} data-slot="tabCount">{v.count === undefined ? "…" : words.number(v.count)}</Box>
+                            <Box as="span" css={styles.tabCount} data-slot="tabCount" data-opn={flash === true && on ? "" : undefined}>{v.count === undefined ? "…" : words.number(v.count)}</Box>
                             {on && dirty && (
                                 <Box as="span" css={styles.tabDot} data-slot="tabDot" title={m.tabDirty()} />
                             )}

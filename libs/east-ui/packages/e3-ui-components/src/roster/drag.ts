@@ -145,11 +145,15 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
         const plan = commands.pattern(personWeek.person, personWeek.start, payload.from.key);
         if (typeof plan === "string") return { label: plan, tone: "danger" };
         if (plan.changes.length === 0) return { label: `Already matches ${plan.pattern.label}`, tone: "info" };
-        // The person's week as the pattern leaves it, among the week's other duties: a breach naming one of its duties warns.
+        // The person's week as the pattern leaves it, among what can change its duties' issues alone — as a duty's
+        // preview reads (`describe`): the person's own week, every day of it a candidate now, and the whole of each
+        // slot a candidate lands on; never the week entire, whose check over every duty made each row crossed a hitch.
         const held = compareDate(personWeek.start, start) === 0 ? week : weeks.find(w => compareDate(w.start, personWeek.start) === 0)?.week;
         let warning: string | undefined;
         if (held !== undefined) {
-            const assignments = new SortedMap([...held.assignments].filter(([key, a]) => !(a.who.type === "person" && a.who.value === personWeek.person) && !plan.removed.includes(key)), compareString);
+            const slots = [...plan.candidates.values()].map(candidate => candidate.slot);
+            const assignments = new SortedMap([...held.assignments].filter(([key, a]) => !(a.who.type === "person" && a.who.value === personWeek.person) && !plan.removed.includes(key)
+                && slots.some(slot => sameSlot(a.slot, slot))), compareString);
             for (const [key, a] of plan.candidates) assignments.set(key, a);
             warning = domain.check({ ...held, assignments }, context).find(issue => issue.kind.type === "breach" && issue.assignment.type === "some" && plan.candidates.has(issue.assignment.value))?.title;
         }

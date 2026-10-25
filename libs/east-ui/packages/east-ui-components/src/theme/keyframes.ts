@@ -19,6 +19,9 @@
  *  - `elara-live-pulse`    — the design system's live dot (`.dot.live::after`,
  *    `east-pulse`): a ring that grows from the dot and fades, the footer's
  *    loading line's one motion (#1398).
+ *  - `optimise-*`          — the Optimise run (#1409): the eye's echo, halo
+ *    and blink, the banner's fade, and the landing of a run's result on a
+ *    builder's entries.
  *
  * @packageDocumentation
  */
@@ -102,5 +105,68 @@ export const keyframes = defineKeyframes({
     // Marching-ants dash offset for an active connector / move arrow.
     "map-flow": {
         to: { strokeDashoffset: -24 },
+    },
+    // Optimise (#1409, `Optimise Spec.md` §8): the eye while a run is out — its
+    // iris's echo, grown to 2.4× and gone in the first quarter of the live-pulse
+    // cycle, and its 12px halo, peaking there — and its one blink at a result
+    // with nothing to change; the banner's fade in. Colours are the `elara`
+    // tokens' variables: keyframes are not run through the token pipeline.
+    "optimise-echo": {
+        "0%":        { transform: "scale(1)",   opacity: 0.8 },
+        "25%, 100%": { transform: "scale(2.4)", opacity: 0 },
+    },
+    "optimise-halo": {
+        "0%":   { boxShadow: "0 0 0 0 transparent" },
+        "25%":  { boxShadow: "0 0 12px 2px var(--chakra-colors-elara-glow)" },
+        "100%": { boxShadow: "0 0 0 0 transparent" },
+    },
+    "optimise-blink": {
+        "0%, 100%": { transform: "scaleY(1)" },
+        "45%":      { transform: "scaleY(0.12)" },
+    },
+    "optimise-fade-in": {
+        "0%":   { opacity: 0 },
+        "100%": { opacity: 1 },
+    },
+    // The landing (#1409, #1416), 1400ms an entry: from the `elara.wash` fill with a 1px `elara` ring and the
+    // `elara.glow` to the dirty fill (`brandTint`) with the steady highlight — a 1px `elara.edge` ring and the
+    // `elara.soft` glow. An add fades in over the first 10%; an entry with its own fill takes the ring and the glow
+    // alone; a Sheet cell takes them inset, and its value fades in over 160ms; a ghost's glow fades out; a total the
+    // result changed flashes the wash once.
+    "optimise-land-add": {
+        "0%":   { opacity: 0, backgroundColor: "var(--chakra-colors-elara-wash)", boxShadow: "0 0 0 1px var(--chakra-colors-elara), 0 0 0 0 transparent" },
+        "10%":  { opacity: 1, backgroundColor: "var(--chakra-colors-elara-wash)", boxShadow: "0 0 0 1px var(--chakra-colors-elara), 0 0 18px 4px var(--chakra-colors-elara-glow)" },
+        "100%": { opacity: 1, backgroundColor: "var(--chakra-colors-brand-tint)", boxShadow: "0 0 0 1px var(--chakra-colors-elara-edge), 0 0 8px 1px var(--chakra-colors-elara-soft)" },
+    },
+    "optimise-land-change": {
+        "0%":   { backgroundColor: "var(--chakra-colors-elara-wash)", boxShadow: "0 0 0 1px var(--chakra-colors-elara), 0 0 18px 4px var(--chakra-colors-elara-glow)" },
+        "100%": { backgroundColor: "var(--chakra-colors-brand-tint)", boxShadow: "0 0 0 1px var(--chakra-colors-elara-edge), 0 0 8px 1px var(--chakra-colors-elara-soft)" },
+    },
+    "optimise-land-add-own": {
+        "0%":   { opacity: 0, boxShadow: "0 0 0 1px var(--chakra-colors-elara), 0 0 0 0 transparent" },
+        "10%":  { opacity: 1, boxShadow: "0 0 0 1px var(--chakra-colors-elara), 0 0 18px 4px var(--chakra-colors-elara-glow)" },
+        "100%": { opacity: 1, boxShadow: "0 0 0 1px var(--chakra-colors-elara-edge), 0 0 8px 1px var(--chakra-colors-elara-soft)" },
+    },
+    "optimise-land-change-own": {
+        "0%":   { boxShadow: "0 0 0 1px var(--chakra-colors-elara), 0 0 18px 4px var(--chakra-colors-elara-glow)" },
+        "100%": { boxShadow: "0 0 0 1px var(--chakra-colors-elara-edge), 0 0 8px 1px var(--chakra-colors-elara-soft)" },
+    },
+    "optimise-land-cell": {
+        "0%":   { backgroundColor: "var(--chakra-colors-bg-surface)", boxShadow: "inset 0 0 0 1px transparent, inset 0 0 0 0 transparent" },
+        "10%":  { backgroundColor: "var(--chakra-colors-elara-wash)", boxShadow: "inset 0 0 0 1px var(--chakra-colors-elara), inset 0 0 14px 2px var(--chakra-colors-elara-glow)" },
+        "100%": { backgroundColor: "var(--chakra-colors-brand-tint)", boxShadow: "inset 0 0 0 1px var(--chakra-colors-elara-edge), inset 0 0 8px 0 var(--chakra-colors-elara-soft)" },
+    },
+    "optimise-value-in": {
+        "0%":   { opacity: 0 },
+        "100%": { opacity: 1 },
+    },
+    "optimise-ghost-out": {
+        "0%":   { boxShadow: "0 0 0 1px var(--chakra-colors-elara), 0 0 12px 3px var(--chakra-colors-elara-glow)" },
+        "100%": { boxShadow: "0 0 0 1px transparent, 0 0 0 0 transparent" },
+    },
+    "optimise-flash": {
+        "0%":   { backgroundColor: "transparent" },
+        "12%":  { backgroundColor: "var(--chakra-colors-elara-wash)" },
+        "100%": { backgroundColor: "transparent" },
     },
 });

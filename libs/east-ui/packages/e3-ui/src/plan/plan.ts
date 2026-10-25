@@ -83,9 +83,12 @@ import { CanDropFnType, EastUI, RowSourceType, type UIElement } from "@elaraai/e
 import {
     RecordSliceConfigType, resolveRowSource, type RecordSliceAffordance, type RecordSlicesChromeOptions,
 } from "@elaraai/east-ui/internal";
+import { FuncBindingType } from "../bind/func.js";
+import type { OptimiseHandle } from "../utils/optimise.js";
 import { PlanEventKindType, PlanResourcesType, ScheduleCandidateType } from "../schedule/types.js";
 import { scheduleCheck, scheduleTitled } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkSchedulePagedKinds, checkedScheduleTilings } from "../schedule/cell-checks.js";
+import { scheduleOptimiseBinding } from "../schedule/optimise.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
@@ -171,6 +174,8 @@ export type PlanSettingsType = typeof PlanSettingsType;
  * @property blocks - The resources' rows over a window, every kind's drafts in place; `none` while the Plan has no event kinds
  * @property paged - A paged resource kind's rows, a window of its resources at a time (#1199) — of the narrowing's, when its source of the slice narrows it (#1344); `none` while no resource kind is paged
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
+ * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the plan window in
+ *   view, its result one edit of the session; `none`, no eye
  * @property settings - When the event kinds' drafts go, and the date brought into view first
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
  * @property inspector - Whether the Plan has an inspector pane, showing what is selected (#1197)
@@ -186,6 +191,7 @@ export const PlanPayloadType = StructType({
     blocks: OptionType(PlanEventBlocksType),
     paged: OptionType(PlanEventPagedType),
     canDrop: OptionType(PlanEventCanDropType),
+    optimise: OptionType(FuncBindingType),
     settings: PlanSettingsType,
     library: ArrayType(PlanLibraryTabType),
     inspector: BooleanType,
@@ -282,6 +288,17 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> 
      * an event kind's drop, its message on the ghost, as the Calendar's.
      */
     canDrop?: PlanConfig<K>["canDrop"] | SubtypeExprOrValue<PlanEventCanDropType>;
+    /**
+     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Plan.Types.OptimiseRequest(E, S)` — the plan window in
+     * view, the run number, every event kind's rows in the window and its backlog by slot and by key, and the resource kinds'
+     * rows as context — to `Plan.Types.OptimiseResult(E)`, the events complete. `E` and `S` are the kinds' row types by slot
+     * (`Plan.Types.OptimiseRequest({ job: PrintJob }, { presses: PrintPress })`); a kind keyed otherwise than by String gives
+     * its record type, `DictType(K, R)`. The Elara eye in the toolbar calls it once per run; the result lands in the session as
+     * one edit, which one Undo reverts and Save commits with everything else. It sends the event kinds' rows, so it needs
+     * `events`. Omitted, no eye. The tag cannot see its kinds' row types in TypeScript, so it checks the handle at build, and
+     * refuses one over other rows naming both.
+     */
+    optimise?: OptimiseHandle;
 }
 
 /** The props, erased — what the implementation reads. */
@@ -449,7 +466,9 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  *   resource naming a slot `resources` has not, or one not keyed by String; an event kind with no `title` (#1367); event
  *   kinds on a number or ordinal axis; a
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
- *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `applyMode` that is neither
+ *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `optimise` with no event kinds,
+ *   or one that is not `Func.bind` of a function from `OptimiseRequest(E, S)` to `OptimiseResult(E)` over the kinds' rows
+ *   (#1409); an `applyMode` that is neither
  *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
  *   placed on it and no measures; more than one paged resource kind, or one beside a paged `data` (#1199); an event
  *   kind placed on a paged resource kind and on another, or with no source of the slice — its record read whole, or the
@@ -471,7 +490,7 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, applyMode, date, canDrop, library, inspector, slice, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, applyMode, date, canDrop, optimise, library, inspector, slice, ...canvas } = props as PlanAnyProps;
     // The narrowing's form #1344 retired, refused by name for an app that still passes it: the bare handle.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
         throw new Error("Plan: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { rows, … }) }}: the bare handle is not taken");
@@ -487,6 +506,11 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     }
     const resourceKinds = Object.entries(resources ?? {});
     const eventKinds = Object.entries(events ?? {});
+    // The app's optimiser (#1409) is sent the event kinds' rows: a Plan of none has no eye.
+    if (optimise !== undefined && events === undefined) {
+        throw new Error("Plan: `optimise` sends the event kinds' rows to the app's optimiser, and this Plan has no event kinds — declare `events` (Schedule.events), or leave `optimise` out");
+    }
+    const optimiser = East.value(optimise === undefined ? none : some(scheduleOptimiseBinding("Plan", optimise, eventKinds, resourceKinds)), OptionType(FuncBindingType));
     // Templates are records (#1340): each event kind's list a `Schedule.templates` over its record, naming its source of
     // the slice — one written in the code, or naming none the slice holds, refused before a source no list names is, so
     // the refusal says the change to make. A slice of another kind is refused below, as such.
@@ -609,7 +633,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
         const tabs = buildLibrary(library, { resources: resourceKinds, events: eventKinds, rows, picked, sources: sources.names });
         if (events === undefined) {
-            return East.value({ plan, resources: [], events: [], blocks: none, paged: none, canDrop: veto, settings, library: tabs, inspector: false, narrowed } as never, PlanPayloadType);
+            return East.value({ plan, resources: [], events: [], blocks: none, paged: none, canDrop: veto, optimise: optimiser, settings, library: tabs, inspector: false, narrowed } as never, PlanPayloadType);
         }
         // A paged kind its source of the slice narrows pages the narrowing's rows themselves (#1344): its rows hold that
         // source alone, as the payload's block bound it.
@@ -619,9 +643,9 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         // the `blocks` seam made inside it captures the very array of event kinds
         // the payload holds (#1192), and so do a paged kind's rows (#1199).
         const assemble = East.function(
-            [PlanRootType, ArrayType(PlanResourcesType), ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), PlanSettingsType, ArrayType(PlanLibraryTabType), NarrowedType],
+            [PlanRootType, ArrayType(PlanResourcesType), ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), OptionType(FuncBindingType), PlanSettingsType, ArrayType(PlanLibraryTabType), NarrowedType],
             PlanPayloadType,
-            (_$, root, resolved, built, canDropFn, chosen, listed, keys) => {
+            (_$, root, resolved, built, canDropFn, optimiseFn, chosen, listed, keys) => {
                 const paged = createEventPaged(resourceKinds, eventKinds, built, pagedSource);
                 return East.value({
                     plan: root,
@@ -630,6 +654,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
                     blocks: some(createEventBlocks(resourceKinds, eventKinds, built)),
                     paged: paged === undefined ? none : some(paged),
                     canDrop: canDropFn,
+                    optimise: optimiseFn,
                     settings: chosen,
                     library: listed,
                     inspector: inspected,
@@ -643,6 +668,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
             // Each event kind narrowed through its own source of the slice, when the slice has one (#1344).
             eventKinds.map(([slot, kind]) => kind.buildPlan(slot, bound.parts[slot])),
             veto,
+            optimiser,
             settings,
             tabs,
             narrowed,

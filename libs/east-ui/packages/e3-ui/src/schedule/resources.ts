@@ -42,7 +42,7 @@
  */
 
 import {
-    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, OptionType, SetType, StringType, isTypeEqual, none, printType, some,
+    ArrayType, BlobType, BooleanType, DictType, East, FloatType, FunctionType, OptionType, SetType, StringType, isTypeEqual, none, printType, some, toEastTypeValue,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { StatusValueType, TimeStepType } from "@elaraai/east-ui";
@@ -52,7 +52,7 @@ import type { PagedValue } from "../bind/data.js";
 import { planSeriesFacts, type PlanSeriesValue } from "../plan/series.js";
 import { PlanRollupType, type PlanAxisKindLiteral, type PlanRollupLiteral } from "../plan/types.js";
 import { scheduleAccessor } from "./accessor.js";
-import { PlanResourceRowType, PlanResourcesType, ScheduleResourceRowType, ScheduleResourcesType } from "./types.js";
+import { PlanResourceRowType, PlanResourcesType, ScheduleResourceRecordsType, ScheduleResourceRowType, ScheduleResourcesType } from "./types.js";
 import { scheduleEntryByKey } from "./window.js";
 
 /** The key a schedule's definitions carry their sort under. */
@@ -229,6 +229,9 @@ const ByKeyType = OptionType(OptionType(PlanResourceRowType));
 
 /** The read of one of a paged kind's resources by its key's text. */
 const ByKeyFunctionType = FunctionType([StringType], ByKeyType);
+
+/** A kind's records read whole for the app's optimiser (#1409), or none for a paged kind. */
+const RecordsType = OptionType(ScheduleResourceRecordsType);
 
 /**
  * Declares a resource kind (see the module docs).
@@ -420,6 +423,12 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
         const metaOf = $.const(meta);
         return East.value({ key: keyText(key), label: labelOf(row as never, key as never), meta: metaOf(row as never, key as never) }, ScheduleResourceRowType);
     });
+    // The kind's records read whole, as a run of the app's optimiser carries them (#1409): its rows as bytes at
+    // `DictType(K, R)`, read as the run starts; a paged kind's are never read whole, and a run carries none of them.
+    const records = source === undefined ? East.value(none, RecordsType) : East.value(some(East.function([], BlobType, ($) => {
+        const all = $.const(source as unknown as ExprType<DictType<EastType, EastType>>);
+        return East.Blob.encodeBeast(all, "v2");
+    })), RecordsType);
     // A paged kind's resource by its key's text (#1199): its window's key search, then a one-row page.
     const byKey = window === undefined ? undefined : (() => {
         const find = scheduleEntryByKey(window, keyType, rowType);
@@ -462,6 +471,9 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
                         const make = $.const(calendarRow);
                         return make(row as never, key as never);
                     }),
+                keyType: toEastTypeValue(keyType),
+                rowType: toEastTypeValue(rowType),
+                records,
             }, ScheduleResourcesType);
         },
         buildPlan(slot: string): ExprType<PlanResourcesType> {
@@ -480,6 +492,9 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
                         return resolve(row as never, key as never);
                     }),
                 byKey: byKey === undefined ? East.value(none, OptionType(ByKeyFunctionType)) : East.value(some(byKey), OptionType(ByKeyFunctionType)),
+                keyType: toEastTypeValue(keyType),
+                rowType: toEastTypeValue(rowType),
+                records,
             } as never, PlanResourcesType);
         },
     };

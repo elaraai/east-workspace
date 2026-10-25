@@ -65,6 +65,8 @@ export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
 // A builder's narrowing (#1340): the one check of its `slice` every builder's tag makes, of a tab's `source`, and of a templates list's.
 export { recordSources, sliceSourceNames, tabSource, templatesSource, type RecordSources, type RecordSourcesSpec } from './utils/record-sources.js';
+// The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer.
+export { optimiseBinding, type OptimiseContract, type OptimiseHandle } from './utils/optimise.js';
 
 // The Studio (#787): its components' factories and carriers, the payloads the
 // renderers take, and the East the renderers call. `Studio` here is the
@@ -373,6 +375,10 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
+// The optimiser's request and answer over a sheet's rows (#1409), and the check of the sheet's `optimise`.
+export {
+    SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, sheetOptimiseBinding, type SheetOptimiseRequestType, type SheetOptimiseResultType,
+} from './sheet/optimise.js';
 // The Flowchart (#1243–#1250): `<Flowchart>` with its namespace, the payload
 // the renderer takes through the `Flowchart` carrier — its canvas, its source
 // of flows with the editing session's Save over a record or the host's flows,
@@ -596,6 +602,12 @@ export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type Sche
 // The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
 // source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
 export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';
+// The optimiser's request and answer over a builder's kinds (#1409): what a Calendar's and a Plan's `optimise` is held to,
+// and the records by slot a run's request type is built from.
+export {
+    ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding, scheduleOptimiseRows,
+    type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRecordsType, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
+} from './schedule/optimise.js';
 export {
     Diff,
     DiffComponent,

@@ -180,6 +180,7 @@ import { PlanComponent, PlanTag, createPlanPayload, type PlanTagType } from "./p
 import { createOver } from "./over.js";
 import { createEventRef } from "./refs.js";
 import { libraryBacklog, libraryEvents, librarySeries, libraryTab } from "./library.js";
+import { ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor } from "../schedule/optimise.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -653,6 +654,10 @@ export interface PlanNamespace extends PlanTagType {
         PatchEvent: typeof PlanPatchEventTypeFor;
         /** The root's editing declaration on the wire — the shared session's fields and the canvas's own (#880). */
         Editing: typeof PlanEditingType;
+        /** `OptimiseRequest(E, S)` — what the app's optimiser is asked (#1409): the plan window, the run, every event kind's rows and the resource kinds' by slot. */
+        OptimiseRequest: typeof ScheduleOptimiseRequestTypeFor;
+        /** `OptimiseResult(E)` — what it answers (#1409): the events, complete. */
+        OptimiseResult: typeof ScheduleOptimiseResultTypeFor;
         /** The series type CONSTRUCTOR — `Plan.Types.Series(RowType)` gives the
          *  concrete variant type of one series over `Dict<String, RowType>`
          *  entries; `Plan.Types.Series(RowType, KeyType)` over another key type. */
@@ -796,6 +801,8 @@ const PLAN_MEMBERS = {
         MoveEdits: PlanMoveEditsType,
         PatchEvent: PlanPatchEventTypeFor,
         Editing: PlanEditingType,
+        OptimiseRequest: ScheduleOptimiseRequestTypeFor,
+        OptimiseResult: ScheduleOptimiseResultTypeFor,
         Series: PlanSeriesType,
         RunRef: PlanRunRefType,
         ElementRef: PlanElementRefType,

@@ -25,7 +25,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRight, faCheck, faChevronRight, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import {
-    getSomeorUndefined, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
+    getSomeorUndefined, optimiseMessages, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
 } from "@elaraai/east-ui-components";
 import { EastErrorBoundary, UnloadedRun, loadingLineText, type PlaceholderKind, type RunCell } from "@elaraai/east-ui-components/internal";
 import {
@@ -38,6 +38,7 @@ import type { PendingFill } from "./sheet-types.js";
 import type { SheetCellValue, SheetNounValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 import type { DraftPresentation } from "./draft-state.js";
 import type { SheetMembership } from "./membership.js";
+import type { SheetCellOp, SheetRowMarks } from "./optimise.js";
 import { SheetInsertPoint } from "./Insertion.js";
 import type { SheetRowDrop } from "./drop.js";
 import { useSheetWords } from "./words.js";
@@ -179,6 +180,23 @@ function Grip({ styles, grip, what }: { styles: Styles; grip: DragHandle; what: 
             <FontAwesomeIcon icon={faGripVertical} />
         </Box>
     );
+}
+
+/**
+ * What a cell a run of the optimiser changed says on hover (#1409, R7, R25):
+ * `Added by Elara · run #7` for a blank given a value, `Was 12 Mar · Elara
+ * run #7` for a value changed or cleared.
+ *
+ * @param op - The cell's operation
+ * @param was - The cell before the run
+ * @param meta - Its column
+ * @param run - The run's number, formatted
+ * @param words - The sheet's words
+ * @returns The provenance
+ */
+function cellProvenance(op: SheetCellOp, was: SheetCellValue | undefined, meta: SheetColumnMeta, run: string, words: ReturnType<typeof useSheetWords>): string {
+    if (op === "add") return optimiseMessages.entryAdded({ run });
+    return optimiseMessages.entryChanged({ previous: was === undefined || cellIsBlank(was) ? "—" : cellText(was, meta, words), run });
 }
 
 /** One item of a folded gutter's menu (#1215): what it says, and what it does. */
@@ -341,6 +359,8 @@ export interface SheetRowProps {
     foldedGutter?: boolean | undefined;
     /** A folded gutter's inserts at a row, read when its menu opens — absent where nothing inserts. Stable. */
     inserts?: ((r: number) => readonly SheetRowAction[]) | undefined;
+    /** What a run of the optimiser left on the row (#1409, R25), while it is the run's draft: each changed cell's mark, and its provenance on hover. */
+    marks?: SheetRowMarks | undefined;
 }
 
 /** Renders one row. */
@@ -372,6 +392,8 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
         if (group !== undefined) props.onDiscard?.(group.row.id, group.key);
         else if (row !== undefined) props.onDiscard?.(row.id);
     };
+    // What a run of the optimiser left on the row's cells (#1409, R25), while the row is still the run's draft.
+    const marks = props.draft?.pending === true ? props.marks : undefined;
     return (
         <Box
             ref={rowRef}
@@ -476,6 +498,9 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                     ? { level: meta.level(row.cells), actual: actualCell?.type === "DateTime" ? actualCell.value : undefined }
                     : undefined;
                 const detail = row !== undefined ? cellDetail(meta, row.cells, words) : undefined;
+                const op = marks?.cells.get(meta.key);
+                const provenance = op === undefined || marks === undefined ? undefined : cellProvenance(op, marks.previous.get(meta.key), meta, marks.run, words);
+                const title = issue ?? (provenance === undefined ? detail?.title : detail?.title === undefined ? provenance : `${provenance} · ${detail.title}`);
                 return (
                     <Box
                         key={meta.key}
@@ -486,9 +511,11 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                         data-editable={meta.editable ? "" : undefined}
                         data-invalid={cell?.type === "Invalid" ? "" : undefined}
                         data-value={meta.kind === "enum" && cell?.type === "String" ? cell.value : undefined}
+                        data-op={op}
+                        data-fill={op !== undefined ? "cell" : undefined}
                         aria-invalid={issue !== undefined ? true : undefined}
                         aria-describedby={issue !== undefined ? issueId : undefined}
-                        title={issue ?? detail?.title}
+                        title={title}
                         data-selected={selected ? "" : undefined}
                         data-blank={cellIsBlank(cell) ? "" : undefined}
                         data-proposed={fill !== undefined ? "" : undefined}
@@ -514,6 +541,7 @@ export const SheetRow = memo(function SheetRow(props: SheetRowProps) {
                             ghost={fill?.cell}
                             link={meta.kind === "link" ? linkCtx(row, meta) : undefined}
                             when={when}
+                            marked={op !== undefined}
                         />
                         {isTarget && <Box css={styles.nextTarget} data-slot="nextTarget" aria-hidden="true" />}
                         {fill !== undefined && hoverC === c && (
@@ -968,6 +996,8 @@ export interface SheetGroupRowProps {
     foldedGutter?: boolean | undefined;
     /** A folded gutter's inserts at a row, read when its menu opens — absent where nothing inserts. Stable. */
     inserts?: ((r: number) => readonly SheetRowAction[]) | undefined;
+    /** What a run of the optimiser left on the band's cells (#1409, R25), while the group is still the run's draft. */
+    marks?: SheetRowMarks | undefined;
 }
 
 /** Renders one full-width summary with a fold control and independent metadata. */
@@ -994,6 +1024,10 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
     const self = useRef<HTMLDivElement | null>(null);
     const what = m.inspectorWhat({ what: "band", number: String(props.number), title: title !== "" ? title : undefined, noun: word });
     const { ref: bandRef, grip } = useRowDrop(self, props.drop, props.dropRow, props.movable === true, title !== "" ? title : what, styles.dragGhost);
+    // What a run of the optimiser left on the band's cells (#1409, R25), while the group is still the run's draft.
+    const marks = props.draft?.pending === true ? props.marks : undefined;
+    const titleOp = titleMeta === undefined ? undefined : marks?.cells.get(TITLE_KEY);
+    const titleProvenance = titleOp === undefined || marks === undefined || titleMeta === undefined ? undefined : cellProvenance(titleOp, marks.previous.get(TITLE_KEY), titleMeta, marks.run, words);
     return (
         <Box
             ref={bandRef}
@@ -1056,6 +1090,9 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     data-key={TITLE_KEY}
                     data-kind="text"
                     data-selected={titleSelected ? "" : undefined}
+                    data-op={titleOp}
+                    data-fill={titleOp !== undefined ? "cell" : undefined}
+                    title={titleProvenance}
                     role="gridcell"
                     id={props.idPrefix !== undefined ? `${props.idPrefix}-${r}-0` : undefined}
                     aria-colindex={2}
@@ -1067,7 +1104,7 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     onMouseEnter={() => props.onCellEnter(r, 0)}
                 >
                     {range !== undefined && range.c0 < span && <Box css={styles.rangeWash} data-slot="rangeWash" />}
-                    <Box as="span" css={styles.groupTitleText} data-slot="groupTitle">{title === "" && titleMeta !== undefined ? m.untitled() : title}</Box>
+                    <Box as="span" css={styles.groupTitleText} data-slot="groupTitle" data-op-value={titleOp !== undefined ? "" : undefined}>{title === "" && titleMeta !== undefined ? m.untitled() : title}</Box>
                     {titleSelected && <Box css={styles.ring} data-slot="ring" />}
                     {titleEditing && editor.node}
                 </Box>
@@ -1082,6 +1119,9 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                     const selected = selC === c && !editing;
                     const inRange = range !== undefined && c >= range.c0 && c <= range.c1;
                     const member = meta?.kind === "enum" && cell?.type === "String" ? resolveMember(registers, meta.register, cell.value) : undefined;
+                    const op = marks?.cells.get(colMeta.key);
+                    const provenance = op === undefined || marks === undefined ? undefined : cellProvenance(op, marks.previous.get(colMeta.key), meta, marks.run, words);
+                    const bandTitle = m.bandCellTitle({ header: colMeta.header, value: cellText(cell, meta, words) });
                     return (
                         <Box
                             key={colMeta.key}
@@ -1092,6 +1132,8 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             data-selected={selected ? "" : undefined}
                             data-blank={cellIsBlank(cell) ? "" : undefined}
                             data-editable={meta !== undefined && meta.editable ? "" : undefined}
+                            data-op={op}
+                            data-fill={op !== undefined ? "cell" : undefined}
                             role="gridcell"
                             id={props.idPrefix !== undefined ? `${props.idPrefix}-${r}-${c}` : undefined}
                             aria-colindex={c + 2}
@@ -1099,12 +1141,10 @@ export const SheetGroupRow = memo(function SheetGroupRow(props: SheetGroupRowPro
                             onMouseDown={(e) => props.onCellDown(r, c, e)}
                             onDoubleClick={() => props.onCellDouble(r, c)}
                             onMouseEnter={() => props.onCellEnter(r, c)}
-                            title={meta !== undefined ? m.bandCellTitle({ header: colMeta.header, value: cellText(cell, meta, words) }) : undefined}
+                            title={provenance === undefined ? bandTitle : `${provenance} · ${bandTitle}`}
                         >
                             {inRange && <Box css={styles.rangeWash} data-slot="rangeWash" />}
-                            {meta !== undefined && (
-                                <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={undefined} member={member} ghost={undefined} link={undefined} />
-                            )}
+                            <SheetCellContent styles={styles} meta={meta} cell={cell} rowBlank={false} unit={undefined} member={member} ghost={undefined} link={undefined} marked={op !== undefined} />
                             {selected && <Box css={styles.ring} data-slot="ring" />}
                             {editing && editor.node}
                         </Box>

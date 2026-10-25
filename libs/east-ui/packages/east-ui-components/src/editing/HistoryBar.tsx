@@ -53,11 +53,18 @@ export interface HistoryBarProps<W> {
      * ({@link SessionBanners}) — passes `false`, so its toolbar keeps one row.
      */
     showError?: boolean | undefined;
+    /**
+     * Locked while a run of the app's optimiser is out (#1409, R2): Undo,
+     * Redo, Discard and Save are `aria-disabled` and run nothing, their size,
+     * their place and the focus kept — never `disabled`, which would drop the
+     * focus. `false` by default.
+     */
+    locked?: boolean | undefined;
 }
 
 /** Keep an accessible name and a hover/focus tooltip when the control has no text. */
-function HistoryButton({ label, tip = label, icon, disabled, styles, onClick }: {
-    label: string; tip?: string; icon: IconDefinition; disabled: boolean;
+function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onClick }: {
+    label: string; tip?: string; icon: IconDefinition; disabled: boolean; locked: boolean;
     styles: Styles; onClick: () => void;
 }) {
     const iconRecipe = useRecipe({ key: "iconButton" });
@@ -66,7 +73,8 @@ function HistoryButton({ label, tip = label, icon, disabled, styles, onClick }: 
         <Tooltip.Trigger asChild>
             <span>
                 <chakra.button type="button" css={[iconStyles, styles.button]} aria-label={label}
-                    disabled={disabled} onMouseDown={event => event.preventDefault()} onClick={onClick}>
+                    disabled={disabled} aria-disabled={locked ? true : undefined}
+                    onMouseDown={event => event.preventDefault()} onClick={locked ? undefined : onClick}>
                     <FontAwesomeIcon icon={icon} />
                 </chakra.button>
             </span>
@@ -83,7 +91,7 @@ function HistoryButton({ label, tip = label, icon, disabled, styles, onClick }: 
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, buttonsOnly = false, showError = true }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -96,20 +104,20 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, butt
         : status !== "idle" ? m.historyStatus({ status })
         : undefined;
     const n = issues.length;
-    return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} css={styles.root}>
+    return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>
         <Box css={styles.actions}>
             {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
             {!buttonsOnly && <Box data-slot="historyIssues" data-empty={n === 0 ? "" : undefined} css={styles.issues}>
                 <HistoryButton styles={styles} label={m.issues({ n, count: words.number(n) })}
-                    tip={m.issuesTip({ n, count: words.number(n) })}
+                    tip={m.issuesTip({ n, count: words.number(n) })} locked={false}
                     icon={faTriangleExclamation} disabled={n === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }} />
             </Box>}
-            <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} onClick={() => onAction("undo")} />
-            <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} onClick={() => onAction("redo")} />
-            <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} onClick={() => onAction("discard")} />
-            {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} onClick={() => onAction("refresh")} />
+            <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
+            <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
+            <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} locked={locked} onClick={() => onAction("discard")} />
+            {status === "reconciling" ? <HistoryButton styles={styles} label={m.retryRefresh()} icon={faRotate} disabled={false} locked={locked} onClick={() => onAction("refresh")} />
                 : <HistoryButton styles={styles} label={status === "unknown" ? m.retryRequest() : m.apply()}
-                    icon={status === "unknown" ? faRotate : faCheck} disabled={status !== "unknown" && !session.canApply && !commitEditor} onClick={() => onAction("apply")} />}
+                    icon={status === "unknown" ? faRotate : faCheck} disabled={status !== "unknown" && !session.canApply && !commitEditor} locked={locked} onClick={() => onAction("apply")} />}
         </Box>
         {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}
     </Box>;

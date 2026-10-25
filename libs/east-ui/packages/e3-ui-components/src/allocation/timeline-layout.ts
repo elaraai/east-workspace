@@ -13,7 +13,7 @@
  */
 
 import type { Bin, Day, Slot } from "./model.js";
-import { DAY } from "./model.js";
+import { DAY, compareDate } from "./model.js";
 
 /** A grid row's height, the recipe's: what the resource rows are virtualised and the panes scroll by. */
 export const ROW_H = 36;
@@ -64,6 +64,20 @@ export interface LaneBand {
     at: Date;
 }
 
+/** A ghost's place in the lane grid (#1409): where a bin a run moved or removed stood, as a lane slot and a time. */
+export interface LaneGhost {
+    lane: string;
+    at: Date;
+}
+
+/** A ghost placed in the lane grid (#1409): by its index among the ghosts given, its lane, its slot, and its row after the slot's cards. */
+export interface LaneGhostPlace {
+    ghost: number;
+    lane: number;
+    slot: number;
+    row: number;
+}
+
 /** The lane grid. */
 export interface LaneGrid {
     bands: LaneBand[];
@@ -73,6 +87,8 @@ export interface LaneGrid {
     rows: number;
     /** Each lane's bins with an arrival, and their quantity (A15). */
     heads: { bins: number; quantity: number; first: Date | undefined }[];
+    /** Each ghost's place (#1409): a row of its slot's band after the slot's cards. */
+    ghosts: LaneGhostPlace[];
 }
 
 /**
@@ -82,13 +98,18 @@ export interface LaneGrid {
  * takes no card and no row of its batch, and its slot is still booked; each
  * lane's head counts every bin, hidden or not.
  *
+ * A ghost of a bin a run of the optimiser moved or removed (#1409, R15)
+ * takes a row of its slot's band after the slot's cards: the slot of its
+ * lane whose time is the latest at or before where the bin stood.
+ *
  * @param lanes - The lanes' keys, in order
  * @param slots - The day's slots (`Allocation.slots`), in time then lane order
  * @param plan - The day's plan
  * @param shows - Whether a bin shows; every one by default
+ * @param ghosts - Where the bins the runs moved or removed stood, for the highlight; none by default
  * @returns The grid
  */
-export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan: Day, shows: (bin: Bin) => boolean = () => true): LaneGrid {
+export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan: Day, shows: (bin: Bin) => boolean = () => true, ghosts: readonly LaneGhost[] = []): LaneGrid {
     const index = new Map(lanes.map((key, i) => [key, i] as const));
     const byLane = lanes.map(() => [] as Slot[]);
     for (const slot of slots) { const i = index.get(slot.lane); if (i !== undefined) byLane[i]!.push(slot); }
@@ -97,8 +118,18 @@ export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan:
     let row = 0;
     // The bins of a slot that show, in its batch's order.
     const shown = (slot: Slot | undefined) => slot === undefined ? [] : slot.bins.filter(id => { const bin = plan.bins.get(id); return bin !== undefined && shows(bin); });
+    // Each ghost's lane and slot: the lane's slot whose time is the latest at or before where it stood, else its first; none of a lane the grid has not.
+    const ghostAt = ghosts.map(ghost => {
+        const lane = index.get(ghost.lane);
+        const list = lane === undefined ? undefined : byLane[lane]!;
+        if (lane === undefined || list === undefined || list.length === 0) return undefined;
+        let slot = 0;
+        list.forEach((held, k) => { if (compareDate(held.at, ghost.at) <= 0) slot = k; });
+        return { lane, slot };
+    });
+    const ghostsIn = (lane: number, k: number) => ghostAt.filter(at => at !== undefined && at.lane === lane && at.slot === k).length;
     for (let k = 0; k < count; k++) {
-        const span = Math.max(1, ...byLane.map(list => shown(list[k]).length));
+        const span = Math.max(1, ...byLane.map((list, lane) => shown(list[k]).length + ghostsIn(lane, k)));
         const at = byLane.find(list => list[k] !== undefined)![k]!.at;
         bands.push({ slot: k, row, span, at });
         row += span;
@@ -116,7 +147,17 @@ export function laneGrid(lanes: readonly string[], slots: readonly Slot[], plan:
             }
         });
     });
-    return { bands, cells, cards, rows: row, heads };
+    // The ghosts, each a row of its slot's band after the slot's cards, in the order given.
+    const placed: LaneGhostPlace[] = [];
+    const taken = new Map<string, number>();
+    ghostAt.forEach((at, ghost) => {
+        if (at === undefined) return;
+        const key = `${at.lane}:${at.slot}`;
+        const place = taken.get(key) ?? 0;
+        taken.set(key, place + 1);
+        placed.push({ ghost, lane: at.lane, slot: at.slot, row: bands[at.slot]!.row + shown(byLane[at.lane]![at.slot]).length + place });
+    });
+    return { bands, cells, cards, rows: row, heads, ghosts: placed };
 }
 
 /** The resource axis: its window around the plan day, and its days. */

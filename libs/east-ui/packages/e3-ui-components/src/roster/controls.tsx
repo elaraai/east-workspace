@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { DateTimeType, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, none, parseFor, printFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { RosterRequirementType } from "@elaraai/e3-ui/internal";
@@ -51,12 +51,17 @@ interface PlaceActionProps { label: string; source?: RosterSource; slot: Slot; v
 /**
  * One anchored place action; absent source offers a staff picker. Until it is first pressed it is its trigger alone
  * (#1398, CL9): every day off in the People grid holds one, and a popover mounted for each made each row coming into
- * view slow to draw. Pressed, its popover mounts and opens.
+ * view slow to draw. Pressed, its popover mounts and opens. While a run of the optimiser holds the week (#1409, R2) the
+ * trigger stays in place, inert and saying why; a popover the run finds open closes, and stays closed as the run ends.
  */
 export function PlaceAction(props: PlaceActionProps) {
     const [armed, setArmed] = useState(false);
-    if (!props.commands.available) return null;
-    if (!armed) return <Button size="xs" variant="outline" data-roster-action={props.label.toLowerCase()} onClick={() => setArmed(true)}>{props.label}</Button>;
+    const { available, locked } = props.commands;
+    useEffect(() => { if (locked !== undefined) setArmed(false); }, [locked]);
+    if (!available && locked === undefined) return null;
+    if (!armed || locked !== undefined) {
+        return <Button size="xs" variant="outline" data-roster-action={props.label.toLowerCase()} disabled={locked !== undefined} title={locked} onClick={() => setArmed(true)}>{props.label}</Button>;
+    }
     return <PlacePopover {...props} />;
 }
 /**
@@ -98,9 +103,11 @@ export function ApplyPatternAction({ person, start, value, commands, onError }: 
         return { key: pattern.key, label: pattern.label, line: problem ?? `${format.number(summary.shifts)} shifts · ${format.number(summary.hours)} h`,
             state: problem === undefined ? "enabled" as const : "refused" as const };
     }) }], [value, format]);
-    if (!commands.available || value.patterns.length === 0) return null;
+    // While a run of the optimiser holds the week (#1409, R2) the action stays in place, inert.
+    const locked = commands.locked !== undefined;
+    if ((!commands.available && !locked) || value.patterns.length === 0) return null;
     return <SliceEditPopover open={open} onOpenChange={setOpen} label={`Apply pattern · ${person.name}`}
-        trigger={<Button size="xs" variant="outline" data-roster-action="apply pattern…">Apply pattern…</Button>}
+        trigger={<Button size="xs" variant="outline" data-roster-action="apply pattern…" disabled={locked} title={commands.locked}>Apply pattern…</Button>}
         footActions={<Button size="xs" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>}>
         <Chooser sections={sections} placeholder="Find a pattern" onChoose={key => { onError(commands.applyPattern(person.key, start, key)); setOpen(false); }} />
     </SliceEditPopover>;
@@ -143,12 +150,14 @@ export function AssignmentActions({ id, assignment, value, start, commands, styl
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState<DutyFormValue>(() => dutyForm(assignment));
     const [error, setError] = useState<string>();
-    if (!commands.available) return null;
-    if (removed) return <Button size="xs" variant="outline" onClick={() => commands.restore(id)}>Restore</Button>;
+    // While a run of the optimiser holds the week (#1409, R2) the actions stay in place, inert.
+    const locked = commands.locked !== undefined;
+    if (!commands.available && !locked) return null;
+    if (removed) return <Button size="xs" variant="outline" disabled={locked} title={commands.locked} onClick={() => commands.restore(id)}>Restore</Button>;
     const change = (next: RolesChange) => setForm(before => ({ ...before, ...next }));
     return <><Box css={styles.actions} data-roster-assignment-actions="">
         <SliceEditPopover open={open} onOpenChange={next => { setOpen(next); if (next) { setForm(dutyForm(assignment)); setError(undefined); } }} label="Edit duty"
-            trigger={<Button size="xs" variant="outline">Edit</Button>}
+            trigger={<Button size="xs" variant="outline" disabled={locked} title={commands.locked}>Edit</Button>}
             footActions={<><Button size="xs" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button size="xs" variant="outline" onClick={() => {
                 const refused = commands.update(id, { start: form.start, end: form.end, ...(value.duty.roles.position ? { position: form.position } : {}),
                     ...(value.duty.roles.activity ? { activity: form.activity } : {}) });
@@ -159,7 +168,7 @@ export function AssignmentActions({ id, assignment, value, start, commands, styl
             {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
         </SliceEditPopover>
         <PlaceAction label="Move" source={{ type: "assignment", key: id }} slot={assignment.slot} value={value} start={start} commands={commands} styles={styles} />
-        <Button size="xs" variant="outline" onClick={() => commands.remove(id)}>Remove</Button>
+        <Button size="xs" variant="outline" disabled={locked} title={commands.locked} onClick={() => commands.remove(id)}>Remove</Button>
     </Box>{error !== undefined && !open && <Box role="alert" css={styles.error}>{error}</Box>}</>;
 }
 /** Targets use FieldForm for the headcount, every activity line, and adding a line. */
@@ -193,7 +202,8 @@ export function RequirementFields({ slot, week, held, value, commands, styles }:
 /** Target editing stays reachable from a narrow card when the inspector is collapsed. */
 export function RequirementAction(props: Parameters<typeof RequirementFields>[0]) {
     const [open, setOpen] = useState(false);
-    if (!props.commands.available || props.value.targets.type !== "some") return null;
-    return <SliceEditPopover open={open} onOpenChange={setOpen} label="Shift targets" trigger={<Button size="xs" variant="outline">Edit targets</Button>}
+    const locked = props.commands.locked !== undefined;
+    if ((!props.commands.available && !locked) || props.value.targets.type !== "some") return null;
+    return <SliceEditPopover open={open} onOpenChange={setOpen} label="Shift targets" trigger={<Button size="xs" variant="outline" disabled={locked} title={props.commands.locked}>Edit targets</Button>}
         footActions={<Button size="xs" variant="outline" onClick={() => setOpen(false)}>Done</Button>}><RequirementFields {...props} /></SliceEditPopover>;
 }

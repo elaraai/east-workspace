@@ -34,7 +34,8 @@
  *   `nowChip`; the toolbar's focus chip's ×, `focusClear`; the focus's links over the panes, `links` (A65–A68: Plan's
  *   look, a draft's in the brand, the selected one in the ink, its captions taking the pointer; during a drag, the drag's
  *   families, a link into the target ink-2 where the drop fits and warn where it refuses, and nothing of them taking the
- *   pointer, A65, A69), each link's line and caption a grip (`data-allocation-grip`); and what follows the pointer during
+ *   pointer, A65, A69; for a run of the optimiser's highlight, the links it added or changed outlined in the Elara tone,
+ *   #1409), each link's line and caption a grip (`data-allocation-grip`); and what follows the pointer during
  *   a drag, `linkLines` (a link drag's new line over the cards, A69; an arrival's lines into its best fits, A30).
  * - The drags (A24–A35, #1328): a free lane hour's target during a body's drag, `lanePlaceholder`; a ranked fit's
  *   badge, `rank`; a row's reason, `reason`; a refusing run's label, `runLabel`, `runMeta`; the fits marker,
@@ -470,6 +471,26 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "& [data-tone=fits] [data-plan-ribbon-head]": { fill: "fg.strong" },
             "& [data-tone=refused] [data-plan-ribbon-band]": { stroke: "status.warn" },
             "& [data-tone=refused] [data-plan-ribbon-head]": { fill: "status.warn" },
+            // The links a run of the optimiser added or changed, for the highlight (#1409): outlined, never filled — the casing in the
+            // Elara edge, the band and the heads the Elara wash, a soft glow round them, the caption in the Elara ink — so a result's
+            // many links stay readable; hovered, the Elara colour itself. They fade in as the result lands.
+            "& [data-plan-ribbon-casing][data-tone=elara] [data-plan-casing=band]": { stroke: "elara.edge" },
+            "& [data-plan-ribbon-casing][data-tone=elara] [data-plan-casing=head]": { fill: "elara.edge", stroke: "elara.edge" },
+            "& [data-plan-link][data-tone=elara]": { filter: "drop-shadow(0 0 3px {colors.elara.soft})" },
+            "& [data-plan-link][data-tone=elara] [data-plan-ribbon-band]": { stroke: "elara.wash" },
+            "& [data-plan-link][data-tone=elara] [data-plan-ribbon-head]": { fill: "elara.wash" },
+            "& [data-plan-link][data-tone=elara][data-lit] [data-plan-ribbon-band]": { stroke: "elara" },
+            "& [data-plan-link][data-tone=elara][data-lit] [data-plan-ribbon-head]": { fill: "elara" },
+            "& [data-plan-ribbon-label][data-tone=elara] [data-plan-ribbon-caption]": { fill: "elara.ink" },
+            "[data-optimise-landing] &": {
+                "& [data-plan-link][data-tone=elara], & [data-plan-ribbon-casing][data-tone=elara], & [data-plan-ribbon-label][data-tone=elara]": {
+                    animation: "optimise-fade-in 600ms {easings.out} both",
+                },
+            },
+            _motionReduce: { "& [data-tone=elara]": { animation: "none" } },
+            // While a run's links show, the layer runs behind the cards (#1409, ruled 26 Oct 2026): a result's many links pass under the
+            // cards they cross — surfacing in the gaps between the lanes and in the channel — never over their words; a drag brings it back up.
+            "&[data-under]": { zIndex: 1 },
             // The selected link, in the ink, at rest (A68); during a drag its caption keeps its outline alone.
             "[data-allocation-timeline]:not([data-allocation-drag]) > &": {
                 "& [data-plan-link][data-selected] [data-plan-ribbon-band]": { stroke: "fg" },

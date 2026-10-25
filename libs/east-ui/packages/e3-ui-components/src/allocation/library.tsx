@@ -307,6 +307,8 @@ export interface LibraryArgs {
     /** A Find a fit's result, shown in the Resources tab until its chip clears it (A74). */
     find?: ResourceFind | undefined;
     onClearFind?: (() => void) | undefined;
+    /** Whether the Arrivals tab's count flashes (#1409): the latest run booked an arrival or returned one, and its highlight is on. */
+    arrivalsFlash?: boolean | undefined;
 }
 
 /** The picked card's action (A53, A87): its note, and its button. */
@@ -462,7 +464,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         if (tab.type === "arrivals") {
             const library = scheduleLibrary({ id: drag.libraries.arrivals, items: arrivalItems, groupOptions: [{ key: "group", label: "Group" }],
                 noun: some({ singular: one(nouns.arrival), plural: other(nouns.arrival) }), onCardClick: some(arrivalClick) }, true);
-            return { key: "arrivals", label: nouns.arrival.other, count: arrivalTab.count,
+            return { key: "arrivals", label: nouns.arrival.other, count: arrivalTab.count, flash: args.arrivalsFlash === true,
                 body: <Box css={styles.pane} data-allocation-library="arrivals" {...arrivalTab.pane}
                 onPointerDownCapture={arm(drag.libraries.arrivals)} onKeyDownCapture={arm(drag.libraries.arrivals)}>
                 <EastChakraLibrary value={library} storageKey={drag.libraries.arrivals} extras={arrivalExtras} groupMark={overdueMark}

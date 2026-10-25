@@ -477,3 +477,31 @@ Each wire changed under this rule, with the kind it is.
   type an application changes. The Roster's persisted view — viewer state, a
   browser's own — gains a period per layout; a view kept under the old shape
   reads as the defaults.
+- **e3-ui's five collection builders take the app's optimiser, and east-ui's
+  editing origin gains `optimise` (#1409, #1411)** — package-borne. The
+  `Roster`, `Calendar`, `Sheet`, `Plan` and `Allocation` extensions' payloads
+  each gain `optimise`, the binding of the app's `e3.function` the Elara eye
+  calls over the period in view (`Option<FuncBinding>`), `none` for a builder
+  with no eye: after `fit` on the Roster's and the Allocation's, after
+  `canDrop` on the Calendar's and the Plan's, after `inspector` on the
+  Sheet's. The Calendar's and the Plan's resource kinds on the wire
+  (`ScheduleResourcesType`, `PlanResourcesType`) each gain `keyType`,
+  `rowType` and `records`, after their last field: the kind's key and row
+  types, and its records read whole as bytes at `DictType(K, R)` when a run
+  starts (`Option<() => Blob>`, `none` for a kind paged a window at a time) —
+  what the run's request carries of the kind beside the events, as context.
+  The Sheet's editing declaration on the wire (`SheetEditingType`) gains
+  `project`, after `decode`: an entry as `entryType` bytes and its id to the
+  wire row the source would show for it (`Sheet.Types.Row` bytes) — what a
+  row the optimiser answers lands in the session as.
+  east-ui's `EditingOriginType` gains the case `optimise`, a run's
+  result recorded as one step of the session: it sorts between `move` and
+  `pasted`, so every case after it moves down one, and it travels in the patch
+  event (`EditingPatchEventTypeWith`) an app's patch observer reads at the
+  same package version. A UI value encoded under either type does not decode
+  under the other: packages are re-exported, and the dataflow computes each UI
+  task's output again under the new type. A UI task's output is not stored
+  state, so no repository upgrade step ships with it. The request and result
+  types each builder's `Types` constructs (`OptimiseRequest`, `OptimiseResult`)
+  are new, and an app's optimiser is an `e3.function` of its own package: no
+  earlier release wrote either, so no form of them moves.

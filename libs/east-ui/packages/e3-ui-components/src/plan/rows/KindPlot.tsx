@@ -16,6 +16,8 @@
  * Group bands are not a plot: they have their own band component.
  */
 
+import { Box } from "@chakra-ui/react";
+import { optimiseMessages } from "@elaraai/east-ui-components";
 import { SpanRow } from "./SpanRow.js";
 import { ChartRowPlot } from "./ChartRow.js";
 import { HeatCells } from "./HeatRow.js";
@@ -25,6 +27,9 @@ import { EventsRow } from "./EventsRow.js";
 import { TableRowCells } from "./TableRow.js";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { usePlanEdit } from "../edit/store.js";
+import { usePlanScale } from "../context.js";
+import { usePlanRowGhosts } from "./element-optimise.js";
+import { PLAN_CELL_INSET } from "../geometry.js";
 import type { PlanDerived, VisibleRow } from "../model.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -44,8 +49,54 @@ export interface KindPlotProps {
     chartExpanded: boolean;
 }
 
+/**
+ * The ghosts a run of the optimiser left on a row (#1409, R15), while its
+ * highlight is on: where an event it removed stood, struck through, and
+ * where one it moved stood, dashed — each at its extent on the shared scale,
+ * decorative, named for what the run did. Drawn in the row's own bar or tile
+ * style, which the `optimise` recipe dashes and tints from `data-op`.
+ */
+function PlanGhosts({ rowKey, styles, ctx }: { rowKey: string; styles: Styles; ctx: boolean }) {
+    const ghosts = usePlanRowGhosts(rowKey);
+    const scale = usePlanScale();
+    if (ghosts.length === 0 || ctx) return null;
+    return (
+        <>
+            {ghosts.map((ghost) => {
+                const f0 = scale.fracOf(ghost.start);
+                const f1 = ghost.shape === "span" ? scale.endFracOf(ghost.end) : f0;
+                if (!Number.isFinite(f0) || !Number.isFinite(f1) || f1 < scale.renderMin || f0 > scale.renderMax) return null;
+                const title = ghost.op === "del" ? optimiseMessages.ghostRemoved({ run: ghost.run }) : optimiseMessages.ghostMoved({ run: ghost.run });
+                return ghost.shape === "span" ? (
+                    <Box key={`ghost:${ghost.key}`} css={styles.bar} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
+                        left={`calc(${Math.max(0, f0) * 100}% + ${PLAN_CELL_INSET}px)`} width={`calc(${Math.max(0, Math.min(1, f1) - Math.max(0, f0)) * 100}% - ${2 * PLAN_CELL_INSET}px)`}>
+                        {ghost.label}
+                    </Box>
+                ) : (
+                    <Box key={`ghost:${ghost.key}`} css={styles.tile} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
+                        position="absolute" left={`${f0 * 100}%`}>
+                        {ghost.label}
+                    </Box>
+                );
+            })}
+        </>
+    );
+}
+
 /** The plot content for a data row kind (`null` for a group band). */
-export function KindPlot({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded }: KindPlotProps) {
+export function KindPlot(props: KindPlotProps) {
+    const { v, ctx, styles } = props;
+    if (v.row.kind.type === "group") return null;
+    return (
+        <>
+            <KindPlotContent {...props} />
+            <PlanGhosts rowKey={v.row.key} styles={styles} ctx={ctx} />
+        </>
+    );
+}
+
+/** The kind switch: one row kind's own plot content. */
+function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, chartExpanded }: KindPlotProps) {
     const kind = v.row.kind;
     const rowKey = v.row.key;
     const rowId = v.row.id;

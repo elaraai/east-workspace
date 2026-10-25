@@ -275,17 +275,15 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
                 {/* Pressed, the chip clears the find: its name says so, its face what the find looks for. */}
                 <SliceFieldChip label={`Find · ${findWhat}`} aria-label={`Clear find · ${findWhat}`} active removeLabel="Clear find" onRemove={args.onClearFind} onClick={args.onClearFind} />
             </Box>}
-            {tab.type === "patterns" && <Box css={styles.patternDays} data-roster-pattern-days="" aria-hidden="true">
-                {Array.from({ length: 7 }, (_, d) => <span key={d}>{format.weekday(new Date(start.getTime() + d * DAY)).slice(0, 1).toLocaleUpperCase(format.locale)}</span>)}
-            </Box>}
             <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)} empty={follows.empty} narrowing={narrowing}
                 extras={tab.type === "people" ? reasons : tab.type === "patterns" ? patternExtras : undefined} />
             <Box css={[styles.paneFoot, styles.paneHint]}>{hint}</Box>
-            {commands.available && !held && chosenKey !== undefined && <Box css={styles.paneFoot}>
+            {/* The foot's actions stay in place, inert, while a run of the optimiser holds the week (#1409, R2). */}
+            {(commands.available || commands.locked !== undefined) && !held && chosenKey !== undefined && <Box css={styles.paneFoot}>
                 {source !== undefined && <PlaceAction label={source.type === "agency" ? "Request staff" : "Assign person"} source={source} slot={defaultSlot} value={value} start={start} commands={commands} styles={styles} />}
-                {patternTarget?.person !== undefined && <Button size="xs" variant="outline" onClick={() => setError(commands.applyPattern(patternTarget.person!.key, patternTarget.start, chosenKey))}>Apply to {patternTarget.person.name}</Button>}
-                {tab.type === "activities" && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.activity(target, some(chosenKey))); }}>Set activity on selected duty</Button>}
-                {custom !== undefined && custom.sets.length > 0 && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.sets(target, custom.sets)); }}>Apply to selected duty</Button>}
+                {patternTarget?.person !== undefined && <Button size="xs" variant="outline" disabled={commands.locked !== undefined} title={commands.locked} onClick={() => setError(commands.applyPattern(patternTarget.person!.key, patternTarget.start, chosenKey))}>Apply to {patternTarget.person.name}</Button>}
+                {tab.type === "activities" && <Button size="xs" variant="outline" disabled={target === undefined || commands.locked !== undefined} title={commands.locked} onClick={() => { if (target !== undefined) setError(commands.activity(target, some(chosenKey))); }}>Set activity on selected duty</Button>}
+                {custom !== undefined && custom.sets.length > 0 && <Button size="xs" variant="outline" disabled={target === undefined || commands.locked !== undefined} title={commands.locked} onClick={() => { if (target !== undefined) setError(commands.sets(target, custom.sets)); }}>Apply to selected duty</Button>}
                 {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
             </Box>}
         </Box> };

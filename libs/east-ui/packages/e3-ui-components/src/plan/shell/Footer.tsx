@@ -33,7 +33,8 @@ import { useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
 import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed } from "@elaraai/east-ui-components/internal";
+import { OptimiseLegendItem } from "@elaraai/east-ui-components";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { pagedLoadingLine } from "../../shared/loading.js";
 import type { PlanTransport } from "./transport.js";
@@ -76,10 +77,15 @@ export interface PlanFooterProps {
     pending?: number | undefined;
     /** Exact, confirmed feedback when saved records leave a source's narrowing — one per source (#1344). */
     notices?: readonly PlanSaveNotice[] | undefined;
+    /**
+     * A run of the app's optimiser (#1409): what its line says while the call is out or just stopped, whether the
+     * legend's `Elara change` shows, and whether a run has just landed — the backlog's count flashes once.
+     */
+    optimise?: { readonly line: LoadingLineValue | undefined; readonly legend: boolean; readonly flash: boolean } | undefined;
 }
 
 /** The 28px footer band (renders nothing with nothing to say). */
-export function PlanFooter({ styles, items, transport, noun, counts, unread, pending, notices }: PlanFooterProps) {
+export function PlanFooter({ styles, items, transport, noun, counts, unread, pending, notices, optimise }: PlanFooterProps) {
     const words = usePlanWords();
     const { m } = words;
     // The loading line, in the Plan's words (#1398, CL3), on the Plan's one reveal clock (CL4): its frame's
@@ -114,13 +120,17 @@ export function PlanFooter({ styles, items, transport, noun, counts, unread, pen
         const today = stringEqual(words.date(saved), words.date(new Date()));
         own.push({ key: "saved", text: m.footerSaved({ when: today ? words.time(saved) : words.dateTime(saved) }) });
     }
-    if (own.length === 0 && items.length === 0 && transport === undefined && (notices?.length ?? 0) === 0) return null;
-    // The counts and the author's items: each whole, the legend the rail fits.
-    const units = own.length + items.length;
+    // A run's line shows at once, whatever the reveal says: a run is not a read (#1409).
+    const runLine = optimise?.line;
+    const legend = optimise?.legend === true;
+    if (own.length === 0 && items.length === 0 && transport === undefined && (notices?.length ?? 0) === 0 && runLine === undefined && !legend) return null;
+    // The counts and the author's items: each whole, the legend the rail fits — and, during a run's highlight, `Elara change`.
+    const units = own.length + items.length + (legend ? 1 : 0);
     return (
         <Box ref={rail} css={styles.footer} data-slot="footer">
             {own.map((count, i) => (
-                <Box key={count.key} css={styles.footerItem} data-plan-count={count.key} data-footer-unit="" data-footer-cut={footerCut(i, fit)}>{count.text}</Box>
+                <Box key={count.key} css={styles.footerItem} data-plan-count={count.key} data-footer-unit="" data-footer-cut={footerCut(i, fit)}
+                    data-opn={count.key === "backlog" && optimise?.flash === true ? "" : undefined}>{count.text}</Box>
             ))}
             {items.map((item, i) => {
                 const tone = item.tone.type === "some" ? item.tone.value.type : undefined;
@@ -131,9 +141,11 @@ export function PlanFooter({ styles, items, transport, noun, counts, unread, pen
                     </Box>
                 );
             })}
+            {legend && <OptimiseLegendItem css={styles.footerItem} cut={footerCut(own.length + items.length, fit)} />}
             <FooterMore shown={fit.kept < units} />
             {notices?.map((notice) => <RecordSliceSaveNotice key={notice.key} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
-            {transport !== undefined && <LoadingLine value={line} shown={shown} form={fit.form} />}
+            {/* The line's slot: a paged canvas's reads, and — with an optimiser — its runs, the slot kept while they are not out. */}
+            {(transport !== undefined || optimise !== undefined) && <LoadingLine value={runLine ?? line} shown={shown || runLine !== undefined} form={fit.form} />}
         </Box>
     );
 }

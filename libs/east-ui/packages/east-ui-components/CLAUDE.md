@@ -167,7 +167,10 @@ component, nothing in east-ui.
   only when given. `storageKey` is where each pane keeps its open tab, and
   its collapsed state when it persists; `minMain` (480px by default) is the
   narrowest main may get beside pinned panes; `label` is the frame's
-  accessible name; `ref` is its root (the bounds of a popover inside it), and
+  accessible name; `ref` is its root (the bounds of a popover inside it) —
+  `rootCss` and `rootProps` a host's own styles and attributes on it, for a
+  slot of the host's over the frame's content (the optimiser's landing,
+  #1409) — and
   `toolbarRef` its toolbar's element (where a host finds its items' controls:
   the search box a key focuses); `onKeyDown` hears keys from anywhere in the
   frame, the panes included. A key a builder acts on — there, in its canvas
@@ -214,6 +217,33 @@ component, nothing in east-ui.
   ellipsizes — is marked `data-footer-slack`, fitted at no width, and takes
   what the fit leaves it. An unmarked item that shrinks looped the fit on a
   phone (the showcase's `builder-footer-line.spec.ts` holds every rail to it).
+- **The Elara eye** (#1409, `src/optimise/`). What a run of the app's
+  optimiser draws in a builder, shared, so each builder lists the parts in
+  its frame and draws nothing of them itself: `OptimiseButton` — the eye,
+  `optimiseToolbarItem` the toolbar item a builder lists immediately before
+  the history item (`toolbar`, 32 × 28 as the builders' rows' controls stand;
+  `md` 32 × 32; `sm` 24 × 24), running, blinking and disabled states, its
+  names `optimiseMessages`' — a period that cannot be optimised at all lists
+  no eye, one whose reads are in flight a disabled one; `OptimiseBanner`
+  — the result in the banners slot, the `BannerView`'s `elara` tone (`done`,
+  `none`, `fail`), leaving over `--dur-base`; `optimiseRunningLine` /
+  `optimiseStoppedLine` — the footer line's `busy` kind while the call is out,
+  its seconds beside it, and its `note` for 2.5 s after Stop;
+  `OptimiseLegendItem` — the legend's `Elara change`; and `useLanding` with
+  `useLandingStyles` over the `optimise` recipe's `landing` slot, which draws
+  the landing and the highlight from the attributes a builder's entries carry
+  — `data-op="add|chg|del|from"`, `data-fill="own|cell"`, `data-opn` on a
+  total — and from main's own (`data-optimise-landing` while the result
+  lands, `data-optimise-lit` for the highlight's 8 s), the cascade's one
+  binding `--optimise-delay` the hook writes. The slot goes on a builder's
+  own root, or — for a builder with no root of its own around its frame, the
+  Sheet — on the frame's root through `BuilderFrame`'s `rootCss` and
+  `rootProps`, never on a wrapper of the builder's own around the frame: a
+  host sizes and measures a builder through the frame's parent, and a
+  wrapper there is either no box at all or a box the host's own then scrolls.
+  Every colour is the `elara` tokens'. The `HistoryBar` takes `locked` while
+  a run is out: Undo, Redo, Discard and Save `aria-disabled`, their size and
+  the focus kept.
 - **Panes.** A `BuilderFramePane` is either a description the frame draws as
   a `DockPane` (`BuilderFrameDock`: `label`, `body` or `tabs` — each tab's
   `count`, when given, follows its name, the Calendar's and the Sheet

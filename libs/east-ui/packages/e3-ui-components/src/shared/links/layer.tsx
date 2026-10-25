@@ -27,7 +27,8 @@
  * place to spread its drag handle on them (`grip`, A69); thin GUIDES from the
  * pointer into rows (`guides`, A30); captions that take the pointer as the line
  * does, lighting it (`caption`); a link's tone (`data-tone`: a draft's, a
- * drag's verdict); links that light nothing while a drag is under way
+ * drag's verdict) on its group, its casing and its caption alike, so a host
+ * may draw a tone outlined; links that light nothing while a drag is under way
  * (`lights={false}`); and the lit link reported (`onLit`), for a host that
  * rings the ends itself (`halo={false}`), as the Allocation rings its bin card
  * and its resource's load bar (A67). The preview and the guides follow the
@@ -161,10 +162,10 @@ function EndHalo({ end, side }: { end: RibbonEnd; side: "from" | "to" }) {
     );
 }
 
-/** A link's casing — the paper either side of its band and round its heads. */
+/** A link's casing — the paper either side of its band and round its heads; it carries the link's tone, for a host that outlines one. */
 function Casing({ r }: { r: LinkRibbon }) {
     return (
-        <g data-plan-ribbon-casing={r.id}>
+        <g data-plan-ribbon-casing={r.id} data-tone={r.tone}>
             <path data-plan-casing="band" d={r.stroke} strokeWidth={r.width + 2 * CASING} />
             <path data-plan-casing="head" d={r.head} />
             {r.tail !== "" && <path data-plan-casing="head" d={r.tail} />}
@@ -251,7 +252,7 @@ export function LinksLayer({
     const captionOf = (r: LinkRibbon, handle: LinkGripHandle) => {
         const { title, ...takes } = caption?.(r) ?? {};
         return (
-            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-selected={selected === r.id ? "" : undefined}
+            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-tone={r.tone} data-selected={selected === r.id ? "" : undefined}
                 data-lit={caption !== undefined && lit === r.id ? "" : undefined}
                 {...(caption === undefined ? {} : {
                     ...takes, ...handle,

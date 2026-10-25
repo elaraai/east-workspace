@@ -68,6 +68,10 @@ interface ToolbarArgs {
     onToday?: (() => void) | undefined;
     /** Search Records over the event kinds' keys (#1398); `undefined` with no kind to seek. */
     search?: KeySearchSource | undefined;
+    /** The Elara eye (#1409): the run's toolbar item, listed immediately before the history item; `undefined` with no optimiser. */
+    optimise?: ToolbarItem | undefined;
+    /** Whether a run of the optimiser is out (#1409, R2): the history item's actions locked. */
+    locked?: boolean | undefined;
 }
 
 /** The navigator over the days the timeline shows: its date the day under the view's centre, its label the days shown. */
@@ -190,7 +194,9 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         paged && chrome === undefined && { key: "calendar.scope", side: "start", forms: [<Box css={styles.toolbarText}>Loaded window</Box>, null], rank: HOST_RANK + 4 },
         overlapsShown && { key: "calendar.overlaps", side: "end", rank: [HOST_RANK, HOST_RANK + 6], forms: [warning(false), warning(true), null] },
         seek !== undefined && { ...seek, forms: [...seek.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "calendar.controls"] },
-        commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction,
+        // The eye, immediately before the history item (#1409, D4).
+        args.optimise,
+        commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction, locked: args.locked === true,
             onIssue: issue => { const kind = commands.editing.sessions.find(held => held.key === commands.editing.history.sourceOf(issue))?.kind; if (kind !== undefined) select([{ kind, key: issue.entry }]); } }),
     ];
 }

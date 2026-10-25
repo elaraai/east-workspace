@@ -52,10 +52,12 @@ function callback(value: unknown, input: EastType, output: EastType, name: strin
  * @param bridge - The typed column bridge
  * @param idField - Positional entry identity field
  * @param input - Author editing behavior
+ * @param rowOf - The row projection the source draws its rows with: an entry and its id to its wire row (#1409)
  * @param driverColumn - The lookup field used to resolve a row readiness context
  * @returns The closed transaction transport stored in the root IR
  */
-export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: string | undefined, input: SheetEditingInput, driverColumn?: string): ExprType<typeof SheetEditingType> {
+export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: string | undefined, input: SheetEditingInput,
+    rowOf: ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driverColumn?: string): ExprType<typeof SheetEditingType> {
     // A Dict source is keyed: a keyed paged source, or a record's whole Dict
     // read in key order (#1182) — the only inline Dict the root admits.
     const keyed = source.collectionType.type === "Dict";
@@ -120,6 +122,11 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         const previous = $.const(previousBlob.match({ none: () => none, some: (_$, blob) => some(blob.decodeBeast(SheetRowType, "v2")) }), OptionType(SheetRowType));
         const decoder = $.const(bridge.draftDecode);
         return East.Blob.encodeBeast(decoder(row, base, previous), "v2");
+    });
+    // An entry's wire row (#1409): the row the source would show for it, as the optimiser's answer lands in the session.
+    const project = East.function([BlobType, StringType], BlobType, ($, entryBlob, id) => {
+        const toRow = $.const(rowOf);
+        return East.Blob.encodeBeast(toRow(entryBlob.decodeBeast(rowType, "v2") as ExprType<EastType>, id), "v2");
     });
     let onApply: ExprType<typeof SheetWireApplyType> | undefined;
     if (reader !== undefined && input.onUpdate !== undefined) {
@@ -237,7 +244,7 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         // batches arrive keyed (restated for the author above).
         keyType: keyType !== undefined ? some(toEastTypeValue(keyType)) : none,
         snapshot: source.kind === "inline" ? some(East.Blob.encodeBeast(source.rows, "v2")) : none,
-        readEntry, decode, onApply: onApply !== undefined ? some(onApply) : none,
+        readEntry, decode, project, onApply: onApply !== undefined ? some(onApply) : none,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
         mode: variant(input.applyMode ?? "batch", null),
     }, SheetEditingType);

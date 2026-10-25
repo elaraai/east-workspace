@@ -36,6 +36,7 @@ import { useBinFocusTarget } from "./bin-focus.js";
 import { arrivalChoices, type ChoiceWords } from "./choices.js";
 import { binCode, matesOf, type InspectorWords, type Mate } from "./inspector-model.js";
 import { NarrowedEmpty } from "./narrowed.js";
+import type { AllocationOptimised } from "./optimise.js";
 import { SplitPopover } from "./split.js";
 import { a, one, useNouns } from "./nouns.js";
 import { ChoiceCell, ChooserPopover, openKey, type ChoiceScene, type Open } from "./table.js";
@@ -79,6 +80,10 @@ export interface CardsProps extends ChoiceScene {
      * once, in the first card in view.
      */
     read: PeriodRead;
+    /** What the runs of the app's optimiser left on the day's bins (#1409): each bin's operation, drawn on its card, and its provenance on hover. */
+    optimised?: AllocationOptimised | undefined;
+    /** Whether a run's highlight is on (#1409): a band's count flashes where the run changed its rows. */
+    lit?: boolean | undefined;
 }
 
 /** The failure said once, in the first card in view (#1398, CL11): the day's words and its Retry. */
@@ -211,7 +216,10 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
         trigger={() => <Button size="xs" variant="outline" title={reserved ? `Move the reservation to another ${one(nouns.resource)}` : `Move the ${mate.quantity} on ${name} to another ${one(nouns.resource)}`}>Move</Button>} />;
     const split = reserved || splitOf(bin, resource) === undefined ? null : <SplitPopover id={mate.id} bin={bin} from={resource} context={context} plan={plan} commands={commands}
         fit={props.fit} words={words.inspector} shown={props.visibleResources} trigger={label => <Button size="xs" variant="outline" title={label} data-allocation-split-open="">Split…</Button>} />;
-    return <Box css={styles.agendaBin} data-allocation-card-bin={mate.id} data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined}>
+    // What a run of the optimiser did to the bin (#1409, R7, R17), while it is still the run's draft: its mark, and its provenance on hover.
+    const op = draft ? props.optimised?.ops.get(mate.id) : undefined;
+    return <Box css={styles.agendaBin} data-allocation-card-bin={mate.id} data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined}
+        data-op={op?.op} data-fill={op === undefined ? undefined : "own"} title={op?.provenance}>
         <chakra.button ref={given} type="button" css={styles.agendaBinHead} title={mate.tip} aria-pressed={selected} onClick={() => props.select({ type: "bin", id: mate.id })}>
             <span>{mate.time} · {mate.lane}</span><span>{mate.code}</span><span>{mate.quantity}</span>
         </chakra.button>
@@ -294,7 +302,8 @@ function RowCards({ props, words }: { props: CardsProps; words: CardWords }) {
                     // A day not read yet: its band's count a placeholder, its line said once its rows land.
                     return <Box css={styles.agendaItem}><GroupHeading scope="allocation" group={{ key: line.band.key, label: line.band.label }} styles={styles} collapsed={folded} toggle={toggle}>
                         {unread ? read.state === "pending" && <PlaceholderShape kind="count" index={index} /> : <>
-                            <Box as="span" css={styles.bandCount} data-allocation-band-count="">{line.band.rows.length}</Box>
+                            <Box as="span" css={styles.bandCount} data-allocation-band-count=""
+                                data-opn={props.lit === true && line.band.rows.some(r => r.bin !== undefined && props.optimised?.ops.has(r.bin) === true) ? "" : undefined}>{line.band.rows.length}</Box>
                             <Box as="span" css={styles.groupMeta}>{bandLine(line.band, board.quantity(Math.round(line.band.quantity), context.unit), folded)}</Box>
                         </>}
                     </GroupHeading></Box>;
@@ -364,7 +373,10 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
     const chooser = (side: "arrival" | "resource", label: string, part?: string | null, title?: string) => <ChoiceCell props={props} row={row} side={side} part={part} words={words.choice}
         open={open?.row === row.key && openKey(open.side, open.part) === openKey(side, part)} setOpen={setOpen}
         trigger={() => <Button size="xs" variant="outline" title={title}>{label}</Button>} />;
-    return <Box css={styles.agendaCard} data-allocation-row-card={row.key} data-kind={row.kind} data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined}>
+    // What a run of the optimiser did to the row's bin (#1409, R7, R17), while it is still the run's draft: its mark, and its provenance on hover.
+    const op = row.bin === undefined || !draft ? undefined : props.optimised?.ops.get(row.bin);
+    return <Box css={styles.agendaCard} data-allocation-row-card={row.key} data-kind={row.kind} data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined}
+        data-op={op?.op} data-fill={op === undefined ? undefined : "own"} title={op?.provenance}>
         <chakra.button ref={given} type="button" css={styles.agendaCardHead} aria-pressed={selected}
             onClick={() => props.select(row.bin !== undefined ? { type: "bin", id: row.bin } : { type: "slot", lane: row.lane, at: row.slotAt.getTime() })}>
             <Box css={styles.agendaCardTitle}>{lane} · {time}</Box>

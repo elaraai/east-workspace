@@ -98,6 +98,10 @@ export interface SheetToolbarProps {
     search?: SheetSearch | undefined;
     /** The editing session's history item (#988) — undo · redo · discard · apply at the row's end, right of the rail. */
     history?: ToolbarItem | undefined;
+    /** The Elara eye (#1409): the app's optimiser's item, immediately before the history item; `undefined` with no optimiser. */
+    optimise?: ToolbarItem | undefined;
+    /** Whether a run of the optimiser has just landed (#1409): the count line flashes once with its cascade. */
+    flash?: boolean | undefined;
 }
 
 /**
@@ -107,7 +111,7 @@ export interface SheetToolbarProps {
  * @param props - What the items show and drive.
  * @returns The items, a falsy entry for each the sheet has no use for.
  */
-export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial, tabs, search, history }: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
+export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial, tabs, search, history, optimise, flash }: SheetToolbarProps): ReadonlyArray<ToolbarItem | false | undefined> {
     // The toolbar's own words (#861).
     const { m } = useSheetWords();
 
@@ -156,12 +160,13 @@ export function useSheetToolbarItemsFor({ styles, chrome, nouns, count, partial,
         tabsItem,
         count !== "" && {
             key: "count",
-            forms: [<Box as="span" css={styles.toolbarCount} data-slot="toolbarCount">{count}</Box>, null],
+            forms: [<Box as="span" css={styles.toolbarCount} data-slot="toolbarCount" data-opn={flash === true ? "" : undefined}>{count}</Box>, null],
             rank: SHEET_RANK.count,
         },
         seek,
         ...rail,
         partial && { key: "badge", side: "end", forms: [<Box as="span" css={styles.toolbarBadge} data-slot="toolbarBadge">{m.scopeBadge()}</Box>] },
+        optimise,
         history,
     ];
 }

@@ -39,6 +39,7 @@ import { ScheduleAuthorTabType, buildScheduleTab } from "../schedule/library.js"
 import type { SchedulePeriods } from "../schedule/periods.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleClockType, SchedulePeriodsKindType, ScheduleRosterKindType } from "../schedule/types.js";
+import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
 import { recordSources } from "../utils/record-sources.js";
 import { rosterCoverage, rosterWeekHours } from "./coverage.js";
 import { rosterAnswer, rosterFit } from "./fit.js";
@@ -89,6 +90,7 @@ export const RosterLibraryTabType = VariantType({
  * @property currency - How costs print
  * @property check - The app's issues, from a `CheckContext(R)` as bytes
  * @property fit - The app's fit, by its `e3.function`'s name: who fits a Find fix's need; `none`, no Find fix is offered (#1334)
+ * @property optimise - The app's optimiser, by its `e3.function`'s name: what the Elara eye calls over the week in view, its result one edit of the session; `none`, no eye (#1409)
  * @property library - The library's tabs, in order
  * @property inspector - Whether the inspector pane shows
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people, the activities and the patterns that show (#1342)
@@ -113,6 +115,7 @@ export const RosterPayloadType = StructType({
     currency: OptionType(StringType),
     check: OptionType(FunctionType([BlobType], ArrayType(T.RosterIssueType))),
     fit: OptionType(FuncBindingType),
+    optimise: OptionType(FuncBindingType),
     library: ArrayType(RosterLibraryTabType),
     inspector: BooleanType,
     narrowed: StructType({
@@ -189,6 +192,13 @@ export interface RosterProps<R extends EastType = EastType> {
      * every person. Omitted, no Find fix is offered; `Roster.check(R)` still reports the issue.
      */
     fit?: BoundFunc<[T.RosterFitRequestTypeFor<R>], T.RosterFitResultType>;
+    /**
+     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Roster.Types.OptimiseRequest(R)` — the week in view, the run
+     * number, the week's duties as drafted, its targets by slot and `Roster.Types.Context` — to `Roster.Types.OptimiseResult(R)`, the
+     * week's duties complete. The Elara eye in the toolbar calls it once per run; the result lands in the session as one edit, which
+     * one Undo reverts and Save commits with everything else. Omitted, no eye.
+     */
+    optimise?: BoundFunc<[T.RosterOptimiseRequestTypeFor<R>], T.RosterOptimiseResultTypeFor<R>>;
     /**
      * The narrowing: one `Slice.bindRecords`, a source per record it narrows — the duty kind's slot (its interval index from the
      * start to the end, its `range` the start field, which the Roster's navigation writes), `targets`, `people` and `activities`,
@@ -357,6 +367,29 @@ function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindin
 }
 
 /**
+ * What the Roster holds `optimise` to (#1409): `Func.bind` of an `e3.function` from `Roster.Types.OptimiseRequest(R)` to
+ * `Roster.Types.OptimiseResult(R)`, R the duties' row type — a request over another row named by its duties' row.
+ *
+ * @param rowType - The duty kind's row type
+ * @returns The contract, for {@link optimiseBinding}
+ */
+function rosterOptimiseContract(rowType: EastType): OptimiseContract {
+    const rows = printType(rowType);
+    return {
+        builder: "Roster", request: T.RosterOptimiseRequestTypeFor(rowType), result: T.RosterOptimiseResultTypeFor(rowType),
+        signature: "from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R), R the duties' row type",
+        names: { request: "Roster.Types.OptimiseRequest", result: "Roster.Types.OptimiseResult" },
+        rows: { request: rows, result: rows }, noun: { theirs: "duty rows", ours: "the duty kind's rows" }, of: "the duties' row type",
+        otherRows: (asked) => {
+            // An OptimiseRequest over another row: its duties' row.
+            const duties = asked.type === "Struct" ? asked.fields["duties"] : undefined;
+            const theirs = duties?.type === "Dict" ? duties.value : undefined;
+            return theirs !== undefined && isTypeEqual(asked, T.RosterOptimiseRequestTypeFor(theirs)) ? printType(theirs) : undefined;
+        },
+    };
+}
+
+/**
  * Validates the declarations and assembles the Roster's interface. View and
  * interaction behaviour belong to the renderer, not this factory.
  *
@@ -368,7 +401,8 @@ function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindin
  *   Roster values rather than its declaration; `events` holding other than one kind, or `resources` other than `people`
  *   and `agencies`; a duty kind whose resource names no `people`, or a resource kind read a window at a time; a `people`
  *   kind with no `group`; `positions` beside a duty kind with no `position` role; `pay` without `currency`; a `pay`, a
- *   `check` or a `fit` over another type; a library tab listed twice; a `view.period` its layout does not take, naming each
+ *   `check` or a `fit` over another type, or an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to
+ *   `OptimiseResult(R)` (#1409); a library tab listed twice; a `view.period` its layout does not take, naming each
  *   layout's periods; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
  *   `"different"`, or a `letters` that is no boolean (#1406); and as `Schedule`'s checks, the duty kind's build
  *   (`buildRoster`) and the slice's (`recordSources`) do
@@ -469,6 +503,7 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
     const check = props.check === undefined ? undefined : overBytes(props.check, T.RosterCheckContextTypeFor(rowType), ArrayType(T.RosterIssueType),
         `Roster: \`check\` is an East function from Roster.Types.CheckContext(${row}) to Array<Roster.Types.Issue>`);
     const fit = props.fit === undefined ? undefined : fitBinding(props.fit, rowType);
+    const optimise = props.optimise === undefined ? undefined : optimiseBinding(props.optimise, rosterOptimiseContract(rowType));
 
     // The narrowing: a source per record it narrows, named after what it narrows.
     const library = props.library ?? [];
@@ -518,6 +553,7 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
             currency: props.currency === undefined ? none : some(props.currency),
             check: check === undefined ? none : some(check),
             fit: fit === undefined ? none : some(fit),
+            optimise: optimise === undefined ? none : some(optimise),
             library: tabs,
             inspector: props.inspector ?? false,
             narrowed: {
@@ -598,7 +634,7 @@ export interface RosterNamespace {
         Issue: T.RosterIssueType; CheckContext: typeof T.RosterCheckContextTypeFor; Need: T.RosterNeedType; FitRequest: typeof T.RosterFitRequestTypeFor;
         FitResult: T.RosterFitResultType; Fit: T.RosterFitType; Refusal: T.RosterRefusalType; PayRequest: typeof T.RosterPayRequestTypeFor;
         Pay: T.RosterPayType; Layout: typeof RosterLayoutType; Period: typeof RosterPeriodType; Pattern: T.RosterPatternType;
-        TileTimes: typeof RosterTileTimesType;
+        TileTimes: typeof RosterTileTimesType; OptimiseRequest: typeof T.RosterOptimiseRequestTypeFor; OptimiseResult: typeof T.RosterOptimiseResultTypeFor;
     };
 }
 
@@ -629,7 +665,7 @@ export const Roster: RosterNamespace = Object.assign(
             Issue: T.RosterIssueType, CheckContext: T.RosterCheckContextTypeFor, Need: T.RosterNeedType, FitRequest: T.RosterFitRequestTypeFor,
             FitResult: T.RosterFitResultType, Fit: T.RosterFitType, Refusal: T.RosterRefusalType, PayRequest: T.RosterPayRequestTypeFor,
             Pay: T.RosterPayType, Layout: RosterLayoutType, Period: RosterPeriodType, Pattern: T.RosterPatternType,
-            TileTimes: RosterTileTimesType,
+            TileTimes: RosterTileTimesType, OptimiseRequest: T.RosterOptimiseRequestTypeFor, OptimiseResult: T.RosterOptimiseResultTypeFor,
         },
     },
 );

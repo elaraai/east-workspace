@@ -27,12 +27,19 @@ export interface EastChakraBannerProps {
     storageKey?: string;
 }
 
+/**
+ * A banner's tone: the Banner's statuses, and the Elara tone (#1409) a host
+ * renderer's own banner takes — what a run of the app's optimiser says when
+ * it lands, a 1 px `elara.ink` edge over a 6% `elara` wash.
+ */
+export type BannerTone = BannerValue["status"]["type"] | "elara";
+
 /* Banner status ↦ layerStyle (pattern_spec/spec.css `.bn.*` / `.banner.*`).
  *
  * Spec convention: 1 px coloured border surround + low-tint background,
  * **NO 4 px left-accent stripe**, mono icon glyph colour-matched to border.
  * All layer styles are declared in `theme/layer-styles.ts`. */
-const STATUS_TO_LAYER: Record<BannerValue["status"]["type"], string> = {
+const STATUS_TO_LAYER: Record<BannerTone, string> = {
     info:     "banner.partial",
     success:  "banner.ok",
     warning:  "banner.guard",
@@ -41,11 +48,12 @@ const STATUS_TO_LAYER: Record<BannerValue["status"]["type"], string> = {
     change:   "banner.change",
     guard:    "banner.guard",
     stale:    "banner.dashed.stale",
+    elara:    "banner.elara",
 };
 
 /* Banner status ↦ its mark: the icon's colour, and the solid banner's fill. A
  * mark takes the valence base, never its text step (component-rules §1). */
-const STATUS_TO_MARK: Record<BannerValue["status"]["type"], string> = {
+const STATUS_TO_MARK: Record<BannerTone, string> = {
     info:     "status.info",
     success:  "status.pos",
     warning:  "status.warn",
@@ -54,6 +62,7 @@ const STATUS_TO_MARK: Record<BannerValue["status"]["type"], string> = {
     change:   "border.brand",
     guard:    "status.warn",
     stale:    "fg.muted",
+    elara:    "elara.ink",
 };
 
 /**
@@ -89,8 +98,8 @@ export const EastChakraBanner = memo(function EastChakraBanner({ value, storageK
 
 /** Props of {@link BannerView}. */
 export interface BannerViewProps {
-    /** Its status — what its layer style and icon colour say. */
-    status: BannerValue["status"]["type"];
+    /** Its status — what its layer style and icon colour say — or the Elara tone (#1409). */
+    status: BannerTone;
     /** Its title. */
     title: ReactNode;
     /** Its body, under the title. */
@@ -99,6 +108,8 @@ export interface BannerViewProps {
     actions?: ReactNode;
     /** A Font Awesome icon, before the title. */
     icon?: { prefix: string; name: string } | undefined;
+    /** A mark of the host's own before the title, in the icon's place and colour — the Elara eye (#1409). */
+    mark?: ReactNode;
     /** Whether it offers a close button. */
     dismissible?: boolean | undefined;
     /** Its close button's click. */
@@ -133,7 +144,7 @@ export interface BannerViewProps {
  * @returns The banner
  */
 export function BannerView({
-    status, title, description, actions, icon, dismissible = false, onDismiss, solid = false,
+    status, title, description, actions, icon, mark: markProp, dismissible = false, onDismiss, solid = false,
     background, color, borderColor, iconColor: iconColorProp,
 }: BannerViewProps) {
     const layer = STATUS_TO_LAYER[status];
@@ -159,7 +170,20 @@ export function BannerView({
             )}
             {...(borderColor !== undefined ? { borderColor } : {})}
         >
-            {icon ? (
+            {markProp !== undefined ? (
+                <ChakraBox
+                    as="span"
+                    display="inline-flex"
+                    alignItems="center"
+                    color={solid ? "currentcolor" : iconColor}
+                    fontSize="16px"
+                    flexShrink={0}
+                    pt="0.5"
+                    data-banner-mark=""
+                >
+                    {markProp}
+                </ChakraBox>
+            ) : icon ? (
                 <ChakraBox
                     as="span"
                     display="inline-flex"
@@ -176,11 +200,11 @@ export function BannerView({
                 </ChakraBox>
             ) : null}
             <ChakraBox flex="1" minWidth={0}>
-                <ChakraBox fontWeight="semibold" fontSize="body.lg" lineHeight="1.4">
+                <ChakraBox fontWeight="semibold" fontSize="body.lg" lineHeight="1.4" data-banner-title="">
                     {title}
                 </ChakraBox>
                 {description !== undefined ? (
-                    <ChakraBox fontSize="13px" color="fg.muted" lineHeight="1.5" mt="1">
+                    <ChakraBox fontSize="13px" color="fg.muted" lineHeight="1.5" mt="1" data-banner-body="">
                         {description}
                     </ChakraBox>
                 ) : null}

@@ -143,8 +143,15 @@ const FOOTER_VOICE = {
  * full text kept for screen readers while it does not show. Idle (`data-idle`), it is an empty live region out
  * of the flow, so it takes no width and no gap.
  *
+ * A run of the app's optimiser out (#1409, `busy`) takes the same slot: the
+ * Elara dot — `elara`, ringed `elara.ink` so it reads in light — with the live
+ * pulse, the line's words, and beside them what ticks, the seconds, unheard
+ * (`aside`), so the line is announced once. Stopped (`note`), its dot is still
+ * and neutral.
+ *
  *   - root: the slot, and the polite live region.
  *   - dot / text / strong / short / sep / retry: its parts.
+ *   - aside: what ticks beside the words, in the full form alone — `· 7 s`.
  *   - reason: why a read failed, heard with its words and never drawn — the
  *     failed run's own line draws it in place (CL11).
  *   - measure: its forms laid out unseen at their own widths, for the fit.
@@ -154,7 +161,7 @@ const FOOTER_VOICE = {
  */
 export const builderFooterLineSlotRecipe = defineSlotRecipe({
     className: "elara-builder-footer-line",
-    slots: ["root", "dot", "text", "strong", "short", "sep", "retry", "reason", "measure", "form", "more"],
+    slots: ["root", "dot", "text", "strong", "short", "sep", "aside", "retry", "reason", "measure", "form", "more"],
     base: {
         root: {
             ...LINE_FORM,
@@ -183,6 +190,9 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
                 animation: "elara-live-pulse calc({durations.slow} * 4) {easings.out} infinite",
             },
             "[data-failed] &": { background: "status.neg", "&::after": { display: "none" } },
+            // The optimiser's run (#1409): the Elara dot, ringed so it reads in light; stopped, a still neutral dot.
+            "[data-loading-line=busy] &": { background: "elara", boxShadow: "0 0 0 1px {colors.elara.ink}" },
+            "[data-loading-line=note] &": { background: "fg.subtle", "&::after": { display: "none" } },
             _motionReduce: { "&::after": { animation: "none", opacity: 0 } },
         },
         text: {
@@ -205,6 +215,12 @@ export const builderFooterLineSlotRecipe = defineSlotRecipe({
         sep: {
             flex: "none",
             "[data-form=dot] > &": { display: "none" },
+        },
+        // The seconds a run has been out, in the full form alone: tabular, padded by the line's words so they never shift.
+        aside: {
+            ...LINE_FORM,
+            flex: "none",
+            "[data-form=short] > &, [data-form=dot] > &": { display: "none" },
         },
         // On a touch screen Retry keeps its size, and its 44px tap target is its halo — never a taller rail.
         retry: {

@@ -265,7 +265,10 @@ seven marks (margin 0 2 px, radius `--r-sm`, the shift's letter in mono
 dashed brand outline; a footer hint in mono `label-xs`: `Drag one onto a
 person's week. It replaces all seven days.`; empty: `Nothing matches "q"` (B28).
 In the product: the shared `Library` as the other tabs use it, a card's strip
-of marks a card extra in place of its meter, each mark in its shift's token.
+of marks a card extra in place of its meter, each mark in its shift's token;
+no row of day initials — the shared Library has no head between its search
+and its cards, and a strip reads Sunday to Saturday as the card's name does
+(ruled 26 Oct 2026).
 
 **The week grid (mock).**
 - A sticky 36 px header: `232px minmax(0,1fr)`; `People · Week` and `Hours`
@@ -338,8 +341,10 @@ are not in the mock.
   today; in Month, a week chosen opens Month on its month. (`toolbar.tsx`,
   the shared `TimeNavigator` as it stands; DOM.)
 - **P3.** Week → Month opens the month holding the week in view's fourth day;
-  Month → Week opens the selected person-week's week, else the first week of
-  the month in view whose fourth day falls in it. (`window.ts`; unit.)
+  Month → Week opens the selected person-week's week, else the week Month was
+  opened from while the month in view still holds it (ruled 26 Oct 2026: a
+  viewer toggling the two keeps their place), else the first week of the
+  month in view whose fourth day falls in it. (`window.ts`; DOM.)
 
 ### 9.2 The week grid
 
@@ -414,7 +419,8 @@ are not in the mock.
   (`drag.ts`; DOM.)
 - **P20.** The patterns tab, titled by the declaration's `name` and its cards
   marked by its `icon`, lists the patterns in their order, each card as §8
-  draws it; its search matches the label; the tab follows the slice's
+  draws it, no row of day initials over them; its search matches the label;
+  the tab follows the slice's
   `patterns` source where there is one and counts what it shows (#1342); its
   footer hint is §8's. (`library.tsx`; DOM.)
 - **P21.** A pattern's card carries no drop onto a duty or a Shifts cell:
