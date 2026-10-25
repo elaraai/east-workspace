@@ -262,7 +262,15 @@ range written to one is written to the others. A source still holding its seed
 — the slice's `initial`, which nothing has written over (`recordSliceSeeded`) —
 leads nothing: the view decides the window, the viewer's own when a reload
 restores it, so a reload keeps the period the viewer left rather than the
-slice's start. A narrowed kind reads its window
+slice's start. The view — its layout, period and date — is the page's own, held
+beside the window for as long as the page's UI store holds that window
+(`calendar/view.ts`, #1398): a step writes the two together, so no render reads
+one without the other, and storage keeps the view for a reload alone, read once
+as the page's first Calendar under its key mounts and never followed. Followed,
+a second tab's step moved this page's date without its window, which put the
+date back at its first day, and the timeline, centred there, re-centred a window
+back, which the other tab heard in turn: both ran back a window at a time. A
+narrowed kind reads its window
 and its backlog as one, so a draft moves an event between them by its times
 alone: its backlog follows the window — kept through the timeline's re-centre,
 the Library's pending rows after the cards it holds on a step until the

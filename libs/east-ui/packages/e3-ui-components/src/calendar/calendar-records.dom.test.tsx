@@ -200,16 +200,17 @@ async function scrollTo(timeline: HTMLElement, left: number) {
  * The indexed Calendar on its timeline at a period, its scroll box laid out as a browser lays it — {@link VIEW} px
  * wide, as wide as its window's days — and heard, its view centred on the author's day.
  */
-async function openTimeline(period: "day" | "month", storageKey: string) {
-    StateRuntime.initializeStore(new UIStore());
+async function openTimeline(period: "day" | "week" | "month", storageKey: string) {
+    const store = new UIStore();
+    StateRuntime.initializeStore(store);
     const { container, unmount } = await h.mount(ex.calendarRecordIndexes, { storageKey });
     await waitFor(() => expect(event(container, "job")).not.toBeNull());
     await settle();
     const toolbar = within(slot(container, "toolbar"));
     await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: "Timeline" })); });
     await settle();
-    if (period === "month") {
-        await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: "Month" })); });
+    if (period !== "day") {
+        await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: period === "week" ? "Week" : "Month" })); });
         await settle();
     }
     const timeline = container.querySelector<HTMLElement>("[data-calendar-timeline]")!;
@@ -217,7 +218,7 @@ async function openTimeline(period: "day" | "month", storageKey: string) {
     Object.defineProperty(timeline, "clientWidth", { configurable: true, get: () => VIEW });
     Object.defineProperty(timeline, "scrollWidth", { configurable: true, get: scrollWidth });
     await width(VIEW);
-    return { container, timeline, unmount, end: scrollWidth() - VIEW };
+    return { container, timeline, unmount, store, end: scrollWidth() - VIEW };
 }
 /** The day the navigator steps from: the one under the view's middle. */
 const anchorOf = (container: HTMLElement) => slot(container, "toolbar").querySelector("[data-time-navigation=calendar]")?.getAttribute("data-time-anchor");
@@ -383,6 +384,49 @@ describe("the timeline's re-centre is no step (#1398)", () => {
         // Back where it was: the overlaps there were.
         await scrollTo(timeline, at);
         expect({ chip: chip(), listed: listed() }).toEqual(here);
+    });
+});
+
+/** The view the Calendar keeps for a reload, as storage holds it, and its key there. */
+function keptView(): { key: string; view: { readonly layout: string; readonly period: string; readonly date: number } } {
+    const key = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!).find(name => name.endsWith(".calendarRecordIndexes.view"));
+    if (key === undefined) throw new Error("the Calendar keeps no view in storage");
+    return { key, view: JSON.parse(localStorage.getItem(key)!) as { layout: string; period: string; date: number } };
+}
+/** The scrolls a timeline is told to make from now on: each left its scroll is written to, in order. */
+function scrollsOf(timeline: HTMLElement): number[] {
+    const writes: number[] = [];
+    const left = Object.getOwnPropertyDescriptor(Element.prototype, "scrollLeft")!;
+    Object.defineProperty(timeline, "scrollLeft", {
+        configurable: true,
+        get(this: Element) { return left.get!.call(this) as number; },
+        set(this: Element, value: number) { writes.push(value); left.set!.call(this, value); },
+    });
+    return writes;
+}
+
+describe("the view is the page's own (#1398)", () => {
+    test("another page keeping a view — a second tab on the same Calendar — moves neither this page's date nor its window: no snap to the window's first day, no scroll to its start, nothing written back over it", async () => {
+        const { container, timeline, store } = await openTimeline("week", "own-view");
+        // A step keeps the view for a reload: its date, inside the window its source holds.
+        await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Next week" })); });
+        await settle();
+        const before = { anchor: anchorOf(container), window: windowOf(timeline), range: held(store) };
+        const { key, view } = keptView();
+        expect(String(view.date)).toBe(before.anchor);
+        expect(before.window.from.getTime() <= view.date && view.date < before.window.to.getTime()).toBe(true);
+        const scrolls = scrollsOf(timeline);
+        // Another page keeps a view eight weeks on, outside this page's window, and this page hears it as a browser tells it.
+        const theirs = JSON.stringify({ ...view, date: view.date + 56 * DAY });
+        await act(async () => {
+            const was = localStorage.getItem(key);
+            localStorage.setItem(key, theirs);
+            window.dispatchEvent(new StorageEvent("storage", { key, oldValue: was, newValue: theirs, storageArea: localStorage }));
+        });
+        await settle();
+        expect({ anchor: anchorOf(container), window: windowOf(timeline), range: held(store), scrolls }).toEqual({ ...before, scrolls: [] });
+        // Nothing written back over it: a reload opens on the view kept last.
+        expect(localStorage.getItem(key)).toBe(theirs);
     });
 });
 
