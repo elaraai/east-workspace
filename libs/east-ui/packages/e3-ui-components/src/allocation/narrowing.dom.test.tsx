@@ -260,23 +260,40 @@ describe("the Timeline, narrowed", () => {
         expect(c.querySelector('[data-allocation-resource="K-202"]')!.getAttribute("aria-pressed")).toBe("true");
     });
 
-    test("a narrowing read while the day stands in keeps the day's bins in their cells, retained — stale, taking no gesture — until it lands (#1398, CL5)", async () => {
+    test("a narrowing read while the day stands in keeps the day's bins in their cells, retained — stale, aria-disabled, never inert: focusable and selectable, Delete and a drag refused — until it lands (#1398, CL5, CL8)", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await waitFor(() => expect(cards(c)).toHaveLength(26));
         const board = () => slot(c, "main").querySelector<HTMLElement>("[data-allocation-main]")!;
+        const card = () => c.querySelector<HTMLElement>('[data-allocation-card="3103"]')!;
         expect(board().hasAttribute("data-allocation-stale")).toBe(false);
         // The bays' reads held on their way to e3: the lanes' new membership is in flight.
         const held = h.e3.hold(request => request.dataset === "records.yard_bays");
         await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
-        expect(board().hasAttribute("data-allocation-stale")).toBe(true);
-        expect(board().hasAttribute("inert")).toBe(true);
+        expect([board().hasAttribute("data-allocation-stale"), board().getAttribute("aria-disabled"), board().hasAttribute("inert")]).toEqual([true, "true", false]);
         // The day stands in, whole: its lanes and its bins as they were, never a cover.
         expect([laneHeads(c), cards(c).length]).toEqual([["B-1", "B-2", "B-3"], 26]);
         expect(c.querySelector("[data-builder-loading]")).toBeNull();
+        // A bin is focusable and selectable; Delete removes nothing, and a drag picks nothing up.
+        card().focus();
+        expect(document.activeElement).toBe(card());
+        await press(card());
+        expect(card().getAttribute("aria-pressed")).toBe("true");
+        await act(async () => { fireEvent.keyDown(card(), { key: "Delete" }); });
+        await settle();
+        expect(cards(c)).toHaveLength(26);
+        await act(async () => { fireEvent.pointerDown(card(), { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 0 });
+            fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
+        expect(card().hasAttribute("data-dragging")).toBe(false);
+        await act(async () => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
         await act(async () => { held.release(); });
         await settle();
         await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
-        expect([board().hasAttribute("data-allocation-stale"), board().hasAttribute("inert")]).toEqual([false, false]);
+        expect([board().hasAttribute("data-allocation-stale"), board().hasAttribute("aria-disabled"), board().hasAttribute("inert")]).toEqual([false, false, false]);
+        // Landed: the selection kept, and Delete takes the bin back.
+        expect(card().getAttribute("aria-pressed")).toBe("true");
+        await act(async () => { fireEvent.keyDown(card(), { key: "Delete" }); });
+        await settle();
+        expect(cards(c)).not.toContain("3103");
     });
 
     test("a failed lane read keeps the last lanes, says `Lane results unavailable`, and Retry reads the lanes again", async () => {
@@ -287,9 +304,10 @@ describe("the Timeline, narrowed", () => {
         const banner = () => within(slot(c, "banners")).queryByText("Lane results unavailable");
         await waitFor(() => expect(banner()).not.toBeNull());
         expect(within(slot(c, "banners")).queryByText("Resource results unavailable")).toBeNull();
-        // The last complete membership still shows, and the board takes no gesture.
+        // The last complete membership still shows, retained (#1398, CL8): aria-disabled, taking no gesture.
         expect(laneHeads(c)).toEqual(["B-1", "B-2", "B-3"]);
-        expect(slot(c, "main").querySelector("[data-allocation-main]")!.hasAttribute("inert")).toBe(true);
+        const board = slot(c, "main").querySelector("[data-allocation-main]")!;
+        expect([board.getAttribute("aria-disabled"), board.hasAttribute("inert")]).toEqual(["true", false]);
         // The service answers again: Retry asks again at once.
         failing();
         await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));

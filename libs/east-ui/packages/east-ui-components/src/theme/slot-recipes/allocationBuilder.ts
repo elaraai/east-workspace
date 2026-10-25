@@ -103,11 +103,24 @@ const ownStages = {
 const warnWash = "color-mix(in oklch, {colors.status.warn} 6%, {colors.bg.surface})";
 /** A row that refuses the drag recedes, unless the pointer is on it (A27). */
 const receded = "[data-refused]:not([data-drop-invalid]) &";
-/** The Table's columns: Time · Lane · Arrival · Quantity · the app's columns (72px each) · Resource · Load · Status (A43). */
+/**
+ * The Table's tracks (A43), in px: Time · Lane · Arrival, at least · Quantity · each of the app's columns · Resource, at
+ * least · Load · Status.
+ */
+const TRACK = { time: 84, lane: 64, arrival: 200, units: 64, column: 72, resource: 176, load: 144, status: 128 } as const;
+/** The tracks, the app's columns' among them. */
+const tracks = (columns: string) =>
+    `${TRACK.time}px ${TRACK.lane}px minmax(${TRACK.arrival}px, 1.3fr) ${TRACK.units}px ${columns}minmax(${TRACK.resource}px, 1fr) ${TRACK.load}px ${TRACK.status}px`;
+/** The Table's columns: Time · Lane · Arrival · Quantity · the app's columns · Resource · Load · Status (A43). */
 const tableColumns = {
-    display: "grid", gridTemplateColumns: "84px 64px minmax(200px, 1.3fr) 64px repeat(var(--allocation-columns), 72px) minmax(176px, 1fr) 144px 128px",
-    "&[data-columns=none]": { gridTemplateColumns: "84px 64px minmax(200px, 1.3fr) 64px minmax(176px, 1fr) 144px 128px" },
+    display: "grid", gridTemplateColumns: tracks(`repeat(var(--allocation-columns), ${TRACK.column}px) `),
+    "&[data-columns=none]": { gridTemplateColumns: tracks("") },
 } as const;
+/**
+ * The least width the Table's rows lay out in: 900px (A41), and never less than its tracks need — 860px and 72px an app's
+ * column — so a row holds every cell, its rule and its hover under them all, and a band is as wide as its rows (#1398).
+ */
+const tableLeast = `max(900px, calc(${TRACK.time + TRACK.lane + TRACK.arrival + TRACK.units + TRACK.resource + TRACK.load + TRACK.status}px + var(--allocation-columns, 0) * ${TRACK.column}px))`;
 /** A Table cell's text: mono, one line, cut with an ellipsis. */
 const tableText = { fontFamily: "mono", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 } as const;
 /** A row's status word (A43): mono 10.5px 600 uppercase, tracked, ink-3 — its Status cell's and its narrow card's. */
@@ -519,8 +532,12 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-drag-cell][data-drop-active]": { background: "brandTint" },
             "&[data-drag-cell][data-drop-invalid]": { borderColor: "status.warn", background: warnWash },
         },
-        // ── The Table ── at least 900px wide, scrolling inside main; the bands are the shared group band's.
-        table: { position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "bg.surface" },
+        // ── The Table ── at least as wide as its tracks need, and 900px, scrolling inside main; the bands are the shared group
+        // band's. Its rows lay out in `--allocation-table-least`.
+        table: {
+            position: "relative", flex: 1, minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "bg.surface",
+            "--allocation-table-least": tableLeast,
+        },
         tablePane: { flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", overscrollBehavior: "contain" },
         bandCount: {
             display: "inline-flex", alignItems: "center", height: "16px", padding: "0 4px", borderRadius: "sm", background: "bg.subtle",

@@ -220,7 +220,7 @@ describe("an arrivals source (A99)", () => {
         expect([issues(), line()]).toEqual([before, load]);
     });
 
-    test("a failed arrivals read keeps the last membership, says `Arrival results unavailable`, the Arrivals tab takes no gesture; Retry reads again", async () => {
+    test("a failed arrivals read keeps the last membership, says `Arrival results unavailable`, the Arrivals tab retained (#1398, CL8) — aria-disabled, never inert: a card's click still picks it and no drag of one starts; Retry reads again", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await narrow(store, "allocationKilnYard", "arrivals", "spec", ["MC12"]);
         await waitFor(() => expect(tabs(c)).toEqual(["Arrivals 3 of 27", "Resources 33"]));
@@ -229,14 +229,22 @@ describe("an arrivals source (A99)", () => {
         const banner = () => within(slot(c, "banners")).queryByText("Arrival results unavailable");
         await waitFor(() => expect(banner()).not.toBeNull());
         expect(tabs(c)).toEqual(["Arrivals 3 of 27", "Resources 33"]);
-        expect([pane(c, "arrivals").hasAttribute("inert"), pane(c, "arrivals").getAttribute("aria-busy")]).toEqual([true, "true"]);
-        expect(pane(c, "resources").hasAttribute("inert")).toBe(false);
+        expect([pane(c, "arrivals").getAttribute("aria-disabled"), pane(c, "arrivals").hasAttribute("inert"), pane(c, "arrivals").getAttribute("aria-busy")]).toEqual(["true", false, "true"]);
+        expect([pane(c, "resources").hasAttribute("aria-disabled"), pane(c, "resources").hasAttribute("inert")]).toEqual([false, false]);
+        // A card picks nothing up; its click still picks it.
+        const late = () => pane(c, "arrivals").querySelector<HTMLElement>("[data-library-item='arrival:LD-2231']")!;
+        await act(async () => { fireEvent.pointerDown(late(), { pointerId: 1, pointerType: "mouse", button: 0, clientX: 0, clientY: 0 });
+            fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
+        expect(late().hasAttribute("data-dragging")).toBe(false);
+        await act(async () => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
+        await press(late());
+        expect(late().hasAttribute("data-placed")).toBe(true);
         failing();
         await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));
         await waitFor(() => expect(banner()).toBeNull());
         // LD-2211 is in the plan; LD-2236 still to book.
         await waitFor(() => expect(tabs(c)).toEqual(["Arrivals 2 of 27", "Resources 33"]));
-        expect(pane(c, "arrivals").hasAttribute("inert")).toBe(false);
+        expect(pane(c, "arrivals").hasAttribute("aria-disabled")).toBe(false);
     });
 });
 

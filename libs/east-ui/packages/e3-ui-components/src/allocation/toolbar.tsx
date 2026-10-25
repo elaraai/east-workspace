@@ -8,7 +8,8 @@
  * the narrowing's one rail over its bins, its lanes, its resources and its
  * arrivals, and each one's count, in both layouts (#1336, #1339) — the bins'
  * day the board's own navigation, never a chip of the rail (#1372) — the
- * issues chip, the shared history and Publish — each folding by its rank,
+ * issues chip, Search Records over the bins' keys (#1398), the shared history
+ * and Publish — each folding by its rank,
  * history last, and in the narrowest frame the date, the layout, Save and
  * Publish reachable through the combined View fold. The status, the issues and
  * Publish keep their slots from cold load, whatever the day's read (#1398,
@@ -23,7 +24,9 @@ import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/r
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarDay, faChartGantt, faLink, faTable, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap } from "@elaraai/east";
-import { ChipMenu, historyToolbarItem, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
+import {
+    ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
+} from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -103,6 +106,8 @@ interface ToolbarArgs extends AllocationWindow {
     onClearFocus: () => void;
     /** The board's nouns: what the narrowing's summary counts each source in, and what heads each source's fields, folded. */
     nouns: Nouns;
+    /** Search Records over the bins' keys (#1398); `undefined` without a source of the bins to seek. */
+    search?: KeySearchSource | undefined;
 }
 
 /** The board's toolbar items: the shared Toolbar's, ranked around `HOST_RANK`. */
@@ -122,6 +127,9 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     const chip = useRecipe({ key: "chip" });
+    // Search Records (#1398): primary-key navigation over the bins' record, at the row's end; it folds to its icon, and at
+    // the row's last step into the View, beside the date and the controls.
+    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: HOST_RANK + 4 });
     const summary = issueSummary(issues);
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;
@@ -141,6 +149,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     // The narrowest frame's one popover: the layout, the focus, the issues and Publish beside the date (A1). The focus's chip comes
     // with them, so its Show all stays reachable on a phone, where no Esc is (A13, A78).
     const controls = <Box css={styles.controls}>
+        {search?.forms[0]}
         {layoutSeg("compact-layout")}
         {timeline && focus !== undefined && focusChip(false)}
         {value.inspector && summary.count > 0 && <Button size="xs" variant="ghost" onClick={args.onIssues}>{summary.label}</Button>}
@@ -195,6 +204,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
                 <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
             </chakra.button>
                 : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />, null] },
+        search !== undefined && { ...search, forms: [...search.forms, null], rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "allocation.controls"] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish.
         heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>, null] },

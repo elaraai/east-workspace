@@ -32,11 +32,12 @@ import {
 import { variant, type SortedMap, type option } from "@elaraai/east";
 import { SliceEditPopover, useDragEventChip, useDropCell, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import {
-    Chooser, LoadingFailedLine, PlaceholderShape, VirtualRows, formatDatePattern, type ChooserSection, type PlaceholderKind, type RowsInView,
+    Chooser, LoadingFailedLine, PlaceholderShape, VirtualRows, formatDatePattern, useRowsTop, type ChooserSection, type PlaceholderKind,
 } from "@elaraai/east-ui-components/internal";
 import type { PeriodRead } from "../shared/loading.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
+import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
 import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
@@ -95,6 +96,10 @@ export interface TableProps {
      * said once, in the first of those rows in view.
      */
     read: PeriodRead;
+    /** Where the Table's view last rested (#1398): its top line, by key, which it comes back to as it mounts. */
+    anchor?: RowAnchor | undefined;
+    /** Told where the Table's view rests as its scroll settles. */
+    onAnchor?: ((at: RowAnchor) => void) | undefined;
 }
 
 /**
@@ -121,14 +126,34 @@ function unreadColumns(shown: number): PlaceholderKind[] {
  * else the last one above it.
  *
  * @param lines - The Table's lines
- * @param view - Where the view is among them
+ * @param top - The line at the top of the view; `undefined` before the lines are placed
  * @returns The line's index; `undefined` with no placeholder row
  */
-function firstUnreadInView(lines: readonly Line[], view: RowsInView): number | undefined {
-    const from = Math.max(0, view.top ?? 0);
+function firstUnreadInView(lines: readonly Line[], top: number | undefined): number | undefined {
+    const from = Math.max(0, top ?? 0);
     for (let i = from; i < lines.length; i++) if (lines[i]!.kind === "unread") return i;
     for (let i = Math.min(from, lines.length) - 1; i >= 0; i--) if (lines[i]!.kind === "unread") return i;
     return undefined;
+}
+
+/**
+ * A band's placeholder row of a day not read, or whose read failed (#1398, CL2, CL11): a placeholder in each column — or,
+ * the first of them in view of a failed day, the failure said across the row. It reads which line is at the top of the
+ * view itself, drawn again only as it becomes or stops being the one that says it (CL9).
+ */
+function UnreadRow({ styles, band, index, lines, read, shown }: {
+    styles: AllocationStyles; band: TableBand; index: number; lines: readonly Line[]; read: PeriodRead; shown: number;
+}) {
+    const says = useRowsTop(top => read.state === "failed" && index === firstUnreadInView(lines, top));
+    const failure = says && read.state === "failed" ? read : undefined;
+    return <Box css={styles.tableRow} data-allocation-unread-row={band.key} data-columns={shown === 0 ? "none" : undefined}
+        aria-hidden={failure === undefined ? true : undefined}>
+        {failure !== undefined
+            ? <Box css={styles.tableReadLine} data-allocation-read-line="failed"><LoadingFailedLine message={failure.message} retry={{ onRetry: failure.retry }} /></Box>
+            : unreadColumns(shown).map((kind, i) => <Box key={i} as="span" css={styles.tableUnreadCell} data-align={kind === "number" ? "end" : undefined}>
+                {read.state === "pending" && <PlaceholderShape kind={kind} index={index + i} />}
+            </Box>)}
+    </Box>;
 }
 
 /**
@@ -162,6 +187,10 @@ export function AllocationTable(props: TableProps) {
         const l = lines[index]!;
         return l.kind === "band" ? `band:${l.band.key}` : l.kind === "unread" ? `unread:${l.band.key}` : l.row.key;
     }, [lines]);
+    // Where the Table's view rests (#1398): its top line by key and the px into it, saved as a scroll settles and brought
+    // back once its lines are laid out — the line it left, wherever the lines above it moved.
+    const keyed = useMemo(() => lines.map((_, i) => ({ key: getItemKey(i) })), [lines, getItemKey]);
+    const { restore, onAnchorChange } = useRowAnchor(keyed, props.anchor, props.onAnchor);
     // The app's columns shown in the Table, each bin's text and tone over its row, through its callbacks (§6).
     const shown = useMemo(() => value.columns.filter(c => c.table), [value.columns]);
     const readColumns = useCallback(() => {
@@ -221,9 +250,11 @@ export function AllocationTable(props: TableProps) {
     // The narrowing's empty state only under a narrowing (#1398, CL13).
     const narrowed = visibleLanes.type === "some" || visibleResources.type === "some" || visibleArrivals.type === "some";
     return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind} data-allocation-unread={unread ? read.state : undefined}>
-        {lines.length === 0 ? <>{head}{narrowed && <NarrowedEmpty styles={styles} clear={props.clearFilters} />}</> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="900px" scrollElRef={pane}
+        {/* Its rows as wide as the recipe's least width for its tracks: no cell past a row's edge. */}
+        {lines.length === 0 ? <>{head}{narrowed && <NarrowedEmpty styles={styles} clear={props.clearFilters} />}</> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="var(--allocation-table-least)" scrollElRef={pane}
             headerZIndex={4} header={head} count={lines.length} getItemKey={getItemKey} sizes={sizes} measureRows={false}
-            renderRow={(index, inView) => {
+            onAnchorChange={onAnchorChange} restoreAnchor={restore}
+            renderRow={index => {
                 const line = lines[index]!;
                 if (line.kind === "band") {
                     const folded = collapsed.includes(line.band.key);
@@ -235,17 +266,7 @@ export function AllocationTable(props: TableProps) {
                         </>}
                     </GroupHeading>;
                 }
-                if (line.kind === "unread") {
-                    const failure = read.state === "failed" && index === firstUnreadInView(lines, inView) ? read : undefined;
-                    return <Box css={styles.tableRow} data-allocation-unread-row={line.band.key} data-columns={shown.length === 0 ? "none" : undefined}
-                        aria-hidden={failure === undefined ? true : undefined}>
-                        {failure !== undefined
-                            ? <Box css={styles.tableReadLine} data-allocation-read-line="failed"><LoadingFailedLine message={failure.message} retry={{ onRetry: failure.retry }} /></Box>
-                            : unreadColumns(shown.length).map((kind, i) => <Box key={i} as="span" css={styles.tableUnreadCell} data-align={kind === "number" ? "end" : undefined}>
-                                {pending && <PlaceholderShape kind={kind} index={index + i} />}
-                            </Box>)}
-                    </Box>;
-                }
+                if (line.kind === "unread") return <UnreadRow styles={styles} band={line.band} index={index} lines={lines} read={read} shown={shown.length} />;
                 return <Row props={props} row={line.row} columns={cells?.get(line.row.bin ?? "")} shown={shown.length} lines={resourceLines}
                     open={open?.row === line.row.key ? openKey(open.side, open.part) : undefined} setOpen={setOpen} words={choiceWords} />;
             }} />}
