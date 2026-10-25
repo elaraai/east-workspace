@@ -8,21 +8,31 @@
  * `rows` source gives the canvas its rows, and each event kind narrowed
  * through a source of its own reads its events through it. The window is the
  * sources' shared `range`: every source whose range field speaks the axis's
- * arm holds it, the first leading. The leading source's window is the
+ * arm holds it — an event kind's, a tab's that lists what is in the dates on
+ * screen — the first leading. The canvas's rows never follow the dates: the
+ * `rows` source and a resource kind's never hold the window, so a pan, a
+ * step, the brush or a key never narrows them again, and a date field there
+ * is a field of the rail the viewer sets. The leading source's window is the
  * canvas's; with none — a choice that replaced it, a preset, Clear all — the
  * window last shown stands, and before any, the axis's stated window. A source
  * that does not hold the window takes it, unless writing it would replace a
  * choice of the source's own, which the reader made knowingly: the range
  * editor said so. The rows never set the window (#822).
  *
+ * A canvas whose slice has no source holding the window holds its own
+ * ({@link PlanWindowHold}), from the axis's stated window: the pan, the keys,
+ * the now rung, the brush and the date navigator move it, and the render
+ * follows. A canvas with no slice keeps the axis's stated window.
+ *
  * The resolution is the leading source's, written to each source holding the
- * window (`controller/effects.ts`); a record's resolution only re-buckets the
- * canvas, so zooming fetches nothing.
+ * window, else to every source (`controller/effects.ts`); a record's
+ * resolution only re-buckets the canvas, and is no part of a source's
+ * narrowing, so zooming fetches nothing.
  *
  * @packageDocumentation
  */
 
-import { useLayoutEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { getSomeorUndefined, useSlicesReactivity } from "@elaraai/east-ui-components";
 import { recordSliceWindow, recordSliceWindowFits, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { resolveScale, type PlanAxisValue } from "../axis.js";
@@ -30,7 +40,7 @@ import type { PlanScale } from "../scale.js";
 import type { PlanAxisKind } from "../instant.js";
 import type { PlanRootValue } from "../model.js";
 import type { PlanWords } from "../words.js";
-import { planSlices, planWindowParts, type PlanSlicesChrome, type PlanSourcePart } from "./sources.js";
+import { PLAN_ROW_SOURCES, planSlices, planWindowParts, type PlanSlicesChrome, type PlanSourcePart } from "./sources.js";
 
 /** A source holding the window: its name, and its part of the slice. */
 export interface PlanWindowPart {
@@ -39,22 +49,66 @@ export interface PlanWindowPart {
 }
 
 /**
- * The window a canvas last read from its leading source, held while no
- * source holds one — one per canvas, shared by its render and its
- * controller's effects, so a pan moves the window the reader sees.
+ * The canvas's window beside what its sources hold (#1344) — one per canvas,
+ * shared by its render, its controller's effects and its date navigator, so a
+ * gesture moves the window the reader sees.
+ *
+ * It holds the window last shown: the leading source's while one holds it, so
+ * a choice that replaced that source's range leaves it standing — and, while
+ * no source of the slice holds one, the canvas's own, which a gesture moves
+ * ({@link PlanWindowHold.move}) and the render follows
+ * ({@link PlanWindowHold.subscribe}). It names the sources whose ranges never
+ * hold the window, as the canvas renders, so its effects read the same
+ * sources holding it as its render does.
  */
 export interface PlanWindowHold {
-    /** The leading source's last window, `[from, to)` on the axis's domain; `undefined` before any. */
+    /** The window last shown, `[from, to)` on the axis's domain; `undefined` before any. */
     last: readonly [number, number] | undefined;
+    /** The sources whose ranges never hold the window, by name: the `rows` source and each resource kind's (`planRowSources`). */
+    rows: readonly string[];
+    /** How many times a gesture has moved the canvas's own window: what its render reads the hold by. */
+    readonly moves: number;
+    /**
+     * Moves the canvas's own window — no source of its slice holds one — and
+     * tells its render. The window it shows already moves nothing.
+     *
+     * @param min - The window's start, on the axis's domain
+     * @param max - Its end, exclusive
+     */
+    move(min: number, max: number): void;
+    /**
+     * Listens for a move of the canvas's own window.
+     *
+     * @param listener - Called after each move
+     * @returns Stop listening
+     */
+    subscribe(listener: () => void): () => void;
 }
 
 /**
  * A window hold for a canvas.
  *
- * @returns An empty hold
+ * @returns An empty hold: no window shown yet, and the `rows` source the one whose range never holds it
  */
 export function createPlanWindowHold(): PlanWindowHold {
-    return { last: undefined };
+    const listeners = new Set<() => void>();
+    let moves = 0;
+    const hold: PlanWindowHold = {
+        last: undefined,
+        rows: PLAN_ROW_SOURCES,
+        get moves() { return moves; },
+        move(min, max) {
+            if (hold.last !== undefined && hold.last[0] === min && hold.last[1] === max) return;
+            hold.last = [min, max];
+            moves += 1;
+            for (const listener of [...listeners]) listener();
+        },
+        subscribe(listener) {
+            listeners.add(listener);
+            return () => { listeners.delete(listener); };
+        },
+    };
+    return hold;
 }
 
 /** The canvas's narrowing chrome and scale. */
@@ -136,14 +190,19 @@ export function slicedResolution(chrome: PlanSlicesChrome | undefined, parts: re
  * @param data - The root's data-stable twin (its axis)
  * @param words - The canvas's words — the locale the ruler labels format in (#820)
  * @param hold - The canvas's window hold (see {@link PlanWindowHold})
+ * @param rows - The sources whose ranges never hold the window: the `rows` source and each resource kind's (`planRowSources`)
  * @returns The chrome, the sources holding the window, and the scale
  */
-export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: PlanWords, hold: PlanWindowHold): PlanWindow {
+export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: PlanWords, hold: PlanWindowHold, rows: readonly string[]): PlanWindow {
     const chrome = useMemo(() => planSlices(value), [value]);
     const axis = data.axis.type;
-    const windowParts = useMemo(() => planWindowParts(chrome, axis), [chrome, axis]);
-    // Re-render on every write to a source: the window and the resolution are their state, whoever wrote them.
+    const windowParts = useMemo(() => planWindowParts(chrome, axis, rows), [chrome, axis, rows]);
+    // The controller's effects read the sources holding the window as the render does: they name the same row sources.
+    useLayoutEffect(() => { hold.rows = rows; }, [hold, rows]);
+    // Re-render on every write to a source: the window and the resolution are their state, whoever wrote them. And on
+    // every move of the canvas's own window, while no source holds one: the hold's state.
     const version = useSlicesReactivity(chrome?.slice.parts.map((p) => p.slice.key) ?? []);
+    useSyncExternalStore(hold.subscribe, () => hold.moves, () => hold.moves);
     const affordances = useMemo(() => chrome?.affordances.map((a) => a.type) ?? [], [chrome]);
     // Read as numbers, never as the decoded state's objects, which are new every read: a memo keyed on them would
     // rebuild the scale — and hand every mounted row a new one — on every render (#812).
@@ -152,8 +211,8 @@ export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: 
     const from = (lead ?? hold.last)?.[0];
     const to = (lead ?? hold.last)?.[1];
     const resolution = slicedResolution(chrome, windowParts);
-    // `resolveScale` owns the ladder: the sources' window ▸ the stated window, per axis kind. The rows are no input
-    // (#822), so windows landing keep one scale rather than handing every mounted row a new one (#812).
+    // `resolveScale` owns the ladder: the sources' window — or the canvas's own — ▸ the stated window, per axis kind. The
+    // rows are no input (#822), so windows landing keep one scale rather than handing every mounted row a new one (#812).
     const scale = useMemo(() => resolveScale({
         axis: data.axis,
         sliceWindow: from === undefined || to === undefined ? undefined : [from, to],

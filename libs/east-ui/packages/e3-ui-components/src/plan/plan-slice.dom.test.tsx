@@ -10,16 +10,19 @@
  * slice store (#611), sizing
  * (#320 / #567 D1), and the series library, which is the library pane's
  * Series tab, not a toolbar button (#590, #1193). The narrowing is the Plan's
- * one `Slice.bindRecords` (#1344), its `rows` source the Plan's dated rows on
- * e3 itself (`rail.test-utils.ts`, #1376): what it counts and its dates' extent
- * read from e3, the window its half-open range. A canvas persists its toggles
- * under its storageKey (#813), and the harness clears them after each test.
+ * one `Slice.bindRecords` (#1344), its `dated` source the Plan's dated rows on
+ * e3 itself (`rail.test-utils.ts`, #1376), holding the window as an event
+ * kind's source or a tab's does: what it counts and its dates' extent read
+ * from e3, the window its half-open range. The canvas's rows never follow the
+ * dates: a `rows` source's range holds no window, and the canvas then holds
+ * its own. A canvas persists its toggles under its storageKey (#813), and the
+ * harness clears them after each test.
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
 
 import { describe, test, expect } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { variant, some, none } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui/internal";
@@ -31,6 +34,7 @@ import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
+import { planWindowParts } from "./root/sources.js";
 import { blocksSource, oneBlock, rowId } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 
@@ -134,14 +138,14 @@ const rowReads = (from: number) => h.requests().slice(from).filter((request) => 
 
 describe("a record's resolution re-buckets the window (§3, #1344)", () => {
     test("switching WEEK → DAY writes the resolution and keeps the window: the twelve weeks the sources hold, in days, and nothing fetched", async () => {
-        // The rows' window, twelve weeks from W27 — the source holds it, and it alone.
+        // The dated rows' window, twelve weeks from W27 — the source holds it, and it alone.
         const rail = await bindRail(() => Slice.bindRecords("plan.zoom", {
-            rows: {
+            dated: {
                 source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
                 fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
             },
         }), ["resolution"]);
-        const part = rail.part("rows");
+        const part = rail.part("dated");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some(rail.chrome),
             resolutions: [variant("week", null), variant("day", null)],
@@ -162,20 +166,20 @@ describe("a record's resolution re-buckets the window (§3, #1344)", () => {
 
 /** A slice-bound canvas whose brush strip spans a mocked 1300px track — the
  *  horizon's thirteen whole weeks at 100px each (#949) — its applied window
- *  W29..W33 at 200..600px: the rows' source holds the window, its rows — the
- *  dated rows as e3 holds them deployed — W27's and W39's, the horizon their
- *  whole weeks. */
+ *  W29..W33 at 200..600px: the dated rows' source holds the window, its rows —
+ *  as e3 holds them deployed — W27's and W39's, the horizon their whole
+ *  weeks. */
 const brushFixture = async (key: string, axis?: unknown) => {
     // Applied window W29..W33 (4 weeks) inside the wider horizon. The rows span W27..W39, and the horizon is their
     // WHOLE weeks: W27 to the end of W39, thirteen of them — the last row's week counts once.
     const rail = await bindRail(() => Slice.bindRecords(key, {
-        rows: {
+        dated: {
             source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
             fields: { at: { label: "At" } }, range: "at",
             initial: { at: { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") } },
         },
     }), ["brush"]);
-    const part = rail.part("rows");
+    const part = rail.part("dated");
     const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
         slice: some(rail.chrome),
         ...(axis !== undefined ? { axis } : {}),
@@ -190,7 +194,7 @@ const brushFixture = async (key: string, axis?: unknown) => {
     return {
         container, track, part,
         // Every write to the source — a window, a resolution: what a gesture asks of the record.
-        writes: () => rail.writes("rows"),
+        writes: () => rail.writes("dated"),
         range: () => ({ from: new Date(window()!.min), to: new Date(window()!.max) }),
         ranged: () => window() !== undefined,
         ticks: () => [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent),
@@ -298,9 +302,9 @@ describe("Plan chrome tracks the slice store (#611)", () => {
             ["r2", { at: W36, owner: "Team B", hall: "Hall 1" }],
         ]));
         const rail = await bindRail(() => Slice.bindRecords("plan.summary.chrome", {
-            rows: { source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }), fields: { at: { label: "At" } }, range: "at" },
+            dated: { source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }), label: "Dated rows", fields: { at: { label: "At" } }, range: "at" },
         }), ["summary"]);
-        const part = rail.part("rows");
+        const part = rail.part("dated");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some(rail.chrome),
         }), "plan-611-summary");
@@ -314,7 +318,70 @@ describe("Plan chrome tracks the slice store (#611)", () => {
             setRecordSliceWindow(part, W27.getTime(), NOW.getTime());
         });
         await settle();
-        expect(summary()).toBe("1 of 2 rows");
+        expect(summary()).toBe("1 of 2 dated rows");
+    });
+});
+
+describe("the canvas's rows never follow the dates (#1344)", () => {
+    test("a `rows` source's range holds no window: the canvas holds the axis's, and the brush, a pan and a step of the date navigator move it, writing nothing into the rows — their dates a field of the rail", async () => {
+        // The canvas's rows' source naming a range of their dates, W29 to W33 — as an app written before a range there
+        // meant nothing: the dates on screen never decide which rows are listed.
+        const rail = await bindRail(() => Slice.bindRecords("plan.1344.rows", {
+            rows: {
+                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                fields: { at: { label: "At" } }, range: "at",
+                initial: { at: { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z") } },
+            },
+        }), ["fields", "brush"]);
+        const part = rail.part("rows");
+        const narrowing = recordSliceWindow(part);
+        const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], { slice: some(rail.chrome) }), "plan-1344-rows");
+        await settle();
+        const ticks = () => [...container.querySelectorAll('[data-slot="rulerTick"]')].map((e) => e.textContent);
+        const untouched = () => {
+            expect(rail.writes("rows")).toBe(0);
+            expect(recordSliceWindow(part)).toEqual(narrowing);
+        };
+        // The axis's twelve weeks from W27 — not the rows' four from W29 — and the rows' dates a chip of the rail.
+        expect(ticks()).toHaveLength(12);
+        expect(ticks()[0]).toBe("W27");
+        expect(container.querySelector("[data-toolbar-item='record-slices'] [data-record-slice-source='rows'][data-record-slice-field='at']")).not.toBeNull();
+        untouched();
+        // The brush spans the axis's window, its twelve weeks on a 1200px track: its low edge dragged two weeks on.
+        expect(screen.getByText("HORIZON · 12 WK")).toBeTruthy();
+        const track = container.querySelector("[data-brush-track]") as HTMLElement;
+        Object.defineProperty(track, "getBoundingClientRect", {
+            value: () => ({ left: 0, top: 0, right: 1200, bottom: 32, width: 1200, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+        });
+        fireEvent.pointerDown(track, { clientX: 0, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 200, pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        await waitFor(() => expect(ticks()[0]).toBe("W29"));
+        expect(ticks()).toHaveLength(10);
+        untouched();
+        // A pan, a week on.
+        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        expect(ticks()[0]).toBe("W30");
+        untouched();
+        // A step of the date navigator, a week on again, its weeks kept.
+        fireEvent.click(within(container.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!).getByRole("button", { name: "Next week" }));
+        expect(ticks()[0]).toBe("W31");
+        expect(ticks()).toHaveLength(10);
+        untouched();
+    });
+
+    test("a source named among the canvas's rows' — `rows`, or a resource kind's — holds no window; every other source with a range of the axis's arm does", async () => {
+        const dated = (fields: { at: { label: string } }) => ({
+            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }), fields, range: "at" as const,
+        });
+        const rail = await bindRail(() => Slice.bindRecords("plan.1344.parts", {
+            rows: dated({ at: { label: "At" } }), presses: dated({ at: { label: "Since" } }), deliveries: dated({ at: { label: "Delivered" } }),
+        }), ["fields"]);
+        // The `rows` source alone, while the canvas names no resource kind; beside a resource kind's, that too.
+        expect(planWindowParts(rail.chrome, "time").map((p) => p.source)).toEqual(["presses", "deliveries"]);
+        expect(planWindowParts(rail.chrome, "time", ["rows", "presses"]).map((p) => p.source)).toEqual(["deliveries"]);
+        // An ordinal axis's list is its window: no source holds it.
+        expect(planWindowParts(rail.chrome, "ordinal")).toEqual([]);
     });
 });
 

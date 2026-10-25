@@ -58,10 +58,16 @@ export interface PlanChrome {
     scale: PlanScale;
     /** The rail's chrome — the Plan's one `Slice.bindRecords` (#1344); `undefined` with no slice. */
     slices: PlanSlicesChrome | undefined;
-    /** The sources of the slice holding the window, in the slice's order. */
+    /** The sources of the slice holding the window, in the slice's order — none of the canvas's rows' (#1344). */
     windowParts: readonly PlanWindowPart[];
     /** The leading one: its range editor is the time navigator's Range panel. */
     lead: PlanWindowPart | undefined;
+    /**
+     * Moves the window `[min, max)`, on the axis's domain — a date the time
+     * navigator picks: into every source holding it, else the canvas's own
+     * (#1344), as the brush and the keys move it.
+     */
+    moveWindow: (min: number, max: number) => void;
     /** The `rows` source's part, when the slice gives the canvas its rows. */
     rowsPart: PlanSourcePart | undefined;
     /** Each event kind narrowed through its source: what its Save notice counts in. */

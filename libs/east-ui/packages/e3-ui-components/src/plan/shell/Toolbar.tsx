@@ -21,7 +21,10 @@
  * The window is the sources' one range: every source holding it is out of the
  * rail on a time axis, its range the date navigator's — the leading source's
  * range editor its Range panel; on a number axis the leading source's range
- * stays a chip, and the others follow it.
+ * stays a chip, and the others follow it. The canvas's rows' sources hold no
+ * window (#1344): a date field there stays a chip of the rail, and a slice
+ * with no source holding the window keeps the navigator, which steps the
+ * canvas's own.
  *
  * They fold on one ladder (#952): the rail first, its summary folding after
  * every step of it — then the Plan's own items (the user's decision,
@@ -125,8 +128,8 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         [resolutions, words]);
     // The window is the date navigator's on a time axis (#1344): every source's range leaves the rail, and the
     // leading source's range editor is the navigator's Range panel. On a number axis the leading source's range
-    // stays a chip, and the others follow it.
-    const timeNavigation = chrome?.scale.kind === "time" && (windowParts?.length ?? 0) > 0
+    // stays a chip, and the others follow it. With no source holding the window, the navigator steps the canvas's own.
+    const timeNavigation = chrome?.scale.kind === "time"
         && (affordances?.includes("range") === true || affordances?.includes("fields") === true);
     const excludeFields = useMemo(() => (windowParts ?? []).flatMap(({ source, part }, i) =>
         (i > 0 || timeNavigation) && part.config.range.type === "some" ? [`${source}.${part.config.range.value}`] : []),

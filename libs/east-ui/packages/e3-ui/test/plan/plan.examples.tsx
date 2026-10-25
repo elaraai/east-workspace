@@ -2753,8 +2753,9 @@ export const planOrdinalAxis = example({
 // ============================================================================
 // slicePlanChrome — a Plan narrowed through its one rail
 //    Exercises: the rail on the timeline canvas — its `rows` source the
-//    canvas's rows, by owner, over the tasks' interval index — plus the
-//    horizon brush over its range.
+//    canvas's rows, by owner and by their dates, over the tasks' interval
+//    index — plus the horizon brush over the canvas's own window, which
+//    never narrows the rows.
 // ============================================================================
 
 /** A task on the plan — its owner and its window. */
@@ -2768,24 +2769,25 @@ export const planSliceJobs = e3.record("plan_slice_jobs", DictType(StringType, S
     ["Testing",     { task: "Testing",     owner: "Team A", start: new Date("2024-03-01T00:00:00Z"), end: new Date("2024-03-30T00:00:00Z") }],
 ]));
 
-// The tasks over the interval each runs, alone and after its owner: the window reads every task overlapping it once,
-// and an owner's narrowing holds the window too.
+// The tasks over the interval each runs, alone and after its owner: a range of dates the rail chooses reads every task
+// overlapping it once, an owner's beside it too.
 export const planSliceJobsByTime = e3.recordIndex.interval("plan_slice_jobs_by_time", planSliceJobs, { from: "start", to: "end" });
 export const planSliceJobsByOwnerTime = e3.recordIndex.interval("plan_slice_jobs_by_owner_time", planSliceJobs, { on: ["owner"], from: "start", to: "end" });
 
 export const slicePlanChrome = example({
     keywords: ["Slice", "Slice.bindRecords", "rows", "Plan", "slice", "rail", "filter", "range", "brush", "timeline", "Data.bindPaged", "recordIndex", "interval", "e3.record", "#1344"],
-    description: "Ops plan — a Plan narrowed through one Slice.bindRecords rail over tasks bound from e3: its `rows` source gives the canvas its rows, paged through the tasks' interval index and narrowed by owner, and its range is the window — the toolbar's dates and the horizon brush write it",
+    description: "Ops plan — a Plan narrowed through one Slice.bindRecords rail over tasks bound from e3: its `rows` source gives the canvas its rows, paged through the tasks' interval index and narrowed by owner and by their dates — fields of the rail the viewer sets — while the window is the canvas's own: the toolbar's dates and the horizon brush move it, and never decide which tasks are listed",
     fn: East.function([], UIComponentType, (_$) => {
         return (
             <Reactive>{$ => {
-                // One rail: its `rows` source pages the tasks onto the canvas, each task overlapping the window once.
+                // One rail: its `rows` source pages the tasks onto the canvas, each task once. Their dates are a field of
+                // the rail, the viewer's to set: the dates on screen never narrow the tasks.
                 const slice = $.let(Slice.bindRecords("ex.slice.plan.chrome", {
                     rows: {
                         source: Data.bindPaged(planSliceJobs, { indexes: [planSliceJobsByTime, planSliceJobsByOwnerTime] }),
                         label: "Tasks",
                         fields: { owner: { label: "Owner", hints: ["Team A", "Team B", "Team C"] }, start: { label: "Start" } },
-                        range: "start", search: [],
+                        search: [],
                         initial: { owner: ["Team A"] },
                     },
                 }));

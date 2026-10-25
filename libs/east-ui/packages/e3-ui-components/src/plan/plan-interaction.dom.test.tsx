@@ -8,9 +8,10 @@
  * cursor as DOM chrome (#609), element clicks and the keyboard rungs (#569),
  * the #615 interaction fixes, and the root's element resolvers (popover /
  * hover). The window the keys move is the record Slice's half-open range
- * (#1344), its rows' source the Plan's dated rows on e3 itself
- * (`rail.test-utils.ts`, #1376). A canvas persists its toggles under its
- * storageKey (#813), and the harness clears them after each test.
+ * (#1344), held by a source of it — the Plan's dated rows on e3 itself
+ * (`rail.test-utils.ts`, #1376) — as an event kind's or a tab's is. A canvas
+ * persists its toggles under its storageKey (#813), and the harness clears
+ * them after each test.
  *
  * (Split out of `plan.dom.test.tsx`, #815.)
  */
@@ -269,9 +270,9 @@ describe("Plan element clicks (#569, #824)", () => {
     });
 });
 
-/** The rail over the rows' source — the dated rows, W27's and W39's — its window W27..W39: what the keys and the segment write. */
+/** The rail over the dated rows' source — W27's and W39's — its window W27..W39: what the keys and the segment write. */
 const weekly = (key: string, affordances: readonly RecordSliceAffordance[] = []): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
-    rows: {
+    dated: {
         source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
         fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
     },
@@ -280,7 +281,7 @@ const weekly = (key: string, affordances: readonly RecordSliceAffordance[] = [])
 describe("Plan keyboard rungs (#569)", () => {
     test("[ and ] PAN the window one period through the slice; n recenters on now — asserted on the WINDOW, not on emitted effects", async () => {
         const rail = await weekly("plan.kbd.pan");
-        const part = rail.part("rows");
+        const part = rail.part("dated");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some(rail.chrome),
         }), "plan-kbd-pan");
@@ -368,7 +369,7 @@ describe("The toolbar's expand/collapse control", () => {
 
     test("the resolution segment is the same radio group — → re-buckets through the slice", async () => {
         const rail = await weekly("plan.632.resolution");
-        const part = rail.part("rows");
+        const part = rail.part("dated");
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some(rail.chrome),
             resolutions: [variant("week", null), variant("day", null)],
@@ -395,7 +396,7 @@ describe("Plan interaction fixes (#615)", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some(rail.chrome),
         }), "plan-brush-phantom");
-        // The horizon is the rows' dates' extent, read from e3: the strip draws once it has landed.
+        // The horizon is the dated rows' extent, read from e3: the strip draws once it has landed.
         await settle();
 
         // Select a row — the esc target a phantom rung would eat.

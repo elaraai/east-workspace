@@ -268,10 +268,16 @@ alone. Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside
 the stored events their choices hide, and its Clear filters keeps each window
 (`shared/schedule/backlog.ts`, the Calendar's and the Plan's). The Plan's
 window is its sources' one range too (#1344, `src/plan/root/window.ts`): every
-source holding a range of the axis's arm holds it, the first leading, and the
-date navigator, the horizon brush, the keys and the resolution write each of
-them (`writePlanWindow`); a source that holds none takes it unless that would
-replace a choice of its own (`recordSliceWindowFits`). A record's resolution
+source holding a range of the axis's arm holds it — an event kind's, a tab's —
+the first leading, and the date navigator, the horizon brush, the keys and the
+resolution write each of them (`writePlanWindow`); a source that holds none
+takes it unless that would replace a choice of its own
+(`recordSliceWindowFits`). The canvas's rows never follow the dates: the
+`rows` source and each resource kind's hold no window (`planRowSources`), so a
+pan reads no row and the rows in view stay where they are; a canvas whose
+slice has no source holding the window holds its own (`PlanWindowHold`), which
+the same controls move, the brush's horizon the axis's stated window and the
+window shown. A record's resolution
 only re-buckets, and the brush commits once a gesture, with no histogram. The
 Plan reads its event kinds' rows, counts and backlog and the selected events in
 components of their own (`PlanEventsReader`, `PlanKindsReader`,
@@ -933,9 +939,9 @@ navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and
 year), preserves the visible bucket count and writes the window into every
-source holding it, as the horizon brush does (#1344). Its Range panel embeds
-the leading source's `RecordSliceFieldEditor`; never create another input or
-filter implementation.
+source holding it — or, while none holds it, into the canvas's own — as the
+horizon brush does (#1344). Its Range panel embeds the leading source's
+`RecordSliceFieldEditor`; never create another input or filter implementation.
 Date inputs reuse the existing React Aria compound date field. Retain UTC,
 sub-day precision and validation of incomplete typed bounds. Numeric/ordinal
 Plan axes keep their own appropriate controls.

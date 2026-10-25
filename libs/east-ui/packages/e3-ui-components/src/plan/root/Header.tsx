@@ -27,6 +27,8 @@ export interface PlanHeaderProps {
     headerRef: Ref<HTMLDivElement>;
     /** The sources of the Plan's slice holding the window (#1344): the brush spans their domains. */
     windowParts: readonly PlanWindowPart[];
+    /** The axis's stated window, `[from, to)` on its domain: with no source holding the window, the brush spans it and the window shown. */
+    stated: readonly [number, number] | undefined;
     affordances: ReadonlyArray<string>;
     now: PlanInstantValue | undefined;
     /** The ruler's gutter caption — the active grain's name. */
@@ -48,15 +50,17 @@ export interface PlanHeaderProps {
 
 /** The sticky header band. */
 export function PlanHeader({
-    styles, gridTemplate, headerRef, windowParts, affordances, now, rulerCaption, cursorChipRef,
+    styles, gridTemplate, headerRef, windowParts, stated, affordances, now, rulerCaption, cursorChipRef,
     pinned, pinnedId, focus, focusLabel, linkCounts,
 }: PlanHeaderProps) {
     return (
         <Box css={styles.header} ref={headerRef} data-plan-header>
-            {/* The brush mounts only where a source's range domain speaks the
-                axis's arm — the band decides that itself (#631). */}
-            {windowParts.length > 0 && affordances.includes("brush") && (
-                <HorizonBrush styles={styles} gridTemplate={gridTemplate} parts={windowParts} now={now} />
+            {/* The brush mounts where the slice offers it: over the sources'
+                range domains, or — none holding the window — the canvas's
+                own (#1344); only on the axis's arm, which the band decides
+                itself (#631). */}
+            {affordances.includes("brush") && (
+                <HorizonBrush styles={styles} gridTemplate={gridTemplate} parts={windowParts} stated={stated} now={now} />
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
                 cursorChipRef={cursorChipRef} />

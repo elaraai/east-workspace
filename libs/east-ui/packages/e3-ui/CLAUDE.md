@@ -118,9 +118,14 @@ The Plan (#1344) takes `slice={{ slice: Slice.bindRecords(key, { … }) }}`. Its
 events and its backlog through its interval index, as the Calendar's sources
 do; one named after a resource kind's slot narrows that kind's rows and the
 bulk edit's Chooser, over resources read whole and keyed by String. Every
-source holding a `range` of the axis's arm holds the window with the others:
-the date navigator, the horizon brush, the keys and the resolution write each
-of them. Each templates list is `Schedule.templates(templates.read(), { …,
+source holding a `range` of the axis's arm — an event kind's, a tab's that
+lists what is in the dates on screen — holds the window with the others: the
+date navigator, the horizon brush, the keys and the resolution write each of
+them. The canvas's rows never follow the dates on screen: the `rows` source
+and a resource kind's take no `range` — the tag refuses one as the Plan is
+evaluated, naming the change — and a date field there is a field of the rail
+the viewer sets. A slice with no source holding the window leaves the canvas
+its own, which the same controls move, reading no row. Each templates list is `Schedule.templates(templates.read(), { …,
 source })` over a record bound with `Data.bind`, an instant kind's giving no
 `duration`, and each tab that names a `source` follows it. A source named
 after an event kind's slot may list a series index and a summary index beside
@@ -621,9 +626,9 @@ navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and
 year), preserves the visible bucket count and writes the window into every
-source holding it, as the horizon brush does (#1344). Its Range panel embeds
-the leading source's `RecordSliceFieldEditor`; never create another input or
-filter implementation.
+source holding it — or, while none holds it, into the canvas's own — as the
+horizon brush does (#1344). Its Range panel embeds the leading source's
+`RecordSliceFieldEditor`; never create another input or filter implementation.
 Date inputs reuse the existing React Aria compound date field. Retain UTC,
 sub-day precision and validation of incomplete typed bounds. Numeric/ordinal
 Plan axes keep their own appropriate controls.

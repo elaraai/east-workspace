@@ -7,8 +7,8 @@
  * Plan narrow-layout DOM tests (§10 / #570) — below the compact width the
  * canvas is a review tool: tabs, cards, the shared ruler and the chips; a
  * section header's go mark is Font Awesome's chevron (#1263). A pan writes the
- * window as the record Slice's half-open range (#1344), the rows' source the
- * Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376). A canvas
+ * window as the record Slice's half-open range (#1344), held by a source of it
+ * — the Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376). A canvas
  * persists its toggles under its storageKey (#813), and the harness clears
  * them after each test; its jsdom has what Zag's tabs find their triggers
  * through when an arrow key moves between them (`CSS.escape`, #819).
@@ -247,14 +247,14 @@ describe("Plan narrow layout (§10 / #570)", () => {
     });
 
     test("Measures stacks the chart rows at expanded density with their ticks overlaid; a two-finger drag pans the window", async () => {
-        // The rows' source holds the window, W27..W39.
+        // The dated rows' source holds the window, W27..W39.
         const rail = await bindRail(() => Slice.bindRecords("plan.narrow.pan", {
-            rows: {
+            dated: {
                 source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
                 fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
             },
         }), ["range"]);
-        const part = rail.part("rows");
+        const part = rail.part("dated");
         const range = () => { const w = recordSliceWindow(part)!; return { from: new Date(w.min), to: new Date(w.max) }; };
         const { container } = renderPlan(fixture({ slice: some(rail.chrome) }), "plan-570-measures");
         // A tab is Zag's (#819): its click selects on the machine's next turn.
