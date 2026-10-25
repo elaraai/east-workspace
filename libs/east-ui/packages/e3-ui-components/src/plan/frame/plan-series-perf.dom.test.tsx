@@ -64,7 +64,7 @@ function benchPlan(min: Date, max: Date, resolution: "day" | "month") {
         return Plan({
             axis: Plan.axis({ window: { min, max }, resolution, resolutions: ["day", "week", "month"] }),
             slice: { slice },
-            // Each press's hall its second line, as `planSeries` draws it: a row of the stacked height the scrolls below count in.
+            // Each press's hall its second line, as `planWindows` draws it: a row of the stacked height the scrolls below count in.
             resources: { presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }) },
             events: {
                 job: Schedule.events(jobs, {

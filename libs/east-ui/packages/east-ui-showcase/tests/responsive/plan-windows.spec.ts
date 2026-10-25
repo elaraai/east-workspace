@@ -7,10 +7,12 @@
  * A Plan read a window at a time, measured in a real browser (#1199,
  * `Plan Builder Spec.md` §9.11, PB54–PB55): the windows example
  * (`planWindows`) on the e3 the page runs — 2,000 presses paged 200 to a
- * window, and the jobs on them read through their record's day index. Its
- * canvas reads the presses a window at a time — those in view and the ring
- * around them first, the next as the canvas scrolls to it — and the jobs as it
- * pans, the days a pan brings in. Nothing on screen moves when a window lands:
+ * window, and the jobs on them read a cell at a time through their source's
+ * series index (#1039). Its canvas reads the presses a window at a time —
+ * those in view and the ring around them first, the next as the canvas
+ * scrolls to it — and the jobs' cells as it pans, the weeks a pan brings in,
+ * and as it scrolls, the presses it brings into view. Nothing on screen moves
+ * when a window lands:
  * read frame by frame, every row in view keeps its place and stays drawn, the
  * scroll stays where it was put, and a pan moves every bar once, all of them
  * by the same days. A job is edited and saved with its record never read
@@ -136,7 +138,7 @@ test.describe("a Plan read a window at a time (#1199)", () => {
         await expect(entry.locator("[data-frame-slot='footer']")).not.toContainText("loaded");
     });
 
-    test("planWindows: the jobs read as the canvas pans — the days `n` brings in read from the day index, the ticket books drawn — every bar moved once, by the pan, and every row holding its place", async ({ page }) => {
+    test("planWindows: the jobs read as the canvas pans — the cells of the weeks `n` brings in read through the series index, the ticket books drawn — every bar moved once, by the pan, and every row holding its place", async ({ page }) => {
         const entry = await openExample(page, "planWindows", WINDOWS);
         const tickets = entry.locator("[data-run]", { hasText: "Ticket books" });
         await expect(tickets).toHaveCount(0);
@@ -236,9 +238,9 @@ for (const theme of ["light", "dark"] as const) {
 const JOBS = "records.plan_window_jobs";
 
 for (const theme of ["light", "dark"] as const) {
-    test(`planSeries: presses scrolled into view whose cells are still on their way are washed across their plot and busy, on the reveal clock, the footer's line reading the jobs — never an empty row; landed, their bars draw and nothing is washed (#1398, CL2) — ${theme} @desktop`, async ({ page }) => {
+    test(`planWindows: presses scrolled into view whose cells are still on their way are washed across their plot and busy, on the reveal clock, the footer's line reading the jobs — never an empty row; landed, their bars draw and nothing is washed (#1398, CL2) — ${theme} @desktop`, async ({ page }) => {
         await installE3Faults(page);
-        const entry = await openExample(page, "planSeries", WINDOWS, theme);
+        const entry = await openExample(page, "planWindows", WINDOWS, theme);
         // The cells' entries held: the presses scrolled to below are on their way, their counts landed.
         const held = await holdE3(page, { kinds: ["runs"], dataset: JOBS });
         await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 140 * 42; });

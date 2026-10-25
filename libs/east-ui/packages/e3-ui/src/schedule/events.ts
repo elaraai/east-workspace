@@ -47,7 +47,10 @@
  * through the same choices with an Unset start. It requires `entries` for
  * original-key inspection and Save. Existing drafts outside a new narrowing
  * remain in the session; Save includes them. A kind narrowed so takes no
- * `window` or `backlogWindow`.
+ * `window` or `backlogWindow`. Plan's build counts its events first (#1039):
+ * its window — through its source, the count its read asks first; its record
+ * read whole, in memory — is counted and read only within `SCHEDULE_EVENT_CAP`
+ * events, and `planCount` counts them before one is read, as its window does.
  *
  * A large record may also be read a window at a time (#1199, `window.ts`): given
  * `window`, a paged read of a day index keyed by `Schedule.days`, the kind's
@@ -94,7 +97,7 @@ import { scheduleAccessor } from "./accessor.js";
 import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "./fields.js";
 import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./templates.js";
 import { SCHEDULE_DEF } from "./resources.js";
-import { scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
+import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
 import { scheduleRecordSession } from "./session.js";
 import { checkEntries, checkIndexWindow, optionOf, scheduleBacklogWindow, scheduleDayWindow, typeText } from "./window.js";
 import {
@@ -493,6 +496,12 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     /** The field naming its events' resource (#1039); `undefined` for a kind with no `resource`. */
     readonly resourceField: string | undefined;
     /**
+     * Whether it reads the days in view through a day index (`window`, #1199) —
+     * the form for a kind with no source of its builder's slice — rather than its
+     * record whole: what a Plan's refusal of it on a paged resource kind names.
+     */
+    readonly windowed: boolean;
+    /**
      * The kind on the wire, under its slot: the Calendar's, which takes no
      * notice of Plan's options.
      *
@@ -505,7 +514,9 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     /**
      * The kind on the wire as Plan's builder takes it, under its slot: the
      * Calendar's kind with how it draws, its roles, and its events as Plan
-     * draws them.
+     * draws them — its window, through its source or in memory, its record read
+     * whole, counted first and read only within {@link SCHEDULE_EVENT_CAP} events,
+     * and its events counted before one is read (`planCount`).
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
@@ -938,6 +949,31 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         : East.value(some(fieldOf(row, name) as unknown as ExprType<DateTimeType>), OptionType(DateTimeType));
     // A time as its field holds it: an Option field holds `some`.
     const placedAt = (t: ExprType<DateTimeType>): ExprType<EastType> => (optional ? East.value(some(t), OptionType(DateTimeType)) : t) as ExprType<EastType>;
+    // How many of the record's stored events overlap [from, to), its record read whole, counted in memory (#1039): by the
+    // views' rule, an optional missing end an instant at its start, as the views place it.
+    const countWhole = East.function([DateTimeType, DateTimeType], OptionType(IntegerType), ($, from, to) => {
+        const all = $.const(readAll());
+        const n = $.let(0n, IntegerType);
+        $.for(all, ($2, row) => {
+            const start = $2.const(instant(row, startField));
+            const end = $2.const(instant(row, endField).match({
+                none: () => start,
+                some: (_$3, e) => East.value(some(e), OptionType(DateTimeType)),
+            }));
+            $2.match(start, {
+                some: ($3, s) => {
+                    $3.match(end, {
+                        some: ($4, e) => {
+                            $4.if(East.less(s, to).and(() => East.greater(e, from).or(() => East.greaterEqual(s, from))), ($5) => {
+                                $5.assign(n, n.add(1n));
+                            });
+                        },
+                    });
+                },
+            });
+        });
+        return East.value(some(n), OptionType(IntegerType));
+    });
     // A duration in minutes — a month counts 30 days.
     const minutesOf = East.function([ScheduleDurationType], IntegerType, (_$, step) => East.Float.roundHalf(step.match({
         minutes: (_$2, n) => n,
@@ -987,7 +1023,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
      * backlog index; else the record whole — each `none` while its search or a page is in flight.
      */
     interface Reads {
-        /** The rows overlapping a window; `undefined`, the record whole. */
+        /**
+         * The rows overlapping a window — under a cap (#1039), counted first and `none` past it, of a record read whole
+         * the record whole within the cap; `undefined`, the record whole.
+         */
         readonly days: ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>> | undefined;
         /** The backlog's rows, the window `[from, to)` the canvas reads given; `undefined`, the record whole. */
         readonly backlog: ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>> | undefined;
@@ -999,7 +1038,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         /** The rows with the drafts in place: a narrowed kind's leave out drafts its narrowing does not hold. */
         readonly withDrafts: ExprType<FunctionType<[EastType, EastType], EastType>>;
     }
-    const readsOf = (slot: string, part: ScheduleKindPart | undefined): Reads => {
+    /**
+     * The reads, through the kind's source of its builder's slice when it has one — given `cap` (#1039), the Plan's, its
+     * window counted first, through the source or in memory, and read only within `cap` events, its backlog whole.
+     */
+    const readsOf = (slot: string, part: ScheduleKindPart | undefined, cap?: number): Reads => {
         if (part === undefined) {
             if (entries !== undefined && dayWindow === undefined) {
                 throw new Error(`${where}: \`entries\` reads one event by its key beside \`window\`, or beside the kind's source of its builder's ` +
@@ -1011,8 +1054,21 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 const read = $.const(unscheduled);
                 return read();
             });
+            // A record read whole under a cap (#1039): its window counted in memory first, and drawn only within the cap —
+            // past it the window answers none, and none of its events draws.
+            const capped = cap === undefined || dayWindow !== undefined ? undefined
+                : East.function([DateTimeType, DateTimeType], OptionType(HeldType), ($, from, to) => {
+                    const count = $.const(countWhole);
+                    const result = $.let(East.value(none, OptionType(HeldType)), OptionType(HeldType));
+                    $.match(count(from, to), {
+                        some: ($2, n) => {
+                            $2.if(n.lessEqual(BigInt(cap)), ($3) => { $3.assign(result, East.value(some(readAll()), OptionType(HeldType))); });
+                        },
+                    });
+                    return result;
+                });
             return {
-                days: dayWindow === undefined ? undefined : scheduleDayWindow(dayWindow, keyType, rowType, where),
+                days: dayWindow === undefined ? capped : scheduleDayWindow(dayWindow, keyType, rowType, where),
                 backlog,
                 alone: backlog,
                 withDrafts: withDraftsFor(false) as never,
@@ -1025,7 +1081,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             throw new Error(`${where}: the builder's source "${slot}" reads only its narrowing — and one event, the inspector's ` +
                 "or its editing's, is read by its key: give `entries` beside it, Data.bindPaged(record), the record's own entries");
         }
-        const scheduled = scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, false, where);
+        const scheduled = scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, false, where, cap);
         if (!optional) return { days: scheduled, backlog: undefined, alone: undefined, withDrafts: withDraftsFor(true) as never };
         // A kind with a backlog reads both through its source as one: what its narrowing holds over the window and in
         // its backlog. A draft then moves an event between the two by its times alone, and a draft the narrowing does
@@ -1278,10 +1334,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
 
     /**
      * The Calendar's kind, part by part, under its slot and through its source's part, its form `form` — and the
-     * function that makes one of its events.
+     * function that makes one of its events. Given `cap`, its window through its source is counted first and read only
+     * within it (#1039): the Plan's.
      */
-    const kindParts = (slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs) => {
-        const reads = readsOf(slot, part);
+    const kindParts = (slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number) => {
+        const reads = readsOf(slot, part, cap);
         // One event, as every view draws it.
         const itemOf = East.function([EntryRowType], ScheduleItemType, ($, entry) => {
             const row = entry.row;
@@ -1505,6 +1562,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         allocationValues,
         times: { start: startField, end: endField },
         resourceField: resource?.field,
+        windowed: dayWindow !== undefined,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
             return East.value(kindParts(slot, part, formSpecs).fields as never, ScheduleKindType);
         },
@@ -1680,7 +1738,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             } as never, ScheduleAllocationKindType);
         },
         buildPlan(slot: string, part?: ScheduleKindPart): ExprType<PlanEventKindType> {
-            const parts = kindParts(slot, part, formSpecs);
+            // Its window through its source counted first, and read only within the cap (#1039): past it, no page is read.
+            const parts = kindParts(slot, part, formSpecs, SCHEDULE_EVENT_CAP);
             const quantity = config.quantity;
             const format = quantity?.format === undefined ? undefined : East.value(quantity.format as SubtypeExprOrValue<TickFormatType>, TickFormatType);
             // One event as Plan draws it: what every view draws, with its roles read from their fields.
@@ -1756,6 +1815,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 }
                 return result;
             });
+            // How many of its stored events overlap [from, to), counted before one is read (#1039): through its source's
+            // interval index — the count its window's read asks first, so none of its own — or, its record read whole, in
+            // memory, by the views' rule; a kind read through its day index (`window`) has none, its days read as they are.
+            const CountOption = PlanEventKindType.fields.planCount;
+            const planCount = part !== undefined
+                ? East.value(some(scheduleRecordCount(part, slot, keyType, rowType, startField, endField, optional, where)), CountOption)
+                : dayWindow !== undefined ? East.value(none, CountOption) : East.value(some(countWhole), CountOption);
             return East.value({
                 ...parts.fields,
                 draw: variant(draw, null),
@@ -1768,6 +1834,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 inspector: inspector === undefined ? East.value(none, OptionType(RowInspectorType)) : East.value(some(inspector), OptionType(RowInspectorType)),
                 seriesKey,
                 cellsType: toEastTypeValue(CellsType),
+                planCount,
             } as never, PlanEventKindType);
         },
     };

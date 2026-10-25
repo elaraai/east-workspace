@@ -10,34 +10,35 @@
  * through `Data.bindPaged`: the real paged runtime (`defaultPagedRuntime`, its
  * channels and its revision pinning) asks e3 for windows of the jobs' indexes
  * — the interval index the rail's `job` source narrows them through (#1344),
- * and the day index and backlog index a kind with no rail reads — each entry
- * joined to its row, of the jobs' own entries, of the job templates, and of
- * the presses, each pinned to the content it holds, and for their key
- * searches. What each request asked is read from the harness's request log; a
- * request is held in flight, or refused, at the harness's fetch; another
- * planner's write is a real commit.
+ * and the series index a kind on the paged presses is read a cell at a time
+ * through (#1039) — each entry joined to its row, of the jobs' own entries, of
+ * the job templates, and of the presses, each pinned to the content it holds,
+ * and for their key searches. What each request asked is read from the
+ * harness's request log; a request is held in flight, or refused, at the
+ * harness's fetch; another planner's write is a real commit.
  *
- * - The jobs are narrowed through the Plan's one rail (#1344): its `job`
- *   source reads the jobs overlapping the days the canvas draws through their
- *   interval index, a pan reading the ones the days it brings in hold; an
- *   event running several days draws once, the drafts draw over the window —
- *   moved out of it, and into it from a day the window never read — and while
- *   a read is in flight the rows drawn before stand.
+ * - The jobs on presses read whole are narrowed through the Plan's one rail
+ *   (#1344): its `job` source, counting them first (#1039), reads the jobs
+ *   overlapping the days the canvas draws through their interval index, a pan
+ *   reading the ones the days it brings in hold; an event running several
+ *   days draws once, the drafts draw over the window — moved out of it, and
+ *   into it from a day the window never read — and while a read is in flight
+ *   the rows drawn before stand.
  * - The backlog is read through the same index, the jobs with no start.
- * - The presses are paged: a window of them at a time, the next as the page
- *   scrolls to it, the key search seeking one; the presses are never read
- *   whole. The Plan's own rows after them are read again with their dataset.
- *   A window that cannot be read is a band where its rows would be, asked
- *   once; one refused for a reason a retry can fix is said on the footer's
- *   loading line too, whose Retry asks e3 again at once (#1398).
- * - A kind with no rail reads the jobs through their day index and their
- *   backlog index, and is edited without its record read whole: every
- *   gesture's event read where the canvas holds it, or by its key; a template
- *   — a record of its own, following its source of the rail — dropped; the
- *   inspector's event, its form, its Duplicate and Delete and the bulk edit;
- *   Undo and Redo; Save, read back by key; a conflict, named by the jobs read
- *   by their keys at the record's new revision; and a Retry.
- * - A standing key search stands while a pan reads the jobs again over the
+ * - The presses are paged, the jobs on them read a cell at a time (#1039): a
+ *   window of presses at a time, the next as the page scrolls to it, the key
+ *   search seeking one; the presses are never read whole. The Plan's own rows
+ *   after them are read again with their dataset. A window that cannot be
+ *   read is a band where its rows would be, asked once; one refused for a
+ *   reason a retry can fix is said on the footer's loading line too, whose
+ *   Retry asks e3 again at once (#1398).
+ * - The jobs on the paged presses are edited without their record read whole:
+ *   every gesture's event read where the canvas holds it, or by its key; a
+ *   template — a record of its own, following its source of the rail —
+ *   dropped; the inspector's event, its form, its Duplicate and Delete and the
+ *   bulk edit; Undo and Redo; Save, read back by key; a conflict, named by the
+ *   jobs read by their keys at the record's new revision; and a Retry.
+ * - A standing key search stands while a pan moves the jobs' window over the
  *   same presses, and a new snapshot of the presses asks it again there, its
  *   text kept and its matches the new snapshot's.
  *
@@ -93,9 +94,9 @@ const PRESSES = pathText(ex.planWindowPresses.output.path as TreePath);
 
 /**
  * Which collection a request reads: the jobs through the interval index the
- * rail's `job` source narrows them through, or by the day index and the
- * backlog index a kind with no rail reads, or their own entries; the job
- * templates; or the presses.
+ * rail's `job` source narrows them through, or the day index and the backlog
+ * index a kind with no rail reads, or their own entries; the job templates; or
+ * the presses.
  */
 type Served = "interval" | "days" | "backlog" | "entries" | "templates" | "presses";
 
@@ -180,17 +181,22 @@ const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) })
 /**
  * The windows example's Plan (`planWindows`), unbounded — jsdom lays nothing
  * out, so a bounded canvas would mount no row — its jobs narrowed through its
- * one rail (#1344), the `job` source reading them through their interval
- * index, its range the window the canvas shows; with the inspector, whose
- * bulk edit moves the drafts, and the paper in stock as rows of the Plan's own
- * after the presses (`Plan.over`, over the print works' stock).
+ * one rail (#1344), the `job` source listing their series index and their
+ * summary beside the interval index, so the jobs on the paged presses are read
+ * a cell at a time (#1039), its range the window the canvas shows; with the
+ * inspector, whose bulk edit moves the drafts, and the paper in stock as rows
+ * of the Plan's own after the presses (`Plan.over`, over the print works'
+ * stock).
  */
 const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
     const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.windows.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: {
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            fields: { start: { label: "Dates" } }, range: "start",
+        },
     }));
     const paper = $.const(Data.bind(planLinkStock));
     const first = $.const(FIRST, DateTimeType);
@@ -214,6 +220,37 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
         rows: [Plan.over(paper, [
             Plan.series.table(PrintStock, { key: "stock", title: "Paper stock", label: (s) => s.name, cells: (s) => Plan.tableCells(weekly(s.weekly)) }),
         ])],
+        library: [Plan.library.backlog()],
+    });
+}))) };
+
+/**
+ * The same jobs on the presses read whole, unbounded: a kind of no paged
+ * resource kind, which the rail's `job` source narrows through their interval
+ * index alone — counted first (#1039), then read over the days the canvas
+ * draws — with the inspector, whose bulk edit moves the drafts.
+ */
+const jobsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.const(Data.bind(ex.planWindowPresses));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
+    const slice = $.const(Slice.bindRecords("plan.windows.jobs.dom", {
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }),
+        inspector: true, slice: { slice },
+        resources: {
+            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
+        },
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state", quantity: { field: "sheets", unit: "sheets" },
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                entries: jobEntries,
+            }),
+        },
         library: [Plan.library.backlog()],
     });
 }))) };
@@ -264,8 +301,13 @@ async function press(node: Element) {
 // ============================================================================
 
 describe("the jobs narrowed through the rail's interval index (PB54, #1344)", () => {
+    beforeEach(async () => {
+        // Thirty presses, read whole: every row the canvas draws mounts.
+        await pressCount(30n);
+    });
+
     test("only the jobs overlapping the days the canvas draws, through the interval index alone; a pan reads the ones the days it brings in hold — the record never read whole", async () => {
-        const { container } = await h.mount(windowsPlan);
+        const { container } = await h.mount(jobsPlan);
         await settle();
         // The fortnight in view and the two days laid out beyond each edge: Saturday 3 to Tuesday 20 October.
         expect(bars(container, "W-0001")).toHaveLength(1);
@@ -291,7 +333,7 @@ describe("the jobs narrowed through the rail's interval index (PB54, #1344)", ()
     });
 
     test("an event running several days draws once: the three-day run, and the night run into the next day", async () => {
-        const { container } = await h.mount(windowsPlan);
+        const { container } = await h.mount(jobsPlan);
         await settle();
         expect(bars(container, "W-0004")).toHaveLength(1);
         expect(bars(container, "W-0002")).toHaveLength(1);
@@ -299,7 +341,7 @@ describe("the jobs narrowed through the rail's interval index (PB54, #1344)", ()
     });
 
     test("the drafts draw over the window the narrowing holds: a job shifted out of the days it reads leaves, and draws again once they hold it; one the narrowing no longer holds stays a draft, unseen, kept for Save", async () => {
-        const { container } = await h.mount(windowsPlan);
+        const { container } = await h.mount(jobsPlan);
         await settle();
         // Two days on, the canvas draws Monday 5 to Thursday 22: the brochure run on the 5th and the ticket books on the 22nd.
         await pan(container, "]", 2);
@@ -323,7 +365,7 @@ describe("the jobs narrowed through the rail's interval index (PB54, #1344)", ()
     });
 
     test("while the interval index is read again the rows drawn before stand: a commit moves the window, and its rows draw once its page lands", async () => {
-        const { container } = await h.mount(windowsPlan);
+        const { container } = await h.mount(jobsPlan);
         await settle();
         const guide = () => bar(container, "W-0003", "P-1002");
         expect(guide()!.textContent).toContain("Museum guide");
@@ -350,7 +392,8 @@ describe("the jobs narrowed through the rail's interval index (PB54, #1344)", ()
 
 describe("the backlog read through the rail's interval index (PB54, #1344)", () => {
     test("the Backlog tab lists the jobs with no start, read through the same index under an unset start", async () => {
-        const { container } = await h.mount(windowsPlan);
+        await pressCount(30n);
+        const { container } = await h.mount(jobsPlan);
         await settle();
         const pane = slot(container, "start")!;
         expect(tabs(pane)).toEqual(["Backlog 4"]);
@@ -516,21 +559,23 @@ const Customer = StructType({ name: StringType });
 
 /**
  * The windows example's jobs on thirty presses — one window of them, so every
- * row mounts — read by a kind with no rail, through their day index and their
- * backlog index, and edited: a template to drop — the job templates, a record
- * of their own following their source of the Plan's one rail (#1344) — the
- * Backlog tab, a Customers tab whose card sets a job's customer, and the
- * inspector. Every edit is a draft of a session over the jobs' revision, never
- * their record whole.
+ * row mounts — read a cell at a time through their source of the Plan's one
+ * rail (#1039), and edited: a template to drop — the job templates, a record
+ * of their own following their source of the rail (#1344) — the Backlog tab,
+ * a Customers tab whose card sets a job's customer, and the inspector. Every
+ * edit is a draft of a session over the jobs' revision, never their record
+ * whole.
  */
 const editedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
     const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
-    const jobDays = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
-    const jobBacklog = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const jobTemplates = $.const(Data.bind(planPrintJobTemplates));
     const slice = $.const(Slice.bindRecords("plan.windows.edited", {
+        job: {
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            range: "start",
+        },
         jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: [planPrintJobTemplatesByGroup] }) },
     }));
     const customers = $.const(new Map([["harbour-arts", { name: "Harbour Arts Society" }]]), DictType(StringType, Customer));
@@ -548,7 +593,7 @@ const editedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Roo
                 templates: Schedule.templates(jobTemplates.read(), {
                     name: (t) => t.name, group: (t) => some(t.group), duration: (t) => variant("hours", t.hours), values: (t) => t.values, source: "jobTemplates",
                 }),
-                window: jobDays, backlogWindow: jobBacklog, entries: jobEntries,
+                entries: jobEntries,
             }),
         },
         library: [Plan.library.events(), Plan.library.backlog(), Plan.library.tab(customers, {
@@ -676,7 +721,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(h.requests("read", JOBS)).toEqual([]);
     });
 
-    test("a backlog job scheduled and a job unscheduled on the Backlog tab: each one step, read where the backlog and the days hold it", async () => {
+    test("a backlog job scheduled and a job unscheduled on the Backlog tab: each one step, read where the backlog and the cells hold it", async () => {
         const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await openTab(c, "Backlog");
@@ -775,6 +820,8 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         const before = of("entries").length;
         await press(historyButton(c, SAVE));
         await waitFor(() => expect(pending(c)).toBe("0 pending"));
+        // The cells in view read again at the revision Save committed (#1039): the inspector's job is read from them.
+        await settle();
         expect(bannerTexts(c)).toEqual([]);
         expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Ltd");
         expect(of("entries").slice(before)).toContain(`seek "W-0001"`);
@@ -835,7 +882,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
 // ============================================================================
 
 describe("the key search standing (#1199)", () => {
-    test("a pan, reading the jobs again over the same presses, leaves a standing search as it is — its text and its matches — asking nothing again", async () => {
+    test("a pan, moving the jobs' window over the same presses, leaves a standing search as it is — its text and its matches — asking nothing again", async () => {
         const restore = emulateWindowScroll();
         try {
             const { container } = await h.mount(windowsPlan);
@@ -845,7 +892,7 @@ describe("the key search standing (#1199)", () => {
             for (const key of "P-1450") await userEvent.type(input, key);
             await waitFor(() => expect(search().textContent).toMatch(/\b1 match\b/), { timeout: 5_000 });
             const asked = of("presses").filter((r) => r.startsWith("seek")).length;
-            // A day on, from a row the canvas draws: the jobs' rows are read again; the presses are the same.
+            // A day on, from a row the canvas draws: the jobs' window moves, and the rows are drawn again; the presses are the same.
             await act(async () => { fireEvent.keyDown(container.querySelector("[data-plan-row]")!, { key: "]" }); });
             await settle();
             expect(search().querySelector<HTMLInputElement>("input")!.value).toBe("P-1450");

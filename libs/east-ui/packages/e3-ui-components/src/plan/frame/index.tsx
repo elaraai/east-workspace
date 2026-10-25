@@ -482,7 +482,8 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
                     onRead={setKindsRead} />
             )}
             {inspector && (
-                <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events} onRead={setSelected} />
+                <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events}
+                    held={chrome?.cells?.held} onRead={setSelected} />
             )}
             <LoadingReveal waiting={waiting}>
                 <BuilderFrame

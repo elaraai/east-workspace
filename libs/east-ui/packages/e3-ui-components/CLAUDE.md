@@ -292,17 +292,34 @@ record's resolution
 only re-buckets, and the brush commits once a gesture, with no histogram. The
 Plan reads its event kinds' rows, counts and backlog and the selected events in
 components of their own (`PlanEventsReader`, `PlanKindsReader`,
-`PlanSelectionReader`). An event kind whose source lists a series and a
-summary index (#1039) is read a cell at a time (`root/cells.ts`, inside
-`PlanEventsReader`): the blocks of fifty paged resources around the rows in
-view — the canvas writes them to a span store as its scroll rests, rendering
-nothing for it: the rows `VirtualRows` says its view shows (`shown`), never the
-overscan mounted beside them, the span standing while the view shows only rows
-not read (`shownCellSpan`) — by the tiles its read range touches, every cell's searches in
-one request and the missing cells' entries in one more, kept per revision
-while wanted; past 10,000 entries it reads the summary's cells and shades, and
-the reader takes the root's own links, never the ones named where the events
-draw. A paged resource kind its source narrows (#1344) pages that source's
+`PlanSelectionReader`). An event kind placed on a paged resource kind, whose
+source lists a series and a summary index (#1039) — the only form the Plan
+takes there — is read a cell at a time by the shared schedule reader
+(`shared/schedule/cells.ts`' `useScheduleCells`, which holds no Plan type, so
+the Calendar reads through it next) through the Plan's adapter (`root/cells.ts`'
+`usePlanCells`: the payload's paged seam, its links, its rows' ids and the span
+store), inside `PlanEventsReader`: the blocks of fifty paged resources around
+the rows in view — the canvas writes them to a span store as its scroll rests,
+rendering nothing for it: the rows `VirtualRows` says its view shows (`shown`),
+never the overscan mounted beside them, the span standing while the view shows
+only rows not read (`shownCellSpan`) — by the tiles its read range touches,
+every cell's searches in one request and the missing cells' entries in one
+more, kept per revision while wanted; past 10,000 entries it reads the
+summary's cells and shades, and the reader takes the root's own links, never
+the ones named where the events draw. A window of the paged kind that could not
+be read gives the reader no block: its band says so, with Retry. Every other
+kind the same reader counts before one of its events is read (the payload's
+`planCount`): through its source's interval index over the range the canvas
+reads — the count its window's read asks first — or in memory, its record read
+whole. Past 10,000 events none is read or drawn: its rows shade from its
+source's summary, else they are hatched and the banner says how many events
+there are; the payload's window answers none past the cap too, so no read of a
+range past it reads a page. The footer's counts and the inspector's row facts,
+in components of their own, read such a kind over the window only once its
+count over the range the canvas reads is within the cap (`scheduleWithinCap`),
+never by what the reader last decided, which a new narrowing outruns; the
+selected events of a kind given cells are read again as its cells move. A
+paged resource kind its source narrows (#1344) pages that source's
 narrowed rows themselves, in its index's order: the canvas's source over the
 payload's `paged` is a live one, so a choice is a new result, the last view
 standing in, retained, until its first window lands; the frame follows no such
@@ -1210,7 +1227,8 @@ window's read alone reads, to read ahead the window a re-centre that way goes
 to.
 
 A kind read by its cells (#1039) over a paged kind says which resources' rows
-draw what is known of them (`usePlanCells`' `drawn`): a row whose cells never
+draw what is known of them (the shared reader's `drawn`, through `usePlanCells`;
+its `reading` only there, where rows wait on it): a row whose cells never
 landed — before the first read, or scrolled into view — or are on their way over
 a range they were not read over, a window moved, draws the shared wash under what
 it holds, busy, on the Plan's one reveal clock, and the footer's line reads the

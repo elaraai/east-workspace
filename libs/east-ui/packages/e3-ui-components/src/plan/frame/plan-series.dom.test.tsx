@@ -5,11 +5,14 @@
  * @vitest-environment jsdom
  *
  * `<Plan>` reading its events a cell at a time (#1039), over the windows
- * example's records on e3 itself (`planSeries`): the 2,000 presses paged, and
+ * example's records on e3 itself (`planWindows`): the 2,000 presses paged, and
  * the jobs on them read through their series index — a cell is the jobs of a
  * block of fifty presses in one week — and, zoomed out past what the Plan
  * draws, shaded from their summary index. What each request asked is read
  * from the harness's request log; another planner's write is a real commit.
+ * What it draws is held to a Plan over the presses read whole, whose jobs —
+ * the events of no paged kind — are read over the window: whole, or through
+ * their interval index alone.
  *
  * - The cells around the rows in view are read in two requests: every cell's
  *   searches in one, which counts its entries before one is read, then the
@@ -100,7 +103,7 @@ afterEach(() => {
 // ── The Plans ────────────────────────────────────────────────────────────────
 
 /**
- * The series example's Plan (`planSeries`), unbounded — jsdom lays nothing
+ * The windows example's Plan (`planWindows`), unbounded — jsdom lays nothing
  * out, so a bounded canvas would mount no row: its jobs read a cell at a time
  * through the series index its `job` source lists beside the interval index,
  * and shaded from their summary zoomed out.
@@ -133,15 +136,20 @@ const seriesPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Roo
     });
 }))) };
 
-/** The same Plan, its jobs read whole: no rail, the record bound alone — what the series Plan draws the same as. */
+/**
+ * The same Plan over the presses read whole, its jobs read whole: no rail, each
+ * record bound alone — what the series Plan draws the same as, over the rows it
+ * mounts. A paged kind's events are read by their cells alone, so the presses
+ * here are no paged kind.
+ */
 const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
+    const presses = $.const(Data.bind(ex.planWindowPresses));
     const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         inspector: true,
         resources: {
-            presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
+            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
         },
         events: {
             job: Schedule.events(jobs, {
@@ -155,13 +163,13 @@ const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
 }))) };
 
 /**
- * The windows example's Plan (`planWindows`), unbounded: its jobs read a window
- * at a time through the interval index alone — every job overlapping the range
- * the canvas reads, as a whole read holds them — its window moved by a pan as
- * the series Plan's is.
+ * A Plan over the presses read whole, unbounded: its jobs read a window at a
+ * time through the interval index alone — counted first, then every job
+ * overlapping the range the canvas reads, as a whole read holds them — its
+ * window moved by a pan through its rail as the series Plan's is.
  */
 const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
+    const presses = $.const(Data.bind(ex.planWindowPresses));
     const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.series.windows.dom", {
@@ -171,7 +179,7 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         inspector: true, slice: { slice },
         resources: {
-            presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
+            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
         },
         events: {
             job: Schedule.events(jobs, {
@@ -243,10 +251,10 @@ async function drawnWhole(): Promise<string[]> {
 }
 
 /**
- * What a Plan reading its jobs a window at a time through their interval index
- * draws, mounted beside, after the same gestures: a pan moves its window
- * through its rail as the series Plan's moves, and a Plan with none holds the
- * axis's.
+ * What a Plan over the presses read whole, reading its jobs a window at a time
+ * through their interval index, draws, mounted beside, after the same gestures:
+ * a pan moves its window through its rail as the series Plan's moves, and a
+ * Plan with none holds the axis's.
  */
 async function drawnByWindow(gestures: (c: HTMLElement) => Promise<void>): Promise<string[]> {
     const { container } = await h.mount(windowsPlan, { storageKey: "windows" });

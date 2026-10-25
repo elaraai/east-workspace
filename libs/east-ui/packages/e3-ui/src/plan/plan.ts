@@ -33,6 +33,16 @@
  * window, and is refused — a date field there is a field of the rail the
  * viewer sets. Templates are records, each list its own source (#1340).
  *
+ * An event kind on a paged resource kind is read a cell at a time (#1039):
+ * its source of the slice lists a series index and a summary index of its
+ * record, filed by its resource field over its own times, and anything else
+ * — the source's interval index alone, no source, the record read whole, its
+ * days read through a day index — is refused, naming both declarations over
+ * the kind's own fields. Every other kind is counted before its events are
+ * read, and past `SCHEDULE_EVENT_CAP` of them in the range the canvas reads,
+ * none is read or drawn: its rows shade from its source's summary, or are
+ * hatched and the frame says how many there are.
+ *
  * The Plan is an interface. Its payload holds the canvas whole
  * ({@link PlanRootType}, its narrowing's chrome among it) beside the event
  * kinds and resources as Plan takes them (`PlanEventKindType`,
@@ -65,6 +75,7 @@ import {
     printType,
     some,
     variant,
+    type BlockBuilder,
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
@@ -399,13 +410,32 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
 const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(StringType), tile: RecordSliceTileType });
 
 /**
+ * The series index and the summary index a kind placed on a paged resource
+ * kind is read through (#1039), as a refusal names them: over the kind's own
+ * fields — its resource field, and its own times.
+ *
+ * @param kind - The event kind
+ * @returns The two declarations' words
+ */
+function cellIndexes(kind: ScheduleEventKind<EastType, EastType>): { readonly series: string; readonly summary: string } {
+    const filed = `{ key: "${kind.resourceField}", from: "${kind.times.start}", to: "${kind.times.end}"`;
+    return {
+        series: `e3.recordIndex.series(name, record, ${filed}, tile: "week" })`,
+        summary: `e3.recordIndex.summary(name, record, ${filed}, tile: "month" })`,
+    };
+}
+
+/**
  * An event kind's series and summary indexes (#1039), checked as the Plan is
  * evaluated — its source lists its record's indexes, which a Plan reads only
  * then — and refused in words naming the change to make: one filed by another
  * field than the kind's resource, or over other times than its events'; a
  * series index for a kind not placed on a paged resource kind alone; two
- * series, or two summaries, by one tile over the same fields; and a series
- * index with no summary beside it, whose shading draws past the budget.
+ * series, or two summaries, by one tile over the same fields; a series index
+ * with no summary beside it, whose shading draws past the budget; and, for a
+ * kind placed on a paged resource kind, a source listing no series index — a
+ * paged kind's events are read a cell at a time — each naming the indexes to
+ * declare over the kind's own fields.
  *
  * @param slot - The event kind's slot
  * @param kind - The event kind
@@ -430,10 +460,12 @@ function checkedTilings(
             "page the resources (Data.bindPaged), or leave the index out"
         : `, and the kind is placed on ${whole.map((s) => `resources.${s}`).join(" and ")}, read whole — a series index reads the events ` +
             `of a paged resource kind's rows a window at a time: list it for a kind placed on resources.${paged} alone, or leave it out`;
+    const declare = field === undefined ? undefined : cellIndexes(kind);
     const check = East.function([RecordSliceConfigType], NullType, ($, held) => {
         // Each index's place by its text, as East prints it: a Dict's key is of an immutable type, and a place holds an Array.
         const seen = $.let(new Map(), DictType(StringType, StringType));
         const series = $.let(none, OptionType(StringType));
+        const summary = $.let(none, OptionType(StringType));
         const summaries = $.let(0n, IntegerType);
         $.for(held.indexes, ($2, index) => {
             for (const arm of ["series", "summary"] as const) {
@@ -461,6 +493,7 @@ function checkedTilings(
                         if (arm === "series") {
                             $3.assign(series, some(index.name));
                         } else {
+                            $3.assign(summary, some(index.name));
                             $3.assign(summaries, summaries.add(1n));
                         }
                         // One of each by a tile over the same fields.
@@ -483,15 +516,34 @@ function checkedTilings(
             }
         });
         // A series index's events draw while they fit the budget, its summary's shading past it.
-        $.match(series, {
-            some: ($2, name) => {
-                $2.if(summaries.equal(0n), ($3) => {
-                    $3.error(East.value(`${where} series index "`).concat(name).concat("\", and no summary index — the Plan draws a series " +
-                        "index's events while they fit, and its summary's shading past that: declare e3.recordIndex.summary(name, record, " +
-                        "{ key, from, to, tile }) over the same record and list it beside the series index"));
-                });
-            },
-        });
+        const noSummary = ($2: BlockBuilder<NullType>, name: ExprType<StringType>) => {
+            $2.if(summaries.equal(0n), ($3) => {
+                $3.error(East.value(`${where} series index "`).concat(name).concat("\", and no summary index — the Plan draws a series " +
+                    `index's events while they fit, and its summary's shading past that: declare ${declare?.summary ?? "e3.recordIndex.summary(name, record, { key, from, to, tile })"} ` +
+                    "over the same record and list it beside the series index"));
+            });
+        };
+        if (alone && declare !== undefined) {
+            // A kind on a paged resource kind is read a cell at a time (#1039): its source lists a series index and a summary.
+            const onPaged = `, and the kind is placed on resources.${paged}, paged — a paged kind's events are read a cell at a time`;
+            $.match(series, {
+                some: ($2, name) => { noSummary($2 as unknown as BlockBuilder<NullType>, name); },
+                none: ($2) => {
+                    $2.match(summary, {
+                        some: ($3, name) => {
+                            $3.error(East.value(`${where} summary index "`).concat(name).concat(`", and no series index${onPaged}, through a ` +
+                                `series index: declare ${declare.series} over the same record and list it beside the summary index`));
+                        },
+                        none: ($3) => {
+                            $3.error(`Plan: events.${slot}'s source lists no series index and no summary index${onPaged}, and shaded past what ` +
+                                `the Plan draws: declare ${declare.series} and ${declare.summary} over the same record and list them beside its interval index`);
+                        },
+                    });
+                },
+            });
+        } else {
+            $.match(series, { some: ($2, name) => { noSummary($2 as unknown as BlockBuilder<NullType>, name); } });
+        }
         return null;
     });
     return check(config);
@@ -542,7 +594,10 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `applyMode` that is neither
  *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
- *   placed on it and no measures; more than one paged resource kind, or one beside a paged `data` (#1199);
+ *   placed on it and no measures; more than one paged resource kind, or one beside a paged `data` (#1199); an event
+ *   kind placed on a paged resource kind and on another, or with no source of the slice — its record read whole, or the
+ *   days in view read through its day index (`window`) — each naming the series and summary indexes to declare over the
+ *   kind's own fields (#1039);
  *   a key the Plan gives its event rows that another series has; a `slice` that is not `{ slice: Slice.bindRecords(…) }`
  *   — `Slice.bind`, a single `Slice.bindRecord`, the bare handle — or names a source nothing names, `data` beside its
  *   `rows` source, a resource kind not keyed by String its source would narrow, a paged one's source over rows not the
@@ -553,8 +608,9 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  *   are a `range` on the `rows` source or a resource kind's, which the dates on screen never narrow (#1344), and the
  *   series and summary indexes an event kind's source lists (#1039), which the Plan reads only then: one filed by
  *   another field than the kind's resource, or over other times than its events'; a series index for a kind not placed
- *   on a paged resource kind alone; two series, or two summaries, by one tile over the same fields; and a series index
- *   with no summary beside it
+ *   on a paged resource kind alone; two series, or two summaries, by one tile over the same fields; a series index
+ *   with no summary beside it; and, for a kind placed on a paged resource kind, a source listing no series index — its
+ *   interval index alone, or a summary alone — each naming the indexes to declare over the kind's own fields
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
@@ -686,6 +742,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         );
         if (events !== undefined) {
             checkPagedKinds(resourceKinds, data);
+            checkPagedEventKinds(resourceKinds, eventKinds, sources.names);
             checkEventRows(resourceKinds, eventKinds, canvas.series, rows);
             // The series and summary indexes each event kind's source lists (#1039), its record's, read as the Plan is evaluated.
             for (const [slot, kind] of eventKinds) {
@@ -804,6 +861,45 @@ function checkPagedKinds(resources: readonly (readonly [string, ScheduleResource
     }
     if (paged.length === 1 && data !== undefined && resolveRowSource(data, "Plan").kind !== "inline") {
         throw new Error(`Plan: ${paged[0]} pages its rows (Data.bindPaged), and \`data\` is paged too, and a canvas pages one source — bind \`data\` whole, or read the resources whole`);
+    }
+}
+
+/**
+ * What a Plan checks of the event kinds placed on its paged resource kind at
+ * build (#1039): each is read a cell at a time, through its source of the
+ * slice, over the paged kind's rows alone — never its record whole, nor the
+ * days in view through a day index (`window`), which would read every event
+ * of the window for every resource. Which indexes the source lists the Plan
+ * reads only as it is evaluated (`checkedTilings`).
+ *
+ * @param resources - The resource kinds, by slot
+ * @param events - The event kinds, by slot
+ * @param sources - The slice's sources, by name
+ * @throws {Error} Naming a kind placed on the paged kind and on another, or one with no source of the slice — read whole, or
+ *   through its day index — each with the series and summary indexes to declare over the kind's own fields
+ */
+function checkPagedEventKinds(
+    resources: readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[],
+    events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[],
+    sources: readonly string[],
+): void {
+    const paged = resources.find(([, kind]) => kind.window !== undefined)?.[0];
+    if (paged === undefined) return;
+    for (const [slot, kind] of events) {
+        if (!kind.takes.includes(paged)) continue;
+        const others = kind.takes.filter((s) => s !== paged);
+        if (others.length > 0) {
+            throw new Error(`Plan: events.${slot} is placed on resources.${paged}, paged, and on ${others.map((s) => `resources.${s}`).join(" and ")}, ` +
+                "read whole — a paged kind's events are read a cell at a time, through a series index that reads its rows alone: " +
+                `place events.${slot} on resources.${paged} alone, or read resources.${paged} whole`);
+        }
+        if (sources.includes(slot)) continue;
+        const { series, summary } = cellIndexes(kind);
+        const how = kind.windowed ? "reads the days in view through its day index (`window`)" : "its record is read whole";
+        const leave = kind.windowed ? "leave `window` and `backlogWindow` out, and " : "";
+        throw new Error(`Plan: events.${slot} is placed on resources.${paged}, paged, and ${how} — a paged kind's events are read a cell at a ` +
+            `time, through the kind's source of the slice: ${leave}name a source after "${slot}", Data.bindPaged(record, { indexes }), listing ` +
+            `${series} and ${summary} beside its interval index`);
     }
 }
 

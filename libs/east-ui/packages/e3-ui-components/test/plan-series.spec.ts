@@ -16,7 +16,9 @@
  *   with no read of the window — one event from the rows the cells hold, and
  *   the paged kind's keys and its rows shaded past the budget.
  * - The refusals a Plan makes of a source's series and summary indexes as its
- *   payload builds, in the words a build uses.
+ *   payload builds, in the words a build uses — a kind on the paged presses
+ *   whose source lists no series index, or no summary, among them, each naming
+ *   the indexes to declare over the kind's own fields.
  *
  * What a reader reads, and when, is the DOM's (`src/plan/frame/plan-series.dom.test.tsx`).
  */
@@ -60,7 +62,7 @@ const NO_DRAFTS = draftsOf([]);
 /** The jobs as e3 holds them. */
 const heldJobs = async () => (await h.read(ex.planWindowJobs)) as ReadonlyMap<string, Job>;
 
-/** What the series Plan's payload is built over: the indexes its `job` source lists, and how its kind and its presses are declared. */
+/** What the windows Plan's payload is built over: the indexes its `job` source lists, and how its kind and its presses are declared. */
 interface Declared {
     /** The `job` source's indexes; the example's three unless given. */
     readonly indexes?: readonly unknown[];
@@ -70,14 +72,11 @@ interface Declared {
     readonly end?: "end" | "due";
     /** Whether the presses are read whole, not paged. */
     readonly whole?: boolean;
-    /**
-     * Whether the indexes are listed for a second kind over the jobs, placed on
-     * no resource — `loose` — the jobs' own source listing the interval index alone.
-     */
+    /** Whether the indexes are listed for a second kind over the jobs too, placed on no resource — `loose`. */
     readonly loose?: boolean;
 }
 
-/** The series example's Plan, its payload declared in East over e3. */
+/** The windows example's Plan (`planWindows`), its payload declared in East over e3. */
 function seriesPayload($: BlockBuilder<typeof PlanPayloadType>, declared: Declared = {}): ExprType<typeof PlanPayloadType> {
     const { indexes = [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth], resource = "press", end = "end", whole = false, loose = false } = declared;
     const presses = whole
@@ -85,12 +84,8 @@ function seriesPayload($: BlockBuilder<typeof PlanPayloadType>, declared: Declar
         : Schedule.resources($.let(Data.bindPaged(ex.planWindowPresses)), { name: "Presses", icon: "print", label: (p) => p.name });
     const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
-    const sources = loose
-        ? {
-            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), range: "start" },
-            loose: { source: Data.bindPaged(ex.planWindowJobs, { indexes: indexes as never }), range: "start" },
-        }
-        : { job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: indexes as never }), range: "start" } };
+    const job = { source: Data.bindPaged(ex.planWindowJobs, { indexes: indexes as never }), range: "start" };
+    const sources = loose ? { job, loose: { source: Data.bindPaged(ex.planWindowJobs, { indexes: indexes as never }), range: "start" } } : { job };
     const slice = $.let(Slice.bindRecords("spec.plan.series", sources as never));
     const kinds = {
         job: Schedule.events(jobs, {
@@ -242,14 +237,30 @@ describe("the seams of a kind read by its cells (#1039)", () => {
 
 describe("a source's series and summary indexes, refused as the payload builds (#1039)", () => {
     const refused = (pattern: string, slot = "job") => new RegExp(`^.*Plan: events\\.${slot}'s source lists the ${pattern}`);
+    /** The two indexes a refusal names, declared over the jobs' own fields: their press, their start and their end. */
+    const series = `e3\\.recordIndex\\.series\\(name, record, \\{ key: "press", from: "start", to: "end", tile: "week" \\}\\)`;
+    const summary = `e3\\.recordIndex\\.summary\\(name, record, \\{ key: "press", from: "start", to: "end", tile: "month" \\}\\)`;
+    const paged = `, and the kind is placed on resources\\.presses, paged — a paged kind's events are read a cell at a time`;
 
     test("the example's three build", async () => {
         await assert.doesNotReject(payloadOf());
     });
 
+    test("a kind on the paged presses whose source lists its interval index alone: refused, naming the series and the summary index to declare", async () => {
+        await assert.rejects(payloadOf({ indexes: [ex.planWindowJobsByTime] }),
+            new RegExp(`^.*Plan: events\\.job's source lists no series index and no summary index${paged}, and shaded past what the Plan draws: ` +
+                `declare ${series} and ${summary} over the same record and list them beside its interval index`));
+    });
+
+    test("a kind on the paged presses whose source lists a summary and no series index: refused, naming the series index to declare", async () => {
+        await assert.rejects(payloadOf({ indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressMonth] }),
+            new RegExp(`^.*Plan: events\\.job's source lists the summary index "plan_window_jobs_by_press_month", and no series index${paged}, ` +
+                `through a series index: declare ${series} over the same record and list it beside the summary index`));
+    });
+
     test("a series index with no summary beside it: its events draw while they fit, and nothing shades past that", async () => {
         await assert.rejects(payloadOf({ indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek] }),
-            refused(`series index "plan_window_jobs_by_press_week", and no summary index — the Plan draws a series index's events while they fit, and its summary's shading past that: declare e3\\.recordIndex\\.summary\\(name, record, \\{ key, from, to, tile \\}\\) over the same record and list it beside the series index`));
+            refused(`series index "plan_window_jobs_by_press_week", and no summary index — the Plan draws a series index's events while they fit, and its summary's shading past that: declare ${summary} over the same record and list it beside the series index`));
     });
 
     test("a series index for a kind whose resources are read whole, or placed on none", async () => {
