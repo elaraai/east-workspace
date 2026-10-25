@@ -7,7 +7,8 @@
  * The lens's reads over a record (#1349): where e3 places the narrowing's
  * rows, and the rows of the segments that hold them near the view, each read
  * by position with one ask of which of them the narrowing holds. What it has
- * read it lays out ({@link layoutLens}).
+ * read it lays out ({@link layoutLens}): the narrowing's rows, one after
+ * another in the record's order.
  *
  * - **Placement.** `recordSlicePlace` reads where the narrowing's rows sit,
  *   segment by segment, from the index alone, its windows landing a few at a
@@ -20,19 +21,17 @@
  *   runtime's bounded caches hold every page it waits on; what has landed is
  *   kept while the view wants it, so a view meeting more segments than one
  *   turn reads is read whole, turn by turn. A segment with no match is never
- *   read; a run the planner opened is read where it is drawn.
+ *   read.
  * - **What it has read** is kept by the record's revision and the narrowing:
  *   a choice keeps the rows, its matches asked again; a new revision reads
  *   both again. Until a new narrowing or revision is laid out — its placement
- *   begun, the segments near the view read, the runs the planner opened found
- *   again — the last layout stands in, so the sheet never empties between
- *   them. Switched off, the lens keeps its last layout for its host to stand
- *   in while the pages are read again.
- * - **A key search's jump** reads where its row is and holds the view until
- *   that row is drawn.
- * - **The runs the planner opened** are named by their first and last rows'
- *   keys as they are drawn, at each revision, so a view keeps them by key and
- *   a new revision finds them again.
+ *   begun and the segments near the view read — the last layout stands in, so
+ *   the sheet never empties between them. Switched off, the lens keeps its
+ *   last layout for its host to stand in while the pages are read again.
+ * - **A key search's jump** reads where its row is, beside the view, until
+ *   that row is drawn — its host then scrolls to it — or is known to be a row
+ *   the narrowing does not hold, when nothing moves: the view's own rows stay
+ *   drawn throughout.
  *
  * @packageDocumentation
  */
@@ -48,9 +47,7 @@ import {
     layoutLens, lensDemand, lensPieces, lensReadInTurns, lensRegions,
     type LensFacts, type LensGeometry, type LensLayout, type LensPiece, type LensPlacement, type LensRow, type LensSegmentState, type LensWords,
 } from "./lens-layout.js";
-import type { LensRun } from "./lens.js";
-import type { LensContext } from "./sheet-types.js";
-import type { SheetPagedSourceValue, SheetRevealValue, SheetRowValue } from "./values.js";
+import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 
@@ -59,9 +56,6 @@ export const LENS_BUDGET = 16;
 
 /** The segments past the view on either side the lens reads. */
 const LENS_BEYOND = 2;
-
-/** The revisions whose run names the lens keeps: the current one, and the one before, which a new revision's reveals are named at. */
-const NAMED_REVISIONS = 2;
 
 const printWhere = printFor(RecordSliceWhereType);
 /** Whether two sources serve the same rows: the same id and equivalent functions, as the paged driver asks (#809). */
@@ -72,9 +66,8 @@ const WHOLE_RECORD: Where = new Map();
 
 /**
  * Where a key lands among a `rows` source's record's own rows, in the
- * record's order (#1349): what the sheet's key search seeks over a record, and
- * how a run the planner opened is found again by its rows' keys. A tracked
- * read: none while it is pending.
+ * record's order (#1349): what the sheet's key search seeks over a record. A
+ * tracked read: none while it is pending.
  *
  * @param part - The `rows` source's part of the slice
  * @param query - The key query, in the record's primary key's order
@@ -138,6 +131,13 @@ interface Shown {
     query: string;
 }
 
+/** The view, as the record's rows its first and last items stand for, under the narrowing it was reported under. */
+interface LensView {
+    from: number;
+    to: number;
+    query: string;
+}
+
 /** The lens's view of the record, as the sheet draws it. */
 export interface RecordLens {
     /** The layout drawn: the narrowing's, the last one while a new narrowing or revision is read, or — switched off — the last one, kept for its host. */
@@ -149,9 +149,7 @@ export interface RecordLens {
     total: number | undefined;
     /** How many rows the narrowing holds, once placed. */
     matches: number | undefined;
-    /** The revision the lens reads at. */
-    revision: string | undefined;
-    /** Whether the narrowing's layout is drawn: its placement begun, the segments near the view read, its runs found. */
+    /** Whether the narrowing's layout is drawn: its placement begun and the segments near the view read. */
     ready: boolean;
     /** Whether a read is still in flight. */
     loading: boolean;
@@ -163,18 +161,16 @@ export interface RecordLens {
     error: string | undefined;
     /** Bumps when what is drawn changes height at a constant count. */
     sizeVersion: number;
-    /** A key search's jump: its row, and whether it is drawn. */
+    /** A key search's jump: its row, and whether it is drawn — or known to be a row the narrowing does not hold. */
     jump: { window: number; settled: boolean } | undefined;
-    /** The view moved: the rows its first and last items stand for. Ignored while a jump is pending. */
+    /** The view moved: the rows its first and last items stand for, read at rest. */
     reportViewport: (from: number, to: number, isScrolling: boolean) => void;
-    /** Read where a row is, and hold the view until it is drawn — its host opens it. */
+    /** Read where a row is, beside the view, until it is drawn — its host scrolls to it — or known hidden. */
     jumpToElement: (position: number) => void;
-    /** Drop the jump: the view is the viewer's again. */
+    /** Drop the jump: where it drew its row, the view stays read there until the frame reports where it rests. */
     clearJump: () => void;
     /** Ask again: a failed segment, by its first row, or with none everything that failed. */
     retry: (w?: number) => void;
-    /** The runs as a view keeps them: each by its first and last rows' keys, at a revision, where the lens has drawn them there. */
-    nameRuns: (runs: readonly LensRun[], revision: string | undefined) => SheetRevealValue[];
 }
 
 /** What {@link useRecordLens} lays out over. */
@@ -185,14 +181,12 @@ export interface RecordLensInput {
     part: ValueTypeOf<RecordSliceBindType> | undefined;
     /** The narrowing. */
     where: Where | undefined;
-    context: LensContext;
-    /** The runs the planner opened, sorted and disjoint. */
-    reveals: readonly LensRun[];
-    /** Runs named by key are still to be found: a layout without them is not yet the narrowing's. */
-    placing: boolean;
     geometry: LensGeometry;
     words: LensWords;
 }
+
+/** The view before any is reported: the record's first row. */
+const NO_VIEW: LensView = { from: 0, to: 0, query: "" };
 
 /**
  * Reads and lays out the lens over a record (#1349).
@@ -201,11 +195,11 @@ export interface RecordLensInput {
  * @returns What the sheet draws, and the callbacks it feeds back
  */
 export function useRecordLens(input: RecordLensInput): RecordLens {
-    const { source, part, where, context, reveals, placing, geometry, words } = input;
+    const { source, part, where, geometry, words } = input;
     const active = source !== undefined && part !== undefined && where !== undefined;
     const query = where === undefined ? "" : printWhere(where);
     // The view, by the narrowing it was reported under: a new narrowing starts at the top.
-    const [viewport, setViewport] = useState<{ from: number; to: number; query: string }>({ from: 0, to: 0, query: "" });
+    const [viewport, setViewport] = useState<LensView>(NO_VIEW);
     const viewFrom = viewport.query === query ? viewport.from : 0;
     const viewTo = viewport.query === query ? viewport.to : 0;
     const [retries, setRetries] = useState(0);
@@ -214,6 +208,8 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     jumpRef.current = jumpTarget;
     const queryRef = useRef(query);
     queryRef.current = query;
+    // Whether the pending jump's row is drawn: the host scrolls to it then.
+    const jumpDrawnRef = useRef(false);
     const cacheRef = useRef<LensCache>(emptyCache(undefined));
 
     const read = useCallback((): LensRead | undefined => {
@@ -254,19 +250,28 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         const landed = new Map<string, LandedPiece>();
         let pieces: LensPiece[] = [];
         if (placement !== undefined) {
-            pieces = lensPieces(lensRegions(placement), reveals);
-            const wanted = lensDemand(pieces, viewFrom, viewTo, LENS_BEYOND);
-            // A piece has landed whole once its rows — and, over a segment of matches, which of them the narrowing
-            // holds — are kept; a failed one is not asked again until a Retry.
-            const whole = (p: LensPiece): boolean => cache.failures.has(p.key)
-                || (cache.rows.has(p.key) && (p.segment === undefined || cache.hits.has(p.key)));
+            pieces = lensPieces(lensRegions(placement));
+            // A pending jump's segments first, then the view's: the view keeps what it draws while the jump reads.
+            const seen = new Set<number>();
+            const wanted = [
+                ...(jumpTarget === undefined ? [] : lensDemand(pieces, jumpTarget, jumpTarget, LENS_BEYOND)),
+                ...lensDemand(pieces, viewFrom, viewTo, LENS_BEYOND),
+            ].filter((group) => {
+                const segment = group[0]!.segment;
+                if (seen.has(segment)) return false;
+                seen.add(segment);
+                return true;
+            });
+            // A piece has landed whole once its rows, and which of them the narrowing holds, are kept; a failed one is
+            // not asked again until a Retry.
+            const whole = (p: LensPiece): boolean => cache.failures.has(p.key) || (cache.rows.has(p.key) && cache.hits.has(p.key));
             lensReadInTurns(wanted, whole, (p) => {
                 try {
                     if (!cache.rows.has(p.key)) {
                         const page = source.page(BigInt(p.from), BigInt(p.count));
                         if (page.type === "some") cache.rows.set(p.key, page.value as readonly SheetRowValue[]);
                     }
-                    if (p.segment !== undefined && !cache.hits.has(p.key)) {
+                    if (!cache.hits.has(p.key)) {
                         const asked = recordSliceWithinAt(part, where, BigInt(p.from), BigInt(p.count));
                         if (asked.type === "some") cache.hits.set(p.key, asked.value);
                     }
@@ -282,8 +287,8 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
                 for (const p of group) {
                     const failed = cache.failures.get(p.key);
                     if (failed !== undefined) { landed.set(p.key, { error: failed }); continue; }
-                    const piece: LandedPiece = { rows: cache.rows.get(p.key), hits: p.segment === undefined ? undefined : cache.hits.get(p.key) };
-                    if (piece.rows === undefined || (p.segment !== undefined && piece.hits === undefined)) pending = true;
+                    const piece: LandedPiece = { rows: cache.rows.get(p.key), hits: cache.hits.get(p.key) };
+                    if (piece.rows === undefined || piece.hits === undefined) pending = true;
                     landed.set(p.key, piece);
                 }
             }
@@ -295,7 +300,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         const ready = placement !== undefined && !pending;
         const loading = placementError === undefined && (placement === undefined || !placement.complete || pending);
         return { revision, query, placement, placementError, pieces, landed, ready, loading };
-    }, [source, part, where, query, reveals, viewFrom, viewTo, retries]);
+    }, [source, part, where, query, viewFrom, viewTo, jumpTarget, retries]);
 
     const { result } = useTrackedEvaluation(read);
     const value = result.ok ? result.value : undefined;
@@ -303,34 +308,24 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     const valueRef = useRef(value);
     valueRef.current = value;
 
-    // The rows read, by position, with whether the narrowing holds each; each segment's state; and the planner's runs whose read failed.
+    // The rows read, by position, with whether the narrowing holds each; and each segment's state.
     const known = useMemo(() => {
         const rows = new Map<number, LensRow>();
         const segments = new Map<number, LensSegmentState>();
-        const failed: (LensRun & { error: string })[] = [];
-        if (value === undefined) return { rows, segments, read: [] as number[], failed };
+        if (value === undefined) return { rows, segments };
         // A segment is read when every one of its pages has landed whole; one failure fails it.
         const whole = new Map<number, boolean>();
         for (const p of value.pieces) {
             const piece = value.landed.get(p.key);
-            if (p.segment !== undefined) {
-                if (piece?.error !== undefined) segments.set(p.segment, { kind: "failed", error: piece.error });
-                const done = piece !== undefined && piece.rows !== undefined && piece.hits !== undefined;
-                whole.set(p.segment, (whole.get(p.segment) ?? true) && done);
-            } else if (piece?.error !== undefined) {
-                failed.push({ from: p.from, to: p.from + p.count - 1, error: piece.error });
-            }
+            if (piece?.error !== undefined) segments.set(p.segment, { kind: "failed", error: piece.error });
+            const done = piece !== undefined && piece.rows !== undefined && piece.hits !== undefined;
+            whole.set(p.segment, (whole.get(p.segment) ?? true) && done);
             const pieceRows = piece?.rows;
             if (pieceRows === undefined) continue;
-            pieceRows.forEach((row, i) => {
-                const position = p.from + i;
-                const hit = piece?.hits?.[i];
-                const before = rows.get(position);
-                if (before === undefined || (before.hit === undefined && hit !== undefined)) rows.set(position, { row, hit });
-            });
+            pieceRows.forEach((row, i) => rows.set(p.from + i, { row, hit: piece?.hits?.[i] }));
         }
         for (const [segment, done] of whole) if (!segments.has(segment)) segments.set(segment, done ? { kind: "read" } : { kind: "unread" });
-        return { rows, segments, read: [...rows.keys()].sort((a, b) => a - b), failed };
+        return { rows, segments };
     }, [value]);
 
     const fresh = useMemo((): LensLayout | undefined => {
@@ -339,11 +334,9 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
             placement: value.placement,
             segmentState: (offset) => known.segments.get(offset) ?? { kind: "unread" },
             rowAt: (position) => known.rows.get(position),
-            read: known.read,
-            failed: known.failed,
         };
-        return layoutLens(facts, context, reveals, geometry, words);
-    }, [value, known, context, reveals, geometry, words]);
+        return layoutLens(facts, geometry, words);
+    }, [value, known, geometry, words]);
 
     // The layout shown: the narrowing's once it is ready, the last one standing in until then. A lens switched on
     // anew stands nothing of its own in: the rows its host showed last do. Switched off, it keeps its last layout.
@@ -356,7 +349,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     if (active && value !== undefined && fresh !== undefined) {
         const previous = displayed.current;
         const moved = previous !== undefined && (previous.revision !== value.revision || previous.query !== value.query);
-        if (moved && !(value.ready && !placing)) {
+        if (moved && !value.ready) {
             replacing = previous.query !== value.query;
         } else {
             shown = { layout: fresh, revision: value.revision, query: value.query };
@@ -378,61 +371,38 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         return { rows, positions };
     }, [layout]);
 
-    // The runs' names, by revision: each run's first and last rows' keys, as the layout draws them there.
-    const names = useRef(new Map<string | undefined, Map<number, string>>());
-    if (active && shown !== undefined && reveals.length > 0) {
-        let ids = names.current.get(shown.revision);
-        if (ids === undefined) {
-            ids = new Map();
-            names.current.set(shown.revision, ids);
-            while (names.current.size > NAMED_REVISIONS) names.current.delete(names.current.keys().next().value);
-        }
-        const ends = new Set<number>();
-        for (const run of reveals) { ends.add(run.from); ends.add(run.to); }
-        for (const p of [...ids.keys()]) if (!ends.has(p)) ids.delete(p);
-        drawn.positions.forEach((p, i) => { if (ends.has(p)) ids.set(p, drawn.rows[i]!.id); });
-    }
-    const nameRuns = useCallback((runs: readonly LensRun[], revision: string | undefined): SheetRevealValue[] => {
-        const ids = names.current.get(revision);
-        if (ids === undefined) return [];
-        const out: SheetRevealValue[] = [];
-        for (const run of runs) {
-            const from = ids.get(run.from);
-            const to = ids.get(run.to);
-            if (from !== undefined && to !== undefined) out.push({ from, to });
-        }
-        return out;
-    }, []);
-
     // Heights change at a constant count as segments land: the frame measures again.
     const sizeVersion = useMemo(() => {
         let h = 0;
         for (const item of layout?.items ?? []) {
-            const px = item.kind === "pending" ? item.band.px : item.kind === "failed" ? item.failure.px : item.kind === "gap" ? -1 : -2;
+            const px = item.kind === "pending" ? item.band.px : item.kind === "failed" ? item.failure.px : -1;
             h = (h * 31 + Math.round(px)) | 0;
         }
         return h;
     }, [layout]);
 
     const reportViewport = useCallback((from: number, to: number, isScrolling: boolean) => {
-        // A pending jump owns the view (#854): a report is taken from where the sheet still is.
-        if (isScrolling || jumpRef.current !== undefined) return;
+        if (isScrolling) return;
         const q = queryRef.current;
         setViewport((current) => (current.from === from && current.to === to && current.query === q ? current : { from, to, query: q }));
     }, []);
-    const jumpToElement = useCallback((position: number) => {
-        setJumpTarget(position);
-        setViewport({ from: position, to: position, query: queryRef.current });
+    const jumpToElement = useCallback((position: number) => setJumpTarget(position), []);
+    const clearJump = useCallback(() => {
+        // A jump whose row is drawn hands the view to the frame, which scrolls there: until it reports where it rests,
+        // the view is read where the row is, so the row stays drawn (#854). One that drew nothing — a row the
+        // narrowing does not hold, or a read let go — leaves the view where it is.
+        const target = jumpRef.current;
+        if (target !== undefined && jumpDrawnRef.current) setViewport({ from: target, to: target, query: queryRef.current });
+        setJumpTarget(undefined);
     }, []);
-    const clearJump = useCallback(() => setJumpTarget(undefined), []);
 
     const retry = useCallback((w?: number) => {
         const ask = () => {
             const cache = cacheRef.current;
             // What is asked again is read again whole: a segment, by its first row — a read that failed, or rows that
-            // disagreed with its placement — or the page of a run the planner opened that holds the row.
+            // disagreed with its placement.
             for (const p of valueRef.current?.pieces ?? []) {
-                if (w === undefined || (p.segment !== undefined ? p.segment !== w : w < p.from || w >= p.from + p.count)) continue;
+                if (w !== undefined && p.segment !== w) continue;
                 cache.failures.delete(p.key);
                 cache.rows.delete(p.key);
                 cache.hits.delete(p.key);
@@ -447,9 +417,22 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         queueMicrotask(ask);
     }, [source]);
 
-    // A jump settles once its row is drawn — or the band of the read that failed where it is.
-    const settled = jumpTarget !== undefined && (layout?.items ?? []).some((item) => (item.kind === "row" && item.position === jumpTarget)
-        || (item.kind === "failed" && item.failure.from <= jumpTarget && jumpTarget <= item.failure.to));
+    // A jump settles once its row is drawn — or the band of the read that failed where it is — or once the lens knows
+    // the row is none the narrowing holds: it lies where no segment of matches does, every row placed, or in a segment
+    // read whose rows say so.
+    const items = layout?.items ?? [];
+    const drawnAt = (p: number) => items.some((item) => (item.kind === "row" && item.position === p)
+        || (item.kind === "failed" && item.failure.from <= p && p <= item.failure.to));
+    const hiddenAt = (p: number): boolean => {
+        const placement = value?.placement;
+        if (placement === undefined) return false;
+        const segment = placement.segments.find((s) => s.offset <= p && p < s.offset + s.count);
+        if (segment === undefined) return placement.complete;
+        return known.segments.get(segment.offset)?.kind === "read" && known.rows.get(p)?.hit === false;
+    };
+    const jumpDrawn = jumpTarget !== undefined && drawnAt(jumpTarget);
+    jumpDrawnRef.current = jumpDrawn;
+    const settled = jumpTarget !== undefined && (jumpDrawn || hiddenAt(jumpTarget));
     const failure = value?.placementError ?? readError;
     return {
         layout,
@@ -457,9 +440,8 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         positions: drawn.positions,
         total: value?.placement?.records,
         matches: value?.placement?.matches,
-        revision: value?.revision,
-        ready: active && value !== undefined && value.ready && !placing && shown !== undefined && shown.query === query && shown.revision === value.revision,
-        loading: active && (value === undefined || value.loading || placing),
+        ready: active && value !== undefined && value.ready && shown !== undefined && shown.query === query && shown.revision === value.revision,
+        loading: active && (value === undefined || value.loading),
         replacing,
         sourceError: layout === undefined ? undefined : failure,
         error: active && layout === undefined ? failure : undefined,
@@ -469,6 +451,5 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         jumpToElement,
         clearJump,
         retry,
-        nameRuns,
     };
 }

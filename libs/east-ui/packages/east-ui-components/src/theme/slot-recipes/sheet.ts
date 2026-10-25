@@ -61,12 +61,8 @@
  *     inside themselves — the strip clips its overflow sideways (#860).
  *     Folded into one chip (#1221), the strip is the open view's tab with a
  *     caret.
- *   - Context switch: 28 px, r-md, options mono 10 filling it, active
- *     brandTint; a focused option a 2 px brand ring (#860).
- *   - Bands: the lens's gap, 22 px; 1 px dashed `border.strong` at 50 %;
- *     pill mono 9 `fg.subtle` on `bg.surface` 1 px `border.subtle` r-sm; it
- *     opens on hover with brand controls (no shadow). A row that could not be
- *     drawn is one row of `fg.danger` mono on the invalid row's wash.
+ *   - A row that could not be drawn is one row of `fg.danger` mono on the
+ *     invalid row's wash.
  *   - Runs (#1398, CL2): rows not drawn yet — a paged source's unloaded run,
  *     a stretch the lens is reading, a window whose read failed — are the
  *     shared `UnloadedRun` on the rows' own geometry: rows at the density's
@@ -125,12 +121,10 @@
  *   - A phone (the adaptive contract, #346): the grid scrolls sideways under
  *     a gutter that stays put (`position: sticky`), the frame's toolbar keeps
  *     its one row through its ladder — on a coarse pointer its controls (the
- *     tabs, `+n`, `+ TAB`, the active tab's ×, the context options) keep their
- *     size and take a 44 px tap target from their halos (#1221) — and in the
- *     grid the small controls grow (gutter buttons, ✓ take, the band's
- *     controls, the strip's chips), the editor's type goes to 16 px so a
- *     phone never zooms into it, and the band's controls — hover-revealed on
- *     a desktop — stay open where nothing can hover (`_hoverNone`).
+ *     tabs, `+n`, `+ TAB`, the active tab's ×) keep their size and take a
+ *     44 px tap target from their halos (#1221) — and in the grid the small
+ *     controls grow (gutter buttons, ✓ take, the strip's chips), and the
+ *     editor's type goes to 16 px so a phone never zooms into it.
  *   - Drag and drop (#1187): a grip leads the actions column — a
  *     14 px `grip-vertical` in the faintest ink, shown on the row's hover
  *     and always where nothing hovers, a 32 px halo on a coarse pointer; the
@@ -168,7 +162,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "pane", "toolbarCount", "toolbarBadge",
         "tabs", "tabList", "tab", "tabLabel", "tabCount", "tabDot", "tabClose", "tabAdd", "tabMore", "tabMenu", "tabRename",
         "searchViews", "searchViewsActions",
-        "contextSwitch", "contextLabel", "contextOption",
         "header", "headerGutter", "headerNumber", "headerCell", "headerLabel", "headerSub",
         "row", "rowBlank", "gutter", "rail", "connector", "checkbox", "gutterNumber", "numberMeasure", "gutterButton", "gutterBar", "rowGrip", "rowActions", "dragGhost",
         "cell", "cellIssue", "cellText", "cellMono", "cellWord", "cellNum", "cellUnit", "cellRes", "cellGhost", "cellDot",
@@ -178,7 +171,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         "editorCombobox", "editorMenu", "editorOption", "editorOptionMeta",
         "editorTime",
         "linkGrid", "half", "halfLabel", "chip", "chipDashed", "chipPicked", "chipMeta", "lockTag", "lockWarn", "arrow",
-        "band", "bandRule", "bandPill", "bandControl", "bandCount", "retry", "rowError",
+        "retry", "rowError",
         "run", "runRow", "runGutter", "runCell", "runBand",
         "gutterAction", "groupSummary",
         "groupRow", "groupChevron", "groupCount", "groupTitle", "groupTitleText", "groupSub", "groupCell",
@@ -505,63 +498,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             flexWrap: "wrap",
             alignItems: "center",
             gap: "1",
-        },
-        // the switch is the `+ TAB` button's size and idiom
-        // (28 px, as tall as every control in the row; r-sm, `border.strong`,
-        // mono 9.5/600 uppercase), not a taller box of its own — on a coarse
-        // pointer too, where its options take their touch target from their
-        // halos (#1221). Its options fill it, 2 px inside its border.
-        contextSwitch: {
-            display: "flex",
-            alignItems: "center",
-            gap: "2px",
-            height: TOOLBAR_CONTROL_HEIGHT,
-            paddingX: "3px",
-            paddingY: "2px",
-            flex: "none",
-            borderWidth: "1px",
-            borderColor: "border.strong",
-            borderRadius: "{radii.sm}",
-            background: "bg.surface",
-        },
-        // the label and the options share ONE line box (the
-        // same font size, a 16 px line, no vertical padding) so their
-        // baselines coincide and every box lands on a whole pixel inside the
-        // 28 px switch; before, a 9 px label in a 13.5 px line sat beside
-        // 10 px options in 19 px boxes, and the half-pixel offsets showed.
-        contextLabel: {
-            display: "inline-flex",
-            alignItems: "center",
-            height: "16px",
-            lineHeight: "16px",
-            paddingX: "4px",
-            fontFamily: "mono",
-            fontSize: "9.5px",
-            fontWeight: "600",
-            letterSpacing: "0.1em",
-            color: "fg.subtle",
-            textTransform: "uppercase",
-        },
-        // An option sits two pixels from the next, and fills the switch's height inside its padding: its halo grows its height alone.
-        contextOption: {
-            display: "inline-flex",
-            alignItems: "center",
-            height: "100%",
-            lineHeight: "16px",
-            paddingX: "6px",
-            paddingY: "0",
-            ...coarseHitArea({ position: true, axis: "block" }),
-            border: "none",
-            background: "transparent",
-            borderRadius: "{radii.sm}",
-            color: "fg.subtle",
-            fontFamily: "mono",
-            fontSize: "9.5px",
-            cursor: "pointer",
-            _hover: { background: "bg.muted", color: "fg.muted" },
-            "&[data-on]": { background: "brandTint", color: "brand.fg", fontWeight: "600" },
-            // A radio of the switch (#860), reached by the keyboard.
-            _focusVisible: { outline: "2px solid", outlineColor: "brand.solid", outlineOffset: "1px" },
         },
         // the header band: 48 px `bg.panel`, `border.strong` below.
         header: {
@@ -1338,52 +1274,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             fontSize: "10px",
         },
-        band: {
-            position: "relative",
-            height: "22px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-start",
-            // Past the fine gutter — rail 28 · number · actions 64 — and 10 px: 138 beside the least number column.
-            paddingLeft: "calc(var(--sheet-number, 36px) + 102px)",
-            _coarse: { height: "32px", paddingLeft: "calc(var(--sheet-number, 36px) + 102px)" },
-        },
-        bandRule: {
-            position: "absolute",
-            left: "0",
-            right: "0",
-            top: "50%",
-            borderTopWidth: "1px",
-            borderTopStyle: "dashed",
-            borderTopColor: "border.strong",
-            pointerEvents: "none",
-        },
-        bandPill: {
-            position: "relative",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            paddingX: "10px",
-            paddingY: "1px",
-            borderWidth: "1px",
-            borderColor: "border.subtle",
-            borderRadius: "{radii.sm}",
-            background: "bg.surface",
-            fontFamily: "mono",
-            fontSize: "9px",
-            letterSpacing: "0.06em",
-            color: "fg.subtle",
-            cursor: "pointer",
-            whiteSpace: "nowrap",
-            // The lens band's controls open on hover (B§11) — the pill casts no
-            // shadow: the design system shadows nothing but the focus ring.
-            "& [data-slot=bandControl]": { display: "none" },
-            "&[data-lens]:hover": { "& [data-slot=bandControl]": { display: "inline-flex" } },
-            // Where nothing can hover they stay open.
-            _hoverNone: { "&[data-lens] [data-slot=bandControl]": { display: "inline-flex" } },
-            _coarse: { paddingY: "4px", gap: "10px" },
-        },
-        // The whole-sheet message's Retry (#853): the band controls' brand, a button.
+        // The whole-sheet message's Retry (#853): brand, a button.
         retry: {
             display: "inline-flex",
             alignItems: "center",
@@ -1405,7 +1296,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         rowError: {
             display: "flex",
             alignItems: "center",
-            // Past the fine gutter and 10 px, as a band's pill.
+            // Past the fine gutter — rail 28 · number · actions 64 — and 10 px: 138 beside the least number column.
             paddingLeft: "calc(var(--sheet-number, 36px) + 102px)",
             fontFamily: "mono",
             fontSize: "10px",
@@ -1460,21 +1351,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // A grouped run's band: its chevron past the gutter, where a group band's sits.
         runBand: {
             paddingLeft: "calc(var(--sheet-gutter, 128px) + 12px)",
-        },
-        bandControl: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "3px",
-            paddingX: "4px",
-            _coarse: { paddingX: "8px", paddingY: "4px" },
-            borderRadius: "{radii.sm}",
-            color: "brand.solid",
-            fontWeight: "600",
-            cursor: "pointer",
-            _hover: { background: "brandTint" },
-        },
-        bandCount: {
-            cursor: "pointer",
         },
         // The actions column: the row's decisions, 24 px each, 4 px apart.
         gutterAction: {

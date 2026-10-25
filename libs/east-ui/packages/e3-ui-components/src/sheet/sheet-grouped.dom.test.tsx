@@ -1090,7 +1090,7 @@ test("grouped key search jumps and steps between summaries without filtering chi
     expect(ui.rows()).toHaveLength(count);
     expect(ui.lines("P1000")).toHaveLength(1);
     expect(ui.container.querySelector('[data-slot="tabs"]')).toBeNull();
-    expect(ui.container.querySelector('[data-band="lens"]')).toBeNull();
+    expect(ui.container.querySelector('[data-sheet][data-lens]')).toBeNull();
     fireEvent.click(ui.getByRole("button", { name: "Previous match" }));
     await waitFor(() => expect(ui.band("P1001")!.querySelector('[data-key="$title"][data-selected]')).not.toBeNull());
     fireEvent.click(ui.getByRole("button", { name: "Clear search" }));

@@ -8,17 +8,16 @@
  * ways for a control that stands alone, its height alone for a segment whose
  * neighbours sit edge to edge, risen from a clipping box's foot for a control
  * near it (#1398). The responsive suite measures what a tap on it hits; this
- * holds the fragment the recipes spread, the recipes whose controls sit edge
+ * holds the fragment the recipes spread, the recipe whose controls sit edge
  * to edge to its block axis — the segment strip's segments, which the Plan's
- * 49–55px segments never let a measure tell apart, and the context switch's
- * options — and the footer line's Retry to its foot.
+ * 49–55px segments never let a measure tell apart — and the footer line's
+ * Retry to its foot.
  */
 
 import { describe, test, expect } from "vitest";
 import { coarseHitArea } from "./hit-area.js";
 import { builderFooterLineSlotRecipe } from "../theme/slot-recipes/builder-footer.js";
 import { segSlotRecipe } from "../theme/slot-recipes/seg.js";
-import { sheetSlotRecipe } from "../theme/slot-recipes/sheet.js";
 
 /** The halo a fragment draws, by its pseudo-element. */
 function halo(fragment: object, pseudo: "_before" | "_after" = "_before"): Record<string, unknown> {
@@ -46,10 +45,8 @@ describe("coarseHitArea", () => {
         expect(halo(coarseHitArea({ axis: "both" }))).toMatchObject({ width: "max(100%, 44px)", height: "max(100%, 44px)" });
     });
 
-    test("controls that sit edge to edge take it on the block axis: a segment strip's segments and the context switch's options", () => {
-        const block = halo(coarseHitArea({ position: true, axis: "block" }));
-        expect(halo(segSlotRecipe.base!.item!)).toEqual(block);
-        expect(halo(sheetSlotRecipe.base!.contextOption!)).toEqual(block);
+    test("controls that sit edge to edge take it on the block axis: a segment strip's segments", () => {
+        expect(halo(segSlotRecipe.base!.item!)).toEqual(halo(coarseHitArea({ position: true, axis: "block" })));
     });
 
     test("near the foot of a box that clips, the halo rises from that foot, centred across the control, rather than standing centred on it", () => {

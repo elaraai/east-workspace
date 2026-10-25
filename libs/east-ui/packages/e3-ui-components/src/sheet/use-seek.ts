@@ -18,7 +18,8 @@
  * The box lists the match run's rows wherever they are (#1398, CL10): each
  * read through the source by its position, a far match's as well as one on
  * screen, never only the rows the sheet has drawn — and, under a narrowing of
- * the record's rows, each the narrowing hides marked so, which a pick opens.
+ * the record's rows, each the narrowing hides marked so: a pick of one moves
+ * nothing, for the sheet shows only the rows the narrowing keeps.
  *
  * The bridge from the tracked `seek` read (`none` while searching, re-fires
  * when it lands) to the control's promise is the Plan's: the query goes into

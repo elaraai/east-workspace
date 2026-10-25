@@ -107,7 +107,7 @@ const DATA_COLUMNS = {
 const ViewsHandle = StructType({ read: FunctionType([], ArrayType(Sheet.Types.RecordView)), write: FunctionType([ArrayType(Sheet.Types.RecordView)], NullType) });
 /** A view over both sources (#1345): the rows by status, a value its `.east` literal, and the templates by their group. */
 const VIEWS: ValueTypeOf<ArrayType<typeof Sheet.Types.RecordView>> = [{
-    id: "v1", name: "PLANNED", context: 1n, reveals: [], folds: new Map(),
+    id: "v1", name: "PLANNED", folds: new Map(),
     narrowing: new Map([
         ["rows", { where: new Map([["status", variant("values", ["\"PLANNED\""])]]), preset: none, resolution: none }],
         ["rowTemplates", { where: new Map([["group", variant("values", ["\"Operations\""])]]), preset: none, resolution: none }],

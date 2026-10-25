@@ -6,7 +6,7 @@
 /**
  * Every word the Sheet says itself (#861) — ONE typed message table, the
  * Plan's #820 table's twin. The toolbar and the view tabs, the header, the
- * rows, a failed run's line and the gap pills, the strip, the editor and the link cells, the
+ * rows, a failed run's line, the strip, the editor and the link cells, the
  * footer and the history bar, the insertion chips, the message each gesture
  * leaves, and the words it gives a reader for what it shows only by look all
  * come from here. What the AUTHOR wrote — a column's header, a group's noun,
@@ -115,21 +115,15 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     groupNouns: () => string;
 
     // ── The toolbar (§7) ───────────────────────────────────────────────────
-    /** The context switch's accessible name. */
-    contextSwitch: () => string;
-    /** The context switch's label. */
-    contextLabel: () => string;
-    /** A context option — `none`, `±1`. */
-    contextOption: (p: { n: number; count: string }) => string;
-    /** The lens's count line — `3 matches · 2 context`. */
-    lensCount: (p: { n: number; count: string; context: string | undefined }) => string;
+    /** The lens's count line — `3 matches`. */
+    lensCount: (p: { n: number; count: string }) => string;
     /** The badge on a paged sheet's narrowing chrome, which sees only the loaded rows. */
     scopeBadge: () => string;
     /** The key search's icon — what a toolbar short of room folds its box to — and the head of the popover it opens the box in (#1221). */
     keySearch: () => string;
     /** The key search's icon and popover head once the views fold into it, over the search box — the row's last rung (#1345). */
     keySearchViews: () => string;
-    /** A row the key search lists that the rail's narrowing hides — `JOB-10001 · hidden by the filters` (#1398, CL10): a pick opens it. */
+    /** A row the key search lists that the rail's narrowing hides — `JOB-10001 · hidden by the filters` (#1398, CL10): a pick of it moves nothing, for the sheet shows only the rows the narrowing keeps. */
     keySearchHidden: (p: { key: string }) => string;
 
     // ── The view tabs (B§8) ────────────────────────────────────────────────
@@ -140,7 +134,7 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     /** The whole-sheet tab's hover title. */
     tabAllTitle: () => string;
     /** A view's hover title: what it narrows by, and the gestures it takes. */
-    viewTitle: (p: { scope: SheetScopeWord; query: string; context: string | undefined }) => string;
+    viewTitle: (p: { scope: SheetScopeWord; query: string }) => string;
     /** A new view's name when there is no query to name it from — stored with the view. */
     viewName: (p: { seq: string }) => string;
     /** The rename box's accessible name. */
@@ -235,7 +229,7 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     /** The footer's line for an issue the history bar went to. */
     issueAt: (p: { where: string; message: string }) => string;
 
-    // ── Gaps and failures ──────────────────────────────────────────────────
+    // ── Failures ───────────────────────────────────────────────────────────
     // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
     // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed read's retry. */
@@ -246,24 +240,6 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     rowFailed: (p: { number: string; reason: string }) => string;
     /** A paged source that failed before anything landed. */
     noSource: (p: { reason: string }) => string;
-    /** How far a gap control reaches — `+3`. */
-    gapMore: (p: { n: number; count: string }) => string;
-    /** The gap's top control. */
-    gapAfter: (p: { n: number; count: string; row: string }) => string;
-    /** Its title. */
-    gapAfterTitle: (p: { row: string }) => string;
-    /** The gap's bottom control. */
-    gapBefore: (p: { n: number; count: string; row: string }) => string;
-    /** Its title. */
-    gapBeforeTitle: (p: { row: string }) => string;
-    /** The gap's count — `12 hidden`. */
-    gapHidden: (p: { n: number; count: string }) => string;
-    /** The count's title. */
-    gapHiddenTitle: () => string;
-    /** The gap's show-everything control. */
-    gapAll: () => string;
-    /** Its accessible name and title. */
-    gapAllName: () => string;
 
     // ── Grouped rows (#740) ────────────────────────────────────────────────
     /** A band's rowheader — `plan 2, 5 lines`. */
@@ -614,10 +590,7 @@ export const sheetMessages: SheetMessages = {
     groupNoun: () => "group",
     groupNouns: () => "groups",
 
-    contextSwitch: () => "Context rows either side of a hit",
-    contextLabel: () => "context",
-    contextOption: ({ n, count }) => (n === 0 ? "none" : `±${count}`),
-    lensCount: ({ n, count, context }) => `${count} ${plural(n, "match", "matches")}${context !== undefined ? ` · ${context} context` : ""}`,
+    lensCount: ({ n, count }) => `${count} ${plural(n, "match", "matches")}`,
     scopeBadge: () => "loaded rows only",
     keySearch: () => "Search Records",
     keySearchViews: () => "Views and search",
@@ -626,8 +599,8 @@ export const sheetMessages: SheetMessages = {
     tabList: () => "Views",
     tabAll: () => "All",
     tabAllTitle: () => "Every row — the whole sheet",
-    viewTitle: ({ scope, query, context }) => {
-        const what = scope === "query" ? `"${query}"${context !== undefined ? ` · ±${context}` : ""}`
+    viewTitle: ({ scope, query }) => {
+        const what = scope === "query" ? `"${query}"`
             : scope === "range" ? "a date window"
                 : scope === "filter" ? "a filter"
                     : "no filter — the whole sheet";
@@ -643,7 +616,7 @@ export const sheetMessages: SheetMessages = {
     tabAdd: () => "tab",
     tabAddName: () => "New tab from this view",
     tabAddTitle: ({ query }) => (query
-        ? "New tab from this search — query, context and expanded bands, evaluated live"
+        ? "New tab from this search — its query, evaluated live"
         : "New tab — no filter yet; search inside it and ⏎ to scope it"),
     tabMenuName: ({ name }) => `Views: ${name}`,
     tabMenuTitle: () => "Switch views, or save this one as a new tab",
@@ -683,15 +656,6 @@ export const sheetMessages: SheetMessages = {
     lensChanged: () => "the record changed while they were read",
     rowFailed: ({ number, reason }) => `Row ${number} could not be drawn — ${reason}`,
     noSource: ({ reason }) => `NO ROWS — the paged source could not be read. ${reason} `,
-    gapMore: ({ count }) => `+${count}`,
-    gapAfter: ({ count, row }) => `Show ${count} more after row ${row}`,
-    gapAfterTitle: ({ row }) => `Show the rows just after row ${row}`,
-    gapBefore: ({ count, row }) => `Show ${count} more before row ${row}`,
-    gapBeforeTitle: ({ row }) => `Show the rows just before row ${row}`,
-    gapHidden: ({ count }) => `${count} hidden`,
-    gapHiddenTitle: () => "Expand — each click reaches further",
-    gapAll: () => "all",
-    gapAllName: () => "Show every hidden row",
 
     groupName: ({ noun, number, n, count }) => `${noun} ${number}, ${count} ${plural(n, "line", "lines")}`,
     groupTitle: ({ noun }) => `Select the ${noun}'s lines — delete removes them`,

@@ -4,41 +4,24 @@
  */
 
 /**
- * The lens's and the view tabs' transitions (B§8 — `Sheet Spec.md` §5 rows
- * 16–17): the context switch and the band controls over the lens state; a
- * tab switch that persists the leaving tab's context and reveals and writes
- * the target's narrowing into the slice; `+ TAB` snapshotting the current
- * narrowing; ⏎ updating and esc reverting a dirty tab; close, rename and
- * reorder; the search box's keys. Pure functions over the machine state —
- * the views and the slice's narrowing arrive with the context, and every
- * write leaves as an effect (`emit.views`, `slice.write`).
- *
- * The reveals are runs of the record's rows by position (#1349); a view keeps
- * them by their rows' keys, which the context names (`nameReveals`), and a
- * view that opens hands them to the sheet to place (`named`), each joining the
- * reveals where its keys land in the record (`lens.placed`).
+ * The view tabs' transitions (B§8 — `Sheet Spec.md` §5 rows 16–17): a tab
+ * switch that persists the leaving tab's folds and writes the target's
+ * narrowing into the slice; `+ TAB` snapshotting the current narrowing; ⏎
+ * updating and esc reverting a dirty tab; close, rename and reorder; the
+ * search box's keys; and a narrowing that changed underneath the sheet. Pure
+ * functions over the machine state — the views and the slice's narrowing
+ * arrive with the context, and every write leaves as an effect (`emit.views`,
+ * `slice.write`).
  *
  * @packageDocumentation
  */
 
-import { ArrayType, equalFor } from "@elaraai/east";
-import { Sheet } from "@elaraai/e3-ui/internal";
 import { clearSearch, narrowingQuery } from "./view-state.js";
-import { mergeRuns, revealStep, viewName, type LensRun } from "./lens.js";
-import {
-    EMPTY_LENS, clamp, same,
-    type LensContext, type LensState, type SheetEffect, type SheetEvent, type SheetMachineCtx, type SheetUiState, type Transition,
-} from "./sheet-types.js";
-import type { SheetRevealValue, SheetSavedView } from "./values.js";
+import { viewName } from "./lens.js";
+import { NO_FOLDS, clamp, same, type SheetEffect, type SheetMachineCtx, type SheetUiState, type Transition } from "./sheet-types.js";
+import type { SheetSavedView } from "./values.js";
 
 const noop = (s: SheetUiState): Transition => ({ state: s, effects: [] });
-const revealsEqual = equalFor(ArrayType(Sheet.Types.Reveal));
-
-/** The reveals as a view keeps them: the runs the sheet can name by their rows' keys, then those still to be placed. */
-function wireReveals(lens: LensState, ctx: SheetMachineCtx): SheetRevealValue[] {
-    const named = lens.reveals.length === 0 ? [] : ctx.nameReveals?.(lens.reveals) ?? [];
-    return [...named, ...lens.named];
-}
 
 /** The fold overrides as the wire carries them (#740). */
 function wireFolds(folds: ReadonlyMap<string, boolean>): Map<string, boolean> {
@@ -52,11 +35,9 @@ function sameFolds(a: ReadonlyMap<string, boolean>, b: ReadonlyMap<string, boole
     return true;
 }
 
-/** A view's lens — its context clamped to the switch's stops, its reveals to be placed, its folds, no presses yet. */
-function lensOf(view: SheetSavedView): LensState {
-    const n = Number(view.context);
-    const context: LensContext = n >= 3 ? 3 : n >= 1 ? 1 : 0;
-    return { context, reveals: [], named: view.reveals, steps: new Map(), folds: new Map(view.folds) };
+/** A view's folds, as the sheet opens it with them. */
+function foldsOf(view: SheetSavedView): ReadonlyMap<string, boolean> {
+    return view.folds.size === 0 ? NO_FOLDS : new Map(view.folds);
 }
 
 /** The active view, if any. */
@@ -65,88 +46,49 @@ function activeView(s: SheetUiState, ctx: SheetMachineCtx): SheetSavedView | und
 }
 
 /**
- * The views with the active tab's lens persisted — its context and reveals;
- * an unsaved narrowing is discarded on leave (B§8). The same array comes back
- * when nothing changed.
+ * The views with the active tab's folds persisted; an unsaved narrowing is
+ * discarded on leave (B§8). The same array comes back when nothing changed.
  *
  * @param s - The state
  * @param views - The views
- * @param ctx - The context, which names the reveals by their rows' keys
- * @returns The views, the active one's lens as it stands
+ * @returns The views, the active one's folds as they stand
  */
-export function persistLens(s: SheetUiState, views: readonly SheetSavedView[], ctx: SheetMachineCtx): readonly SheetSavedView[] {
+export function persistFolds(s: SheetUiState, views: readonly SheetSavedView[]): readonly SheetSavedView[] {
     const a = s.tabs.active;
     if (a === null) return views;
     let changed = false;
-    const context = BigInt(s.lens.context);
-    const reveals = wireReveals(s.lens, ctx);
     const out = views.map((v) => {
-        if (v.id !== a || (v.context === context && revealsEqual(v.reveals, reveals) && sameFolds(v.folds, s.lens.folds))) return v;
+        if (v.id !== a || sameFolds(v.folds, s.folds)) return v;
         changed = true;
-        return { ...v, context, reveals, folds: wireFolds(s.lens.folds) };
+        return { ...v, folds: wireFolds(s.folds) };
     });
     return changed ? out : views;
 }
 
-// ── The lens ──────────────────────────────────────────────────────────────
-
-/** The context switch — reveals and presses reset; the folds stay. */
-export function setContext(s: SheetUiState, context: LensContext): SheetUiState {
-    if (s.lens.context === context && s.lens.reveals.length === 0 && s.lens.named.length === 0) return s;
-    return { ...s, lens: { context, reveals: [], named: [], steps: new Map(), folds: s.lens.folds } };
-}
-
-/** A band control pressed — the run opens a little further (1 · 3 · 10 · all). */
-export function bandReveal(s: SheetUiState, e: Extract<SheetEvent, { t: "band.reveal" }>): SheetUiState {
-    const { runs, steps } = revealStep(s.lens.steps, e.key, e.from, e.to, e.where);
-    if (runs.length === 0) return s;
-    return { ...s, lens: { ...s.lens, reveals: mergeRuns(s.lens.reveals, runs), steps } };
-}
-
-/** Runs opened outright (#1349): the row a key search lands on. */
-export function lensReveal(s: SheetUiState, runs: readonly LensRun[]): SheetUiState {
-    const reveals = mergeRuns(s.lens.reveals, runs);
-    return reveals === s.lens.reveals ? s : { ...s, lens: { ...s.lens, reveals } };
-}
-
-/** The record moved (#1349): the reveals, named by their rows' keys, wait to be placed at its new revision — the presses keep. */
-export function lensNamed(s: SheetUiState, named: readonly SheetRevealValue[]): SheetUiState {
-    if (s.lens.reveals.length === 0 && named.length === 0) return s;
-    return { ...s, lens: { ...s.lens, reveals: [], named: [...named, ...s.lens.named] } };
-}
-
-/** Named runs placed (#1349): when they are still the lens's to place, they join the reveals where they landed. */
-export function lensPlaced(s: SheetUiState, named: readonly SheetRevealValue[], runs: readonly LensRun[]): SheetUiState {
-    if (named !== s.lens.named) return s;
-    return { ...s, lens: { ...s.lens, reveals: mergeRuns(s.lens.reveals, runs), named: [] } };
-}
-
-/** The narrowing changed underneath: reveals and presses reset, the range and the proposal pick drop, the ring returns to the top. */
+/** The narrowing changed underneath: the range and the proposal pick drop, and the ring returns to the top. */
 export function narrowed(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const sel = clamp({ r: 0, c: s.sel.c }, ctx);
     const effects: SheetEffect[] = [];
     if (!same(sel, s.sel)) effects.push({ t: "emit.select", r: sel.r, c: sel.c });
-    const untouched = s.lens.reveals.length === 0 && s.lens.named.length === 0 && s.lens.steps.size === 0;
-    const lens = untouched ? s.lens : { ...s.lens, reveals: [], named: [], steps: new Map<string, number>() };
-    return { state: { ...s, lens, sel, selEnd: null, gsel: null, armed: null }, effects };
+    return { state: { ...s, sel, selEnd: null, gsel: null, armed: null }, effects };
 }
 
 // ── The tabs ──────────────────────────────────────────────────────────────
 
 /**
- * Pick a tab (`null` = the whole sheet): the leaving tab keeps its context and
- * reveals, the target's narrowing goes into the slice, its lens comes back,
- * and the ring returns to the top.
+ * Pick a tab (`null` = the whole sheet): the leaving tab keeps its folds, the
+ * target's narrowing goes into the slice, its folds come back, and the ring
+ * returns to the top.
  *
  * @param s - The state
  * @param ctx - The context (its `views`, `emptyNarrowing`)
  * @param id - The view to open, or `null`
- * @param persist - Whether the leaving tab's lens is written back (the initial open passes `false`)
+ * @param persist - Whether the leaving tab's folds are written back (the initial open passes `false`)
  * @returns The transition
  */
 export function switchTab(s: SheetUiState, ctx: SheetMachineCtx, id: string | null, persist = true): Transition {
     const views = ctx.views ?? [];
-    const kept = persist ? persistLens(s, views, ctx) : views;
+    const kept = persist ? persistFolds(s, views) : views;
     const view = id === null ? undefined : kept.find((v) => v.id === id);
     if (id !== null && view === undefined) return noop(s);
     const effects: SheetEffect[] = [];
@@ -160,24 +102,24 @@ export function switchTab(s: SheetUiState, ctx: SheetMachineCtx, id: string | nu
         state: {
             ...s,
             tabs: { ...s.tabs, active: id, renaming: null, renameVal: "" },
-            lens: view !== undefined ? lensOf(view) : EMPTY_LENS,
+            folds: view !== undefined ? foldsOf(view) : NO_FOLDS,
             sel, selEnd: null, gsel: null, armed: null,
         },
         effects,
     };
 }
 
-/** `+ TAB` — the current narrowing, context and reveals become a view, named from the query. */
+/** `+ TAB` — the current narrowing and folds become a view, named from the query. */
 export function createTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const narrowing = ctx.narrowing;
     if (narrowing === undefined) return noop(s);
-    const kept = persistLens(s, ctx.views ?? [], ctx);
+    const kept = persistFolds(s, ctx.views ?? []);
     const query = narrowingQuery(narrowing);
     let seq = s.tabs.seq;
     let id = `view-${seq}`;
     while (kept.some((v) => v.id === id)) { seq += 1; id = `view-${seq}`; }
     const name = viewName(query, seq, ctx.viewName);
-    const view: SheetSavedView = { id, name, narrowing, context: BigInt(s.lens.context), reveals: wireReveals(s.lens, ctx), folds: wireFolds(s.lens.folds) };
+    const view: SheetSavedView = { id, name, narrowing, folds: wireFolds(s.folds) };
     return {
         state: { ...s, tabs: { ...s.tabs, active: id, seq: seq + 1, renaming: null, renameVal: "" }, msg: { id: "tabSaved", name, query: query.trim() !== "" } },
         effects: [{ t: "emit.views", views: [...kept, view] }],
@@ -194,26 +136,25 @@ export function closeTab(s: SheetUiState, ctx: SheetMachineCtx, id: string): Tra
     const effects: SheetEffect[] = [{ t: "emit.views", views: rest }];
     if (ctx.emptyNarrowing !== undefined) effects.push({ t: "slice.write", state: ctx.emptyNarrowing });
     return {
-        state: { ...s, tabs: { ...s.tabs, active: null, renaming: null, renameVal: "" }, lens: EMPTY_LENS, selEnd: null, gsel: null, msg: { id: "tabClosed", name: t.name, active: true } },
+        state: { ...s, tabs: { ...s.tabs, active: null, renaming: null, renameVal: "" }, folds: NO_FOLDS, selEnd: null, gsel: null, msg: { id: "tabClosed", name: t.name, active: true } },
         effects,
     };
 }
 
-/** ⏎ with a dirty tab: the tab now saves the current narrowing (and the lens as it stands). */
+/** ⏎ with a dirty tab: the tab now saves the current narrowing (and the folds as they stand). */
 export function updateTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const t = activeView(s, ctx);
     const narrowing = ctx.narrowing;
     if (t === undefined || narrowing === undefined) return noop(s);
-    const reveals = wireReveals(s.lens, ctx);
-    const views = (ctx.views ?? []).map((v) => (v.id === t.id ? { ...v, narrowing, context: BigInt(s.lens.context), reveals, folds: wireFolds(s.lens.folds) } : v));
+    const views = (ctx.views ?? []).map((v) => (v.id === t.id ? { ...v, narrowing, folds: wireFolds(s.folds) } : v));
     return { state: { ...s, msg: { id: "tabUpdated", name: t.name } }, effects: [{ t: "emit.views", views }] };
 }
 
-/** esc with a dirty tab: the slice returns to the tab's saved narrowing, the lens to its saved context, reveals and folds. */
+/** esc with a dirty tab: the slice returns to the tab's saved narrowing, the folds to its saved ones. */
 export function revertTab(s: SheetUiState, ctx: SheetMachineCtx): Transition {
     const t = activeView(s, ctx);
     if (t === undefined) return noop(s);
-    return { state: { ...s, lens: lensOf(t), msg: { id: "tabReverted" } }, effects: [{ t: "slice.write", state: t.narrowing }] };
+    return { state: { ...s, folds: foldsOf(t), msg: { id: "tabReverted" } }, effects: [{ t: "slice.write", state: t.narrowing }] };
 }
 
 /** A double click on a tab opens its name for editing. */

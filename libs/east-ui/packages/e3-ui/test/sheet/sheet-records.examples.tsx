@@ -63,8 +63,8 @@ export const lensBenchByGroup = e3.recordIndex("lens_bench_by_group", lensBenchR
 export const lensBenchByFlag = e3.recordIndex("lens_bench_by_flag", lensBenchRows, { on: ["flag"] });
 
 export const sheetRecordIndexes = example({
-    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "recordIndex", "lens", "context", "saved views", "RecordView", "paging", "primary key", "filter"],
-    description: "50,000 work orders in the record's order, the rail's rows source narrowing them through maintained record indexes and the sheet drawing the narrowing over them as the lens: each match at its row number, the rows either side as the context switch says, and gaps of their size over the rest that open 1 · 3 · 10 · all. Choose Ready and Scheduled together, then a Due range: e3 places their rows from the indexes alone, and the sheet reads only the segments near the view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing, the context and the rows opened, by their keys.",
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "recordIndex", "lens", "saved views", "RecordView", "paging", "primary key", "filter"],
+    description: "50,000 work orders in the record's order, the rail's rows source narrowing them through maintained record indexes and the sheet drawing the narrowing over them as the lens, a filtered spreadsheet: only the rows it keeps, one after another, each at its row number. Choose Ready and Scheduled together, then a Due range: e3 places their rows from the indexes alone, and the sheet reads only the segments near the view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
@@ -89,7 +89,7 @@ export const sheetRecordIndexes = example({
 
 export const sheetRecordIndexesMobile = example({
     keywords: ["Sheet", "Slice.bindRecords", "rows", "mobile", "record", "filters", "lens", "saved views", "RecordView"],
-    description: "The same indexed work orders and their lens in a phone-width frame, with the rail's shared Slice controls and the lens's context switch on the toolbar's responsive ladder.",
+    description: "The same indexed work orders and their lens in a phone-width frame, with the rail's shared Slice controls on the toolbar's responsive ladder.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));

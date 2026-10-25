@@ -40,7 +40,7 @@ const ROWS = [
     { id: "c", activity: "Wrapping", qty: 3n },
 ];
 /** A view of the PLANNED orders: the `rows` source's status, a value its `.east` literal. */
-const VIEWS = [{ id: "planned", name: "PLANNED", context: 0n, reveals: [], folds: new Map<string, boolean>(),
+const VIEWS = [{ id: "planned", name: "PLANNED", folds: new Map<string, boolean>(),
     narrowing: new Map([["rows", { where: new Map([["status", variant("values", ["\"PLANNED\""])]]), preset: none, resolution: none }]]) }];
 
 /** An editable sheet over a bound State. */
@@ -109,11 +109,12 @@ test("each part draws in its region of the frame, and a tab switched in the tool
     fireEvent.mouseDown(ui.region("toolbar").querySelector('[data-slot="tab"][data-tab="planned"]')!, { button: 0 });
     await settle();
     expect(ui.root().getAttribute("data-view")).toBe("planned");
-    // WO-2201 is RELEASED: the view's narrowing, drawn over the orders as the lens (#1349), hides it in a gap of one.
+    // WO-2201 is RELEASED: the view's narrowing, drawn over the orders as the lens (#1349), leaves it out — the orders it
+    // keeps one after another, the first of them the second order.
     await waitFor(() => expect(ui.bands()[0]).toBe("WO-2202"));
     expect(ui.bands()).not.toContain("WO-2201");
     expect(ui.root().hasAttribute("data-lens")).toBe(true);
-    expect(ui.region("main").querySelector('[data-slot="band"][data-band="lens"]')?.getAttribute("data-hidden")).toBe("1");
+    expect(ui.region("main").querySelector('[data-band-row][data-row-id="WO-2202"] [data-slot="gutterNumber"]')?.textContent).toBe("2");
 });
 
 test("Undo in the history item, in the toolbar, commits the grid's open editor and undoes it; Redo restores it (SB5)", async () => {

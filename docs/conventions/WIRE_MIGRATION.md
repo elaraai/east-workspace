@@ -439,3 +439,18 @@ Each wire changed under this rule, with the kind it is.
   re-exported, and the dataflow computes each UI task's output again under the
   new type. A UI task's output is not stored state, so no repository upgrade
   step ships with it.
+- **e3-ui's `Sheet` lens draws only the rows its narrowing keeps:
+  `Sheet.Types.RecordView` loses `context` and `reveals`, and
+  `Sheet.Types.Reveal` goes** — package-borne, and an application's saved
+  views change type with it. Under its `rows` source's narrowing a sheet draws
+  only the record's rows the narrowing keeps, one after another, each at its
+  row number — no rows beside them, no gaps and no runs opened — so a saved
+  view holds every source's narrowing and its folds, and nothing of the lens.
+  A UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it. An application's own record of saved
+  views (`Array<Sheet.Types.RecordView>`) changes type with it, as with the
+  lens's first form above: a deploy resets an input that holds them to its
+  package's value, and refuses a record that holds them until the record
+  declares the migration that carries them across.

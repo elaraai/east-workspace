@@ -15,7 +15,7 @@
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
-import { BAND_MIN_PX, COARSE_GAP_PX, buildBody, buildLensBody, drawnPx, indexColumns, itemPx, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, parseLineId, layoutLensRun, layoutRun, segmentOf, type ItemBox, type SheetGeometry, type SheetWindowFailure } from "./model.js";
+import { BAND_MIN_PX, buildBody, buildLensBody, drawnPx, indexColumns, itemPx, cellText, printLinkText, cellIsBlank, rowIsBlank, lastRealId, parseWidth, stickyRows, withLine, withoutLines, withProposals, lineId, parseLineId, layoutLensRun, layoutRun, segmentOf, type ItemBox, type SheetGeometry, type SheetWindowFailure } from "./model.js";
 import { utcDate } from "./parse/date.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 
@@ -27,7 +27,7 @@ describe("the body", () => {
         const rows = [row("a", {}), row("b", {})];
         const body = buildBody({ rows, rowsOffset: 0, blanks: 3, exhausted: true, total: undefined, head: undefined, tail: undefined });
         expect(body.map((it) => it.kind)).toEqual(["real", "real", "blank", "blank", "blank"]);
-        expect(body.map((it) => (it.kind === "band" || it.kind === "gap" || it.kind === "failed" ? -1 : it.position))).toEqual([0, 1, 2, 3, 4]);
+        expect(body.map((it) => (it.kind === "band" || it.kind === "failed" ? -1 : it.position))).toEqual([0, 1, 2, 3, 4]);
         expect(lastRealId(body)).toBe("b");
     });
 
@@ -39,7 +39,7 @@ describe("the body", () => {
         expect(body.map((it) => it.kind)).toEqual(["band", "real", "band"]);
         expect(body[1]!.kind === "real" && body[1]!.position).toBe(200);
         const done = buildBody({ rows, rowsOffset: 0, blanks: 2, exhausted: true, total: 1, head: undefined, tail: undefined });
-        expect(done.map((it) => (it.kind === "band" || it.kind === "gap" || it.kind === "failed" ? -1 : it.position))).toEqual([0, 1, 2]);
+        expect(done.map((it) => (it.kind === "band" || it.kind === "failed" ? -1 : it.position))).toEqual([0, 1, 2]);
     });
 });
 
@@ -95,19 +95,18 @@ describe("the lens's rows (#1349)", () => {
         expect(layoutLensRun([], positionOf({}))).toEqual({ positions: [], failures: [], segments: [{ start: 0, end: 0, position: 0 }] });
     });
 
-    test("the body is what the lens laid out: its rows at their places, each its index among the rows drawn, its gaps and bands between, no padding", () => {
+    test("the body is what the lens laid out: its rows at their places, each its index among the rows drawn, its bands between, no padding", () => {
         const a = row("a", {});
         const c = row("c", {});
         const body = buildLensBody([
             { kind: "row", position: 10, row: a, hit: true },
-            { kind: "gap", gap: { key: "h10_u20", from: 11, to: 19, hidden: 9, first: false, last: false } },
-            { kind: "band", band: { at: "reading", from: 20, to: 39, px: 66 } },
-            { kind: "failed", failure: { w: 40, from: 40, to: 59, px: 22, error: "timeout" } },
+            { kind: "band", band: { at: "reading", from: 20, to: 39, elements: 2, px: 72 } },
+            { kind: "failed", failure: { w: 40, from: 40, to: 59, elements: 1, px: 36, error: "timeout" } },
             { kind: "row", position: 60, row: c, hit: false },
         ], undefined);
-        expect(body.map((it) => it.kind)).toEqual(["real", "gap", "band", "failed", "real"]);
+        expect(body.map((it) => it.kind)).toEqual(["real", "band", "failed", "real"]);
         expect(body[0]).toMatchObject({ kind: "real", position: 10, residentIndex: 0, hit: true, row: a });
-        expect(body[4]).toMatchObject({ kind: "real", position: 60, residentIndex: 1, hit: false, row: c });
+        expect(body[3]).toMatchObject({ kind: "real", position: 60, residentIndex: 1, hit: false, row: c });
     });
 });
 
@@ -169,21 +168,20 @@ describe("grouped rows (#740)", () => {
         expect(again[1]!.kind === "real" && first.kind === "real" && Object.is(again[1]!.row, first.row)).toBe(true);
     });
 
-    test("under the lens the groups — the records — narrow as flat rows do: a match's band and its lines marked, a context group's not, gaps and bands between, no blank line (#1349)", () => {
+    test("under the lens the groups — the records — narrow as flat rows do: a match's band and its lines marked, bands between, no blank line (#1349)", () => {
         const body = buildLensBody([
-            { kind: "band", band: { at: "reading", from: 0, to: 19, px: 200 } },
+            { kind: "band", band: { at: "reading", from: 0, to: 19, elements: 2, px: 200 } },
             { kind: "row", position: 20, row: p1, hit: true },
-            { kind: "gap", gap: { key: "h20_e", from: 21, to: 99, hidden: 79, first: false, last: true } },
         ], { foldedOf });
-        expect(body.map(it => it.kind)).toEqual(["band", "group", "real", "real", "gap"]);
+        expect(body.map(it => it.kind)).toEqual(["band", "group", "real", "real"]);
         expect(body[1]).toMatchObject({ kind: "group", position: 20, residentIndex: 0, folded: false });
         expect(body[2]).toMatchObject({ kind: "real", position: 20, hit: true, group: { number: 1 } });
         expect(body[3]).toMatchObject({ kind: "real", position: 20, hit: true, group: { number: 2 } });
-        // A context group's lines are no matches; a folded match is its band.
-        const context = buildLensBody([{ kind: "row", position: 20, row: p1, hit: false }, { kind: "row", position: 21, row: p2, hit: true }], { foldedOf });
-        expect(context.map(it => it.kind)).toEqual(["group", "real", "real", "group"]);
-        expect(context.every(it => it.kind !== "real" || !it.hit)).toBe(true);
-        expect(context[3]).toMatchObject({ kind: "group", folded: true, residentIndex: 1 });
+        // A group the planner added is no match until the record says so; a folded match is its band.
+        const added = buildLensBody([{ kind: "row", position: 20, row: p1, hit: false }, { kind: "row", position: 21, row: p2, hit: true }], { foldedOf });
+        expect(added.map(it => it.kind)).toEqual(["group", "real", "real", "group"]);
+        expect(added.every(it => it.kind !== "real" || !it.hit)).toBe(true);
+        expect(added[3]).toMatchObject({ kind: "group", folded: true, residentIndex: 1 });
     });
 
     test("an open line's sub rows hang under it, opened by hand, and proposals follow them", () => {
@@ -212,7 +210,7 @@ describe("grouped rows (#740)", () => {
     });
 
     test("what a row draws is what the body builds for it (#855): a group's band, its lines, their open sub rows, and a blank line only when the sheet draws one", () => {
-        const g: SheetGeometry = { rowPx: 36, bandPx: 42, subRowPx: 30, gapPx: BAND_MIN_PX };
+        const g: SheetGeometry = { rowPx: 36, bandPx: 42, subRowPx: 30 };
         const tooled = group("t", [line("0", "Assemble", [sub("Cut"), sub("Fit")]), line("1", "Inspect")]);
         const openFirst = (id: string) => (id === lineId("t", "0") ? true : undefined);
         const cases: { row: SheetRowValue; blanks: number; subRowsOpen?: (id: string) => boolean | undefined; px: number }[] = [
@@ -236,9 +234,8 @@ describe("grouped rows (#740)", () => {
         expect(itemPx({ kind: "band", band: { at: "tail", from: 0, to: 0, px: 4 } }, g)).toBe(BAND_MIN_PX);
         expect(itemPx({ kind: "band", band: { at: "tail", from: 0, to: 999, px: 36_000 } }, g)).toBe(36_000);
         expect(itemPx({ kind: "failed", failure: { w: 0, from: 0, to: 199, px: 7_200, error: "timeout" } }, g)).toBe(7_200);
-        expect(itemPx({ kind: "gap", gap: { key: "k", from: 0, to: 3, hidden: 4, first: true, last: false } }, g)).toBe(BAND_MIN_PX);
-        // A lens gap is what the recipe draws it at: on a coarse pointer, a touch's height (#1349).
-        expect(itemPx({ kind: "gap", gap: { key: "k", from: 0, to: 3, hidden: 4, first: true, last: false } }, { ...g, gapPx: COARSE_GAP_PX })).toBe(32);
+        // A lens band is as tall as the narrowing's rows it stands for (#1349).
+        expect(itemPx({ kind: "band", band: { at: "reading", from: 0, to: 999, elements: 3, px: 3 * 36 } }, g)).toBe(108);
     });
 
     test("what sticks is read off the mounted rows: the band once it scrolls under the header, then an open line pushed up by its last sub row", () => {
@@ -275,17 +272,16 @@ describe("grouped rows (#740)", () => {
             expect(body[0]!.kind === "real" && body[0]!.group).toBeUndefined();
             // A line belongs to its group: it is no loose row.
             expect(body[2]!.kind === "real" && body[2]!.loose).toBeUndefined();
-            // The lens (#1349): the first loose row hidden in a gap, the second a match — the first loose row drawn, as the
-            // rows drawn are what its context counts among.
+            // The lens (#1349): the first loose row one the narrowing does not keep, the second a match — the first loose
+            // row drawn, as the rows drawn are what its context counts among.
             const lensed = buildLensBody([
-                { kind: "gap", gap: { key: "s_h1", from: 0, to: 0, hidden: 1, first: true, last: false } },
                 { kind: "row", position: 1, row: p1, hit: true },
                 { kind: "row", position: 2, row: handover, hit: true },
             ], { foldedOf });
-            expect(lensed.map((it) => it.kind)).toEqual(["gap", "group", "real", "real", "real"]);
-            expect(lensed[4]).toMatchObject({ kind: "real", position: 2, residentIndex: 1, loose: 0, hit: true });
+            expect(lensed.map((it) => it.kind)).toEqual(["group", "real", "real", "real"]);
+            expect(lensed[3]).toMatchObject({ kind: "real", position: 2, residentIndex: 1, loose: 0, hit: true });
             // It draws one row, whatever the groups keep below their lines.
-            expect(drawnPx(brief, { rowPx: 36, bandPx: 42, subRowPx: 30, gapPx: BAND_MIN_PX }, { foldedOf }, 1)).toBe(36);
+            expect(drawnPx(brief, { rowPx: 36, bandPx: 42, subRowPx: 30 }, { foldedOf }, 1)).toBe(36);
         });
 
         test("no band sticks over a loose row — the walk up to a band stops at it", () => {

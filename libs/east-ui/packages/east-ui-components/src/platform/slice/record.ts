@@ -376,8 +376,8 @@ export function recordSliceRows(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
 /**
  * Where a key query lands in a record Slice's narrowing of its record — with
  * no narrowing, in the record's own order (#1349): the rows a view over the
- * whole record addresses, which the Sheet's lens and its key search seek and
- * reveal by. A tracked read, as {@link recordSlicePlace} is.
+ * whole record addresses, which the Sheet's key search seeks over its record.
+ * A tracked read, as {@link recordSlicePlace} is.
  *
  * @param slice - The record Slice
  * @param where - The narrowing; empty, the record's own rows

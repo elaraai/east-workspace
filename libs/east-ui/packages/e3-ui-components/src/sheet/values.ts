@@ -72,11 +72,8 @@ export type SheetProposerValue = ValueTypeOf<typeof Sheet.Types.Proposer>;
 export type SheetPagedSourceValue = WindowedSourceValue<SheetRootValue["rows"]>;
 /**
  * One saved view (B§8, #1345) — every source's narrowing of the sheet's
- * `Slice.bindRecords`, by the source's name, with the lens's context and
- * reveals and a grouped sheet's folds.
+ * `Slice.bindRecords`, by the source's name, with a grouped sheet's folds.
  */
 export type SheetSavedView = ValueTypeOf<typeof Sheet.Types.RecordView>;
-/** A run of rows the planner opened (#1349), by its first and last rows' keys — as a view keeps it, and as a new revision finds it again. */
-export type SheetRevealValue = ValueTypeOf<typeof Sheet.Types.Reveal>;
 /** Every source's narrowing, by the source's name: what a view saves, and what the rail holds now. */
 export type SheetNarrowing = SheetSavedView["narrowing"];
