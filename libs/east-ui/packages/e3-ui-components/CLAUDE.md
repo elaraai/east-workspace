@@ -296,7 +296,9 @@ components of their own (`PlanEventsReader`, `PlanKindsReader`,
 summary index (#1039) is read a cell at a time (`root/cells.ts`, inside
 `PlanEventsReader`): the blocks of fifty paged resources around the rows in
 view — the canvas writes them to a span store as its scroll rests, rendering
-nothing for it — by the tiles its read range touches, every cell's searches in
+nothing for it: the rows `VirtualRows` says its view shows (`shown`), never the
+overscan mounted beside them, the span standing while the view shows only rows
+not read (`shownCellSpan`) — by the tiles its read range touches, every cell's searches in
 one request and the missing cells' entries in one more, kept per revision
 while wanted; past 10,000 entries it reads the summary's cells and shades, and
 the reader takes the root's own links, never the ones named where the events

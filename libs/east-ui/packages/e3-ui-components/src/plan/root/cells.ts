@@ -983,6 +983,30 @@ export function cellSpanOf(
 }
 
 /**
+ * What the canvas reports to its cells' reader as its scroll rests (#1039):
+ * the span of the paged rows the view shows — never the overscan mounted
+ * beside them, which beside a run not read yet that the view rests in is the
+ * last rows read, however far off. A view that shows such a run and no paged
+ * row says nothing of where the rows in view are: the span standing stays —
+ * never the opening's first block, a view away — and the run's rows report
+ * their own once they are drawn.
+ *
+ * @param rows - The rows the view shows, in order: each its key and its id's path
+ * @param unread - Whether the view shows a run of rows not read yet, or a window whose read failed
+ * @param standing - The span reported last
+ * @param origin - Which window each paged row came from
+ * @param narrowing - The narrowing the windows belong to, as the source names it (#1344)
+ * @returns The span to report; `standing` while the view shows rows not read alone
+ */
+export function shownCellSpan(
+    rows: readonly { readonly key: string; readonly path: readonly string[] }[], unread: boolean, standing: PlanCellSpan | undefined,
+    origin: ReadonlyMap<string, { readonly w: number }>, narrowing: string | undefined,
+): PlanCellSpan | undefined {
+    const span = cellSpanOf(rows, origin, narrowing);
+    return span === undefined && unread ? standing : span;
+}
+
+/**
  * Whether a Plan reads a kind by its cells or shades it past the budget: a
  * kind whose source lists a series or a summary index.
  *

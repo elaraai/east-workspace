@@ -9,8 +9,10 @@
  * shows intent — held still 100 ms, or slowed below a viewport per 200 ms —
  * so a scripted fling past an unloaded run asks for the window it slows over
  * before the gesture ends, while the virtualizer itself still says it is
- * scrolling. Under a fake clock: the frame's dwell, the virtualizer's own
- * settle and the speed's moments are all the clock's.
+ * scrolling. Beside the mounted range, the report names the rows the view
+ * shows (#1039): resting in one huge item, that item alone, never the overscan
+ * mounted at its edge. Under a fake clock: the frame's dwell, the
+ * virtualizer's own settle and the speed's moments are all the clock's.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
@@ -159,5 +161,43 @@ describe("VirtualRows reports the scroll at rest on intent (CL6)", () => {
         const rest = heard.slice(mounted).find((h) => !h.isScrolling);
         expect(rest, "a report at rest once it has held still").toBeDefined();
         expect(rest!.center).toBeLessThan(VIEW_H / ROW_H);
+    });
+});
+
+describe("VirtualRows names the rows its view shows, beside the mounted range (#1039)", () => {
+    test("resting in one huge item — an unloaded run — its view shows that item alone, the rows mounted at its edge overscan; among the rows, the rows from the top of its view to its foot", () => {
+        // A hundred rows, a run 100,000 px tall standing for rows not read yet, and a hundred more.
+        const sizes = [...Array.from({ length: 100 }, () => ROW_H), 100_000, ...Array.from({ length: 100 }, () => ROW_H)];
+        type Range = { startIndex: number; endIndex: number };
+        const heard: { range: Range; isScrolling: boolean; shown: Range | undefined }[] = [];
+        const ui = render(
+            <ChakraProvider value={system}>
+                <VirtualRows height={`${VIEW_H}px`} maxHeight={undefined} count={sizes.length} sizes={sizes}
+                    measureRows={false} overscan={2} getItemKey={(i) => `r${i}`} anchorable={() => true}
+                    onRangeChange={(range, isScrolling, _center, shown) => heard.push({ range, isScrolling, shown })}
+                    renderRow={(i) => <div>row {i}</div>} />
+            </ChakraProvider>,
+        );
+        const scroller = ui.container.querySelector<HTMLElement>("[data-virtual-rows='bounded']")!;
+        /** The view put at `top` and held still: the report at rest that follows. */
+        const restAt = (top: number) => {
+            const from = heard.length;
+            act(() => {
+                scroller.scrollTop = top;
+                fireEvent.scroll(scroller);
+            });
+            act(() => { vi.advanceTimersByTime(INTENT_DWELL_MS); });
+            return heard.slice(from).filter((h) => !h.isScrolling).at(-1);
+        };
+        // Half way into the run: the range holds the last rows before it, mounted as its overscan; the view shows the run.
+        const inRun = restAt(100 * ROW_H + 50_000);
+        expect(inRun, "a report at rest in the run").toBeDefined();
+        expect(inRun!.range.startIndex).toBeLessThan(100);
+        expect(inRun!.shown).toEqual({ startIndex: 100, endIndex: 100 });
+        // At the tenth row: the rows from it to the last the view's foot meets, and the overscan either side in the range alone.
+        const atTen = restAt(10 * ROW_H);
+        const foot = Math.ceil((10 * ROW_H + VIEW_H) / ROW_H) - 1;
+        expect(atTen!.shown).toEqual({ startIndex: 10, endIndex: foot });
+        expect(atTen!.range).toEqual({ startIndex: 8, endIndex: foot + 2 });
     });
 });

@@ -440,6 +440,14 @@ interface VirtualRowsBaseProps {
      * mounted item contains the center (an empty body, or a viewport whose
      * center is above the rows).
      *
+     * `shown` names the items the view shows — the mounted ones whose box
+     * meets it, under a pinned header — resolved from the live scroll offset at
+     * report time, as `center` is. A reader of what is on screen reads it,
+     * never the range: beside one huge item the view rests in, the overscan is
+     * the rows mounted at the item's edge, which the view does not show — at
+     * an unloaded run's edge, the last rows read, however far from the view
+     * (#1039). `undefined` when no mounted item meets the view.
+     *
      * Fires in every mode. Bounded, the range is the frame's own; unbounded,
      * the frame watches its nearest scrolling ancestor for it — at scale
      * mounting only that range, below scale mounting every row and reporting
@@ -449,6 +457,7 @@ interface VirtualRowsBaseProps {
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
         center?: { index: number; withinPx: number },
+        shown?: { startIndex: number; endIndex: number },
     ) => void) | undefined;
     /**
      * Bump to force a re-measure. TanStack memoizes its measurements on
@@ -1302,6 +1311,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             // virtualizer's own flag is, off what the scroll's observer has set.
             isScrolling={virtualizer.isScrolling && !intent.settled}
             read={read}
+            margin={margin}
             onRangeChange={onRangeChange}
         />
     );
@@ -1388,17 +1398,20 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
  *  and a reader that responds by setting state cannot re-enter the render —
  *  again whenever the scroll's intent asks it to be read (CL6), though the
  *  range has not moved. */
-function RangeReporter({ virtualizer, startIndex, endIndex, isScrolling, read, onRangeChange }: {
+function RangeReporter({ virtualizer, startIndex, endIndex, isScrolling, read, margin, onRangeChange }: {
     virtualizer: Rows;
     startIndex: number;
     endIndex: number;
     isScrolling: boolean;
     /** Bumped each time the scroll's intent asks for a read. */
     read: number;
+    /** The scroll margin the item starts carry: a bounded frame's pinned header's height, which covers the view's top. */
+    margin: number;
     onRangeChange: (
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
         center?: { index: number; withinPx: number },
+        shown?: { startIndex: number; endIndex: number },
     ) => void;
 }): null {
     useEffect(() => {
@@ -1409,13 +1422,22 @@ function RangeReporter({ virtualizer, startIndex, endIndex, isScrolling, read, o
         // stale by the scroll-end report — the one an idle-gated reader acts
         // on (#612). The center is on screen by definition, so its item is
         // always among the mounted ones.
-        const centerPx = (virtualizer.scrollOffset ?? 0) + (virtualizer.scrollRect?.height ?? 0) / 2;
-        const item = virtualizer.getVirtualItems().find((it: VirtualItem) => centerPx >= it.start && centerPx < it.end);
+        const offset = virtualizer.scrollOffset ?? 0;
+        const height = virtualizer.scrollRect?.height ?? 0;
+        const centerPx = offset + height / 2;
+        const items = virtualizer.getVirtualItems();
+        const item = items.find((it: VirtualItem) => centerPx >= it.start && centerPx < it.end);
+        // The items the view shows, read as the center is: those meeting it from under the pinned header to its foot
+        // — every one of them mounted, as the overscan beside them may not be shown (#1039).
+        const showing = items.filter((it: VirtualItem) => it.end > offset + margin && it.start < offset + height);
+        const first = showing[0];
+        const last = showing[showing.length - 1];
         onRangeChange(
             { startIndex, endIndex },
             isScrolling,
             item !== undefined ? { index: item.index, withinPx: centerPx - item.start } : undefined,
+            first !== undefined && last !== undefined ? { startIndex: first.index, endIndex: last.index } : undefined,
         );
-    }, [startIndex, endIndex, isScrolling, read, onRangeChange, virtualizer]);
+    }, [startIndex, endIndex, isScrolling, read, margin, onRangeChange, virtualizer]);
     return null;
 }

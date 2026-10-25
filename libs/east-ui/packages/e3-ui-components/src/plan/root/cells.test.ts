@@ -11,7 +11,8 @@
  * the blocks of a paged kind's resources around the rows in view, the tiles a
  * range wants, the tiles a summary may shade a resolution's buckets by, the
  * buckets a range is cut into, a resource's shading from its summary's totals,
- * and where the canvas reports its rows in view.
+ * and where the canvas reports its rows in view — at rest, the rows its view
+ * shows, or the span standing while it shows only rows not read.
  */
 
 import { describe, test, expect, vi } from "vitest";
@@ -19,8 +20,8 @@ import { some } from "@elaraai/east";
 import { utcAt } from "../plan.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
 import {
-    PLAN_CELL_BLOCK, PLAN_CELL_MARGIN, PLAN_CELL_OPENING, bucketsOver, cellSpanOf, createCellSpanStore, dividingTiles, shadesOf, wantedBlocks,
-    wantedTiles,
+    PLAN_CELL_BLOCK, PLAN_CELL_MARGIN, PLAN_CELL_OPENING, bucketsOver, cellSpanOf, createCellSpanStore, dividingTiles, shadesOf, shownCellSpan,
+    wantedBlocks, wantedTiles,
 } from "./cells.js";
 
 const day = (text: string) => new Date(`${text}T00:00:00Z`);
@@ -127,6 +128,20 @@ describe("where the canvas reports its rows in view (#1039)", () => {
         expect(cellSpanOf(items, origin, "hall: Hall 2")).toEqual({ first: { w: 0, key: "P-1001" }, last: { w: 1, key: "P-1201" }, narrowing: "hall: Hall 2" });
         // A row no paged window placed — the Plan's own — is never a paged kind's.
         expect(cellSpanOf([{ key: "stock", path: ["board"] }], origin, undefined)).toBeUndefined();
+    });
+
+    test("at rest: the paged rows the view shows; a view showing rows not read yet and none read keeps the span standing — never the opening's first block, a view away — and one showing neither reports none", () => {
+        const origin = new Map([["r6", { w: 5 }], ["r7", { w: 5 }]]);
+        const standing = { first: { w: 0, key: "JOB-10090" }, last: { w: 0, key: "JOB-10180" }, narrowing: "status: Ready" };
+        const shown = [{ key: "r6", path: ["JOB-49999"] }, { key: "r7", path: ["JOB-49909"] }];
+        // Rows in view, a run below them: their span.
+        expect(shownCellSpan(shown, true, standing, origin, "status: Ready"))
+            .toEqual({ first: { w: 5, key: "JOB-49999" }, last: { w: 5, key: "JOB-49909" }, narrowing: "status: Ready" });
+        // A run not read alone — the view sent far into it — the span standing, or none while none stands.
+        expect(shownCellSpan([], true, standing, origin, "status: Ready")).toBe(standing);
+        expect(shownCellSpan([{ key: "stock", path: ["board"] }], true, undefined, origin, undefined)).toBeUndefined();
+        // Nothing paged and no run — a narrowing of no row: none, the opening's.
+        expect(shownCellSpan([], false, standing, origin, "status: Ready")).toBeUndefined();
     });
 
     test("the store holds the span reported last, and tells its listeners only of one that moves — its rows or its narrowing", () => {
