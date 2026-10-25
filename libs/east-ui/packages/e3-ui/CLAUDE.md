@@ -88,17 +88,16 @@ stays the mutation door a Save commits through.
 The Sheet (#1345) takes `slice={{ slice: Slice.bindRecords(key, { rows, … })
 }}`. Its `rows` source gives the record's rows, every one in the record's
 order, paged from it, edited through `onApply={Record.onApply(record, { keyed:
-true })}`, and its narrowing is drawn over them as the lens (#1349): each match
-at its row number, its context rows either side and gaps of their size over
-the rest, e3 placing the narrowing's rows from the source's index alone and
+true })}`, and its narrowing is drawn over them as the lens (#1349), a filtered
+spreadsheet: only the rows the narrowing keeps, one after another, each at its
+row number, e3 placing the narrowing's rows from the source's index alone and
 the renderer reading only the segments that hold them near the view. A sheet
 over `record` or `data` takes a slice of templates sources alone. Each list is
 `Sheet.templates(templates.read(), { name, group?, values, source })`, its
 record bound with `Data.bind`, a grouped sheet's row templates and group
 templates two records and two sources. A saved view is a
-`Sheet.Types.RecordView`, every source's narrowing by name, with the lens's
-context and the runs the planner opened by their rows' keys
-(`Sheet.Types.Reveal`).
+`Sheet.Types.RecordView`, every source's narrowing by name and the folds left
+on it.
 
 The Flowchart (#1346) takes `slice={{ slice: Slice.bindRecords(key, { flows, …
 }) }}`. Over `record`, its `flows` source — `Data.bindPaged(record, { indexes
