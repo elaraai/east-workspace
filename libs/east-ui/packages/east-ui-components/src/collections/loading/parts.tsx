@@ -22,10 +22,11 @@
  * @packageDocumentation
  */
 
-import { useMemo, type CSSProperties, type ReactNode } from "react";
-import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { type CSSProperties, type ReactNode } from "react";
+import { Box, Button, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCircleExclamation, type IconDefinition } from "@fortawesome/free-solid-svg-icons";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 import { barShare } from "./run-rows.js";
 import { loadingMessages } from "./messages.js";
 import { useRevealed } from "./reveal.js";
@@ -62,10 +63,13 @@ export function placeholderAlign(kind: PlaceholderKind): "start" | "end" | "cent
     return kind === "number" ? "end" : kind === "boolean" || kind === "check" ? "center" : "start";
 }
 
-/** The `loading` recipe's styles. */
+/**
+ * The `loading` recipe's styles: made once for the theme (#1398, CL9), so an
+ * unloaded run's every shape, mounting as it comes into view, reads them
+ * rather than working out every slot of the recipe again.
+ */
 export function useLoadingStyles(): Styles {
-    const recipe = useSlotRecipe({ key: "loading" });
-    return useMemo(() => recipe() as Styles, [recipe]);
+    return useSlotStyles("loading");
 }
 
 /**

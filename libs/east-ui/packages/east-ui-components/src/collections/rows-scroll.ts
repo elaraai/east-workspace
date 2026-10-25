@@ -19,10 +19,16 @@
  * renders, so a commit that moves it — a window landing above it — draws it
  * there in that commit, never in a second one after it.
  *
+ * And it says which of its rows shows at the top of the view
+ * ({@link useRowsTop}): what a collection says once, in the first row in view
+ * (a failure, #1398 CL11), is read by the row that says it, as the view moves —
+ * never handed to every row, which would draw every row again each time the
+ * view passes a row (#1398, CL9).
+ *
  * @packageDocumentation
  */
 
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import type { RunView } from "./loading/run-rows.js";
 
 /** What scrolls a frame's rows, as a row taller than the view reads it. */
@@ -48,6 +54,14 @@ export interface RowsScroll {
      */
     viewAt(top: number): RunView | undefined;
     /**
+     * The index of the row at the top of the view, just under a pinned header,
+     * as the frame's virtualizer last read its scroll — `undefined` before the
+     * frame has placed its rows, and where it places none (its rows in flow).
+     *
+     * @returns The row's index
+     */
+    top(): number | undefined;
+    /**
      * Hears whenever what the view shows of the rows may have moved.
      *
      * @param cb - Called on a scroll, a resize, and every commit of the frame
@@ -65,8 +79,9 @@ export interface PlacedRowsScroll extends RowsScroll {
      * @param scroller - What scrolls the rows: the frame's own scroll element, the ancestor it watches, or the window; `null` for none
      * @param inset - How many px of the view's top a pinned header covers
      * @param edges - The view's top and foot in the rows' own coordinates, as the frame's virtualizer reads them (its scroll offset, its view less the header); absent where it places no rows
+     * @param top - The index of the row at the top of the view, as the virtualizer reads it; absent where it places no rows
      */
-    place(scroller: HTMLElement | Window | null, inset: number, edges?: (() => RunView) | undefined): void;
+    place(scroller: HTMLElement | Window | null, inset: number, edges?: (() => RunView) | undefined, top?: (() => number | undefined) | undefined): void;
 }
 
 function isWindow(target: HTMLElement | Window): target is Window {
@@ -96,6 +111,7 @@ export function createRowsScroll(): PlacedRowsScroll {
     let scroller: HTMLElement | Window | null = null;
     let inset = 0;
     let edges: (() => RunView) | undefined;
+    let topOf: (() => number | undefined) | undefined;
     let heard: HTMLElement | Window | null = null;
     const listeners = new Set<() => void>();
     const notify = () => { for (const cb of [...listeners]) cb(); };
@@ -122,6 +138,9 @@ export function createRowsScroll(): PlacedRowsScroll {
             const at = edges();
             return { top: at.top - top, bottom: at.bottom - top };
         },
+        top() {
+            return topOf?.();
+        },
         listen(cb) {
             listeners.add(cb);
             hear();
@@ -130,10 +149,11 @@ export function createRowsScroll(): PlacedRowsScroll {
                 hear();
             };
         },
-        place(next, nextInset, nextEdges) {
+        place(next, nextInset, nextEdges, nextTop) {
             scroller = next;
             inset = nextInset;
             edges = next === null ? undefined : nextEdges;
+            topOf = next === null ? undefined : nextTop;
             hear();
             notify();
         },
@@ -164,4 +184,31 @@ export const RowTopContext = createContext<number | undefined>(undefined);
  */
 export function useRowTop(): number | undefined {
     return useContext(RowTopContext);
+}
+
+/** Nothing to hear: outside a frame. */
+const NOTHING = () => () => {};
+
+/** The row at the top of the view, as it is. */
+const ITSELF = (top: number | undefined): number | undefined => top;
+
+/**
+ * Which row of the frame around shows at the top of the view, just under a
+ * pinned header — read by the row that needs it, and drawn again only as that
+ * moves, so the frame never draws every row again as the view passes one
+ * (#1398, CL9): where a collection says something once, in the first row in
+ * view (a failure, CL11). Given what a row makes of it — whether it is the row
+ * that says it — the row is drawn again only as that changes.
+ *
+ * @param select - What the row makes of the index: a value `Object.is` tells apart, a boolean or a number
+ * @returns The row's index — `undefined` outside a virtual frame, or where it lays its rows out in flow — or what `select` makes of it
+ */
+export function useRowsTop(): number | undefined;
+export function useRowsTop<T>(select: (top: number | undefined) => T): T;
+export function useRowsTop<T>(select?: (top: number | undefined) => T): T | number | undefined {
+    const scroll = useRowsScroll();
+    const pick = select ?? ITSELF;
+    const subscribe = useCallback((cb: () => void) => (scroll === null ? NOTHING() : scroll.listen(cb)), [scroll]);
+    const snapshot = () => pick(scroll?.top());
+    return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

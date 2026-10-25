@@ -350,51 +350,75 @@ function offeredFields(slice: Bind, affordances: readonly string[], exclude?: re
         || (affordances.includes("range") && slice.config.range.type === "some" && slice.config.range.value === field.fieldId));
 }
 
-/** Shared toolbar items used by every host of a record Slice. */
+/** A list of words as one key: what a host's new array of the same words keeps a memo by. */
+function wordsKey(list: readonly string[] | undefined): string {
+    return list === undefined ? "" : list.join("\u0000");
+}
+
+/** A host's nouns, by source, as one key, in source order. */
+function nounsKey(nouns: Readonly<Record<string, string>> | undefined): string {
+    return nouns === undefined ? "" : Object.keys(nouns).sort().map(source => `${source}\u0001${nouns[source]}`).join("\u0000");
+}
+
+/**
+ * Shared toolbar items used by every host of a record Slice. They are made
+ * again only as the slice's state, its words or the host's options move
+ * (#1398, CL9): a host drawn again with nothing of its rail moved hands its
+ * toolbar the same items.
+ */
 export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { persist?: SlicePersistMode; noun?: string; affordances?: readonly string[]; excludeFields?: readonly string[]; resolutions?: readonly ResolutionTag[] } = {}): ToolbarItem[] {
     const version = useSliceReactivity(slice?.key);
     const words = useFormatters();
     const persist = options.persist;
     useEffect(() => { if (slice !== undefined && persist !== undefined) enableRecordSlicePersistence(slice, persist); }, [slice, persist]);
-    const state = slice?.read();
-    const affordances = options.affordances ?? ["fields", "presets", "summary"];
-    const fields = slice === undefined ? [] : offeredFields(slice, affordances, options.excludeFields);
-    const presets = affordances.includes("presets") && (slice?.config.presets.length ?? 0) > 0;
-    const resolution = affordances.includes("resolution") && slice?.config.range.type === "some"
-        && slice.config.fields.some(field => field.fieldId === slice.config.range.value && field.kind === "datetime" && !field.set);
-    const resolutions = options.resolutions ?? ["auto", "hour", "day", "week", "month", "quarter", "year"];
-    const byKind = new Map(fields.map(field => [`field:${field.fieldId}`, field]));
-    const kinds = [...byKind.keys(), ...(presets ? ["presets"] : []), ...(resolution && resolutions.length > 0 ? ["resolution"] : [])];
-    const items = useSliceRailItems(slice === undefined || state === undefined ? undefined : {
-        version, activeCount: state.where.size, clear: () => { slice.clearAll(); },
-        status: affordances.includes("summary") ? <RecordSliceSummary slice={slice} {...(options.noun === undefined ? {} : { noun: options.noun })} /> : undefined,
-        describe: kind => {
-            if (kind === "resolution") return { kind, label: "Resolution", icon: faCalendar, text: state.resolution.type === "some" ? `Resolution: ${state.resolution.value.type}` : "Auto", active: state.resolution.type === "some", rank: 2 };
-            const field = byKind.get(kind);
-            if (field === undefined) {
-                const selected = state.preset.type === "some" ? slice.config.presets.find(p => p.id === state.preset.value) : undefined;
-                return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3 };
-            }
-            return fieldDescriptor(slice, field, kind, words);
-        },
-        renderEditor: kind => {
-            if (kind === "resolution") return <ResolutionSeg options={resolutions} active={state.resolution.type === "some" ? state.resolution.value.type : undefined}
-                onPick={tag => slice.setResolution(some(variant(tag, null)))} />;
-            const field = byKind.get(kind);
-            return field === undefined ? <Presets slice={slice} /> : <RecordSliceFieldEditor slice={slice} field={field} />;
-        },
-        render: kind => {
-            if (kind === "resolution") return <ResolutionSeg options={resolutions} active={state.resolution.type === "some" ? state.resolution.value.type : undefined}
-                onPick={tag => slice.setResolution(some(variant(tag, null)))} />;
-            const field = byKind.get(kind);
-            return field === undefined ? <Presets slice={slice} /> : <FieldChip slice={slice} field={field} />;
-        },
-    }, [{ key: "record-slice", kinds }]);
+    const noun = options.noun;
+    const affordancesAt = wordsKey(options.affordances);
+    const excludeAt = wordsKey(options.excludeFields);
+    const resolutionsAt = wordsKey(options.resolutions);
+    // What the rail is drawn from, made again as the slice's state moves (its version) or the host's options do.
+    const made = useMemo(() => {
+        const state = slice?.read();
+        const affordances = options.affordances ?? ["fields", "presets", "summary"];
+        const fields = slice === undefined ? [] : offeredFields(slice, affordances, options.excludeFields);
+        const presets = affordances.includes("presets") && (slice?.config.presets.length ?? 0) > 0;
+        const resolution = affordances.includes("resolution") && slice?.config.range.type === "some"
+            && slice.config.fields.some(field => field.fieldId === slice.config.range.value && field.kind === "datetime" && !field.set);
+        const resolutions = options.resolutions ?? ["auto", "hour", "day", "week", "month", "quarter", "year"];
+        const byKind = new Map(fields.map(field => [`field:${field.fieldId}`, field]));
+        const kinds = [...byKind.keys(), ...(presets ? ["presets"] : []), ...(resolution && resolutions.length > 0 ? ["resolution"] : [])];
+        const summary = slice !== undefined && affordances.includes("summary") ? <RecordSliceSummary slice={slice} {...(noun === undefined ? {} : { noun })} /> : undefined;
+        const model = slice === undefined || state === undefined ? undefined : {
+            version, activeCount: state.where.size, clear: () => { slice.clearAll(); },
+            status: summary,
+            describe: (kind: string): SliceRailDescriptor => {
+                if (kind === "resolution") return { kind, label: "Resolution", icon: faCalendar, text: state.resolution.type === "some" ? `Resolution: ${state.resolution.value.type}` : "Auto", active: state.resolution.type === "some", rank: 2 };
+                const field = byKind.get(kind);
+                if (field === undefined) {
+                    const selected = state.preset.type === "some" ? slice.config.presets.find(p => p.id === state.preset.value) : undefined;
+                    return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3 };
+                }
+                return fieldDescriptor(slice, field, kind, words);
+            },
+            renderEditor: (kind: string) => {
+                if (kind === "resolution") return <ResolutionSeg options={resolutions} active={state.resolution.type === "some" ? state.resolution.value.type : undefined}
+                    onPick={tag => slice.setResolution(some(variant(tag, null)))} />;
+                const field = byKind.get(kind);
+                return field === undefined ? <Presets slice={slice} /> : <RecordSliceFieldEditor slice={slice} field={field} />;
+            },
+            render: (kind: string) => {
+                if (kind === "resolution") return <ResolutionSeg options={resolutions} active={state.resolution.type === "some" ? state.resolution.value.type : undefined}
+                    onPick={tag => slice.setResolution(some(variant(tag, null)))} />;
+                const field = byKind.get(kind);
+                return field === undefined ? <Presets slice={slice} /> : <FieldChip slice={slice} field={field} />;
+            },
+        };
+        return { model, clusters: [{ key: "record-slice", kinds }], summary };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the slice's state is its version; the options are read by what they hold
+    }, [slice, version, words, noun, affordancesAt, excludeAt, resolutionsAt]);
+    const items = useSliceRailItems(made.model, made.clusters);
     // The summary folds after every step of the rail, whose editor keeps it, and before the host's own items.
-    if (slice !== undefined && affordances.includes("summary")) items.push({ key: "record-summary", side: "end", rank: SUMMARY_RANK, forms: [
-        <RecordSliceSummary slice={slice} {...(options.noun === undefined ? {} : { noun: options.noun })} />, null,
-    ] });
-    return items;
+    return useMemo(() => (made.summary === undefined ? items
+        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null] }]), [items, made.summary]);
 }
 
 /** A preset over several records: selected when every part holds it; a pick is the product's own toggle. */
@@ -434,50 +458,61 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
         if (slices === undefined || persist === undefined) return;
         for (const part of slices.parts) enableRecordSlicePersistence(part.slice, persist);
     }, [slices, persist]);
-    const affordances = options.affordances ?? ["fields", "presets", "summary"];
-    const entries = slices?.parts.flatMap(part => offeredFields(part.slice, affordances,
-        options.excludeFields?.filter(name => name.startsWith(`${part.source}.`)).map(name => name.slice(part.source.length + 1)))
-        .map(field => ({ kind: `field:${part.source}.${field.fieldId}`, part, field }))) ?? [];
-    const byKind = new Map(entries.map(entry => [entry.kind, entry]));
-    const presets = affordances.includes("presets") && (slices?.presets.length ?? 0) > 0;
-    const kinds = [...byKind.keys(), ...(presets ? ["presets"] : [])];
-    // Fields from more than one source are headed by their source; the presets, over them all, by their own.
-    const headings = [...new Set(entries.map(entry => entry.part.source))];
-    const headed = headings.length > 1;
-    // Counted as the summary affordance asks (#1358): in the editor, each headed source in its heading, and what no
-    // heading counts on a line under the fields; on the toolbar, every source a narrowing hides rows of.
-    const counted = slices !== undefined && affordances.includes("summary");
-    const summary = counted ? <RecordSlicesSummary slices={slices} nouns={options.nouns} /> : undefined;
-    const status = counted ? <RecordSlicesSummary slices={slices} nouns={options.nouns} except={headed ? headings : []} /> : undefined;
-    const items = useSliceRailItems(slices === undefined ? undefined : {
-        version, activeCount: slices.parts.reduce((count, part) => count + part.slice.read().where.size, 0),
-        clear: () => { slices.clearAll(); },
-        status,
-        describe: kind => {
-            const entry = byKind.get(kind);
-            if (entry === undefined) {
-                const id = productPreset(slices);
-                const selected = id === undefined ? undefined : slices.presets.find(p => p.id === id);
-                return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3,
-                    ...(headed ? { group: { key: "presets", label: "Presets" } } : {}) };
-            }
-            const field = fieldDescriptor(entry.part.slice, entry.field, kind, words,
-                { "data-record-slice-source": entry.part.source, "data-record-slice-field": entry.field.fieldId });
-            const icon = sourceIcon(entry.part);
-            return { ...field, ...(icon === undefined ? {} : { icon }),
-                ...(headed ? { group: { key: `source:${entry.part.source}`, label: sourceHeading(entry.part, options.nouns), icon,
-                    ...(counted ? { count: <RecordSourceCount slice={entry.part.slice} /> } : {}) } } : {}) };
-        },
-        renderEditor: kind => {
-            const entry = byKind.get(kind);
-            return entry === undefined ? <ProductPresets slices={slices} /> : <RecordSliceFieldEditor slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
-        },
-        render: kind => {
-            const entry = byKind.get(kind);
-            return entry === undefined ? <ProductPresets slices={slices} /> : <FieldChip slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
-        },
-    }, [{ key: "record-slices", kinds }]);
+    const nounsAt = nounsKey(options.nouns);
+    const affordancesAt = wordsKey(options.affordances);
+    const excludeAt = wordsKey(options.excludeFields);
+    // What the rail is drawn from, made again as a source's state moves (the version) or the host's options do (#1398,
+    // CL9): a host drawn again at each window landing hands its toolbar the same items.
+    const made = useMemo(() => {
+        const nouns = options.nouns;
+        const affordances = options.affordances ?? ["fields", "presets", "summary"];
+        const entries = slices?.parts.flatMap(part => offeredFields(part.slice, affordances,
+            options.excludeFields?.filter(name => name.startsWith(`${part.source}.`)).map(name => name.slice(part.source.length + 1)))
+            .map(field => ({ kind: `field:${part.source}.${field.fieldId}`, part, field }))) ?? [];
+        const byKind = new Map(entries.map(entry => [entry.kind, entry]));
+        const presets = affordances.includes("presets") && (slices?.presets.length ?? 0) > 0;
+        const kinds = [...byKind.keys(), ...(presets ? ["presets"] : [])];
+        // Fields from more than one source are headed by their source; the presets, over them all, by their own.
+        const headings = [...new Set(entries.map(entry => entry.part.source))];
+        const headed = headings.length > 1;
+        // Counted as the summary affordance asks (#1358): in the editor, each headed source in its heading, and what no
+        // heading counts on a line under the fields; on the toolbar, every source a narrowing hides rows of.
+        const counted = slices !== undefined && affordances.includes("summary");
+        const summary = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} /> : undefined;
+        const status = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} except={headed ? headings : []} /> : undefined;
+        const model = slices === undefined ? undefined : {
+            version, activeCount: slices.parts.reduce((count, part) => count + part.slice.read().where.size, 0),
+            clear: () => { slices.clearAll(); },
+            status,
+            describe: (kind: string): SliceRailDescriptor => {
+                const entry = byKind.get(kind);
+                if (entry === undefined) {
+                    const id = productPreset(slices);
+                    const selected = id === undefined ? undefined : slices.presets.find(p => p.id === id);
+                    return { kind, label: "Presets", icon: faUsers, text: selected === undefined ? "Presets" : `Presets: ${selected.name}`, active: selected !== undefined, rank: 3,
+                        ...(headed ? { group: { key: "presets", label: "Presets" } } : {}) };
+                }
+                const field = fieldDescriptor(entry.part.slice, entry.field, kind, words,
+                    { "data-record-slice-source": entry.part.source, "data-record-slice-field": entry.field.fieldId });
+                const icon = sourceIcon(entry.part);
+                return { ...field, ...(icon === undefined ? {} : { icon }),
+                    ...(headed ? { group: { key: `source:${entry.part.source}`, label: sourceHeading(entry.part, nouns), icon,
+                        ...(counted ? { count: <RecordSourceCount slice={entry.part.slice} /> } : {}) } } : {}) };
+            },
+            renderEditor: (kind: string) => {
+                const entry = byKind.get(kind);
+                return entry === undefined ? <ProductPresets slices={slices} /> : <RecordSliceFieldEditor slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
+            },
+            render: (kind: string) => {
+                const entry = byKind.get(kind);
+                return entry === undefined ? <ProductPresets slices={slices} /> : <FieldChip slice={entry.part.slice} field={entry.field} source={entry.part.source} />;
+            },
+        };
+        return { model, clusters: [{ key: "record-slices", kinds }], summary };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the sources' state is the version; the options are read by what they hold
+    }, [slices, version, words, nounsAt, affordancesAt, excludeAt]);
+    const items = useSliceRailItems(made.model, made.clusters);
     // As one record's: after every step of the rail, before the host's own items.
-    if (summary !== undefined) items.push({ key: "record-summary", side: "end", rank: SUMMARY_RANK, forms: [summary, null] });
-    return items;
+    return useMemo(() => (made.summary === undefined ? items
+        : [...items, { key: "record-summary", side: "end" as const, rank: SUMMARY_RANK, forms: [made.summary, null] }]), [items, made.summary]);
 }

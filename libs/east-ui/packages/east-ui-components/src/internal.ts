@@ -27,9 +27,12 @@ export {
 // Row virtualization, and a paged source's windows: their scroll geometry
 // (the window ledger), which of them are resident, and a key search's query
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).
-export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, type RowsInView, type RowsViewport } from "./collections/virtual-rows.js";
-// What scrolls a frame's rows, for a row taller than the view — an unloaded run — to draw what of it is in view (#1398).
-export { useRowsScroll, type RowsScroll } from "./collections/rows-scroll.js";
+// A row's measured height on the device-pixel grid the frame places its rows on — what a collection measures its rows'
+// estimates from (#1398, CL8).
+export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowsViewport } from "./collections/virtual-rows.js";
+// What scrolls a frame's rows, for a row taller than the view — an unloaded run — to draw what of it is in view, and
+// which row shows at the top of the view, for the row that says something once there (#1398).
+export { useRowsScroll, useRowsTop, type RowsScroll } from "./collections/rows-scroll.js";
 export { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "./collections/windowed-source.js";
 export {
     createLedger, documentHeight, elementAtOffset, elementsIn, isObserved, observeWindow, offsetOfElement,
@@ -93,6 +96,8 @@ export { parseCssSize } from "./style/parse-size.js";
 export { coarseHitArea } from "./style/hit-area.js";
 // The Plan's slot recipe: in the theme with every recipe, and its geometry measured against it.
 export { planSlotRecipe } from "./theme/slot-recipes/plan.js";
+// A slot recipe's styles made once for the theme and its variants: what a part drawn often reads (#1398, CL9).
+export { useSlotStyles, type SlotStyles, type SlotVariants } from "./theme/slot-styles.js";
 // The theme colour tokens a Schematic's colour may name (D14): what its Issues tab holds a colour to (#1391).
 export { schematicColorTokens } from "./theme/slot-recipes/schematic.js";
 

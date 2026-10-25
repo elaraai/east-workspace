@@ -14,11 +14,12 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
 import type { Virtualizer } from "@tanstack/react-virtual";
+import { useRowsTop } from "./rows-scroll.js";
 import { VirtualRows, devicePixels, observeOffsetWithin, type RowsViewport } from "./virtual-rows.js";
 
 const ROW_H = 32;
@@ -231,30 +232,69 @@ describe("VirtualRows — the paged collection's two signals (#577)", () => {
         });
     });
 
-    test("each row is told which row shows at the top of the view — where a collection says a failure once (#1398, CL11); a frame in flow that watches nothing tells none", () => {
+    test("a row reads which row shows at the top of the view itself — where a collection says a failure once (#1398, CL11); a frame in flow that watches nothing has none", () => {
         const tops = new Map<number, number | undefined>();
+        function Row({ index }: { index: number }) {
+            tops.set(index, useRowsTop());
+            return <div>row {index}</div>;
+        }
+        const renderRow = (i: number) => <Row index={i} />;
         const frame = (height: string | undefined, count: number) => (
             <ChakraProvider value={system}>
                 <VirtualRows height={height} maxHeight={undefined} count={count} estimateSize={() => ROW_H} measureRows={false} overscan={6}
-                    renderRow={(i, view) => { tops.set(i, view.top); return <div>row {i}</div>; }} />
+                    renderRow={renderRow} />
             </ChakraProvider>
         );
         const { container, unmount } = render(frame("200px", 500));
-        const told = () => [...new Set([...container.querySelectorAll<HTMLElement>("[data-index]")].map((el) => tops.get(Number(el.dataset["index"]))))];
-        // At rest the top row is the first, and every row mounted is told so.
-        expect(told()).toEqual([0]);
+        const read = () => [...new Set([...container.querySelectorAll<HTMLElement>("[data-index]")].map((el) => tops.get(Number(el.dataset["index"]))))];
+        // At rest the top row is the first, and every row mounted that asks reads so.
+        expect(read()).toEqual([0]);
         // Scrolled ten rows and 5px down: the eleventh row shows at the top, and every row mounted — the overscan's above
-        // it among them — is told so.
+        // it among them — reads so, the rows it had mounted before as well as those it brought in.
         const scrollEl = container.firstElementChild as HTMLElement;
-        scrollEl.scrollTop = 10 * ROW_H + 5;
-        fireEvent.scroll(scrollEl);
-        expect(told()).toEqual([10]);
+        act(() => {
+            scrollEl.scrollTop = 10 * ROW_H + 5;
+            fireEvent.scroll(scrollEl);
+        });
+        expect(read()).toEqual([10]);
         unmount();
         // Unbounded below scale, with no range asked for: every row in flow, and no view to place a row in.
         tops.clear();
         const inFlow = render(frame(undefined, 3));
         expect(inFlow.container.querySelectorAll("[data-index]")).toHaveLength(0);
         expect([...tops.values()]).toEqual([undefined, undefined, undefined]);
+    });
+
+    test("a scroll draws again only the rows it brings into view: a row mounted before it is drawn again only when its index or the renderer moves (#1398, CL9)", () => {
+        const draws = new Map<number, number>();
+        function Row({ index }: { index: number }) {
+            draws.set(index, (draws.get(index) ?? 0) + 1);
+            return <div>row {index}</div>;
+        }
+        const frame = (renderRow: (i: number) => ReactNode) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={500} estimateSize={() => ROW_H} measureRows={false} overscan={2}
+                    renderRow={renderRow} />
+            </ChakraProvider>
+        );
+        const renderRow = (i: number) => <Row index={i} />;
+        const { container, rerender } = render(frame(renderRow));
+        const mounted = () => [...container.querySelectorAll<HTMLElement>("[data-index]")].map((el) => Number(el.dataset["index"]));
+        const atRest = mounted();
+        expect(atRest.map((i) => draws.get(i))).toEqual(atRest.map(() => 1));
+        // Three rows down: every row still mounted is as it was drawn; only the rows the scroll brought in are drawn.
+        const scrollEl = container.firstElementChild as HTMLElement;
+        act(() => {
+            scrollEl.scrollTop = 3 * ROW_H;
+            fireEvent.scroll(scrollEl);
+        });
+        const kept = mounted().filter((i) => atRest.includes(i));
+        expect(kept.length).toBeGreaterThan(0);
+        expect(kept.map((i) => draws.get(i))).toEqual(kept.map(() => 1));
+        expect(mounted().filter((i) => !atRest.includes(i)).map((i) => draws.get(i))).toEqual(mounted().filter((i) => !atRest.includes(i)).map(() => 1));
+        // A new renderer — what the rows show moved — draws every mounted row again.
+        rerender(frame((i) => <Row index={i} />));
+        expect(mounted().map((i) => draws.get(i))).toEqual(mounted().map(() => 2));
     });
 
     test("sizeVersion busts TanStack's measurement memo when heights move at a constant count", () => {
