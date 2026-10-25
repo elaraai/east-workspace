@@ -15,7 +15,7 @@ import { defaultValue, none, some, variant } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import RBush from "rbush";
 import { SchematicDrawnItemType, drawnItem, drawnLink, drawnNet, type DrawnItem, type DrawnLink } from "./drawn";
-import { linkRoutes, netRoutes, routeEnv, type EdgeGeometry } from "./paint";
+import { linkRoutes, netRoutes, routeEnv, type EdgeGeometry } from "./routes";
 import { EMPTY_STRING_SET, type ItemBox, linkAt, linkIndex, marqueeHits } from "./selection";
 
 describe("marqueeHits", () => {

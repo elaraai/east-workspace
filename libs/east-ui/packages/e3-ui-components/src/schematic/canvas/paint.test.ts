@@ -23,12 +23,12 @@ import { Schematic } from "@elaraai/e3-ui/internal";
 import type { SchematicDensity } from "../area.js";
 import { drawnItem, drawnLink, drawnNet, drawnZone, type DrawnItem, type SchematicDrawn } from "./drawn";
 import { PIN_LEAD_PX, SCHEMATIC_CARD_MAX_PX } from "./model";
+import { MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS, markerHit, markerHitbox } from "./markers";
 import {
-    netGeometry,
-    MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS,
-    arcFromBulge, densityStep, hatchLineCount, hatchSpacing, hatchSweepBounds, markerHit, markerHitbox, type BulgeArc,
-    linkRoutes, netRoutes, paintSchematic, parallelLanes, polylineMidpoint, routeEnv, type LodTier, type PaintInput, type RGB, type SchematicPalette,
+    arcFromBulge, densityStep, hatchLineCount, hatchSpacing, hatchSweepBounds, type BulgeArc,
+    paintSchematic, type LodTier, type PaintInput, type RGB, type SchematicPalette,
 } from "./paint";
+import { linkRoutes, netGeometry, netRoutes, parallelLanes, polylineMidpoint, routeEnv } from "./routes";
 
 type Pt = { x: number; y: number };
 
