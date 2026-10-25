@@ -136,7 +136,7 @@ import { PlanHeader } from "./root/Header.js";
 import { usePlanCursorController } from "./root/cursor.js";
 import { usePlanDropTarget } from "./root/drop.js";
 import { PLAN_ELEMENT_SELECTOR, PlanOverlays, createOverlayAnchors, refOfElement, usePlanOverlayHandlers } from "./root/overlays.js";
-import { PlanGridContext, createRowPositions, type PlanGridContextValue } from "./root/grid.js";
+import { PlanGridContext, createRowPositions, gridPlaces, type PlanGridContextValue } from "./root/grid.js";
 import {
     PLAN_WALK_SELECTOR, gridItemOf, planNavItems, planNavKey, plotElements, resolveNavIntent, rowWidgets,
     type PlanNavEdges, type PlanNavIntent, type PlanNavMove,
@@ -902,20 +902,20 @@ export function usePlanCanvas({
     }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, readEvent, history]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
-    // Every item's place in the grid — the pinned rows first — published to
-    // the rows, which write it onto themselves: a collapse or a landing at
-    // the head renumbers every row below it without rendering one
-    // (`root/grid.ts`).
+    // Every item's place in the grid — the pinned rows first, a run not read
+    // taking a place for each of its rows (#1398, CL12) — published to the
+    // rows, which write it onto themselves: a collapse or a landing at the
+    // head renumbers every row below it without rendering one
+    // (`root/grid.ts`). The count is the total once a paged source has
+    // counted itself.
     const gridRef = useRef<HTMLElement | null>(null);
     const [positions] = useState(createRowPositions);
     const gridCtx = useMemo<PlanGridContextValue>(() => ({ positions, gridRef }), [positions]);
-    const positionMap = useMemo(() => {
-        const m = new Map<string, number>();
-        pinned.forEach((v, i) => m.set(rowItemKey(v.row.key), i + 1));
-        body.items.forEach((it, i) => m.set(bodyItemKey(it), pinned.length + i + 1));
-        return m;
-    }, [pinned, body.items]);
-    useLayoutEffect(() => { positions.set(positionMap); }, [positions, positionMap]);
+    const counted = !paged || paging.total !== undefined;
+    const places = useMemo(
+        () => gridPlaces(pinned.map((v) => rowItemKey(v.row.key)), body.items, counted),
+        [pinned, body.items, counted]);
+    useLayoutEffect(() => { positions.set(places.places); }, [positions, places]);
     const uid = useId();
     const pinnedId = `${uid}-pinned`;
     // The grid's items as the keyboard walks them.
@@ -1395,13 +1395,14 @@ export function usePlanCanvas({
                     scrollAlign={target.align}
                     // The rows' container IS the treegrid (#819): every
                     // body item is a row of it, the pinned rows join by
-                    // `aria-owns`, and its count is exact — an unloaded
-                    // run is one row, the band that stands for it.
+                    // `aria-owns`, and its count is the total (#1398,
+                    // CL12) — a run not read is one row of it that counts
+                    // as the rows it stands for.
                     rowsRef={gridRef}
                     rowsProps={{
                         role: "treegrid",
                         "aria-label": words.m.gridLabel(),
-                        "aria-rowcount": pinned.length + body.items.length,
+                        "aria-rowcount": places.count,
                         ...(pinned.length > 0 ? { "aria-owns": pinnedId } : {}),
                         // The tab stop while no mounted row holds it.
                         tabIndex: 0,

@@ -195,6 +195,26 @@ const focusedItem = () => {
 const press = (key: string, opts: { shiftKey?: boolean } = {}) =>
     fireEvent.keyDown(document.activeElement as HTMLElement, { key, ...opts });
 
+/**
+ * jsdom lays nothing out: the bounded frame's viewport and the header are
+ * stood in for (the #812 tests' stand-ins), each test of the calling describe
+ * with them in place.
+ */
+function standInLayout(): void {
+    const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+    const realClientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
+    const stubbed = (el: Element) => (el.getAttribute("data-virtual-rows") === "bounded" ? 400
+        : el.hasAttribute("data-plan-header") ? 40 : 0);
+    beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) { return stubbed(this); } });
+        Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get(this: Element) { return stubbed(this); } });
+    });
+    afterEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
+        Object.defineProperty(Element.prototype, "clientHeight", realClientHeight);
+    });
+}
+
 // ── The treegrid ──────────────────────────────────────────────────────────
 describe("the canvas is a treegrid (#819)", () => {
     test("every row kind is a row at its level and place; the grid counts them all and owns the pinned rows", () => {
@@ -273,20 +293,7 @@ describe("the canvas is a treegrid (#819)", () => {
     });
 
     describe("under virtualization", () => {
-        // jsdom lays nothing out: the bounded frame's viewport and the header
-        // are stood in for (the #812 tests' stand-ins).
-        const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
-        const realClientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
-        const stubbed = (el: Element) => (el.getAttribute("data-virtual-rows") === "bounded" ? 400
-            : el.hasAttribute("data-plan-header") ? 40 : 0);
-        beforeEach(() => {
-            Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) { return stubbed(this); } });
-            Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get(this: Element) { return stubbed(this); } });
-        });
-        afterEach(() => {
-            Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
-            Object.defineProperty(Element.prototype, "clientHeight", realClientHeight);
-        });
+        standInLayout();
 
         test("a mounted row says its place among ALL the rows — scrolled or not", () => {
             const rows = Array.from({ length: 200 }, (_u, i) => planRow(`r${String(i).padStart(3, "0")}`, span()));
@@ -311,8 +318,9 @@ describe("the canvas is a treegrid (#819)", () => {
 
 // ── Paged sources ─────────────────────────────────────────────────────────
 /** A paged source whose windows past `openUpTo` stay in flight until opened
- *  and their channel fired (the #815 tests' held source). */
-function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
+ *  and their channel fired (the #815 tests' held source) — and, made
+ *  `uncounted`, whose count stays in flight until `counted` and `total` fired. */
+function heldSource(windows: number, rowsPer: number, openUpTo = 0, opts: { uncounted?: boolean } = {}) {
     const subs = new Map<string, Set<() => void>>();
     let recording: string[] | null = null;
     const tracker: ReactiveTracker = {
@@ -329,7 +337,7 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
             getKeyVersion: () => 0,
         }),
     };
-    const state = { openUpTo };
+    const state = { openUpTo, counted: opts.uncounted !== true };
     const source = {
         id: "plan-819-held",
         page: (offset: bigint) => {
@@ -338,7 +346,10 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
             if (w > state.openUpTo) return none;
             return some(Array.from({ length: rowsPer }, (_u, i) => planRow(`w${w}r${String(i).padStart(2, "0")}`, span())));
         },
-        total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
+        total: () => {
+            recording?.push("total");
+            return state.counted ? some(BigInt(windows * PLAN_PAGE_SIZE)) : none;
+        },
         seek: none,
         revision: () => none,
         refresh: () => null,
@@ -352,7 +363,7 @@ describe("paged canvases (#819)", () => {
     // Sixteen rows a window: window 0 fills the jsdom viewport, so the demand
     // rests on its ring [0, 2] — windows 1 and 2 in flight, 3 and 4 not asked
     // for, and all four the band (#876).
-    test("an unloaded run is ONE row — the band — and the rows that land before it take their numbers; the load is said once, in the footer's line", async () => {
+    test("an unloaded run is ONE row — the band — at its first row's place, counting as the rows it stands for; the load is said once, in the footer's line", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-819-paged");
         await waitFor(() => expect(item(container, "r:w0r15")).toBeTruthy());
@@ -363,8 +374,10 @@ describe("paged canvases (#819)", () => {
         // Window 0's rows, then the band for elements 201–1,000: the windows
         // in flight are the band's until they land. It says which of its
         // elements are loading — those two windows', not the two past them
-        // that nothing has asked for (#1082).
-        expect(grid.getAttribute("aria-rowcount")).toBe("17");
+        // that nothing has asked for (#1082). One row of the grid, it counts
+        // as the rows it stands for — a row an element, until their windows
+        // say what they draw (#1398, CL12).
+        expect(grid.getAttribute("aria-rowcount")).toBe(String(16 + 800));
         expect(item(container, "b:0:tail").getAttribute("role")).toBe("row");
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("800");
@@ -376,7 +389,7 @@ describe("paged canvases (#819)", () => {
             held.state.openUpTo = 2;
             held.fire("w1");
         });
-        expect(grid.getAttribute("aria-rowcount")).toBe("49");
+        expect(grid.getAttribute("aria-rowcount")).toBe(String(48 + 400));
         expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("49");
         // The canvas's own region says nothing of a window landing: a page is no announcement.
@@ -386,6 +399,43 @@ describe("paged canvases (#819)", () => {
         expect(item(container, "b:0:tail").hasAttribute("aria-busy")).toBe(false);
         // The footer's line goes once its hold is over.
         await waitFor(() => expect(footerLine(container).hasAttribute("data-idle")).toBe(true));
+    });
+
+    describe("over every row of the source (#1398, CL12)", () => {
+        standInLayout();
+
+        test("the grid counts every row, read or not, and each row says its place among them all — unknown, -1, until the source counts itself", async () => {
+            // A row an element, as a record's rows are: five windows, a thousand rows.
+            const held = heldSource(5, PLAN_PAGE_SIZE, 0, { uncounted: true });
+            const { container } = renderPlan(planRoot([], { source: held.source, height: "400px" }), "plan-1398-rowcount");
+            await waitFor(() => expect(item(container, "r:w0r00")).toBeTruthy());
+            // Window 0 landed before the count: its rows say their places, and the total is unknown — ARIA's -1, as the Sheet's.
+            expect(gridOf(container).getAttribute("aria-rowcount")).toBe("-1");
+            expect(item(container, "r:w0r00").getAttribute("aria-rowindex")).toBe("1");
+            act(() => {
+                held.state.counted = true;
+                held.fire("total");
+            });
+            // Counted: the total, never the rows read — window 0's two hundred, and the run's eight hundred.
+            await waitFor(() => expect(gridOf(container).getAttribute("aria-rowcount")).toBe("1000"));
+            expect(item(container, "r:w0r00").getAttribute("aria-rowindex")).toBe("1");
+            // Down to the run: one row of the grid, at its first row's place.
+            const frame = container.querySelector('[data-virtual-rows="bounded"]') as HTMLElement;
+            act(() => {
+                frame.scrollTop = PLAN_PAGE_SIZE * 32;
+                fireEvent.scroll(frame);
+            });
+            await waitFor(() => expect(item(container, "b:0:tail")).toBeTruthy());
+            expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("201");
+            act(() => {
+                held.state.openUpTo = 2;
+                held.fire("w1");
+            });
+            // Windows 1 and 2 land in the run's place, their first row where the run's was: the count holds.
+            await waitFor(() => expect(item(container, "r:w1r00")).toBeTruthy());
+            expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("201");
+            expect(gridOf(container).getAttribute("aria-rowcount")).toBe("1000");
+        });
     });
 });
 
