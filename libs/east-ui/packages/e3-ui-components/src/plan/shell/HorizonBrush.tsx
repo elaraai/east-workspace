@@ -21,8 +21,9 @@
  * spans every source's domain holding the window: the jobs' and the shifts'
  * together. A slice with no source holding the window leaves the canvas its
  * own (#1344), and the horizon then spans the axis's stated window and the
- * window shown, so the strip moves the canvas's window as it moves a
- * source's. An ordinal axis has no range arm (its list is its window), so the
+ * window shown, with the window shown's length again either side — so the lens
+ * never fills the strip and slides either way — and the strip moves the
+ * canvas's window as it moves a source's. An ordinal axis has no range arm (its list is its window), so the
  * strip never mounts there; a Plan with no slice has no wider horizon to
  * brush. A record's query moves once per gesture: the strip previews its
  * selection, and commits on release. While the sources' span is read its row
@@ -82,8 +83,11 @@ function horizonOf(parts: readonly PlanWindowPart[]): RecordSliceRange | undefin
 
 /**
  * The horizon of a canvas holding its own window (#1344): the axis's stated
- * window and the window shown, together, half-open on the axis's domain —
- * what the strip spans while no source's domain says where the data is.
+ * window and the window shown, together, with the window shown's length again
+ * either side, half-open on the axis's domain — what the strip spans while no
+ * source's domain says where the data is. Without the margin the lens would
+ * fill the strip whenever the window shown is the stated one, and its body
+ * could slide nowhere.
  *
  * @param kind - The axis's arm, as a source's domain names it
  * @param stated - The axis's stated window, if it states one
@@ -91,8 +95,10 @@ function horizonOf(parts: readonly PlanWindowPart[]): RecordSliceRange | undefin
  * @returns The horizon
  */
 function ownHorizon(kind: RecordSliceRange["kind"], stated: readonly [number, number] | undefined, shown: readonly [number, number]): RecordSliceRange {
-    return stated === undefined ? { kind, min: shown[0], max: shown[1] }
-        : { kind, min: Math.min(stated[0], shown[0]), max: Math.max(stated[1], shown[1]) };
+    const margin = shown[1] - shown[0];
+    const min = stated === undefined ? shown[0] : Math.min(stated[0], shown[0]);
+    const max = stated === undefined ? shown[1] : Math.max(stated[1], shown[1]);
+    return { kind, min: min - margin, max: max + margin };
 }
 
 /** The horizon band — caption gutter cell + the shared brush strip + its lens. */
@@ -109,7 +115,8 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, now }: Horiz
     const readDomain = useCallback(() => horizonOf(parts), [parts]);
     const { result: recordDomain } = useTrackedEvaluation(readDomain);
     // No source holding the window, the canvas holds its own (#1344): the horizon is the axis's stated window and the
-    // window shown, which nothing reads — half-open, as a window is, where a source's domain holds its last value.
+    // window shown, as long again either side, which nothing reads — half-open, as a window is, where a source's domain
+    // holds its last value.
     const own = parts.length === 0;
     const shownFrom = scale.toNumber(scale.window.min);
     const shownTo = scale.toNumber(scale.window.max);

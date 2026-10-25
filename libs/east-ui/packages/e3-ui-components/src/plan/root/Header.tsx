@@ -27,7 +27,7 @@ export interface PlanHeaderProps {
     headerRef: Ref<HTMLDivElement>;
     /** The sources of the Plan's slice holding the window (#1344): the brush spans their domains. */
     windowParts: readonly PlanWindowPart[];
-    /** The axis's stated window, `[from, to)` on its domain: with no source holding the window, the brush spans it and the window shown. */
+    /** The axis's stated window, `[from, to)` on its domain: with no source holding the window, the brush spans it and the window shown, as long again either side. */
     stated: readonly [number, number] | undefined;
     affordances: ReadonlyArray<string>;
     now: PlanInstantValue | undefined;
