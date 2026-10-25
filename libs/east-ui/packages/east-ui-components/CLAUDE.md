@@ -225,7 +225,12 @@ component, nothing in east-ui.
   group's head (`groupMark`) — the Allocation's Library (#1330). While a
   host's narrowing — a builder's rail — leaves it no item, `narrowing` gives
   its empty state the host's words and a Clear filters (#1339); the Library
-  still lists only what its host feeds it. A tab that also lists cards the
+  still lists only what its host feeds it. While cards its host is to list
+  are still read — the Calendar's Backlog on a step to a period not read yet
+  — `pending` draws its pending rows, the paged Library's card-sized
+  skeletons, after the cards it holds and says no empty state (#1398, CL13):
+  the Library stays mounted, so its search box keeps its text and the focus.
+  A tab that also lists cards the
   narrowing does not touch — the Roster's agency requests beside its people —
   says so above them while the narrowing has left none of its own
   (`emptied`), and a narrowing that clears elsewhere (a Find's chip) offers no
