@@ -4,7 +4,7 @@
  */
 
 /** Calendar's adaptation of the shared drag grammar to Schedule commands. */
-import { useRef } from "react";
+import { useMemo, useRef, type MutableRefObject } from "react";
 import { none, some } from "@elaraai/east";
 import { dropEvent, useDragTarget, type CellCoord, type DragEventValue, type DragPayload } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
@@ -33,12 +33,36 @@ interface DragArgs {
     templates: ReadonlyMap<string, CalendarSource>;
     activeTemplate: string | undefined; onError: (message: string | undefined) => void;
 }
-/** No layer is registered in narrow or read-only mode. */
+/**
+ * No layer is registered in narrow or read-only mode. The same adapter while what it reads holds (#1398, CL9): what the
+ * views draw with it draws again only as it changes.
+ */
 export function useCalendarDrag(args: DragArgs): CalendarDrag {
     const { value, key, commands, narrow, items, backlog, selection, activeTemplate, onError } = args;
     const enabled = commands !== undefined && !narrow;
     const grabbed = useRef<{ id: string; offset: number } | undefined>(undefined);
     const sources = args.templates;
+    const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, selection, sources, activeTemplate, onError, enabled, grabbed }),
+        [value, key, commands, items, backlog, selection, sources, activeTemplate, onError, enabled]);
+    const { run } = drag;
+    const target = useMemo(() => {
+        if (!enabled) return null;
+        const libraries = value.library.map(tab => calendarLibraryId(key, tab.type === "tab" ? `tab:${tab.value.name}` : tab.type));
+        return { id: key, sources: libraries, kinds: { add: true, move: true, resize: true, remove: true, trash: false },
+            returns: { libraries: value.library.some(tab => tab.type === "backlog") ? [calendarLibraryId(key, "backlog")] : [],
+                canDrop: (event: DragEventValue) => run(event, true) === undefined },
+            onDrag: (event: DragEventValue) => { const refusal = run(event, false); onError(refusal); return refusal === undefined; },
+        };
+    }, [enabled, key, value.library, run, onError]);
+    useDragTarget(target);
+    return drag;
+}
+/** The drag's verdicts over the period as it stands: what a drop runs, what a hover previews and what a press grabs. */
+function calendarDrag({ value, key, commands, items, backlog, selection, sources, activeTemplate, onError, enabled, grabbed }: {
+    value: CalendarValue; key: string; commands: CalendarCommands | undefined; items: readonly CalendarItem[]; backlog: readonly CalendarItem[];
+    selection: readonly CalendarItem[]; sources: ReadonlyMap<string, CalendarSource>; activeTemplate: string | undefined;
+    onError: (message: string | undefined) => void; enabled: boolean; grabbed: MutableRefObject<{ id: string; offset: number } | undefined>;
+}): CalendarDrag {
     const sourceItem = (encoded: string): CalendarItem | undefined => {
         const parsed = parseEventKey(encoded);
         return parsed.success ? [...items, ...backlog].find(item => item.kind === parsed.value.kind && item.key === parsed.value.key)
@@ -96,12 +120,6 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
         const next = moveSpan(scale, span, (target.start.getTime() - item.start.value.getTime()) / QUARTER, true);
         return commands.move(moving, next.start.getTime() - span.start.getTime(), moving.length === 1 && event.value.to.row !== "" ? target.resource : undefined, checkOnly);
     };
-    const libraries = value.library.map(tab => calendarLibraryId(key, tab.type === "tab" ? `tab:${tab.value.name}` : tab.type));
-    useDragTarget(enabled ? { id: key, sources: libraries, kinds: { add: true, move: true, resize: true, remove: true, trash: false },
-        returns: { libraries: value.library.some(tab => tab.type === "backlog") ? [calendarLibraryId(key, "backlog")] : [],
-            canDrop: event => run(event, true) === undefined },
-        onDrag: event => { const refusal = run(event, false); onError(refusal); return refusal === undefined; },
-    } : null);
     return { surface: key, enabled, run,
         grab: (item, instant) => { grabbed.current = { id: eventKey(item), offset: item.start.type === "some" ? instant.getTime() - item.start.value.getTime() : 0 }; },
         adjust: (instant, payload) => payload?.kind === "event" && grabbed.current?.id === payload.from.event

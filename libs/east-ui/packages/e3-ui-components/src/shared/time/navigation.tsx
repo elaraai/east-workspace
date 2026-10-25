@@ -45,10 +45,12 @@ export interface TimeNavigatorProps {
     controls?: ReactNode;
     /** The host's existing Slice editor; no second range state lives here. */
     rangeEditor?: ReactNode;
+    /** Told when Today is pressed, after its date is chosen: a host that shows the time of day brings the now line into view (#1398). */
+    onToday?: (() => void) | undefined;
 }
 
 /** One date/range trigger between arrows, with the same Today action in every popup. */
-export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor }: TimeNavigatorProps) {
+export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
     const recipe = useSlotRecipe({ key: "timeNavigator" });
@@ -99,7 +101,7 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
             {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
         </Button>}
         footLeft={<Box css={styles.footer}>{arrows}</Box>}
-        footActions={<Button size="xs" variant="solid" onClick={() => choose(today)}>Today</Button>}>
+        footActions={<Button size="xs" variant="solid" onClick={() => { choose(today); onToday?.(); }}>Today</Button>}>
         <Box css={styles.body} data-time-picker={scope} data-time-panel={panel}>
             {panel !== "range" && <Box css={styles.header}>
                 <Button size="xs" variant="ghost" aria-label={`Previous ${panel === "year" ? "12 years" : panel === "month" ? "year" : "month"}`} onClick={() => browse(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>

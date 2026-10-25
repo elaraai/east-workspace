@@ -15,12 +15,18 @@
  * a period not read yet draws that period's grid at once — never the old
  * period's events under its labels — its regions washed and its counts
  * placeholders; one whose read failed keeps its grid and says so once (CL11).
+ * Its Search Records seeks each event kind's record by key (`find.ts`): a pick
+ * steps to its event's period, selects it and brings it into view. Each
+ * layout's view keeps its place across a step and a remount — the time grid's
+ * hour, the timeline's line — and Today brings the time grid to the now line.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
-import { BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters } from "@elaraai/east-ui-components";
+import {
+    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters, usePersistedState,
+} from "@elaraai/east-ui-components";
 import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { useScheduleEditing, type ScheduleEditing } from "../shared/schedule/editing.js";
@@ -30,6 +36,7 @@ import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
 import { CalendarDataReader, initialCalendarData, resourceRows, type CalendarDataState } from "./data.js";
 import { useCalendarDrag } from "./drag.js";
+import { useCalendarFind, type FoundEvent } from "./find.js";
 import { CalendarFooter } from "./footer.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { templatesTab, useCalendarLibrary } from "./library.js";
@@ -37,7 +44,8 @@ import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
 import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
 import { useCalendarWindow, type CalendarWindow } from "./window.js";
-import { CalendarViews, calendarHour } from "./views.js";
+import { createVisibleDays } from "./visible.js";
+import { CalendarViews, calendarHour, type CalendarAnchor } from "./views.js";
 import { calendarAhead, calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, periodWords, type CalendarItem, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
 
 export type { CalendarValue } from "./model.js";
@@ -52,6 +60,8 @@ interface HostProps extends EastChakraCalendarProps {
 }
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 const NO_ITEMS: CalendarItem[] = [];
+/** No layout's view has rested anywhere yet. */
+const NO_ANCHOR: CalendarAnchor = {};
 /** The row an event with no resource sits on. */
 const UNASSIGNED: CalendarRow = { key: "", label: "Unassigned", meta: "", group: "", resource: none };
 
@@ -79,8 +89,10 @@ function CalendarFrame(props: HostProps) {
     calendarFrameRenderProbe?.();
     const { value, storageKey, editing, now, followed, dates } = props;
     const { view, range } = dates;
+    // What the timeline shows: exactly, for a change of layout or period to keep its centre; and in whole days, in a store
+    // of its own, read only by what says them — so its scroll draws nothing of the frame (#1398, CL9).
     const visible = useRef<ReturnType<typeof calendarRange> | undefined>(undefined);
-    const [shownRange, setShownRange] = useState<ReturnType<typeof calendarRange> | undefined>();
+    const [visibleDays] = useState(createVisibleDays);
     const [navigationRevision, setNavigationRevision] = useState(0);
     const onNavigate = (date: number) => { dates.setView({ ...view, date }); setNavigationRevision(before => before + 1); };
     const setView = (next: CalendarView) => {
@@ -90,8 +102,8 @@ function CalendarFrame(props: HostProps) {
     };
     const showRange = useCallback((next: ReturnType<typeof calendarRange>) => {
         visible.current = next;
-        setShownRange(before => before?.from.getTime() === next.from.getTime() && before.to.getTime() === next.to.getTime() ? before : next);
-    }, []);
+        visibleDays.show(next);
+    }, [visibleDays]);
     const recipe = useSlotRecipe({ key: "calendar" });
     const styles = useMemo(() => recipe({}) as unknown as CalendarStyles, [recipe]);
     const format = useFormatters(); const words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
@@ -112,15 +124,25 @@ function CalendarFrame(props: HostProps) {
     // holds none of the old period's events, which never show under its labels (CL5); a newer read of the same period
     // keeps them meanwhile.
     const current = data.ready && data.range.from.getTime() === range.from.getTime() && data.range.to.getTime() === range.to.getTime();
+    // An event shown as asked: brought into view, the inspector opened on it. One drawn already is shown at once; one the
+    // timeline has not drawn — a row out of its view, a time out of its span — tells the frame once it brings it in.
+    const revealed = useCallback((element: HTMLElement) => {
+        element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        element.closest("[data-builder-frame]")?.querySelector<HTMLButtonElement>('button[aria-label="Expand Inspector"]')?.click();
+        setReveal(undefined);
+    }, []);
     useEffect(() => {
         if (reveal === undefined || main.current === null) return;
         const key = CSS.escape(eventKey(reveal));
         const element = main.current.querySelector<HTMLElement>(`[data-calendar-event="${key}"], [data-calendar-card="${key}"]`);
-        if (element === null) return;
-        element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-        main.current.closest("[data-builder-frame]")?.querySelector<HTMLButtonElement>('button[aria-label="Expand Inspector"]')?.click();
-        setReveal(undefined);
-    }, [reveal, data.items, view, narrow]);
+        if (element !== null) revealed(element);
+    }, [reveal, data.items, view, narrow, revealed]);
+    // Today pressed (#1398): the time grid brings the now line into view.
+    const [nowAsked, setNowAsked] = useState(0);
+    const onToday = useCallback(() => setNowAsked(n => n + 1), []);
+    // Where each layout's view rests (#1398): saved under the Calendar's key, so a layout comes back to it as it mounts.
+    const { state: anchor, setState: setAnchor } = usePersistedState<CalendarAnchor>(`${storageKey}.anchor`, NO_ANCHOR);
+    const onAnchor = useCallback((next: Partial<CalendarAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
     // Each resource kind's rows its source shows: the columns, the timeline's rows and the Choosers (#1343).
     const shown = useMemo(() => value.resources.map(kind => {
         const keys = followed.get(kind.key)?.shown.keys;
@@ -137,7 +159,7 @@ function CalendarFrame(props: HostProps) {
     const shownRows = useMemo(() => [...resourceRows(shown), UNASSIGNED], [shown]);
     // As the window read, the selection's read reports from a component of its own (#1343).
     const [selection, setSelection] = useState<CalendarSelection>(NO_SELECTION);
-    const selectedItems = selection.ok ? selection.value.map(event => event.item) : [];
+    const selectedItems = useMemo(() => selection.ok ? selection.value.map(event => event.item) : NO_ITEMS, [selection]);
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);
     // The templates the rail shows: the Templates tab's cards, and what a drop or a drawn event is made from.
     const templates = useMemo(() => templatesTab(value, followed, format), [value, followed, format]);
@@ -151,17 +173,30 @@ function CalendarFrame(props: HostProps) {
         const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
         editing?.history.act(action);
     }, [editing]);
-    const displayRange = narrow ? (dates.windowParts.length > 0 ? range : calendarRange(view, value.settings)) : view.layout === "timeline" ? shownRange ?? range : range;
+    // The timeline's days, date and count are read from its store by what says them; every other layout's are its window's.
+    const timeline = !narrow && view.layout === "timeline";
+    const displayRange = narrow ? (dates.windowParts.length > 0 ? range : calendarRange(view, value.settings)) : range;
     const standardRange = calendarRange(view, value.settings);
-    const rangeLabel = view.layout === "timeline" || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
+    const rangeLabel = timeline || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
         ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
-    const navigationDate = !narrow && view.layout === "timeline" && shownRange !== undefined ? dayStart((shownRange.from.getTime() + shownRange.to.getTime()) / 2).getTime() : view.date;
+    const navigationDate = view.date;
     const nouns = useMemo(() => calendarNouns(value, format.locale), [value, format.locale]);
+    // Search Records (#1398): an event found by its key steps the view to its period, is selected and is brought into view.
+    const found = (event: FoundEvent) => {
+        const ref = { kind: event.item.kind, key: event.item.key };
+        select([ref]);
+        if (event.item.start.type !== "some") return;
+        onNavigate(dayStart(event.item.start.value).getTime());
+        setReveal(ref);
+    };
+    const search = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found });
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
     const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
+        ...(timeline ? { visible: visibleDays, events: { items, ready: current } } : {}), onToday, search,
         styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
     const drag = useCalendarDrag({ value, key: storageKey, commands: gestures, narrow, items, backlog, selection: selectedItems, templates: templates.shown, activeTemplate, onError: setError });
+    const clear = useCallback(() => setRefs([]), []);
     const pick = useCallback((item: CalendarItem, additive = false) => {
         const ref = { kind: item.kind, key: item.key }; const id = eventKey(ref);
         select(additive ? selected.has(id) ? refs.filter(ref => eventKey(ref) !== id) : [...refs, ref] : [ref]);
@@ -212,13 +247,15 @@ function CalendarFrame(props: HostProps) {
                 {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
             </>}
             footer={<CalendarFooter styles={styles} kinds={value.events} parts={dates.eventParts} locale={format.locale} line={line} />}>
-            {/* The period read now's grid, whatever the read: what it holds of the period is `items` and `read` (#1398, CL5). A failed
-                period's main stays live, so its Retry is reachable. */}
-            <Box ref={main} css={styles.main} data-calendar-main="" inert={!available && read.state !== "failed" ? true : undefined} data-calendar-stale={stale ? "" : undefined}
+            {/* The period read now's grid, whatever the read: what it holds of the period is `items` and `read` (#1398, CL5). While
+                it is read, what it shows is retained (CL8): readable, focusable and selectable, aria-disabled, every editing
+                gesture off (`gestures`). A failed period's main is not: its Retry is in it. */}
+            <Box ref={main} css={styles.main} data-calendar-main="" aria-disabled={!available && read.state !== "failed" ? true : undefined} data-calendar-stale={stale ? "" : undefined}
                 data-calendar-narrow={narrow ? "" : undefined}>
-                <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visibleRange={displayRange} onVisible={showRange} items={items}
+                <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visible={visibleDays} onVisible={showRange} items={items}
                     rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read}
-                    selected={selected} select={pick} clear={() => setRefs([])} overlaps={overlaps} commands={gestures} drag={drag} />
+                    selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
+                    nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed} />
             </Box>
         </BuilderFrame>
         </LoadingReveal>

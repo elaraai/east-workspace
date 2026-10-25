@@ -77,11 +77,12 @@ interface LibraryArgs {
 }
 /**
  * What a tab is, as its pane takes it: its cards, its count (none while it is read), what it says empty, and whether its
- * cards are read at all.
+ * cards are read at all. A pane its source reads again is busy and its cards retained (#1398, CL8): aria-disabled, its
+ * foot's actions off.
  */
 interface TabFacts {
     cards: readonly LibraryItemValue[]; count: string | number | undefined; empty: LibraryEmpty | undefined; narrowing: LibraryNarrowing | undefined;
-    pane: { "aria-busy"?: true; inert?: true }; pending?: boolean;
+    pane: { "aria-busy"?: true; "aria-disabled"?: true }; pending?: boolean;
 }
 /** The author-listed tabs, populated from the current bound reads. */
 export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefined {
@@ -143,11 +144,12 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         const patch = author?.cards.find(card => card.key === chosen[tabKey]);
         const targetKind = author?.drop.type === "some" ? author.drop.value : undefined;
         const targets = selection.filter(item => item.kind === targetKind);
+        const held = facts.pane["aria-disabled"] === true;
         return { key: tabKey, label, ...(facts.count === undefined ? {} : { count: facts.count }), shownCount: facts.cards.length, body: <Box css={styles.pane} {...facts.pane}>
             {facts.pending === true ? <PendingCards /> : <EastChakraLibrary value={library} storageKey={calendarLibraryId(key, tabKey)} empty={facts.empty} narrowing={facts.narrowing} />}
             {commands !== undefined && (source !== undefined || patch !== undefined) && <Box css={styles.paneFoot}>
-                {source !== undefined && <PlacementAction label={"template" in source ? "Create" : "Schedule"} source={source} value={value} shown={shown} day={day} commands={commands} styles={styles} />}
-                {patch !== undefined && <Button size="xs" variant="outline" disabled={targets.length === 0 || targets.some(item => !commands.editing.available(item.kind))} onClick={() => commands.patch(targets, patch.sets)}>Apply to selected events</Button>}
+                {source !== undefined && <PlacementAction label={"template" in source ? "Create" : "Schedule"} source={source} value={value} shown={shown} day={day} commands={commands} styles={styles} held={held} />}
+                {patch !== undefined && <Button size="xs" variant="outline" disabled={held || targets.length === 0 || targets.some(item => !commands.editing.available(item.kind))} onClick={() => commands.patch(targets, patch.sets)}>Apply to selected events</Button>}
             </Box>}
         </Box> };
     });
