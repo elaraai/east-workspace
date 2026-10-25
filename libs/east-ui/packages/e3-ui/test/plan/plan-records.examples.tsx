@@ -3,11 +3,14 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some } from "@elaraai/east";
+import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
-import { Data, Plan, Record } from "@elaraai/e3-ui";
+import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
-import { IndexedWork, indexedWorkOrders, indexedWorkPatch, indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag } from "../sheet/sheet-records.examples.js";
+import {
+    indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByStatusDue, indexedWorkByTag, indexedWorkByUrgent, indexedWorkDue,
+    indexedWorkJob, indexedWorkOrders, indexedWorkReference,
+} from "../sheet/sheet-records.examples.js";
 
 /** A job dropped on a press: a decision at the bucket it landed in. */
 export const PlanPressJob = StructType({ key: StringType, at: Plan.Types.Instant });
@@ -57,57 +60,157 @@ export const planDayVans = e3.record("plan_day_vans", DictType(StringType, PlanD
 /** The vans by day. */
 export const planDayVansByDay = e3.recordIndex("plan_day_vans_by_day", planDayVans, { on: ["day"] });
 
-export const planRecordIndexes = example({
-    description: "The Sheet's 50,000 bound work orders on a Plan, narrowed through one rail: the slice's `rows` source (`Slice.bindRecords`) gives the canvas its rows, paged from it. Multiple statuses combine with a Due range through the status/due index — a field of the rail the viewer sets, never the dates on screen: the canvas holds its own window, which the toolbar's dates, a pan and the horizon brush move while the rows stay as they are. Operations remain nested under their original work-order keys when moved and saved.",
-    keywords: ["Plan", "Slice", "bindRecords", "rows", "indexes", "paging", "Record", "editing", "range", "brush", "window"], inputs: [],
-    fn: East.function([], UIComponentType, _$ => (
-        <Reactive>{$ => {
-        const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
-        // One rail, its `rows` source the canvas's rows: the orders it narrows to, paged in its index's order. Their Due
-        // is a field of the rail, the viewer's to set: the dates on screen never decide which orders are listed.
-        const slice = $.let(Slice.bindRecords("ex.planRecordIndexes", {
-            rows: {
-                source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
-                label: "Work orders",
-                fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
-                search: ["job"], initial: { status: ["Ready"], due: { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z") } },
-            },
-        }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
-        // The canvas's window, its own: the two weeks the orders it lists are due in, to start.
-        return <Box width="100%" height="760px"><Plan id="planRecordIndexes" slice={{ slice }}
-            axis={Plan.axis({ window: { min: new Date("2026-10-01T00:00:00Z"), max: new Date("2026-10-15T00:00:00Z") }, resolution: "day", resolutions: ["month", "week", "day"] })}
-            series={[Plan.series.span(IndexedWork, { key: "work", title: "Work orders", label: row => row.reference, id: true, sub: row => some(row.status),
-                runs: row => row.operations.map((_$2, operation) => Plan.run({ key: operation.key, label: operation.label, start: operation.start, end: operation.end, state: "confirmed" })),
-                edit: { items: "operations", key: "key", start: "start", end: "end" },
-            })]}
-            editing={{ onApply: Record.onApply(record, { keyed: true }) }} style={{ height: "fill" }} />
-        </Box>;
-        }}</Reactive>
-    )),
+/** An operation on a work order: the order it is on, by its key, the work it does, and when it runs. */
+export const PlanOperation = StructType({ work: StringType, label: StringType, start: DateTimeType, end: DateTimeType });
+const Operations = DictType(StringType, PlanOperation);
+
+/**
+ * The work orders' operations, from their count: each of the first `count` orders' run of its job on the day it is
+ * due, 06:00 to 14:00, keyed by its order's reference and `-run`. The same pure generator seeds the record and runs as
+ * an e3 task.
+ */
+const generateOperations = East.function([IntegerType], Operations, ($, count) => {
+    const rows = $.let(new Map(), Operations);
+    const referenceOf = $.const(indexedWorkReference);
+    const jobOf = $.const(indexedWorkJob);
+    const dueOf = $.const(indexedWorkDue);
+    const i = $.let(0n);
+    $.while(i.less(count), ($2) => {
+        const work = $2.const(referenceOf(i));
+        const due = $2.const(dueOf(i));
+        $2(rows.insert(East.str`${work}-run`, { work, label: jobOf(i), start: due.addMilliseconds(21600000n), end: due.addMilliseconds(50400000n) }));
+        $2.assign(i, i.add(1n));
+    });
+    return rows;
 });
 
-export const planRecordIndexesMobile = example({
-    description: "A phone-width Plan over the same indexed work orders, narrowed through the same one rail — its `rows` source the canvas's rows, their Due a field of it — sharing the responsive Slice controls; its dates are the canvas's own, and never narrow the rows.",
-    keywords: ["Plan", "Slice", "bindRecords", "rows", "mobile", "indexes", "paging"], inputs: [],
-    fn: East.function([], UIComponentType, _$ => (
+/** How many work orders' operations the task generates: the Sheet's 50,000 orders'. */
+export const planOperationCount = e3.input("plan_operation_count", IntegerType, variant("value", 50000n));
+/** The task that generates the operations from their count. */
+export const planOperationsGenerated = e3.task("plan_operations_generated", [planOperationCount], generateOperations);
+/** The 50,000 work orders' operations, one an order, keyed by the operation's key: read through the indexes below, never whole. */
+export const planOperations = e3.record("plan_operations", Operations, East.compile(generateOperations, [])(50000n));
+/** The operations' patch door: a canvas's Save commits through it, by the operation's key. */
+export const planOperationsPatch = e3.mutation.patch(planOperations);
+/** The operations over the interval each runs: the canvas's window, and the rail's exact count of the operations in it. */
+export const planOperationsByTime = e3.recordIndex.interval("plan_operations_by_time", planOperations, { from: "start", to: "end" });
+/** The operations by their work order and the weeks they touch: a cell is the operations of fifty orders in one week. */
+export const planOperationsByWorkWeek = e3.recordIndex.series("plan_operations_by_work_week", planOperations, {
+    key: "work", from: "start", to: "end", tile: "week",
+});
+/** How busy each work order is, a month at a time: what the canvas shades where the operations in view are too many to draw. */
+export const planOperationsByWorkMonth = e3.recordIndex.summary("plan_operations_by_work_month", planOperations, {
+    key: "work", from: "start", to: "end", tile: "month",
+});
+
+/**
+ * The Sheet's 50,000 work orders on a Plan, a row each, and their operations
+ * a record of their own placed on them (#1344, #1039). The work orders are a
+ * paged resource kind, narrowed through the rail's `orders` source — named
+ * after the kind's slot — over their indexes: by Status, Due, Job, Quantity,
+ * Urgent and Tag, with the presets and the search, opening on the orders Ready
+ * and due in the first fortnight of October. The canvas pages the narrowing's
+ * orders themselves, in its index's order, and the dates on screen never
+ * decide which are listed: Due is a field of the rail the viewer sets. The
+ * rail's `operation` source lists the operations' interval index, their series
+ * index and their summary, its range their start, so it holds the canvas's
+ * window: the canvas reads the operations of the orders in view a cell at a
+ * time, a pan within the weeks it holds reads nothing, and the orders' rows
+ * stay where they are as the dates move. Moving or resizing an operation
+ * drafts it in the operations kind's session, whatever the rail shows, and
+ * Save commits it through the operations' patch door by its key — so a
+ * million work orders, each with a year of operations, read what is on screen.
+ */
+export const planRecordIndexes = example({
+    keywords: [
+        "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "rail", "narrow",
+        "resource kind", "paged", "Data.bindPaged", "e3.recordIndex", "interval index", "series index", "summary index",
+        "e3.recordIndex.interval", "e3.recordIndex.series", "e3.recordIndex.summary", "cell", "window", "range", "large record",
+        "million rows", "work orders", "operations", "Record.bind", "entries", "editing", "Save", "#1344", "#1039",
+    ],
+    description: "The Sheet's 50,000 work orders on a Plan — a paged resource kind narrowed through the rail's `orders` source over their indexes: Status with a Due range, Job, Quantity, Urgent and Tag, the presets and the search, Due a field of the rail the viewer sets — and their operations a record of their own placed on them, read a cell at a time: the `operation` source lists their interval, series and summary indexes, its range the canvas's window, so the orders' rows stay as the dates move and only the cells around the rows in view are read; a moved operation is a draft of its kind's session, saved through the operations' patch door by its key",
+    fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-        const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
-        const slice = $.let(Slice.bindRecords("ex.planRecordIndexesMobile", {
-            rows: {
-                source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
-                label: "Work orders",
-                fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
-                search: ["job"], initial: { status: ["Ready"], due: { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z") } },
-            },
-        }, { presets: [{ id: "ready", name: "Ready", where: { rows: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { rows: { urgent: [true] } } }] }));
-        return <Box width="100%" maxWidth="390px" height="760px"><Plan id="planRecordIndexesMobile" slice={{ slice }}
-            axis={Plan.axis({ window: { min: new Date("2026-10-01T00:00:00Z"), max: new Date("2026-10-15T00:00:00Z") }, resolution: "day", resolutions: ["month", "week", "day"] })}
-            series={[Plan.series.span(IndexedWork, { key: "work", title: "Work orders", label: row => row.reference, id: true, sub: row => some(row.status),
-                runs: row => row.operations.map((_$2, operation) => Plan.run({ key: operation.key, label: operation.label, start: operation.start, end: operation.end, state: "confirmed" })),
-                edit: { items: "operations", key: "key", start: "start", end: "end" },
-            })]}
-            editing={{ onApply: Record.onApply(record, { keyed: true }) }} style={{ height: "fill" }} />
-        </Box>;
+            const orders = $.let(Data.bindPaged(indexedWorkOrders));
+            const operations = $.let(Record.bind(planOperations, [planOperationsPatch]));
+            const operationEntries = $.let(Data.bindPaged(planOperations));
+            // One rail. Its `orders` source narrows the paged work orders through their indexes, and the canvas pages the
+            // narrowing's orders, their Due a field of the rail the viewer sets. Its `operation` source reads the
+            // operations a cell at a time through their series and summary indexes, its range the canvas's window.
+            const slice = $.let(Slice.bindRecords("ex.planRecordIndexes", {
+                orders: {
+                    source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
+                    label: "Work orders", icon: { prefix: "fas", name: "clipboard-list" },
+                    fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
+                    search: ["job"], initial: { status: ["Ready"], due: { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z") } },
+                },
+                operation: {
+                    source: Data.bindPaged(planOperations, { indexes: [planOperationsByTime, planOperationsByWorkWeek, planOperationsByWorkMonth] }),
+                    label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
+                },
+            }, { presets: [{ id: "ready", name: "Ready", where: { orders: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { orders: { urgent: [true] } } }] }));
+            return <Box width="100%" height="760px"><Plan id="planRecordIndexes" slice={{ slice }}
+                axis={Plan.axis({ window: { min: new Date("2026-10-01T00:00:00Z"), max: new Date("2026-10-15T00:00:00Z") }, resolution: "day", resolutions: ["month", "week", "day"] })}
+                resources={{
+                    orders: Schedule.resources(orders, { name: "Work orders", icon: "clipboard-list", label: (w) => w.reference, sub: (w) => some(w.status) }),
+                }}
+                events={{
+                    operation: Schedule.events(operations, {
+                        name: "Operation", icon: "gears", title: "label", start: "start", end: "end",
+                        resource: { field: "work", of: "orders" }, entries: operationEntries,
+                    }),
+                }}
+                style={{ height: "fill" }} />
+            </Box>;
         }}</Reactive>
     )),
+    inputs: [],
+});
+
+/**
+ * The work orders Plan of `planRecordIndexes` in a phone-width frame: the same
+ * paged work orders narrowed through the same rail, on the toolbar's responsive
+ * ladder, and the same operations read a cell at a time, their source holding
+ * the canvas's window — the narrow layout's cards drawn from the same reads.
+ */
+export const planRecordIndexesMobile = example({
+    keywords: [
+        "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Slice", "Slice.bindRecords", "rail", "mobile", "narrow layout",
+        "resource kind", "paged", "Data.bindPaged", "series index", "summary index", "cell", "work orders", "operations", "#1344", "#1039",
+    ],
+    description: "The work orders Plan of planRecordIndexes in a phone-width frame — the paged work orders narrowed through the same rail on the toolbar's responsive ladder, Due a field of it, and their operations read a cell at a time, their source holding the canvas's window, so the dates never narrow the orders",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const orders = $.let(Data.bindPaged(indexedWorkOrders));
+            const operations = $.let(Record.bind(planOperations, [planOperationsPatch]));
+            const operationEntries = $.let(Data.bindPaged(planOperations));
+            // The rail of planRecordIndexes: the paged work orders by their indexes, and the operations by cells, holding the window.
+            const slice = $.let(Slice.bindRecords("ex.planRecordIndexesMobile", {
+                orders: {
+                    source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
+                    label: "Work orders", icon: { prefix: "fas", name: "clipboard-list" },
+                    fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
+                    search: ["job"], initial: { status: ["Ready"], due: { from: new Date("2026-10-01T00:00:00Z"), to: new Date("2026-10-15T00:00:00Z") } },
+                },
+                operation: {
+                    source: Data.bindPaged(planOperations, { indexes: [planOperationsByTime, planOperationsByWorkWeek, planOperationsByWorkMonth] }),
+                    label: "Operations", fields: { start: { label: "Dates" } }, range: "start",
+                },
+            }, { presets: [{ id: "ready", name: "Ready", where: { orders: { status: ["Ready"] } } }, { id: "urgent", name: "Urgent", where: { orders: { urgent: [true] } } }] }));
+            return <Box width="100%" maxWidth="390px" height="760px"><Plan id="planRecordIndexesMobile" slice={{ slice }}
+                axis={Plan.axis({ window: { min: new Date("2026-10-01T00:00:00Z"), max: new Date("2026-10-15T00:00:00Z") }, resolution: "day", resolutions: ["month", "week", "day"] })}
+                resources={{
+                    orders: Schedule.resources(orders, { name: "Work orders", icon: "clipboard-list", label: (w) => w.reference, sub: (w) => some(w.status) }),
+                }}
+                events={{
+                    operation: Schedule.events(operations, {
+                        name: "Operation", icon: "gears", title: "label", start: "start", end: "end",
+                        resource: { field: "work", of: "orders" }, entries: operationEntries,
+                    }),
+                }}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
 });

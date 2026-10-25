@@ -6,11 +6,12 @@
 /**
  * The work orders Plan (`planRecordIndexes`) on the e3 the page runs,
  * measured in a real browser: its rows hold still while its dates move. Its
- * rows are its slice's `rows` source's, paged in the index's order, and the
- * dates on screen never decide which are listed (#1344): a pan (`]`) and a
- * step of the date navigator each move the window a day, and the row at the
- * top of the view keeps its key and its place under the canvas's header, in
- * every frame. Read at the desktop width; a phone's canvas is its narrow list.
+ * rows are its work orders, a resource kind paged through the rail's `orders`
+ * source in its index's order, and the dates on screen never decide which are
+ * listed (#1344): the window is the operations' source's, and a pan (`]`) and
+ * a step of the date navigator each move it a day while the row at the top of
+ * the view keeps its key and its place under the canvas's header, in every
+ * frame. Read at the desktop width; a phone's canvas is its narrow list.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-records`.

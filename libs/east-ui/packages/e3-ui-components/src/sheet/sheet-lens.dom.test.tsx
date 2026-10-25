@@ -197,11 +197,12 @@ test("the hit check: a segment whose rows disagree with where e3 placed the narr
     expect([line.hasAttribute("data-failed"), line.getAttribute("title")]).toEqual([true, "the record changed while they were read"]);
     expect([ui.row("JOB-10000"), ui.row("JOB-10001")]).toEqual([null, null]);
     expect(ui.count()).toBe("16,667 matches");
-    // Another session changes an order at the record's end: at the new revision the segment is placed and read again,
-    // and drawn.
+    // Another session changes an order at the record's end — its quantity, a field the narrowing chooses nothing on: at
+    // the new revision the segment is placed and read again, and drawn.
     const before = await h.read(ex.indexedWorkOrders);
     const next = new Map(before);
-    next.set("JOB-59999", { ...before.get("JOB-59999")!, operations: [] });
+    const last = before.get("JOB-59999")!;
+    next.set("JOB-59999", { ...last, quantity: last.quantity + 100n });
     await h.patch(ex.indexedWorkOrders, next);
     await waitFor(() => expect(ui.ids().slice(0, 3)).toEqual(["JOB-10000", "JOB-10003", "JOB-10006"]), { timeout: 10_000 });
     expect(failed()).toBeNull();
