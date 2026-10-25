@@ -13,9 +13,11 @@ import * as ex from "./plan-records.examples.js";
 for (const example of [ex.planRecordIndexes, ex.planRecordIndexesMobile]) {
     test(example.description, () => {
         const manifest = deriveManifest(example.fn);
-        assert.deepEqual(manifest.pages, [indexedWorkOrders.path]);
-        assert.equal(manifest.paths.length, 0, "the Plan never reads the whole record");
-        assert.ok(manifest.records.length > 0);
+        // The work orders and their operations are each read a page, a search or a cell at a time, never whole.
+        assert.deepEqual(manifest.pages, [indexedWorkOrders.path, ex.planOperations.path]);
+        assert.equal(manifest.paths.length, 0, "the Plan never reads either record whole");
+        // The operations are the record the Plan writes, through their patch door; the work orders it only reads.
+        assert.deepEqual(manifest.records, [ex.planOperations.name]);
         const component = (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
     });

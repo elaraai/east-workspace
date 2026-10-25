@@ -122,7 +122,7 @@ its keys show; of a paged kind (`Schedule.resources(Data.bindPaged(record),
 source's index's order (`Data.bindPaged(record, { indexes })` over the kind's
 own record), never a window of every resource filtered by key, so a choice
 reads the narrowed resources in view and their cells alone
-(`planSeriesByHall`, #1344). Every source holding a `range` of the axis's arm
+(`planSeriesByHall`, `planRecordIndexes`, #1344). Every source holding a `range` of the axis's arm
 — an event kind's, a tab's that lists what is in the dates on screen — holds
 the window with the others: the date navigator, the horizon brush, the keys
 and the resolution write each of them. The canvas's rows never follow the
@@ -136,7 +136,7 @@ source })` over a record bound with `Data.bind`, an instant kind's giving no
 `duration`, and each tab that names a `source` follows it. A source named
 after an event kind's slot may list a series index and a summary index beside
 its interval index (#1039): the kind, placed on a paged resource kind, is then
-read a cell at a time and shaded from the summary zoomed out (`planSeries`).
+read a cell at a time and shaded from the summary zoomed out (`planSeries`, `planRecordIndexes`).
 
 The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
 }}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed

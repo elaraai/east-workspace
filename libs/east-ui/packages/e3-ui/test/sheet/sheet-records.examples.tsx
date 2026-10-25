@@ -10,28 +10,44 @@ import { Box, Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
 import { Data, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
-/** The same work order can be edited as a Sheet row or scheduled on a Plan. */
-export const IndexedOperation = StructType({ key: StringType, label: StringType, start: DateTimeType, end: DateTimeType });
-/** Work orders retain their original String record keys through every index. */
-export const IndexedWork = StructType({ reference: StringType, job: StringType, status: StringType, due: DateTimeType, quantity: IntegerType, urgent: BooleanType, tags: SetType(StringType), operations: ArrayType(IndexedOperation) });
+/**
+ * A work order: edited as a Sheet row, and a row of the Plan whose operations
+ * are a record of their own (`plan/plan-records.examples.tsx`). Its String
+ * record key is kept through every index.
+ */
+export const IndexedWork = StructType({ reference: StringType, job: StringType, status: StringType, due: DateTimeType, quantity: IntegerType, urgent: BooleanType, tags: SetType(StringType) });
 const Work = DictType(StringType, IndexedWork);
+
+/** The `i`-th work order's reference, its record key: `JOB-` and its number plus 10,000, so key order is number order. */
+export const indexedWorkReference = East.function([IntegerType], StringType, (_$, i) => East.str`JOB-${i.add(10000n)}`);
+
+/** The job the `i`-th work order runs: cut panels, edge band, inspect and pack, in turn. */
+export const indexedWorkJob = East.function([IntegerType], StringType, ($, i) => {
+    const jobs = $.const(["Cut panels", "Edge band", "Inspect", "Pack"], ArrayType(StringType));
+    return jobs.get(i.remainder(4n));
+});
+
+/** When the `i`-th work order is due: a day of the ninety from 1 October 2026, each order thirty-seven days on from the one before. */
+export const indexedWorkDue = East.function([IntegerType], DateTimeType, ($, i) => {
+    const start = $.const(new Date("2026-10-01T00:00:00Z"));
+    return start.addMilliseconds(i.multiply(37n).remainder(90n).multiply(86400000n));
+});
 
 /** The same pure generator seeds the example record and runs as an e3 task. */
 const generateWork = East.function([IntegerType], Work, ($, count) => {
     const rows = $.let(new Map(), Work);
     const statuses = $.const(["Ready", "Scheduled", "Done"], ArrayType(StringType));
-    const jobs = $.const(["Cut panels", "Edge band", "Inspect", "Pack"], ArrayType(StringType));
-    const start = $.const(new Date("2026-10-01T00:00:00Z"));
+    const referenceOf = $.const(indexedWorkReference);
+    const jobOf = $.const(indexedWorkJob);
+    const dueOf = $.const(indexedWorkDue);
     const i = $.let(0n);
     $.while(i.less(count), ($) => {
-        const reference = $.const(East.str`JOB-${i.add(10000n)}`);
-        const due = $.const(start.addMilliseconds(i.multiply(37n).remainder(90n).multiply(86400000n)));
+        const reference = $.const(referenceOf(i));
         $(rows.insert(reference, {
-            reference, job: jobs.get(i.remainder(4n)), status: statuses.get(i.remainder(3n)),
-            due,
+            reference, job: jobOf(i), status: statuses.get(i.remainder(3n)),
+            due: dueOf(i),
             quantity: i.remainder(24n).add(1n).multiply(100n), urgent: i.remainder(5n).equal(0n),
             tags: i.remainder(2n).equal(0n).ifElse(() => new Set(["Production"]), () => new Set(["Dispatch"])),
-            operations: [{ key: East.str`${reference}-run`, label: jobs.get(i.remainder(4n)), start: due.addMilliseconds(21600000n), end: due.addMilliseconds(50400000n) }],
         }));
         $.assign(i, i.add(1n));
     });
