@@ -7,7 +7,8 @@
  * A Plan read a window at a time (#1199, `Plan Builder Spec.md` §9.11,
  * PB54–PB55) — what is checked of it without e3: the windows example runs,
  * and the series example (#1039), the same Plan reading its jobs a cell at a
- * time, reads what it does;
+ * time, reads what it does, as the halls example (#1344), its presses a record
+ * the rail narrows, does;
  * the windows' types and their refusals at build — a window that is not an
  * index window of the kind's own record, a kind read by day whose backlog has
  * no window, a `window` without `entries`, `entries` without a `window` or
@@ -34,8 +35,8 @@ import e3 from "@elaraai/e3";
 import * as ex from "./plan-windows.examples.js";
 import { PrintPress } from "./plan-events.examples.js";
 
-describeEast("Plan read a window at a time — the examples (#1199, #1039)", (test) => {
-    Assert.examples(test, { planWindows: ex.planWindows, planSeries: ex.planSeries });
+describeEast("Plan read a window at a time — the examples (#1199, #1039, #1344)", (test) => {
+    Assert.examples(test, { planWindows: ex.planWindows, planSeries: ex.planSeries, planSeriesByHall: ex.planSeriesByHall });
 }, { platformFns: TestImpl });
 
 const at = (text: string): Date => new Date(text);
@@ -224,6 +225,16 @@ describe("the windows example's manifest: what a ui() task preloads and polls wh
             return [manifest.records, texts(manifest.paths), texts(manifest.pages)];
         };
         assert.deepEqual(read(ex.planSeries.fn), read(ex.planWindows.fn));
+    });
+
+    test("the halls example reads its presses' record a window at a time beside the jobs': neither preloaded nor polled whole (#1344)", () => {
+        const manifest = deriveManifest(ex.planSeriesByHall.fn as never);
+        const texts = (paths: readonly unknown[]) => paths.map(pathText);
+        const presses = pathText(ex.planSeriesPresses.path);
+        assert.deepEqual(manifest.records, [ex.planWindowJobs.name]);
+        assert.ok(texts(manifest.pages).includes(presses), "the presses' record is read by window");
+        assert.ok(texts(manifest.pages).includes(JOBS_PATH), "the jobs record is read by window");
+        assert.deepEqual(texts(manifest.paths), []);
     });
 
     test("a record bound alone with Record.bind is preloaded and polled, as it was", () => {

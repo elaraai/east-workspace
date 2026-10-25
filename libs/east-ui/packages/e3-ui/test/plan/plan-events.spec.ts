@@ -288,13 +288,17 @@ describe("its narrowing (#1344): one Slice.bindRecords, each source named after 
         }), /^Schedule\.events: "Print job": the builder's source "job" reads only its narrowing — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it/);
     });
 
-    test("a resource kind its source would narrow is read whole and keyed by String: a paged one is refused, naming the change", () => {
-        assert.match(refusal(($) => {
-            const presses = $.let(Data.bindPaged(ex.planPrintPresses));
-            return Plan.Payload({ axis, events: { job: jobsOf($) },
-                resources: { presses: Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name }) },
+    test("a paged resource kind its source narrows is paged from the narrowing's rows, and builds; a source over another record is refused, naming the change (#1344)", () => {
+        const pagedPresses = ($: BlockBuilder<NullType>) =>
+            Schedule.resources($.let(Data.bindPaged(ex.planPrintPresses)), { name: "Presses", icon: "print", label: (p) => p.name });
+        assert.equal(refusal(($) => {
+            const payload = Plan.Payload({ axis, events: { job: jobsOf($) }, resources: { presses: pagedPresses($) },
                 slice: { slice: Slice.bindRecords("spec.paged", { presses: { source: Data.bindPaged(ex.planPrintPresses, { indexes: [ex.planPrintPressesByHall] }), fields: { hall: { label: "Hall", hints: ["Hall A"] } } } }) } });
-        }), /^Plan: resources\.presses pages its resources \(Data\.bindPaged\), and the slice's source "presses" would narrow them — a paged resource kind is not narrowed: read its resources whole, a record's read\(\) \(Data\.bind\), or leave the source out$/);
+            assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
+        }), "");
+        assert.match(refusal(($) => Plan.Payload({ axis, events: { job: jobsOf($) }, resources: { presses: pagedPresses($) },
+            slice: { slice: Slice.bindRecords("spec.other", { presses: { source: Data.bindPaged(ex.planPrintCustomers, { indexes: [ex.planPrintCustomersByDistrict] }), fields: { district: { label: "District", hints: ["Old Town"] } } } }) } })),
+            /^Plan: the slice's source "presses" narrows resources\.presses, and its rows are .+ — the kind's are .+: bind the source over the kind's own record, Data\.bindPaged\(record, \{ indexes \}\)$/);
     });
 
     test("templates are records: a list written in the code, or one naming no source of the slice, is refused with the change to make", () => {

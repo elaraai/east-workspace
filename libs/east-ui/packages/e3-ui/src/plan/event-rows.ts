@@ -52,12 +52,22 @@
  * Unassigned row: whether the kind has its resource would take every window
  * to know, so an event naming a resource it has not draws nowhere.
  *
+ * A paged kind its Plan's slice names a source after takes its windows from
+ * that source's narrowed rows themselves (#1344): the narrowing's rows, paged
+ * in the source's index's order, as the `rows` source gives the canvas its
+ * rows — never a window of every resource filtered by the keys the source
+ * shows. Its count is the narrowing's, its keys come in the order its rows
+ * draw, so a reader reads the cells of the narrowed resources in view alone,
+ * and `query` names the narrowing its windows belong to. It has no key
+ * search: the narrowing's searches run in its index's order, which a key's
+ * does not follow.
+ *
  * @packageDocumentation
  */
 
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType,
-    StringType, StructType, isTypeEqual, none, some, variant,
+    StringType, StructType, isTypeEqual, none, printType, some, variant,
     type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { IconType, PickStateType, SeekQueryType, SeekRangeType, StatusValueType } from "@elaraai/east-ui";
@@ -65,6 +75,8 @@ import { buildPagedWindow, resolveRowSource } from "@elaraai/east-ui/internal";
 import { PlanEventItemType, PlanEventKindType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
+import { orderedRowSource } from "../utils/ordered-source.js";
+import { planIndexOrder } from "./ordered-source.js";
 import {
     PlanBlockType, PlanBlocksType, PlanBucketEventType, PlanChipType, PlanEventMarkKindType, PlanEventMarkType, PlanHeatCellType, PlanLaneType,
     PlanRollupType, PlanRowIdType, PlanRowKindType, PlanRowType, PlanRowsCollectionType, PlanRunType, PlanWeightCellType, type PlanDrawLiteral,
@@ -825,17 +837,20 @@ export function createEventBlocks(
  * source whose every window is the event kinds' blocks with this kind's place
  * filled by `rows` over that window of its resources — so its rows come as
  * the canvas scrolls, its key search seeks a resource by its key, and its
- * resources are never read whole.
+ * resources are never read whole. Narrowed by its source of the slice
+ * (#1344), its windows are the narrowing's rows, in the source's index's
+ * order, and it has no key search.
  *
  * @property kind - The paged resource kind's slot
- * @property id - The identity of the kind's resources' window
+ * @property id - The identity of the kind's resources' window: the source's, the same under every narrowing, when its source of the slice narrows it
  * @property placed - `(from, to, drafts by kind, the ids the viewer hides, what a reader read of each kind by its cells)` → the events placed on the kind's resources over `[from, to)`, every kind's drafts in place, by way of drawing and by the resource key's text; `none` while a kind's read is in flight. A kind a reader read by its cells (#1039) places the events of the entries it was given, and never reads the window
- * @property rows - `(offset, limit, placed, shading, the ids the viewer hides)` → the kind's rows for its resources `[offset, offset + limit)` — a whole window of them — with the events given placed on them, and each resource's row whose key the shading names drawing its heat in their place (#1039): one block, not fixed (an empty one while the viewer hides the kind); `none` while the window is in flight
+ * @property rows - `(offset, limit, placed, shading, the ids the viewer hides)` → the kind's rows for its resources `[offset, offset + limit)` — a whole window of them, in the resources' key order, or the narrowing's in its index's order (#1344) — with the events given placed on them, and each resource's row whose key the shading names drawing its heat in their place (#1039): one block, not fixed (an empty one while the viewer hides the kind); `none` while the window is in flight
  * @property keys - `(offset, limit)` → the texts of the keys of the kind's resources `[offset, offset + limit)`, in the order `rows` draws them (#1039): the resources a reader reads the cells of; `none` while the window is in flight
- * @property total - How many resources the kind has, once known
- * @property seek - Where a key search lands among the kind's resources: the window's own key search
+ * @property total - How many resources the kind has — the narrowing holds, when its source narrows it — once known
+ * @property seek - Where a key search lands among the kind's resources: the window's own key search; `none` when its source narrows it, whose searches run in its index's order
  * @property revision - The snapshot of the resources the windows are read at
  * @property refresh - Moves the resources' window to a snapshot, or to the one it holds now
+ * @property query - The narrowing the windows, the total and the keys belong to, as text (#1344): it moves when a choice does, and the windows are read again under it; `none` when no source narrows the kind
  */
 export const PlanEventPagedType = StructType({
     kind: StringType,
@@ -847,19 +862,113 @@ export const PlanEventPagedType = StructType({
     seek: OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
     revision: FunctionType([], OptionType(StringType)),
     refresh: FunctionType([OptionType(StringType)], NullType),
+    query: OptionType(FunctionType([], StringType)),
 });
 
 /** Type representing {@link PlanEventPagedType}. */
 export type PlanEventPagedType = typeof PlanEventPagedType;
 
-/** A paged source's handle, as the paged rows read it: its identity, size, key search and snapshot. */
+/** A paged source's handle, as the paged rows read it: its identity, size, key search, snapshot and — a rail's narrowed source's — narrowing. */
 type PagedHandle = ExprType<StructType<{
     id: StringType;
     total: FunctionType<[], OptionType<IntegerType>>;
     seek: OptionType<FunctionType<[typeof SeekQueryType], OptionType<typeof SeekRangeType>>>;
     revision: FunctionType<[], OptionType<StringType>>;
     refresh: FunctionType<[OptionType<StringType>], NullType>;
+    query: FunctionType<[], StringType>;
 }>>;
+
+/** A whole window's read of a paged kind's resources: `(offset, limit)` → the window, `none` while a piece is in flight. */
+type WindowRead = ExprType<FunctionType<[IntegerType, IntegerType], OptionType<EastType>>>;
+
+/**
+ * Where a paged resource kind's windows come from (#1199, #1344), and how one
+ * read is drawn: the kind's own paged read, in its resources' key order; or
+ * its source of the slice, the narrowing's rows in the source's index's order.
+ */
+interface KindWindows {
+    /** The window `[offset, offset + limit)`, whole. */
+    readonly read: WindowRead;
+    /** A window read → its resources, by key. */
+    readonly rows: (page: ExprType<EastType>) => ExprType<DictType<EastType, EastType>>;
+    /** A window read → the texts of its resources' keys, in the order its rows draw. */
+    readonly keys: ($: Block, page: ExprType<EastType>) => ExprType<ArrayType<StringType>>;
+    /** Whether a window's rows are drawn in its keys' order rather than the resources' key order: an index's order. */
+    readonly indexed: boolean;
+    /** The handle: its identity, size, key search, snapshot and narrowing. */
+    readonly handle: PagedHandle;
+    /** Whether the handle names its snapshot, `revision` and `refresh`. */
+    readonly pinned: boolean;
+    /** Whether the handle names the narrowing it serves, `query`: a source of the slice. */
+    readonly query: boolean;
+}
+
+/**
+ * A paged kind's own windows (#1199): its paged read, in its resources' key
+ * order.
+ *
+ * @param kind - The paged resource kind
+ * @param where - The kind, as a refusal names it
+ * @returns Its windows
+ * @throws {Error} When its paged read is not a paged source of its resources
+ */
+function ownWindows(kind: AnyResourceKind, where: string): KindWindows {
+    // The resources a window at a time — each window whole, a piece the source cut short read on to its end.
+    const resolved = resolveRowSource(kind.window, where);
+    if (resolved.kind === "inline") {
+        throw new Error(`${where}: a paged kind's resources are a paged read — Data.bindPaged(record) over the resources' record`);
+    }
+    // A key's text, as the rows name it: a paged kind's keys are Strings, as `Schedule.resources` holds them.
+    const keyText = isTypeEqual(kind.keyType, StringType)
+        ? (key: ExprType<EastType>) => key as unknown as ExprType<StringType>
+        : (key: ExprType<EastType>) => East.print(key);
+    return {
+        read: buildPagedWindow(resolved),
+        rows: (page) => page as unknown as ExprType<DictType<EastType, EastType>>,
+        keys: ($, page) => {
+            const out = $.let([], ArrayType(StringType));
+            $.for(page as unknown as ExprType<DictType<EastType, EastType>>, ($2, _row, key) => { $2(out.pushLast(keyText(key))); });
+            return out;
+        },
+        indexed: false,
+        handle: resolved.source as unknown as PagedHandle,
+        pinned: resolved.pinned,
+        query: false,
+    };
+}
+
+/**
+ * A paged kind's windows narrowed by its source of the slice (#1344): the
+ * narrowing's rows themselves, paged in the source's index's order — never a
+ * window of every resource filtered by the keys the source shows.
+ *
+ * @param kind - The paged resource kind
+ * @param slot - Its slot, which names its source
+ * @param narrowed - The source's narrowed data, as the Plan's payload bound it: a rail's live source of index entries
+ * @returns Its windows
+ * @throws {Error} When the source's rows are not the kind's, or its entries carry no rows
+ */
+function narrowedWindows(kind: AnyResourceKind, slot: string, narrowed: ExprType<StructType>): KindWindows {
+    const where = `Plan: the slice's source "${slot}"`;
+    const resolved = resolveRowSource(narrowed, where);
+    // The slice binds only a record's indexed reads, so a source is an index's window (`recordSources`).
+    if (resolved.kind !== "ordered") throw new Error(`${where} narrows resources.${slot}, and it is no index's window of a record`);
+    const ordered = orderedRowSource(resolved, "Plan");
+    const row = ordered.resolved.elementType;
+    if (!isTypeEqual(resolved.keyType, kind.keyType) || !isTypeEqual(row, kind.rowType)) {
+        throw new Error(`${where} narrows resources.${slot}, and its rows are ${printType(row)} — the kind's are ${printType(kind.rowType)}: ` +
+            "bind the source over the kind's own record, Data.bindPaged(record, { indexes })");
+    }
+    return {
+        read: ordered.window as unknown as WindowRead,
+        rows: (page) => ordered.rows(page as never) as unknown as ExprType<DictType<EastType, EastType>>,
+        keys: (_$, page) => ordered.keys(page as never),
+        indexed: true,
+        handle: resolved.source as unknown as PagedHandle,
+        pinned: resolved.pinned,
+        query: resolved.query,
+    };
+}
 
 /**
  * The paged resource kind's rows (see {@link PlanEventPagedType}), when a
@@ -867,31 +976,30 @@ type PagedHandle = ExprType<StructType<{
  *
  * @remarks
  * Made inside the function that assembles the payload, as the `blocks` seam
- * is, so `built` is the payload's own array of event kinds.
+ * is, so `built` is the payload's own array of event kinds — and `narrowed`
+ * is the kind's source of the slice as the payload's block bound it, so the
+ * kind's rows hold that source alone (#1356).
  *
  * @param resources - The resource kinds, by slot, in order — at most one of them paged (the Plan refuses more)
  * @param events - The event kinds, by slot, in order
  * @param built - The event kinds as the payload holds them, in the same order
+ * @param narrowed - The paged kind's source of the slice's narrowed data, when the slice names one after its slot (#1344): its windows are then the narrowing's rows
  * @returns The paged rows, or `undefined` when no resource kind is paged
- * @throws {Error} When the kind's paged read is not a paged source of its resources
+ * @throws {Error} When the kind's paged read is not a paged source of its resources, or its source's rows are not the kind's
  * @internal
  */
 export function createEventPaged(
     resources: readonly (readonly [string, AnyResourceKind])[],
     events: readonly (readonly [string, AnyEventKind])[],
     built: ExprType<ArrayType<PlanEventKindType>>,
+    narrowed?: ExprType<StructType>,
 ): ExprType<PlanEventPagedType> | undefined {
     const at = resources.find(([, kind]) => kind.window !== undefined);
     if (at === undefined) return undefined;
     const [slot, kind] = at;
     const where = `Plan: resources.${slot}`;
-    // The resources a window at a time — each window whole, a piece the source cut short read on to its end.
-    const resolved = resolveRowSource(kind.window, where);
-    if (resolved.kind === "inline") {
-        throw new Error(`${where}: a paged kind's resources are a paged read — Data.bindPaged(record) over the resources' record`);
-    }
-    const window = buildPagedWindow(resolved);
-    const handle = resolved.source as unknown as PagedHandle;
+    const pages = narrowed === undefined ? ownWindows(kind, where) : narrowedWindows(kind, slot, narrowed);
+    const handle = pages.handle;
     const draws = eventDrawsOf(slot, events);
     // The event kinds placed on it, with their place in `events` — the payload's array of them.
     const takers = events.flatMap(([s, k], i) => (k.takes.includes(slot) ? [[s, k, i] as const] : []));
@@ -958,47 +1066,44 @@ export function createEventPaged(
                 // A hidden kind draws no rows: its place stands empty in every window.
                 $2.assign(result, some(East.value([{ fixed: false, parent: none, rows: [] }], PlanBlocksType)));
             }).else(($2) => {
-                const read = $2.const(window);
+                const read = $2.const(pages.read);
                 const shade = $2.const(shadedRows);
                 const drawsBars = $2.const(booked, SetType(StringType));
                 const got = $2.let(read(offset, limit));
                 $2.match(got, {
-                    some: ($3, all) => {
+                    some: ($3, page) => {
+                        const all = $3.let(pages.rows(page));
                         const onIt = new Map(draws.map((draw) =>
                             [draw, $3.let(given.get(draw, () => East.value(new Map(), PlacedByKeyType)))] as const));
-                        const blocks = $3.let(resourceBlocks($3 as unknown as Block, slot, kind,
-                            all as unknown as ExprType<DictType<EastType, EastType>>, onIt, events, hidden, false));
-                        $3.assign(result, some(shade(blocks, shading, drawsBars)));
+                        const blocks = $3.let(resourceBlocks($3 as unknown as Block, slot, kind, all, onIt, events, hidden, false));
+                        // A narrowed window's rows in its index's order (#1344), each resource's rows together.
+                        const drawn = pages.indexed ? $3.let(planIndexOrder(blocks, pages.keys($3 as unknown as Block, page))) : blocks;
+                        $3.assign(result, some(shade(drawn, shading, drawsBars)));
                     },
                 });
             });
             return result;
         });
 
-    // The keys of a window's resources as the rows name them (#1039): what a reader reads the cells of.
-    const keyText = isTypeEqual(kind.keyType, StringType)
-        ? (key: ExprType<EastType>) => key as unknown as ExprType<StringType>
-        : (key: ExprType<EastType>) => East.print(key);
+    // The keys of a window's resources as the rows name them, in the order they draw (#1039): what a reader reads the cells of.
     const keys = East.function([IntegerType, IntegerType], OptionType(ArrayType(StringType)), ($, offset, limit) => {
-        const read = $.const(window);
+        const read = $.const(pages.read);
         const result = $.let(none, OptionType(ArrayType(StringType)));
         $.match(read(offset, limit), {
-            some: ($2, all) => {
-                const out = $2.let([], ArrayType(StringType));
-                $2.for(all as unknown as ExprType<DictType<EastType, EastType>>, ($3, _row, key) => { $3(out.pushLast(keyText(key))); });
-                $2.assign(result, some(out));
-            },
+            some: ($2, page) => { $2.assign(result, some(pages.keys($2 as unknown as Block, page))); },
         });
         return result;
     });
 
     // A source that names no snapshot is read at none, and moves nowhere.
-    const revision = resolved.pinned
+    const revision = pages.pinned
         ? handle.revision
         : East.function([], OptionType(StringType), (_$) => East.value(none, OptionType(StringType)));
-    const refresh = resolved.pinned
+    const refresh = pages.pinned
         ? handle.refresh
         : East.function([OptionType(StringType)], NullType, (_$, _target) => East.value(null, NullType));
+    const Seek = PlanEventPagedType.fields.seek;
+    const Query = PlanEventPagedType.fields.query;
     return East.value({
         kind: slot,
         id: handle.id,
@@ -1006,8 +1111,10 @@ export function createEventPaged(
         rows,
         keys,
         total: handle.total,
-        seek: handle.seek,
+        // A narrowing's searches run in its index's order, which a resource's key does not follow: no key search.
+        seek: pages.indexed ? East.value(none, Seek) : handle.seek,
         revision,
         refresh,
+        query: pages.query ? East.value(some(handle.query), Query) : East.value(none, Query),
     } as SubtypeExprOrValue<PlanEventPagedType>, PlanEventPagedType);
 }

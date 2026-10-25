@@ -66,10 +66,11 @@
  *
  * The narrowing is the Plan's one `Slice.bindRecords` (#1344): the canvas
  * reads its `rows` source and each event kind's through their parts
- * (`root/sources.ts`), and the frame follows the others itself through the
- * shared `FollowSources` — each resource kind's, whose shown resources are
- * the rows its kind draws and the bulk edit's Chooser offers, each templates
- * list's, and each an author's tab names. A source whose narrowing could not
+ * (`root/sources.ts`), and a paged resource kind's, whose windows are its
+ * narrowing's rows; the frame follows the others itself through the shared
+ * `FollowSources` — each resource kind's read whole, whose shown resources
+ * are the rows its kind draws and the bulk edit's Chooser offers, each
+ * templates list's, and each an author's tab names. A source whose narrowing could not
  * be read says so in a banner, with Retry, as a window that could not be
  * written does; a resource kind's narrowing resolving keeps the rows it
  * showed, busy. After a Save, the footer says what left each source's

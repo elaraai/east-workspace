@@ -122,12 +122,15 @@
  *
  * # A new narrowing is a new result (#1344, #1354)
  *
- * A `live` source — the rail's `rows` source — keeps its id under every
- * narrowing, and names the narrowing its windows belong to (`query`), read
- * before the windows as the revision is. A new narrowing holds other rows at
- * other positions, so it is a new result, as a new source of the same record
- * is: the view the last one drew stands in, whole, until the new one's first
- * window lands, and its geometry and its windows start again from its first.
+ * A `live` source — the rail's `rows` source, or a paged resource kind's
+ * source over its windows (#1344) — keeps its id under every narrowing, and
+ * names the narrowing its windows belong to (`query`), read before the windows
+ * as the revision is. A new narrowing holds other rows at other positions, so
+ * it is a new result, as a new source of the same record is: the view the last
+ * one drew stands in, whole, until the new one's first window lands — whatever
+ * window read ahead beside it lands before it — and its geometry and its
+ * windows start again from its first. The snapshot names the narrowing its
+ * rows belong to (`narrowing`), the stand-in's the last one's.
  *
  * @packageDocumentation
  */
@@ -241,6 +244,12 @@ export interface PlanPagingSnapshot {
     /** Whether the view the last narrowing drew stands in while a new one's
      *  first window is read (#1354): the footer's line says it is filtering. */
     replacing: boolean;
+    /** The narrowing the rows belong to, as a live source names it (`query()`,
+     *  #1354) — the stand-in's the last narrowing's until the new one's rows
+     *  land (#1344): what the rows in view are reported under, so a reader of
+     *  their cells reads none of another narrowing's. `undefined` for a source
+     *  that names none. */
+    narrowing: string | undefined;
     /** The resident windows whose read failed, ascending — one each, whatever
      *  blocks hold it (#811). */
     failures: readonly PlanWindowFailure[];
@@ -268,7 +277,7 @@ const NO_BLOCKS: readonly PlanPagedBlock[] = [];
 export const IDLE_PAGING: PlanPagingSnapshot = {
     seq: 0, rows: NO_ROWS, origin: NO_ORIGIN, blocks: NO_BLOCKS,
     total: undefined, resident: undefined, complete: true, loading: false, viewLoading: false, reading: undefined, replacing: false,
-    failures: NO_FAILURES, sourceError: undefined, revision: undefined, dataSnapshot: undefined,
+    narrowing: undefined, failures: NO_FAILURES, sourceError: undefined, revision: undefined, dataSnapshot: undefined,
 };
 
 /** Where a row the body does not hold sits (#823): in one of its block's
@@ -900,7 +909,12 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     /** The snapshot for the last read — reusing every part that did not move. */
     function publish(): void {
         if (transition !== undefined) {
-            if (store.windows.size === 0 && last.total !== 0 && last.failed.length === 0 && last.sourceError === undefined) {
+            // The new result's view opens on its first window, or on a jump's target: until that lands — whatever
+            // windows read ahead beside it land first (#1344) — the last view stands in, unless the result is empty or a
+            // read failed.
+            const opensAt = pinnedWindows();
+            const opened = opensAt.length > 0 ? opensAt.some((w) => store.windows.has(w)) : store.windows.has(0);
+            if (!opened && last.total !== 0 && last.failed.length === 0 && last.sourceError === undefined) {
                 if (!snapshot.loading || snapshot.rows !== transition.rows) {
                     snapshot = { ...transition, seq: ++published, loading: true, viewLoading: true, complete: false, reading: undefined, replacing: true };
                     options.onChange();
@@ -974,6 +988,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             viewLoading,
             reading: sameLoading(prev.reading, reading) ? prev.reading : reading,
             replacing: false,
+            narrowing,
             failures: failures.length === 0 ? NO_FAILURES
                 : sameFailures(prev.failures, failures) ? prev.failures : failures,
             sourceError: last.sourceError,
@@ -983,7 +998,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         const changed = next.rows !== prev.rows || next.origin !== prev.origin || next.blocks !== prev.blocks
             || next.total !== prev.total || next.resident !== prev.resident || next.complete !== prev.complete
             || next.loading !== prev.loading || next.viewLoading !== prev.viewLoading || next.reading !== prev.reading
-            || next.replacing !== prev.replacing
+            || next.replacing !== prev.replacing || next.narrowing !== prev.narrowing
             || next.failures !== prev.failures || next.sourceError !== prev.sourceError
             || next.revision !== prev.revision || next.dataSnapshot !== prev.dataSnapshot;
         if (!changed) return;

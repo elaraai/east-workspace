@@ -38,7 +38,9 @@ import { PrintJob, PrintPress } from "./plan-events.examples.js";
 // (`Schedule.events`' `window` and `backlogWindow`) are declared beside them:
 // a Plan or a Calendar with no rail reads the record through them. The same
 // Plan reads the jobs a cell at a time in `planSeries` (#1039), through their
-// series index and their summary, declared here too.
+// series index and their summary, declared here too; and in `planSeriesByHall`
+// (#1344) its presses are a record of their own, which the rail narrows by
+// hall through an index of it, the canvas paging the narrowing's presses.
 
 // ============================================================================
 // The presses — generated where data is made
@@ -66,6 +68,20 @@ export const generateWindowPresses = East.function([IntegerType], DictType(Strin
 
 /** The task that generates the presses. */
 export const planWindowPresses = e3.task("plan_window_presses", [planWindowPressCount], generateWindowPresses);
+
+/**
+ * The works' 2,000 presses as a record of their own (#1344): the presses
+ * `generateWindowPresses` makes, stored, so the rail narrows them — a resource
+ * kind's source of the slice is an index of its record.
+ */
+export const planSeriesPresses = e3.record("plan_series_presses", DictType(StringType, PrintPress), East.compile(generateWindowPresses, [])(2_000n));
+
+/**
+ * The presses by hall (#1344): each hall's presses, in their key order — what
+ * the rail's `presses` source narrows them through, and the order a Plan pages
+ * the presses of the halls chosen in.
+ */
+export const planSeriesPressesByHall = e3.recordIndex("plan_series_presses_by_hall", planSeriesPresses, { on: ["hall"] });
 
 // ============================================================================
 // The jobs — a record read through its indexes
@@ -347,6 +363,78 @@ export const planSeries = example({
             return (
                 <Plan
                     id="series"
+                    axis={axis}
+                    slice={{ slice }}
+                    resources={{
+                        presses: Schedule.resources(presses, {
+                            name: "Presses", icon: "print", label: p => p.name,
+                            sub: (p, key) => some(East.str`${key} · ${p.hall}`),
+                        }),
+                    }}
+                    events={{
+                        job: Schedule.events(jobs, {
+                            name: "Print job", icon: "file-lines",
+                            title: "title", start: "start", end: "end",
+                            resource: { field: "press", of: "presses" },
+                            state: "state", quantity: { field: "sheets", unit: "sheets" },
+                            backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
+                            entries: jobEntries,
+                        }),
+                    }}
+                    library={[Plan.library.backlog()]}
+                    style={{ height: "480px" }}
+                />
+            );
+        }}</Reactive>);
+    }),
+    inputs: [],
+});
+
+// ============================================================================
+// planSeriesByHall — the presses narrowed by hall through the rail (#1344)
+// ============================================================================
+
+/**
+ * The Plan of `planSeries`, its presses narrowed by hall (#1344): the presses
+ * are a record of their own, paged on the canvas, and the rail's `presses`
+ * source — named after the kind's slot — narrows them through their hall
+ * index. The canvas pages the narrowing's presses themselves, in the index's
+ * order, 200 to a window: a hall chosen reads its presses alone, its count is
+ * the hall's, and the jobs' cells are read for the presses of the hall in view
+ * alone — so a works of a million presses, each with a year of jobs, reads what
+ * is on screen. A choice keeps the view the last one drew until its own presses
+ * land, and the press at the top of the view where the hall holds it. Every
+ * edit is a draft of the jobs' session whatever the halls chosen, and Save
+ * commits it through their patch door.
+ */
+export const planSeriesByHall = example({
+    keywords: [
+        "Plan", "Schedule", "Schedule.resources", "Schedule.events", "Slice", "Slice.bindRecords", "source", "rail", "narrow",
+        "narrowing", "filter", "resource kind", "hall", "e3.recordIndex", "index", "paged", "Data.bindPaged", "series index",
+        "summary index", "cell", "large record", "million rows", "presses", "jobs", "#1344", "#1039",
+    ],
+    description: "The Plan of planSeries, its 2,000 presses a record narrowed by hall through the rail — a `presses` source named after the paged resource kind's slot, `Data.bindPaged(record, { indexes })` over the presses' hall index — the canvas paging the narrowing's presses themselves in the index's order, counting the hall's, and reading the jobs' cells for the presses of the hall in view alone; a choice keeps the last view standing until its presses land, and drafts Save whatever the halls chosen",
+    fn: East.function([], UIComponentType, (_$) => {
+        return (<Reactive>{$ => {
+            const presses = $.let(Data.bindPaged(planSeriesPresses));
+            const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));
+            const jobEntries = $.let(Data.bindPaged(planWindowJobs));
+            // The `presses` source narrows the paged kind by hall, through the presses' hall index: the canvas pages the
+            // narrowing's presses. The `job` source reads the jobs a cell at a time, as in planSeries.
+            const slice = $.let(Slice.bindRecords("ex.plan.series.halls", {
+                presses: { source: Data.bindPaged(planSeriesPresses, { indexes: [planSeriesPressesByHall] }), label: "Presses",
+                    icon: { prefix: "fas", name: "print" },
+                    fields: { hall: { label: "Hall", hints: ["Hall 1", "Hall 2", "Hall 3", "Hall 4", "Hall 5", "Hall 6", "Hall 7", "Hall 8"] } } },
+                job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),
+                    label: "Print jobs", fields: { start: { label: "Dates" } }, range: "start" },
+            }));
+            const axis = $.let(Plan.axis({
+                window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-10-19T00:00:00Z") },
+                resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: new Date("2026-10-14T09:00:00Z"),
+            }));
+            return (
+                <Plan
+                    id="series-halls"
                     axis={axis}
                     slice={{ slice }}
                     resources={{

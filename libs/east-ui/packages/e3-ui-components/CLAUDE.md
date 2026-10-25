@@ -299,7 +299,13 @@ nothing for it — by the tiles its read range touches, every cell's searches in
 one request and the missing cells' entries in one more, kept per revision
 while wanted; past 10,000 entries it reads the summary's cells and shades, and
 the reader takes the root's own links, never the ones named where the events
-draw. Inside the folded editor, field editors expand inline,
+draw. A paged resource kind its source narrows (#1344) pages that source's
+narrowed rows themselves, in its index's order: the canvas's source over the
+payload's `paged` is a live one, so a choice is a new result, the last view
+standing in, retained, until its first window lands; the frame follows no such
+source (`planFollowedSources`), so none of its keys is scanned; and the span
+store names the narrowing the rows in view were drawn under, so a choice reads
+no cell until its own rows are reported. Inside the folded editor, field editors expand inline,
 with one popup and normal keyboard focus return. Never copy another control
 family into a builder.
 
@@ -345,7 +351,8 @@ until the replacement lands, then swap atomically. Reset the new paging origin.
 A rail's source keeps its id under every narrowing and names the narrowing it
 serves (`query()`, a live source, #1354): a reader keys what it keeps by it as
 by the revision (`snapshotOf`), the Plan's driver taking a new narrowing as a
-new result, the Sheet's lens keeping what it read by the revision and the
+new result — the last view standing in until the new one's first window lands,
+whatever window read ahead lands first — the Sheet's lens keeping what it read by the revision and the
 narrowing — a new choice keeps the rows and asks again which it holds — and its
 key search starting afresh with each narrowing, and the visibility scan
 starting again. Editing keeps the
@@ -1150,7 +1157,12 @@ over `VirtualRows`' `onAnchorChange` and `restoreAnchor`): the Roster's People
 rows and cards, the Calendar's timeline and the Allocation's Table, as the
 Sheet's and the Plan's are kept. A narrowing keeps the Sheet's anchor row by its
 key where the narrowing holds it — drawn already, or sought where it is as a key
-search's jump is, and put back once drawn — and else starts at the top. The
+search's jump is, and put back once drawn — and else starts at the top. A
+bounded Plan keeps the row at the top of its view across a new narrowing of its
+paged rows — the `rows` source's or a paged resource kind's (#1344) — by its key
+and the px into it where the new rows' first windows draw it, and else starts
+at the top, telling the paging driver nothing of where the view rested
+meanwhile; it seeks none, a narrowing's searches running in its index's order. The
 Calendar's time grid keeps the hour at its top across a step, a layout and a
 remount (`gridHour`), never back to the morning, and Today brings the now line
 into view a third of the way down, on today too. The People rows' estimates are
