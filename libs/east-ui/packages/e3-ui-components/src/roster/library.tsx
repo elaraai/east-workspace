@@ -26,7 +26,7 @@ import { readRosterSource, rosterSourceKey } from "./identity.js";
 import { PlaceAction } from "./controls.js";
 import type { RosterCommands, RosterSource } from "./actions.js";
 import type { FitResult, Need } from "./fit.js";
-import { DAY, activityOf, type Coverage, type Person, type RosterStyles, type RosterValue, type Selection, type Slot, type Week } from "./model.js";
+import { DAY, activityOf, type Assignment, type Coverage, type Person, type RosterStyles, type RosterValue, type Selection, type Slot, type Week } from "./model.js";
 
 export function rosterLibraryId(key: string, tab: string): string { return `${key}.library.${tab}`; }
 /** A Find fix's result in the People tab (#1334): what it looks for, the fit's answer, and whether that answer is still to land. */
@@ -50,6 +50,22 @@ interface LibraryArgs {
 }
 /** A tab that names no source lists its rows whole. */
 const WHOLE: SourceShown = { keys: none, busy: false, ready: true, clear: undefined };
+const NO_ASSIGNMENTS: readonly Assignment[] = [];
+/** Test-only probe: told each time the People tab's cards are made (#1398, CL9). `undefined` outside tests. */
+let peopleCardsProbe: (() => void) | undefined;
+/**
+ * Install (or clear) the People cards probe. Test use only.
+ *
+ * @param fn - Told each time the cards are made; `undefined` clears it
+ */
+export function setRosterPeopleCardsProbe(fn: (() => void) | undefined): void { peopleCardsProbe = fn; }
+/** A Library card of the Roster's: its words, its group and its icon, dragged where the Roster takes drags. */
+function libraryCard(key: string, label: string, meta: string, group: string, icon: string | undefined, draggable: boolean): LibraryItemValue {
+    return scheduleLibraryCard({
+        key, label, sublabel: some(meta), groups: new Map([["group", group]]), icon: icon === undefined ? none : some(icon),
+        status: none, trailing: none, draggable, filtered: false, placed: false, search: some(`${label} ${meta} ${group}`),
+    });
+}
 /** What the People tab says while a Find finds no one; its chip clears it. */
 const NO_ONE_FOUND = { title: "No one found", description: "Clear the find to see the people the rail shows." };
 const byScore = compareFor(FloatType);
@@ -82,23 +98,46 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
     // Each found card's reason, the same function while the answer stands: the Library's memo compares it.
     const answer = find?.shown;
     const reasons = useMemo(() => answer === undefined ? undefined : (item: LibraryItemValue) => reasonOf(answer, item), [answer]);
-    if (value.library.length === 0) return undefined;
-    const rostered = new Set([...week.assignments.values()].flatMap(a => a.slot.day === BigInt(day) && a.who.type === "person" ? [a.who.value] : []));
     const draggable = !narrow && commands.available;
+    // Each person's duties on the day, the week's duties read once (#1398, CL9).
+    const today = useMemo(() => {
+        const by = new Map<string, Assignment[]>();
+        for (const a of week.assignments.values()) {
+            if (a.slot.day !== BigInt(day) || a.who.type !== "person") continue;
+            const theirs = by.get(a.who.value);
+            if (theirs === undefined) by.set(a.who.value, [a]);
+            else theirs.push(a);
+        }
+        return by;
+    }, [week, day]);
+    // The People tab's cards, made again only as what they show changes — never at every render of the Roster (CL9).
+    const chosenPerson = chosen["people"];
+    const peopleEntries = useMemo(() => { peopleCardsProbe?.(); return value.people.map(person => {
+        const assigned = today.get(person.key) ?? NO_ASSIGNMENTS;
+        const group = value.groups.find(g => g.key === person.group);
+        const position = value.positions.find(p => p.key === (assigned[0]?.position ?? person.position));
+        const skills = value.activities.filter(a => a.group.type === "some" && person.skills.has(a.key));
+        const place = assigned.length === 0 ? `Off ${format.weekday(new Date(start.getTime() + day * DAY))} · available` : position?.lead ? "Leads" : person.agency ? "Agency staff" : "Associates";
+        const shift = assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.label ?? a.slot.shift).join(", ");
+        const card = libraryCard(rosterSourceKey("person", person.key), person.name, `${group?.label ?? person.group} · ${shift || "Off today"}${position?.code ? ` · ${position.code}` : ""}${person.trainer ? " · trainer" : ""}${person.trainee ? " · trainee" : ""}`, place, undefined, draggable);
+        return { person, card: { ...card, avatar: some(person.name), placed: chosenPerson === rosterSourceKey("person", person.key),
+            status: some({ label: assigned.length === 0 ? "OFF" : assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.code ?? a.slot.shift).join(" · "), tone: variant(assigned.length === 0 ? "info" : "neutral", null), ring: false }),
+            search: some(`${person.name} ${group?.label} ${position?.label} ${person.agency ? "agency" : ""} ${person.trainer ? "trainer" : ""} ${skills.map(s => s.label).join(" ")}`),
+            dims: new Map([["hours", variant("meter", { value: hours.get(person.key) ?? 0, max: person.contract, text: some(`${format.number(hours.get(person.key) ?? 0)} / ${format.number(person.contract)} h`) })]]),
+        } };
+    }); }, [value.people, value.groups, value.positions, value.activities, value.shifts, today, format, start, day, draggable, chosenPerson, hours]);
+    if (value.library.length === 0) return undefined;
     const slot = selection?.type === "slot" || selection?.type === "requirement" ? selection.slot
         : selection?.type === "assignment" ? week.assignments.get(selection.key)?.slot : undefined;
     const defaultSlot: Slot = slot ?? { day: BigInt(day), group: value.groups[0]!.key, shift: value.shifts[0]!.key };
-    const make = (key: string, label: string, meta: string, group: string, icon: string | undefined): LibraryItemValue => scheduleLibraryCard({
-        key, label, sublabel: some(meta), groups: new Map([["group", group]]), icon: icon === undefined ? none : some(icon),
-        status: none, trailing: none, draggable, filtered: false, placed: false, search: some(`${label} ${meta} ${group}`),
-    });
+    const make = (key: string, label: string, meta: string, group: string, icon: string | undefined): LibraryItemValue => libraryCard(key, label, meta, group, icon, draggable);
     // What a Find fix looks for: a skill's holders, leads, or trainers.
     const need = find?.need;
     const findWhat = need === undefined ? undefined : need.type === "skill" ? activityOf(value, need.value)?.label ?? need.value
         : need.type === "leads" ? "Leads" : "Trainers";
     // The people the rail shows, off that day: the collapsed rail's badge.
     const shownPeople = shown.people.keys;
-    const off = value.people.filter(p => (shownPeople.type === "none" || shownPeople.value.has(p.key)) && !rostered.has(p.key)).length;
+    const off = value.people.filter(p => (shownPeople.type === "none" || shownPeople.value.has(p.key)) && !today.has(p.key)).length;
     const tabs = value.library.map(tab => {
         const name = tab.type === "tab" ? `tab:${tab.value.name}` : tab.type;
         const label = tab.type === "tab" ? tab.value.name : tab.type === "people" ? "People" : "Activities";
@@ -108,20 +147,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         let narrowing: LibraryNarrowing | undefined;
         let pane: ReturnType<typeof sourceTab<unknown>>["pane"];
         if (tab.type === "people") {
-            const entries = value.people.map(person => {
-                const assigned = [...week.assignments.values()].filter(a => a.slot.day === BigInt(day) && a.who.type === "person" && a.who.value === person.key);
-                const group = value.groups.find(g => g.key === person.group);
-                const position = value.positions.find(p => p.key === (assigned[0]?.position ?? person.position));
-                const skills = value.activities.filter(a => a.group.type === "some" && person.skills.has(a.key));
-                const place = assigned.length === 0 ? `Off ${format.weekday(new Date(start.getTime() + day * DAY))} · available` : position?.lead ? "Leads" : person.agency ? "Agency staff" : "Associates";
-                const shift = assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.label ?? a.slot.shift).join(", ");
-                const card = make(rosterSourceKey("person", person.key), person.name, `${group?.label ?? person.group} · ${shift || "Off today"}${position?.code ? ` · ${position.code}` : ""}${person.trainer ? " · trainer" : ""}${person.trainee ? " · trainee" : ""}`, place, undefined);
-                return { person, card: { ...card, avatar: some(person.name), placed: chosen[name] === rosterSourceKey("person", person.key),
-                    status: some({ label: assigned.length === 0 ? "OFF" : assigned.map(a => value.shifts.find(s => s.key === a.slot.shift)?.code ?? a.slot.shift).join(" · "), tone: variant(assigned.length === 0 ? "info" : "neutral", null), ring: false }),
-                    search: some(`${person.name} ${group?.label} ${position?.label} ${person.agency ? "agency" : ""} ${person.trainer ? "trainer" : ""} ${skills.map(s => s.label).join(" ")}`),
-                    dims: new Map([["hours", variant("meter", { value: hours.get(person.key) ?? 0, max: person.contract, text: some(`${format.number(hours.get(person.key) ?? 0)} / ${format.number(person.contract)} h`) })]]),
-                } };
-            });
+            const entries = peopleEntries;
             follows = sourceTab({ cards: entries, keyOf: entry => entry.person.key, shown: shown.people, noun: "people", words: format });
             // A Find fix's result: the people the fit's answer says fit, among what the rail shows, best first. Until its answer
             // for the drafts as they are lands, the tab shows what the rail shows, busy, and no verdict (F2).
@@ -187,6 +213,8 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         const target = selection?.type === "assignment" ? selection.key : undefined;
         const custom = tab.type === "tab" && tab.value.drop.type === "some" ? tab.value.cards.find(card => card.key === chosenKey) : undefined;
         const finding = tab.type === "people" && findWhat !== undefined;
+        // A pane its source reads again holds its cards retained (#1398, CL8): what they place waits until it lands.
+        const held = pane["aria-disabled"] === true;
         return { key: name, label, count, body: <Box css={styles.pane} data-roster-library={name} {...pane}>
             {finding && <Box css={styles.paneFoot} data-roster-find="">
                 {/* Pressed, the chip clears the find: its name says so, its face what the find looks for. */}
@@ -196,7 +224,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
                 extras={tab.type === "people" ? reasons : undefined} />
             <Box css={[styles.paneFoot, styles.paneHint]}>{narrow ? tab.type === "people" ? "Select a person to assign" : "Select a card, then an assignment"
                 : tab.type === "people" ? `Drag onto a shift · ${format.weekdayDate(new Date(start.getTime() + day * DAY))}` : "Drag onto a person · one per shift"}</Box>
-            {commands.available && chosenKey !== undefined && <Box css={styles.paneFoot}>
+            {commands.available && !held && chosenKey !== undefined && <Box css={styles.paneFoot}>
                 {source !== undefined && <PlaceAction label={source.type === "agency" ? "Request staff" : "Assign person"} source={source} slot={defaultSlot} value={value} start={start} commands={commands} styles={styles} />}
                 {tab.type === "activities" && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.activity(target, some(chosenKey))); }}>Set activity on selected duty</Button>}
                 {custom !== undefined && custom.sets.length > 0 && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.sets(target, custom.sets)); }}>Apply to selected duty</Button>}

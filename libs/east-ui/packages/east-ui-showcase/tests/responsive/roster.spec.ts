@@ -380,6 +380,49 @@ for (const theme of ['light', 'dark'] as const) {
         await again.locator('[data-roster-grid="people"] [data-virtual-rows]').evaluate(el => el.scrollTo({ top: el.scrollHeight }));
         await expect(again.locator(`[data-roster-person-day="${destination}"] [data-roster-assignment="${id}"]`)).toHaveCount(1);
     });
+    test(`People is never pulled back: a jump past rows not yet drawn stays where it was put as the rows there mount, the end stays the end, and ↓ on a name focuses the next person's with its ring (#1398) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, 'rosterPeople', theme); await size(page, entry, 960);
+        const frame = entry.locator('[data-roster-frame]').first();
+        await closeInspector(frame); await settled(page);
+        const scroll = frame.locator('[data-roster-grid="people"] [data-virtual-rows]');
+        /** Where the view stands: its offset, the furthest it goes, and the row at its top by key with the px into it. */
+        const place = () => scroll.evaluate(el => {
+            const view = el.getBoundingClientRect();
+            const rows = [...el.querySelectorAll<HTMLElement>('[data-roster-person-row], [data-roster-group]')]
+                .map(row => ({ key: row.getAttribute('data-roster-person-row') ?? `group:${row.getAttribute('data-roster-group')}`, box: row.getBoundingClientRect() }))
+                .filter(row => row.box.bottom > view.top + 1).sort((a, b) => a.box.top - b.box.top);
+            return { top: el.scrollTop, max: el.scrollHeight - el.clientHeight, row: rows[0]?.key, into: Math.round(view.top - (rows[0]?.box.top ?? view.top)) };
+        });
+        const { max } = await place();
+        expect(max).toBeGreaterThan(2_000);
+        // Past rows the view has not drawn: a third of the way, two thirds, then the end — each where it was put once the
+        // rows there have mounted and measured, never pulled back (a row taller than the rest, a group's requests, may
+        // carry the view on with the rows it shows, or grow the rows below it; never pull it back).
+        for (const at of [Math.round(max / 3), Math.round((2 * max) / 3), Number.MAX_SAFE_INTEGER]) {
+            const put = await scroll.evaluate((el, top) => { el.scrollTop = top; return el.scrollTop; }, at);
+            await settled(page);
+            expect((await place()).top, `put at ${put}`).toBeGreaterThanOrEqual(put - 1);
+        }
+        // At the end it holds: the same row at the top, the same px into it, after the page has rested again.
+        const end = await place();
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await settled(page);
+        expect(await place()).toEqual(end);
+        // ↑ / ↓ on a person's name: from the first person in view, ↓ focuses the next person's name, its ring drawn, and selects them.
+        await scroll.evaluate(el => { el.scrollTop = 0; }); await settled(page);
+        const names = frame.locator('[data-roster-person-head]');
+        const [first, second] = [await names.nth(0).getAttribute('data-roster-person-head'), await names.nth(1).getAttribute('data-roster-person-head')];
+        await names.nth(0).focus();
+        await page.keyboard.press('ArrowDown');
+        const focused = frame.locator(`[data-roster-person-head="${second}"]`);
+        await expect(focused).toBeFocused();
+        expect(first).not.toBe(second);
+        const ring = await focused.evaluate(el => { const s = getComputedStyle(el); return { visible: el.matches(':focus-visible'), style: s.outlineStyle, width: s.outlineWidth }; });
+        expect(ring).toEqual({ visible: true, style: 'solid', width: '2px' });
+        await page.keyboard.press('ArrowUp');
+        await expect(frame.locator(`[data-roster-person-head="${first}"]`)).toBeFocused();
+    });
     test(`custom numeric inspector keeps decimal typing through Save (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== 'desktop', 'Custom inspector typing; narrow default forms are tested separately.');
         await page.setViewportSize({ width: 2160, height: 1080 });

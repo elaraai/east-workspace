@@ -8,7 +8,9 @@ import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/r
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation, faSliders } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap } from "@elaraai/east";
-import { ChipMenu, historyToolbarItem, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
+import {
+    ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
+} from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
@@ -36,6 +38,8 @@ interface ToolbarArgs extends RosterWindow {
     picker: SortedMap<Date, Status>;
     onDisplay: (value: Partial<{ density: "compact" | "comfortable"; chipSkills: boolean; requirements: boolean }>) => void;
     issues: readonly Issue[]; onIssues: () => void; onAction: (action: HistoryAction) => void; onPickerDates: (dates: readonly Date[]) => void;
+    /** Search Records over the people's keys (#1398); `undefined` with no one to seek. */
+    search?: KeySearchSource | undefined;
 }
 /** One shared Toolbar, including the narrowing's rail and the shared editing history. */
 export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
@@ -51,6 +55,9 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     const chip = useRecipe({ key: "chip" });
+    // Search Records (#1398): primary-key navigation over the people, at the row's end; it folds to its icon, and at the
+    // row's last step into the View, beside the week and the view controls.
+    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: HOST_RANK + 4 });
     const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length;
     const period = (key: "day" | "week") => setView({ ...view, period: key });
     const unit = view.layout === "people" ? "week" : view.period;
@@ -89,6 +96,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // When the frame itself is narrower than a phone viewport, one popover
     // holds both week and view controls. It folds before the shared history.
     const controls = <Box css={styles.agendaGroup}>
+        {search?.forms[0]}
         <Seg label="Layout" scope="roster" name="compact-layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />
         {view.layout === "shifts" && <Seg label="Period" scope="roster" name="compact-period" items={PERIODS} active={view.period} onPick={period} />}
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
@@ -119,6 +127,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
             ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
             : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
                 : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
+        search !== undefined && { ...search, forms: [...search.forms, null], rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish.
         heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish</Button>, null] },
