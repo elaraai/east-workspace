@@ -9,8 +9,11 @@
  * # A row's position is written, not rendered
  *
  * `aria-rowindex` is a row's place among ALL the grid's rows — the ones the
- * virtualizer has not mounted, and the bands standing for a paged source's
- * unloaded runs, included. Rendered as a prop, every row below a collapse or
+ * virtualizer has not mounted, and the rows of a paged source not read yet,
+ * included (#1398, CL12): a run not read, or a window whose read failed, is one
+ * row of the grid at its first row's place, and takes as many places as the
+ * rows it stands for, so `aria-rowcount` is the total, never the rows read
+ * ({@link gridPlaces}). Rendered as a prop, every row below a collapse or
  * a window landing at the head would re-render only to renumber itself, which
  * is exactly the store-change tax the row memo removed (#616, #815). So the
  * canvas publishes every item's position to a small store, and each row
@@ -30,6 +33,62 @@
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { PlanControllerContext } from "../controller/react.js";
+import { bodyItemKey, type PlanBodyItem } from "../model.js";
+
+/**
+ * How many of the grid's rows a body item stands for: a row, a group's band or
+ * a links focus's gap is one; a run not read, and a window whose read failed,
+ * one for each element it covers — the row an element's entry draws, until its
+ * window lands and says what it draws.
+ *
+ * @param item - The body item
+ * @returns Its rows
+ */
+function rowsOf(item: PlanBodyItem): number {
+    switch (item.kind) {
+        case "row":
+        case "gap":
+            return 1;
+        case "band":
+            return item.band.to - item.band.from + 1;
+        case "failed":
+            return item.failure.to - item.failure.from + 1;
+    }
+}
+
+/** Where every item sits in the grid, and how many rows the grid has. */
+export interface PlanGridPlaces {
+    /** Each item's 1-based `aria-rowindex`, by item key: a pinned row's (`rowItemKey`) and a body item's (`bodyItemKey`). */
+    places: ReadonlyMap<string, number>;
+    /** The grid's `aria-rowcount`: every row, read or not; `-1`, ARIA's unknown, while a paged source has not counted itself. */
+    count: number;
+}
+
+/**
+ * Every item's place in the grid, and its row count (#819; #1398, CL12): the
+ * pinned rows first, then the body's items in order, each taking as many places
+ * as the rows it stands for. A run not read is one row of the grid at its first
+ * row's place, so the rows after it say their places among all the source's,
+ * and the count is the total, never the rows read — as the Sheet's flat rows
+ * say their positions. A paged source that has not counted itself has no
+ * total yet: its rows still say their places, and the count is `-1`, as the
+ * Sheet's is.
+ *
+ * @param pinned - The pinned rows' item keys, in order
+ * @param items - The body's items, in order
+ * @param counted - Whether the grid knows its total: an inline canvas, or a paged source that has counted itself
+ * @returns Each item's place, and the count
+ */
+export function gridPlaces(pinned: readonly string[], items: readonly PlanBodyItem[], counted: boolean): PlanGridPlaces {
+    const places = new Map<string, number>();
+    let next = 1;
+    for (const key of pinned) places.set(key, next++);
+    for (const item of items) {
+        places.set(bodyItemKey(item), next);
+        next += rowsOf(item);
+    }
+    return { places, count: counted ? next - 1 : -1 };
+}
 
 /** Every grid item's 1-based `aria-rowindex`, by item key — read by the rows. */
 export interface PlanRowPositions {

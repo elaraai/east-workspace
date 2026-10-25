@@ -988,7 +988,10 @@ Sheet's with its gutter, its columns' rules and a flat sheet's real row
 numbers, each cell its column kind's shape; the Plan's with its label bars and
 its plot washed under its grid and now line — one item of the virtualizer
 however long the run, and to the grid one row, its one cell across it, busy
-while its windows are read. A failed window is said once, in its run's first
+while its windows are read. On the Plan and a flat sheet that row sits at its
+first row's place and counts as the rows it stands for, so the grid's
+`aria-rowcount` is every row, read or not (CL12; the Plan's `gridPlaces`). A
+failed window is said once, in its run's first
 row in view, with Retry (CL11). No caption sits in a gap. They read on intent
 (CL6): the window under the view once the view has dwelt 100 ms over a run or
 slowed below a viewport per 200 ms — by how far it travelled, never where it
