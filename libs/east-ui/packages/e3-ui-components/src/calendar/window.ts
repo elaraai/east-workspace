@@ -14,15 +14,22 @@
  * a reload restores it, so a reload keeps the period and the date the viewer
  * left rather than the slice's start. With no slice, the view alone is the
  * window.
+ *
+ * The view is the page's own, held beside the window (`view.ts`, #1398): a
+ * step writes its date and its window into what the page holds, so no render
+ * reads one without the other, and storage keeps the view only for a reload —
+ * another page writing it moves neither. The window puts the date at its first
+ * day only for a window the viewer wrote, the Range panel's.
  */
 import { useLayoutEffect, useMemo, useState } from "react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSlicesChromeType } from "@elaraai/east-ui/internal";
-import { usePersistedState, useSlicesReactivity } from "@elaraai/east-ui-components";
+import { useSlicesReactivity } from "@elaraai/east-ui-components";
 import { recordSliceSeeded, recordSliceWindow, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { calendarRange, DAY, dayStart, type CalendarKind, type CalendarRange, type CalendarValue, type CalendarView } from "./model.js";
 import { timelineRange } from "./timeline.js";
+import { useCalendarView } from "./view.js";
 
 /** One record Slice's controls. */
 type Bind = ValueTypeOf<RecordSliceBindType>;
@@ -79,7 +86,8 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
     const version = useSlicesReactivity(eventParts.map(({ part }) => part.key));
     const affordances = useMemo(() => chrome?.affordances.map(a => a.type) ?? [], [chrome]);
     const [error, setError] = useState<string>();
-    const { state, setState } = usePersistedState<CalendarView>(`${key}.view`, {
+    // The page's own view, beside the window its sources hold (`view.ts`): storage keeps it only for a reload.
+    const { view: state, setView: setState } = useCalendarView(`${key}.view`, {
         layout: value.settings.layout.type, period: value.settings.period.type,
         date: dayStart(value.settings.date.type === "some" ? value.settings.date.value : now).getTime(),
     });
