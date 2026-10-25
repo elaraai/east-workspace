@@ -72,15 +72,16 @@ describe("the work orders Plan: its rows hold still while its dates move", () =>
         await act(async () => { fireEvent.click(within(slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!).getByRole("button", { name: "Next day" })); });
         await settle();
         still(2);
-        // The brush: its horizon the axis's two weeks and the window shown, Oct 1 to 17 — sixteen days on a 1600px track —
-        // its low edge dragged from Oct 3 three days on.
+        // The brush: its horizon the axis's two weeks and the window shown, Oct 1 to 17, with the window's fourteen days
+        // again either side — Sep 17 to Oct 31, forty-four days on a 4,400px track — its low edge dragged from Oct 3 three
+        // days on.
         const track = slot(c, "main").querySelector<HTMLElement>("[data-brush-track]")!;
         Object.defineProperty(track, "getBoundingClientRect", {
-            value: () => ({ left: 0, top: 0, right: 1600, bottom: 32, width: 1600, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+            value: () => ({ left: 0, top: 0, right: 4400, bottom: 32, width: 4400, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
         });
         await act(async () => {
-            fireEvent.pointerDown(track, { clientX: 200, pointerId: 1, buttons: 1 });
-            fireEvent.pointerMove(track, { clientX: 500, pointerId: 1, buttons: 1 });
+            fireEvent.pointerDown(track, { clientX: 1600, pointerId: 1, buttons: 1 });
+            fireEvent.pointerMove(track, { clientX: 1900, pointerId: 1, buttons: 1 });
             fireEvent.pointerUp(track, { pointerId: 1 });
         });
         await settle();

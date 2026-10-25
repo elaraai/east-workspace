@@ -347,14 +347,20 @@ describe("the canvas's rows never follow the dates (#1344)", () => {
         expect(ticks()[0]).toBe("W27");
         expect(container.querySelector("[data-toolbar-item='record-slices'] [data-record-slice-source='rows'][data-record-slice-field='at']")).not.toBeNull();
         untouched();
-        // The brush spans the axis's window, its twelve weeks on a 1200px track: its low edge dragged two weeks on.
-        expect(screen.getByText("HORIZON · 12 WK")).toBeTruthy();
+        // The brush spans the axis's window and its twelve weeks again either side, thirty-six weeks on a 3,600px track,
+        // so its lens is the strip's middle third and never fills it: its low edge, at 1,200px, dragged two weeks on.
+        expect(screen.getByText("HORIZON · 36 WK")).toBeTruthy();
+        const lens = () => [...container.querySelectorAll("[data-plan-lens] line")].map((line) => Number(line.getAttribute("x1")) / 1000);
+        const [from, to] = lens();
+        expect(from).toBeCloseTo(1 / 3, 6);
+        expect(to).toBeCloseTo(2 / 3, 6);
         const track = container.querySelector("[data-brush-track]") as HTMLElement;
+        let trackPx = 3600;
         Object.defineProperty(track, "getBoundingClientRect", {
-            value: () => ({ left: 0, top: 0, right: 1200, bottom: 32, width: 1200, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
+            value: () => ({ left: 0, top: 0, right: trackPx, bottom: 32, width: trackPx, height: 32, x: 0, y: 0, toJSON: () => ({}) }),
         });
-        fireEvent.pointerDown(track, { clientX: 0, pointerId: 1, buttons: 1 });
-        fireEvent.pointerMove(track, { clientX: 200, pointerId: 1, buttons: 1 });
+        fireEvent.pointerDown(track, { clientX: 1200, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 1400, pointerId: 1, buttons: 1 });
         fireEvent.pointerUp(track, { pointerId: 1 });
         await waitFor(() => expect(ticks()[0]).toBe("W29"));
         expect(ticks()).toHaveLength(10);
@@ -366,6 +372,17 @@ describe("the canvas's rows never follow the dates (#1344)", () => {
         // A step of the date navigator, a week on again, its weeks kept.
         fireEvent.click(within(container.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!).getByRole("button", { name: "Next week" }));
         expect(ticks()[0]).toBe("W31");
+        expect(ticks()).toHaveLength(10);
+        untouched();
+        // The lens's body slides: the horizon is now the axis's window and the window shown, W27 to W41, with the window's
+        // ten weeks again either side — W17 to W51, thirty-four weeks on a 3,400px track — and its body, from 1,900px, slid
+        // a week on.
+        expect(screen.getByText("HORIZON · 34 WK")).toBeTruthy();
+        trackPx = 3400;
+        fireEvent.pointerDown(track, { clientX: 1900, pointerId: 1, buttons: 1 });
+        fireEvent.pointerMove(track, { clientX: 2000, pointerId: 1, buttons: 1 });
+        fireEvent.pointerUp(track, { pointerId: 1 });
+        await waitFor(() => expect(ticks()[0]).toBe("W32"));
         expect(ticks()).toHaveLength(10);
         untouched();
     });
