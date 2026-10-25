@@ -15,6 +15,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, RecordSliceFieldEditor, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { TimeNavigator } from "../shared/time/navigation.js";
+import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { Seg } from "../shared/schedule/segments.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { CalendarCommands } from "./actions.js";
@@ -86,9 +87,10 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         : lead.part.config.fields.find(field => lead.part.config.range.type === "some" && field.fieldId === lead.part.config.range.value);
     const rangeEditor = lead !== undefined && leadField !== undefined ? <RecordSliceFieldEditor slice={lead.part} field={leadField} source={lead.kind.key} /> : undefined;
     const chip = useRecipe({ key: "chip" });
-    // Search Records (#1398): primary-key navigation over every event kind's record, at the row's end; it folds to its icon,
-    // and at the row's last step into the View, beside the date and the view controls.
-    const seek = useKeySearchToolbarItem(args.search, { side: "end", rank: HOST_RANK + 4 });
+    // Search Records (#1398): primary-key navigation over every event kind's record, at the row's end. Its box is the first
+    // thing the row folds, to its icon, before the rail and the period's steps (ruled 25 Oct 2026); at the row's last step
+    // it goes into the View, beside the date and the view controls.
+    const seek = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK });
     const period = view.layout === "resources" ? "day" : view.period;
     // A step from where the view is: the timeline's, the day under its centre as it is when the step is asked.
     const move = (step: number) => args.onNavigate(navigate({ ...view, date: args.visible?.get()?.center ?? args.navigationDate }, step).date);
@@ -137,7 +139,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
             : <Box css={styles.toolbarText} data-calendar-count="">{count === undefined ? "…" : words.number(count)} events</Box>, null] },
         paged && chrome === undefined && { key: "calendar.scope", side: "start", forms: [<Box css={styles.toolbarText}>Loaded window</Box>, null], rank: HOST_RANK + 4 },
         firstPair !== undefined && { key: "calendar.overlaps", side: "end", rank: [HOST_RANK, HOST_RANK + 6], forms: [warning(false), warning(true), null] },
-        seek !== undefined && { ...seek, forms: [...seek.forms, null], rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "calendar.controls"] },
+        seek !== undefined && { ...seek, forms: [...seek.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "calendar.controls"] },
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction,
             onIssue: issue => { const kind = commands.editing.sessions.find(held => held.key === commands.editing.history.sourceOf(issue))?.kind; if (kind !== undefined) select([{ kind, key: issue.entry }]); } }),
     ];
