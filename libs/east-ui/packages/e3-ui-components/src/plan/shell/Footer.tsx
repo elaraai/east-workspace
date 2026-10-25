@@ -84,7 +84,9 @@ export function PlanFooter({ styles, items, transport, noun, counts, unread, pen
     // `LoadingReveal`, which the runs' placeholders read too — else, alone, a clock of its own.
     const loading = transport?.loading;
     const retry = transport?.retry ?? NO_RETRY;
-    const line = useMemo(() => pagedLoadingLine(loading, noun, m, words.number, retry), [loading, noun, m, words, retry]);
+    // In the rows' noun — or, while the cells of the rows in view are read, their events' (#1398).
+    const reads = transport?.noun ?? noun;
+    const line = useMemo(() => pagedLoadingLine(loading, reads, m, words.number, retry), [loading, reads, m, words, retry]);
     const revealed = useRevealed();
     const alone = useLoadingReveal(revealed === undefined && loading !== undefined && loading.kind !== "failed");
     const shown = revealed ?? alone;

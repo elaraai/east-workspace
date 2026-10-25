@@ -181,12 +181,42 @@ describe("bands (#819)", () => {
         });
     });
 
-    test("a page never jumps a band — it stops on it, headed past", () => {
+    test("a page onto a band asks for the window past it, headed the rest of its way (#1398, CL10)", () => {
         const nav = items(PAGED);
+        // 1,000px of viewport: c2 is 32px on, and the rest of the page waits past the band.
         expect(planNavKey(nav, "r:c1", "PageDown", 1000)).toEqual({
             t: "band", key: "b:0:tail", align: "auto", demand: { kind: "band", block: 0, at: "tail" },
-            intent: { t: "step", from: "r:c2", dir: 1 },
+            intent: { t: "page", from: "r:c2", dir: 1, rest: 968, by: "px" },
         });
+        expect(planNavKey(nav, "r:c2", "PageUp", 70)).toEqual({
+            t: "band", key: "b:0:head", align: "auto", demand: { kind: "band", block: 0, at: "head" },
+            intent: { t: "page", from: "r:c1", dir: -1, rest: 38, by: "px" },
+        });
+        // A viewport not yet measured pages by rows.
+        expect(planNavKey(nav, "r:c2", "PageDown", 0)).toEqual({
+            t: "band", key: "b:0:tail", align: "auto", demand: { kind: "band", block: 0, at: "tail" },
+            intent: { t: "page", from: "r:c2", dir: 1, rest: 10, by: "items" },
+        });
+    });
+
+    test("a page across a band lands a page on once the rows past it land — never at the loaded edge, never on a band (#1398, CL10)", () => {
+        const intent = { t: "page" as const, from: "r:c2", dir: 1 as const, rest: 70, by: "px" as const };
+        // The window past the band is still on its way.
+        expect(resolveNavIntent(items(PAGED), intent, MIDDLE)).toEqual({ t: "pending" });
+        const [C3, C4, C5, C6] = ["c3", "c4", "c5", "c6"].map((key) => row(key, span()));
+        const landed = (rows: PlanRowValue[], after: PlanBodyItem[] = [tail]) => planNavItems({
+            pinned: [], pinnedHeights: [],
+            items: [head, vis(C1, 0), vis(C2, 0), ...rows.map((r) => vis(r, 0)), ...after], heights: [1, 32, 32, ...rows.map(() => 32), ...after.map(() => 1)],
+            index: indexRows([C1, C2, ...rows]), chartsExpanded: new Set(), focusCtx: undefined,
+        });
+        // Landed: 70px on from c2 is three rows on.
+        expect(resolveNavIntent(landed([C3!, C4!, C5!, C6!]), intent, MIDDLE)).toEqual({ t: "resolved", key: "r:c5" });
+        // Fewer rows landed than the page: the last before the band still unread.
+        expect(resolveNavIntent(landed([C3!]), intent, MIDDLE)).toEqual({ t: "resolved", key: "r:c3" });
+        // By rows, where the viewport was not measured.
+        expect(resolveNavIntent(landed([C3!, C4!, C5!, C6!]), { ...intent, rest: 2, by: "items" }, MIDDLE)).toEqual({ t: "resolved", key: "r:c4" });
+        // The row it set out from is gone: cancelled.
+        expect(resolveNavIntent(items([head, vis(C1, 0), tail]), intent, MIDDLE)).toEqual({ t: "cancel" });
     });
 
     const MIDDLE = { loading: false, atStart: false, atEnd: false };

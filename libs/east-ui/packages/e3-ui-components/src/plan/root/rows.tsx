@@ -69,6 +69,9 @@ export interface PlanRowContext {
     /** The rows that close an open group — each the last visible member of
      *  one (#949, `groupEndsOf`). */
     groupEnds: ReadonlySet<RowKey>;
+    /** Whether a row's events are unread (#1398, CL2): a paged kind's resource whose cells have not landed, or are read
+     *  again — its plot washed under what it holds. Absent, every row's are read. */
+    unread?: ((row: PlanRowValue) => boolean) | undefined;
 }
 
 /**
@@ -116,6 +119,7 @@ export function renderPlanRow(v: VisibleRow, ctx: PlanRowContext): ReactNode {
             rowDrop={ctx.rowDrop}
             draft={ctx.marks.get(v.row.key)}
             groupEnd={ctx.groupEnds.has(v.row.key)}
+            unread={ctx.unread?.(v.row) === true}
             {...(isFocal && expandBody !== null ? {
                 // The author's render is its own part (#811): a throw while
                 // rendering it stays inside the focused row.

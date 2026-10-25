@@ -295,6 +295,14 @@ export interface PlanCellsRead {
     readonly notices: readonly PlanCellNotice[];
     /** Whether a read is in flight: what is drawn stands in until it lands. */
     readonly reading: boolean;
+    /**
+     * The paged kind's resources whose rows draw what is known of them (#1398, CL2): those whose cells the last read
+     * landed for — while a read over another range is in flight, less those it reads again, whose cells there never
+     * landed; a read over the same range — a commit, another narrowing — leaves its cells standing in. Any other
+     * resource's rows are unread and draw the region wash under what they hold, never an empty row. `undefined` where no
+     * kind is read by its cells over a paged kind.
+     */
+    readonly drawn: ReadonlySet<string> | undefined;
 }
 
 /** What {@link usePlanCells} reads over. */
@@ -327,8 +335,37 @@ const READING = "reading";
 /** The rows a kind's cells hold, by the event's key's text, each its row's bytes. */
 type HeldRows = ReadonlyMap<string, { readonly row: Uint8Array }>;
 
-/** One read of every kind, and the drafts each kind read by its cells leaves out, by the kind's slot. */
-type Read = Omit<PlanCellsRead, "reading"> & { readonly dropped: ReadonlyMap<string, ReadonlySet<string>> };
+/** A range a read was made over, in ms: its start and its end, exclusive. */
+interface ReadRange {
+    readonly from: number;
+    readonly to: number;
+}
+
+/**
+ * One read of every kind, the drafts each kind read by its cells leaves out, by the kind's slot, the paged kind's
+ * resources whose cells it holds — `undefined` where no kind reads its cells over a paged kind — and the range it was
+ * made over, `undefined` before the first.
+ */
+type Read = Omit<PlanCellsRead, "reading" | "drawn"> & {
+    readonly dropped: ReadonlyMap<string, ReadonlySet<string>>;
+    readonly covered: ReadonlySet<string> | undefined;
+    readonly range: ReadRange | undefined;
+};
+
+/** No resource: what a reader that has read no block of the paged kind's wants. */
+const NO_RESOURCES: ReadonlySet<string> = new Set();
+
+/** Whether two sets of resource keys hold the same keys. */
+function sameKeys(a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | undefined): boolean {
+    if (a === undefined || b === undefined) return a === b;
+    return a.size === b.size && [...a].every((key) => b.has(key));
+}
+
+/** Whether two ranges are the same range. */
+function sameRange(a: ReadRange | undefined, b: ReadRange | undefined): boolean {
+    if (a === undefined || b === undefined) return a === b;
+    return a.from === b.from && a.to === b.to;
+}
 
 /** One kind's read. */
 type KindRead =
@@ -387,6 +424,13 @@ class CellsReader {
     private readonly unassigned = new WeakMap<object, { literal: string | undefined }>();
     /** Each kind's last encoded cells and rows held, by what they were made from: a read again that holds the same encodes nothing. */
     private readonly encoded = new Map<string, { from: readonly unknown[]; bytes: Uint8Array; held: HeldRows }>();
+    /** The paged kind's resources whose blocks the latest read wants — landed or in flight — the same set while they hold. */
+    private wantedKeys: ReadonlySet<string> = NO_RESOURCES;
+
+    /** The paged kind's resources whose blocks the latest read wants (#1398): while it is in flight, the rows it reads again. */
+    wanted(): ReadonlySet<string> {
+        return this.wantedKeys;
+    }
 
     /** A kind's codec, made once per kind. */
     codecOf(kind: EventKind): KindCodec {
@@ -503,13 +547,19 @@ class CellsReader {
         const totals = new Map<string, { booked: boolean; byKey: Map<string, Map<number, PlanCellTotals> | "hatch"> }>();
         if (range === undefined || scale === undefined) return READING;
         const buckets = bucketsOver(scale, range.from, range.to);
-        // The paged kind's blocks in view, read once for every kind placed on it.
+        // The paged kind's blocks in view, read once for every kind placed on it — and its resources wanted, kept.
         let pagedBlocks: Block[] | typeof READING | undefined;
         const blocksOfPaged = (): Block[] | typeof READING => {
             if (pagedBlocks !== undefined) return pagedBlocks;
             pagedBlocks = paged === undefined || hidden.some((id) => stringEqual(id, `resources.${paged.kind}`)) ? [] : this.pagedBlocks(paged, span);
+            if (pagedBlocks !== READING) {
+                const wanted = new Set(pagedBlocks.flatMap((block) => block.keys));
+                if (!sameKeys(wanted, this.wantedKeys)) this.wantedKeys = wanted;
+            }
             return pagedBlocks;
         };
+        // Whether a kind drew its cells, or its shading, over the paged kind's blocks: then its rows draw what they hold.
+        let byCells = false;
         for (const { kind, part } of parts) {
             if (hidden.some((id) => stringEqual(id, `events.${kind.key}`))) continue;
             const indexes = part.config.indexes;
@@ -521,6 +571,7 @@ class CellsReader {
             if (series && paged !== undefined) {
                 const blocks = blocksOfPaged();
                 read = blocks === READING ? READING : this.cellsKind(kind, part, where, blocks, range, buckets, scale.resolution, drafts, links, totals);
+                if (read !== READING && read.mode !== "window") byCells = true;
             } else {
                 read = this.wholeKind(kind, part, where, args.resources, range, buckets, scale.resolution, totals);
             }
@@ -541,6 +592,9 @@ class CellsReader {
             held,
             notices,
             dropped,
+            // The resources whose cells this read holds: its blocks', where a kind drew its cells or its shading on them.
+            covered: byCells ? this.wantedKeys : undefined,
+            range: { from: range.from.getTime(), to: range.to.getTime() },
         };
     }
 
@@ -834,6 +888,7 @@ function sameRead(a: Read, b: Read): boolean {
         return other !== undefined && blobEqual(other, bytes);
     });
     return blobs(a.reads, b.reads) && shadingEqual(a.shading, b.shading) && draftsEqual(a.drafts, b.drafts)
+        && sameKeys(a.covered, b.covered) && sameRange(a.range, b.range)
         && a.notices.length === b.notices.length && a.notices.every((n, i) => {
             const m = b.notices[i]!;
             return stringEqual(n.kind, m.kind) && n.events === m.events && n.resolution === m.resolution;
@@ -918,7 +973,12 @@ export function cellKinds(parts: readonly PlanEventPart[]): string[] {
  * drafts as they take them, and what a gesture finds an event's row in.
  * Before the first read lands, every kind it reads draws nothing yet, so no
  * seam reads it over the window meanwhile; a read in flight leaves the last
- * standing, the drafts as they are now.
+ * standing, the drafts as they are now. Over a paged kind it says which
+ * resources' rows draw what is known of them (`drawn`, #1398): every other
+ * row's cells never landed, or are on their way over a range they were not
+ * read over, and it draws the region wash — before the first read lands,
+ * every row. A read again over the same range, a commit's or another
+ * narrowing's, leaves the rows drawn as they were, their cells standing in.
  *
  * @param args - What it reads over
  * @returns What it read
@@ -934,18 +994,23 @@ export function usePlanCells(args: PlanCellsArgs): PlanCellsRead {
     }), [reader, kinds, resources, parts, paged, scale, from, to, drafts, hidden, span, links]);
     const { result } = useTrackedEvaluation(read);
     const last = useRef<Read | undefined>(undefined);
-    // Before the first read: every kind it reads draws nothing yet.
-    const opening = useMemo((): Read => ({
-        reads: new SortedMap(cellKinds(parts).map((slot): [string, Uint8Array] =>
-            [slot, reader.codecOf(kinds.find((kind) => stringEqual(kind.key, slot))!).empty]), compareString),
-        shading: new SortedMap([], compareString),
-        drafts,
-        held: new Map(),
-        notices: [],
-        dropped: new Map(),
-    }), [reader, parts, kinds, drafts]);
-    // What it hands on: the same object while the read and whether one is in flight hold.
-    const handed = useRef<{ from: Read; drafts: Drafts; reading: boolean; read: PlanCellsRead } | undefined>(undefined);
+    // Before the first read: every kind it reads draws nothing yet — and over a paged kind, no resource's row drawn.
+    const opening = useMemo((): Read => {
+        const slots = cellKinds(parts);
+        return {
+            reads: new SortedMap(slots.map((slot): [string, Uint8Array] =>
+                [slot, reader.codecOf(kinds.find((kind) => stringEqual(kind.key, slot))!).empty]), compareString),
+            shading: new SortedMap([], compareString),
+            drafts,
+            held: new Map(),
+            notices: [],
+            dropped: new Map(),
+            covered: paged !== undefined && slots.length > 0 ? NO_RESOURCES : undefined,
+            range: undefined,
+        };
+    }, [reader, parts, kinds, drafts, paged]);
+    // What it hands on: the same object while the read, whether one is in flight, what it reads again and over which range hold.
+    const handed = useRef<{ standing: Read; drafts: Drafts; reading: boolean; wanted: ReadonlySet<string>; moved: boolean; read: PlanCellsRead } | undefined>(undefined);
     return useMemo((): PlanCellsRead => {
         if (!result.ok) console.error("[Plan] the event kinds' cells could not be read:", result.error);
         const reading = !result.ok || result.value === READING;
@@ -954,11 +1019,19 @@ export function usePlanCells(args: PlanCellsArgs): PlanCellsRead {
             if (last.current === undefined || !sameRead(last.current, next)) last.current = next;
         }
         // While a read is in flight, the last stands in — the drafts as they are now, less those it found the narrowing does not hold.
-        const from = last.current ?? opening;
+        const standing = last.current ?? opening;
+        const wanted = reader.wanted();
+        // In flight over another range than the one standing was read over: its cells there never landed.
+        const moved = reading && standing.range !== undefined && from !== undefined && to !== undefined && !sameRange(standing.range, { from, to });
         const was = handed.current;
-        if (was !== undefined && was.from === from && was.reading === reading && (!reading || Object.is(was.drafts, drafts))) return was.read;
-        const read: PlanCellsRead = { ...from, drafts: reading ? narrowedDrafts(drafts, from.dropped) : from.drafts, reading };
-        handed.current = { from, drafts, reading, read };
+        if (was !== undefined && was.standing === standing && was.reading === reading && was.moved === moved
+            && (!reading || (Object.is(was.drafts, drafts) && was.wanted === wanted))) return was.read;
+        // The rows that draw what is known of them: the resources whose cells it holds — over another range, less those it
+        // reads again; over the same range, a commit's or another narrowing's read, every one, its cells standing in.
+        const covered = standing.covered;
+        const drawn = covered === undefined || !moved ? covered : new Set([...covered].filter((key) => !wanted.has(key)));
+        const read: PlanCellsRead = { ...standing, drafts: reading ? narrowedDrafts(drafts, standing.dropped) : standing.drafts, reading, drawn };
+        handed.current = { standing, drafts, reading, wanted, moved, read };
         return read;
-    }, [result, opening, drafts]);
+    }, [result, opening, drafts, reader, from, to]);
 }

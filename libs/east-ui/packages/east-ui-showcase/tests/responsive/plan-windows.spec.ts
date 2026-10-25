@@ -23,6 +23,7 @@
  */
 
 import { test, expect, type Locator, type Page } from "playwright/test";
+import { heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { openExample, rowId, rowSel } from "./plan-page";
 import { settled } from "./settle";
 
@@ -228,5 +229,45 @@ for (const theme of ["light", "dark"] as const) {
             }
             return true;
         })).toBe(true);
+    });
+}
+
+/** The jobs' record, as the page's requests of its e3 name it. */
+const JOBS = "records.plan_window_jobs";
+
+for (const theme of ["light", "dark"] as const) {
+    test(`planSeries: presses scrolled into view whose cells are still on their way are washed across their plot and busy, on the reveal clock, the footer's line reading the jobs — never an empty row; landed, their bars draw and nothing is washed (#1398, CL2) — ${theme} @desktop`, async ({ page }) => {
+        await installE3Faults(page);
+        const entry = await openExample(page, "planSeries", WINDOWS, theme);
+        // The cells' entries held: the presses scrolled to below are on their way, their counts landed.
+        const held = await holdE3(page, { kinds: ["runs"], dataset: JOBS });
+        await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 140 * 42; });
+        const row = entry.locator(rowSel("presses.span", "P-1150"));
+        await expect(row).toHaveCount(1);
+        await expect.poll(() => heldE3(page, held)).toBeGreaterThan(0);
+        await settled(page, { holding: true });
+        const plot = row.locator("[data-plan-plot]");
+        const wash = plot.locator("[data-loading-wash]");
+        await expect(wash).toHaveCount(1);
+        await expect(wash).not.toHaveAttribute("data-unrevealed", "");
+        // Shown on the reveal clock across the row's plot, in the wash's ink; the row busy, no bar on it.
+        const drawn = await plot.evaluate((el) => {
+            const w = el.querySelector<HTMLElement>("[data-loading-wash]")!, s = getComputedStyle(w);
+            const p = el.getBoundingClientRect(), b = w.getBoundingClientRect();
+            return {
+                visibility: s.visibility, covers: Math.abs(b.width - p.width) <= 1 && Math.abs(b.height - p.height) <= 1,
+                painted: s.backgroundColor !== "rgba(0, 0, 0, 0)", busy: el.getAttribute("aria-busy"),
+            };
+        });
+        expect(drawn).toEqual({ visibility: "visible", covers: true, painted: true, busy: "true" });
+        await expect(row.locator("[data-run]")).toHaveCount(0);
+        const line = entry.locator("[data-frame-slot='footer'] [data-footer-line]");
+        await expect(line.locator("[data-line-text]")).toHaveText("Loading print job events…");
+        // Landed: the bars draw, no row is washed, and the line says nothing.
+        await releaseE3(page, held);
+        await expect(row.locator("[data-run]").first()).toBeVisible({ timeout: 30_000 });
+        await settled(page);
+        await expect(entry.locator("[data-loading-wash]")).toHaveCount(0);
+        await expect(line).toHaveAttribute("data-idle", "");
     });
 }

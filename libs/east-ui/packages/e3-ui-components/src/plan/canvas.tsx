@@ -125,7 +125,7 @@ import {
     ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
-import { cellSpanOf, createCellSpanStore } from "./root/cells.js";
+import { cellKinds, cellSpanOf, createCellSpanStore } from "./root/cells.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -482,6 +482,16 @@ export function usePlanCanvas({
     // which nothing on screen waits for. The driver settles it with the rest, from the windows the frame's range
     // shows, so a landing says it in the commit that draws it; the narrow layout, which reports no range, any.
     const waits = paged && paging.viewLoading;
+    // The event kinds read by their cells over a paged kind (#1039): while their cells are read, the rows the canvas holds
+    // whose cells have not landed wait for them, as a window's rows do (#1398, CL2) — the line says so, in their events'
+    // noun, and main is busy.
+    const cellsRead = lead.cells;
+    const cellsReading = cellsRead?.drawn !== undefined && cellsRead.reading;
+    const cellsNoun = useMemo(() => {
+        const slot = cellKinds(eventParts)[0];
+        const kind = slot === undefined ? undefined : kinds.find((k) => stringEqual(k.key, slot));
+        return kind === undefined ? undefined : words.m.saveNoticeNoun({ kind: kind.name.toLocaleLowerCase(words.locale), n: 2 });
+    }, [eventParts, kinds, words]);
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
         const failed = failures[0];
@@ -489,15 +499,17 @@ export function usePlanCanvas({
             : pagingError !== undefined ? { kind: "failed", from: undefined, to: undefined, reason: pagingError }
                 : paging.replacing ? { kind: "filtering" }
                     : waits ? { kind: "loading", from: paging.reading?.from, to: paging.reading?.to }
-                        : undefined;
-        return { partial: !paging.complete, loading, retry: retryFailed };
-    }, [paged, failures, pagingError, paging.replacing, waits, paging.reading, paging.complete, retryFailed]);
+                        : cellsReading ? { kind: "loading", from: undefined, to: undefined }
+                            : undefined;
+        const noun = loading?.kind === "loading" && !waits && cellsReading ? cellsNoun : undefined;
+        return { partial: !paging.complete, loading, retry: retryFailed, ...(noun === undefined ? {} : { noun }) };
+    }, [paged, failures, pagingError, paging.replacing, waits, paging.reading, paging.complete, retryFailed, cellsReading, cellsNoun]);
     const partial = transport?.partial;
     // Cold load (#1398, CL5): nothing of a paged source landed yet, and no failure to say — the frame's skeleton
     // covers the Plan. After it, a read the view waits for — a window, a resource kind's narrowing — leaves it live
     // and busy.
     const cold = paged ? paging.rows.length === 0 && paging.total === undefined && failures.length === 0 && pagingError === undefined : undefined;
-    const frameBusy = cold !== true && (busy || waits);
+    const frameBusy = cold !== true && (busy || waits || cellsReading);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
     // positions on the first row that element placed, since a row's id starts
@@ -818,13 +830,22 @@ export function usePlanCanvas({
     const marks = editing.marks;
     // Where each open group ends (#949) — its last visible member's rule.
     const groupEnds = useMemo(() => groupEndsOf(body.items), [body.items]);
+    // A paged kind's resource whose cells have not landed, or are read again (#1398, CL2): its rows are unread, and draw
+    // the region wash under what they hold — never an empty row.
+    const drawnResources = cellsRead?.drawn;
+    const pagedSlot = events?.paged?.kind;
+    const unread = useMemo(() => (drawnResources === undefined || pagedSlot === undefined ? undefined : (row: PlanRowValue): boolean => {
+        if (row.id.type !== "entry" || row.id.value.path.length !== 1) return false;
+        const resource = row.id.value.path[0]!;
+        return row.id.value.series.startsWith(`${pagedSlot}.`) && !drawnResources.has(resource);
+    }), [drawnResources, pagedSlot]);
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
-        canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds,
+        canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds, unread,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
         focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, partial, rowDrop, marks,
-        groupEnds]);
+        groupEnds, unread]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
@@ -1249,9 +1270,9 @@ export function usePlanCanvas({
                 // A button's own key activates it; an element is the canvas's to.
                 if (!isElement) return false;
                 e.preventDefault();
-                // Space picks up an element that moves (#825); Enter keeps
-                // doing what its click does — Shift adding an event to the selection.
-                if (e.key === " " && carry.start(widget)) return true;
+                // Space picks up an element that moves (#825) — never while the rows are retained (#1398, CL8);
+                // Enter keeps doing what its click does — Shift adding an event to the selection.
+                if (e.key === " " && !busy && carry.start(widget)) return true;
                 activateElement(widget, e.shiftKey);
                 return true;
             default:
@@ -1334,9 +1355,10 @@ export function usePlanCanvas({
             // cover the loaded windows (`PlanTransport.partial`).
             data-plan-partial={partial === true ? "" : undefined}
             // A resource kind's narrowing resolving (#1344): the rows it
-            // showed stay and take no gesture until it lands — busy, as the
-            // frame's main says (#1398).
-            inert={busy ? true : undefined}
+            // showed stay, retained (#1398, CL8) — readable, focusable and
+            // selectable, aria-disabled, taking no drag, no drop and no
+            // carry until it lands — busy, as the frame's main says.
+            aria-disabled={busy ? true : undefined}
             // Bounded, the canvas fills the frame's main and scrolls its
             // own rows. Grown with its rows, it keeps its own height —
             // never shrunk to main's — so a host that bounds the frame is

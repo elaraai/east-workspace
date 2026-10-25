@@ -24,8 +24,10 @@
  * on the band — which stands for its windows while they are in flight (#876)
  * — and leaves an INTENT: once the rows land, focus moves on to the row the
  * key was headed for. Home and End onto a band do the same for the source's
- * first and last rows. A source that reports no total has no bands: there
- * the move waits on the item it started from while a window loads.
+ * first and last rows; a page onto one goes on the rest of its way once the
+ * rows past it land (#1398, CL10) — fetch, then move — never stopping at the
+ * loaded edge. A source that reports no total has no bands: there the move
+ * waits on the item it started from while a window loads.
  *
  * # Widgets
  *
@@ -138,6 +140,11 @@ export function planNavItems(src: PlanNavSource): PlanNavItem[] {
 export type PlanNavIntent =
     /** Headed one step `dir` from the item `from`. */
     | { t: "step"; from: string; dir: 1 | -1 }
+    /**
+     * Headed a page `dir` from the item `from` (#1398, CL10): `rest` of the page still to go once the rows past the band
+     * land — px of the viewport's height, or rows where the viewport could not be measured (`by`).
+     */
+    | { t: "page"; from: string; dir: 1 | -1; rest: number; by: "px" | "items" }
     /** Headed for the source's first / last row. */
     | { t: "first" }
     | { t: "last" };
@@ -200,10 +207,12 @@ export function planNavKey(items: readonly PlanNavItem[], from: string, key: str
             const k = j + dir;
             const next = items[k];
             if (next === undefined) break;
-            // A page never jumps a band: it stops on it, headed past.
+            // A page onto a band asks for the window past it and goes on the rest of its way once its rows land
+            // (#1398, CL10): fetch, then move.
             if (next.band !== undefined) {
+                const rest = pageHeight > 0 ? pageHeight - travelled : FALLBACK_PAGE_ITEMS - Math.abs(j - i);
                 return { t: "band", key: next.key, align: "auto", demand: { kind: "band", block: next.band.block, at: next.band.at },
-                    intent: { t: "step", from: items[j]!.key, dir } };
+                    intent: { t: "page", from: items[j]!.key, dir, rest, by: pageHeight > 0 ? "px" : "items" } };
             }
             j = k;
             travelled += next.h;
@@ -289,6 +298,25 @@ export function resolveNavIntent(items: readonly PlanNavItem[], intent: PlanNavI
             // Nothing past the start yet: more may be on the way.
             if (target === undefined) return edges.loading ? { t: "pending" } : { t: "cancel" };
             return land(target, true);
+        }
+        case "page": {
+            // Its first step waits as a step's does; landed, the page goes on the rest of its way, to the row a page
+            // on, or the last before a band still unread — never onto one.
+            const i = items.findIndex((it) => it.key === intent.from);
+            if (i < 0) return { t: "cancel" };
+            const first = items[i + intent.dir];
+            if (first === undefined) return edges.loading ? { t: "pending" } : { t: "cancel" };
+            if (first.band !== undefined) return land(first, true);
+            let j = i;
+            let travelled = 0;
+            for (;;) {
+                const next = items[j + intent.dir];
+                if (next === undefined || next.band !== undefined) break;
+                j += intent.dir;
+                travelled += intent.by === "px" ? next.h : 1;
+                if (travelled >= intent.rest) break;
+            }
+            return { t: "resolved", key: items[j]!.key };
         }
         case "first": return land(items[0], edges.atStart);
         case "last": return land(items[items.length - 1], edges.atEnd);
