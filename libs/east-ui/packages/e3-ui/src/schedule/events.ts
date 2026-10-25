@@ -48,9 +48,12 @@
  * original-key inspection and Save. Existing drafts outside a new narrowing
  * remain in the session; Save includes them. A kind narrowed so takes no
  * `window` or `backlogWindow`. Plan's build counts its events first (#1039):
- * its window — through its source, the count its read asks first; its record
- * read whole, in memory — is counted and read only within `SCHEDULE_EVENT_CAP`
- * events, and `planCount` counts them before one is read, as its window does.
+ * its window — through its source, the count its read asks first; through its
+ * day index, the days' entries the search its read asks first answers; its
+ * record read whole, in memory — is counted and read only within
+ * `SCHEDULE_EVENT_CAP`, and `planCount` counts it before one is read, as its
+ * window does. A day index files an event under each day it runs on, so its
+ * count is an upper bound on the events, never their number (`planCountExact`).
  *
  * A large record may also be read a window at a time (#1199, `window.ts`): given
  * `window`, a paged read of a day index keyed by `Schedule.days`, the kind's
@@ -99,7 +102,7 @@ import { SCHEDULE_TEMPLATES, checkedTemplates, type ScheduleTemplates } from "./
 import { SCHEDULE_DEF } from "./resources.js";
 import { SCHEDULE_EVENT_CAP, scheduleRecordCount, scheduleRecordWindow, type ScheduleKindPart } from "./record-window.js";
 import { scheduleRecordSession } from "./session.js";
-import { checkEntries, checkIndexWindow, optionOf, scheduleBacklogWindow, scheduleDayWindow, typeText } from "./window.js";
+import { checkEntries, checkIndexWindow, optionOf, scheduleBacklogWindow, scheduleDayCount, scheduleDayWindow, typeText } from "./window.js";
 import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationRolesType,
     ScheduleClockType, ScheduleDraftsType, ScheduleDurationType, ScheduleItemType, ScheduleKindType, ScheduleReadyEntryType, ScheduleResourceRefType,
@@ -514,9 +517,10 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     /**
      * The kind on the wire as Plan's builder takes it, under its slot: the
      * Calendar's kind with how it draws, its roles, and its events as Plan
-     * draws them — its window, through its source or in memory, its record read
-     * whole, counted first and read only within {@link SCHEDULE_EVENT_CAP} events,
-     * and its events counted before one is read (`planCount`).
+     * draws them — its window, through its source, through its day index or in
+     * memory, its record read whole, counted first and read only within
+     * {@link SCHEDULE_EVENT_CAP}, and its events counted before one is read
+     * (`planCount`), a day index's count an upper bound (`planCountExact`).
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
@@ -1040,7 +1044,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     }
     /**
      * The reads, through the kind's source of its builder's slice when it has one — given `cap` (#1039), the Plan's, its
-     * window counted first, through the source or in memory, and read only within `cap` events, its backlog whole.
+     * window counted first, through the source, through its day index or in memory, and read only within `cap`, its
+     * backlog whole.
      */
     const readsOf = (slot: string, part: ScheduleKindPart | undefined, cap?: number): Reads => {
         if (part === undefined) {
@@ -1068,7 +1073,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     return result;
                 });
             return {
-                days: dayWindow === undefined ? capped : scheduleDayWindow(dayWindow, keyType, rowType, where),
+                // A day index under a cap counts the days' entries first, and past it reads no page (#1039).
+                days: dayWindow === undefined ? capped : scheduleDayWindow(dayWindow, keyType, rowType, where, cap),
                 backlog,
                 alone: backlog,
                 withDrafts: withDraftsFor(false) as never,
@@ -1816,12 +1822,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 return result;
             });
             // How many of its stored events overlap [from, to), counted before one is read (#1039): through its source's
-            // interval index — the count its window's read asks first, so none of its own — or, its record read whole, in
-            // memory, by the views' rule; a kind read through its day index (`window`) has none, its days read as they are.
-            const CountOption = PlanEventKindType.fields.planCount;
-            const planCount = part !== undefined
-                ? East.value(some(scheduleRecordCount(part, slot, keyType, rowType, startField, endField, optional, where)), CountOption)
-                : dayWindow !== undefined ? East.value(none, CountOption) : East.value(some(countWhole), CountOption);
+            // interval index — the count its window's read asks first, so none of its own; through its day index, the
+            // days' entries the search its window's read asks first answers — an event under each day it runs on, so an
+            // upper bound on them, never their number; or, its record read whole, in memory, by the views' rule.
+            const planCount = part !== undefined ? scheduleRecordCount(part, slot, keyType, rowType, startField, endField, optional, where)
+                : dayWindow !== undefined ? scheduleDayCount(dayWindow, where) : countWhole;
             return East.value({
                 ...parts.fields,
                 draw: variant(draw, null),
@@ -1835,6 +1840,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 seriesKey,
                 cellsType: toEastTypeValue(CellsType),
                 planCount,
+                // Every count but a day index's counts the events themselves.
+                planCountExact: part !== undefined || dayWindow === undefined,
             } as never, PlanEventKindType);
         },
     };

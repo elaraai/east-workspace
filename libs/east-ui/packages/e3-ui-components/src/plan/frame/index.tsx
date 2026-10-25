@@ -439,12 +439,15 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         );
     }
     // A kind with more events in view than it draws, and no summary to shade them at this resolution (#1039): its rows
-    // hatched, and this — how many there are, and the resolution its summary shades at.
+    // hatched, and this — how many there are, or that they are not counted where its count is no number of them (a day
+    // index's), and the resolution its summary shades at.
     for (const notice of chrome?.cells?.notices ?? []) {
+        const kind = notice.name.toLocaleLowerCase(words.locale);
         bannerNodes.push(
             <Box key={`cells:${notice.kind}`} data-plan-banner="cells" data-plan-kind={notice.kind}>
                 <BannerView status="info"
-                    title={m.tooManyEvents({ kind: notice.name.toLocaleLowerCase(words.locale), n: notice.events, count: words.number(notice.events) })}
+                    title={notice.events === undefined ? m.tooManyEventsNotCounted({ kind })
+                        : m.tooManyEvents({ kind, n: notice.events, count: words.number(notice.events) })}
                     description={m.tooManyEventsHint({ resolution: notice.resolution === undefined ? undefined : m.resolutionName({ resolution: notice.resolution }).toLocaleLowerCase(words.locale) })} />
             </Box>,
         );

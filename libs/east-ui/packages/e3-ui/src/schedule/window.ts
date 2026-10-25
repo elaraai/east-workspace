@@ -22,12 +22,18 @@
  *   be told from its type, so a read that meets an entry with no row refuses,
  *   naming `join: true`.
  * - **The days of `[from, to)`**: the midnight of the first day is sought in
- *   the index (a `range` from it), and the pages are read from the one holding
- *   that row — each page from its start to the next page's, at the reader's
- *   own page size, so the pages a pan read before are the runtime's again —
- *   until an entry filed under a day the window does not reach, or the
- *   index's end. An event filed under several of the days is kept once, by
- *   its key.
+ *   the index — a `range` from it to the window's end, whose answer is where
+ *   the days start and how many entries they hold — and the pages are read
+ *   from the one holding that row — each page from its start to the next
+ *   page's, at the reader's own page size, so the pages a pan read before are
+ *   the runtime's again — until an entry filed under a day the window does not
+ *   reach, or the index's end. An event filed under several of the days is
+ *   kept once, by its key. Read under a cap (#1039) — a Plan's — the days are
+ *   counted first, by that search's count: past the cap no page is read, and
+ *   the read answers `none`. An event is an entry under each day it runs on,
+ *   so the count is never fewer than the events, and more where one runs over
+ *   several days — an upper bound on them, never their number
+ *   ({@link scheduleDayCount}).
  * - **The backlog**: every page of the backlog index, from its start.
  * - **One event by its key** — the inspector's, a draft's original, a Save's
  *   entries read back and a conflict's — through a paged read of the record's
@@ -46,7 +52,7 @@
 
 import {
     DateTimeType, DictType, East, Expr, IntegerType, NullType, OptionType, StringType, VariantType, isTypeEqual, none, printType, some, variant,
-    type ArrayType, type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
+    type ArrayType, type BlockBuilder, type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { resolveRowSource } from "@elaraai/east-ui/internal";
@@ -149,6 +155,12 @@ export function joinRefusal(where: string, prop: ScheduleWindowProp): string {
         "Data.bindPaged(record, { index, join: true }) — and this one reads the index alone: give it `join: true`";
 }
 
+/** The words a read refuses a day index in when it cannot search it: the first day in view is found by its key search. */
+function noSeekRefusal(where: string): string {
+    return `${where}: \`window\` finds the first day in view by its index's key search — ` +
+        "a paged read of the record's day index, Data.bindPaged(record, { index, join: true }) — and this one has none";
+}
+
 /**
  * Reads the days of `[from, to)` through a kind's day index (see the module
  * docs): the rows filed under them, each once, by the record's key.
@@ -157,15 +169,16 @@ export function joinRefusal(where: string, prop: ScheduleWindowProp): string {
  * @param keyType - The record's key type
  * @param rowType - The record's row type
  * @param where - The kind, as a refusal names it
- * @returns `(from, to)` → the rows, by key; `none` while the search or a page is in flight
+ * @param cap - The most entries a window is read with (#1039), a Plan's `SCHEDULE_EVENT_CAP`: the days' entries, the
+ *   search's count, counted first — past it the read answers `none` and reads no page; no cap, every window is read
+ * @returns `(from, to)` → the rows, by key; `none` while the search or a page is in flight, and past the cap
  */
 export function scheduleDayWindow(
-    window: ExprType<EastType>, keyType: EastType, rowType: EastType, where: string,
+    window: ExprType<EastType>, keyType: EastType, rowType: EastType, where: string, cap?: number,
 ): ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>> {
     const Held = DictType(keyType, rowType);
     const noRows = joinRefusal(where, "window");
-    const noSeek = `${where}: \`window\` finds the first day in view by its index's key search — ` +
-        "a paged read of the record's day index, Data.bindPaged(record, { index, join: true }) — and this one has none";
+    const noSeek = noSeekRefusal(where);
     return East.function([DateTimeType, DateTimeType], OptionType(Held), ($, from, to) => {
         const src = $.const(window) as unknown as IndexHandle;
         const size = $.const(SCHEDULE_INDEX_PAGE, IntegerType);
@@ -175,56 +188,96 @@ export function scheduleDayWindow(
         $.match(src.seek, {
             none: ($2) => { $2.error(noSeek); },
             some: ($2, seek) => {
-                // The rows from the first day's midnight on: a range open at its end.
-                const query = $2.let(variant("range", { from: [East.print(first)], to: [] }), SeekQueryType);
+                // The entries of the days in view: from the first day's midnight to the window's end — where they start,
+                // and how many they are, the search a count of them asks too (`scheduleDayCount`).
+                const query = $2.let(variant("range", { from: [East.print(first)], to: [East.print(to)] }), SeekQueryType);
                 $2.match(seek(query), {
                     some: ($3, found) => {
-                        const held = $3.let(new Map(), Held);
-                        // From the start of the page the first day's first entry is in.
-                        const offset = $3.let(found.row.subtract(found.row.remainder(size)), IntegerType);
-                        const reading = $3.let(true);
-                        const landed = $3.let(true);
-                        $3.while(reading, ($4) => {
-                            // To the next page's start: a page cut short is read on from where it stopped.
-                            const limit = $4.let(size.subtract(offset.remainder(size)), IntegerType);
-                            $4.match(src.page(offset, limit), {
-                                none: ($5) => {
-                                    $5.assign(landed, false);
-                                    $5.assign(reading, false);
-                                },
-                                some: ($5, entries) => {
-                                    // The index's end.
-                                    $5.if(entries.size().equal(0n), ($6) => { $6.assign(reading, false); });
-                                    $5.for(entries, ($6, entry, _i, label) => {
-                                        // The day the entry is filed under.
-                                        const day = $6.let(entry.ik as unknown as ExprType<DateTimeType>);
-                                        // Past the last day in view: the window is read.
-                                        $6.if(East.greaterEqual(day, to), ($7) => {
-                                            $7.assign(reading, false);
-                                            $7.break(label);
-                                        });
-                                        // An entry of the page before the first day is not in view.
-                                        $6.if(East.greaterEqual(day, first), ($7) => {
-                                            $7.match(entry.row, {
-                                                none: ($8) => { $8.error(noRows); },
-                                                // An event filed under several days, once.
-                                                some: ($8, row) => {
-                                                    $8.if(held.has(entry.key as never).not(), ($9) => { $9(held.insert(entry.key as never, row as never)); });
-                                                },
+                        // The days read, a page at a time from the page their first entry is in.
+                        const read = ($b: BlockBuilder<EastType>) => {
+                            const held = $b.let(new Map(), Held);
+                            // From the start of the page the first day's first entry is in.
+                            const offset = $b.let(found.row.subtract(found.row.remainder(size)), IntegerType);
+                            const reading = $b.let(true);
+                            const landed = $b.let(true);
+                            $b.while(reading, ($4) => {
+                                // To the next page's start: a page cut short is read on from where it stopped.
+                                const limit = $4.let(size.subtract(offset.remainder(size)), IntegerType);
+                                $4.match(src.page(offset, limit), {
+                                    none: ($5) => {
+                                        $5.assign(landed, false);
+                                        $5.assign(reading, false);
+                                    },
+                                    some: ($5, entries) => {
+                                        // The index's end.
+                                        $5.if(entries.size().equal(0n), ($6) => { $6.assign(reading, false); });
+                                        $5.for(entries, ($6, entry, _i, label) => {
+                                            // The day the entry is filed under.
+                                            const day = $6.let(entry.ik as unknown as ExprType<DateTimeType>);
+                                            // Past the last day in view: the window is read.
+                                            $6.if(East.greaterEqual(day, to), ($7) => {
+                                                $7.assign(reading, false);
+                                                $7.break(label);
+                                            });
+                                            // An entry of the page before the first day is not in view.
+                                            $6.if(East.greaterEqual(day, first), ($7) => {
+                                                $7.match(entry.row, {
+                                                    none: ($8) => { $8.error(noRows); },
+                                                    // An event filed under several days, once.
+                                                    some: ($8, row) => {
+                                                        $8.if(held.has(entry.key as never).not(), ($9) => { $9(held.insert(entry.key as never, row as never)); });
+                                                    },
+                                                });
                                             });
                                         });
-                                    });
-                                    $5.assign(offset, offset.add(entries.size()));
-                                },
+                                        $5.assign(offset, offset.add(entries.size()));
+                                    },
+                                });
                             });
-                        });
-                        $3.if(landed, ($4) => { $4.assign(result, some(held)); });
+                            $b.if(landed, ($4) => { $4.assign(result, some(held)); });
+                        };
+                        if (cap === undefined) {
+                            read($3 as unknown as BlockBuilder<EastType>);
+                        } else {
+                            // Counted first (#1039): past the cap, no page is read and the window answers none.
+                            $3.if(found.count.lessEqual(BigInt(cap)), ($4) => { read($4 as unknown as BlockBuilder<EastType>); });
+                        }
                     },
                 });
             },
         });
         return result;
     }) as unknown as ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>>;
+}
+
+/**
+ * Counts the days of `[from, to)` through a kind's day index before one of
+ * them is read (#1039): how many entries the index files under them. An event
+ * is an entry under each day it runs on, so the count is never fewer than the
+ * events and more where one runs over several days — an upper bound on them,
+ * never their number. It is the search {@link scheduleDayWindow} reads the days
+ * from, so a count and its window's read ask e3 once.
+ *
+ * @param window - The kind's `window`, checked ({@link checkIndexWindow})
+ * @param where - The kind, as a refusal names it
+ * @returns `(from, to)` → the days' entries; `none` while the search is in flight
+ */
+export function scheduleDayCount(window: ExprType<EastType>, where: string): ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<IntegerType>>> {
+    const noSeek = noSeekRefusal(where);
+    return East.function([DateTimeType, DateTimeType], OptionType(IntegerType), ($, from, to) => {
+        const src = $.const(window) as unknown as IndexHandle;
+        const result = $.let(East.value(none, OptionType(IntegerType)), OptionType(IntegerType));
+        // The midnight the first day in view is filed under, as the window's read seeks it.
+        const first = $.let(East.DateTime.roundDownDay(from, 1n));
+        $.match(src.seek, {
+            none: ($2) => { $2.error(noSeek); },
+            some: ($2, seek) => {
+                const query = $2.let(variant("range", { from: [East.print(first)], to: [East.print(to)] }), SeekQueryType);
+                $2.match(seek(query), { some: ($3, found) => { $3.assign(result, some(found.count)); } });
+            },
+        });
+        return result;
+    }) as unknown as ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<IntegerType>>>;
 }
 
 /**

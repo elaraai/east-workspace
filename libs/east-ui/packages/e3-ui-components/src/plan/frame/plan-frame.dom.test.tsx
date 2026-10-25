@@ -241,7 +241,7 @@ describe("the footer (PB23)", () => {
         try {
             const footer = (saved: Date) => render(
                 <ChakraProvider value={system}>
-                    <PlanFooter styles={{}} items={[]} noun="rows" counts={{ events: 0, minutes: 0, drawn: false, backlog: undefined, saved, overlaps: scheduleOverlaps([]), unscheduled: [] }} />
+                    <PlanFooter styles={{}} items={[]} noun="rows" counts={{ events: 0, uncounted: [], minutes: 0, drawn: false, backlog: undefined, saved, overlaps: scheduleOverlaps([]), unscheduled: [] }} />
                 </ChakraProvider>,
             ).container;
             const earlier = new Date("2026-10-06T09:15:00Z");

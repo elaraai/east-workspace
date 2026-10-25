@@ -34,7 +34,9 @@
  * - a kind's window counted first, and read only within the 10,000 events a
  *   Plan draws (#1039): a kind read whole counted in memory, one read through
  *   its source through its interval index — the count its read asks first —
- *   past the cap answering none, no page of it read;
+ *   and one read through its day index by the days its events run on, the
+ *   search its read asks first, an upper bound: past the cap answering none,
+ *   no page of it read;
  * - a window that reads no rows, refused as it is read.
  *
  * The windows' refusals at build and the example's manifest are e3-ui's
@@ -186,9 +188,9 @@ describe("an event kind read by its day index (PB54)", () => {
         const jobs = await kindOf(windowedJobs);
         // Wednesday 7 October to Saturday 10 October: the three-day run, the timetables and the gift boxes.
         assert.deepEqual(await keysIn(jobs, "2026-10-07T00:00:00Z", "2026-10-10T00:00:00Z"), ["W-0004", "W-0009", "W-0011"]);
-        // The first day's midnight sought, from its `.east` text, and an open end.
+        // The first day's midnight sought, from its `.east` text, to the window's end: the days' entries, and where they start.
         assert.deepEqual(sought(JOBS, BY_DAY).map((request) => [request.query.getAll("from"), request.query.getAll("to")]),
-            [[[printDateTime(at("2026-10-07T00:00:00Z"))], []]]);
+            [[[printDateTime(at("2026-10-07T00:00:00Z"))], [printDateTime(at("2026-10-10T00:00:00Z"))]]]);
         // One page, from the start of the page the first day's first entry is in, to the next page's start.
         assert.deepEqual(pagesOf(JOBS, BY_DAY), [["0", "256"]]);
         assert.equal(wholeReads(JOBS), 0, "no seam read the record whole");
@@ -542,9 +544,8 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
         await h.patch(ex.planWindowJobs, jobs);
     }
 
-    /** A kind's count, the payload's `planCount`: how many of its stored events overlap a range, before one is read. */
-    const countOf = (kind: EventKind) => (kind.planCount.type === "some" ? kind.planCount.value : assert.fail("expected the kind counted first"));
-    const counted = (kind: EventKind, [from, to]: readonly [string, string]) => countOf(kind)(at(from), at(to));
+    /** A kind's count, the payload's `planCount` — every kind's: how many of its stored events overlap a range, before one is read. */
+    const counted = (kind: EventKind, [from, to]: readonly [string, string]) => kind.planCount(at(from), at(to));
 
     /** The jobs on the presses read whole, narrowed through the rail's `job` source over their interval index alone. */
     const narrowed = East.function([], PlanPayloadType, ($) => {
@@ -570,6 +571,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
 
     test("a kind read whole is counted in memory: its window answers its events within the cap, and none past it", async () => {
         const within = await kindOf(wholeJobs);
+        assert.equal(within.planCountExact, true, "its count is its events'");
         assert.ok(countEqual(counted(within, FORTNIGHT), some(13n)));
         assert.equal((await itemsIn(within, ...FORTNIGHT)).length, 13);
         await bookProofs();
@@ -584,6 +586,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
     test("a kind read through its source is counted through its interval index, and past the cap no page of its window is read; within it, its events are", async () => {
         await bookProofs();
         const jobs = await narrowedJobs();
+        assert.equal(jobs.planCountExact, true, "its count is its events'");
         assert.equal(await h.ready(() => counted(jobs, FORTNIGHT)), 10_014n);
         const fortnight = () => jobs.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none);
         assert.equal(fortnight().type, "none");
@@ -596,6 +599,32 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
         assert.equal(await h.ready(() => counted(jobs, AFTER)), 7n);
         assert.deepEqual(await keysIn(jobs, ...AFTER), AFTER_JOBS);
         assert.ok(pagesOf(JOBS, INTERVAL).length > 0, "within the cap, its pages are read");
+    });
+
+    test("a kind read through its day index is counted through it — the days its events run on, the search its read asks first, an upper bound — and past the cap no page of the day index is read; within it, its days are", async () => {
+        const days = await kindOf(windowedJobs);
+        assert.equal(days.planCountExact, false, "its count is the days its events run on, no number of them");
+        // The fortnight's thirteen jobs are filed under seventeen days: the three-day run three times, the night catalogue and
+        // the magazine run twice each.
+        assert.equal(await h.ready(() => counted(days, FORTNIGHT)), 17n);
+        await bookProofs();
+        const past = await kindOf(windowedJobs);
+        const finds = sought(JOBS, BY_DAY).length;
+        const pages = pagesOf(JOBS, BY_DAY).length;
+        // The proofs, each on the Monday alone: 10,018 entries, past the cap.
+        assert.equal(await h.ready(() => counted(past, FORTNIGHT)), 10_018n);
+        const fortnight = () => past.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none);
+        assert.equal(fortnight().type, "none");
+        // Nothing in flight, and still none: the days counted past the cap, and never read.
+        await h.settle();
+        assert.equal(fortnight().type, "none", "past the cap, none of its events");
+        assert.equal(sought(JOBS, BY_DAY).length - finds, 1, "the count and the window's read ask one search");
+        assert.deepEqual(pagesOf(JOBS, BY_DAY).slice(pages), [], "no page of the day index is read past the cap");
+        assert.equal(wholeReads(JOBS), 0);
+        // The week after the proofs: its seven jobs on eight days, within the cap — counted, then its days read.
+        assert.equal(await h.ready(() => counted(past, AFTER)), 8n);
+        assert.deepEqual(await keysIn(past, ...AFTER), AFTER_JOBS);
+        assert.ok(pagesOf(JOBS, BY_DAY).length > pages, "within the cap, its days are read");
     });
 });
 

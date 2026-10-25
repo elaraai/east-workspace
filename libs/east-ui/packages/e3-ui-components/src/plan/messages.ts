@@ -157,6 +157,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     // ── The footer's counts (#1193) ────────────────────────────────────────
     /** The event kinds' events in the window — `64 events`. */
     footerEvents: (p: { n: number; count: string }) => string;
+    /**
+     * The event kinds' events in the window when a kind's are not counted (#1039): its count is no number of them, the
+     * days they run on — `13 events, print jobs not counted`; `count` `undefined` when no kind's are counted, `print
+     * jobs not counted`. `kinds` are their names as running text writes them.
+     */
+    footerEventsNotCounted: (p: { n: number; count: string | undefined; kinds: readonly string[] }) => string;
     /** The event kinds' unscheduled events — `9 in backlog`. */
     footerBacklog: (p: { n: number; count: string }) => string;
     /** The changes waiting on Save — `4 pending`. */
@@ -184,6 +190,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     /** The notice's title: a kind with more events in view than it draws, and no summary to shade them at this
      *  resolution — `12,480 print job events in view`; `kind` its name as running text writes it. */
     tooManyEvents: (p: { kind: string; n: number; count: string }) => string;
+    /** The notice's title for a kind whose count is no number of its events, a day index's (#1039) — `Print job events in
+     *  view: not counted`; `kind` its name as running text writes it. */
+    tooManyEventsNotCounted: (p: { kind: string }) => string;
     /** The line under it: the resolution its summary shades at — `Too many to draw at this resolution: switch to month to
      *  see where they fall`; `undefined`, it has none. */
     tooManyEventsHint: (p: { resolution: string | undefined }) => string;
@@ -248,6 +257,11 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorNoValue: () => string;
     /** What a count says it counts when nothing is selected. */
     inspectorStat: (p: { stat: PlanInspectorStat; n: number }) => string;
+    /**
+     * The kinds a row's facts, or the window's, count none of (#1039): too many of their events in view, none of them
+     * read — `Print jobs not counted: too many to draw at this resolution`; `kinds` are their names.
+     */
+    inspectorNotCounted: (p: { kinds: readonly string[] }) => string;
     /** A hint when nothing is selected — three of them. */
     inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
     /** One event's overlaps banner (#1198, PB53) — `Overlaps 2 events on Press B2`: `on` is its resource's name. */
@@ -560,6 +574,10 @@ export const planMessages: PlanMessages = {
     truncated: ({ count }) => `showing the first ${count} buckets — zoom in`,
 
     footerEvents: ({ n, count }) => `${count} ${plural(n, "event", "events")}`,
+    footerEventsNotCounted: ({ n, count, kinds }) => {
+        const notCounted = `${joined(kinds.map(pluralName), "and")} not counted`;
+        return count === undefined ? notCounted : `${count} ${plural(n, "event", "events")}, ${notCounted}`;
+    },
     footerBacklog: ({ count }) => `${count} in backlog`,
     footerPending: ({ count }) => `${count} pending`,
     footerSaved: ({ when }) => `saved ${when}`,
@@ -573,6 +591,7 @@ export const planMessages: PlanMessages = {
     libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${narrowedNoun(tab, name)}.`,
 
     tooManyEvents: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "event", "events")} in view`,
+    tooManyEventsNotCounted: ({ kind }) => `${kind.charAt(0).toUpperCase()}${kind.slice(1)} events in view: not counted`,
     tooManyEventsHint: ({ resolution }) => (resolution === undefined
         ? "Too many to draw at this resolution: narrow the filters, or zoom in."
         : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
@@ -623,6 +642,7 @@ export const planMessages: PlanMessages = {
     inspectorStat: ({ stat, n }) => ({
         events: plural(n, "Event", "Events"), hours: "Hours", hoursInView: "Hours in view", backlog: "In backlog",
     })[stat],
+    inspectorNotCounted: ({ kinds }) => `${joined(kinds.map(pluralName), "and")} not counted: too many to draw at this resolution`,
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
             : "Esc clears what is selected."),

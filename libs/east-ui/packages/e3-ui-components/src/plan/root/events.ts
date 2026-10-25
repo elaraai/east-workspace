@@ -92,7 +92,7 @@ import type { PlanScale } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
-import { cellKinds, usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
+import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
 
 /** The payload's `blocks` seam, decoded: the resources' rows over a window, every kind's drafts in place. */
 export type PlanEventBlocksValue = ValueTypeOf<typeof PlanEventBlocksType>;
@@ -126,8 +126,8 @@ export interface PlanEventLead {
     /** The resources' shading (#1039): what a paged kind's windows draw in place of its events past the budget. */
     shading: PlanEventShadingValue;
     /** The kinds' cells and counts (#1039): what a kind read by them draws from, every kind's drafts as the seams take
-     *  them, the rows each kind's cells hold, and the counted kinds read over the range; `undefined` for a Plan whose
-     *  kinds the reader neither reads by their cells nor counts. */
+     *  them, the rows each kind's cells hold, and the counted kinds read over the range; `undefined` before the reader
+     *  hands them on — every kind is counted, so a Plan of event kinds has them once it has read. */
     cells: ScheduleCellsRead | undefined;
     /** Moves each time the blocks do, or the events placed on a paged kind's resources, or its shading, or what the
      *  viewer hides of a paged kind — from 0 before the first read answers — a paged canvas reads its windows again then. */
@@ -320,12 +320,11 @@ export interface PlanEventsReaderProps {
 export function PlanEventsReader({ events, scale, hidden, drafts, shown, kinds, resources, parts, links, spans, onLead }: PlanEventsReaderProps): null {
     const span = useSyncExternalStore(spans.subscribe, spans.get);
     const range = eventReadRange(scale);
+    // The reader decides every kind (#1039): one it reads by its cells, and every other, counted before one of its events is read.
     const cells = usePlanCells({
         kinds, resources, parts, paged: events?.paged, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links,
     });
-    // The reader decides a kind it reads by its cells, or counts before one of its events is read.
-    const decides = useMemo(() => cellKinds(parts).length > 0 || kinds.some((kind) => kind.planCount.type === "some"), [parts, kinds]);
-    const lead = usePlanEventBlocks(events, scale, hidden, drafts, shown, decides ? cells : undefined);
+    const lead = usePlanEventBlocks(events, scale, hidden, drafts, shown, cells);
     // What the canvas holds: its stand-in rows until the first read lands.
     const reported = useRef<{ version: number; error: string | undefined; cells: ScheduleCellsRead | undefined }>({ version: 0, error: undefined, cells: undefined });
     useLayoutEffect(() => {
