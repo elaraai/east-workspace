@@ -246,8 +246,13 @@ frame what it read only when that moves, as the Calendar's
 frame at every settle (#1343). A batch re-fires its readers once, as it lands;
 single searches of one source's rows launched in one turn are a burst, whose
 answers the paging runtime applies as they land, re-firing the burst's readers
-once its last member is done (#1360). A window re-fires as it lands, so rows
-appear as they arrive. The Calendar reads
+once its last member is done (#1360). Windows are applied to their readers once
+a frame (#1398, CL9): each lands in its channel at once, and those landing
+before the next frame — a fling coming to rest, the windows read ahead either
+side — re-fire their readers together, so a reader draws once for them, never
+once a window; jsdom draws no frame a test waits on, so the mount harness
+applies them as the turn they land in ends (`setPagedLandingFrame`), and a
+test's `act` sees what it read land. The Calendar reads
 one date window across its event sources (#1343): the first event source holding
 a range leads, its range editor the time navigator's Range panel and every event
 source's range out of the rail; navigation writes the window into each, and a
@@ -295,7 +300,14 @@ over resident record rows, private Slice, full scan for options or user-facing
 index picker. The shared summary is authoritative N of M original records; do
 not add a competing local count. It names only the sources a narrowing hides
 rows of, and the Filters editor counts each source in its heading (#1358).
-Search Records remains primary-key navigation, not Slice field search.
+Search Records remains primary-key navigation, not Slice field search: the
+Sheet's and the Plan's over their sources' keys, the Roster's over its staff,
+the Calendar's over each event kind's record and the Allocation's over its
+bins' (each one's `find.ts`, #1398, CL10). It lists the rows a query finds
+wherever they are — read through the source by their place, never only what is
+drawn — and the Sheet's and the Roster's mark a row the rail's narrowing hides
+`· hidden by the filters`; its count shows and Enter jumps once the query is
+found, the lines following.
 
 Calendar preserves overlap `[from, to)`, including carry-in events, whole-window
 spans, overnight/multi-day events and instants at the lower boundary, once by
@@ -315,8 +327,14 @@ key search starting afresh with each narrowing, and the visibility scan
 starting again. Editing keeps the
 revision alone, so a Save confirms against the record's state whatever the
 narrowing.
-Pending is not empty; errors retain usable data and offer Retry. Mark retained
-content busy and disable its editing gestures while pending. Keep toolbar
+Pending is not empty; errors retain usable data and offer Retry. Retained
+content — what stands in while a narrowing, a period or a revision is read — is
+`aria-disabled` in an `aria-busy` region, never `inert` (#1398, CL8, the
+design system's `parts-loading-stale.html`): it stays readable and focusable
+and keeps its selection, and its editing gestures are refused in code — the
+shared drag sensors and drop targets and the Library's ⏎, × and add refuse
+inside it (east-ui-components' `dnd/retained.ts`), and each builder's commands
+refuse a write while it stands in. Keep toolbar
 navigation and session Save usable. The shared BuilderFrame Skeleton owns cold
 load; do not flash partial rows or cover usable data on every filter change.
 
@@ -965,8 +983,10 @@ however long the run, and to the grid one row, its one cell across it, busy
 while its windows are read. A failed window is said once, in its run's first
 row in view, with Retry (CL11). No caption sits in a gap. They read on intent
 (CL6): the window under the view once the view has dwelt 100 ms over a run or
-slowed below a viewport per 200 ms (`VirtualRows` reports such a scroll at
-rest), two windows ahead the way it travels and one behind (`travelOf`). The
+slowed below a viewport per 200 ms — by how far it travelled, never where it
+ended, so a view sent far and straight back is still on its way
+(`VirtualRows` reports such a scroll at rest) — two windows ahead the way it
+travels and one behind (`travelOf`). The
 footer's line and the frame's `busy` follow the windows the view shows, never
 those read ahead of it. An empty message, a zero count, `No rows`, `Backlog
 clear` or the Sheet's insert strip shows only once a completed read says so
@@ -1053,6 +1073,50 @@ subscriptions and render work to every drag. Test deep links and scroll anchorin
 after changing that window. Record mounted row/card counts
 and before/after load/drag measurements. Do not claim responsiveness from a
 unit test or a shared-engine import alone.
+
+### Keeping place, seeking and drawing only what moves (#1398)
+
+A collection keeps where its view rests by its top row's key and the px into
+it — never a pixel offset of the whole — saved as its scroll settles and brought
+back once its rows are laid out (`shared/schedule/row-anchor.ts`' `useRowAnchor`
+over `VirtualRows`' `onAnchorChange` and `restoreAnchor`): the Roster's People
+rows and cards, the Calendar's timeline and the Allocation's Table, as the
+Sheet's and the Plan's are kept. A narrowing keeps the Sheet's anchor row by its
+key where the narrowing holds it — drawn already, or sought where it is as a key
+search's jump is, and put back once drawn — and else starts at the top. The
+Calendar's time grid keeps the hour at its top across a step, a layout and a
+remount (`gridHour`), never back to the morning, and Today brings the now line
+into view a third of the way down, on today too. The People rows' estimates are
+their kinds' real rows, measured from the first mounted (`useRowFloors`, on the
+device-pixel grid, `devicePixels`), and every row anchors, so a jump past rows
+not drawn stays where it was put as they mount — never pulled back.
+
+PageUp and PageDown cross a run not read in the Sheet and the Plan: fetch, then
+move — the window a page on asked for and the ring, or the focus, landing a page
+on once it is in (the Sheet's `seek.step` with its `page`, the Plan's `page`
+intent), never at the loaded edge — as Home and End do for the source's first
+and last rows. ↑ and ↓ on a person's name in the People grid step to the next
+person or the one before, past the groups' bands and their agency requests,
+selecting them and focusing their name, its ring drawn.
+
+A scroll draws only what it brings into view: `VirtualRows` draws a mounted row
+again only as its index or `renderRow` moves, so a builder keeps `renderRow` the
+same function while what its rows show holds, and a row drawn again only as what
+it shows changes is a memo whose props hold — the People grid's rows and days,
+its week's duties indexed once by person and day, its Library's cards made once.
+The Calendar's timeline virtualises its resources' rows in their groups, and
+their events by what the view shows of the period, one view either side; its
+scroll publishes the days it shows to a store only what says them reads
+(`calendar/visible.ts`: the navigator's date and label, the count, each row's
+hours), so a scroll draws nothing else, and a day crossed only those.
+
+A kind read by its cells (#1039) over a paged kind says which resources' rows
+draw what is known of them (`usePlanCells`' `drawn`): a row whose cells never
+landed — before the first read, or scrolled into view — or are on their way over
+a range they were not read over, a window moved, draws the shared wash under what
+it holds, busy, on the Plan's one reveal clock, and the footer's line reads the
+kind (`Loading print job events…`); a read again over the same range, a commit's
+or another narrowing's, leaves the cells standing in, retained.
 
 ## See also
 
