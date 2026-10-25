@@ -79,8 +79,10 @@ export async function costOf(page: Page, work: () => Promise<unknown>): Promise<
         const probe = (window as unknown as Record<string, { loafs: Loaf[]; frames: number[]; drawing: boolean; start: number; observer: PerformanceObserver }>)[name]!;
         const end = performance.now();
         probe.drawing = false;
-        // The last frames' entries are delivered after them.
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        // A long animation frame's entry is queued once its rendering is done, and delivered later: the frame in flight at
+        // the end is done by the second frame after it, and what the observer has not delivered yet is taken from it.
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        probe.loafs.push(...(probe.observer.takeRecords() as Loaf[]));
         probe.observer.disconnect();
         const frames = probe.frames.filter((t) => t <= end);
         const gaps = frames.slice(1).map((t, i) => t - frames[i]!);
