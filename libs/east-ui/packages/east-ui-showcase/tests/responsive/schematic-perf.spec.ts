@@ -28,10 +28,14 @@
  *
  * Each stretch records what it cost the main thread (`main-thread-cost.ts`'
  * `costOf`) and the page's reads of its e3 meanwhile, by kind, and prints them
- * as JSON. Each wheel and each drag holds that no frame took longer than 50 ms
- * and the browser reported no long animation frame: a window's rows are made a
- * budget a read, a frame drawing between (`made-rows.ts`), and the frame draws
- * what the reader read in a task of its own.
+ * as JSON. Each wheel, and the drag where the racks draw as cards, holds that no
+ * frame took longer than 50 ms and the browser reported no long animation frame:
+ * a window's rows are made a budget a read, a frame drawing between
+ * (`made-rows.ts`), and the frame draws what the reader read in a task of its
+ * own. The drag where they draw as dots holds no frame, nor any long animation
+ * frame, past 80 ms: there the windows the drag brings in land as it moves, and
+ * their rows are decoded on the main thread, which takes a frame or two past 50 ms
+ * — a hitch accepted rather than decode off it (ruled 25 Oct 2026).
  *
  * Run (from the showcase, over its build):
  * `E3_UI_PERF=1 pnpm exec playwright test schematic-perf --project desktop --workers 1`.
@@ -61,6 +65,13 @@ const SECONDS = 3;
 
 /** How many times each landing is timed, for its p50 and p95. */
 const TIMES = 8;
+
+/**
+ * The longest a frame may take while the floor is dragged where its racks draw as dots, in ms: the windows it brings in
+ * land as it moves, their rows decoded on the main thread, a frame or two past 50 ms (ruled 25 Oct 2026). Past it is
+ * worse than was accepted.
+ */
+const DOTS_DRAG_MS = 80;
 
 /** The racks the record is seeded with, and the floor's whole (`schematic-records.examples.tsx`). */
 const SEEDED = 20_000n;
@@ -349,11 +360,17 @@ function withinBudget(costs: readonly Cost[], what: string): void {
     expect(costs.map((cost) => cost.loaf.count), `long animation frames, ${what}`).toEqual(costs.map(() => 0));
 }
 
+/** Holds a stretch to a ceiling: no frame, and no long animation frame, longer than `ms`. */
+function withinCeiling(cost: Cost, ms: number, what: string): void {
+    expect(cost.longestFrame, `the longest frame, ${what}`).toBeLessThanOrEqual(ms);
+    expect(cost.loaf.longest, `the longest animation frame, ${what}`).toBeLessThanOrEqual(ms);
+}
+
 test.describe("what the Schematic's gestures cost the main thread as its reads land (#1393; E3_UI_PERF=1, not a CI gate)", () => {
     test.skip(!PERF, "E3_UI_PERF=1 only: a timing on a shared runner is no CI gate");
 
     for (const floor of ["20,000", "50,000"] as const) {
-        test(`the floor of ${floor} racks: its first paint at Fit, a window jumped to at its cards' zoom and a pan into cells not read, each at its p50 and p95; wheeled from Fit to 40× and back, and dragged along its front rows where they draw as dots and as cards, no frame over 50 ms and no long animation frame @desktop`, async ({ page }) => {
+        test(`the floor of ${floor} racks: its first paint at Fit, a window jumped to at its cards' zoom and a pan into cells not read, each at its p50 and p95; wheeled from Fit to 40× and back, and dragged along its front rows where they draw as cards, no frame over 50 ms and no long animation frame, and where they draw as dots none over ${DOTS_DRAG_MS} ms @desktop`, async ({ page }) => {
             test.setTimeout(1_200_000);
             await installE3Faults(page);
             await page.setViewportSize({ width: 1440, height: 1000 });
@@ -368,11 +385,12 @@ test.describe("what the Schematic's gestures cost the main thread as its reads l
             const results: Results = {};
             await landings(page, root, results, floor);
             const wheels = await wheelInAndOut(page, root, results, floor);
-            const drags = await dragAlong(page, root, results, floor);
+            const [dots, cards] = await dragAlong(page, root, results, floor);
             console.log(`Schematic at ${floor} ${JSON.stringify(results, null, 2)}`);
             test.info().annotations.push({ type: `Schematic at ${floor}`, description: JSON.stringify(results) });
             withinBudget(wheels, "wheeling in, and out");
-            withinBudget(drags, "dragging where they draw as dots, and as cards");
+            withinBudget([cards!], "dragging where they draw as cards");
+            withinCeiling(dots!, DOTS_DRAG_MS, "dragging where they draw as dots");
         });
     }
 });
