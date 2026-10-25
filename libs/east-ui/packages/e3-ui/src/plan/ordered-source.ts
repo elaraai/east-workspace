@@ -12,21 +12,29 @@ import { applySeries, type PlanSeriesInput } from "./series.js";
 
 type Ordered = Extract<ResolvedRowSource, { kind: "ordered" }>;
 
+/**
+ * A window's blocks in its index's order: `(blocks, the texts of its entries'
+ * keys in the index's order)` → each block that is not fixed with its rows
+ * visited root by root in that order, a root's complete subtree together —
+ * the root a row's path starts with — and fixed section and header blocks in
+ * their place. Each root's subtree is grouped once: O(rows log rows), with no
+ * scan per entry nor a series derived again per record. What the `rows`
+ * source's windows are drawn in, and a paged resource kind's narrowed by its
+ * source (#1344).
+ */
+export const planIndexOrder = East.function([PlanBlocksType, ArrayType(StringType)], PlanBlocksType, (_$, blocks, ids) => blocks.map((_$2, block) => ({
+    fixed: block.fixed, parent: block.parent, rows: block.fixed.ifElse(() => block.rows, ($3) => {
+        const grouped = $3.const(block.rows.groupToArrays((_$4, r) => r.id.match({
+            entry: (_$5, id) => id.path.get(0n), section: (_$5, id) => id.path.get(0n),
+        })));
+        return ids.flatMap((_$4, id) => grouped.get(id, () => East.value([], PlanRowsCollectionType)));
+    }),
+})));
+
 /** Build one bounded window adapter; its primary-key map is never a predicate. */
 export function orderedPlanSource(source: Ordered) {
     const { resolved, entries: _entries, window, rows, keys } = orderedRowSource(source, "Plan");
-
-    // Group each root's complete subtree once, then visit roots in index order.
-    // Fixed section/header blocks retain their position. This is O(rows log rows),
-    // without a scan per entry or re-deriving each series once per record.
-    const order = East.function([PlanBlocksType, ArrayType(StringType)], PlanBlocksType, (_$, blocks, ids) => blocks.map((_$2, block) => ({
-        fixed: block.fixed, parent: block.parent, rows: block.fixed.ifElse(() => block.rows, ($3) => {
-            const grouped = $3.const(block.rows.groupToArrays((_$4, r) => r.id.match({
-                entry: (_$5, id) => id.path.get(0n), section: (_$5, id) => id.path.get(0n),
-            })));
-            return ids.flatMap((_$4, id) => grouped.get(id, () => East.value([], PlanRowsCollectionType)));
-        }),
-    })));
+    const order = planIndexOrder;
     const make = (series: PlanSeriesInput, values: ExprType<EastType>): ExprType<PlanBlocksType> => {
         const input = values as ExprType<typeof _entries>;
         return order(applySeries(series, rows(input)), keys(input));

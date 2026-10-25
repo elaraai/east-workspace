@@ -53,6 +53,13 @@
  * events are placed, a window is in flight. A canvas pages one source, so
  * `data` beside a paged kind is inline (the Plan refuses it paged).
  *
+ * A paged kind its source of the slice narrows (#1344) is paged from the
+ * narrowing's rows themselves: the wrapper is a live source, as the rail's
+ * `rows` source is, naming the narrowing its windows belong to (`query`), so a
+ * choice is a new result — the view the last narrowing drew stands in until
+ * the new one's first window lands — and the snapshot of its resources is
+ * their revision and the narrowing together. It has no key search.
+ *
  * # A link's event end
  *
  * A link may name an event (`Plan.eventRef(kind, key)`): a run ref at the
@@ -333,6 +340,17 @@ function fixedBlock(block: PlanWireBlock): PlanWireBlock {
 }
 
 /**
+ * A paged kind's narrowing as its source names it now (#1344): what its
+ * windows are read under; the empty text for a kind no source narrows.
+ *
+ * @param pages - The paged kind's rows, when a kind pages
+ * @returns The narrowing, as text
+ */
+function narrowingOf(pages: PlanEventPagedValue | undefined): string {
+    return pages !== undefined && pages.query.type === "some" ? pages.query.value() : "";
+}
+
+/**
  * The root with the event kinds' rows ahead of its own, and its links' event
  * ends named where the events draw — over a paged resource kind's windows
  * when a kind pages (#1199, see the module docs).
@@ -450,13 +468,22 @@ export function usePlanEventRoot(
                     return s !== undefined && s.type === "some" ? s.value(query) : none;
                 })
                 : none,
-            // The snapshot of the kind's resources (#1199): their window's own revision, which the events
-            // placed on them, the drafts and the root's rows leave.
-            snapshot: () => current.current.pages?.revision() ?? none,
+            // The snapshot of the kind's resources (#1199): their window's own revision — and, its source narrowing
+            // them, the narrowing with it (#1344) — which the events placed on them, the drafts and the root's rows leave.
+            snapshot: () => {
+                const p = current.current.pages;
+                if (p === undefined) return none;
+                return (p.query.type === "some" ? snapshotOf({ revision: p.revision, query: p.query.value }) : p.revision()) ?? none;
+            },
+            // Its source's narrowing, as it stands (#1344): the driver reads its windows again when it moves — the
+            // view the last one drew standing in until the new one's first lands.
+            ...(pages.query.type === "some" ? { query: () => narrowingOf(current.current.pages) } : {}),
         };
         composedOf.current = { seam: pages, composed: next };
         return next;
     }, [pages]);
+    // A kind its source narrows pages a live source (#1344), as the rail's `rows` source is.
+    const composedArm = pages?.query.type === "some" ? "live" : "pinned";
 
     const placed = lead?.placed;
     const pagedSlot = pages?.kind;
@@ -464,11 +491,11 @@ export function usePlanEventRoot(
         () => (blocks !== undefined ? resolveEventLinks(data.links, blocks, placed, pagedSlot) : data.links),
         [blocks, data.links, placed, pagedSlot]);
     const rowsOf = useCallback((root: PlanRootValue): PlanRootValue["rows"] => {
-        if (composed !== undefined) return variant("pinned", composed) as PlanRootValue["rows"];
+        if (composed !== undefined) return variant(composedArm, composed) as PlanRootValue["rows"];
         if (inline !== undefined) return variant("inline", inline) as PlanRootValue["rows"];
         if (wrapped !== undefined) return variant(windowedArm(root.rows), wrapped) as PlanRootValue["rows"];
         return root.rows;
-    }, [composed, inline, wrapped]);
+    }, [composed, composedArm, inline, wrapped]);
     const active = lead !== undefined;
     const shownData = useMemo(
         () => (active ? { ...data, rows: rowsOf(data), links } : data),

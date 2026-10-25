@@ -13,7 +13,8 @@
  * as East prints it, and that key; on a paged kind's resource, that resource's
  * row by its id (#1199). And a paged kind's windows, and a paged `data`'s,
  * name the snapshot of their data apart from the revision new rows composed
- * into them move (#1199).
+ * into them move (#1199) — a kind its source narrows, the narrowing with it
+ * (#1344).
  */
 
 import { describe, test, expect, vi } from "vitest";
@@ -230,12 +231,15 @@ describe("the snapshot of a paged source's data, apart from the revision its win
     test("a paged kind's windows: new events placed on its resources move their revision alone; the resources' own revision is the snapshot", () => {
         const resources = { revision: "R1" };
         const pages = {
-            kind: "presses", id: "presses-window", placed: () => some(placedOn([])), rows: () => some([]), total: () => some(0n), seek: none,
-            revision: () => some(resources.revision), refresh: () => null,
+            kind: "presses", id: "presses-window", placed: () => some(placedOn([])), rows: () => some([]), keys: () => some([]), total: () => some(0n), seek: none,
+            revision: () => some(resources.revision), refresh: () => null, query: none,
         } as unknown as PlanEventPagedValue;
         const root = rootOf(variant("inline", []));
         const { result, rerender } = renderHook(({ lead }) => usePlanEventRoot(root, root, lead, pages), { initialProps: { lead: leadAt(1) } });
         const source = () => sourceOf(result.current.data);
+        // No source narrows the kind: its windows are pinned to the resources' snapshot, and name no narrowing.
+        expect(result.current.data.rows.type).toBe("pinned");
+        expect(source().query).toBeUndefined();
         expect(source().snapshot?.()).toEqual(some("R1"));
         const before = source().revision?.();
         rerender({ lead: leadAt(2) });
@@ -245,6 +249,33 @@ describe("the snapshot of a paged source's data, apart from the revision its win
         // The resources themselves moving is a new snapshot.
         resources.revision = "R2";
         expect(source().snapshot?.()).toEqual(some("R2"));
+    });
+
+    test("a paged kind its source narrows (#1344): a live source naming the narrowing its windows belong to, the snapshot the resources' revision and the narrowing together", () => {
+        const resources = { revision: "R1", narrowing: "hall: Hall 2" };
+        const pages = {
+            kind: "presses", id: "presses-narrowed", placed: () => some(placedOn([])), rows: () => some([]), keys: () => some([]), total: () => some(0n), seek: none,
+            revision: () => some(resources.revision), refresh: () => null, query: some(() => resources.narrowing),
+        } as unknown as PlanEventPagedValue;
+        const root = rootOf(variant("inline", []));
+        const { result, rerender } = renderHook(({ lead }) => usePlanEventRoot(root, root, lead, pages), { initialProps: { lead: leadAt(1) } });
+        const source = () => sourceOf(result.current.data);
+        expect(result.current.data.rows.type).toBe("live");
+        expect(source().query?.()).toBe("hall: Hall 2");
+        const first = source().snapshot?.();
+        expect(first?.type).toBe("some");
+        expect(first).not.toEqual(some("R1"));
+        // New events placed over the same narrowing: the windows are read again, over the same snapshot.
+        rerender({ lead: leadAt(2) });
+        expect(source().snapshot?.()).toEqual(first);
+        // A choice on the rail: the same source, the same record's revision — another narrowing, another snapshot.
+        resources.narrowing = "hall: Hall 3";
+        expect(source().query?.()).toBe("hall: Hall 3");
+        const chosen = source().snapshot?.();
+        expect(chosen).not.toEqual(first);
+        // A commit under it: another snapshot again.
+        resources.revision = "R2";
+        expect(source().snapshot?.()).not.toEqual(chosen);
     });
 
     test("a paged `data` beside the event kinds: its own revision is the snapshot, which the event kinds' rows riding its windows leave", () => {

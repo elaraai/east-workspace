@@ -1021,6 +1021,59 @@ describe("paging driver — a new narrowing is a new result (#1354)", () => {
         expect(asked).toEqual(before);
         expect(notified()).toBe(n);
     });
+
+    test("the snapshot names the narrowing its rows belong to — the stand-in the last one's, until the new one's rows land (#1344)", () => {
+        const { value, state } = narrowed(50);
+        const { d, snap } = drive(value);
+        expect(snap().narrowing).toBe("A");
+        // A choice: the view A drew stands in, and says it is A's.
+        state.narrowing = "B";
+        d.refresh();
+        expect(snap().replacing).toBe(true);
+        expect(narrowingsShown(snap())).toEqual(new Set(["A"]));
+        expect(snap().narrowing).toBe("A");
+        // B lands: its rows, and its name.
+        state.open.add("B");
+        d.refresh();
+        expect(snap().replacing).toBe(false);
+        expect(narrowingsShown(snap())).toEqual(new Set(["B"]));
+        expect(snap().narrowing).toBe("B");
+        // A source that names no narrowing names none.
+        expect(drive(source(5).value).snap().narrowing).toBeUndefined();
+    });
+
+    test("a window read ahead landing before the new narrowing's first leaves the last view standing, whole, until the first lands — where the new view opens (#1344)", () => {
+        // Each narrowing's windows land one by one, as the test lets them.
+        const state = { narrowing: "A", landed: new Set(["A:0", "A:1", "A:2"]) };
+        const value = {
+            id: "narrowed-out-of-order",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                if (!state.landed.has(`${state.narrowing}:${w}`)) return none;
+                const pad = String(w).padStart(4, "0");
+                return some([paged([wire(`w${pad}r000`, { narrowing: state.narrowing })])]);
+            },
+            total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => some("R1"),
+            refresh: () => null,
+            query: () => state.narrowing,
+        } as unknown as PlanPagedSourceValue;
+        const { d, snap } = drive(value);
+        const before = snap();
+        // A choice, its second window landing first.
+        state.narrowing = "B";
+        state.landed.add("B:1");
+        d.refresh();
+        expect(snap().replacing).toBe(true);
+        expect(snap().rows).toBe(before.rows);
+        // Its first lands: its rows, from the top.
+        state.landed.add("B:0");
+        d.refresh();
+        expect(snap().replacing).toBe(false);
+        expect(narrowingsShown(snap())).toEqual(new Set(["B"]));
+        expect(rowKeys(snap())[0]).toBe("w0000r000");
+    });
 });
 
 describe("paging driver — blocks page apart (#823)", () => {

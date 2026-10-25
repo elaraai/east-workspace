@@ -53,6 +53,19 @@
  * first; one never seen is sought by its element's key, when the source can
  * seek. A request that cannot be served is dropped.
  *
+ * # A new result keeps the row at the top (#1344, #1354)
+ *
+ * A new narrowing of the paged rows — the `rows` source's, or a paged
+ * resource kind's source's — is a new result: the view the last one drew
+ * stands in until its first window lands (the paging driver's `replacing`).
+ * Once it has, a bounded frame puts the row at the top of its view back where
+ * it was, by its key and the px into it, where the new rows draw it, and else
+ * starts at the top — as the Sheet does over a narrowed source's own rows —
+ * never seeking the row at the window it was in, which another narrowing's
+ * positions do not hold. Where the view rests until the row is placed is the
+ * last result's place: the driver is told of it only where nothing scrolls the
+ * view, so no window of the new result is read for it.
+ *
  * @packageDocumentation
  */
 
@@ -114,11 +127,19 @@ export interface PlanOverlays {
 
 /** Where the persisted scroll anchor is in its restore (#813). */
 export interface PlanAnchorState {
-    /** The anchor the last session left, if any. */
+    /** The anchor the last session left, if any — or, while it is `keeping`, the row at the top of the view. */
     saved: PlanAnchor | null;
     /** `pending` until the body can place it, `seeking` while a paged canvas
      *  loads its window, `settled` once restored (or found gone). */
     phase: "pending" | "seeking" | "settled";
+    /**
+     * Whether it is the row at the top of the view a new result of the paged
+     * rows keeps (#1344, #1354) — a new narrowing's, once its rows land: put
+     * back by its key and the px into it where they draw it, and else the view
+     * starts at the top; never sought at the window it was in, which another
+     * narrowing's positions do not hold.
+     */
+    keeping: boolean;
     /** Where the frame scrolls to restore it — set once, when it settles. */
     restore: { index: number; offset: number } | undefined;
 }
@@ -425,8 +446,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     let anchor: PlanAnchorState = {
         saved: restored.anchor,
         phase: restored.anchor === null ? "settled" : "pending",
+        keeping: false,
         restore: undefined,
     };
+    // Whether the view the last result drew stands in for a new one (#1344, #1354) — and, while the row at the top of
+    // the view is put back once the new one's rows land, where the view last said it rests: the last result's place,
+    // which the new rows do not hold, given the driver only where nothing scrolls the view.
+    let replacing = false;
+    let heldReport: { at: PlanViewport; scrolling: boolean } | undefined;
     let scroll: PlanScrollTarget = { owner: "search", skippedSeq: 0, searchSeq: 0, targetKey: undefined, nav: undefined };
     // A key search waiting to be served (#574): the key it sought and the
     // source element its answer (or its jump) named. Served once, when the
@@ -483,6 +510,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         policy: options.policy,
         onChange: () => batch(() => {
             const landed = paging.getSnapshot();
+            // A new result's rows have landed — a new narrowing's (#1344, #1354), or a new source's of the same record:
+            // the row at the top of the view keeps its place where they draw it, and else the view starts at the top —
+            // in this notification, so the canvas places it as it first draws them. A session's anchor still being
+            // restored goes on.
+            if (replacing && !landed.replacing && anchor.phase === "settled") {
+                anchor = { saved: persisted.anchor, phase: "pending", keeping: true, restore: anchor.restore };
+            }
+            replacing = landed.replacing;
             // Rows that arrive WITHOUT a data change carry their own declared
             // collapse: seed each declared key ONCE, the first time its row
             // appears — in the same notification as the rows themselves.
@@ -1103,6 +1138,12 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             batch(() => paging.refresh());
         },
         reportViewport(at, scrolling) {
+            // The new result's top row still to be put back (#1344): where the view rests is the last result's place,
+            // held until the canvas places the row — honoured then only where nothing scrolls the view.
+            if (anchor.keeping && anchor.phase !== "settled") {
+                heldReport = { at, scrolling };
+                return;
+            }
             batch(() => paging.reportViewport(at, scrolling));
         },
         committed(rendered) {
@@ -1124,6 +1165,25 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             if (anchor.phase === "settled") return;
             batch(() => {
                 const saved = anchor.saved;
+                if (anchor.keeping) {
+                    // A new result's rows (#1344, #1354): the row at the top of the view put back by its key and the px
+                    // into it where they draw it, and else the view at the top — a bounded frame's, which scrolls
+                    // itself; an unbounded canvas's place is its page's, and the narrow list keeps none.
+                    const held = heldReport;
+                    if (bounded && saved !== null) {
+                        if (items.length === 0) return;
+                        const at = items.findIndex((it) => bodyItemKey(it) === saved.key);
+                        // The frame's scroll to the row reports where it lands.
+                        heldReport = undefined;
+                        anchor = { saved, phase: "settled", keeping: false, restore: at >= 0 ? { index: at, offset: saved.offset } : { index: 0, offset: 0 } };
+                        return;
+                    }
+                    // Nothing scrolls the view: where it rested while it was being placed is its place again.
+                    heldReport = undefined;
+                    anchor = { ...anchor, phase: "settled", keeping: false };
+                    if (held !== undefined) paging.reportViewport(held.at, held.scrolling);
+                    return;
+                }
                 // Only a bounded frame scrolls itself: an unbounded canvas's
                 // place is its page's, and the narrow list keeps none.
                 if (saved === null || !bounded) {

@@ -23,6 +23,13 @@
  * standing in until they land. A long event its cells repeat, tile by tile, is
  * one event, kept by its key.
  *
+ * A paged kind its source of the slice narrows is the narrowing's resources,
+ * in the source's index's order (#1344): its blocks are the narrowing's, so
+ * only the narrowed resources in view have their events read. The rows in view
+ * are reported under the narrowing their windows are, and a choice's rows
+ * still to land are reported by none: until they are, a span of the last
+ * narrowing's reads no cell, and its cells stand in.
+ *
  * # The budget
  *
  * While the wanted cells hold at most {@link PLAN_CELL_BUDGET} entries, their
@@ -112,6 +119,8 @@ type Links = PlanRootValue["links"];
 
 const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
+/** Whether two narrowings, as a source names them, are one — none being none (#1344). */
+const sameNarrowing = (a: string | undefined, b: string | undefined): boolean => (a === undefined || b === undefined ? a === b : stringEqual(a, b));
 const blobEqual = equalFor(BlobType);
 const shadingEqual = equalFor(PlanEventShadingType);
 const draftsEqual = equalFor(PlanEventDraftsType);
@@ -261,12 +270,21 @@ function hatchOf(buckets: readonly PlanCellBucket[]): Shade[] {
 // What a reader reads
 // ============================================================================
 
-/** The rows of a paged resource kind in view: the first and the last, each by its window and its key's text. */
+/**
+ * The rows of a paged resource kind in view: the first and the last, each by
+ * its window and its key's text, and the narrowing they were drawn under.
+ */
 export interface PlanCellSpan {
     /** The first row in view. */
     readonly first: { readonly w: number; readonly key: string };
     /** The last row in view. */
     readonly last: { readonly w: number; readonly key: string };
+    /**
+     * The narrowing the rows were drawn under, as the kind's source names it
+     * (#1344): their windows are its. `undefined` for a kind its source does
+     * not narrow.
+     */
+    readonly narrowing: string | undefined;
 }
 
 /** A kind drawing the notice in place of its events: too many of them at this resolution, and no summary to shade them. */
@@ -598,8 +616,14 @@ class CellsReader {
         };
     }
 
-    /** The paged kind's blocks in view, each its resources' keys; {@link READING} while a window of them is in flight. */
+    /**
+     * The paged kind's blocks in view, each its resources' keys; {@link READING} while a window of them is in flight,
+     * and while the rows in view are another narrowing's than the one the windows read now (#1344): a choice's rows
+     * still to land and be reported, whose places the last narrowing's windows do not hold.
+     */
     private pagedBlocks(paged: Paged, span: PlanCellSpan | undefined): Block[] | typeof READING {
+        const narrowing = paged.query.type === "some" ? paged.query.value() : undefined;
+        if (span !== undefined && !sameNarrowing(span.narrowing, narrowing)) return READING;
         const windowKeys = (w: number): string[] | undefined => {
             const keys = paged.keys(BigInt(w * PLAN_PAGE_SIZE), BigInt(PLAN_PAGE_SIZE));
             return keys.type === "some" ? keys.value : undefined;
@@ -919,7 +943,8 @@ export function createCellSpanStore(): PlanCellSpanStore {
     return {
         get: () => span,
         set(next) {
-            if (next === span || (next !== undefined && span !== undefined && same(next.first, span.first) && same(next.last, span.last))) return;
+            if (next === span || (next !== undefined && span !== undefined && same(next.first, span.first) && same(next.last, span.last)
+                && sameNarrowing(next.narrowing, span.narrowing))) return;
             span = next;
             for (const listener of [...listeners]) listener();
         },
@@ -933,14 +958,16 @@ export function createCellSpanStore(): PlanCellSpanStore {
 /**
  * The paged kind's rows in view among the canvas's items: the first and the
  * last row a paged window placed, each by its window and its resource's key
- * — the last step of its path.
+ * — the last step of its path — under the narrowing their windows are.
  *
  * @param items - The rows in view, in order: each its key and its id
  * @param origin - Which window each paged row came from
+ * @param narrowing - The narrowing the windows belong to, as the source names it (#1344); `undefined` for one it names none of
  * @returns The span; `undefined` when no paged row is in view
  */
 export function cellSpanOf(
     items: readonly { readonly key: string; readonly path: readonly string[] }[], origin: ReadonlyMap<string, { readonly w: number }>,
+    narrowing: string | undefined,
 ): PlanCellSpan | undefined {
     let first: PlanCellSpan["first"] | undefined;
     let last: PlanCellSpan["first"] | undefined;
@@ -952,7 +979,7 @@ export function cellSpanOf(
         first ??= here;
         last = here;
     }
-    return first === undefined || last === undefined ? undefined : { first, last };
+    return first === undefined || last === undefined ? undefined : { first, last, narrowing };
 }
 
 /**

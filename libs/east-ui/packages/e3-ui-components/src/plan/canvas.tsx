@@ -522,6 +522,9 @@ export function usePlanCanvas({
     // and busy.
     const cold = paged ? paging.rows.length === 0 && paging.total === undefined && failures.length === 0 && pagingError === undefined : undefined;
     const frameBusy = cold !== true && (busy || waits || cellsReading);
+    // What stands in while a narrowing is read is retained (#1398, CL8): a resource kind's narrowing resolving, or the
+    // view the last narrowing of the paged rows drew while the new one's first window is read (#1344, #1354).
+    const retained = busy || paging.replacing;
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
     // positions on the first row that element placed, since a row's id starts
@@ -714,8 +717,10 @@ export function usePlanCanvas({
     // What a bounded frame's view is read from — its scroll element and the
     // sticky chrome above its rows.
     const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
-    // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them.
+    // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them
+    // — under the narrowing their windows are (#1344), so a choice's reads none for the last one's rows standing in.
     const pagingOrigin = paging.origin;
+    const pagingNarrowing = paging.narrowing;
     const reportRange = usePlanRangeReport(body.items, controller, pagingOrigin);
     const onRangeChange = useCallback((
         range: { startIndex: number; endIndex: number }, isScrolling: boolean, center?: { index: number; withinPx: number },
@@ -727,8 +732,8 @@ export function usePlanCanvas({
             const item = body.items[i];
             if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: item.row.row.id.value.path });
         }
-        cellSpans.set(cellSpanOf(inView, pagingOrigin));
-    }, [reportRange, body.items, pagingOrigin, cellSpans]);
+        cellSpans.set(cellSpanOf(inView, pagingOrigin, pagingNarrowing));
+    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing
@@ -1286,7 +1291,7 @@ export function usePlanCanvas({
                 e.preventDefault();
                 // Space picks up an element that moves (#825) — never while the rows are retained (#1398, CL8);
                 // Enter keeps doing what its click does — Shift adding an event to the selection.
-                if (e.key === " " && !busy && carry.start(widget)) return true;
+                if (e.key === " " && !retained && carry.start(widget)) return true;
                 activateElement(widget, e.shiftKey);
                 return true;
             default:
@@ -1368,11 +1373,12 @@ export function usePlanCanvas({
             // The source is not exhausted: the counts across this body
             // cover the loaded windows (`PlanTransport.partial`).
             data-plan-partial={partial === true ? "" : undefined}
-            // A resource kind's narrowing resolving (#1344): the rows it
-            // showed stay, retained (#1398, CL8) — readable, focusable and
-            // selectable, aria-disabled, taking no drag, no drop and no
-            // carry until it lands — busy, as the frame's main says.
-            aria-disabled={busy ? true : undefined}
+            // A narrowing resolving (#1344) — a resource kind's, or the
+            // paged rows' own: the rows it showed stay, retained (#1398,
+            // CL8) — readable, focusable and selectable, aria-disabled,
+            // taking no drag, no drop and no carry until it lands — busy,
+            // as the frame's main says.
+            aria-disabled={retained ? true : undefined}
             // Bounded, the canvas fills the frame's main and scrolls its
             // own rows. Grown with its rows, it keeps its own height —
             // never shrunk to main's — so a host that bounds the frame is

@@ -115,17 +115,23 @@ The Plan (#1344) takes `slice={{ slice: Slice.bindRecords(key, { … }) }}`. Its
 `data` is left out — edited through `editing.onApply` (`Record.onApply(record,
 { keyed: true })`). A source named after an event kind's slot reads that kind's
 events and its backlog through its interval index, as the Calendar's sources
-do; one named after a resource kind's slot narrows that kind's rows and the
-bulk edit's Chooser, over resources read whole and keyed by String. Every
-source holding a `range` of the axis's arm — an event kind's, a tab's that
-lists what is in the dates on screen — holds the window with the others: the
-date navigator, the horizon brush, the keys and the resolution write each of
-them. The canvas's rows never follow the dates on screen: the `rows` source
-and a resource kind's take no `range` — the tag refuses one as the Plan is
-evaluated, naming the change — and a date field there is a field of the rail
-the viewer sets. A slice with no source holding the window leaves the canvas
-its own, which the same controls move, reading no row; a reload opens on it,
-kept for the viewer as the canvas's folds are. Each templates list is `Schedule.templates(templates.read(), { …,
+do; one named after a resource kind's slot narrows that kind's rows — of
+resources read whole and keyed by String, the rows and the bulk edit's Chooser
+its keys show; of a paged kind (`Schedule.resources(Data.bindPaged(record),
+…)`), the canvas's windows, paged from the narrowing's rows themselves in the
+source's index's order (`Data.bindPaged(record, { indexes })` over the kind's
+own record), never a window of every resource filtered by key, so a choice
+reads the narrowed resources in view and their cells alone
+(`planSeriesByHall`, #1344). Every source holding a `range` of the axis's arm
+— an event kind's, a tab's that lists what is in the dates on screen — holds
+the window with the others: the date navigator, the horizon brush, the keys
+and the resolution write each of them. The canvas's rows never follow the
+dates on screen: the `rows` source and a resource kind's take no `range` — the
+tag refuses one as the Plan is evaluated, naming the change — and a date field
+there is a field of the rail the viewer sets. A slice with no source holding
+the window leaves the canvas its own, which the same controls move, reading no
+row; a reload opens on it, kept for the viewer as the canvas's folds are. Each
+templates list is `Schedule.templates(templates.read(), { …,
 source })` over a record bound with `Data.bind`, an instant kind's giving no
 `duration`, and each tab that names a `source` follows it. A source named
 after an event kind's slot may list a series index and a summary index beside

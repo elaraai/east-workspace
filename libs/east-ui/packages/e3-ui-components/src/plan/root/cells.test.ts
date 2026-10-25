@@ -114,32 +114,38 @@ describe("a resource's shading from its summary's totals (#1039)", () => {
 });
 
 describe("where the canvas reports its rows in view (#1039)", () => {
-    test("the first and the last row a paged window placed, each by its window and its resource's key", () => {
+    test("the first and the last row a paged window placed, each by its window and its resource's key, under the narrowing their windows are", () => {
         const origin = new Map([["r1", { w: 0 }], ["r2", { w: 0 }], ["r3", { w: 1 }]]);
-        expect(cellSpanOf([
+        const items = [
             { key: "stock", path: ["board"] },
             { key: "r1", path: ["P-1001"] },
             { key: "r2", path: ["P-1002"] },
             { key: "r3", path: ["P-1201"] },
-        ], origin)).toEqual({ first: { w: 0, key: "P-1001" }, last: { w: 1, key: "P-1201" } });
+        ];
+        expect(cellSpanOf(items, origin, undefined)).toEqual({ first: { w: 0, key: "P-1001" }, last: { w: 1, key: "P-1201" }, narrowing: undefined });
+        // A kind its source narrows (#1344): the rows are the narrowing's, and say so.
+        expect(cellSpanOf(items, origin, "hall: Hall 2")).toEqual({ first: { w: 0, key: "P-1001" }, last: { w: 1, key: "P-1201" }, narrowing: "hall: Hall 2" });
         // A row no paged window placed — the Plan's own — is never a paged kind's.
-        expect(cellSpanOf([{ key: "stock", path: ["board"] }], origin)).toBeUndefined();
+        expect(cellSpanOf([{ key: "stock", path: ["board"] }], origin, undefined)).toBeUndefined();
     });
 
-    test("the store holds the span reported last, and tells its listeners only of one that moves", () => {
+    test("the store holds the span reported last, and tells its listeners only of one that moves — its rows or its narrowing", () => {
         const store = createCellSpanStore();
         const heard = vi.fn();
         const stop = store.subscribe(heard);
         expect(store.get()).toBeUndefined();
-        store.set({ first: { w: 0, key: "P-1001" }, last: { w: 0, key: "P-1018" } });
-        store.set({ first: { w: 0, key: "P-1001" }, last: { w: 0, key: "P-1018" } });
+        store.set({ first: { w: 0, key: "P-1001" }, last: { w: 0, key: "P-1018" }, narrowing: undefined });
+        store.set({ first: { w: 0, key: "P-1001" }, last: { w: 0, key: "P-1018" }, narrowing: undefined });
         expect(heard).toHaveBeenCalledTimes(1);
-        store.set({ first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" } });
+        store.set({ first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" }, narrowing: undefined });
         expect(heard).toHaveBeenCalledTimes(2);
-        expect(store.get()).toEqual({ first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" } });
+        expect(store.get()).toEqual({ first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" }, narrowing: undefined });
+        // The same rows under another narrowing are other rows (#1344).
+        store.set({ first: { w: 0, key: "P-1002" }, last: { w: 0, key: "P-1019" }, narrowing: "hall: Hall 2" });
+        expect(heard).toHaveBeenCalledTimes(3);
         stop();
         store.set(undefined);
-        expect(heard).toHaveBeenCalledTimes(2);
+        expect(heard).toHaveBeenCalledTimes(3);
         expect(store.get()).toBeUndefined();
     });
 });
