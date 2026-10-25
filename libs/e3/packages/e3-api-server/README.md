@@ -261,8 +261,8 @@ keeps a workspace's rows for whoever asks next. A host whose data any caller may
 read lets those caches keep it too, a CDN's among them, with the dataset
 routes' `cache: 'public'`; `getDatasetPage`, `getValuePage` and
 `findDatasetKey` take the same. An answer not pinned is `no-store`, and so is a
-batch read's (`findKeys`, `rows`, `runs`, `place`, `within`, `near`), a POST
-whose body names what it reads.
+batch read's (`findKeys`, `rows`, `runs`, `place`, `within`), a POST whose body
+names what it reads.
 
 A batch read is a POST to a dataset's own path, as an upload's init is to its
 `/upload`: a host mounts the dataset routes after the transfer routes, at the
@@ -377,7 +377,6 @@ and a copy onto itself `invalid_name`.
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?runs=true&hash=` | The entries of several runs of a collection's rows, or of an index's (`index`, `join`), `{ runs: [[row, count], …] }`, ascending and disjoint, at most 10,000: one window of the dataset's type, or the index's window type, holding the first `X-Page-Count` of the runs' `X-Run-Entries` entries a page's bounds reach |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?place=true&hash=` | Where a narrowing's rows sit in a record: `{ index, runs: [[row, count], …], offset?, limit? }`, the runs of one of its indexes, at most 10,000, a window of their entries from `offset`: JSON `{ segments: [{ segment, offset, count, rows }], placed }` — each record segment the window's entries fall in, its first row, its row count and how many of them it holds — for the first `placed` entries a page's bounds reach; `X-Total-Elements` the record's rows, `X-Run-Entries` the runs' |
 | POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?within=true&hash=` | Which of some index entries a narrowing's runs hold: `{ index, runs: [[row, count], …], keys: ["(ik=…, k=…)", …] }`, each key an entry's index key beside its row's key, at most 10,000 runs and 10,000 keys: JSON `{ within: [boolean, …] }`, in order |
-| POST | `/api/repos/:repo/workspaces/:ws/datasets/*path?near=true&hash=` | The record's rows near a narrowing's: `{ index, runs: [[row, count], …], distance, offset?, limit? }`, the runs of one of its indexes, at most 10,000, a window of their entries from `offset`, and how many rows either side of each entry's row count as near it, a whole number at least 1: JSON `{ spans: [[from, to], …], placed }` — the record's rows the window's entries' rows reach, theirs among them, as half-open spans, ascending, disjoint and never touching — for the first `placed` entries a page's bounds and the segment budget reach; `X-Total-Elements` the record's rows, `X-Run-Entries` the runs' |
 | PUT | `/api/repos/:repo/workspaces/:ws/datasets/*path` | Set dataset value (BEAST2) |
 
 A collection is streamed as the splice of its segments. A client whose host
@@ -413,18 +412,6 @@ narrowing's rows in it. `within` reads each run's first and last entries — at
 most two index segments a run — and places every key it is asked of among them
 by the index entry key's order. Neither evaluates anything over a row: the index
 holds what its maintained key functions emitted, and both use only that.
-
-`near` is the one of them that reads the record: it reads the window's entries
-as `place` does, finds each entry's row among the keys of the record segment
-that holds it, and answers what the rows reach `distance` rows either side,
-merged. A window stops before an entry whose record segment would take the
-segments it reads past the page byte budget (`pageByteBudget`, 4 MiB by
-default) of their stored bytes, the first entry's segment always read, so a
-narrowing whose rows lie thin over a large record is read a bounded number of
-segments a request. The union
-of every window's spans holds the narrowing's rows and those near them; less the
-runs' entries, it is how many rows lie near the narrowing's and are none of
-them, what the Sheet's lens counts as its context.
 
 ### Objects
 
