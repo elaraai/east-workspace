@@ -300,7 +300,19 @@ component, nothing in east-ui.
   The frame sets data attributes (`data-builder-frame`, `data-frame-slot`,
   `data-pane-mode`, `data-collapsed`, `data-scrim`) and geometry only, and a
   host's own recipe keeps what is the host's (the snap grid's canvas column,
-  the query builder's status line).
+  the query builder's status line). A part drawn often — a toolbar item, a
+  rail, a row — reads its slot recipe's styles through `useSlotStyles(key,
+  variants)` (`./internal`), made once for the theme and its variants, never
+  `useSlotRecipe` an instance, which makes every slot again for each (#1398,
+  CL9); the shared rail's and a record rail's toolbar items are made again
+  only as what they show moves.
+- **Retained content** (#1398, CL8). What a builder keeps on screen while it
+  reads again — a period stepped to, a narrowing, a new revision — is
+  `aria-disabled`, never `inert`, in an `aria-busy` region: readable,
+  focusable, its selection kept. The shared drag layer picks nothing up in it
+  and takes no drop there, and a Library card in it places nothing on ⏎, takes
+  nothing back by its × and adds nothing (`dnd/retained.ts`' `inRetained`).
+  The cold-load cover alone is inert.
 - **The row's height.** Every control in a builder's toolbar row is 28px
   tall and centred on it (`theme/toolbar-row.ts`, ruled 23 Oct 2026): a chip,
   a segment strip, a stepper, a tab strip, the key search's box and every
@@ -320,7 +332,10 @@ component, nothing in east-ui.
   Oct 2026, #1404); a pick or a step shows its match in the box — the text
   its host gives the row, else its label — its place counted (`3 of 7`), and
   asked again at a new snapshot the box keeps it while the snapshot holds it
-  in place; the box folds to its icon, which opens it in the edit
+  in place; found, its count shows and Enter jumps at once, the popup saying
+  `Searching…` until its lines land — a far match's read through its host — or
+  why they could not be read, never `No matches` over a range found (#1398,
+  CL10); the box folds to its icon, which opens it in the edit
   popover, and keeps its form while a query is typed; `focusKeySearch` brings
   a host's key for it, the Sheet's ⌘F, to it in either form). A record
   rail's summary (`12 of 69 people`) folds after every step of the rail and
@@ -707,6 +722,15 @@ Row virtualization via `@tanstack/react-virtual`:
   `heldToolbarSlot` (CL1).
 - A count that lands before its rows sizes the ledger at the rows' declared
   pitch (`createLedger`'s pitch), never at its starting 32px an element (CL1).
+- A scroll draws only the rows it brings into view (#1398, CL9): `VirtualRows`
+  draws a mounted row again only as its index or `renderRow` moves, so a
+  collection keeps `renderRow` the same function while what its rows show
+  holds; a row that says something once, in the first row in view, reads which
+  that is itself (`useRowsTop`). A collection whose estimate cannot know its
+  rows' heights measures its kinds' first rows on the device-pixel grid the
+  frame places them on (`devicePixels`) and lets every row anchor, so a jump
+  past rows not drawn is never pulled back as they mount; `rootProps` names a
+  bounded frame's scroll element.
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current
