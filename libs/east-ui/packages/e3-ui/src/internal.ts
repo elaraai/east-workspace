@@ -593,6 +593,9 @@ export {
     scheduleEntryByKey, scheduleLastKey, type ScheduleWindowProp,
 } from './schedule/window.js';
 export { SchedulePatchTypeFor, schedulePatch, type SchedulePatchInput, type SchedulePatchOf } from './schedule/patch.js';
+// The most events a builder reads and draws of one kind over what it reads at once (#1039): a kind's window through its
+// source is counted first and read only within it; past it, its rows shade from its summary or are hatched.
+export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';
 export {
     Diff,
     DiffComponent,

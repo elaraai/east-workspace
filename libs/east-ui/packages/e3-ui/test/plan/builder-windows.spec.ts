@@ -6,29 +6,32 @@
 /**
  * A Plan read a window at a time (#1199, `Plan Builder Spec.md` §9.11,
  * PB54–PB55) — what is checked of it without e3: the windows example runs,
- * and the series example (#1039), the same Plan reading its jobs a cell at a
- * time, reads what it does, as the halls example (#1344), its presses a record
- * the rail narrows, does;
+ * its jobs read a cell at a time (#1039), as the halls example (#1344), its
+ * presses a record the rail narrows, does;
  * the windows' types and their refusals at build — a window that is not an
  * index window of the kind's own record, a kind read by day whose backlog has
  * no window, a `window` without `entries`, `entries` without a `window` or
  * not the record's own entries, `window` on a resource kind (gone), a paged
  * resource kind keyed by another type than String, grouped or nested, read by
- * the Calendar, two paged kinds, and a paged kind beside a paged `data`; a
- * resource kind read whole, which lists its rows; and the windows example's
- * manifest: its records and its presses paged reads alone, none of them
- * preloaded or polled whole. What a window reads — the days in view, one
- * event by its key, the presses a window at a time, and a window that reads
- * no rows, refused as it is read — is read from e3, so it is checked in
- * e3-ui-components on e3 itself (`test/plan-windows.spec.ts`).
+ * the Calendar, two paged kinds, and a paged kind beside a paged `data`; an
+ * event kind on a paged resource kind read whole, read through its day index,
+ * or placed on another kind beside it (#1039); a resource kind read whole,
+ * which lists its rows; and the windows example's manifest: its records and
+ * its presses paged reads alone, none of them preloaded or polled whole. What
+ * a window reads — the days in view, one event by its key, the presses a
+ * window at a time, and a window that reads no rows, refused as it is read —
+ * is read from e3, so it is checked in e3-ui-components on e3 itself
+ * (`test/plan-windows.spec.ts`), as a source's indexes, which a Plan reads only
+ * as it is evaluated, are (`test/plan-series.spec.ts`).
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, IntegerType, NullType, SetType, StringType, StructType, none, variant,
+    DateTimeType, DictType, East, IntegerType, NullType, SetType, StringType, StructType, VariantType, none, variant,
     type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Data, Plan, Record, Schedule, deriveManifest } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
@@ -36,7 +39,7 @@ import * as ex from "./plan-windows.examples.js";
 import { PrintPress } from "./plan-events.examples.js";
 
 describeEast("Plan read a window at a time — the examples (#1199, #1039, #1344)", (test) => {
-    Assert.examples(test, { planWindows: ex.planWindows, planSeries: ex.planSeries, planSeriesByHall: ex.planSeriesByHall });
+    Assert.examples(test, { planWindows: ex.planWindows, planSeriesByHall: ex.planSeriesByHall });
 }, { platformFns: TestImpl });
 
 const at = (text: string): Date => new Date(text);
@@ -50,7 +53,7 @@ function pathText(path: unknown): string {
 const JOBS_PATH = pathText(ex.planWindowJobs.path);
 const PRESSES_PATH = pathText(ex.planWindowPresses.output.path);
 
-/** The jobs' kind as the example declares it for a Plan with no rail: read by day, its backlog by its index. */
+/** The jobs' kind as a Plan with no rail declares it: read by day, its backlog by its index. */
 function windowedJobs($: BlockBuilder<EastType>) {
     const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
     const days = $.let(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsByDay, join: true }));
@@ -63,6 +66,33 @@ function windowedJobs($: BlockBuilder<EastType>) {
         window: days, backlogWindow: backlog, entries,
     });
 }
+
+/** The jobs' kind read whole: the record bound alone, no source of the slice and no window. */
+function wholeJobs($: BlockBuilder<EastType>) {
+    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    return Schedule.events(jobs, {
+        name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+        resource: { field: "press", of: "presses" }, state: "state",
+        backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+    });
+}
+
+/** The jobs' kind as the windows example declares it: narrowed through its source of the slice, one job read by its key. */
+function railJobs($: BlockBuilder<EastType>) {
+    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const entries = $.let(Data.bindPaged(ex.planWindowJobs));
+    return Schedule.events(jobs, {
+        name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+        resource: { field: "press", of: "presses" }, state: "state",
+        backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+        entries,
+    });
+}
+
+/** The windows example's rail: its `job` source over the jobs' interval index, their series index and their summary. */
+const jobSlice = () => Slice.bindRecords("spec.windows", {
+    job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }), range: "start" },
+});
 
 // ============================================================================
 // The windows' types and their refusals
@@ -167,21 +197,60 @@ describe("the windows' types and their refusals", () => {
     test("a Plan pages one source: two paged resource kinds, or a paged kind beside a paged `data`, are refused", () => {
         const axis = Plan.axis({ window: { min: at("2026-10-05T00:00:00Z"), max: at("2026-10-19T00:00:00Z") }, resolution: "day" });
         const pressesOf = ($: BlockBuilder<NullType>) => Schedule.resources($.let(Data.bindPaged(ex.planWindowPresses)), { name: "Presses", icon: "print", label: (p) => p.name });
-        assert.equal(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: windowedJobs($ as never) } })), "");
+        assert.equal(refusal(($) => Plan.Payload({ axis, slice: { slice: jobSlice() }, resources: { presses: pressesOf($) }, events: { job: railJobs($ as never) } })), "");
         assert.match(refusal(($) => Plan.Payload({
-            axis,
+            axis, slice: { slice: jobSlice() },
             resources: { presses: pressesOf($), spares: pressesOf($) },
-            events: { job: windowedJobs($ as never) },
+            events: { job: railJobs($ as never) },
         })), /^Plan: resources\.presses and resources\.spares each page their rows \(Data\.bindPaged\), and a canvas pages one source — read all but one of them whole$/);
         const Row = StructType({ v: IntegerType });
         const rows = e3.input("builder_windows_rows", DictType(StringType, Row), variant("value", new Map()));
         assert.match(refusal(($) => Plan.Payload({
-            axis,
+            axis, slice: { slice: jobSlice() },
             data: $.let(Data.bindPaged(rows)),
             series: [Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: () => [] })],
             resources: { presses: pressesOf($) },
-            events: { job: windowedJobs($ as never) },
+            events: { job: railJobs($ as never) },
         })), /^Plan: resources\.presses pages its rows \(Data\.bindPaged\), and `data` is paged too, and a canvas pages one source — bind `data` whole, or read the resources whole$/);
+    });
+
+    test("an event kind on a paged resource kind is read a cell at a time through its source of the slice: read whole, through its day index, or beside another kind, it is refused at build, the refusal naming both indexes over the kind's own fields (#1039)", () => {
+        const axis = Plan.axis({ window: { min: at("2026-10-05T00:00:00Z"), max: at("2026-10-19T00:00:00Z") }, resolution: "day" });
+        const pressesOf = ($: BlockBuilder<NullType>) => Schedule.resources($.let(Data.bindPaged(ex.planWindowPresses)), { name: "Presses", icon: "print", label: (p) => p.name });
+        const declared = String.raw`e3\.recordIndex\.series\(name, record, \{ key: "press", from: "start", to: "end", tile: "week" \}\) and ` +
+            String.raw`e3\.recordIndex\.summary\(name, record, \{ key: "press", from: "start", to: "end", tile: "month" \}\) beside its interval index$`;
+        const source = String.raw`a paged kind's events are read a cell at a time, through the kind's source of the slice: `;
+        const named = String.raw`name a source after "job", Data\.bindPaged\(record, \{ indexes \}\), listing `;
+        // Its record read whole: no source of the slice.
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: wholeJobs($ as never) } })),
+            new RegExp(String.raw`^Plan: events\.job is placed on resources\.presses, paged, and its record is read whole — ${source}${named}${declared}`));
+        // The days in view through its day index, the form for a kind with no rail: no source of the slice either.
+        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: windowedJobs($ as never) } })),
+            new RegExp(String.raw`^Plan: events\.job is placed on resources\.presses, paged, and reads the days in view through its day index \(\`window\`\) — ` +
+                String.raw`${source}leave \`window\` and \`backlogWindow\` out, and ${named}${declared}`));
+        // Beside a slice whose sources name others: the kind's own is missing.
+        assert.match(refusal(($) => Plan.Payload({
+            axis, resources: { presses: pressesOf($) }, events: { job: wholeJobs($ as never) },
+            slice: { slice: Slice.bindRecords("spec.windows.rows", { presses: { source: Data.bindPaged(ex.planSeriesPresses, { indexes: [ex.planSeriesPressesByHall] }) } }) },
+        })), new RegExp(String.raw`^Plan: events\.job is placed on resources\.presses, paged, and its record is read whole — `));
+        // Placed on the paged kind and on another, read whole: no series index serves the two.
+        const Crew = StructType({ name: StringType });
+        const Visit = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, on: VariantType({ press: StringType, crew: StringType }) });
+        const visits = e3.record("builder_windows_visits", DictType(StringType, Visit), new Map());
+        const visitsPatch = e3.mutation.patch(visits);
+        assert.match(refusal(($) => {
+            const bound = $.let(Record.bind(visits, [visitsPatch]));
+            const crews = $.const(new Map([["c1", { name: "Crew 1" }]]), DictType(StringType, Crew));
+            return Plan.Payload({
+                axis,
+                resources: { presses: pressesOf($), crews: Schedule.resources(crews, { name: "Crews", icon: "users", label: (c) => c.name }) },
+                events: { visit: Schedule.events(bound, { name: "Visit", icon: "wrench", title: "title", start: "start", end: "end", resource: { field: "on", of: { press: "presses", crew: "crews" } } }) },
+            });
+        }), /^Plan: events\.visit is placed on resources\.presses, paged, and on resources\.crews, read whole — a paged kind's events are read a cell at a time, through a series index that reads its rows alone: place events\.visit on resources\.presses alone, or read resources\.presses whole$/);
+        // A kind on the resources read whole is no paged kind's: read whole, or through its day index, it builds.
+        const wholePresses = ($: BlockBuilder<NullType>) => Schedule.resources($.let(Data.bind(ex.planWindowPresses)).read(), { name: "Presses", icon: "print", label: (p) => p.name });
+        assert.equal(refusal(($) => Plan.Payload({ axis, resources: { presses: wholePresses($) }, events: { job: wholeJobs($ as never) } })), "");
+        assert.equal(refusal(($) => Plan.Payload({ axis, resources: { presses: wholePresses($) }, events: { job: windowedJobs($ as never) } })), "");
     });
 });
 
@@ -216,15 +285,6 @@ describe("the windows example's manifest: what a ui() task preloads and polls wh
         assert.ok(!texts(manifest.paths).includes(JOBS_PATH), "the jobs record is never preloaded");
         assert.ok(!texts(manifest.paths).includes(PRESSES_PATH), "the presses are never preloaded");
         assert.deepEqual(texts(manifest.paths), []);
-    });
-
-    test("the series example reads as the windows example does: the jobs record and the presses paged alone (#1039)", () => {
-        const texts = (paths: readonly unknown[]) => paths.map(pathText);
-        const read = (fn: unknown) => {
-            const manifest = deriveManifest(fn as never);
-            return [manifest.records, texts(manifest.paths), texts(manifest.pages)];
-        };
-        assert.deepEqual(read(ex.planSeries.fn), read(ex.planWindows.fn));
     });
 
     test("the halls example reads its presses' record a window at a time beside the jobs': neither preloaded nor polled whole (#1344)", () => {

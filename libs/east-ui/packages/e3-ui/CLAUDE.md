@@ -133,10 +133,18 @@ the window leaves the canvas its own, which the same controls move, reading no
 row; a reload opens on it, kept for the viewer as the canvas's folds are. Each
 templates list is `Schedule.templates(templates.read(), { …,
 source })` over a record bound with `Data.bind`, an instant kind's giving no
-`duration`, and each tab that names a `source` follows it. A source named
-after an event kind's slot may list a series index and a summary index beside
-its interval index (#1039): the kind, placed on a paged resource kind, is then
-read a cell at a time and shaded from the summary zoomed out (`planSeries`, `planRecordIndexes`).
+`duration`, and each tab that names a `source` follows it. An event kind
+placed on a paged resource kind is read a cell at a time (#1039): its source,
+named after its slot, lists a series index and a summary index beside its
+interval index, and it shades from the summary zoomed out (`planWindows`,
+`planRecordIndexes`); read any other way — no source, its record whole or the
+days in view through a day index, a source listing its interval index alone
+or a summary and no series, or placed beside another resource kind — it is
+refused, naming both declarations over the kind's own fields. Every other kind
+is counted before one of its events is read — through its source's interval
+index, or in memory, its record read whole — and past 10,000 events in the
+range the canvas reads none is read or drawn: its rows shade from its source's
+summary, else they are hatched and the banner says how many there are.
 
 The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
 }}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed

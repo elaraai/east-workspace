@@ -14,18 +14,21 @@
  * a read is in flight or has failed. The same read finds the overlaps among
  * the window's events of the kinds that warn of them (#1198). A kind read by
  * its cells (#1039) counts its window's events exactly from its source, as the
- * rail counts them, and its hours over the rows drawn.
+ * rail counts them, and its hours over the rows drawn. A kind counted before
+ * it is read is read over the window only once its count over the range the
+ * canvas reads is within the cap; past it, given no cells, it is counted, not
+ * read.
  */
 
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { BlobType, OptionType, SortedMap, StringType, compareFor, equalFor, none, some, variant } from "@elaraai/east";
+import { BlobType, OptionType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type option } from "@elaraai/east";
 import { UIStore } from "@elaraai/east-ui-components";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
+import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { scheduleOverlaps } from "../../shared/schedule/overlaps.js";
 import { utcAt } from "../plan.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
-import type { PlanCellsRead } from "../root/cells.js";
 import type { PlanEventPart } from "../root/sources.js";
 import { usePlanEventCounts, type PlanEventItemValue, type PlanEventKindValue } from "./counts.js";
 
@@ -46,9 +49,14 @@ type Answer = () => ReturnType<PlanEventKindValue["planItems"]>;
 /**
  * An event kind, as the payload carries it: the seams the footer reads, each
  * answering what it is given — its overlaps allowed unless it warns of them,
- * so its items need no times.
+ * so its items need no times. Given `count`, it is counted before it is read
+ * (`planCount`), each range it is counted over kept in `counts`.
  */
-function kind(k: { items: Answer; backlog?: Answer; commits?: readonly Date[]; asked?: [Date, Date][]; warns?: boolean; key?: string; reads?: unknown[] }): PlanEventKindValue {
+function kind(k: {
+    items: Answer; backlog?: Answer; commits?: readonly Date[]; asked?: [Date, Date][]; warns?: boolean; key?: string; reads?: unknown[];
+    count?: () => option<bigint>; counts?: [Date, Date][];
+}): PlanEventKindValue {
+    const count = k.count;
     return {
         key: k.key ?? "job",
         planItems: (from: Date, to: Date, _drafts: unknown, read: unknown) => {
@@ -60,6 +68,10 @@ function kind(k: { items: Answer; backlog?: Answer; commits?: readonly Date[]; a
         planUnscheduled: () => k.backlog!(),
         history: () => some((k.commits ?? []).map((at) => ({ at }))),
         overlaps: variant(k.warns === true ? "warn" : "allow", null),
+        planCount: count === undefined ? none : some((from: Date, to: Date) => {
+            k.counts?.push([from, to]);
+            return count();
+        }),
     } as unknown as PlanEventKindValue;
 }
 
@@ -141,7 +153,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
             shading: new SortedMap([], compareFor(StringType)),
             drafts: new SortedMap([], compareFor(StringType)),
             held: new Map(), notices: [], reading: false, drawn: undefined,
-        } as PlanCellsRead;
+        } as ScheduleCellsRead;
         // Its source counts 42 events in the window: the cells around the rows in view hold two of them.
         let counted: ReturnType<PlanEventPart["part"]["count"]> = some(42n);
         // A new list each time, so the counts are read again.
@@ -158,6 +170,50 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         counted = some(43n);
         rerender({ parts: partsNow() });
         expect(result.current!.events).toBe(43);
+    });
+
+    test("a kind counted before it is read is read over the window only once its count over the range the canvas reads is within the cap (#1039)", () => {
+        const asked: [Date, Date][] = [];
+        const counts: [Date, Date][] = [];
+        let count: option<bigint> = none;
+        // A new list each time, so the counts are read again.
+        const kindsNow = () => [kind({ items: () => some([item(), item()]) as never, asked, count: () => count, counts })];
+        const { result, rerender } = renderHook(({ kinds }) => usePlanEventCounts(kinds, scale), { initialProps: { kinds: kindsNow() } });
+        // Its count in flight: nothing of it is read, and there are no counts yet.
+        expect(result.current).toBeUndefined();
+        expect(asked).toEqual([]);
+        // Counted over the range the canvas reads — the window and the two days it lays out beyond each edge.
+        expect(counts[0]).toEqual([utcAt("2026-10-03T00:00:00"), utcAt("2026-11-04T00:00:00")]);
+        // Past the cap: still nothing read — the reader gives it no cells, and it is counted then.
+        count = some(10_001n);
+        rerender({ kinds: kindsNow() });
+        expect(result.current).toBeUndefined();
+        expect(asked).toEqual([]);
+        // Within it: read over the window the canvas shows.
+        count = some(10_000n);
+        rerender({ kinds: kindsNow() });
+        expect(result.current).toEqual({ events: 2, minutes: 120, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(asked).toEqual([[utcAt("2026-10-05T00:00:00"), utcAt("2026-11-02T00:00:00")]]);
+    });
+
+    test("a kind counted past the cap, given no cells, is counted over the window, never read — its record read whole, in memory (#1039)", () => {
+        const reads: unknown[] = [];
+        const counts: [Date, Date][] = [];
+        const empty = new Uint8Array([0]);
+        const jobs = kind({ key: "job", items: () => some([]) as never, reads, count: () => some(25_000n), counts });
+        // The reader gives it no cells: none of its events is read or drawn.
+        const cells = {
+            reads: new SortedMap([["job", empty]], compareFor(StringType)),
+            shading: new SortedMap([], compareFor(StringType)),
+            drafts: new SortedMap([], compareFor(StringType)),
+            held: new Map(), notices: [], reading: false, drawn: undefined,
+        } as ScheduleCellsRead;
+        const { result } = renderHook(() => usePlanEventCounts([jobs], scale, undefined, cells));
+        expect(result.current).toEqual({ events: 25_000, minutes: 0, drawn: true, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        // Read from the cells it was given, never over the window; counted over the window itself, each time it is read.
+        expect(reads.every((read) => equalFor(OptionType(BlobType))(read as never, some(empty)))).toBe(true);
+        expect(counts.length).toBeGreaterThan(0);
+        for (const range of counts) expect(range).toEqual([utcAt("2026-10-05T00:00:00"), utcAt("2026-11-02T00:00:00")]);
     });
 });
 

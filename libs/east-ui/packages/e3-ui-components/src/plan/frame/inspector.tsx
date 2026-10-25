@@ -31,7 +31,8 @@
  * `planEvent`), its kind's drafts in place, tracked, so a commit to its record
  * reads it again, and an event no longer there is left out — a kind read a
  * window at a time (#1199) looking for it among the rows the canvas holds,
- * then reading it by its key. The read runs in a component of its own
+ * then reading it by its key, and a kind read by its cells (#1039) among the
+ * rows they hold, read again as they move. The read runs in a component of its own
  * ({@link PlanSelectionReader}), which hands the frame the events only when
  * they move: a kind narrowed through its source of the slice lands its key
  * searches one by one, and each would otherwise render the whole frame
@@ -73,7 +74,7 @@ import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, type 
 import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
-import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
+import { heldRowOf, removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { stateText } from "../a11y.js";
@@ -84,9 +85,9 @@ import type { PlanStateWord } from "../messages.js";
 import { rowKeyOf } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "../quantity.js";
+import { scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanChrome } from "../root/chrome.js";
-import type { PlanCellsRead } from "../root/cells.js";
-import type { PlanEventShownValue } from "../root/events.js";
+import { eventReadRange, type PlanEventShownValue } from "../root/events.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
@@ -236,16 +237,20 @@ export interface PlanInspectorProps {
 /**
  * The selected events, read through their kinds, their drafts in place —
  * tracked, so a commit to a kind's record reads them again; an event no
- * longer there is left out.
+ * longer there is left out. An event of a kind the cells' reader gives cells
+ * (#1039) is read from the rows they hold, which no tracked read listens to:
+ * it is read again as they move — the cells a commit reads again.
  *
  * @param kinds - The event kinds
  * @param elements - The selected events, by their elements' keys
  * @param drafts - Every kind's drafts (#1194) — the same object while they hold
  * @param editing - The kinds' editing, which reads an event where the canvas reads its rows (#1199); none without a window
+ * @param cellRows - The rows the cells' reader holds of each kind it gives cells — the same object while they hold; none before it hands any on
  * @returns The events, in the order they were selected — the last read's while a read is in flight or has failed
  */
 function useSelectedEvents(
     kinds: PlanValue["events"], elements: readonly string[], drafts: EventDrafts, editing: PlanEventEditing | undefined,
+    cellRows: ScheduleCellsRead["held"] | undefined,
 ): readonly InspectedEvent[] {
     const bySlot = useMemo(() => new Map(kinds.map((kind) => [kind.key, kind] as const)), [kinds]);
     const readEvent = editing?.read;
@@ -256,13 +261,15 @@ function useSelectedEvents(
             if (!ref.success) continue;
             const kind = bySlot.get(ref.value.kind);
             if (kind === undefined) continue;
-            // The editing reads the latest drafts — these, which re-run the read as they move.
+            // The editing reads the latest drafts — these, which re-run the read as they move — and the latest rows the
+            // cells hold, the kind's here.
             const got = readEvent !== undefined ? readEvent(kind.key, ref.value.key)
-                : getSomeorUndefined(kind.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS, NO_RANGE, NO_RANGE, none));
+                : getSomeorUndefined(kind.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS, NO_RANGE, NO_RANGE,
+                    heldRowOf(cellRows, ref.value.kind, ref.value.key)));
             if (got !== undefined) out.push({ key, kind, item: got.item, row: got.row });
         }
         return out;
-    }, [bySlot, elements, drafts, readEvent]);
+    }, [bySlot, elements, drafts, readEvent, cellRows]);
     const { result } = useTrackedEvaluation(read);
     const held = useRef<readonly InspectedEvent[]>(NO_EVENTS);
     return useMemo(() => {
@@ -295,6 +302,8 @@ export interface PlanSelectionReaderProps {
     drafts: EventDrafts | undefined;
     /** The kinds' editing, which reads an event where the canvas reads its rows; none without a window. */
     editing: PlanEventEditing | undefined;
+    /** The rows the cells' reader holds of each kind it gives cells (#1039): an event of such a kind is read again as they move. */
+    held: ScheduleCellsRead["held"] | undefined;
     /** Where the events go: called only when they move. */
     onRead: (events: readonly PlanInspectedEvent[]) => void;
 }
@@ -307,8 +316,8 @@ export interface PlanSelectionReaderProps {
  * @param props - What is read, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanSelectionReader({ kinds, elements, drafts, editing, onRead }: PlanSelectionReaderProps): null {
-    const events = useSelectedEvents(kinds, elements, drafts ?? NONE_DRAFTED, editing);
+export function PlanSelectionReader({ kinds, elements, drafts, editing, held, onRead }: PlanSelectionReaderProps): null {
+    const events = useSelectedEvents(kinds, elements, drafts ?? NONE_DRAFTED, editing, held);
     const reported = useRef<readonly InspectedEvent[]>(NO_EVENTS);
     useLayoutEffect(() => {
         // The same events, by identity: the read holds its last while what it read holds.
@@ -904,21 +913,27 @@ function timeOf(t: PlanScale["window"]["min"]): Date | undefined {
 /**
  * The events in the window a row stands for — a resource's, or an event
  * kind's on no resource — read through the kinds, their drafts in place,
- * tracked. A kind read by its cells (#1039) reads them from what its cells
- * hold — every event of a row on screen — never over the window.
+ * tracked. A kind the cells' reader gives cells (#1039) reads them from what
+ * its cells hold — every event of a row on screen — never over the window;
+ * any other kind counted before it is read, over the window only once its
+ * count over the range the canvas reads is within the cap.
  *
  * @param target - What the row stands for
  * @param kinds - The event kinds
  * @param scale - The shared scale: its window
  * @param drafts - Every kind's drafts (#1194) — the same object while they hold
- * @param cells - The kinds' cells, when a kind is read by them
+ * @param cells - The kinds' cells and counts, when the reader decides a kind
  * @returns The facts; `undefined` for a row that stands for no events, and before the first read answers
  */
-function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts, cells: PlanCellsRead | undefined): WindowFacts | undefined {
+function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts, cells: ScheduleCellsRead | undefined): WindowFacts | undefined {
     const from = timeOf(scale.window.min);
     const to = timeOf(scale.window.max);
+    // The range the canvas reads: what a kind is capped over.
+    const range = eventReadRange(scale);
+    const readFrom = range?.from.getTime();
+    const readTo = range?.to.getTime();
     const read = useCallback((): WindowFacts | typeof READING | undefined => {
-        if (target.kind === "row" || from === undefined || to === undefined) return undefined;
+        if (target.kind === "row" || from === undefined || to === undefined || readFrom === undefined || readTo === undefined) return undefined;
         const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
         let events = 0;
         let minutes = 0;
@@ -926,6 +941,11 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
         for (const kind of kinds) {
             if (target.kind === "resource" ? !kind.takes.some((slot) => stringEqual(slot, target.resources.key)) : !stringEqual(kind.key, target.event.key)) continue;
             const held = cells?.reads.get(kind.key);
+            // A kind counted before it is read, given none: read over the window once it is within the cap.
+            if (held === undefined && kind.planCount.type === "some") {
+                const within = scheduleWithinCap(kind.planCount.value, new Date(readFrom), new Date(readTo));
+                if (within.type !== "some" || !within.value) return READING;
+            }
             const kindDrafts = (held === undefined ? drafts : cells!.drafts).get(kind.key) ?? NO_DRAFTS;
             const items = kind.planItems(from, to, kindDrafts, held === undefined ? none : some(held));
             if (items.type === "none") return READING;
@@ -938,7 +958,7 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
             }
         }
         return { events, minutes, quantities };
-    }, [target, kinds, from, to, drafts, cells]);
+    }, [target, kinds, from, to, readFrom, readTo, drafts, cells]);
     const { result } = useTrackedEvaluation(read);
     const held = useRef<WindowFacts | undefined>(undefined);
     return useMemo(() => {
