@@ -25,8 +25,15 @@
  * - Past the cap over the range the canvas reads, though the window in view
  *   holds few, the footer counts the window's events through the rail, and
  *   reads none of them.
+ * - A press's row in the inspector counts none of a kind past the cap, hidden
+ *   in the Series tab or not: it says the kind is not counted, never 0, and
+ *   reads none of its events; within the cap it counts them over the window.
  * - A kind held whole is counted in memory, and draws the same: past the cap
  *   its rows hatched and the banner; within it, its events.
+ * - A kind read through its day index is counted by the days its events run
+ *   on, the search its read asks first: past the cap no page of the index is
+ *   read, and its events are not counted — the banner, the footer and the
+ *   inspector say so, never a number; within it, its days are read.
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi, type MockInstance } from "vitest";
@@ -58,9 +65,10 @@ const PRESSES = 30;
 const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 /** The jobs' record, as e3's requests name it. */
 const JOBS = pathText(ex.planWindowJobs.path as TreePath);
-/** The jobs' interval index and their summary. */
+/** The jobs' interval index and their summary, and their day index. */
 const BY_TIME = ex.planWindowJobsByTime;
 const SUMMARY = ex.planWindowJobsByPressMonth;
+const BY_DAY = ex.planWindowJobsByDay;
 
 /** Whether a request reads the jobs through one of their indexes. */
 const through = (index: { readonly name: string }) => (request: E3Request) =>
@@ -86,6 +94,10 @@ const windowRuns = () => h.requests("runs", JOBS).filter(through(BY_TIME));
 
 /** Whether any event of a window was read through the interval index: a run of it, or a page beyond the backlog's. */
 const windowRead = () => windowRuns().length > 0 || intervalPages().length > BACKLOG_PAGE.length;
+
+/** The searches of the jobs' day index — each a range of days, its answer their entries — and its pages. */
+const daySearches = () => h.requests().filter((request) => request.kind === "find" && through(BY_DAY)(request));
+const dayPages = () => h.requests("page", JOBS).filter(through(BY_DAY));
 
 /** The jobs as e3 holds them now, read as another planner would. */
 const readJobs = async () => (await h.read(ex.planWindowJobs)) as ReadonlyMap<string, Job>;
@@ -193,6 +205,97 @@ const intervalPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.R
     });
 }))) };
 
+/** The interval Plan with its inspector: a press's row shows its events in the window. */
+const inspectedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.const(Data.bind(ex.planWindowPresses));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
+    const slice = $.const(Slice.bindRecords("plan.cap.inspected.dom", {
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME] }), fields: { start: { label: "Dates" } }, range: "start" },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
+        slice: { slice },
+        resources: {
+            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
+        },
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state",
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                entries: jobEntries,
+            }),
+        },
+        inspector: true,
+    });
+}))) };
+
+/**
+ * The inspected Plan, its library the Series tab — where a viewer hides a kind
+ * — and the presses' checks beside the jobs, read whole: a kind of their own
+ * on the presses, which keeps a press's row on the canvas while the jobs are
+ * hidden.
+ */
+const hiddenPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.const(Data.bind(ex.planWindowPresses));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
+    const checks = $.const(Record.bind(ex.planWindowRuns, [ex.planWindowRunsPatch]));
+    const slice = $.const(Slice.bindRecords("plan.cap.hidden.dom", {
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME] }), fields: { start: { label: "Dates" } }, range: "start" },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
+        slice: { slice },
+        resources: {
+            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
+        },
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state",
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                entries: jobEntries,
+            }),
+            check: Schedule.events(checks, {
+                name: "Press check", icon: "screwdriver-wrench", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" },
+            }),
+        },
+        library: [Plan.library.series()],
+        inspector: true,
+    });
+}))) };
+
+/**
+ * The jobs read through their day index, with no rail — their backlog through
+ * its index, one job by its key through their own entries — and the inspector
+ * beside the canvas.
+ */
+const dayPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.const(Data.bind(ex.planWindowPresses));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const days = $.const(Data.bindPaged(ex.planWindowJobs, { index: BY_DAY, join: true }));
+    const backlog = $.const(Data.bindPaged(ex.planWindowJobs, { index: ex.planWindowJobsUnscheduled, join: true }));
+    const entries = $.const(Data.bindPaged(ex.planWindowJobs));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
+        resources: {
+            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
+        },
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state",
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                window: days, backlogWindow: backlog, entries,
+            }),
+        },
+        inspector: true,
+    });
+}))) };
+
 /** The jobs read whole: no rail, the record bound alone. */
 const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
@@ -228,6 +331,12 @@ const named = (node: HTMLElement | null) => node?.getAttribute("aria-label") ?? 
 const notice = (c: HTMLElement) => slot(c, "banners")?.querySelector<HTMLElement>('[data-plan-banner="cells"][data-plan-kind="job"]') ?? null;
 /** The footer's count of the events in the window. */
 const counted = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="events"]')?.textContent ?? null;
+/** The inspector pane. */
+const pane = (c: HTMLElement) => slot(c, "end")!;
+/** One of the inspector's facts, by its name: its value's words; `null` where it shows none. */
+const fact = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-fact=${JSON.stringify(name)}]`)?.textContent ?? null;
+/** The inspector's line naming the kinds it counts none of; `null` with none. */
+const notCounted = (c: HTMLElement) => pane(c).querySelector("[data-inspector-not-counted]")?.textContent ?? null;
 
 /** Pans the canvas a day on, `times` over, from Press 1001's row. */
 async function panOn(c: HTMLElement, times: number) {
@@ -320,6 +429,57 @@ describe("a kind counted past the cap, through its source of the rail (#1039)", 
         expect(windowRead()).toBe(false);
         expect(eventsDrawn(c)).toHaveLength(0);
     });
+
+    test("a press's row in the inspector counts none of its events and says they are not counted — never 0 — reading none of them; within the cap it counts them over the window", async () => {
+        const before = await bookProofs();
+        const { container: c } = await h.mount(inspectedPlan);
+        await settle();
+        // Press 1003, whose course handbooks run in the fortnight: the row's facts.
+        fireEvent.click(c.querySelector(`${rowAt(pressRow("P-1003"))} [role="rowheader"]`)!);
+        await settle();
+        expect(pane(c).querySelector('[data-plan-inspector="row"]')).not.toBeNull();
+        // No count of 0: the jobs not counted, and why.
+        expect(fact(c, "events")).toBeNull();
+        expect(fact(c, "hours")).toBeNull();
+        expect(notCounted(c)).toBe("Print jobs not counted: too many to draw at this resolution");
+        // None of its events is read for the row: no page of the window, nor a run of it.
+        expect(intervalPages()).toEqual(BACKLOG_PAGE);
+        expect(windowRead()).toBe(false);
+        // Another planner takes the proofs away: the jobs within the cap, read over the window, the row counting them.
+        await h.patch(ex.planWindowJobs, new Map(before));
+        await waitFor(() => expect(fact(c, "events")).toBe("1"), { timeout: 10_000 });
+        // The course handbooks, from Wednesday 7 October 06:00 to Friday 9 October 18:00.
+        expect(fact(c, "hours")).toBe("60");
+        expect(notCounted(c)).toBeNull();
+        expect(windowRead()).toBe(true);
+    });
+
+    test("hidden in the Series tab, a kind past the cap is counted on no press's row: the row says it is not counted, beside the other kinds' facts — within the cap the row counts it over the window", async () => {
+        const before = await bookProofs();
+        // A check of Press 1003 on Monday 12 October, two hours: the row's one shown event.
+        await h.patch(ex.planWindowRuns, new Map([["C-1", {
+            ...before.get("W-0004")!, title: "Plate check", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T08:00:00Z")),
+        }]]));
+        // The viewer hides the jobs in the Series tab, kept as it keeps them.
+        localStorage.setItem("plan.series", JSON.stringify(["events.job"]));
+        const { container: c } = await h.mount(hiddenPlan);
+        await settle();
+        fireEvent.click(c.querySelector(`${rowAt(pressRow("P-1003"))} [role="rowheader"]`)!);
+        await settle();
+        expect(pane(c).querySelector('[data-plan-inspector="row"]')).not.toBeNull();
+        // The check counted; the jobs not, and why — none of them counted as 0.
+        expect(fact(c, "events")).toBe("1");
+        expect(fact(c, "hours")).toBe("2");
+        expect(notCounted(c)).toBe("Print jobs not counted: too many to draw at this resolution");
+        expect(intervalPages()).toEqual(BACKLOG_PAGE);
+        expect(windowRead()).toBe(false);
+        // Another planner takes the proofs away: the jobs within the cap, read over the window, the row counting the course
+        // handbooks beside the check.
+        await h.patch(ex.planWindowJobs, new Map(before));
+        await waitFor(() => expect(fact(c, "events")).toBe("2"), { timeout: 10_000 });
+        expect(fact(c, "hours")).toBe("62");
+        expect(notCounted(c)).toBeNull();
+    });
 });
 
 // ============================================================================
@@ -343,5 +503,40 @@ describe("a kind held whole, counted in memory (#1039)", () => {
         expect(notice(c)).toBeNull();
         expect(rowOf(c, "P-1001").querySelectorAll("[data-nodata]")).toHaveLength(0);
         expect(counted(c)).toBe("13 events");
+    });
+});
+
+// ============================================================================
+// Past the cap, through its day index (#1039)
+// ============================================================================
+
+describe("a kind read through its day index, counted by the days its events run on (#1039)", () => {
+    test("past the cap no page of its day index is read: its rows hatched, and its events not counted — the banner, the footer and the inspector say so, never a number; within it, its days are read and its events counted", async () => {
+        const before = await bookProofs();
+        const { container: c } = await h.mount(dayPlan);
+        await settle();
+        // Saturday 3 to Wednesday 21 October: the proofs a day each, and the fortnight's jobs a day for each they run on —
+        // 10,018 entries, past the cap, and no number of its events.
+        expect(notice(c)?.textContent).toContain("Print job events in view: not counted");
+        expect(notice(c)?.textContent).toContain("Too many to draw at this resolution: narrow the filters, or zoom in.");
+        expect(eventsDrawn(c)).toHaveLength(0);
+        expect(rowOf(c, "P-1001").querySelectorAll("[data-nodata]").length).toBeGreaterThan(0);
+        expect(counted(c)).toBe("print jobs not counted");
+        // Nothing selected: no count of the events, and the inspector says why.
+        expect(pane(c).querySelector('[data-count="events"]')).toBeNull();
+        expect(notCounted(c)).toBe("Print jobs not counted: too many to draw at this resolution");
+        // The day index sought over the days the canvas reads — the search its read asks first, bounded at the range's
+        // end, whose answer is their count — and no page of it read.
+        expect(daySearches().length).toBeGreaterThan(0);
+        expect(daySearches().every((request) => request.query.getAll("to").length === 1)).toBe(true);
+        expect(dayPages()).toEqual([]);
+        expect(h.requests("read", JOBS)).toEqual([]);
+        // Another planner takes the proofs away: the days within the cap, read, the fortnight's jobs drawn and counted.
+        await h.patch(ex.planWindowJobs, new Map(before));
+        await waitFor(() => expect(bar(c, "W-0004", "P-1003")).not.toBeNull(), { timeout: 10_000 });
+        expect(notice(c)).toBeNull();
+        expect(counted(c)).toBe("13 events");
+        expect(notCounted(c)).toBeNull();
+        expect(dayPages().length).toBeGreaterThan(0);
     });
 });

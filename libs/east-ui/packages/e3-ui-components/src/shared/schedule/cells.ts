@@ -28,8 +28,10 @@
  * a pan or a scroll within the cells held reads nothing, and a commit reads the
  * wanted cells again, the old ones standing in until they land. A long event
  * its cells repeat, tile by tile, is one event, kept by its key. A window of
- * the paged kind's resources that could not be read gives no block — its host
- * says so where its rows would be, with Retry — until a Retry lands it.
+ * the paged kind's resources whose read failed — the paging runtime throws a
+ * `PagedReadError` for it — gives no block, its host saying so where its rows
+ * would be, with Retry, until a Retry lands it; anything else a read of it
+ * throws is thrown on ({@link scheduleWindowKeys}).
  *
  * A paged kind its source of the slice narrows is the narrowing's resources, in
  * the source's index's order (#1344): its blocks are the narrowing's, so only
@@ -43,16 +45,19 @@
  * Every other kind is counted before one of its events is read: one read
  * through its source of the slice, over the range for every resource, through
  * the source's interval index — the count its window's read asks first, so
- * counting asks e3 nothing of its own — and one held whole in memory. A kind
- * within {@link SCHEDULE_EVENT_CAP} events in the range is left to its host,
+ * counting asks e3 nothing of its own; one read through a day index, by the
+ * entries it files under the days of the range, the search its window's read
+ * asks first — an event under each day it runs on, so an upper bound on the
+ * events, never their number (`exact` false); and one held whole in memory. A
+ * kind within {@link SCHEDULE_EVENT_CAP} in the range is left to its host,
  * which reads it over the range as it reads a kind no reader names; past it,
- * its events are never read or drawn. Its host's other readers, which read it
- * over the range or within it — a footer's counts, an inspector's — read it
- * only once the same count over the range says it is within the cap
- * ({@link scheduleWithinCap}), never by what the reader last decided, which a
- * new narrowing outruns; past it they wait for the reader, which gives it no
- * cells. A kind its host cannot count before it is read — one read through a
- * day index — is left as it is.
+ * its events are never read or drawn, and the reader names it among the kinds
+ * past the cap (`capped`): a host counts none of its events on a resource's
+ * row, and says so. Its host's other readers, which read it over the range or
+ * within it — a footer's counts, an inspector's — read it only once the same
+ * count over the range says it is within the cap ({@link scheduleWithinCap}),
+ * never by what the reader last decided, which a new narrowing outruns; past
+ * it they wait for the reader, which gives it no cells.
  *
  * # The cap
  *
@@ -65,9 +70,12 @@
  * one whose rows mark them. With none to shade, a kind read by cells is read
  * over the range while its count there is within the cap, and past it, as a
  * counted kind with no summary, the notice: its rows hatched, and the host's
- * banner naming how many events there are and the resolution its smallest
- * summary shades at, or none. A hidden kind is read for nothing: given no
- * cells, it draws nothing, and is counted for its host's figures alone.
+ * banner naming how many events there are — or, where the count is no number
+ * of them (a day index's), that they are not counted — and the resolution its
+ * smallest summary shades at, or none. A hidden kind is read for nothing:
+ * given no cells, it draws nothing, and is counted for its host's figures
+ * alone — past the cap, among the kinds past it, so no host counts one of its
+ * events on a row.
  *
  * # The narrowing, the drafts and the link ends
  *
@@ -101,6 +109,7 @@ import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import {
     recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
+import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
 import type { ScheduleEventDraftsValue } from "./editing.js";
 
@@ -167,10 +176,12 @@ export interface ScheduleCellKind {
     readonly seriesKey: (resource: option<{ readonly kind: string; readonly key: string }>) => option<string>;
     /**
      * How many of its stored events overlap `[from, to)`, counted before one is read; `none` while the count is in
-     * flight. Absent for a kind its host cannot count before it is read — one read through a day index — which the
-     * reader leaves as it is.
+     * flight. For a kind read through a day index, the entries it files under the days of `[from, to)`: an upper bound
+     * on the events, never their number ({@link ScheduleCellKind.exact}).
      */
-    readonly count: ((from: Date, to: Date) => option<bigint>) | undefined;
+    readonly count: (from: Date, to: Date) => option<bigint>;
+    /** Whether {@link ScheduleCellKind.count} counts its events themselves: `false` for a kind read through a day index. */
+    readonly exact: boolean;
     /** Its source of the slice, when it has one: what its cells, its summary and its narrowing are read through. */
     readonly part: ScheduleCellPart | undefined;
     /** Whether the viewer hides it: nothing of it draws, so no cell of it is read, and it gives no notice or shading. */
@@ -272,8 +283,8 @@ export interface ScheduleCellNotice {
     readonly kind: string;
     /** Its name. */
     readonly name: string;
-    /** How many of its events there are, as far as they are counted. */
-    readonly events: number;
+    /** How many of its events there are; `undefined` where its count is no number of them — a day index's — so they are not counted. */
+    readonly events: number | undefined;
     /** The resolution its smallest summary shades at; `undefined` when it has none. */
     readonly resolution: RecordTile | undefined;
 }
@@ -301,6 +312,12 @@ export interface ScheduleCellsRead {
     /** The kinds giving the notice in place of their events. */
     readonly notices: readonly ScheduleCellNotice[];
     /**
+     * The kinds past the cap, by their slots, hidden or not: none of their events is read or drawn, so a host counts none
+     * of them on a resource's row — it says they are not counted, never 0. A count of them over the window that counts
+     * the events themselves still counts them there.
+     */
+    readonly capped: ReadonlySet<string>;
+    /**
      * Whether a read is in flight over a paged kind a kind is read by the cells of: the rows its cells have not landed
      * for wait on it ({@link ScheduleCellsRead.drawn}); `false` where no kind is read so, whose reads nothing waits on.
      */
@@ -321,15 +338,40 @@ export interface ScheduleCellsRead {
  * a counted kind by, over the range it reads, and a host's other readers ask
  * over the same range before they read the kind over it or within it.
  *
- * @param count - The kind's count ({@link ScheduleCellKind.count}); `undefined` for a kind its host cannot count before it is read
+ * @param count - The kind's count ({@link ScheduleCellKind.count}) — every kind has one; a day index's, an upper bound, is past the cap wherever it is
  * @param from - The range's start
  * @param to - Its end, exclusive
- * @returns `some(true)` within the cap, or for a kind with no count; `some(false)` past it; `none` while the count is in flight
+ * @returns `some(true)` within the cap; `some(false)` past it; `none` while the count is in flight
  */
 export function scheduleWithinCap(count: ScheduleCellKind["count"], from: Date, to: Date): option<boolean> {
-    if (count === undefined) return some(true);
     const counted = count(from, to);
     return counted.type === "some" ? some(counted.value <= BigInt(SCHEDULE_EVENT_CAP)) : none;
+}
+
+/** A window of a paged resource kind's resources whose read failed: its host says so where its rows would be, with Retry. */
+export const SCHEDULE_WINDOW_FAILED = "failed";
+
+/**
+ * One window of a paged resource kind's resources, as the reader reads it
+ * (see the module docs): its resources' keys' texts, in order; `undefined`
+ * while it is in flight; {@link SCHEDULE_WINDOW_FAILED} for a window whose read
+ * failed — the paging runtime throws a `PagedReadError` for it
+ * (`isPagedReadError`). Anything else a read of it throws is no read that
+ * failed, and is thrown on.
+ *
+ * @param paged - The paged resource kind
+ * @param w - The window, by its place among the kind's
+ * @returns Its keys; `undefined` in flight; {@link SCHEDULE_WINDOW_FAILED} for a read that failed
+ * @throws Whatever else reading the window throws
+ */
+export function scheduleWindowKeys(paged: ScheduleCellPaged, w: number): readonly string[] | undefined | typeof SCHEDULE_WINDOW_FAILED {
+    try {
+        const keys = paged.keys(BigInt(w * paged.window), BigInt(paged.window));
+        return keys.type === "some" ? keys.value : undefined;
+    } catch (error) {
+        if (isPagedReadError(error)) return SCHEDULE_WINDOW_FAILED;
+        throw error;
+    }
 }
 
 // ============================================================================
@@ -449,9 +491,6 @@ function hatchOf(buckets: readonly ScheduleCellBucket[]): ScheduleCellShade[] {
 /** A read whose counts or cells are still in flight. */
 const READING = "reading";
 
-/** A window of the paged kind's resources that could not be read. */
-const FAILED = "failed";
-
 /** The shading's totals, by a row's key, then by the resource's key: each tile's totals, or the hatch. */
 type Totals = Map<string, { booked: boolean; byKey: Map<string, Map<number, ScheduleCellTotals> | "hatch"> }>;
 
@@ -468,6 +507,8 @@ type Read = Omit<ScheduleCellsRead, "reading" | "drawn"> & {
 
 /** No resource: what a reader that has read no block of the paged kind's wants. */
 const NO_RESOURCES: ReadonlySet<string> = new Set();
+/** No kind past the cap. */
+const NONE_CAPPED: ReadonlySet<string> = new Set();
 /** No rows: what a kind given no cells holds — a gesture reads one of its events by its key, never over the range. */
 const NO_ROWS: HeldRows = new Map();
 
@@ -487,8 +528,7 @@ function sameRange(a: ScheduleCellRange | undefined, b: ScheduleCellRange | unde
 type KindRead =
     | { readonly mode: "cells"; readonly cells: Uint8Array; readonly held: HeldRows; readonly dropped: ReadonlySet<string> }
     | { readonly mode: "shade"; readonly cells: Uint8Array; readonly notice: ScheduleCellNotice | undefined; readonly paged: boolean }
-    | { readonly mode: "window" }
-    | { readonly mode: "leave" };
+    | { readonly mode: "window" };
 
 /** A kind's types, as its cells are encoded in. */
 interface KindCodec {
@@ -665,6 +705,7 @@ class CellsReader {
         const held = new Map<string, HeldRows>();
         const dropped = new Map<string, ReadonlySet<string>>();
         const notices: ScheduleCellNotice[] = [];
+        const capped = new Set<string>();
         const over: ScheduleCellRange = { from: range.from.getTime(), to: range.to.getTime() };
         // The shading, by a row's key, then by the resource's key: each tile's totals, or the hatch.
         const totals: Totals = new Map();
@@ -700,10 +741,13 @@ class CellsReader {
         let byCells = false;
         for (const kind of kinds) {
             let read: KindRead | typeof READING;
+            // A kind read by its cells that the viewer hides: none of its events is read because it draws nothing, past no cap.
+            let hiddenCells = false;
             if (readByCells(kind, paged)) {
                 if (kind.hidden) {
                     // Hidden: it draws nothing, so no cell of it is read — and given none, nothing reads its range.
                     read = { mode: "shade", cells: this.codecOf(kind).empty, notice: undefined, paged: false };
+                    hiddenCells = true;
                 } else {
                     const blocks = blocksOfPaged();
                     read = blocks === READING ? READING : this.cellsKind(kind, kind.part!, kind.part!.read().where, blocks, range, buckets, resolution, drafts, totals);
@@ -714,7 +758,6 @@ class CellsReader {
             if (read === READING) return READING;
             switch (read.mode) {
                 // Its host reads it over the range, as it reads a kind no reader names.
-                case "leave":
                 case "window": continue;
                 case "cells":
                     reads.push([kind.key, read.cells]);
@@ -727,6 +770,9 @@ class CellsReader {
                     held.set(kind.key, NO_ROWS);
                     if (read.notice !== undefined) notices.push(read.notice);
                     if (read.paged) byCells = true;
+                    // Past the cap, hidden or not: none of its events is read, so no host counts one of them on a row. A
+                    // hidden kind read by its cells is past no cap: it is read for nothing because it draws nothing.
+                    if (!hiddenCells) capped.add(kind.key);
                     break;
             }
         }
@@ -736,6 +782,7 @@ class CellsReader {
             drafts: narrowedDrafts(drafts, dropped),
             held,
             notices,
+            capped: capped.size === 0 ? NONE_CAPPED : capped,
             dropped,
             // The resources whose cells this read holds: its blocks', where a kind drew its cells or its shading on them.
             covered: byCells ? this.wantedKeys : undefined,
@@ -752,19 +799,11 @@ class CellsReader {
         const narrowing = paged.narrowing();
         if (span !== undefined && !sameNarrowing(span.narrowing, narrowing)) return READING;
         const size = paged.window;
-        // A window's keys; `undefined` while it is in flight, and FAILED for one that could not be read — its host says so
-        // where its rows would be, with its Retry, and no cell of it is read until a Retry lands it.
-        const windowKeys = (w: number): readonly string[] | undefined | typeof FAILED => {
-            try {
-                const keys = paged.keys(BigInt(w * size), BigInt(size));
-                return keys.type === "some" ? keys.value : undefined;
-            } catch {
-                return FAILED;
-            }
-        };
-        // Where a row in view sits in the kind's order: its window's start, while its window's keys are read.
+        // Where a row in view sits in the kind's order: its window's start, while its window's keys are read. A window
+        // whose read failed gives no block — its host says so where its rows would be, with its Retry, and no cell of it
+        // is read until a Retry lands it.
         const place = (at: ScheduleCellSpan["first"]): number => {
-            const keys = windowKeys(at.w);
+            const keys = scheduleWindowKeys(paged, at.w);
             const i = Array.isArray(keys) ? keys.findIndex((key) => stringEqual(key, at.key)) : -1;
             return at.w * size + Math.max(0, i);
         };
@@ -773,9 +812,9 @@ class CellsReader {
         const blocks: Block[] = [];
         for (const b of wantedBlocks(view, total.type === "some" ? Number(total.value) : undefined)) {
             const w = Math.floor((b * SCHEDULE_CELL_BLOCK) / size);
-            const keys = windowKeys(w);
+            const keys = scheduleWindowKeys(paged, w);
             if (keys === undefined) return READING;
-            if (keys === FAILED) continue;
+            if (keys === SCHEDULE_WINDOW_FAILED) continue;
             const at = b * SCHEDULE_CELL_BLOCK - w * size;
             const own = keys.slice(at, at + SCHEDULE_CELL_BLOCK);
             if (own.length > 0) blocks.push({ slot: paged.kind, index: b, keys: own });
@@ -786,14 +825,12 @@ class CellsReader {
     /**
      * A kind counted before one of its events is read (see the module docs):
      * within the cap, left to its host to read over the range; past it, its
-     * summary's shading, or the notice — or, hidden, nothing. A kind with no
-     * count is left as it is.
+     * summary's shading, or the notice — or, hidden, nothing.
      */
     private countedKind(
         kind: ScheduleCellKind, range: { from: Date; to: Date }, buckets: readonly ScheduleCellBucket[], resolution: TimeResolution | undefined,
         totals: Totals, blocksOf: (kind: ScheduleCellKind) => Block[] | typeof READING,
     ): KindRead | typeof READING {
-        if (kind.count === undefined) return { mode: "leave" };
         const within = scheduleWithinCap(kind.count, range.from, range.to);
         if (within.type !== "some") return READING;
         if (within.value) return { mode: "window" };
@@ -801,9 +838,18 @@ class CellsReader {
         if (kind.hidden) return { mode: "shade", cells: this.codecOf(kind).empty, notice: undefined, paged: false };
         const blocks = blocksOf(kind);
         if (blocks === READING) return READING;
-        const count = kind.count(range.from, range.to);
         const where = kind.part === undefined ? new Map() : kind.part.read().where;
-        return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, count.type === "some" ? Number(count.value) : undefined, false);
+        return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, this.eventsOf(kind, range), false);
+    }
+
+    /**
+     * How many of a kind's events overlap a range, by its count: `undefined`
+     * where the count is no number of them — a day index's — or is in flight.
+     */
+    private eventsOf(kind: ScheduleCellKind, range: { from: Date; to: Date }): number | undefined {
+        if (!kind.exact) return undefined;
+        const count = kind.count(range.from, range.to);
+        return count.type === "some" ? Number(count.value) : undefined;
     }
 
     /**
@@ -912,7 +958,8 @@ class CellsReader {
      * that divides the host's bucket and serves the narrowing whole; with none,
      * a kind read by cells (`windowed`) is read over the range while its count
      * there is within the cap — when it has not been counted past it — and
-     * every kind past it gives the notice.
+     * every kind past it gives the notice, `counted` its events, `undefined`
+     * where its count is no number of them.
      */
     private overBudget(
         kind: ScheduleCellKind, where: Where, blocks: readonly Block[], range: { from: Date; to: Date },
@@ -932,13 +979,12 @@ class CellsReader {
             }
         }
         let events = counted;
-        if (windowed && kind.count !== undefined) {
+        if (windowed) {
             // Its count over the range it reads: the count its window's read asks first.
             const within = scheduleWithinCap(kind.count, range.from, range.to);
             if (within.type !== "some") return READING;
             if (within.value) return { mode: "window" };
-            const count = kind.count(range.from, range.to);
-            if (count.type === "some") events = Number(count.value);
+            events = this.eventsOf(kind, range);
         }
         // The notice: the rows hatched, and the resolution the smallest summary shades at.
         for (const block of blocks) {
@@ -949,7 +995,7 @@ class CellsReader {
         }
         const tiles = indexes.flatMap((index) => (index.summary.type === "some" ? [index.summary.value.tile.type] : []));
         const smallest = (["day", "week", "month", "quarter", "year"] as const).find((t) => tiles.includes(t));
-        return { mode: "shade", cells: codec.empty, notice: { kind: kind.key, name: kind.name, events: events ?? 0, resolution: smallest }, paged };
+        return { mode: "shade", cells: codec.empty, notice: { kind: kind.key, name: kind.name, events, resolution: smallest }, paged };
     }
 
     /**
@@ -1034,17 +1080,18 @@ function narrowedDrafts(drafts: ScheduleEventDraftsValue, dropped: ReadonlyMap<s
 
 /**
  * Two reads alike: the same cells by their bytes — the rows they hold are
- * made from them — and the same shading, drafts and notices; over a paged
- * kind read by its cells, the same resources covered over the same range, as
- * its rows wait on them. A read over another range that holds the same is the
- * same, where nothing waits on its range: a pan within the cap hands nothing on.
+ * made from them — and the same shading, drafts, notices and kinds past the
+ * cap; over a paged kind read by its cells, the same resources covered over
+ * the same range, as its rows wait on them. A read over another range that
+ * holds the same is the same, where nothing waits on its range: a pan within
+ * the cap hands nothing on.
  */
 function sameRead(a: Read, b: Read): boolean {
     const blobs = (x: ScheduleCellReads, y: ScheduleCellReads) => x.size === y.size && [...x].every(([slot, bytes]) => {
         const other = y.get(slot);
         return other !== undefined && blobEqual(other, bytes);
     });
-    return blobs(a.reads, b.reads) && shadingEqual(a.shading, b.shading) && draftsEqual(a.drafts, b.drafts)
+    return blobs(a.reads, b.reads) && shadingEqual(a.shading, b.shading) && draftsEqual(a.drafts, b.drafts) && sameKeys(a.capped, b.capped)
         && sameKeys(a.covered, b.covered) && (a.covered === undefined || sameRange(a.range, b.range))
         && a.notices.length === b.notices.length && a.notices.every((n, i) => {
             const m = b.notices[i]!;
@@ -1105,6 +1152,7 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
             drafts,
             held: new Map(),
             notices: [],
+            capped: NONE_CAPPED,
             dropped: new Map(),
             covered: paged !== undefined && slots.length > 0 ? NO_RESOURCES : undefined,
             range: undefined,
@@ -1140,6 +1188,7 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
             drafts: inFlight ? narrowedDrafts(drafts, standing.dropped) : standing.drafts,
             held: standing.held,
             notices: standing.notices,
+            capped: standing.capped,
             reading,
             drawn,
         };

@@ -142,9 +142,13 @@ days in view through a day index, a source listing its interval index alone
 or a summary and no series, or placed beside another resource kind — it is
 refused, naming both declarations over the kind's own fields. Every other kind
 is counted before one of its events is read — through its source's interval
-index, or in memory, its record read whole — and past 10,000 events in the
-range the canvas reads none is read or drawn: its rows shade from its source's
-summary, else they are hatched and the banner says how many there are.
+index; through its day index, by the days its events run on (an event once a
+day, so an upper bound, never their number: `planCountExact` false); or in
+memory, its record read whole — and past 10,000 in the range the canvas reads
+none is read or drawn: its rows shade from its source's summary, else they
+are hatched and the banner says how many events there are, or, for a day
+index's count, that they are not counted. A resource's row in the inspector
+counts none of a kind past the cap, and says so, never 0.
 
 The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
 }}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed

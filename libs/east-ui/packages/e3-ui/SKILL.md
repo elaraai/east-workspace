@@ -134,7 +134,7 @@ Task → What do you need?
     │   ├─ Rows, nested by what the data holds                → Plan.series.span / buckets / chart / heat / table / cards / events / group / section / views / rows
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
     │   ├─ Narrow its rows, event kinds, resources, templates → slice={{ slice: Slice.bindRecords(key, { rows?, job?, presses?, jobTemplates? }) }} (one window, which the rows never follow; Schedule.templates(rows, { …, source }))
-    │   ├─ Event kinds over records too large to read whole   → a kind's source over its interval index (range: "start") + Schedule.events(record, { entries }), counted first and drawn within 10,000 events; with no rail, { window, backlogWindow, entries } over resources read whole; Schedule.resources(Data.bindPaged(record), {…})
+    │   ├─ Event kinds over records too large to read whole   → a kind's source over its interval index (range: "start") + Schedule.events(record, { entries }), counted first and drawn within 10,000 events; with no rail, { window, backlogWindow, entries } over resources read whole, counted first by the days its events run on; Schedule.resources(Data.bindPaged(record), {…})
     │   ├─ …on paged resources: read a cell at a time         → the kind's source lists e3.recordIndex.series + e3.recordIndex.summary beside its interval index, shaded from the summary zoomed out; any other form is refused, naming both
     │   ├─ …its paged resources narrowed by the rail          → a source named after the paged kind's slot, Data.bindPaged(record, { indexes }) over its own record: the canvas pages the narrowing's rows
     │   ├─ A link between two runs, or two events             → Plan.link({ from: Plan.ref(…), fromRun, … }) / Plan.link({ from: Plan.eventRef(kind, key), … })
@@ -1625,7 +1625,8 @@ at a time through its source, as `planWindows`' jobs are (below); what follows
 is the form for a kind with no rail, over resources read whole
 (`calendarWindowed`). An event kind given `window` — a paged read of a day
 index over its record, keyed by `Schedule.days` — reads only the days the
-canvas draws; given `backlogWindow`, a paged read of an index keyed by
+canvas draws, on a Plan counted first by the entries the index files under
+them and read only within 10,000 (#1039, below); given `backlogWindow`, a paged read of an index keyed by
 `Schedule.unscheduled`, its backlog; and given `entries`, a paged read of the
 record's own entries, one event by its key. A resource kind given its
 resources as a paged read pages them, 200 to a window, the key search seeking
@@ -1658,7 +1659,7 @@ save.
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `Schedule.events(record, { …, window: Data.bindPaged(record, { index, join: true }) })` **❗** | The kind's events over the days the canvas draws, read through a day index keyed by `Schedule.days` (a scheduled event filed under every day it runs into): the first day sought and the index's pages read from it; a pan seeks the day it brings in. An event filed under several days draws once, and the drafts draw over the window. Refused at build: an index of another record, or keyed otherwise; a `window` over Option times without `backlogWindow`; a `window` without `entries`; either beside a source of the rail; and, on a Plan, a kind so read placed on a paged resource kind, naming the source to name after it and its series and summary indexes (#1039). An index read without `join: true` is refused as it is read. | `calendarWindowed` |
+| `Schedule.events(record, { …, window: Data.bindPaged(record, { index, join: true }) })` **❗** | The kind's events over the days the canvas draws, read through a day index keyed by `Schedule.days` (a scheduled event filed under every day it runs into): the days sought from the first's midnight to the window's end — where they start in the index and how many entries they hold — and the index's pages read from there; a pan seeks the days it brings in. On a Plan that count comes first, and past 10,000 entries no page is read (#1039, below). An event filed under several days draws once, and the drafts draw over the window. Refused at build: an index of another record, or keyed otherwise; a `window` over Option times without `backlogWindow`; a `window` without `entries`; either beside a source of the rail; and, on a Plan, a kind so read placed on a paged resource kind, naming the source to name after it and its series and summary indexes (#1039). An index read without `join: true` is refused as it is read. | `calendarWindowed` |
 | `backlogWindow: Data.bindPaged(record, { index, join: true })` **❗** | The kind's backlog — the library's Backlog tab and the footer's count — read through an index keyed by `Schedule.unscheduled`. Refused on a kind whose times are plain `DateTime`s. | `calendarWindowed` |
 | `entries: Data.bindPaged(record)` **❗** | The record's own entries: one event by its key — the inspector's, a gesture's before its first draft, a Save's read back, a conflict's — its key sought and a one-row page read. Required beside `window` or a source of the rail, refused without either. The kind's editing is a session over the record's revision: each change checked by the record against what it began from, and a Save's conflict naming each event another write moved, read by its key at the record's new revision, with who changed the record last. | `planWindows` |
 | `Schedule.resources(Data.bindPaged(record), { name, icon, label, … })` **❗** | A resource kind paged as the canvas scrolls: a window of resources at a time, the events on them drawn with them, the key search seeking a resource by its key, its types its page's `Dict`'s. Its resources keyed by `String`, with no `group` or `parent`; one paged kind per Plan, and none beside a paged `data`. Every event kind placed on it is read a cell at a time through its source of the slice (#1039, below): one read whole, one read through its day index (`window`) and one placed beside another resource kind are refused at build, the refusal naming the series and the summary index to declare over the kind's own fields. A link's end on its rows is named by the row's id; the inspector and the backlog's cards name a resource once it is read by its key. An event on a resource it does not have draws on no row, and the bulk edit offers none of its resources. The Calendar refuses a paged read: it reads a kind's resources whole. | `planWindows` |
@@ -1723,17 +1724,20 @@ Every other event kind is **counted first** (#1039): before one of its events
 is read, it is counted over the range the canvas reads — its window and the
 periods it lays out beyond each edge, for every resource. A kind read through
 its source is counted through its interval index, the count its window's read
-asks first, so counting asks e3 nothing of its own; a kind whose record is
-read whole is counted in memory. Within 10,000 events it is read over the
-window as ever; past them none of its events is read or drawn:
+asks first, so counting asks e3 nothing of its own; a kind read through its
+day index by the entries the index files under the days of the range, in the
+search its read asks first — an event under each day it runs on, so an upper
+bound on its events, never their number; and a kind whose record is read
+whole in memory. Within 10,000 it is read over the window as ever; past them
+none of its events is read or drawn:
 
 | Signature | Description | Example |
 | --- | --- | --- |
 | a kind past 10,000 events, its source listing a summary **❗** | Its rows shade from the summary as a kind read by its cells does, at the largest of its tiles that divides the canvas's bucket, and no event of the range is read. | — |
 | a kind past 10,000 events with no summary that shades the bucket **❗** | Its rows are hatched, and the banner says how many events there are and the resolution its summary shades at — with none, to narrow the filters or zoom in. A pan, a zoom, a narrowing or a commit that brings the range within the cap reads its events again. | — |
 | a kind read whole, past 10,000 events | Counted in memory, and drawn the same: hatched, with the banner. | — |
-| the footer and the inspector over a kind past the cap | Its events in the window counted — through the source as the rail counts them, or in memory — never read; a counted kind is read over the window only once its count over the range the canvas reads is within the cap. | — |
-| a kind read through its day index (`window`) | Not counted: it reads the days in view, as ever. | `calendarWindowed` |
+| the footer and the inspector over a kind past the cap | Its events in the window counted — through the source as the rail counts them, or in memory — never read; a counted kind is read over the window only once its count over the range the canvas reads is within the cap. A resource's row counts none of its events: the inspector says so (`Print jobs not counted: too many to draw at this resolution`), never 0. | — |
+| a kind read through its day index (`window`), past 10,000 entries **❗** | Counted first through its day index, its count the days its events run on: none of its days is read, its rows are hatched, and its events are not counted anywhere — the banner says so (`Print job events in view: not counted`), the footer (`13 events, print jobs not counted`) and the inspector too, never a number it does not have. Within 10,000 entries its days are read as ever. | `calendarWindowed` |
 
 ### The Sheet — `<Sheet>`
 

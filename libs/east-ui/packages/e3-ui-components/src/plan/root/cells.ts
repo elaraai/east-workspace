@@ -142,7 +142,9 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         shadeKey: (slot: string) => `${slot}.${kind.draw.type}`,
         cellsType: kind.cellsType,
         seriesKey: kind.seriesKey,
-        count: kind.planCount.type === "some" ? kind.planCount.value : undefined,
+        // Every kind is counted: a day index's count is an upper bound on its events, never their number.
+        count: kind.planCount,
+        exact: kind.planCountExact,
         part: parts.find((p) => stringEqual(p.kind.key, kind.key))?.part,
         hidden: hides(hidden, planHideId.events(kind.key)),
         wanted: linkEnds(links, kind.key),

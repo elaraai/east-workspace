@@ -467,7 +467,8 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
  * @property seriesKey - The `.east` text of the value its resource field holds for a resource, or for no resource (#1039): what a series or a summary index of its record files that resource's events under, the key a reader's cells search for; `none` where the field cannot hold it — a resource of a kind it does not take, or no resource for a field that must name one
  * @property cellsType - What a reader encodes the entries it read by cells in for `planItems` and `planUnscheduled` (#1039): an Array of `{ key, row }`, at the record's key and row types
- * @property planCount - How many of its stored events overlap `[from, to)`, counted before one is read (#1039): a kind read through its source of the slice counted through the source's interval index — the count its window's read asks first, so asking it costs no request of its own, and past `SCHEDULE_EVENT_CAP` its window reads no page — and a kind whose record is read whole counted in memory, past the cap its window drawing none; `none` while the count is in flight. `none` in place of the function for a kind read through its day index (`window`), whose events cannot be counted before its days are read
+ * @property planCount - How many of its stored events overlap `[from, to)`, counted before one is read (#1039) — every kind's are: a kind read through its source of the slice counted through the source's interval index — the count its window's read asks first, so asking it costs no request of its own, and past `SCHEDULE_EVENT_CAP` its window reads no page; a kind read through its day index (`window`) by the entries it files under the days of `[from, to)`, the search its window's read asks first — an event under each day it runs on, so an upper bound on the events, never their number (`planCountExact`), and past the cap its window reads no page; and a kind whose record is read whole counted in memory, past the cap its window drawing none. `none` while the count is in flight
+ * @property planCountExact - Whether `planCount` counts its events themselves (#1039): `false` for a kind read through its day index, whose count is the days its events run on — what a builder's figures never take for its events, saying they are not counted
  */
 export const PlanEventKindType = StructType({
     ...ScheduleKindType.fields,
@@ -481,7 +482,8 @@ export const PlanEventKindType = StructType({
     inspector: OptionType(RowInspectorType),
     seriesKey: FunctionType([OptionType(ScheduleResourceRefType)], OptionType(StringType)),
     cellsType: EastTypeType,
-    planCount: OptionType(FunctionType([DateTimeType, DateTimeType], OptionType(IntegerType))),
+    planCount: FunctionType([DateTimeType, DateTimeType], OptionType(IntegerType)),
+    planCountExact: BooleanType,
 });
 
 /** Type representing {@link PlanEventKindType}. */

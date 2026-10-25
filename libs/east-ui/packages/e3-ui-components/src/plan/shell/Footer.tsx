@@ -11,7 +11,8 @@
  * It leads with the Plan's own counts (PB23): its event kinds' events in the
  * window, their backlog, the changes waiting on Save, and when a kind's record
  * was last saved — `64 events · 9 in backlog · 4 pending · saved 14:02` — then
- * the author's items.
+ * the author's items. A kind whose events are not counted (#1039), past the
+ * cap through its day index, is named so: `13 events, print jobs not counted`.
  *
  * On a PAGED canvas the footer also carries the shared loading line at its
  * trailing end (#1398, CL3): which of the source's elements are read, in what
@@ -92,10 +93,16 @@ export function PlanFooter({ styles, items, transport, noun, counts, unread, pen
     const shown = revealed ?? alone;
     const rail = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(rail);
-    // The Plan's own counts, in the order the footer reads them — the events' "…" until their first read lands.
+    // The Plan's own counts, in the order the footer reads them — the events' "…" until their first read lands. A kind
+    // whose events are not counted (#1039) is named so, never counted as none.
     const own: { key: string; text: string }[] = [];
-    if (counts !== undefined) own.push({ key: "events", text: m.footerEvents({ n: counts.events, count: words.number(counts.events) }) });
-    else if (unread === true) own.push({ key: "events", text: m.footerEvents({ n: 2, count: "…" }) });
+    if (counts !== undefined) {
+        const n = counts.events;
+        const uncounted = counts.uncounted.map((kind) => kind.name.toLocaleLowerCase(words.locale));
+        own.push({ key: "events", text: uncounted.length === 0 && n !== undefined
+            ? m.footerEvents({ n, count: words.number(n) })
+            : m.footerEventsNotCounted({ n: n ?? 0, count: n === undefined ? undefined : words.number(n), kinds: uncounted }) });
+    } else if (unread === true) own.push({ key: "events", text: m.footerEvents({ n: 2, count: "…" }) });
     if (counts?.backlog !== undefined) own.push({ key: "backlog", text: m.footerBacklog({ n: counts.backlog, count: words.number(counts.backlog) }) });
     if (pending !== undefined) own.push({ key: "pending", text: m.footerPending({ n: pending, count: words.number(pending) }) });
     const saved = counts?.saved;

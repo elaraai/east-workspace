@@ -306,19 +306,28 @@ only rows not read (`shownCellSpan`) — by the tiles its read range touches,
 every cell's searches in one request and the missing cells' entries in one
 more, kept per revision while wanted; past 10,000 entries it reads the
 summary's cells and shades, and the reader takes the root's own links, never
-the ones named where the events draw. A window of the paged kind that could not
-be read gives the reader no block: its band says so, with Retry. Every other
-kind the same reader counts before one of its events is read (the payload's
-`planCount`): through its source's interval index over the range the canvas
-reads — the count its window's read asks first — or in memory, its record read
-whole. Past 10,000 events none is read or drawn: its rows shade from its
-source's summary, else they are hatched and the banner says how many events
-there are; the payload's window answers none past the cap too, so no read of a
-range past it reads a page. The footer's counts and the inspector's row facts,
-in components of their own, read such a kind over the window only once its
-count over the range the canvas reads is within the cap (`scheduleWithinCap`),
-never by what the reader last decided, which a new narrowing outruns; the
-selected events of a kind given cells are read again as its cells move. A
+the ones named where the events draw. A window of the paged kind whose read
+failed — the paging runtime throws its `PagedReadError`
+(`platform/paged-read-error.ts`) — gives the reader no block: its band says so,
+with Retry; anything else a window's read throws is thrown on
+(`scheduleWindowKeys`). Every other kind the same reader counts before one of
+its events is read (the payload's `planCount`, which every kind has): through
+its source's interval index over the range the canvas reads — the count its
+window's read asks first — through its day index by the days its events run
+on, in the search its read asks first (an upper bound, never their number:
+`planCountExact` false), or in memory, its record read whole. Past 10,000 none
+is read or drawn, and the reader names it among the kinds past the cap
+(`capped`): its rows shade from its source's summary, else they are hatched
+and the banner says how many events there are — or, for a day index's count,
+that they are not counted; the payload's window answers none past the cap too,
+so no read of a range past it reads a page. The footer's counts and the
+inspector's row facts, in components of their own, read such a kind over the
+window only once its count over the range the canvas reads is within the cap
+(`scheduleWithinCap`), never by what the reader last decided, which a new
+narrowing outruns. A row's facts count none of a kind past the cap and say it
+is not counted, never 0, and the footer names a day index's kind past the cap
+as not counted (`13 events, print jobs not counted`); the selected events of a
+kind given cells are read again as its cells move. A
 paged resource kind its source narrows (#1344) pages that source's
 narrowed rows themselves, in its index's order: the canvas's source over the
 payload's `paged` is a live one, so a choice is a new result, the last view

@@ -10,16 +10,20 @@
  * What a schedule's cells' reader wants and decides, worked out with no read
  * (#1039): the blocks of a paged kind's resources around the rows in view, the
  * tiles a range wants, the tiles a summary may shade a host's buckets by, a
- * resource's shading from its summary's totals, and whether a counted kind is
- * within the cap. The Plan's DOM tests carry the reader through e3
+ * resource's shading from its summary's totals, whether a counted kind is
+ * within the cap, and a window of the paged kind's resources — its keys, in
+ * flight, or a read that failed, which only the paging runtime's
+ * `PagedReadError` is. The Plan's DOM tests carry the reader through e3
  * (`plan/plan-series.dom.test.tsx`, `plan/plan-cap.dom.test.tsx`).
  */
 
 import { describe, test, expect } from "vitest";
 import { none, some, type option } from "@elaraai/east";
 import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
+import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
-    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, dividingTiles, scheduleWithinCap, shadesOf, wantedBlocks, wantedTiles,
+    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, scheduleWindowKeys, scheduleWithinCap, shadesOf,
+    wantedBlocks, wantedTiles, type ScheduleCellPaged,
 } from "./cells.js";
 
 const day = (text: string) => new Date(`${text}T00:00:00Z`);
@@ -119,8 +123,44 @@ describe("a counted kind within the cap (#1039)", () => {
         expect(asked).toEqual([[from, to], [from, to], [from, to]]);
     });
 
-    test("while its count is in flight it is neither, and a kind with no count — read through a day index — is within it", () => {
+    test("while its count is in flight it is neither", () => {
         expect(scheduleWithinCap(counting(none, []), from, to)).toEqual(none);
-        expect(scheduleWithinCap(undefined, from, to)).toEqual(some(true));
+    });
+});
+
+describe("a window of a paged kind's resources, as the reader reads it (#1039)", () => {
+    /** A paged kind whose windows of 200 answer as `read` says, each window it is asked for kept in `asked`. */
+    const pagedOf = (read: () => option<readonly string[]>, asked: [bigint, bigint][] = []): ScheduleCellPaged => ({
+        kind: "presses", window: 200, hidden: false,
+        keys: (offset, limit) => { asked.push([offset, limit]); return read(); },
+        total: () => some(2_000n),
+        narrowing: () => undefined,
+    });
+
+    test("its keys once it has landed, asked of its offset and size; none while it is in flight", () => {
+        const asked: [bigint, bigint][] = [];
+        expect(scheduleWindowKeys(pagedOf(() => some(["P-1201", "P-1202"]), asked), 1)).toEqual(["P-1201", "P-1202"]);
+        expect(asked).toEqual([[200n, 200n]]);
+        expect(scheduleWindowKeys(pagedOf(() => none), 0)).toBeUndefined();
+    });
+
+    test("a window whose read failed — the paging runtime's PagedReadError — gives no block; anything else thrown is thrown on", () => {
+        const failed = pagedOf(() => { throw new PagedReadError("Data.bindPaged: plan_window_presses: internal_error"); });
+        expect(scheduleWindowKeys(failed, 0)).toBe(SCHEDULE_WINDOW_FAILED);
+        // No read that failed: a fault of the reader's, or of the seam's own East, is no window to retry.
+        const broken = pagedOf(() => { throw new TypeError("keys is not a function"); });
+        expect(() => scheduleWindowKeys(broken, 0)).toThrow(TypeError);
+        const authored = pagedOf(() => { throw new Error("Data.bindPaged: source path \"plan_window_presses\" not declared in manifest"); });
+        expect(() => scheduleWindowKeys(authored, 0)).toThrow(/not declared in manifest/);
+    });
+
+    test("a PagedReadError is known by its mark, whichever copy of its module made it", () => {
+        expect(isPagedReadError(new PagedReadError("failed"))).toBe(true);
+        // A copy of the module marks its errors with the same registry symbol.
+        const copied = Object.assign(new Error("failed"), { [Symbol.for("@elaraai/e3-ui-components:PagedReadError")]: true });
+        expect(isPagedReadError(copied)).toBe(true);
+        expect(isPagedReadError(new Error("failed"))).toBe(false);
+        expect(isPagedReadError("failed")).toBe(false);
+        expect(isPagedReadError(undefined)).toBe(false);
     });
 });

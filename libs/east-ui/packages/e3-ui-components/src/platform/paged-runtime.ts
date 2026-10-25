@@ -13,7 +13,8 @@
  * re-reads on the next reactive frame (the window's channel notifies when it
  * settles), which is why the East-side contract is `Option` rather than a
  * promise — the same shape `Func.bind`'s `read()` has. A fetch that failed
- * throws its reason when read, so `none` means only "in flight".
+ * throws its reason when read — a {@link PagedReadError}, so a reader tells a
+ * read that failed from any other error — so `none` means only "in flight".
  *
  * Every bind of one dataset shares a SNAPSHOT: the content hash its reads are
  * pinned to, its revision. Windows, totals and searches are fetched pinned, so
@@ -139,6 +140,7 @@ import { datasetPathToString, type ReactiveDatasetCacheInterface } from "./datas
 import { TrackedChannelStore } from "./tracked-channel.js";
 import { IndexedPagedRuntime, recordSliceBatchesOf } from "./indexed-paged.js";
 import { toFindQuery } from "./find-query.js";
+import { PagedReadError } from "./paged-read-error.js";
 
 // =============================================================================
 // API seam — the narrow surface the runtime talks through. Tests stub it; the
@@ -1207,7 +1209,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * dataset has no value, or `undefined` while it is being found — tracked so
      * the read re-fires when the source moves.
      *
-     * @throws The failed lookup's reason, until a read after the retry gap
+     * @throws {PagedReadError} The failed lookup's reason, until a read after the retry gap
      *   looks again
      */
     private revisionFor(workspace: string, path: TreePath): string | null | undefined {
@@ -1215,7 +1217,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         const snapshot = this.snapshotOf(workspace, path);
         if (snapshot.revision !== undefined || snapshot.finding) return snapshot.revision;
         if (snapshot.findError !== undefined && this.now() - (snapshot.findFailedAtMs ?? 0) < RETRY_AFTER_MS) {
-            throw new Error(snapshot.findError);
+            throw new PagedReadError(snapshot.findError);
         }
         this.find(workspace, path, snapshot);
         return undefined;
@@ -1490,10 +1492,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     }
 
     /** What a read of a channel answers: its value once loaded, `none` while
-     *  in flight, or its failure, thrown. */
+     *  in flight, or its failure, thrown as a {@link PagedReadError}. */
     private answer<T>(entry: PageEntry, value: T | undefined): option<T> {
         if (entry.status === "loaded" && value !== undefined) return some(value);
-        if (entry.status === "failed") throw new Error(entry.error ?? "Data.bindPaged: the read failed");
+        if (entry.status === "failed") throw new PagedReadError(entry.error ?? "Data.bindPaged: the read failed");
         return none;
     }
 
