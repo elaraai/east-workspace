@@ -314,16 +314,15 @@ export const sheetStressByNotes = e3.recordIndex("sheet_stress_by_notes", sheetS
  * virtualised, in the record's order. The rail is the sheet's
  * `Slice.bindRecords`: its `rows` source narrows the jobs by activity, by
  * status and by a prefix of their notes, each through the record's own index,
- * and the sheet draws the narrowing over the jobs as the lens (#1349) — each
- * match at its row number, the rows either side as the view's context says,
- * and the rest in gaps. Saved views each keep every source's narrowing
- * (`Sheet.Types.RecordView`, its values `.east` literals) and the lens's
- * context, the first one open, kept per viewer through a `State` bind handle.
- * It is given no pane.
+ * and the sheet draws the narrowing over the jobs as the lens (#1349), a
+ * filtered spreadsheet: only the jobs it keeps, one after another, each at
+ * its row number. Saved views each keep every source's narrowing
+ * (`Sheet.Types.RecordView`, its values `.east` literals), the first one
+ * open, kept per viewer through a `State` bind handle. It is given no pane.
  */
 export const sheetStress = example({
-    keywords: ["Sheet", "stress", "virtualization", "2000", "rows", "performance", "readOnly", "slice", "Slice.bindRecords", "rows", "Data.bindPaged", "recordIndex", "record", "search", "filter", "lens", "context", "views", "RecordView", "State.bind", "activeView", "set", "register", "concat", "footer", "paged", "Reactive", "State"],
-    description: "Two thousand jobs of an e3 record, read only and virtualised in the sheet's frame, in the record's order, the rail's narrowing — by activity, by status and by a prefix of their notes, each through the record's index — drawn over them as the lens, with saved views kept per viewer, each every source's narrowing and the lens's context",
+    keywords: ["Sheet", "stress", "virtualization", "2000", "rows", "performance", "readOnly", "slice", "Slice.bindRecords", "rows", "Data.bindPaged", "recordIndex", "record", "search", "filter", "lens", "views", "RecordView", "State.bind", "activeView", "set", "register", "concat", "footer", "paged", "Reactive", "State"],
+    description: "Two thousand jobs of an e3 record, read only and virtualised in the sheet's frame, in the record's order, the rail's narrowing — by activity, by status and by a prefix of their notes, each through the record's index — drawn over them as the lens, a filtered spreadsheet showing only the jobs it keeps, with saved views kept per viewer, each every source's narrowing",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const MachineType = StructType({ code: StringType, family: StringType });
@@ -345,11 +344,11 @@ export const sheetStress = example({
             }));
             // Each view keeps every source's narrowing, by name: an activity's value is its `.east` literal, a search its prefix.
             const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet_stress_views", [
-                { id: "spraying", name: "SPRAYING", context: 1n, reveals: [], folds: new Map(),
+                { id: "spraying", name: "SPRAYING", folds: new Map(),
                   narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Spraying\""])]]), preset: none, resolution: none }]]) },
-                { id: "routers", name: "ROUTERS", context: 0n, reveals: [], folds: new Map(),
+                { id: "routers", name: "ROUTERS", folds: new Map(),
                   narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Routing\""])]]), preset: none, resolution: none }]]) },
-                { id: "urgent", name: "URGENT", context: 0n, reveals: [], folds: new Map(),
+                { id: "urgent", name: "URGENT", folds: new Map(),
                   narrowing: new Map([["rows", { where: new Map([["notes", variant("prefix", "urgent")]]), preset: none, resolution: none }]]) },
             ]));
             return (

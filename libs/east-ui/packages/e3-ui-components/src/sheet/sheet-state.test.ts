@@ -657,12 +657,12 @@ describe("the copilot", () => {
     });
 });
 
-// ── The lens and the view tabs (B§8 — Sheet Spec §5 rows 16–17) ─────────────
+// ── The narrowing and the view tabs (B§8 — Sheet Spec §5 rows 16–17) ───────
 // A view's narrowing is every source's of the sheet's `Slice.bindRecords`, by
 // name (#1345): here the `rows` source's search, a prefix of the notes.
 
 import { SortedMap, StringType, compareFor, none } from "@elaraai/east";
-import type { SheetNarrowing, SheetRevealValue, SheetSavedView } from "./values.js";
+import type { SheetNarrowing, SheetSavedView } from "./values.js";
 import { narrowingEqual } from "./view-state.js";
 
 const narrowingOf = (search: string | undefined): SheetNarrowing => new SortedMap([["rows", {
@@ -671,106 +671,77 @@ const narrowingOf = (search: string | undefined): SheetNarrowing => new SortedMa
 const EMPTY = narrowingOf(undefined);
 const SPRAY = narrowingOf("spray");
 const ROUTER = narrowingOf("router");
-/** A run the planner opened, by its first and last rows' keys (#1349). */
-const reveal = (from: string, to: string = from): SheetRevealValue => ({ from, to });
-const view = (id: string, name: string, narrowing: SheetNarrowing, context = 0n, reveals: SheetRevealValue[] = []): SheetSavedView => ({ id, name, narrowing, context, reveals, folds: new Map() });
-const VIEWS = [view("spray", "SPRAY", SPRAY, 1n, [reveal("WO-4")]), view("router", "ROUTER", ROUTER)];
+/** A view, and the folds it keeps on a grouped sheet (#740). */
+const view = (id: string, name: string, narrowing: SheetNarrowing, folds: ReadonlyMap<string, boolean> = new Map()): SheetSavedView =>
+    ({ id, name, narrowing, folds: new Map(folds) });
+const VIEWS = [view("spray", "SPRAY", SPRAY, new Map([["p1", true]])), view("router", "ROUTER", ROUTER)];
+/** The folds the viewer left on SPRAY: one group opened, another folded. */
+const LEFT = new Map([["p1", false], ["p2", true]]);
 
-/** A sheet on the SPRAY tab, the slice at `narrowing`, the views as given; the lens drew row n as `WO-n`, so it names each run by those. */
-function lensCtxOf(narrowing: SheetNarrowing, views: readonly SheetSavedView[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
-    return ctxOf({
-        rowCount: 6, lensActive: true, views, narrowing, emptyNarrowing: EMPTY, dirty,
-        nameReveals: (runs) => runs.map((r) => reveal(`WO-${r.from}`, `WO-${r.to}`)),
-        ...over,
-    });
+/** A sheet on the SPRAY tab, the slice at `narrowing`, the views as given. */
+function tabsCtxOf(narrowing: SheetNarrowing, views: readonly SheetSavedView[] = VIEWS, dirty = false, over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
+    return ctxOf({ rowCount: 6, lensActive: true, views, narrowing, emptyNarrowing: EMPTY, dirty, ...over });
 }
-const onSpray = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "spray"), lens: { context: 1, reveals: [{ from: 4, to: 5 }], named: [], steps: new Map([["a_b:top", 2]]), folds: new Map() } });
+const onSpray = (): SheetUiState => ({ ...initialSheetState({ r: 3, c: 1 }, "spray"), folds: new Map(LEFT) });
 const viewsOf = (t: { effects: SheetEffect[] }): SheetSavedView[] | undefined => (t.effects.find((e) => e.t === "emit.views") as { views: SheetSavedView[] } | undefined)?.views;
 const written = (t: { effects: SheetEffect[] }): SheetNarrowing | undefined => (t.effects.find((e) => e.t === "slice.write") as { state: SheetNarrowing } | undefined)?.state;
 
-describe("the lens", () => {
-    test("band controls open runs of rows, merged, and escalate; the context switch and a narrowing change reset them", () => {
-        const ctx = lensCtxOf(SPRAY);
-        const one = run(initialSheetState(), [{ t: "band.reveal", key: "g", from: 10, to: 19, where: "top" }], ctx);
-        expect(one.state.lens.reveals).toEqual([{ from: 10, to: 10 }]);
-        expect(one.state.lens.steps.get("g:top")).toBe(1);
-        const three = run(one.state, [{ t: "band.reveal", key: "g", from: 11, to: 19, where: "top" }], ctx);
-        expect(three.state.lens.reveals).toEqual([{ from: 10, to: 13 }]);
-        const other = run(three.state, [{ t: "band.reveal", key: "h", from: 30, to: 31, where: "all" }], ctx);
-        expect(other.state.lens.reveals).toEqual([{ from: 10, to: 13 }, { from: 30, to: 31 }]);
-        const switched = run(other.state, [{ t: "lens.context", context: 3 }], ctx);
-        expect(switched.state.lens).toEqual({ context: 3, reveals: [], named: [], steps: new Map(), folds: new Map() });
-        const ranged = { ...other.state, sel: { r: 4, c: 2 }, selEnd: { r: 5, c: 2 } };
-        const narrowed = run(ranged, [{ t: "lens.narrowed" }], ctx);
-        expect(narrowed.state.lens.reveals).toEqual([]);
-        expect(narrowed.state.lens.context).toBe(0);
+describe("the narrowing", () => {
+    test("a narrowing changed underneath returns the ring to the top and drops the range, the pick and the armed fill, keeping the folds; ⌘/ and ⌘F focus the rail's search", () => {
+        const ctx = tabsCtxOf(SPRAY);
+        const ranged = { ...initialSheetState(), sel: { r: 4, c: 2 }, selEnd: { r: 5, c: 2 }, gsel: 0, armed: { r: 4, c: 2 }, folds: new Map(LEFT) };
+        const narrowed = run(ranged, [{ t: "narrowing.changed" }], ctx);
         expect(narrowed.state.sel).toEqual({ r: 0, c: 2 });
         expect(narrowed.state.selEnd).toBeNull();
-        expect(narrowed.effects).toContainEqual({ t: "emit.select", r: 0, c: 2 });
-        // ⌘/ and ⌘F focus the rail's search whatever the sheet holds.
+        expect(narrowed.state.gsel).toBeNull();
+        expect(narrowed.state.armed).toBeNull();
+        expect(narrowed.state.folds).toBe(ranged.folds);
+        expect(narrowed.effects).toEqual([{ t: "emit.select", r: 0, c: 2 }]);
         expect(run(initialSheetState(), [key("/", { meta: true })], ctx).effects).toEqual([{ t: "focus.search" }]);
         expect(run(initialSheetState(), [key("f", { meta: true })], ctx).effects).toEqual([{ t: "focus.search" }]);
-    });
-
-    test("a key search's row opens; a new revision names the runs by their rows' keys, placed again where they land — unless the narrowing moved meanwhile (#1349)", () => {
-        const ctx = lensCtxOf(SPRAY);
-        const opened = run(initialSheetState(), [{ t: "lens.reveal", runs: [{ from: 7, to: 7 }] }], ctx);
-        expect(opened.state.lens.reveals).toEqual([{ from: 7, to: 7 }]);
-        // A run already open changes nothing.
-        expect(run(opened.state, [{ t: "lens.reveal", runs: [{ from: 7, to: 7 }] }], ctx).state).toBe(opened.state);
-        const named = run(opened.state, [{ t: "lens.named", named: [reveal("WO-7")] }], ctx);
-        expect(named.state.lens).toMatchObject({ reveals: [], named: [reveal("WO-7")] });
-        // Found a row on: a row was added above it.
-        const placed = run(named.state, [{ t: "lens.placed", named: named.state.lens.named, runs: [{ from: 8, to: 8 }] }], ctx);
-        expect(placed.state.lens).toMatchObject({ reveals: [{ from: 8, to: 8 }], named: [] });
-        // Runs the lens no longer holds to place — the narrowing changed meanwhile — place nothing.
-        const moved = run(named.state, [{ t: "lens.narrowed" }], ctx).state;
-        expect(moved.lens.named).toEqual([]);
-        expect(run(moved, [{ t: "lens.placed", named: named.state.lens.named, runs: [{ from: 8, to: 8 }] }], ctx).state).toBe(moved);
     });
 });
 
 describe("the view tabs", () => {
-    test("switching persists the leaving tab's context and reveals (never an unsaved query), writes the target's narrowing and restores its lens; the whole sheet writes the empty narrowing", () => {
-        // On SPRAY with an unsaved query (the slice holds ROUTER) and a lens of ±1 with a run of two rows open.
-        const ctx = lensCtxOf(ROUTER, VIEWS, true);
+    test("switching persists the leaving tab's folds (never an unsaved query), writes the target's narrowing and opens it with its folds; the whole sheet writes the empty narrowing", () => {
+        // On SPRAY with an unsaved query (the slice holds ROUTER), its folds as the viewer left them.
+        const ctx = tabsCtxOf(ROUTER, VIEWS, true);
         const t = run(onSpray(), [{ t: "tab.switch", id: "router" }], ctx);
         expect(t.state.tabs.active).toBe("router");
-        expect(t.state.lens).toEqual({ context: 0, reveals: [], named: [], steps: new Map(), folds: new Map() });
+        expect(t.state.folds.size).toBe(0);
         expect(t.state.sel).toEqual({ r: 0, c: 1 });
         const views = viewsOf(t)!;
-        // Context and reveals persisted, the run by its rows' keys; the narrowing kept.
-        expect(views[0]).toEqual(view("spray", "SPRAY", SPRAY, 1n, [reveal("WO-4", "WO-5")]));
-        // Runs still to be placed persist as they were named, after the runs the lens drew.
-        const placing: SheetUiState = { ...onSpray(), lens: { ...onSpray().lens, named: [reveal("WO-9", "WO-12")] } };
-        expect(viewsOf(run(placing, [{ t: "tab.switch", id: "router" }], ctx))![0]!.reveals).toEqual([reveal("WO-4", "WO-5"), reveal("WO-9", "WO-12")]);
+        // The folds persisted; the narrowing kept.
+        expect(views[0]).toEqual(view("spray", "SPRAY", SPRAY, LEFT));
         expect(written(t)).toBe(ROUTER);
         expect(t.effects.map((e) => e.t)).toEqual(["emit.views", "slice.write", "emit.select", "focus.sheet"]);
-        // Back to the whole sheet: the empty narrowing, no lens; nothing to persist when nothing moved.
-        const whole = run({ ...t.state, sel: { r: 0, c: 1 } }, [{ t: "tab.switch", id: null }], lensCtxOf(ROUTER, views));
+        // Back to the whole sheet: the empty narrowing, no folds; nothing to persist when nothing moved.
+        const whole = run({ ...t.state, sel: { r: 0, c: 1 } }, [{ t: "tab.switch", id: null }], tabsCtxOf(ROUTER, views));
         expect(whole.state.tabs.active).toBeNull();
         expect(written(whole)).toBe(EMPTY);
         expect(viewsOf(whole)).toBeUndefined();
-        // Opening a view (the initial `activeView`) never persists the tab it leaves; its runs wait to be placed by their keys.
-        const opened = run(initialSheetState({ r: 0, c: 0 }, "spray"), [{ t: "tab.open", id: "spray" }], lensCtxOf(EMPTY));
+        // Opening a view (the initial `activeView`) never persists the tab it leaves; its folds come with it.
+        const opened = run(initialSheetState({ r: 0, c: 0 }, "spray"), [{ t: "tab.open", id: "spray" }], tabsCtxOf(EMPTY));
         expect(viewsOf(opened)).toBeUndefined();
-        expect(opened.state.lens).toEqual({ context: 1, reveals: [], named: [reveal("WO-4")], steps: new Map(), folds: new Map() });
+        expect(opened.state.folds).toEqual(new Map([["p1", true]]));
         expect(written(opened)).toBe(SPRAY);
+        // The folds the last session left on it, newer than the view's own (#857).
+        expect(run(initialSheetState({ r: 0, c: 0 }, "spray"), [{ t: "tab.open", id: "spray", folds: LEFT }], tabsCtxOf(EMPTY)).state.folds).toBe(LEFT);
         // An unknown tab is ignored.
         expect(run(onSpray(), [{ t: "tab.switch", id: "zzz" }], ctx).state).toEqual(onSpray());
     });
 
-    test("+ TAB snapshots the narrowing, the context and the reveals, named from the query or `view n`; the new tab is active", () => {
-        const t = run(onSpray(), [{ t: "tab.create" }], lensCtxOf(ROUTER));
+    test("+ TAB snapshots the narrowing and the folds, named from the query or `view n`; the new tab is active", () => {
+        const t = run(onSpray(), [{ t: "tab.create" }], tabsCtxOf(ROUTER));
         const views = viewsOf(t)!;
         expect(views).toHaveLength(3);
-        expect(views[2]).toEqual(view("view-1", "router", ROUTER, 1n, [reveal("WO-4", "WO-5")]));
+        expect(views[2]).toEqual(view("view-1", "router", ROUTER, LEFT));
         expect(t.state.tabs.active).toBe("view-1");
         expect(t.state.tabs.seq).toBe(2);
         expect(said(t.state.msg)).toMatch(/Saved tab "router" — a live view/);
         // No query: `view n`; an id already taken moves on.
         const taken = [...VIEWS, view("view-1", "x", EMPTY)];
-        const blank = run(initialSheetState(), [{ t: "tab.create" }], lensCtxOf(EMPTY, taken));
+        const blank = run(initialSheetState(), [{ t: "tab.create" }], tabsCtxOf(EMPTY, taken));
         expect(viewsOf(blank)!.at(-1)).toEqual(view("view-2", "view 2", EMPTY));
         expect(said(blank.state.msg)).toMatch(/no filter/);
         // Without a slice there is nothing to snapshot.
@@ -778,34 +749,35 @@ describe("the view tabs", () => {
     });
 
     test("closing the active tab falls back to the sheet with its narrowing cleared; closing another just drops it", () => {
-        const active = run(onSpray(), [{ t: "tab.close", id: "spray" }], lensCtxOf(SPRAY));
+        const active = run(onSpray(), [{ t: "tab.close", id: "spray" }], tabsCtxOf(SPRAY));
         expect(active.state.tabs.active).toBeNull();
+        expect(active.state.folds.size).toBe(0);
         expect(viewsOf(active)!.map((v) => v.id)).toEqual(["router"]);
         expect(written(active)).toBe(EMPTY);
         expect(said(active.state.msg)).toBe('Closed "SPRAY" — back to the whole sheet');
-        const other = run(onSpray(), [{ t: "tab.close", id: "router" }], lensCtxOf(SPRAY));
+        const other = run(onSpray(), [{ t: "tab.close", id: "router" }], tabsCtxOf(SPRAY));
         expect(other.state.tabs.active).toBe("spray");
         expect(viewsOf(other)!.map((v) => v.id)).toEqual(["spray"]);
         expect(written(other)).toBeUndefined();
     });
 
     test("⏎ in the search updates a dirty tab; esc reverts it; esc on a clean tab returns to the sheet; esc on the sheet clears the search; the sheet's own esc reaches the tabs after the range", () => {
-        const dirty = lensCtxOf(ROUTER, VIEWS, true);
+        const dirty = tabsCtxOf(ROUTER, VIEWS, true);
         const updated = run(onSpray(), [{ t: "search.key", key: "Enter" }], dirty);
-        expect(viewsOf(updated)![0]).toEqual(view("spray", "SPRAY", ROUTER, 1n, [reveal("WO-4", "WO-5")]));
+        expect(viewsOf(updated)![0]).toEqual(view("spray", "SPRAY", ROUTER, LEFT));
         expect(updated.effects.map((e) => e.t)).toEqual(["emit.views", "focus.sheet"]);
         expect(said(updated.state.msg)).toBe('Tab "SPRAY" now saves this search');
         const reverted = run(onSpray(), [{ t: "search.key", key: "Escape" }], dirty);
         expect(written(reverted)).toBe(SPRAY);
-        expect(reverted.state.lens).toEqual({ context: 1, reveals: [], named: [reveal("WO-4")], steps: new Map(), folds: new Map() });
+        expect(reverted.state.folds).toEqual(new Map([["p1", true]]));
         expect(said(reverted.state.msg)).toBe("Reverted to the tab's saved search");
-        const clean = run(onSpray(), [{ t: "search.key", key: "Escape" }], lensCtxOf(SPRAY));
+        const clean = run(onSpray(), [{ t: "search.key", key: "Escape" }], tabsCtxOf(SPRAY));
         expect(clean.state.tabs.active).toBeNull();
         expect(written(clean)).toBe(EMPTY);
         // Esc on the whole sheet drops every source's search, each keeping its other choices — compared as East compares them.
-        const sheet = run(initialSheetState(), [{ t: "search.key", key: "Escape" }], lensCtxOf(ROUTER));
+        const sheet = run(initialSheetState(), [{ t: "search.key", key: "Escape" }], tabsCtxOf(ROUTER));
         expect(narrowingEqual(written(sheet)!, EMPTY)).toBe(true);
-        expect(run(initialSheetState(), [{ t: "search.key", key: "Enter" }], lensCtxOf(EMPTY)).effects).toEqual([{ t: "focus.sheet" }]);
+        expect(run(initialSheetState(), [{ t: "search.key", key: "Enter" }], tabsCtxOf(EMPTY)).effects).toEqual([{ t: "focus.sheet" }]);
         // The sheet's esc: the range first, then the dirty tab, then the clean tab.
         const ranged = { ...onSpray(), selEnd: { r: 4, c: 1 } };
         const one = run(ranged, [key("Escape")], dirty);
@@ -813,12 +785,12 @@ describe("the view tabs", () => {
         expect(written(one)).toBeUndefined();
         const two = run(one.state, [key("Escape")], dirty);
         expect(written(two)).toBe(SPRAY);
-        const three = run(two.state, [key("Escape")], lensCtxOf(SPRAY));
+        const three = run(two.state, [key("Escape")], tabsCtxOf(SPRAY));
         expect(three.state.tabs.active).toBeNull();
     });
 
     test("a double click renames — ⏎ commits a non-empty name, esc cancels; a drop reorders", () => {
-        const ctx = lensCtxOf(SPRAY);
+        const ctx = tabsCtxOf(SPRAY);
         const started = run(onSpray(), [{ t: "tab.rename.start", id: "router" }, { t: "tab.rename.change", val: "  moulding  " }], ctx);
         expect(started.state.tabs).toMatchObject({ renaming: "router", renameVal: "  moulding  " });
         const committed = run(started.state, [{ t: "tab.rename.commit" }], ctx);
@@ -853,13 +825,13 @@ function groupedCtxOf(over: Partial<SheetMachineCtx> = {}): SheetMachineCtx {
 }
 
 describe("grouped rows", () => {
-    test("Space on a band folds and opens it; the chevron too; the folds are lens state", () => {
+    test("Space on a band folds and opens it; the chevron too; the folds are the viewer's", () => {
         const ctx = groupedCtxOf();
         const folded = run(initialSheetState({ r: 0, c: 0 }), [key(" ")], ctx);
-        expect(folded.state.lens.folds.get("p1")).toBe(true);
+        expect(folded.state.folds.get("p1")).toBe(true);
         expect(folded.state.edit).toBeNull();
         const opened = run(initialSheetState({ r: 1, c: 0 }), [{ t: "fold.toggle", r: 4 }], ctx);
-        expect(opened.state.lens.folds.get("p2")).toBe(false);
+        expect(opened.state.folds.get("p2")).toBe(false);
         expect(opened.state.sel).toEqual({ r: 4, c: 0 });
         // Space on a line still starts an edit.
         expect(run(initialSheetState({ r: 1, c: 0 }), [key(" ")], ctx).state.edit).not.toBeNull();
@@ -876,10 +848,8 @@ describe("grouped rows", () => {
         expect(run(band.state, [key("Backspace")], ctx).effects).toContainEqual({ t: "delete.rows", r0: 4, r1: 4 });
     });
 
-    test("a grouped sheet runs the lens — over its groups, the records — and the view tabs too", () => {
+    test("a grouped sheet runs the view tabs too — its lens over its groups, the records", () => {
         const ctx = groupedCtxOf({ views: VIEWS, narrowing: SPRAY, emptyNarrowing: EMPTY, lensActive: true });
-        const revealed = run(initialSheetState(), [{ t: "band.reveal", key: "g", from: 1, to: 2, where: "all" }], ctx);
-        expect(revealed.state.lens.reveals).toEqual([{ from: 1, to: 2 }]);
         const switched = run(initialSheetState(), [{ t: "tab.switch", id: "router" }], ctx);
         expect(switched.state.tabs.active).toBe("router");
         expect(written(switched)).toBe(ROUTER);
@@ -888,14 +858,14 @@ describe("grouped rows", () => {
     test("fold-all folds every group, the hidden ones too, and keeps the ring on its group; ⇧Space and ⌥ on a chevron go the way that band goes", () => {
         const ctx = groupedCtxOf({ groupIds: ["p1", "p2"], groupNoun: { singular: "order", plural: "orders" } });
         const folded = run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx);
-        expect(folded.state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        expect(folded.state.folds).toEqual(new Map([["p1", true], ["p2", true]]));
         expect(folded.effects).toContainEqual({ t: "select.id", id: "p1", c: 1 });
         expect(said(folded.state.msg)).toMatch(/^Folded 2 orders/);
         // ⇧Space on p1's band (open) folds every group.
-        expect(run(initialSheetState({ r: 0, c: 0 }), [key(" ", { shift: true })], ctx).state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        expect(run(initialSheetState({ r: 0, c: 0 }), [key(" ", { shift: true })], ctx).state.folds).toEqual(new Map([["p1", true], ["p2", true]]));
         // ⌥ on p2's chevron (folded) opens every group.
         const opened = run(initialSheetState({ r: 0, c: 0 }), [{ t: "fold.toggle", r: 4, all: true }], ctx);
-        expect(opened.state.lens.folds).toEqual(new Map([["p1", false], ["p2", false]]));
+        expect(opened.state.folds).toEqual(new Map([["p1", false], ["p2", false]]));
         expect(said(opened.state.msg)).toBe("Opened 2 orders");
     });
 
@@ -911,7 +881,7 @@ describe("grouped rows", () => {
             idAt: (r) => ["p1", "p1\u001f0", "p1\u001f1", " blank:g:p1", "loose", "p2"][r],
         });
         const folded = run(initialSheetState({ r: 4, c: 1 }), [{ t: "fold.all", folded: true }], ctx);
-        expect(folded.state.lens.folds).toEqual(new Map([["p1", true], ["p2", true]]));
+        expect(folded.state.folds).toEqual(new Map([["p1", true], ["p2", true]]));
         expect(folded.effects).toContainEqual({ t: "select.id", id: "loose", c: 1 });
         // A line still goes with its group.
         expect(run(initialSheetState({ r: 2, c: 1 }), [{ t: "fold.all", folded: true }], ctx).effects).toContainEqual({ t: "select.id", id: "p1", c: 1 });
@@ -938,14 +908,14 @@ describe("grouped rows", () => {
             lineSubRowsAt: (r) => (r === 1 ? { id: "L1", count: 2, open: false, group: ["L1", "L2"] } : undefined),
         });
         const shown = run(initialSheetState({ r: 1, c: 0 }), [key(" ")], ctx);
-        expect(shown.state.lens.folds).toEqual(new Map([["L1", false]]));
+        expect(shown.state.folds).toEqual(new Map([["L1", false]]));
         expect(shown.state.edit).toBeNull();
         expect(said(shown.state.msg)).toBe("Showing 2 sub rows under the line — Space hides them");
         const all = run(initialSheetState({ r: 1, c: 0 }), [key(" ", { shift: true })], ctx);
-        expect(all.state.lens.folds).toEqual(new Map([["L1", false], ["L2", false]]));
+        expect(all.state.folds).toEqual(new Map([["L1", false], ["L2", false]]));
         expect(said(all.state.msg)).toMatch(/of the order/);
         const chevron = run(initialSheetState({ r: 0, c: 0 }), [{ t: "subRows.toggle", r: 1 }], ctx);
-        expect(chevron.state.lens.folds).toEqual(new Map([["L1", false]]));
+        expect(chevron.state.folds).toEqual(new Map([["L1", false]]));
         expect(chevron.state.sel.r).toBe(1);
         expect(run(initialSheetState({ r: 2, c: 0 }), [key(" ")], ctx).state.edit).not.toBeNull();
     });

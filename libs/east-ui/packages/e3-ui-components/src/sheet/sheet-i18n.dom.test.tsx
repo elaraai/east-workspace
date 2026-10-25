@@ -11,9 +11,9 @@
  * `I18nProvider` sets, and `SheetMessagesProvider` overrides the words for a
  * subtree. The Plan's #820 test, for the Sheet. Every sheet is built by
  * `<Sheet>`'s factory and COMPILED, and rendered in its frame (#1216); the view
- * tabs and the lens's words — its count line, its context switch and its gap
- * pills — over the workshop's orders, through the rail's `rows` source and the
- * harness's records on e3 itself (#1345, #1349, #1376).
+ * tabs and the lens's count line over the workshop's orders, through the
+ * rail's `rows` source and the harness's records on e3 itself (#1345, #1349,
+ * #1376).
  */
 
 import { describe, test, expect, vi } from "vitest";
@@ -46,7 +46,7 @@ const ROWS = [
 ];
 const JobType = StructType({ id: StringType, activity: StringType });
 /** A view of the PLANNED orders: the `rows` source's status, a value its `.east` literal (#1345). */
-const VIEWS = [{ id: "planned", name: "PLANNED", context: 0n, reveals: [], folds: new Map<string, boolean>(),
+const VIEWS = [{ id: "planned", name: "PLANNED", folds: new Map<string, boolean>(),
     narrowing: new Map([["rows", { where: new Map([["status", variant("values", ["\"PLANNED\""])]]), preset: none, resolution: none }]]) }];
 const LineType = StructType({ task: StringType, qty: IntegerType });
 const PlanType = StructType({ id: StringType, name: StringType, lines: ArrayType(LineType) });
@@ -185,14 +185,8 @@ describe("one message table (#861)", () => {
         const add = q('[data-slot="tabAdd"]')!;
         allMarked(attrs(add, "aria-label", "title"));
         expect(words(add)).toEqual(["⟦tab"]);
-        // The lens's words (#1349): the count line, the context switch and its options, a gap's pill and its controls.
+        // The lens's words (#1349): its count line.
         await waitFor(() => expect(q('[data-slot="toolbarCount"]')?.textContent).toBe("⟦4 matches"));
-        const context = q('[data-slot="contextSwitch"]')!;
-        expect(context.getAttribute("aria-label")).toBe("⟦Context rows either side of a hit");
-        allMarked(words(context));
-        const gap = q('[data-slot="band"][data-band="lens"]')!;
-        allMarked(words(gap));
-        allMarked([...gap.querySelectorAll('[data-slot="bandControl"]')].flatMap((control) => attrs(control, "aria-label", "title")));
         // A rename box's name.
         fireEvent.doubleClick(planned);
         expect(q('[data-slot="tabRename"]')!.getAttribute("aria-label")).toBe("⟦Rename tab");

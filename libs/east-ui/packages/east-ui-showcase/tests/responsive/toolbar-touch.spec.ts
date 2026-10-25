@@ -12,8 +12,8 @@
  * every control in it is a 44px tap target — by its box, or by its halo
  * (`coarseHitArea`, #346), never by growing the row (#1193): a tap 21px above
  * or below a control's middle, on its column, lands on it; and where controls
- * sit edge to edge — a segment strip's, the context switch's — a tap just
- * inside one's edge lands on it, never on its neighbour's halo. An input's
+ * sit edge to edge — a segment strip's — a tap just inside one's edge lands
+ * on it, never on its neighbour's halo. An input's
  * target is its field. Read at the phone's own width, and on a touch screen
  * 1920px wide, where the rows unfold — the grain and resolution segments,
  * the key search's box, the rail's search pill, the view tabs — and there with
@@ -23,8 +23,8 @@
  * search — the frame narrowed until the second folds the first into `+n`,
  * which picks it again — and
  * on the stress sheet another of its views picked — from the strip, or from
- * `+n` where its lens's context switch and count line leave the strip short of
- * room (#1349) — the active tab's × shown and the others' hidden. On the phone
+ * `+n` where its lens's count line leaves the strip short of room (#1349) —
+ * the active tab's × shown and the others' hidden. On the phone
  * the workshop's two views fold with the
  * key search into its popover (#1345), and the row still fits. And a search's
  * list closes when the focus moves outside it, as on a desktop (#1228): ⏎ in
@@ -199,9 +199,9 @@ const TOOLBARS: ReadonlyArray<{ name: string; hash: string; phone?: readonly Ges
         ],
     },
     {
-        // Its views beside its lens's context switch and count line (#1349): a strip short of room folds the views it
-        // cannot hold into `+n`, the open one kept, before the count line goes — so another view is picked from the
-        // strip or from `+n`, whichever holds it.
+        // Its views beside its lens's count line (#1349): a strip short of room folds the views it cannot hold into
+        // `+n`, the open one kept, before the count line goes — so another view is picked from the strip or from `+n`,
+        // whichever holds it.
         name: "sheetStress", hash: "e3/sheet/sheet/sheetStress",
         wide: [{
             what: "another of its views picked",
@@ -307,9 +307,9 @@ async function touchFaults(entry: Locator): Promise<string[]> {
                 if (hit === null || !el.contains(hit)) bad.push(`${named(el)} (${t.width.toFixed(0)}×${t.height.toFixed(1)}): a tap ${dy < 0 ? "above" : "below"} its middle lands on ${named(hit)}`);
             }
         }
-        // Controls that sit edge to edge — a segment strip's segments, the context switch's options: siblings of one
-        // kind at most 2.5px apart. A tap 2px inside one's edge, on its middle or 21px above or below it, lands on it:
-        // the halo of the one beside it, drawn later, never takes it (`axis: "block"`, #1221).
+        // Controls that sit edge to edge — a segment strip's segments: siblings of one kind at most 2.5px apart. A tap
+        // 2px inside one's edge, on its middle or 21px above or below it, lands on it: the halo of the one beside it,
+        // drawn later, never takes it (`axis: "block"`, #1221).
         for (const el of controls) {
             const t = el.getBoundingClientRect();
             const next = controls.find((other) => {

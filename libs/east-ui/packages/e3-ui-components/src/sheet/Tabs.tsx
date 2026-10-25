@@ -74,7 +74,7 @@ export interface SheetTabView {
     name: string;
     /** Rows the view's narrowing matches, live. */
     count: number | undefined;
-    /** The hover title — the query, the context, the gestures. */
+    /** The hover title — the query and the gestures. */
     title: string;
 }
 

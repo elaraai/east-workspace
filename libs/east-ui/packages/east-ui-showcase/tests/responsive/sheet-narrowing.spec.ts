@@ -10,7 +10,7 @@
  * themes, the rail stands in the toolbar's one row, nothing leaving it, and
  * every source's field is in it: live, folded to its chip, or named by its one
  * trigger. An order status chosen through it narrows the grid's orders — the
- * others in the lens's gaps — and no
+ * lens draws those it keeps, and none of the others — and no
  * tab; the operation templates' group narrows the Rows tab, `Rows 5 of 11`,
  * whatever the orders show, its count in the type every tab's count has; and
  * at every width the Rows tab, or the collapsed pane's badge, counts what it
@@ -189,6 +189,12 @@ async function switchView(page: Page, frame: Locator, name: string): Promise<"st
     return form;
 }
 
+/** The sheet's rows scrolled to their top, as a finger brings them there, and the page at rest. */
+async function rowsToTop(page: Page, frame: Locator): Promise<void> {
+    await frame.locator("[data-frame-slot='main'] [data-virtual-rows]").first().evaluate((el) => { el.scrollTop = 0; });
+    await settled(page);
+}
+
 /**
  * Seeks a key through Search Records, whatever its form — the box, or its
  * icon's popover — and lands the ring on its row; the popover then closed by
@@ -221,8 +227,8 @@ async function seek(page: Page, frame: Locator, key: string): Promise<void> {
  * shows at its top, and a key to seek over the whole sheet, in key order: the
  * workshop, narrowed to the orders on hold through its rail; and the indexed
  * work orders in their phone frame, which open on the jobs ready — drawn over
- * the record's rows as the lens, the rows between hidden in its gaps — its
- * key far down the record.
+ * the record's rows as the lens, the jobs it keeps alone — its key far down
+ * the record.
  */
 const PHONES: ReadonlyArray<{ name: string; hash: string; narrow?: { field: string; value: RegExp }; hidden: string; key: string }> = [
     { name: "sheetWorkshop", hash: HASH, narrow: { field: "status", value: /^ON HOLD/ }, hidden: "WO-2201", key: "WO-2206" },
@@ -267,15 +273,19 @@ test.describe("the Sheet's row on a phone (#1345)", () => {
                 await closeOverlays(page);
                 // In the 294px frame the views fold with the key search into its popover.
                 if (width !== undefined) expect(await viewsForm(frame), at).toBe("search");
-                // The whole sheet, then the view again: each open in turn, and what each holds.
+                // The whole sheet, then the view again: each open in turn, and what each holds. The whole sheet keeps
+                // the row the view showed at its top where it was (#1398, CL8), so the rows before that row sit above
+                // the view: the whole sheet's top shows them.
                 await switchView(page, frame, "All");
                 await expect.poll(view, `the whole sheet at ${at}`).not.toBe("view-1");
+                await rowsToTop(page, frame);
                 await expect(row(hidden), `the whole sheet at ${at}`).toHaveCount(1);
                 await switchView(page, frame, "view 1");
                 await expect.poll(view, `the view at ${at}`).toBe("view-1");
                 await expect(row(hidden), `the view at ${at}`).toHaveCount(0);
                 // Search Records still seeks: over the whole sheet, its rows landed in key order, the ring on the key's row.
                 await switchView(page, frame, "All");
+                await rowsToTop(page, frame);
                 await expect(row(hidden), `the whole sheet again at ${at}`).toHaveCount(1);
                 await seek(page, frame, key);
                 expect(await toolbarFaults(frame), `${at}, after the gestures`).toEqual([]);

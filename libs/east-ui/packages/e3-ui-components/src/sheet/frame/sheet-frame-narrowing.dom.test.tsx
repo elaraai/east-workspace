@@ -126,45 +126,39 @@ async function openTab(container: HTMLElement, name: string) {
 /** A view tab of the toolbar's, by its id. */
 const viewTab = (container: HTMLElement, id: string) => container.querySelector<HTMLElement>(`[data-slot="tab"][data-tab="${id}"]`)!;
 
-test("a record-bound Sheet draws its `rows` source's narrowing over the orders as the lens: the matching order at its number, its lines marked, gaps over the rest that open, the context switch and the count line (#1345, #1349)", async () => {
+test("a record-bound Sheet draws its `rows` source's narrowing over the orders as the lens, a filtered spreadsheet: the matching orders alone, one after another at their numbers, their lines marked, nothing between them, and the count line the matches (#1345, #1349)", async () => {
     const { container } = await h.mount(sheet());
     const part = railParts();
-    const root = () => slot(container, "main")!.querySelector<HTMLElement>("[data-sheet]")!;
-    /** The gaps the lens draws, by how many orders each hides. */
-    const gaps = () => [...slot(container, "main")!.querySelectorAll<HTMLElement>('[data-slot="band"][data-band="lens"]')].map((gap) => gap.dataset["hidden"]);
+    const main = () => slot(container, "main")!;
+    const root = () => main().querySelector<HTMLElement>("[data-sheet]")!;
     const number = (id: string) => band(container, id)!.querySelector('[data-slot="gutterNumber"]')!.textContent;
     await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
-    // Nothing narrows the orders: no lens.
+    // Nothing narrows the orders: no lens, and no count line.
     expect(root().hasAttribute("data-lens")).toBe(false);
-    expect(container.querySelector('[data-slot="contextSwitch"], [data-slot="toolbarCount"]')).toBeNull();
+    expect(container.querySelector('[data-slot="toolbarCount"]')).toBeNull();
     await act(async () => { part("rows").choose("status", [print("ON HOLD")]); });
     await waitFor(() => expect(bands(container)).toEqual(["WO-2204"]));
     expect(root().hasAttribute("data-lens")).toBe(true);
     expect(container.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("1 match");
-    // The orders either side are gaps of their size, three above, two below; the match keeps its number, the fourth order's.
-    expect(gaps()).toEqual(["3", "2"]);
+    // The match keeps its number, the fourth order's; nothing stands for the orders the narrowing leaves out.
     expect(number("WO-2204")).toBe("4");
+    expect(main().querySelectorAll('[data-slot="band"]')).toHaveLength(0);
     // Its lines are the matching order's alone, each marked a match.
-    const lines = [...slot(container, "main")!.querySelectorAll<HTMLElement>('[data-slot="row"][data-group-id]')];
+    const lines = [...main().querySelectorAll<HTMLElement>('[data-slot="row"][data-group-id]')];
     expect(new Set(lines.map((line) => line.dataset["groupId"]))).toEqual(new Set(["WO-2204"]));
     expect(lines.every((line) => line.querySelector('[data-slot="gutterNumber"]')!.hasAttribute("data-hit"))).toBe(true);
-    // ±1: the orders either side show as its context, at their numbers, their lines no matches.
-    fireEvent.mouseDown(container.querySelector<HTMLElement>('[data-slot="contextOption"][data-context="1"]')!, { button: 0 });
-    await waitFor(() => expect(bands(container)).toEqual(["WO-2203", "WO-2204", "WO-2205"]));
-    expect([number("WO-2203"), number("WO-2205")]).toEqual(["3", "5"]);
-    expect(container.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("1 match · 2 context");
-    expect(gaps()).toEqual(["2", "1"]);
-    expect(slot(container, "main")!.querySelector('[data-slot="row"][data-group-id="WO-2203"] [data-slot="gutterNumber"]')!.hasAttribute("data-hit")).toBe(false);
-    // The first gap's "all" opens the orders it hid.
-    const first = slot(container, "main")!.querySelector<HTMLElement>('[data-slot="band"][data-band="lens"]')!;
-    fireEvent.mouseDown(first.querySelector<HTMLElement>('[data-slot="bandControl"][data-where="all"]')!, { button: 0 });
-    await waitFor(() => expect(bands(container)).toEqual(["WO-2201", "WO-2202", "WO-2203", "WO-2204", "WO-2205"]));
-    expect(gaps()).toEqual(["1"]);
+    // The toolbar offers no control over the lens: no rows shown beside the matches.
+    expect(container.querySelector('[role="radiogroup"]')).toBeNull();
+    // Two statuses: their orders one after another, each at its own number.
+    await act(async () => { part("rows").choose("status", [print("ON HOLD"), print("PLANNED")]); });
+    await waitFor(() => expect(bands(container)).toEqual(["WO-2202", "WO-2203", "WO-2204", "WO-2205", "WO-2206"]));
+    expect(["WO-2202", "WO-2203", "WO-2204", "WO-2205", "WO-2206"].map(number)).toEqual(["2", "3", "4", "5", "6"]);
+    expect(container.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("5 matches");
+    expect(main().querySelectorAll('[data-slot="band"]')).toHaveLength(0);
     // Cleared: every order, no lens.
     await act(async () => { part("rows").clearAll(); });
     await waitFor(() => expect(bands(container)).toEqual(["WO-2201", "WO-2202", "WO-2203", "WO-2204", "WO-2205", "WO-2206"]));
     expect(root().hasAttribute("data-lens")).toBe(false);
-    expect(gaps()).toEqual([]);
 });
 
 test("each source filters only its own places: the templates' sources the Rows tab's cards of their lists and the tab that names one, the `rows` source the grid (#1345)", async () => {
@@ -274,7 +268,7 @@ test("a draft the narrowing hides is kept, and saved by its original key (#1345)
 
 test("folds left on a view come back when the sheet opens on it again (#857)", async () => {
     const planned: View = {
-        id: "planned", name: "PLANNED", context: 0n, reveals: [], folds: new Map(),
+        id: "planned", name: "PLANNED", folds: new Map(),
         narrowing: new SortedMap([["rows", { where: new Map([["status", variant("values", [print("PLANNED")])]]), preset: none, resolution: none }]], compareFor(StringType)),
     };
     let ui = await h.mount(sheet({ views: [planned], activeView: "planned" }));
@@ -291,16 +285,15 @@ test("folds left on a view come back when the sheet opens on it again (#857)", a
     await waitFor(() => expect(band(ui.container, "WO-2202")?.hasAttribute("data-folded")).toBe(true));
 });
 
-test("a sheet that opens on a saved view opens at the top of its narrowing, however tall the band the lens draws there before it has read the rows (#1349)", async () => {
+test("a sheet that opens on a saved view opens at the top of its narrowing, never at the end of the band the lens draws there before it has read the rows (#1349)", async () => {
     const restore = frameScrolls();
     try {
-        // The stress sheet opens on its SPRAYING view, the row either side of each match its context. Its first rows
-        // are the record's first Spraying job and the rows beside it, in the record's order: its keys'.
+        // The stress sheet opens on its SPRAYING view. Its first rows are the record's first Spraying jobs, one after
+        // another in the record's order: its keys'.
         const jobs = await h.read(ex.sheetStressJobs);
         const keys = [...jobs.keys()].sort(compareFor(StringType));
-        const first = keys.findIndex((key) => stringEqual(jobs.get(key)!.activity, "Spraying"));
-        expect(first).toBeGreaterThanOrEqual(0);
-        const top = keys.slice(Math.max(0, first - 1), first + 2);
+        const top = keys.filter((key) => stringEqual(jobs.get(key)!.activity, "Spraying")).slice(0, 3);
+        expect(top).toHaveLength(3);
         const { container } = await h.mount(ex.sheetStress, { storageKey: "sheet-stress-open" });
         const main = () => slot(container, "main")!;
         const ids = () => [...main().querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')].map((row) => row.dataset["rowId"]);

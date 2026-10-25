@@ -25,11 +25,11 @@
  *   (`Record.onApply(record, { keyed: true })`).
  *
  * Its narrowing is that one `Slice.bindRecords`, one rail on its toolbar.
- * The `rows` source's narrowing is drawn over the rows as the lens (#1349):
- * each match at its row number, the rows either side of it, and bands over
- * the rest, placed by e3 from the source's index alone. Each other source
- * narrows the templates list or the library tab that names it. Templates are
- * records, each list its own source (#1340).
+ * The `rows` source's narrowing is drawn over the rows as the lens (#1349),
+ * as a filtered spreadsheet: only the rows it keeps, one after another, each
+ * at its row number, placed by e3 from the source's index alone. Each other
+ * source narrows the templates list or the library tab that names it.
+ * Templates are records, each list its own source (#1340).
  *
  * The sheet is an interface. Its payload holds the sheet whole — its grid,
  * its rows, its narrowing's chrome and its session ({@link SheetRootType}) —

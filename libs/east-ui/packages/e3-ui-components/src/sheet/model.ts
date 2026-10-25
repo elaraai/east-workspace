@@ -14,9 +14,10 @@
  * the line's cells (so every cell helper reads it as a row) tagged with its
  * group ({@link LineGroup}). An open line's SUB ROWS (#844) hang under it
  * as `subRow` items, outside the row space. Under the lens (#1349) the body is
- * what it lays out over the record ({@link buildLensBody}): the groups — the
- * records — narrow as flat rows do, a match keeping its number and its lines
- * marked, context either side, gaps and bands over the rest.
+ * what it lays out over the record ({@link buildLensBody}): the rows the
+ * narrowing keeps, one after another, each keeping its number, and a band
+ * over each stretch of them not read yet — on a grouped sheet its groups, the
+ * records, narrowing as flat rows do, a match's lines marked.
  *
  * Pure: no React, no DOM. The interaction state lives in `sheet-state.ts`;
  * the data lives in the component (local rows over the decoded value).
@@ -31,7 +32,6 @@ import type {
     SheetCellValue, SheetColumnValue, SheetContextValue, SheetCustomKindValue, SheetGroupValue, SheetLineValue, SheetLinkValue, SheetMemberValue,
     SheetNounValue, SheetRegisterMemberValue, SheetRootValue, SheetRowValue, SheetSubRowValue,
 } from "./values.js";
-import type { LensGap } from "./lens.js";
 import type { SheetWords } from "./words.js";
 import { blankRowId } from "./sheet-types.js";
 import { DATE_DISPLAY_PATTERN, isWhenLevel, type WhenLevel } from "./parse/date.js";
@@ -530,7 +530,7 @@ export function subRowText(s: SheetSubRowValue): string {
 /**
  * One unloaded run of a paged source, above or below the resident rows — or,
  * under the lens (#1349), a stretch of the record it is still reading or
- * placing, where its rows will be drawn.
+ * placing, where the narrowing's rows in it will be drawn.
  */
 export interface SheetBand {
     at: "head" | "tail" | "reading";
@@ -538,6 +538,8 @@ export interface SheetBand {
     from: number;
     /** Last source element covered (inclusive). */
     to: number;
+    /** How many of the sheet's elements it stands for, where that is not every one it covers: under the lens, the narrowing's rows in the stretch. */
+    elements?: number | undefined;
     /** The band's pixel height (the ledger's geometry). */
     px: number;
 }
@@ -549,6 +551,8 @@ export interface SheetWindowFailure {
     /** Its first and last source element (inclusive). */
     from: number;
     to: number;
+    /** How many of the sheet's elements it stands for, where that is not every one it covers: under the lens, the narrowing's rows in the segment. */
+    elements?: number | undefined;
     /** Its height — the ledger's slot for it, so the rows that replace it take the same space. */
     px: number;
     /** Why its read failed. */
@@ -659,7 +663,7 @@ export function layoutLensRun(
     return { positions, failures: [], segments };
 }
 
-/** One body item — a real row (a line, when tagged with its group), a line's sub row, a blank padding row (a group's blank line, when tagged), a group's band, a paged band, a lens gap, or a proposal. */
+/** One body item — a real row (a line, when tagged with its group), a line's sub row, a blank padding row (a group's blank line, when tagged), a group's band, a paged band, or a proposal. */
 export type SheetBodyItem =
     | {
         kind: "real";
@@ -676,8 +680,6 @@ export type SheetBodyItem =
         /** A LOOSE row's index among the resident loose rows (#846) — a grouped sheet's row that belongs to no group. */
         loose?: number | undefined;
     }
-    /** A run of rows the lens hides (B§8) — 22 px, a dashed rule, the `n hidden` pill with its controls. */
-    | { kind: "gap"; gap: LensGap }
     | {
         kind: "blank";
         /** The sheet position the blank would take (0-based); a group's blank line: the group's position. */
@@ -847,10 +849,8 @@ function groupItems(
 
 /** One item of the lens's layout, the local layer applied to its rows (#1349): what {@link buildLensBody} draws. */
 export type LensBodyInput =
-    /** A row drawn — a match, a row beside one, one the planner opened, or one the planner added — at its position in the record. */
+    /** A row drawn — one the narrowing holds, or one the planner added — at its position in the record. */
     | { kind: "row"; position: number; row: SheetRowValue; hit: boolean }
-    /** A run the lens hides, with its controls. */
-    | { kind: "gap"; gap: LensGap }
     /** A stretch still being read or placed. */
     | { kind: "band"; band: SheetBand }
     /** A segment whose read failed, or whose rows disagree with where e3 placed the narrowing's. */
@@ -858,10 +858,10 @@ export type LensBodyInput =
 
 /**
  * The body under the lens (#1349): what it laid out over the record, in its
- * order — each row drawn, its gaps and its bands. A grouped sheet's rows are
- * its groups, the records the narrowing holds or not: each shown group draws
- * its band and, unless folded, its lines and their open sub rows — a match's
- * lines marked — and no blank line, for a lens never invites the next row.
+ * order — each row drawn and its bands. A grouped sheet's rows are its groups,
+ * the records the narrowing holds: each shown group draws its band and, unless
+ * folded, its lines and their open sub rows — a match's lines marked — and no
+ * blank line, for a lens never invites the next row.
  *
  * @param items - The layout, the local layer applied to its rows
  * @param grouped - A grouped sheet's folds and open sub rows (`undefined` on a flat sheet)
@@ -874,7 +874,6 @@ export function buildLensBody(items: readonly LensBodyInput[], grouped: SheetBod
     let looseAt = 0;
     for (const item of items) {
         switch (item.kind) {
-            case "gap": out.push({ kind: "gap", gap: item.gap }); break;
             case "band": out.push({ kind: "band", band: item.band }); break;
             case "failed": out.push({ kind: "failed", failure: item.failure }); break;
             case "row": {
@@ -891,16 +890,11 @@ export function buildLensBody(items: readonly LensBodyInput[], grouped: SheetBod
     return out;
 }
 
-/**
- * The heights a sheet draws its items at (#855): a row's, a group band's and a
- * sub row's least height, and a lens gap's (#1349) — the band's, 22px, or a
- * touch's 32px on a coarse pointer, as the recipe draws it.
- */
+/** The heights a sheet draws its items at (#855): a row's, a group band's and a sub row's least height. */
 export interface SheetGeometry {
     rowPx: number;
     bandPx: number;
     subRowPx: number;
-    gapPx: number;
 }
 
 /**
@@ -913,7 +907,6 @@ export interface SheetGeometry {
  */
 export function itemPx(item: SheetBodyItem, g: SheetGeometry): number {
     switch (item.kind) {
-        case "gap": return g.gapPx;
         case "group": return g.bandPx;
         case "subRow": return g.subRowPx;
         case "failed": return Math.max(BAND_MIN_PX, item.failure.px);
@@ -974,7 +967,7 @@ export function withProposals(
     return out.concat(body.slice(at + 1));
 }
 
-/** Whether a body item occupies the ROW space (paged bands, gaps, sub rows and proposals do not; group summaries do). */
+/** Whether a body item occupies the ROW space (paged bands, sub rows and proposals do not; group summaries do). */
 export function isRowSpace(item: SheetBodyItem): boolean {
     return item.kind === "real" || item.kind === "blank" || item.kind === "group";
 }
@@ -1078,9 +1071,6 @@ export const DEFAULT_GUTTER_PX = 80;
 
 /** The band height (px) of a paged source's unloaded run when the ledger has no better geometry. */
 export const BAND_MIN_PX = 22;
-
-/** A lens gap's height (px) on a coarse pointer (#1349): the recipe's band at `_coarse`, a touch's height for its controls. */
-export const COARSE_GAP_PX = 32;
 
 /** The bottom padding below the last blank row (px). */
 export const BOTTOM_PAD_PX = 120;

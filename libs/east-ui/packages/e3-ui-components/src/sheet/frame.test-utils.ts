@@ -15,26 +15,10 @@
  * @packageDocumentation
  */
 
-import { BAND_MIN_PX, COARSE_GAP_PX } from "./model.js";
-
-/**
- * How tall the browser draws a lens gap (#1349), which declares no height of
- * its own: its recipe's band, 22 px — 32 on a coarse pointer — the Sheet's
- * estimate of it, as the responsive suite measures it (`sheet-lens.spec.ts`).
- *
- * @returns The gap's height (px)
- */
-function lensGapPx(): number {
-    const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
-    return coarse ? COARSE_GAP_PX : BAND_MIN_PX;
-}
-
 /**
  * A mounted virtual row measures the height its row declares inline (its
  * `height`, else its `min-height`), as if nothing wrapped — jsdom's 0 would
- * collapse every measured row onto the first — and a lens gap the height the
- * browser draws it at ({@link lensGapPx}): measured at 0, every gap in view
- * would pull the rows below it up as it mounted, which no browser does.
+ * collapse every measured row onto the first.
  *
  * @returns The restore
  */
@@ -43,8 +27,7 @@ export function measureRowsAsDrawn(): () => void {
     Element.prototype.getBoundingClientRect = function (this: Element) {
         if (this instanceof HTMLElement && this.dataset["slot"] === "virtualRow") {
             const row = this.querySelector<HTMLElement>('[style*="height"]');
-            const px = row !== null ? parseFloat(row.style.height || row.style.minHeight) || 0
-                : this.querySelector('[data-band="lens"]') !== null ? lensGapPx() : 0;
+            const px = row !== null ? parseFloat(row.style.height || row.style.minHeight) || 0 : 0;
             return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: px, width: 0, height: px, toJSON: () => ({}) } as DOMRect;
         }
         return saved.call(this);

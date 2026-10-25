@@ -852,13 +852,12 @@ const CALENDAR_LADDER: ReadonlyArray<readonly [string, number]> = [
 /** The Sheet's own order (§6.3), after its rail — the record rail (#1345),
  *  whose shared summary folds first, after every step of the rail and before
  *  the sheet's own (ruled 18 Oct, #1340): the tabs fold into `+n` one by one, then
- *  the count goes, the context label, the strip's `+ TAB` label and
- *  whole-sheet count, its names cap, it closes up and the context switch goes;
- *  then the strip folds into one chip, the open view's tab (#1221, SB20); and
- *  last, where the sheet has a key search, the chip and the search fold into
- *  its popover, one move (#1345). The count and the context switch are the
- *  lens's over the record (#1349): the stress sheet opens on a view that
- *  narrows its rows, so its row holds both. */
+ *  the count goes, the strip's `+ TAB` label and whole-sheet count, its names
+ *  cap and it closes up; then the strip folds into one chip, the open view's
+ *  tab (#1221, SB20); and last, where the sheet has a key search, the chip and
+ *  the search fold into its popover, one move (#1345). The count is the lens's
+ *  over the record (#1349): the stress sheet opens on a view that narrows its
+ *  rows, so its row holds it. */
 function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, number]> {
     const tabs = state.get("tabs");
     // With a key search the strip has one rung more: its chip folding with the search into its popover.
@@ -867,7 +866,7 @@ function sheetLadder(state: ToolbarState): ReadonlyArray<readonly [string, numbe
     return [
         ["record-summary", 1],
         ...Array.from({ length: maxFold }, (_x, k) => ["tabs", k + 1] as const),
-        ["count", 1], ["context", 1], ["tabs", maxFold + 1], ["tabs", maxFold + 2], ["tabs", maxFold + 3], ["context", 2],
+        ["count", 1], ["tabs", maxFold + 1], ["tabs", maxFold + 2], ["tabs", maxFold + 3],
         ["tabs", maxFold + 4],
         ...(searchViews ? [["tabs", maxFold + 5] as const, ["seek", 2] as const] : []),
     ];

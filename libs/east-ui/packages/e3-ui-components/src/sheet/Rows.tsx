@@ -22,7 +22,7 @@
 import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { Box, chakra, Menu as ChakraMenu, Portal, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faAngleDown, faAngleUp, faArrowRight, faCheck, faChevronRight, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faArrowRight, faCheck, faChevronRight, faEllipsisVertical, faGripVertical, faMinus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none } from "@elaraai/east";
 import {
     getSomeorUndefined, useDragEventChip, useDropCell, type CellCoord, type DragHandle, type DragPayload, type DropCellOptions,
@@ -34,7 +34,6 @@ import {
 } from "./model.js";
 import { SheetCellContent, type LinkCellContext } from "./cells/Cell.js";
 import { cellDetail } from "./detail.js";
-import type { LensGap } from "./lens.js";
 import type { PendingFill } from "./sheet-types.js";
 import type { SheetCellValue, SheetNounValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 import type { DraftPresentation } from "./draft-state.js";
@@ -745,18 +744,6 @@ export const SheetProposalRow = memo(function SheetProposalRow(props: SheetPropo
     );
 });
 
-/**
- * What a band row tells the grid (#860): its place among the rows — where its
- * first element would be on a flat sheet — and the column count its one cell
- * spans, the gutter's included.
- */
-export interface SheetBandAria {
-    /** The row's place among the grid's rows, the header first. */
-    ariaRowIndex?: number | undefined;
-    /** The sheet's columns. */
-    colCount: number;
-}
-
 /** A recipe slot's styles, as the shared run merges them over its own. */
 const slot = (styles: Styles, name: string): SystemStyleObject | undefined => styles[name] as SystemStyleObject | undefined;
 
@@ -800,15 +787,17 @@ export interface SheetRunRowProps {
  * (#1349), or a window whose read failed (#853) — as the shared
  * `UnloadedRun`: rows at the density's pitch where the run meets the view,
  * with the sheet's own gutter, columns and rules, each cell its column kind's
- * placeholder. A flat sheet's runs keep their real row numbers — a lens
- * stretch's rows are not known yet, so its numbers are short bars, as a
- * grouped sheet's lines are, under a band of the band's height. A failed
- * window is said once, in its first row in view, with Retry; its other rows
- * keep their numbers and rules and carry nothing else (CL11). Its height is
- * the ledger's slot, so the rows that replace it take the same space. To the
- * grid it is one row at its first element's place, its one cell across the
- * grid (#860), busy while its rows are read; its placeholders are
- * `aria-hidden`, and a failed run's line is the cell instead (CL12).
+ * placeholder. A flat sheet's runs keep their real row numbers. A lens
+ * stretch stands for the narrowing's rows in it — as many placeholders as it
+ * holds matches, at the pitch they land at — whose numbers are not known
+ * until they are read, so its numbers are short bars, as a grouped sheet's
+ * lines are, under a band of the band's height. A failed window is said once,
+ * in its first row in view, with Retry; its other rows keep their numbers and
+ * rules and carry nothing else (CL11). Its height is the ledger's slot, so the
+ * rows that replace it take the same space. To the grid it is one row at its
+ * first element's place, its one cell across the grid (#860), busy while its
+ * rows are read; its placeholders are `aria-hidden`, and a failed run's line
+ * is the cell instead (CL12).
  */
 export const SheetRunRow = memo(function SheetRunRow({
     styles, band, failure, loading, gridTemplate, columns, rowPx, bandPx, dense, noun, onRetry, ariaRowIndex,
@@ -817,7 +806,9 @@ export const SheetRunRow = memo(function SheetRunRow({
     const { m } = words;
     const from = failure?.from ?? band?.from ?? 0;
     const to = failure?.to ?? band?.to ?? -1;
-    const n = Math.max(0, to - from + 1);
+    // The elements it stands for: every one it covers, or under the lens the narrowing's rows among them.
+    const elements = failure !== undefined ? failure.elements : band?.elements;
+    const n = elements ?? Math.max(0, to - from + 1);
     const px = Math.max(BAND_MIN_PX, failure?.px ?? band?.px ?? 0);
     // The gutter, then each column's cells: the column kind's shape on the sheet's own cell rules.
     const cells = useMemo((): RunCell[] => [
@@ -832,7 +823,7 @@ export const SheetRunRow = memo(function SheetRunRow({
     }, [bandPx, n, px, rowPx, styles]);
     // A flat run's rows are the source's positions; a lens stretch's are not known until the lens draws them. Each is
     // numbered as the gutter numbers the row that lands in its place: 24994, never 24,994.
-    const numbered = bandPx === undefined && band?.at !== "reading";
+    const numbered = bandPx === undefined && elements === undefined;
     const rowNumber = useCallback((index: number) => String(index + 1), []);
     const range = { from: words.number(from + 1), to: words.number(to + 1) };
     const w = failure?.w;
@@ -912,64 +903,6 @@ export function SheetRowBoundary({ styles, rowPx, number, resetKey, children }: 
         </EastErrorBoundary>
     );
 }
-
-export interface SheetGapRowProps extends SheetBandAria {
-    styles: Styles;
-    gap: LensGap;
-    /** How far each control reaches on its next press (1 · 3 · 10 · all). */
-    reach: { top: number; bottom: number; both: number };
-    onReveal: (gap: LensGap, where: "top" | "bottom" | "both" | "all") => void;
-}
-
-/**
- * A run of the record's rows the lens hides (B§8, #1349): 22 px, a dashed
- * rule, the `n hidden` pill — hover opens `⌃ +1 · n hidden · +1 ⌄ · all`,
- * each press reaching further from the top, the bottom, or both.
- */
-export const SheetGapRow = memo(function SheetGapRow({ styles, gap, reach, onReveal, ariaRowIndex, colCount }: SheetGapRowProps) {
-    const press = (where: "top" | "bottom" | "both" | "all") => (e: MouseEvent) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        onReveal(gap, where);
-    };
-    const middle = gap.first ? "bottom" : gap.last ? "top" : "both";
-    // The rows either side of it, by their numbers: the run's positions are the record's.
-    const above = gap.from;
-    const below = gap.to + 2;
-    // The gap's words, its counts in the app's locale (#850, #861).
-    const words = useSheetWords();
-    const { m } = words;
-    const top = { n: reach.top, count: words.number(reach.top) };
-    const bottom = { n: reach.bottom, count: words.number(reach.bottom) };
-    return (
-        <Box css={styles.band} data-slot="band" data-band="lens" data-gap={gap.key} data-hidden={gap.hidden} role="row" aria-rowindex={ariaRowIndex}>
-            <Box css={styles.bandRule} aria-hidden="true" />
-            <Box as="span" css={styles.bandPill} data-slot="bandPill" data-lens="" role="gridcell" aria-colindex={1} aria-colspan={colCount + 1}>
-                {!gap.first && (
-                    <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="top" role="button"
-                        aria-label={m.gapAfter({ ...top, row: String(above) })} title={m.gapAfterTitle({ row: String(above) })} onMouseDown={press("top")}>
-                        <FontAwesomeIcon icon={faAngleUp} />
-                        {m.gapMore(top)}
-                    </Box>
-                )}
-                <Box as="span" css={styles.bandCount} data-slot="bandCount" role="button" title={m.gapHiddenTitle()} onMouseDown={press(middle)}>
-                    {m.gapHidden({ n: gap.hidden, count: words.number(gap.hidden) })}
-                </Box>
-                {!gap.last && (
-                    <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="bottom" role="button"
-                        aria-label={m.gapBefore({ ...bottom, row: String(below) })} title={m.gapBeforeTitle({ row: String(below) })} onMouseDown={press("bottom")}>
-                        {m.gapMore(bottom)}
-                        <FontAwesomeIcon icon={faAngleDown} />
-                    </Box>
-                )}
-                <Box as="span" css={styles.bandControl} data-slot="bandControl" data-where="all" role="button" aria-label={m.gapAllName()} title={m.gapAllName()} onMouseDown={press("all")}>
-                    {m.gapAll()}
-                </Box>
-            </Box>
-        </Box>
-    );
-});
 
 // ── Grouped rows (#740) ───────────────────────────────────────────────────
 

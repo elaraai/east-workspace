@@ -30,12 +30,12 @@
  * Its narrowing is one rail over the sheet's `Slice.bindRecords` (#1345):
  * the sheet's rows are its `rows` source's record, every one in the record's
  * order, paged from it, and the source's narrowing is drawn over them as the
- * lens (#1349, `use-lens.ts`): e3 places the narrowing's rows from the
- * source's index, the lens reads the record's segments that hold them near
- * the view, and it draws each match at its row number, the rows either side
- * of it, the runs the planner opened and a band over the rest. A saved view
- * holds every source's narrowing, by the source's name, with the lens's
- * context and the runs the planner opened, by their rows' keys.
+ * lens (#1349, `use-lens.ts`) — a filtered spreadsheet: e3 places the
+ * narrowing's rows from the source's index, the lens reads the record's
+ * segments that hold them near the view, and it draws only the rows the
+ * narrowing keeps, one after another, each at its row number, a band at their
+ * own pitch standing for those not read yet. A saved view holds every
+ * source's narrowing, by the source's name, with a grouped sheet's folds.
  *
  * A source-bound transaction session retains draft gestures and history —
  * the editing session every editable collection shares (`src/editing/`,
@@ -88,11 +88,11 @@ import {
     focusKeySearch, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget, useTrackedEvaluation,
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, recordSliceWithinAt, toSeekQuery, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
-    BAND_MIN_PX, BOTTOM_PAD_PX, COARSE_GAP_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
+    BOTTOM_PAD_PX, DEFAULT_BLANKS, DEFAULT_GUTTER_PX, NEW_LINE_KEY, NULL_CELL, TITLE_KEY,
     blankIdOf, bodyIndexOfId, buildBody, buildLensBody, cellIsBlank, cellText, countNoun, densityOf, drawnPx, driverKeyOf, groupBandPx, indexColumns, indexGroup, indexRegisters, isLooseRow, isRowSpace, itemPx,
     latencyOf, layoutLensRun, layoutRun, lineAddress, lineId, lineRowsOf, parseWidth, resolveMember as resolveRegisterMember, rowIsBlank, segmentOf, stickyRows, withLine, withProposals, withoutLines,
     type LineGroup, type SheetBodyItem, type SheetColumnMeta, type SheetGeometry,
@@ -105,7 +105,7 @@ import { useRecordViewCounts } from "./use-record-view-counts.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek } from "./use-seek.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import { lensCount, nextReach, type LensGap, type LensRun } from "./lens.js";
+import { lensCount } from "./lens.js";
 import { lensBodyItems, type LensGeometry, type LensWords } from "./lens-layout.js";
 import { seekRecord, useRecordLens } from "./use-lens.js";
 import { cellDetail } from "./detail.js";
@@ -120,7 +120,7 @@ import { todayUtc } from "./parse/date.js";
 import { exportMatrix, layoutPaste, parseMatrix } from "./clipboard.js";
 import {
     initialSheetStore, sheetReducer, sheetStoreReducer, selectionRect, wholeRows, provisionalCell, nextTargetOf, fillOrder, isBlankRowId,
-    type EditSource, type LensContext, type SheetEffect, type SheetEvent, type SheetMachineCtx, type Suggestions,
+    type EditSource, type SheetEffect, type SheetEvent, type SheetMachineCtx, type Suggestions,
 } from "./sheet-state.js";
 import type { SheetNotice } from "./sheet-types.js";
 import type { EntryVersion, Origin, Placement, SheetTransactions } from "./transactions.js";
@@ -136,7 +136,7 @@ import { SheetInsertLayer, SheetInsertStrip, type InsertionActions, type InsertS
 import { anchorAt, insertionGesture, insertsLoose, groupInsertionSide, type InsertRequest, type InsertionAnchor } from "./insertion-gesture.js";
 import { membershipAt } from "./membership.js";
 import { SheetHeader } from "./Header.js";
-import { SheetRow, SheetRunRow, SheetGapRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
+import { SheetRow, SheetRunRow, SheetProposalRow, SheetGroupRow, SheetRowBoundary, SheetSubRow, SheetRetry, type SheetRowAction } from "./Rows.js";
 import { NUMBER_PX, gutterFolds, gutterWidths } from "./gutter.js";
 import { SheetCellContent } from "./cells/Cell.js";
 import { SheetTabs, type SheetTabsFold, type SheetTabView } from "./Tabs.js";
@@ -159,13 +159,11 @@ const printRowsWhere = printFor(RecordSliceWhereType);
 
 /**
  * The record's rows a body item stands for under the lens (#1349): a row's
- * own — a line's or a sub row's, its group's — or the run a gap hides, a band
- * reads or a failed read covers; none for a proposal, which no row stands
- * behind yet.
+ * own — a line's or a sub row's, its group's — or the stretch a band reads or
+ * a failed read covers; none for a proposal, which no row stands behind yet.
  */
 function spanOf(it: SheetBodyItem): { from: number; to: number } | undefined {
     switch (it.kind) {
-        case "gap": return { from: it.gap.from, to: it.gap.to };
         case "band": return { from: it.band.from, to: it.band.to };
         case "failed": return { from: it.failure.from, to: it.failure.to };
         case "proposal": return undefined;
@@ -200,8 +198,7 @@ function narrowingOfSource(source: { query?: (() => string) | undefined } | unde
 /** A view's hover title, worded by the existing Sheet message table. */
 function viewTitle(view: SheetSavedView, words: SheetWords): string {
     const q = narrowingQuery(view.narrowing).trim();
-    const ctx = Number(view.context);
-    return words.m.viewTitle({ scope: narrowingScope(view.narrowing), query: q, context: ctx > 0 ? words.number(ctx) : undefined });
+    return words.m.viewTitle({ scope: narrowingScope(view.narrowing), query: q });
 }
 
 /** The decoded rows with the local layer applied — its placements in one linear pass (#859), and a keyed source's rows in key order (#1182). */
@@ -265,13 +262,12 @@ function keyOfItem(it: SheetBodyItem | undefined, i: number): string {
         // A paged run has one band each end; the lens one band for each stretch it reads, by where it starts (#1349).
         case "band": return it.band.at === "reading" ? `band:reading:${it.band.from}` : `band:${it.band.at}`;
         case "failed": return `failed:${it.failure.w}`;
-        case "gap": return `gap:${it.gap.key}`;
         case "proposal": return `proposal:${it.anchorR}#${it.index}`;
     }
     return `#${i}`;
 }
 
-/** The source element a body item belongs to (#857) — a row, or a line's or a sub row's group; `null` where no element stands behind it (a paged band, a gap, a blank). */
+/** The source element a body item belongs to (#857) — a row, or a line's or a sub row's group; `null` where no element stands behind it (a paged band, a blank). */
 function elementOf(it: SheetBodyItem): number | null {
     switch (it.kind) {
         case "real": case "group": case "subRow": return it.position;
@@ -362,9 +358,9 @@ function rowPositionOf(it: SheetBodyItem): number | undefined {
 
 /**
  * A body item's place among the grid's rows (#860), counting the header as
- * the first: on a flat sheet a row's source position (a band, a gap or a
- * failed window where its first element would be; a proposal has no place of
- * its own), so the count and every index describe the whole source; on a
+ * the first: on a flat sheet a row's source position (a band or a failed
+ * window where its first element would be; a proposal has no place of its
+ * own), so the count and every index describe the whole source; on a
  * grouped sheet, the body's order — an unloaded run is one row, the Plan's
  * rule (#819).
  */
@@ -373,7 +369,6 @@ function ariaRowIndexOf(it: SheetBodyItem, i: number, grouped: boolean): number 
     switch (it.kind) {
         case "real": case "blank": return it.position + 2;
         case "band": return it.band.from + 2;
-        case "gap": return it.gap.from + 2;
         case "failed": return it.failure.from + 2;
         default: return undefined;
     }
@@ -721,30 +716,27 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return initialSheetStore({ r, c }, opening, restoredFolds);
     });
     const ui = store.ui;
-    const folds = ui.lens.folds;
+    const folds = ui.folds;
     const foldedOf = useCallback((row: SheetRowValue): boolean => folds.get(row.id) ?? getSomeorUndefined(row.band)?.folded ?? false, [folds]);
     // A line's sub rows fold under its id like a group under its own: `false` open, `true` closed, absent untouched.
     const subRowsOpenOf = useCallback((lineKey: string): boolean | undefined => { const f = folds.get(lineKey); return f === undefined ? undefined : !f; }, [folds]);
     // What the body draws of one source row (#855): the paged driver measures a
     // window by it, so an unloaded band is as tall as its rows will be.
-    // A lens gap is the band's height, a touch's on a coarse pointer, as the recipe draws it (#1349).
-    const gapPx = coarse ? COARSE_GAP_PX : BAND_MIN_PX;
-    const geometry = useMemo<SheetGeometry>(() => ({ rowPx, bandPx, subRowPx, gapPx }), [rowPx, bandPx, subRowPx, gapPx]);
+    const geometry = useMemo<SheetGeometry>(() => ({ rowPx, bandPx, subRowPx }), [rowPx, bandPx, subRowPx]);
     const heightOf = useCallback(
         (row: SheetRowValue) => drawnPx(row, geometry, group !== undefined ? { foldedOf, subRowsOpen: subRowsOpenOf } : undefined, blanks),
         [geometry, group, foldedOf, subRowsOpenOf, blanks],
     );
     // ── The lens (B§8, #1349) — the `rows` source's narrowing over the record ──
     // e3 places the narrowing's rows; the lens reads the segments that hold
-    // them near the view, and lays out each match at its row number, its
-    // context, the runs the planner opened, and bands over the rest. A grouped
-    // sheet's rows are its groups: the records the narrowing holds or not.
-    const lensGeometry = useMemo<LensGeometry>(() => ({ rowPx, entryPx: group !== undefined ? bandPx + rowPx : rowPx }), [rowPx, bandPx, group]);
+    // them near the view, and lays out only the rows the narrowing keeps, each
+    // at its row number, a band at their pitch for those not read yet. A
+    // grouped sheet's rows are its groups: the records the narrowing holds.
+    const lensGeometry = useMemo<LensGeometry>(() => ({ entryPx: group !== undefined ? bandPx + rowPx : rowPx }), [rowPx, bandPx, group]);
     const lensChangedWord = words.m.lensChanged();
     const lensWords = useMemo<LensWords>(() => ({ changed: lensChangedWord }), [lensChangedWord]);
     const lens = useRecordLens({
         source: lensWanted ? pagedSource : undefined, part: rowsPart, where: rowsWhere,
-        context: ui.lens.context, reveals: ui.lens.reveals, placing: ui.lens.named.length > 0,
         geometry: lensGeometry, words: lensWords,
     });
     // What was drawn last — the lens's rows or the pages' — stands in while the other reads its first: a
@@ -837,7 +829,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (sugg === null || sugg.rows.length === 0) return bodyBase;
         return withProposals(bodyBase, anchorBodyIndex(bodyBase, sugg.anchorId), sugg.rows);
     }, [bodyBase, ui.sugg]);
-    // Row space — the body without its bands, gaps and proposals.
+    // Row space — the body without its runs not read or failed, its sub rows and its proposals.
     const rowSpace = useMemo(() => {
         const bodyIndexOf: number[] = [];
         const rowOf: number[] = new Array<number>(body.length).fill(-1);
@@ -1006,10 +998,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const pagedHead = paging.head;
     const pagedTail = paging.tail;
     const jumpToElement = paging.jumpToElement;
-    // A view keeps the runs the planner opened by their rows' keys, as the lens drew them at its revision (#1349).
-    const nameRuns = lens.nameRuns;
-    const lensRevision = lens.revision;
-    const nameReveals = useCallback((runs: readonly LensRun[]) => nameRuns(runs, lensRevision), [nameRuns, lensRevision]);
     const ctx = useMemo<SheetMachineCtx>(() => ({
         rowCount,
         colCount,
@@ -1071,7 +1059,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         },
         viewName: (seq) => words.m.viewName({ seq: String(seq) }),
         views,
-        nameReveals,
         narrowing,
         emptyNarrowing,
         dirty,
@@ -1123,7 +1110,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensDrawn, exhausted, readOnly, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, nameReveals, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, pageRows]);
+    }), [rowCount, colCount, lensDrawn, exhausted, readOnly, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, pageRows]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1147,10 +1134,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         dispatch({ t: "rows.changed", moved });
     }, [rows, rowCount, colCount, sourceRows, rowSpaceSlots, dispatch]);
 
-    // The slice's narrowing changed underneath the lens (a keystroke in the
-    // search, a filter): reveals reset and the ring returns to the top — unless
-    // the sheet wrote that narrowing itself (a tab switch, a revert), which
-    // carries its own lens.
+    // The slice's narrowing changed underneath the sheet (a keystroke in the
+    // search, a filter): the ring returns to the top — unless the sheet wrote
+    // that narrowing itself (a tab switch, a revert), which places the ring
+    // itself.
     const expectedNarrowing = useRef<SheetSavedView["narrowing"] | undefined>(undefined);
     const seenNarrowing = useRef(narrowing);
     useEffect(() => {
@@ -1161,47 +1148,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const expected = expectedNarrowing.current;
         expectedNarrowing.current = undefined;
         if (expected !== undefined && narrowingEqual(expected, narrowing)) return;
-        dispatch({ t: "lens.narrowed" });
+        dispatch({ t: "narrowing.changed" });
     }, [narrowing, dispatch]);
 
-    // The record moved to a new revision under the lens (#1349): rows added or taken away move the runs the
-    // planner opened, so they are named by their rows' keys as the last revision drew them, and found again.
-    const seenRevision = useRef(lensRevision);
-    useEffect(() => {
-        const previous = seenRevision.current;
-        seenRevision.current = lensRevision;
-        if (previous === undefined || lensRevision === undefined || previous === lensRevision) return;
-        const reveals = uiRef.current.lens.reveals;
-        if (reveals.length > 0) dispatch({ t: "lens.named", named: nameRuns(reveals, previous) });
-    }, [lensRevision, nameRuns, dispatch]);
-    // The runs named by key — a view's as it opens, or a new revision's — found where their keys land in the
-    // record's order: each from its first row to its last, or to the row before where its last row was.
-    const named = ui.lens.named;
     // A row's id is its key's `.east` text, but a String key's id is the String itself, which a seek takes quoted.
     const keyIsText = useMemo(() => value.editing.keyType.type !== "some" || fromEastTypeValue(value.editing.keyType.value).type === "String", [value.editing.keyType]);
-    const placeNamed = useCallback((): LensRun[] | undefined => {
-        if (named.length === 0 || rowsPart === undefined) return undefined;
-        const key = (id: string): SeekQuery => toSeekQuery({ key: keyIsText ? printString(id) : id });
-        const runs: LensRun[] = [];
-        let pending = false;
-        for (const run of named) {
-            const first = seekRecord(rowsPart, key(run.from));
-            const last = seekRecord(rowsPart, key(run.to));
-            if (first.type === "none" || last.type === "none") { pending = true; continue; }
-            const from = Number(first.value.row);
-            const to = last.value.found ? Number(last.value.row) + Number(last.value.count) - 1 : Number(last.value.row) - 1;
-            if (to >= from) runs.push({ from, to });
-        }
-        return pending ? undefined : runs;
-    }, [named, rowsPart, keyIsText]);
-    const placed = useTrackedEvaluation(placeNamed).result;
-    useEffect(() => {
-        if (named.length === 0) return;
-        if (placed.ok && placed.value === undefined) return;
-        // A seek that fails places nothing: the runs it could not find are let go, never waited on.
-        if (!placed.ok) console.error("[Sheet] the lens could not find the rows the view opened:", placed.error);
-        dispatch({ t: "lens.placed", named, runs: placed.ok ? placed.value ?? [] : [] });
-    }, [placed, named, dispatch]);
 
     // The initial view opens on mount — with the folds the last session left
     // on it, when it left them there (#857); a host that moves `activeView`
@@ -1218,9 +1169,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // The folds persist with the tab they are on (#857).
     useEffect(() => {
         const p = persistedRef.current;
-        if (sameFolds(p, ui.tabs.active, ui.lens.folds)) return;
-        persist({ ...p, view: ui.tabs.active, folds: [...ui.lens.folds] });
-    }, [ui.lens.folds, ui.tabs.active, persist]);
+        if (sameFolds(p, ui.tabs.active, ui.folds)) return;
+        persist({ ...p, view: ui.tabs.active, folds: [...ui.folds] });
+    }, [ui.folds, ui.tabs.active, persist]);
 
     // ── Writes — the local layer, then the host ───────────────────────────
     const gestureEvents = useRef<SheetEditValue[]>([]);
@@ -1833,7 +1784,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     break;
                 }
                 case "slice.write": {
-                    // The sheet's own write carries its lens: the change detector must not reset it.
+                    // The sheet's own write places the ring itself: the change detector must not move it.
                     // Every source takes its narrowing, as a view saved it (#1345).
                     expectedNarrowing.current = eff.state;
                     if (chrome !== undefined) writeNarrowing(chrome, eff.state);
@@ -2233,15 +2184,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // ── The key search over a keyed paged source (§3.13) ──────────────────
     // Its jumps are its own (#860): cleared — by the viewer, or by a new
     // snapshot — it drops only a jump it asked for, never a key's move. Over a
-    // `rows` source it seeks the record's own order (#1349), and under the lens
-    // its jump opens the row it lands on, which the lens then reads and draws.
+    // `rows` source it seeks the record's own order (#1349); under the lens its
+    // jump reads where its row lands and goes there where the narrowing keeps
+    // it — a row the narrowing hides is marked so in the box, and nothing moves.
     const lensJumpTo = lens.jumpToElement;
     const lensClearJump = lens.clearJump;
-    const jumpTo = useCallback((element: number) => {
-        if (!lensDrawn) { jumpToElement(element); return; }
-        dispatch({ t: "lens.reveal", runs: [{ from: element, to: element }] });
-        lensJumpTo(element);
-    }, [lensDrawn, jumpToElement, lensJumpTo, dispatch]);
+    const jumpTo = lensDrawn ? lensJumpTo : jumpToElement;
     const clearJump = lensDrawn ? lensClearJump : paging.clearJump;
     const searchJump = useCallback((element: number) => { jumpBy.current = "search"; jumpTo(element); }, [jumpTo]);
     const searchClearJump = useCallback(() => { if (jumpBy.current === "search") clearJump(); }, [clearJump]);
@@ -2518,8 +2466,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const onTabRenameCommit = useCallback(() => dispatch({ t: "tab.rename.commit" }), [dispatch]);
     const onTabRenameCancel = useCallback(() => dispatch({ t: "tab.rename.cancel" }), [dispatch]);
     const onTabReorder = useCallback((id: string, to: number) => dispatch({ t: "tab.reorder", id, to }), [dispatch]);
-    const onContext = useCallback((context: LensContext) => dispatch({ t: "lens.context", context }), [dispatch]);
-    const onReveal = useCallback((gap: LensGap, where: "top" | "bottom" | "both" | "all") => dispatch({ t: "band.reveal", key: gap.key, from: gap.from, to: gap.to, where }), [dispatch]);
     const onFold = useCallback((r: number, all?: boolean) => dispatch({ t: "fold.toggle", r, ...(all === true ? { all: true } : {}) }), [dispatch]);
     // A line's chevron: its sub rows show or hide; ⌥ takes the group's every line.
     const onSubRows = useCallback((r: number, all: boolean) => dispatch({ t: "subRows.toggle", r, ...(all ? { all: true } : {}) }), [dispatch]);
@@ -2566,11 +2512,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             ),
         }
         : undefined;
-    // The lens's count line (#1349): the rows — a grouped sheet's groups — the narrowing holds, as e3 counts them,
-    // and the other rows the lens draws: their context, and the runs the planner opened.
+    // The lens's count line (#1349): the rows — a grouped sheet's groups — the narrowing holds, as e3 counts them.
     const lensMatches = lens.matches;
-    const count = !lensWanted || lensLayout === undefined ? ""
-        : lensCount(lensMatches ?? lensLayout.hits, lensLayout.shown - lensLayout.hits, words);
+    const count = !lensWanted || lensLayout === undefined ? "" : lensCount(lensMatches ?? lensLayout.hits, words);
 
     // ── The copilot's surfaces: the anchor's fills, the next target, the proposal rows ──
     const anchorR = useMemo(() => (ui.sugg !== null ? rowOf(ui.sugg.anchorId) : undefined), [ui.sugg, rowOf]);
@@ -2736,7 +2680,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const take = (p: number) => { from = from === undefined || p < from ? p : from; to = to === undefined || p > to ? p : to; };
         for (let i = range.startIndex; i <= range.endIndex; i++) {
             const it = body[i];
-            if (it === undefined || it.kind === "gap" || it.kind === "proposal") continue;
+            if (it === undefined || it.kind === "proposal") continue;
             if (it.kind === "band") {
                 if (i === center?.index) take(elementUnder(it, center.withinPx) ?? it.band.from);
                 else take(it.band.at === "head" ? it.band.to : it.band.from);
@@ -2746,7 +2690,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const shows = from !== undefined && to !== undefined ? { from, to } : undefined;
         let at: SheetViewport;
         if (item.kind === "band") at = item.band.at === "reading" ? { kind: "row", offset: item.band.from, shows } : { kind: "band", at: item.band.at, px: center?.withinPx, shows };
-        else if (item.kind === "gap") at = { kind: "row", offset: item.gap.from, shows };
         else if (item.kind === "failed") at = { kind: "row", offset: item.failure.from, shows };
         else at = { kind: "row", offset: item.position, shows };
         reportViewport(at, isScrolling);
@@ -3160,20 +3103,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 />
             );
         }
-        if (item.kind === "gap") {
-            const g = item.gap;
-            const steps = ui.lens.steps;
-            return (
-                <SheetGapRow
-                    styles={styles}
-                    gap={g}
-                    reach={{ top: nextReach(steps, g.key, "top", g.hidden), bottom: nextReach(steps, g.key, "bottom", g.hidden), both: nextReach(steps, g.key, "both", g.hidden) }}
-                    onReveal={onReveal}
-                    ariaRowIndex={ariaRowIndex}
-                    colCount={colCount}
-                />
-            );
-        }
         if (item.kind === "proposal") {
             return (
                 <SheetProposalRow
@@ -3303,7 +3232,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, ui.lens.steps, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onReveal, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until the inspector pane asks for a
@@ -3585,7 +3514,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const goToIssue = useCallback((issue: EditIssue) => {
         onIssue(issue);
         // On a paged sheet the issue's row may not be in yet: its key is sought, and the row lands where the key
-        // search's would — under the lens, opened (#1349).
+        // search's would — under the lens, where the narrowing keeps it (#1349).
         const resident = body.some((it) => (it.kind === "group" ? stringEqual(it.row.id, issue.entry)
             : it.kind === "real" ? stringEqual(it.group?.row.id ?? it.row.id, issue.entry) : false));
         if (resident || seekSearch === undefined) return;
@@ -3853,8 +3782,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // Loaded rows only, while nothing narrows them: a `rows` source pages the record's own narrowing.
         partial: pagedSource !== undefined && !exhausted && rowsPart === undefined,
         tabs,
-        // The context switch, while the `rows` source's narrowing narrows the rows (#1349).
-        context: lensWanted ? { value: ui.lens.context, onChange: onContext } : undefined,
         search: seek.search,
         // The session's error is the frame's banner (#1184), never a line under the item.
         history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue, showError: false }) : undefined,
@@ -4215,8 +4142,8 @@ export function SheetProvider({ value, storageKey, host = NO_HOST, children }: S
 
 /**
  * Reads the toolbar's items (§7) in the row's order and on its fold ladder:
- * the view tabs, the context switch, the count, the key search, the slice's
- * rail, the scope badge and the history item. The frame lays them out with
+ * the view tabs, the count, the key search, the slice's rail, the scope badge
+ * and the history item. The frame lays them out with
  * the shared `Toolbar`, and puts {@link useSheetToolbarRef}'s ref on the
  * element that holds them.
  *

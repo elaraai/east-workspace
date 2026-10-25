@@ -155,11 +155,11 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *         }));
  *         // Each view keeps every source's narrowing, by name: an activity's value is its `.east` literal, a search its prefix.
  *         const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet_stress_views", [
- *             { id: "spraying", name: "SPRAYING", context: 1n, reveals: [], folds: new Map(),
+ *             { id: "spraying", name: "SPRAYING", folds: new Map(),
  *               narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Spraying\""])]]), preset: none, resolution: none }]]) },
- *             { id: "routers", name: "ROUTERS", context: 0n, reveals: [], folds: new Map(),
+ *             { id: "routers", name: "ROUTERS", folds: new Map(),
  *               narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Routing\""])]]), preset: none, resolution: none }]]) },
- *             { id: "urgent", name: "URGENT", context: 0n, reveals: [], folds: new Map(),
+ *             { id: "urgent", name: "URGENT", folds: new Map(),
  *               narrowing: new Map([["rows", { where: new Map([["notes", variant("prefix", "urgent")]]), preset: none, resolution: none }]]) },
  *         ]));
  *         return (
