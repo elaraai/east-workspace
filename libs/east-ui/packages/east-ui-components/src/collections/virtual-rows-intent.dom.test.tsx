@@ -65,6 +65,20 @@ describe("a scroll's speed (CL6)", () => {
         speed.reset();
         expect(speed.sample(t + 500, y + 1, VIEW_H)).toBe(false);
     });
+
+    test("a view sent far and back inside the span is not slow: its speed is how far it travelled, never where it ended", () => {
+        const speed = new ScrollIntent();
+        expect(speed.sample(0, 0, VIEW_H)).toBe(false);
+        // A jump far down — to a sought row — and a scroll straight back to the top, inside 200 ms.
+        expect(speed.sample(60, 200_000, VIEW_H)).toBe(false);
+        expect(speed.sample(120, 0, VIEW_H)).toBe(false);
+        // A view that only rocks a few px either way travels less than a viewport over the span: slow.
+        speed.reset();
+        speed.sample(0, 500, VIEW_H);
+        let slow = false;
+        for (let t = 16; t <= INTENT_SLOW_MS; t += 16) slow = speed.sample(t, t % 32 === 0 ? 500 : 504, VIEW_H);
+        expect(slow).toBe(true);
+    });
 });
 
 describe("VirtualRows reports the scroll at rest on intent (CL6)", () => {
@@ -122,5 +136,28 @@ describe("VirtualRows reports the scroll at rest on intent (CL6)", () => {
         const rest = heard.slice(dragged).find((h) => !h.isScrolling);
         expect(rest, "a report at rest at the pause").toBeDefined();
         expect(rest!.at - stilled).toBeLessThanOrEqual(INTENT_DWELL_MS);
+    });
+
+    test("a view sent far and straight back is still on its way: it reads nowhere until it holds still, then where it stopped", () => {
+        const { heard, scroller } = frame();
+        /** The view put at `top` in one scroll — a jump — and 40 ms passing. */
+        const jump = (top: number) => {
+            act(() => {
+                scroller.scrollTop = top;
+                fireEvent.scroll(scroller);
+            });
+            act(() => { vi.advanceTimersByTime(40); });
+        };
+        const mounted = heard.length;
+        // A scroll at the top, a jump far down — a sought row — and a scroll straight back, inside 200 ms.
+        jump(0);
+        jump(300_000);
+        jump(0);
+        expect(heard.slice(mounted).every((h) => h.isScrolling), "the view went far and came back: it reads nowhere yet").toBe(true);
+        // Held still, it rests where it stopped: the top.
+        act(() => { vi.advanceTimersByTime(INTENT_DWELL_MS); });
+        const rest = heard.slice(mounted).find((h) => !h.isScrolling);
+        expect(rest, "a report at rest once it has held still").toBeDefined();
+        expect(rest!.center).toBeLessThan(VIEW_H / ROW_H);
     });
 });
