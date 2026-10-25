@@ -300,6 +300,54 @@ describe("what is selected draws last (#1393)", () => {
     });
 });
 
+describe("the dots draw in batches (#1393)", () => {
+    const T = Schematic.Types;
+    /** A rack at a point, `ring` naming a status drawn as an open ring. */
+    const at = (key: string, x: number, y: number, ring: boolean) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y }), label: key,
+        ...(ring ? { status: some({ label: "Held", tone: variant("danger", null), ring: true }) } : {}),
+    }, undefined)!;
+    // A thousand racks a metre apart, 20px at the zoom: none overlap. The even ones red, the odd ones green.
+    const racks = Array.from({ length: 1000 }, (_, i) => at(`R${i}`, i % 40, Math.floor(i / 40), i === 7));
+    const RED: RGB = [200, 0, 0], GREEN: RGB = [0, 200, 0];
+    const tints = new Map(racks.map((rack, i): [string, RGB] => [rack.key, i % 2 === 0 ? RED : GREEN]));
+    const PAPER = "rgb(8,8,8)", INK = "rgb(3,3,3)", RED_CSS = "rgb(200,0,0)", GREEN_CSS = "rgb(0,200,0)";
+
+    it("draws every dot not selected in a fill and a ring a look — its style, its width and its alpha — every ring over every fill, and the selected one last, on its own", () => {
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: { items: racks, zones: [], links: [], nets: [] }, cam: { ppu: 20, tx: 10, ty: 10 }, width: 800, height: 500,
+            visibleItems: racks, tiers: new Map(racks.map((r) => [r.key, "dot" as const])), selected: new Set([racks[500]!.key]), selectedZones: new Set(),
+            centers: new Map(racks.map((r) => [r.key, { x: r.x, y: r.y }])), palette: PALETTE, tints,
+            // R1 drawn as context, in its own colour: faded alone.
+            effect: { excluded: new Set([racks[1]!.key]), excludedOpacity: 0.35, excludedDesaturate: false, matches: new Set(), emphasis: undefined, pulsePhase: 0, frame: undefined },
+        });
+        const dots = drawn.filter((d) => d.arcs.length > 0 && d.arcs.every((r) => r.r === 5));
+        const fills = dots.filter((d) => d.op === "fill"), rings = dots.filter((d) => d.op === "stroke");
+        expect(fills.map((d) => [d.style, d.alpha, d.arcs.length])).toEqual([
+            [RED_CSS, 1, 499], [GREEN_CSS, 0.35, 1], [GREEN_CSS, 1, 498],
+            // R7's status is an open ring: the paper inside it.
+            [PAPER, 1, 1],
+            // R500, selected, after them all.
+            [RED_CSS, 1, 1],
+        ]);
+        expect(rings.map((d) => [d.style, d.width, d.alpha, d.arcs.length])).toEqual([
+            [PAPER, 1.5, 1, 997], [PAPER, 1.5, 0.35, 1], [GREEN_CSS, 2, 1, 1],
+            [PAPER, 1.5, 1, 1],
+        ]);
+        // Every ring of the batches over every fill of them; the selected dot's own, then its ring, after both.
+        expect(drawn.indexOf(rings[0]!)).toBeGreaterThan(drawn.indexOf(fills[3]!));
+        expect(drawn.indexOf(fills[4]!)).toBeGreaterThan(drawn.indexOf(rings[2]!));
+        const selection = drawn.filter((d) => d.op === "stroke" && d.arcs.some((r) => r.r === 7.5));
+        expect(selection.map((d) => [d.style, d.arcs])).toEqual([[INK, [{ x: (500 % 40) * 20 + 10, y: Math.floor(500 / 40) * 20 + 10, r: 7.5 }]]]);
+        expect(drawn.indexOf(selection[0]!)).toBeGreaterThan(drawn.indexOf(rings[3]!));
+        // Each dot of the batches drawn once, at its rack.
+        const centres = [...fills.slice(0, 4), ...rings.slice(0, 3)].flatMap((d) => d.arcs.map((r) => `${r.x},${r.y}`));
+        expect(new Set(centres).size).toBe(999);
+        expect(centres.length).toBe(999 * 2);
+    });
+});
+
 describe("a marker whose status is unread (#1398)", () => {
     const T = Schematic.Types;
     /** Its details, which give its status, read: the card roles they give. */

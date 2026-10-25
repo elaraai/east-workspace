@@ -403,6 +403,49 @@ export const MARKER_DOT_RADIUS = 5;
  * drawn dot (5) and its selected ring (7.5) for touch slop (issue #57, P11). */
 export const MARKER_DOT_HIT_RADIUS = 10;
 
+/**
+ * Dots drawn alike, by their look (#1393): their style, then their line's
+ * width (a fill's is 0), then their alpha, each look's centres in screen px as
+ * `x, y, x, y, …`.
+ */
+type DotBatch = Map<string, Map<number, Map<number, number[]>>>;
+
+/** Adds a dot's centre to the look it draws in. */
+function batchDot(batch: DotBatch, style: string, width: number, alpha: number, x: number, y: number): void {
+    let widths = batch.get(style);
+    if (widths === undefined) batch.set(style, widths = new Map());
+    let alphas = widths.get(width);
+    if (alphas === undefined) widths.set(width, alphas = new Map());
+    const centres = alphas.get(alpha);
+    if (centres === undefined) alphas.set(alpha, [x, y]);
+    else centres.push(x, y);
+}
+
+/**
+ * Fills or strokes each look's dots as one path, every dot a circle of
+ * {@link MARKER_DOT_RADIUS} about its centre: a draw a look, whatever the
+ * number of dots. The caller saves and restores the context about it.
+ */
+function paintDots(ctx: CanvasRenderingContext2D, batch: DotBatch, op: "fill" | "stroke"): void {
+    for (const [style, widths] of batch) {
+        for (const [width, alphas] of widths) {
+            for (const [alpha, centres] of alphas) {
+                ctx.globalAlpha = alpha;
+                if (op === "fill") ctx.fillStyle = style;
+                else { ctx.strokeStyle = style; ctx.lineWidth = width; }
+                ctx.beginPath();
+                for (let i = 0; i < centres.length; i += 2) {
+                    const x = centres[i]!, y = centres[i + 1]!;
+                    ctx.moveTo(x + MARKER_DOT_RADIUS, y);
+                    ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
+                }
+                if (op === "fill") ctx.fill();
+                else ctx.stroke();
+            }
+        }
+    }
+}
+
 /** The widest a labelled pin's words draw, in screen px: the pin at its widest ({@link SCHEMATIC_CARD_MAX_PX}), less its padding, its dot and the gap after it. */
 const MARKER_PIN_TEXT_MAX = SCHEMATIC_CARD_MAX_PX - (PIN_PAD_X + PIN_DOT_W + PIN_GAP + PIN_PAD_X);
 
@@ -1608,18 +1651,53 @@ export function paintSchematic(input: PaintInput): void {
     }
 
     // ---- item LOD markers: dots + labelled pins (cards are DOM) --------------
-    // Save/restore per item so a marker drawn as context fades / desaturates
-    // without leaking alpha or font state into the next marker. What is selected draws last, over its neighbours: the
-    // declutter keeps every other pin clear of every mark, but a selected item takes its form whatever it covers.
-    const marked = selected.size === 0 ? visibleItems
-        : [...visibleItems.filter((item) => !selected.has(item.key)), ...visibleItems.filter((item) => selected.has(item.key))];
-    for (const item of marked) {
+    // The dots draw in batches (#1393): the fills of every dot not selected, one path a look — its style and its alpha —
+    // then their rings so, never a save, a fill and a stroke a dot, as thousands land at the dots' zoom. A dot's ring is
+    // the paper it stands on, so every ring draws over every fill, a neighbour's among them. A pin draws on its own, its
+    // save and restore keeping its fade and its font from the next; and what is selected draws last, over its
+    // neighbours, each on its own: the declutter keeps every other pin clear of every mark, but a selected item takes
+    // its form whatever it covers. The marker a card's drop lands on draws on its own too, its ring about it.
+    // Its tint — its status unread (#1398), the placeholders' fill; drained as context, the muted ink — each colour's
+    // words made once a frame.
+    const surface = css(p.bgSurface), placeholder = css(p.bgSubtle), muted = css(p.fgMuted);
+    const colours = new Map<RGB, string>();
+    const markerTint = (item: DrawnItem, unread: boolean): string => {
+        if (desatOf(item.key)) return muted;
+        if (unread) return placeholder;
+        const own = tints.get(item.key);
+        if (own === undefined) return muted;
+        let words = colours.get(own);
+        if (words === undefined) colours.set(own, words = css(own));
+        return words;
+    };
+    const dotFills: DotBatch = new Map(), dotRings: DotBatch = new Map();
+    const alone: DrawnItem[] = [];
+    for (const item of visibleItems) {
         const tier = tiers.get(item.key) ?? "dot";
         if (tier === "card") continue; // rich card rendered by the React layer
+        if (tier !== "dot" || selected.has(item.key) || dropOn === item.key) { alone.push(item); continue; }
         // Its status unread (#1398): its dot in the placeholders' fill once revealed, unseen before — never a status.
         const unread = statusUnread(item);
-        let tint = unread ? css(p.bgSubtle) : tintOf(item.key, p.fgMuted);
-        if (desatOf(item.key)) tint = css(p.fgMuted);
+        if (unread && !placeholders) continue;
+        const tint = markerTint(item, unread);
+        // A ring status — a tentative one — is an open ring in its tone; any other a filled dot.
+        const ring = statusRing(item.status);
+        const alpha = alphaOf(item.key);
+        const x = wx(item.x), y = wy(item.y);
+        batchDot(dotFills, ring ? surface : tint, 0, alpha, x, y);
+        batchDot(dotRings, ring ? tint : surface, ring ? 2 : 1.5, alpha, x, y);
+    }
+    ctx.save();
+    paintDots(ctx, dotFills, "fill");
+    paintDots(ctx, dotRings, "stroke");
+    ctx.restore();
+    const marked = selected.size === 0 ? alone
+        : [...alone.filter((item) => !selected.has(item.key)), ...alone.filter((item) => selected.has(item.key))];
+    for (const item of marked) {
+        const tier = tiers.get(item.key) ?? "dot";
+        // Its status unread (#1398): its dot in the placeholders' fill once revealed, unseen before — never a status.
+        const unread = statusUnread(item);
+        const tint = markerTint(item, unread);
         const isSel = selected.has(item.key);
         const x = wx(item.x), y = wy(item.y);
 
@@ -1631,10 +1709,10 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.beginPath();
                 ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
                 // A ring status — a tentative one — is an open ring in its tone; any other a filled dot.
-                ctx.fillStyle = ring ? css(p.bgSurface) : tint;
+                ctx.fillStyle = ring ? surface : tint;
                 ctx.fill();
                 ctx.lineWidth = ring ? 2 : 1.5;
-                ctx.strokeStyle = ring ? tint : css(p.bgSurface);
+                ctx.strokeStyle = ring ? tint : surface;
                 ctx.stroke();
             }
             if (isSel) {
@@ -1655,7 +1733,7 @@ export function paintSchematic(input: PaintInput): void {
                 ctx.beginPath();
                 ctx.roundRect?.(left, top, w, h, h / 2);
                 if (!ctx.roundRect) ctx.rect(left, top, w, h);
-                ctx.fillStyle = css(p.bgSurface);
+                ctx.fillStyle = surface;
                 ctx.fill();
                 ctx.lineWidth = 1;
                 ctx.strokeStyle = isSel ? css(p.fg) : css(p.borderStrong);
