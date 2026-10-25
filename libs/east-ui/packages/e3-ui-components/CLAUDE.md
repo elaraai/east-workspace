@@ -307,7 +307,13 @@ bins' (each one's `find.ts`, #1398, CL10). It lists the rows a query finds
 wherever they are — read through the source by their place, never only what is
 drawn — and the Sheet's and the Roster's mark a row the rail's narrowing hides
 `· hidden by the filters`; its count shows and Enter jumps once the query is
-found, the lines following.
+found, the lines following. In the Roster's, the Calendar's and the
+Allocation's rows its box is the first thing the row folds, to its icon,
+before every step of the rail and of the builder's own items, so a row short
+of room keeps the rail's chips and the period's steps live; its icon goes into
+the View with the period's controls at the row's last step
+(`shared/schedule/search-rank.ts`, ruled 25 Oct 2026). Elsewhere it folds
+after the rail, as every host item does.
 
 Calendar preserves overlap `[from, to)`, including carry-in events, whole-window
 spans, overnight/multi-day events and instants at the lower boundary, once by
